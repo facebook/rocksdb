@@ -25,6 +25,8 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/sst_file_writer.h"
+#include "rocksdb/table.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -340,6 +342,85 @@ TEST_F(DBBlobIndexTest, ReadOnlyGetImplReturnsBlobIndexWhenRequested) {
   bool is_blob_index = false;
   ASSERT_EQ(blob_index, GetImpl("blob_key", &is_blob_index));
   ASSERT_TRUE(is_blob_index);
+}
+
+// Regression test for a same-file (embedded) BlobIndex being exposed
+// unresolved through an iterator. With index_type=kBinarySearchWithFirstKey
+// and allow_unprepared_value (the default for DB iterators), the block-based
+// table iterator can sit in the is_at_first_key_from_index_ state and return
+// the raw kTypeBlobIndex internal key from the index, while value() resolves
+// the same-file blob to its plain payload. DBIter then reads the stale
+// kTypeBlobIndex type and routes the already-resolved plain value through the
+// blob-index path, corrupting/misreading it.
+//
+// Forcing one entry per data block makes every embedded blob the first key of
+// a block, reliably triggering the deferred-first-key state on both SeekToFirst
+// and forward block transitions.
+TEST_F(DBBlobIndexTest, EmbeddedBlobIteratorWithFirstKeyIndex) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  BlockBasedTableOptions bbto;
+  bbto.index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  // Soft limit of 1 byte starts a new data block after every entry.
+  bbto.block_size = 1;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Build an embedded-blob SST whose large values are stored as same-file blob
+  // records (table entries become same-file BlobIndex references).
+  const std::string sst_path = dbname_ + "/embedded_first_key.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+  const std::string big3(1024, 'z');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Put("k3", big3));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Point lookups resolve same-file blobs before exposing them, so Get works.
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  ASSERT_EQ(Get("k3"), big3);
+
+  // Iterator path: the bug manifests here.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k3");
+  EXPECT_EQ(iter->value(), big3);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Seek directly to a block whose first key is an embedded blob.
+  iter->Seek("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
 }
 
 class PlainBlobValueFilterV3 : public CompactionFilter {

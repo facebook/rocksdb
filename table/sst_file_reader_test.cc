@@ -9,8 +9,10 @@
 #include <cinttypes>
 
 #include "db/db_test_util.h"
+#include "db/dbformat.h"
 #include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
+#include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -24,6 +26,7 @@
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/sst_file_writer_collectors.h"
+#include "table/table_reader.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -318,6 +321,100 @@ TEST_F(SstFileReaderTest, EmbeddedBlobRoundTrip) {
   EXPECT_EQ(stats.blob_count, 2);
   EXPECT_GT(range.size, stats.payload_bytes);
   EXPECT_GT(stats.payload_bytes, 0);
+}
+
+// Invariant: the internal block-based table iterator must never expose an
+// unresolved same-file kTypeBlobIndex internal key through key(). With
+// index_type=kBinarySearchWithFirstKey and allow_unprepared_value, the iterator
+// can sit in the is_at_first_key_from_index_ state and return the raw first key
+// from the index (type kTypeBlobIndex) while value() resolves the same-file
+// blob to its plain payload. DBIter happens to tolerate this (it re-parses the
+// key after PrepareValue), but other internal-iterator consumers must not see
+// an unresolved same-file blob index. Forcing one entry per data block makes
+// every embedded blob the first key of a block, exercising the deferred path on
+// SeekToFirst, forward block transitions, and Seek.
+TEST_F(SstFileReaderTest, EmbeddedBlobIteratorKeyTypeWithFirstKeyIndex) {
+  BlockBasedTableOptions bbto;
+  bbto.index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  // Soft limit of 1 byte starts a new data block after every entry.
+  bbto.block_size = 1;
+  options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+  const std::string big3(1024, 'z');
+
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_name_, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Put("k3", big3));
+  ASSERT_OK(writer.Finish());
+
+  // Open a BlockBasedTable reader directly so we can request an internal
+  // iterator with allow_unprepared_value=true. The public SstFileReader
+  // iterator uses allow_unprepared_value=false, which never defers.
+  ImmutableOptions ioptions(options_);
+  MutableCFOptions moptions(options_);
+  InternalKeyComparator icomp(options_.comparator);
+
+  uint64_t file_size = 0;
+  ASSERT_OK(env_->GetFileSize(sst_name_, &file_size));
+
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(sst_name_, FileOptions(),
+                                                       &file, nullptr));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file), sst_name_));
+
+  ReadOptions read_opts;
+  read_opts.verify_checksums = true;
+  TableReaderOptions table_reader_options(
+      ioptions, moptions.prefix_extractor, moptions.compression_manager.get(),
+      soptions_, icomp, /*block_protection_bytes_per_key=*/0);
+  std::unique_ptr<TableReader> table_reader;
+  ASSERT_OK(options_.table_factory->NewTableReader(
+      read_opts, table_reader_options, std::move(file_reader), file_size,
+      &table_reader, /*prefetch_index_and_filter_in_cache=*/true));
+
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+      read_opts, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized,
+      /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
+
+  auto check_current = [&](const std::string& user_key,
+                           const std::string& value) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    // key() must already present the resolved value type, never the raw
+    // same-file blob index type.
+    ParsedInternalKey parsed;
+    ASSERT_OK(ParseInternalKey(iter->key(), &parsed, /*log_err_key=*/true));
+    EXPECT_EQ(parsed.user_key, user_key);
+    EXPECT_NE(parsed.type, kTypeBlobIndex);
+    EXPECT_EQ(parsed.type, kTypeValue);
+    ASSERT_TRUE(iter->PrepareValue());
+    EXPECT_EQ(iter->value(), value);
+  };
+
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {"k1", big1}, {"k2", big2}, {"k3", big3}};
+
+  size_t idx = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++idx) {
+    ASSERT_LT(idx, expected.size());
+    check_current(expected[idx].first, expected[idx].second);
+  }
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(idx, expected.size());
+
+  // Seek directly onto a block whose first key is an embedded blob.
+  InternalKey seek_target("k2", kMaxSequenceNumber, kValueTypeForSeek);
+  iter->Seek(seek_target.Encode());
+  check_current("k2", big2);
 }
 
 TEST_F(SstFileReaderTest, EmbeddedBlobRequiresFormatVersion7) {

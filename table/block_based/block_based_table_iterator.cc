@@ -277,7 +277,13 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 
   if (!v.first_internal_key.empty() && !same_block &&
       (!target || icomp_.Compare(*target, v.first_internal_key) <= 0) &&
-      allow_unprepared_value_) {
+      allow_unprepared_value_ &&
+      // Embedded-blob tables resolve a same-file BlobIndex's key type and value
+      // only after the data block is materialized. Deferring to the index's
+      // first key would expose an unresolved kTypeBlobIndex internal key (and
+      // an unresolved value) through this iterator, so disable the
+      // optimization.
+      !resolve_embedded_values_) {
     // Index contains the first key of the block, and it's >= target.
     // We can defer reading the block.
     is_at_first_key_from_index_ = true;
@@ -858,7 +864,11 @@ void BlockBasedTableIterator::FindBlockForward() {
       }
       IndexValue v = index_iter_->value();
 
-      if (!v.first_internal_key.empty() && allow_unprepared_value_) {
+      // See SeekImpl(): embedded-blob tables must materialize the data block so
+      // the same-file BlobIndex key type and value get resolved instead of
+      // exposing the unresolved index first key.
+      if (!v.first_internal_key.empty() && allow_unprepared_value_ &&
+          !resolve_embedded_values_) {
         // Index contains the first key of the block. Defer reading the block.
         is_at_first_key_from_index_ = true;
         return;
