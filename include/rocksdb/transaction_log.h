@@ -86,29 +86,41 @@ struct BatchResult {
   }
 };
 
-// A TransactionLogIterator is used to iterate over the transactions in a db.
+// TransactionLogIterator iterates over WriteBatches in the write-ahead log.
 // One run of the iterator is continuous, i.e. the iterator will stop at the
-// beginning of any gap in sequences
+// beginning of any gap in sequences. It can also be efficiently polled for
+// new WAL records. To use it:
+//
+// 1. Create the iterator.
+// 2. While Valid() == true: call GetBatch(), then call Next() to advance.
+// 3. If Valid() is false: check status(). If status() is OK: the iterator
+//    can be polled for new WAL records by calling Next() then Valid().
+//
+// The iterator will return Valid() false and status() TryAgain in two cases:
+// 1. A new WAL file was added after the iterator was created.
+// 2. The iterator was created when there were no WAL files and Next() was
+//    called.
 class TransactionLogIterator {
  public:
   TransactionLogIterator() {}
   virtual ~TransactionLogIterator() {}
 
   // An iterator is either positioned at a WriteBatch or not valid.
-  // This method returns true if the iterator is valid.
-  // Can read data from a valid iterator.
+  // This method returns true if the iterator is valid. If it is not valid,
+  // call status() to check for errors.
   virtual bool Valid() = 0;
 
-  // Moves the iterator to the next WriteBatch.
-  // REQUIRES: Valid() to be true.
+  // Moves the iterator to the next WriteBatch. If the iterator is at the end,
+  // and status() == OK, this can be used to poll for updates.
   virtual void Next() = 0;
 
   // Returns ok if the iterator is valid.
   // Returns the Error when something has gone wrong.
   virtual Status status() = 0;
 
-  // If valid return's the current write_batch and the sequence number of the
-  // earliest transaction contained in the batch.
+  // If valid: returns the current write_batch and the sequence number of the
+  // earliest transaction contained in the batch. This can only be called once
+  // since it moves the WriteBatch.
   // ONLY use if Valid() is true and status() is OK.
   virtual BatchResult GetBatch() = 0;
 
