@@ -21,7 +21,12 @@ if _HERE not in sys.path:
     sys.path.append(_HERE)
 
 from runner_execute import _get_gdb, execute  # noqa: E402
-from runner_build import build_runs, INJECTION_SITES, Run  # noqa: E402
+from runner_build import (  # noqa: E402
+    build_runs,
+    INJECTION_SITES,
+    REMOTE_COMPACTION_ENTRY_FN,
+    Run,
+)
 from runner_report import report  # noqa: E402
 
 logger: logging.Logger = logging.getLogger("runner")
@@ -60,7 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     # replays with --seed=base_seed, and a single run i with --seed=<base_seed+i> --runs 1.
     logger.info("reproduce with --seed=%d (run i used seed %d+i)", base_seed, base_seed)
     injector_py = os.path.join(_HERE, "injector.py")
-    runs = build_runs(args.op, args.runs, report_dir, base_seed)
+    runs = build_runs(
+        args.op, args.runs, report_dir, base_seed, args.randomize_stress_flags
+    )
     execute_all(runs, injector_py, stress_cmd, parallel_runs)
     report(runs, args.op, report_dir, base_seed)
     return 0
@@ -105,6 +112,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "invocation (logged as base_seed=N); pass that N back via --seed to reproduce "
         "the same runs. Run i uses seed N+i.",
     )
+    parser.add_argument(
+        "--randomize_stress_flags",
+        action="store_true",
+        help="randomize every db_stress flag the runner does not pin, varying it run to "
+        "run to widen coverage; the pinned flags (what makes an injected CPU corruption "
+        "reachable and observable) stay fixed. Off by default.",
+    )
     return parser.parse_args(argv)
 
 
@@ -127,7 +141,13 @@ def verify_injection_site(stress_cmd: str, op: str) -> None:
     # source file:line. Checking entry_fn's source line alone catches a gdb too old to
     # read this build's debug info (which makes the telemetry's source come out "@ ?:0").
     site = INJECTION_SITES[op]
-    functions = list(dict.fromkeys([site.entry_fn, *site.target_fns]))
+    functions = [site.entry_fn, *site.target_fns]
+    # A randomize-mode compaction run may inject into remote compaction, breaking on the
+    # remote job instead of site.entry_fn; verify that symbol resolves too (harmless to
+    # check even for non-randomized runs).
+    if op == "compaction":
+        functions.append(REMOTE_COMPACTION_ENTRY_FN)
+    functions = list(dict.fromkeys(functions))
     gdb_output = _run_gdb_check(stress_cmd, functions, site.entry_fn)
 
     missing = [fn for fn in functions if _function_not_found(gdb_output, fn)]
