@@ -8,9 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <iomanip>
 #include <ios>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_set>
 
@@ -256,6 +258,95 @@ bool NeedsFaultInjection() {
          FLAGS_metadata_read_fault_one_in ||
          FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
          FLAGS_write_fault_one_in || FLAGS_sync_fault_injection;
+}
+
+Slice ExpectedValueSlice(const ExpectedValue& expected_value, char* scratch) {
+  const size_t size =
+      GenerateValue(expected_value.GetValueBase(), scratch, kValueMaxLen);
+  return Slice(scratch, size);
+}
+
+struct DataCorruption {
+  // "lost" | "resurrected" | "wrong-value" | "detected-corruption"
+  const char* kind;
+  Slice value_from_db;
+  Slice value_from_expected;
+  std::string op_status;
+};
+
+std::optional<DataCorruption> ClassifyReadBack(
+    const Status& read_status, const std::string& db_value,
+    const ExpectedValue& expected_value, char* scratch) {
+  if (read_status.IsCorruption()) {
+    return DataCorruption{"detected-corruption", db_value, Slice(),
+                          "Get: " + read_status.ToString()};
+  }
+  // Fault injection is off (enforced at startup), so the read-back can only be
+  // OK or NotFound here. Anything else is outside this tool's contract -- stop
+  // now rather than guess a classification. ImmediateExit (not exit/abort): the
+  // DB is open with live background threads, so a normal exit would race their
+  // static teardown (see port::ImmediateExit).
+  if (!read_status.ok() && !read_status.IsNotFound()) {
+    fprintf(stderr, "verify_cpu_corruption: unexpected read-back status: %s\n",
+            read_status.ToString().c_str());
+    port::ImmediateExit(1);
+  }
+  const bool present_in_db = read_status.ok();
+  // Exists() asserts the key is not mid-write -- which holds under --threads=1:
+  // the just-run op committed before this read-back.
+  const bool expected_to_exist = expected_value.Exists();
+
+  if (!expected_to_exist && !present_in_db) {
+    return std::nullopt;  // Agree: key absent.
+  }
+  if (expected_to_exist && !present_in_db) {
+    return DataCorruption{"lost", Slice(),
+                          ExpectedValueSlice(expected_value, scratch),
+                          "Get: NotFound"};
+  }
+  if (!expected_to_exist && present_in_db) {
+    return DataCorruption{"resurrected", db_value, Slice(), "Get: OK"};
+  }
+  // Present in both: compare the values.
+  const Slice expected = ExpectedValueSlice(expected_value, scratch);
+  if (Slice(db_value) == expected) {
+    return std::nullopt;  // Agree: same value.
+  }
+  return DataCorruption{"wrong-value", db_value, expected, "Get: OK"};
+}
+
+void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
+                         const DataCorruption& corruption) {
+  std::ostringstream oss;
+  oss << "{\n"
+      << "  \"kind\": \"" << corruption.kind << "\",\n"
+      << "  \"cf\": " << cf << ",\n"
+      << "  \"key\": " << key << ",\n"
+      << "  \"value_from_db\": \""
+      << corruption.value_from_db.ToString(/* hex */ true) << "\",\n"
+      << "  \"value_from_expected\": \""
+      << corruption.value_from_expected.ToString(/* hex */ true) << "\",\n"
+      << "  \"op_status\": " << std::quoted(corruption.op_status) << "\n"
+      << "}\n";
+  const std::string path = FLAGS_verify_cpu_corruption_dir +
+                           "/data_corruption." + std::to_string(thread_id) +
+                           ".json";
+  FILE* f = fopen(path.c_str(), "w");
+  if (f == nullptr) {
+    fprintf(stderr, "Failed to open CPU corruption result file: %s\n",
+            path.c_str());
+    port::ImmediateExit(1);
+  }
+  if (fputs(oss.str().c_str(), f) == EOF) {
+    fprintf(stderr, "Failed to write CPU corruption result file: %s\n",
+            path.c_str());
+    port::ImmediateExit(1);
+  }
+  if (fclose(f) != 0) {
+    fprintf(stderr, "Failed to close CPU corruption result file: %s\n",
+            path.c_str());
+    port::ImmediateExit(1);
+  }
 }
 
 }  // namespace
@@ -915,6 +1006,71 @@ void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
   shared->SetVerificationFailure();
 }
 
+void StressTest::MaybeVerifyCpuCorruption(ThreadState* thread,
+                                          const char* op_label,
+                                          const Status& op_status) {
+  if (FLAGS_verify_cpu_corruption_dir.empty()) {
+    return;
+  }
+  auto shared = thread->shared;
+
+  if (shared->HasVerificationFailedYet()) {
+    return;
+  }
+
+  // The op itself returned Corruption: an integrity check caught the
+  // corruption.
+  if (op_status.IsCorruption()) {
+    WriteDataCorruption(thread->tid, /* cf */ -1, /* key */ -1,
+                        {"detected-corruption", Slice(), Slice(),
+                         std::string(op_label) + ": " + op_status.ToString()});
+    VerificationAbort(shared,
+                      std::string(op_label) +
+                          " detected data corruption: " + op_status.ToString());
+    return;
+  }
+
+  // Single writer (the run is pinned to --threads=1): read every key back and
+  // compare it against the committed expected state, ending the run on the
+  // first data corruption found.
+  // TODO: this full-keyspace read-back duplicates the canonical verifier
+  // VerifyDb (no_batched_ops_stress.cc). Refactor that key/value compare into a
+  // shared per-key helper both can call, so this stays in sync with the model.
+  ReadOptions read_opts;
+  read_opts.verify_checksums = true;
+  // A user-timestamp DB needs a read timestamp; supply one like the canonical
+  // verifier (no_batched_ops_stress.cc).
+  std::string read_ts_str;
+  Slice read_ts;
+  if (FLAGS_user_timestamp_size > 0) {
+    read_ts_str = GetNowNanos();
+    read_ts = read_ts_str;
+    read_opts.timestamp = &read_ts;
+  }
+  const int64_t max_key = shared->GetMaxKey();
+  std::string db_value;
+  char expected_scratch[kValueMaxLen];
+  for (int cf = 0; cf < static_cast<int>(column_families_.size()); ++cf) {
+    for (int64_t key = 0; key < max_key; ++key) {
+      const ExpectedValue expected = shared->Get(cf, key);
+      db_value.clear();
+      const Status s =
+          db_->Get(read_opts, column_families_[cf], Key(key), &db_value);
+      const std::optional<DataCorruption> corruption =
+          ClassifyReadBack(s, db_value, expected, expected_scratch);
+      if (corruption.has_value()) {
+        WriteDataCorruption(thread->tid, cf, key, *corruption);
+        VerificationAbort(
+            shared,
+            std::string(corruption->kind) + " (" + corruption->op_status + ")",
+            cf, key, corruption->value_from_db,
+            corruption->value_from_expected);
+        return;
+      }
+    }
+  }
+}
+
 std::string StressTest::DebugString(const Slice& value,
                                     const WideColumns& columns) {
   std::ostringstream oss;
@@ -1566,8 +1722,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
-        Status status = TestFlush(rand_column_families);
-        ProcessStatus(shared, "Flush", status);
+        TestFlush(thread, rand_column_families);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_live_files_apis_one_in)) {
@@ -3552,22 +3707,20 @@ void StressTest::TestCompactFiles(ThreadState* thread,
                                  static_cast<int>(output_level));
       if (!s.ok()) {
         thread->stats.AddNumCompactFilesFailed(1);
-        // TOOD (hx235): allow an exact list of tolerable failures under stress
-        // test
-        bool non_ok_status_allowed =
-            s.IsManualCompactionPaused() || s.IsCompactionAborted() ||
-            IsErrorInjectedAndRetryable(s) || s.IsAborted() ||
-            s.IsInvalidArgument() || s.IsNotSupported();
-        if (!non_ok_status_allowed) {
-          fprintf(stderr,
-                  "Unable to perform CompactFiles(): %s under specified "
-                  "CompactionOptions: %s (Empty string or "
-                  "missing field indicates default option or value is used)\n",
-                  s.ToString().c_str(), compact_opt_oss.str().c_str());
-          thread->shared->SafeTerminate();
-        }
       } else {
         thread->stats.AddNumCompactFilesSucceed(1);
+      }
+      // Verify before the fail-fast: a corruption that CompactFiles itself
+      // returns must be recorded (CORRUPTION) before we terminate, or it
+      // mis-buckets as CRASH. No-op unless CPU-corruption verification is on.
+      MaybeVerifyCpuCorruption(thread, "compactfiles", s);
+      if (!s.ok() && !IsTolerableCompactionFailure(s)) {
+        fprintf(stderr,
+                "Unable to perform CompactFiles(): %s under specified "
+                "CompactionOptions: %s (Empty string or missing field "
+                "indicates default option or value is used)\n",
+                s.ToString().c_str(), compact_opt_oss.str().c_str());
+        thread->shared->SafeTerminate();
       }
       break;
     }
@@ -3598,16 +3751,24 @@ void StressTest::TestPromoteL0(ThreadState* thread,
   }
 }
 
-Status StressTest::TestFlush(const std::vector<int>& rand_column_families) {
+void StressTest::TestFlush(ThreadState* thread,
+                           const std::vector<int>& rand_column_families) {
   FlushOptions flush_opts;
   assert(flush_opts.wait);
+  Status status;
   if (FLAGS_atomic_flush) {
-    return db_->Flush(flush_opts, column_families_);
+    status = db_->Flush(flush_opts, column_families_);
+  } else {
+    std::vector<ColumnFamilyHandle*> cfhs;
+    std::for_each(
+        rand_column_families.begin(), rand_column_families.end(),
+        [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
+    status = db_->Flush(flush_opts, cfhs);
   }
-  std::vector<ColumnFamilyHandle*> cfhs;
-  std::for_each(rand_column_families.begin(), rand_column_families.end(),
-                [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
-  return db_->Flush(flush_opts, cfhs);
+  // Verify before the fail-fast (a no-op unless CPU-corruption verification is
+  // on), then route the status through the standard flush error handling.
+  MaybeVerifyCpuCorruption(thread, "flush", status);
+  ProcessStatus(thread->shared, "Flush", status);
 }
 
 Status StressTest::TestResetStats() { return db_->ResetStats(); }
@@ -3836,21 +3997,18 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                         << cro.blob_garbage_collection_age_cutoff;
   Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
 
-  if (!status.ok()) {
-    // TOOD (hx235): allow an exact list of tolerable failures under stress test
-    bool non_ok_status_allowed =
-        status.IsManualCompactionPaused() || status.IsCompactionAborted() ||
-        IsErrorInjectedAndRetryable(status) || status.IsAborted() ||
-        status.IsInvalidArgument() || status.IsNotSupported();
-    if (!non_ok_status_allowed) {
-      fprintf(stderr,
-              "Unable to perform CompactRange(): %s under specified "
-              "CompactRangeOptions: %s (Empty string or "
-              "missing field indicates default option or value is used)\n",
-              status.ToString().c_str(), compact_range_opt_oss.str().c_str());
-      // Fail fast to preserve the DB state.
-      thread->shared->SetVerificationFailure();
-    }
+  // Verify before the fail-fast: a corruption that CompactRange itself returns
+  // must be recorded (CORRUPTION) before we flag failure, or it mis-buckets.
+  // No-op unless CPU-corruption verification is on.
+  MaybeVerifyCpuCorruption(thread, "compactrange", status);
+  if (!status.ok() && !IsTolerableCompactionFailure(status)) {
+    fprintf(stderr,
+            "Unable to perform CompactRange(): %s under specified "
+            "CompactRangeOptions: %s (Empty string or missing field "
+            "indicates default option or value is used)\n",
+            status.ToString().c_str(), compact_range_opt_oss.str().c_str());
+    // Fail fast to preserve the DB state.
+    thread->shared->SetVerificationFailure();
   }
 
   if (pre_snapshot != nullptr) {
