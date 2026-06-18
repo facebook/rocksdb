@@ -1189,8 +1189,10 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok() && !handler->IsDone()) {
       s = Status::Corruption(
           "Trace ended before replaying all expected write ops",
-          std::to_string(handler->NumWriteOps()) + " < " +
-              std::to_string(seqno - saved_seqno_));
+          "replayed " + std::to_string(handler->NumWriteOps()) + " of " +
+              std::to_string(seqno - saved_seqno_) +
+              " expected ops (saved_seqno=" + std::to_string(saved_seqno_) +
+              " recovered_seqno=" + std::to_string(seqno) + ")");
     }
     if (handler) {
       replayed_write_ops = handler->NumWriteOps();

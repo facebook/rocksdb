@@ -597,7 +597,11 @@ Status Tracer::WriteHeader() {
   trace.ts = clock_->NowMicros();
   trace.type = kTraceBegin;
   trace.payload = header;
-  return WriteTrace(trace);
+  Status st = WriteTrace(trace);
+  if (st.ok()) {
+    trace_writer_->EnableCRCFraming();
+  }
+  return st;
 }
 
 Status Tracer::WriteFooter() {
