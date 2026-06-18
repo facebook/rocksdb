@@ -176,6 +176,45 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
+  if (!FLAGS_verify_cpu_corruption_dir.empty()) {
+    // The full-keyspace read-back is only well-defined with a single writer,
+    // and injected I/O faults would taint it -- so require --threads=1 and all
+    // fault injection off (see the flag's comment).
+    if (FLAGS_threads != 1) {
+      fprintf(stderr,
+              "Error: --verify_cpu_corruption_dir requires --threads=1\n");
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
+    }
+    if (FLAGS_read_fault_one_in != 0 || FLAGS_write_fault_one_in != 0 ||
+        FLAGS_metadata_read_fault_one_in != 0 ||
+        FLAGS_metadata_write_fault_one_in != 0 ||
+        FLAGS_open_read_fault_one_in != 0 ||
+        FLAGS_open_write_fault_one_in != 0 ||
+        FLAGS_open_metadata_read_fault_one_in != 0 ||
+        FLAGS_open_metadata_write_fault_one_in != 0 ||
+        FLAGS_secondary_cache_fault_one_in != 0 || FLAGS_sync_fault_injection) {
+      fprintf(stderr,
+              "Error: --verify_cpu_corruption_dir requires all fault injection "
+              "off (every *_fault_one_in = 0 and sync_fault_injection = "
+              "false)\n");
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
+    }
+    // The read-back compares against the expected-state model, which only the
+    // default (state-tracked) stress test maintains. The
+    // batched/cf-consistency/ multi-ops-txns variants set
+    // IsStateTracked()=false, so every key would look absent -- reject them
+    // rather than report false losses.
+    if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency ||
+        FLAGS_test_multi_ops_txns) {
+      fprintf(stderr,
+              "Error: --verify_cpu_corruption_dir requires the default "
+              "state-tracked stress test; it is incompatible with "
+              "--test_batches_snapshots, --test_cf_consistency, and "
+              "--test_multi_ops_txns\n");
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
+    }
+  }
+
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the
