@@ -214,34 +214,66 @@ class BlockBasedTable : public TableReader {
                              const BlobIndex& blob_index,
                              std::string* value) const;
 
+  // Like ResolveEmbeddedBlob, but reads the payload into a heap buffer owned by
+  // `value` (via a registered cleanup) and pins it, avoiding a copy. Use on the
+  // Get()/MultiGet() path so the resolved value can be pinned into the output.
+  Status ResolveEmbeddedBlobPinned(const ReadOptions& read_options,
+                                   const BlobIndex& blob_index,
+                                   PinnableSlice* value) const;
+
   // If `value` is a same-file BlobIndex, materializes the referenced payload
   // and updates `resolved_internal_key` to the corresponding value type. Leaves
-  // `resolved` false when no embedded resolution is needed.
+  // `resolved` false when no embedded resolution is needed. When `pinned_value`
+  // is non-null, a whole-value same-file blob is pinned into it without a copy
+  // (and `*value_pinned` is set); otherwise the value is built into
+  // `resolved_value`. Wide-column entities are always built into
+  // `resolved_value`.
   Status MaybeResolveEmbeddedValue(const ReadOptions& read_options,
                                    const Slice& internal_key,
                                    const Slice& value,
                                    std::string* resolved_internal_key,
-                                   std::string* resolved_value,
-                                   bool* resolved) const;
+                                   std::string* resolved_value, bool* resolved,
+                                   PinnableSlice* pinned_value = nullptr,
+                                   bool* value_pinned = nullptr) const;
 
-  // Result of resolving a possible embedded value at a Get() entry.
-  // `resolved_key`/`resolved_value` own the materialized buffers, while
-  // `key_to_save`/`value_to_save` point at either the original entry or those
-  // buffers (and so must not outlive this object).
-  struct EmbeddedValueForGet {
-    std::string resolved_key;
-    std::string resolved_value;
-    bool resolved = false;
-    Slice key_to_save;
-    Slice value_to_save;
+  // Reusable scratch for resolving embedded values across a Get()/MultiGet()
+  // loop, so the hot loop performs no per-entry allocation. Construct one per
+  // Get()/MultiGet() call and pass it to ResolveEmbeddedValueForGet().
+  struct EmbeddedValueGetScratch {
+    std::string key_buf;
+    std::string value_buf;
+    PinnableSlice pinned_value;
   };
 
-  // Convenience wrapper around MaybeResolveEmbeddedValue() for the Get() code
-  // paths: resolves an embedded value (if any) at (key, value) and populates
-  // `out` with the key/value Slices to save into GetContext.
+  // Resolves the embedded blob / wide-column value for one Get()/MultiGet()
+  // entry and selects the Cleanable to hand to GetContext::SaveValue.
+  // `block_pinner` is the data block iterator's value pinner (or nullptr). On
+  // return, *key_to_save / *value_to_save are the slices to save and
+  // *value_pinner is the pinner to use: the zero-copy blob payload pinner (in
+  // `scratch`), nullptr for a copied wide-column value, or `block_pinner` when
+  // nothing needed resolving. Only call this when the table actually has
+  // embedded blob records (see Rep::has_embedded_blob_record_range); the common
+  // non-embedded path should skip it entirely.
   Status ResolveEmbeddedValueForGet(const ReadOptions& read_options,
                                     const Slice& key, const Slice& value,
-                                    EmbeddedValueForGet* out) const;
+                                    EmbeddedValueGetScratch* scratch,
+                                    Cleanable* block_pinner, Slice* key_to_save,
+                                    Slice* value_to_save,
+                                    Cleanable** value_pinner) const;
+
+  // Validates a same-file `blob_index` and returns the payload and full record
+  // (payload + trailer) sizes. Shared by the ResolveEmbeddedBlob* variants.
+  Status ValidateEmbeddedBlobIndex(const ReadOptions& read_options,
+                                   const BlobIndex& blob_index,
+                                   size_t* payload_size,
+                                   size_t* record_size) const;
+
+  // Reads a `record_size`-byte embedded blob record into `buf` and verifies its
+  // compression marker and checksum. `buf` must have capacity for record_size.
+  Status ReadAndVerifyEmbeddedBlobRecord(const ReadOptions& read_options,
+                                         const BlobIndex& blob_index, char* buf,
+                                         size_t payload_size,
+                                         size_t record_size) const;
 
   Status MultiGetFilter(const ReadOptions& read_options,
                         const SliceTransform* prefix_extractor,

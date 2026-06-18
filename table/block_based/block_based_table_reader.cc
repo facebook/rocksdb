@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -87,6 +88,12 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
   heap_buf = AllocateBlock(buf.size(), allocator);
   memcpy(heap_buf.get(), buf.data(), buf.size());
   return heap_buf;
+}
+
+// Cleanup function for a Cleanable/PinnableSlice that owns a `new char[]`
+// buffer (used to pin embedded blob payloads without copying).
+void DeleteCharArray(void* arg1, void* /*arg2*/) {
+  delete[] static_cast<char*>(arg1);
 }
 }  // namespace
 
@@ -1322,10 +1329,11 @@ bool BlockBasedTable::HasEmbeddedBlobRecords() const {
   return rep_->has_embedded_blob_record_range;
 }
 
-Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
-                                            const BlobIndex& blob_index,
-                                            std::string* value) const {
-  assert(value != nullptr);
+Status BlockBasedTable::ValidateEmbeddedBlobIndex(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    size_t* payload_size, size_t* record_size) const {
+  assert(payload_size != nullptr);
+  assert(record_size != nullptr);
   if (!blob_index.IsSameFile()) {
     return Status::InvalidArgument("Blob index does not reference this file");
   }
@@ -1354,17 +1362,22 @@ Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
         "Embedded blob index is outside blob record range");
   }
 
-  const size_t payload_size = static_cast<size_t>(payload_size_u64);
-  const size_t record_size = payload_size + kEmbeddedBlobSstRecordTrailerSize;
-  std::string scratch(record_size, '\0');
-  Slice result;
+  *payload_size = static_cast<size_t>(payload_size_u64);
+  *record_size = *payload_size + kEmbeddedBlobSstRecordTrailerSize;
+  return Status::OK();
+}
 
+Status BlockBasedTable::ReadAndVerifyEmbeddedBlobRecord(
+    const ReadOptions& read_options, const BlobIndex& blob_index, char* buf,
+    size_t payload_size, size_t record_size) const {
+  assert(buf != nullptr);
+  Slice result;
   IOOptions opts;
   IODebugContext dbg;
   Status s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
   if (s.ok()) {
-    s = rep_->file->Read(opts, blob_index.offset(), record_size, &result,
-                         scratch.data(), nullptr, &dbg);
+    s = rep_->file->Read(opts, blob_index.offset(), record_size, &result, buf,
+                         nullptr, &dbg);
   }
   if (!s.ok()) {
     return s;
@@ -1372,8 +1385,14 @@ Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
   if (result.size() != record_size) {
     return Status::Corruption("Could not read complete embedded blob record");
   }
+  // With mmap reads the data lands outside `buf`; copy it in so the caller can
+  // rely on `buf` owning the bytes (this is the only copy on the mmap path).
+  // TODO: fix this extra memcpy in the mmap case
+  if (result.data() != buf) {
+    memcpy(buf, result.data(), record_size);
+  }
 
-  const char* record = result.data();
+  const char* record = buf;
   const CompressionType compression =
       static_cast<CompressionType>(record[payload_size]);
   if (compression != blob_index.compression()) {
@@ -1400,24 +1419,76 @@ Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
     return Status::Corruption(
         "Embedded blob record compression is not supported");
   }
-  value->assign(record, payload_size);
+  return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
+                                            const BlobIndex& blob_index,
+                                            std::string* value) const {
+  assert(value != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+  // Read the record (payload + trailer) directly into `value`, then drop the
+  // trailer with a shrink (no extra copy on the common non-mmap path).
+  value->resize(record_size);
+  s = ReadAndVerifyEmbeddedBlobRecord(read_options, blob_index, &(*value)[0],
+                                      payload_size, record_size);
+  if (!s.ok()) {
+    return s;
+  }
+  value->resize(payload_size);
+  return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlobPinned(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    PinnableSlice* value) const {
+  assert(value != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+  // Read into a heap buffer owned by `value` via a registered cleanup, so the
+  // payload can be pinned (no copy) and outlive this reader. The trailer just
+  // sits unused at the tail of the buffer.
+  std::unique_ptr<char[]> buf(new char[record_size]);
+  s = ReadAndVerifyEmbeddedBlobRecord(read_options, blob_index, buf.get(),
+                                      payload_size, record_size);
+  if (!s.ok()) {
+    return s;
+  }
+  char* raw = buf.release();
+  value->PinSlice(Slice(raw, payload_size), &DeleteCharArray, raw, nullptr);
   return Status::OK();
 }
 
 Status BlockBasedTable::MaybeResolveEmbeddedValue(
     const ReadOptions& read_options, const Slice& internal_key,
     const Slice& value, std::string* resolved_internal_key,
-    std::string* resolved_value, bool* resolved) const {
+    std::string* resolved_value, bool* resolved, PinnableSlice* pinned_value,
+    bool* value_pinned) const {
   assert(resolved_internal_key != nullptr);
   assert(resolved_value != nullptr);
   assert(resolved != nullptr);
 
   *resolved = false;
+  if (value_pinned != nullptr) {
+    *value_pinned = false;
+  }
   if (!rep_->has_embedded_blob_record_range) {
     return Status::OK();
   }
 
   ParsedInternalKey parsed_key;
+  // FIXME: de-dup ParseInternalKey() work from callers
   Status s =
       ParseInternalKey(internal_key, &parsed_key, false /* log_err_key */);
   if (!s.ok()) {
@@ -1431,7 +1502,17 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
       return s;
     }
 
-    s = ResolveEmbeddedBlob(read_options, blob_index, resolved_value);
+    // Whole-value same-file blob. When the caller provides a PinnableSlice,
+    // read the payload into an owned buffer and pin it (no copy); otherwise
+    // fall back to materializing into `resolved_value`.
+    if (pinned_value != nullptr) {
+      s = ResolveEmbeddedBlobPinned(read_options, blob_index, pinned_value);
+      if (s.ok() && value_pinned != nullptr) {
+        *value_pinned = true;
+      }
+    } else {
+      s = ResolveEmbeddedBlob(read_options, blob_index, resolved_value);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -1449,6 +1530,8 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
     return Status::OK();
   }
 
+  // FIXME: Reading embedded blob wide columns is very heavyweight with memcpy
+  // and serialization/deserialization
   bool has_blob_columns = false;
   s = WideColumnSerialization::HasBlobColumns(value, has_blob_columns);
   if (!s.ok() || !has_blob_columns) {
@@ -1512,16 +1595,32 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
 
 Status BlockBasedTable::ResolveEmbeddedValueForGet(
     const ReadOptions& read_options, const Slice& key, const Slice& value,
-    EmbeddedValueForGet* out) const {
-  assert(out != nullptr);
-  out->key_to_save = key;
-  out->value_to_save = value;
-  Status s =
-      MaybeResolveEmbeddedValue(read_options, key, value, &out->resolved_key,
-                                &out->resolved_value, &out->resolved);
-  if (s.ok() && out->resolved) {
-    out->key_to_save = Slice(out->resolved_key);
-    out->value_to_save = Slice(out->resolved_value);
+    EmbeddedValueGetScratch* scratch, Cleanable* block_pinner,
+    Slice* key_to_save, Slice* value_to_save, Cleanable** value_pinner) const {
+  assert(scratch != nullptr);
+  *key_to_save = key;
+  *value_to_save = value;
+  // When nothing is resolved, save the original entry pinned by the data block.
+  *value_pinner = block_pinner;
+  bool resolved = false;
+  bool value_pinned = false;
+  // The pinned buffer (if any) from a prior entry has been delegated to that
+  // entry's output; reset before reuse so PinSlice can pin again.
+  scratch->pinned_value.Reset();
+  Status s = MaybeResolveEmbeddedValue(
+      read_options, key, value, &scratch->key_buf, &scratch->value_buf,
+      &resolved, &scratch->pinned_value, &value_pinned);
+  if (s.ok() && resolved) {
+    *key_to_save = Slice(scratch->key_buf);
+    if (value_pinned) {
+      // Whole-value blob: pin the owned buffer into the output (no copy).
+      *value_to_save = Slice(scratch->pinned_value);
+      *value_pinner = &scratch->pinned_value;
+    } else {
+      // Built (wide-column) value lives in reused scratch; it must be copied.
+      *value_to_save = Slice(scratch->value_buf);
+      *value_pinner = nullptr;
+    }
   }
   return s;
 }
@@ -2923,6 +3022,14 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         rep_->internal_comparator.user_comparator()->timestamp_size();
     bool matched = false;  // if such user key matched a key in SST
     bool done = false;
+    // Embedded blob resolution is gated on this table actually having embedded
+    // blob records, so the common (non-embedded) Get path is unchanged. The
+    // scratch (reused across entries) is only constructed for embedded tables
+    // and avoids per-entry allocation.
+    std::optional<EmbeddedValueGetScratch> embedded_scratch;
+    if (rep_->has_embedded_blob_record_range) {
+      embedded_scratch.emplace();
+    }
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
 
@@ -2976,26 +3083,29 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       } else {
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
-          EmbeddedValueForGet ev;
-          s = ResolveEmbeddedValueForGet(read_options, biter.key(),
-                                         biter.value(), &ev);
-          if (!s.ok()) {
-            break;
+          Slice key_to_save = biter.key();
+          Slice value_to_save = biter.value();
+          Cleanable* value_pinner = biter.IsValuePinned() ? &biter : nullptr;
+          if (embedded_scratch) {
+            s = ResolveEmbeddedValueForGet(
+                read_options, biter.key(), biter.value(), &*embedded_scratch,
+                value_pinner, &key_to_save, &value_to_save, &value_pinner);
+            if (!s.ok()) {
+              break;
+            }
           }
 
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
-              ev.key_to_save, &parsed_key, false /* log_err_key */);  // TODO
+              key_to_save, &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
             break;
           }
 
           Status read_status;
-          bool ret = get_context->SaveValue(
-              parsed_key, ev.value_to_save, &matched, &read_status,
-              ev.resolved ? nullptr
-                          : (biter.IsValuePinned() ? &biter : nullptr));
+          bool ret = get_context->SaveValue(parsed_key, value_to_save, &matched,
+                                            &read_status, value_pinner);
           if (!read_status.ok()) {
             s = read_status;
             break;
