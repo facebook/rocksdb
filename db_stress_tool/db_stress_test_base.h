@@ -36,6 +36,14 @@ class StressTest {
            !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
+  static bool IsTolerableCompactionFailure(const Status& s) {
+    // TOOD (hx235): allow an exact list of tolerable failures under stress
+    // test
+    return s.IsManualCompactionPaused() || s.IsCompactionAborted() ||
+           IsErrorInjectedAndRetryable(s) || s.IsAborted() ||
+           s.IsInvalidArgument() || s.IsNotSupported();
+  }
+
   // Returns true if the status is an expected transactional error, including
   // lock conflicts (deadlock or timeout) from MaybeAddKeyToTxnForRYW writing
   // to the same key space without the stress-test-level mutex, and TryAgain
@@ -380,7 +388,8 @@ class StressTest {
 
   void TestCompactFiles(ThreadState* thread, ColumnFamilyHandle* column_family);
 
-  Status TestFlush(const std::vector<int>& rand_column_families);
+  void TestFlush(ThreadState* thread,
+                 const std::vector<int>& rand_column_families);
 
   Status TestResetStats();
 
@@ -432,6 +441,13 @@ class StressTest {
 
   void VerificationAbort(SharedState* shared, int cf, int64_t key,
                          const Slice& value, const WideColumns& columns) const;
+
+  // Under --verify_cpu_corruption_dir (see that flag's comment for behavior and
+  // the result-file contract), verifies the just-run op (named by `op_label`,
+  // e.g. "put"/"flush"/"compactrange") for a returned/read-back corruption or a
+  // silent data corruption. A no-op when the flag is empty.
+  void MaybeVerifyCpuCorruption(ThreadState* thread, const char* op_label,
+                                const Status& op_status);
 
   static std::string DebugString(const Slice& value,
                                  const WideColumns& columns);
