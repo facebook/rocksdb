@@ -56,6 +56,7 @@
 #include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/block_prefix_index.h"
 #include "table/block_based/block_type.h"
+#include "table/block_based/embedded_blob_resolving_iterator.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -2759,25 +2760,45 @@ InternalIterator* BlockBasedTable::NewIterator(
       /*disable_prefix_seek=*/need_upper_bound_check &&
           rep_->index_type == BlockBasedTableOptions::kHashSearch,
       /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context));
+  bool check_filter =
+      !skip_filters &&
+      (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+       read_options.prefix_same_as_start) &&
+      prefix_extractor != nullptr;
+  // Same-file ("embedded") blob references are resolved by a wrapper iterator
+  // so the block-based iterator never exposes an unresolved BlobIndex. The SST
+  // dump tool must keep seeing raw BlobIndex values, so it is excluded.
+  const bool resolve_embedded_values =
+      caller != TableReaderCaller::kSSTDumpTool && HasEmbeddedBlobRecords();
+  // When wrapping, the inner iterator must materialize each data block (it must
+  // not defer to the index's first key), so force allow_unprepared_value off;
+  // the wrapper re-introduces value laziness above it.
+  const bool inner_allow_unprepared_value =
+      allow_unprepared_value && !resolve_embedded_values;
+
   if (arena == nullptr) {
-    return new BlockBasedTableIterator(
+    auto* iter = new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters &&
-            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
-             read_options.prefix_same_as_start) &&
-            prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size, allow_unprepared_value);
+        check_filter, need_upper_bound_check, prefix_extractor, caller,
+        compaction_readahead_size, inner_allow_unprepared_value);
+    if (!resolve_embedded_values) {
+      return iter;
+    }
+    return new EmbeddedBlobResolvingIterator(this, read_options, iter,
+                                             /*arena_mode=*/false);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
-    return new (mem) BlockBasedTableIterator(
+    auto* iter = new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters &&
-            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
-             read_options.prefix_same_as_start) &&
-            prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size, allow_unprepared_value);
+        check_filter, need_upper_bound_check, prefix_extractor, caller,
+        compaction_readahead_size, inner_allow_unprepared_value);
+    if (!resolve_embedded_values) {
+      return iter;
+    }
+    auto* wrap_mem =
+        arena->AllocateAligned(sizeof(EmbeddedBlobResolvingIterator));
+    return new (wrap_mem) EmbeddedBlobResolvingIterator(
+        this, read_options, iter, /*arena_mode=*/true);
   }
 }
 

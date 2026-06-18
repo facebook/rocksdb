@@ -8,150 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
 
-#include "db/blob/blob_index.h"
-#include "db/dbformat.h"
-
 namespace ROCKSDB_NAMESPACE {
-
-void BlockBasedTableIterator::ResetEmbeddedValueState() {
-  assert(resolve_embedded_values_);
-  // Overwriting clears any prior (already-surfaced) error; assignment never
-  // triggers the status-checked assert, so no PermitUncheckedError needed.
-  embedded_value_status_ = Status::OK();
-  embedded_source_key_.clear();
-  embedded_resolved_internal_key_.clear();
-  embedded_resolved_value_.clear();
-  embedded_key_prepared_ = false;
-  embedded_value_prepared_ = false;
-  embedded_key_resolved_ = false;
-  embedded_value_resolved_ = false;
-}
-
-void BlockBasedTableIterator::MaybeResetEmbeddedValueState() {
-  assert(resolve_embedded_values_);
-  if (embedded_key_prepared_ || embedded_value_prepared_ ||
-      embedded_key_resolved_ || embedded_value_resolved_ ||
-      !embedded_value_status_.ok()) {
-    ResetEmbeddedValueState();
-  }
-}
-
-bool BlockBasedTableIterator::ShouldResolveEmbeddedValues() const {
-  return resolve_embedded_values_ && !is_at_first_key_from_index_ &&
-         block_iter_points_to_real_block_ && block_iter_.Valid();
-}
-
-bool BlockBasedTableIterator::EmbeddedStateMatchesCurrentEntry() const {
-  return !embedded_source_key_.empty() &&
-         Slice(embedded_source_key_) == block_iter_.key();
-}
-
-// Cheap, key-only resolution: for a whole-value same-file BlobIndex entry,
-// computes the logical internal key with its value type rewritten from
-// kTypeBlobIndex to kTypeValue. Only touches data already in the data block
-// (the key and the inline serialized BlobIndex) -- it does NOT read the blob
-// region, so callers that only need keys do not fault in payloads. Returns
-// true (no-op) for entries that are not a same-file BlobIndex.
-bool BlockBasedTableIterator::ResolveEmbeddedKeyType() {
-  if (!ShouldResolveEmbeddedValues()) {
-    return true;
-  }
-
-  const Slice current_key = block_iter_.key();
-  if (ExtractValueType(current_key) != kTypeBlobIndex) {
-    return true;
-  }
-
-  if (embedded_key_prepared_ && EmbeddedStateMatchesCurrentEntry()) {
-    return embedded_value_status_.ok();
-  }
-
-  MaybeResetEmbeddedValueState();
-  embedded_source_key_ = current_key.ToString();
-  embedded_key_prepared_ = true;
-
-  ParsedInternalKey parsed_key;
-  // Only data-corruption errors are possible here (no I/O).
-  embedded_value_status_ =
-      ParseInternalKey(current_key, &parsed_key, false /* log_err_key */);
-  if (!embedded_value_status_.ok()) {
-    return false;
-  }
-  if (parsed_key.type != kTypeBlobIndex) {
-    return true;
-  }
-
-  BlobIndex blob_index;
-  // Decodes the inline BlobIndex from the data block; still no blob-region I/O.
-  embedded_value_status_ = blob_index.DecodeFrom(block_iter_.value());
-  if (!embedded_value_status_.ok()) {
-    return false;
-  }
-  if (!blob_index.IsSameFile()) {
-    // Traditional (separate-file) BlobDB index; leave the key type as
-    // kTypeBlobIndex for the higher layers to resolve.
-    return true;
-  }
-
-  InternalKey resolved_key(parsed_key.user_key, parsed_key.sequence,
-                           kTypeValue);
-  const Slice encoded_resolved_key = resolved_key.Encode();
-  embedded_resolved_internal_key_.assign(encoded_resolved_key.data(),
-                                         encoded_resolved_key.size());
-  embedded_key_resolved_ = true;
-  return true;
-}
-
-// Heavyweight value resolution: materializes the logical value for the current
-// entry. For a same-file BlobIndex entry this reads the blob payload from the
-// blob region (may do I/O); for a wide-column entity it rewrites any same-file
-// blob columns inline. For a BlobIndex entry it first calls
-// ResolveEmbeddedKeyType() so key() and value() agree on the resolved key.
-// Returns true (no-op) for plain entries. On failure returns false and sets
-// embedded_value_status_ (corruption or I/O error).
-bool BlockBasedTableIterator::MaterializeEmbeddedValue() {
-  if (!ShouldResolveEmbeddedValues()) {
-    return true;
-  }
-
-  const Slice current_key = block_iter_.key();
-  const ValueType value_type = ExtractValueType(current_key);
-  if (value_type != kTypeBlobIndex && value_type != kTypeWideColumnEntity) {
-    return true;
-  }
-
-  if (value_type == kTypeBlobIndex && !ResolveEmbeddedKeyType()) {
-    return false;
-  }
-  if (embedded_value_prepared_ && EmbeddedStateMatchesCurrentEntry()) {
-    return embedded_value_status_.ok();
-  }
-
-  std::string resolved_key;
-  std::string resolved_value;
-  bool resolved = false;
-  embedded_value_status_ = table_->MaybeResolveEmbeddedValue(
-      read_options_, current_key, block_iter_.value(), &resolved_key,
-      &resolved_value, &resolved);
-  embedded_value_prepared_ = true;
-  if (!embedded_value_status_.ok()) {
-    return false;
-  }
-  if (!resolved) {
-    return true;
-  }
-
-  if (embedded_source_key_.empty()) {
-    embedded_source_key_ = current_key.ToString();
-  }
-  if (!resolved_key.empty()) {
-    embedded_resolved_internal_key_ = std::move(resolved_key);
-    embedded_key_resolved_ = true;
-  }
-  embedded_resolved_value_ = std::move(resolved_value);
-  embedded_value_resolved_ = true;
-  return true;
-}
 
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
 
@@ -160,9 +17,6 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
-  if (resolve_embedded_values_) {
-    MaybeResetEmbeddedValueState();
-  }
   AsyncInitDataBlock(/*is_first_pass=*/false);
 
   if (target) {
@@ -181,9 +35,6 @@ void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
-  if (resolve_embedded_values_) {
-    MaybeResetEmbeddedValueState();
-  }
   // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
   // even when `target == nullptr` that is when `SeekToFirst()` is called
   if (!multi_scan_status_.ok()) {
@@ -295,13 +146,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 
   if (!v.first_internal_key.empty() && !same_block &&
       (!target || icomp_.Compare(*target, v.first_internal_key) <= 0) &&
-      allow_unprepared_value_ &&
-      // Embedded-blob tables resolve a same-file BlobIndex's key type and value
-      // only after the data block is materialized. Deferring to the index's
-      // first key would expose an unresolved kTypeBlobIndex internal key (and
-      // an unresolved value) through this iterator, so disable the
-      // optimization.
-      !resolve_embedded_values_) {
+      allow_unprepared_value_) {
     // Index contains the first key of the block, and it's >= target.
     // We can defer reading the block.
     is_at_first_key_from_index_ = true;
@@ -360,9 +205,6 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
-  if (resolve_embedded_values_) {
-    MaybeResetEmbeddedValueState();
-  }
   ResetMultiScan();
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
@@ -438,9 +280,6 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekToLast() {
-  if (resolve_embedded_values_) {
-    MaybeResetEmbeddedValueState();
-  }
   ResetMultiScan();
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
@@ -471,9 +310,6 @@ void BlockBasedTableIterator::Next() {
     return;
   }
   assert(block_iter_points_to_real_block_);
-  if (resolve_embedded_values_) {
-    MaybeResetEmbeddedValueState();
-  }
   block_iter_.Next();
   FindKeyForward();
   CheckOutOfBound();
@@ -491,9 +327,6 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  if (resolve_embedded_values_) {
-    MaybeResetEmbeddedValueState();
-  }
   if ((readahead_cache_lookup_ && !IsIndexAtCurr()) || multi_scan_read_set_) {
     ResetMultiScan();
     // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
@@ -882,11 +715,7 @@ void BlockBasedTableIterator::FindBlockForward() {
       }
       IndexValue v = index_iter_->value();
 
-      // See SeekImpl(): embedded-blob tables must materialize the data block so
-      // the same-file BlobIndex key type and value get resolved instead of
-      // exposing the unresolved index first key.
-      if (!v.first_internal_key.empty() && allow_unprepared_value_ &&
-          !resolve_embedded_values_) {
+      if (!v.first_internal_key.empty() && allow_unprepared_value_) {
         // Index contains the first key of the block. Defer reading the block.
         is_at_first_key_from_index_ = true;
         return;
