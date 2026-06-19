@@ -161,28 +161,47 @@ error-handling policy should remain explicit in the spec.
 
 ## Files
 
+Source templates (hand-written; NOT user-includable and NOT compiled directly):
+
+- `c_base.h`
+  - hand-written template for `include/rocksdb/c.h`; the generated `.h.inc`
+    fragments are inlined into it to produce the self-contained public header
+- `c_base.cc`
+  - hand-written template for `db/c.cc`; the generated `.cc.inc` fragments are
+    inlined into it to produce the compiled implementation
+
+Generators and inputs:
+
 - `spec.json`
-  - declarative input for the prototype generator
+  - declarative input for the spec-driven generator
 - `generate_c_api.py`
   - emits header/source fragments from the spec
 - `auto_simple_bindings.py`
-  - auto-discovers missing simple public field bindings and generates checked-in
+  - auto-discovers simple public field bindings and generates checked-in
     `.inc` files for them
 - `auto_simple_bindings_blocklist.json`
   - checked-in exceptions for auto-managed fields that are intentionally manual
     or temporarily deferred
-- `validate_generated_equivalence.py`
-  - compares generated wrappers against a reference handwritten revision
-- `equivalence_allowlist.json`
-  - documented exceptions for known historical inconsistencies
-- `generated/c_preview.h.inc`
-  - generated declaration preview
-- `generated/c_preview.cc.inc`
-  - generated implementation preview
-- `../../c_api_gen/c_generated_subset.h.inc`
-  - generated declaration fragment intended for incremental integration
-- `../../c_api_gen/c_generated_subset.cc.inc`
-  - generated implementation fragment intended for incremental integration
+- `abi_type_overrides.json`
+  - per-function C type pins so already-shipped wrappers keep their historical
+    C signature even when the C++ field type maps to a different C type
+- `regen_all.py`
+  - orchestrates both generators and inlines the fragments into `c.h` / `c.cc`
+
+Verification (run by `make check-c-api-gen` and in CI):
+
+- `check_api_completeness.py`
+  - asserts every declared public C function has exactly one definition
+    (dependency-free; guards against link-time breakage of bindings)
+- `check_api_compatibility.py` + `api_compatibility_allowlist.json`
+  - signature-level backward-compatibility gate against a reference revision;
+    the authoritative ABI/API-stability check
+- `verify_generated_up_to_date.py`
+  - regenerates in a temp dir and confirms the checked-in output is current
+- `validate_generated_equivalence.py` + `equivalence_allowlist.json`
+  - best-effort migration aid: compares generated wrapper *bodies* against a
+    PRE-migration hand-written revision. Body comparison is heuristic; for
+    backward-compatibility rely on `check_api_compatibility.py`.
 
 ## Toolchain requirements
 

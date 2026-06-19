@@ -410,8 +410,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--ref",
-        default="HEAD",
-        help="Reference git revision to compare against (default: HEAD)",
+        required=True,
+        help=(
+            "Reference git revision to compare the generated wrappers against. "
+            "This must be a PRE-migration revision that still had the "
+            "hand-written wrappers (e.g. a release tag from before codegen "
+            "landed); comparing against a post-migration revision is a "
+            "tautology because the reference is itself generated. This is a "
+            "best-effort body-equivalence aid; the authoritative, ongoing "
+            "backward-compatibility gate is check_api_compatibility.py."
+        ),
     )
     parser.add_argument(
         "--allowlist",

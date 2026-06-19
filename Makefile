@@ -1142,12 +1142,27 @@ endif
 #   make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
 # This target is part of `make check` and is skipped by SKIP_FORMAT_BUCK_CHECKS.
 CLANG_FORMAT_BINARY ?=
+# Backward-compatibility baseline for the C API (signature-level) check. CI
+# overrides this with the PR's merge target; locally it falls back to main /
+# origin/main and is skipped if neither resolves.
+API_COMPAT_REF ?= main
 check-c-api-gen:
 	# Link-completeness is a property of the checked-in c.h/c.cc and needs no
 	# clang toolchain, so it always runs: every declared public C API function
 	# must have exactly one definition (guards against dropped wrappers that
 	# would break downstream language bindings at link time).
 	$(PYTHON) tools/c_api_gen/check_api_completeness.py
+	# Backward-compatibility: no public C function may be removed or have its
+	# signature changed vs the baseline. Skipped if the baseline ref is not
+	# resolvable locally (CI passes an explicit ref).
+	@ref=""; \
+	if git rev-parse --verify --quiet "$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="$(API_COMPAT_REF)"; \
+	elif git rev-parse --verify --quiet "origin/$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="origin/$(API_COMPAT_REF)"; fi; \
+	if [ -n "$$ref" ]; then \
+	  $(PYTHON) tools/c_api_gen/check_api_compatibility.py --ref "$$ref"; \
+	else \
+	  echo "Skipping C API backward-compatibility check ($(API_COMPAT_REF) not found; set API_COMPAT_REF)"; \
+	fi
 	@cf_arg=""; \
 	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
 	if command -v clang++ >/dev/null 2>&1 || command -v "$(CXX)" >/dev/null 2>&1; then \
