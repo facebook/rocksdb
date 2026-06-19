@@ -481,6 +481,61 @@ Team lead synthesizes the debate into a consensus document:
   conclusion — not a record of the analysis process.
 - The reader should never see the reviewer arguing with itself.
 
+**REQUIRED output structure (so the PR page stays scrollable):**
+
+The final response (and contents of `review-findings.md`) MUST follow this
+exact structure. The summary appears first so reviewers can see HIGH findings
+at a glance; everything else is hidden behind a `<details>` block.
+
+```markdown
+## Summary
+
+<!-- One or two sentences of overall assessment. -->
+
+**High-severity findings (N):**
+- **[file.cc:123]** One-line description of the issue. <!-- repeat per HIGH finding -->
+
+<!-- If there are NO high-severity findings, write exactly: -->
+<!-- _No high-severity findings._ -->
+
+<details>
+<summary>Full review (click to expand)</summary>
+
+### Findings
+
+#### :red_circle: HIGH
+
+##### H1. <Title> — `file.cc:123`
+- **Issue:** ...
+- **Root cause:** ...
+- **Suggested fix:** ...
+
+#### :yellow_circle: MEDIUM
+... (same structure: M1, M2, ...)
+
+#### :green_circle: LOW / NIT
+... (same structure: L1, L2, ...)
+
+### Cross-Component Analysis
+<!-- Execution-context table and assumption stress-test results. -->
+
+### Positive Observations
+<!-- Optional: good patterns, clever optimizations. -->
+
+</details>
+```
+
+Rules for this structure:
+- The top-level `## Summary` and the bullet list of HIGH findings MUST stay
+  outside the `<details>` block — they are always visible.
+- Every detail (per-finding root cause, fix, debate outcomes, cross-component
+  analysis, positive observations) MUST live inside the `<details>` block.
+- Do NOT nest a `<details>` inside another `<details>`.
+- Do NOT add any text after the closing `</details>` — the comment-builder
+  appends its own footer.
+- If the review is partial (recovery path), still produce the summary block
+  first, and put whatever was salvaged inside the `<details>` block.
+
 ## Review Checklist
 
 ### Context Phase (must be completed before agents spawn)

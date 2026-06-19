@@ -136,7 +136,9 @@ class RWMutex {
   ~RWMutex();
 
   void ReadLock();
+  bool TryReadLock();
   void WriteLock();
+  bool TryWriteLock();
   void ReadUnlock();
   void WriteUnlock();
   void AssertHeld() const {}
@@ -227,6 +229,16 @@ void cacheline_aligned_free(void* memblock);
 #endif
 
 void Crash(const std::string& srcfile, int srcline);
+
+// Terminates the process immediately with the given exit code, bypassing the
+// usual shutdown path: no atexit handlers run and no static/global destructors
+// are invoked (POSIX _exit(); same on Windows). This is the safe way to abort
+// from a process that still has background threads running (e.g. RocksDB's
+// compaction/flush threads). A normal exit() would tear down static objects
+// those threads are concurrently accessing, causing cross-thread
+// use-after-free. Use this instead of exit() once a DB has been opened and
+// background threads may be live.
+[[noreturn]] void ImmediateExit(int code);
 
 int GetMaxOpenFiles();
 

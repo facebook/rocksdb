@@ -13,6 +13,7 @@
 #include "rocksdb/utilities/options_type.h"
 #include "table/table_properties_internal.h"
 #include "table/unique_id_impl.h"
+#include "util/compression.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -36,6 +37,40 @@ void AppendProperty(std::string& props, const std::string& key,
                     const TValue& value, const std::string& prop_delim,
                     const std::string& kv_delim) {
   AppendProperty(props, key, std::to_string(value), prop_delim, kv_delim);
+}
+
+std::shared_ptr<CompressionManager> ResolveCompressionManagerForDisplay(
+    Slice compatibility_name,
+    const std::shared_ptr<CompressionManager>& compression_manager) {
+  std::shared_ptr<CompressionManager> mgr_to_use;
+  if (compression_manager) {
+    mgr_to_use = compression_manager->FindCompatibleCompressionManager(
+        compatibility_name);
+  }
+  if (mgr_to_use == nullptr) {
+    ConfigOptions strict;
+    strict.ignore_unknown_options = false;
+    strict.ignore_unsupported_options = false;
+    Status s = CompressionManager::CreateFromString(
+        strict, compatibility_name.ToString(), &mgr_to_use);
+    if (!s.ok()) {
+      mgr_to_use.reset();
+    }
+  }
+  return mgr_to_use;
+}
+
+std::string CompressionTypeDisplayName(
+    CompressionType compression_type,
+    const std::shared_ptr<CompressionManager>& compression_manager) {
+  if (compression_manager) {
+    std::string name =
+        compression_manager->CompressionTypeToString(compression_type);
+    if (!name.empty()) {
+      return name;
+    }
+  }
+  return CompressionTypeToString(compression_type);
 }
 }  // namespace
 
@@ -614,5 +649,81 @@ void TEST_SetRandomTableProperties(TableProperties* props) {
   }
 }
 #endif
+
+std::string ParseCompressionNameForDisplay(
+    const std::string& compression_name) {
+  // The single-argument overload intentionally consults globally registered
+  // CompressionManagers, keyed by the encoded compatibility name, so custom
+  // managers can contribute display names without an explicit manager handle.
+  return ParseCompressionNameForDisplay(compression_name, nullptr);
+}
+
+std::string ParseCompressionNameForDisplay(
+    const std::string& compression_name,
+    std::shared_ptr<CompressionManager> compression_manager) {
+  // Empty = no compression
+  if (compression_name.empty()) {
+    return "NoCompression";
+  }
+
+  // Check for format_version 7 format (contains ';')
+  size_t first_semicolon = compression_name.find(';');
+  if (first_semicolon == std::string::npos) {
+    // Old format - return as-is
+    return compression_name;
+  }
+
+  // New format: "<compatibility_name>;<hex_codes>;"
+  size_t second_semicolon = compression_name.find(';', first_semicolon + 1);
+  if (second_semicolon == std::string::npos) {
+    // Malformed - missing second field
+    return "Unknown";
+  }
+
+  Slice compatibility_name(compression_name.data(), first_semicolon);
+  auto mgr_to_use = ResolveCompressionManagerForDisplay(compatibility_name,
+                                                        compression_manager);
+
+  // Extract hex codes
+  std::string hex_codes = compression_name.substr(
+      first_semicolon + 1, second_semicolon - first_semicolon - 1);
+
+  // Validate hex string length (must be even)
+  if (hex_codes.size() % 2 != 0) {
+    return "Unknown";
+  }
+
+  // Parse each 2-char hex code to CompressionType.
+  // Note: This intentionally mirrors GetDecompressor()'s decoding shape but
+  // differs in error semantics. GetDecompressor() treats kNoCompression
+  // (0x00) and values >= kDisableCompressionOption (0xFF) as corruption. For
+  // display purposes, we silently filter these out and return "NoCompression"
+  // if no valid types remain.
+  std::vector<std::string> types;
+  for (size_t i = 0; i < hex_codes.size(); i += 2) {
+    const char* ptr = hex_codes.data() + i;
+    uint64_t val = 0;
+    if (!ParseBaseChars<16>(&ptr, 2, &val)) {
+      return "Unknown";
+    }
+    auto ct = static_cast<CompressionType>(val);
+    if (ct != kNoCompression && ct != kDisableCompressionOption) {
+      types.push_back(CompressionTypeDisplayName(ct, mgr_to_use));
+    }
+  }
+
+  if (types.empty()) {
+    return "NoCompression";
+  } else if (types.size() == 1) {
+    return types[0];
+  } else {
+    // Multiple types - join with commas
+    std::string result = types[0];
+    for (size_t i = 1; i < types.size(); ++i) {
+      result += "," + types[i];
+    }
+    return result;
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE

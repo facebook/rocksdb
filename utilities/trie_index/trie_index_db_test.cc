@@ -2971,7 +2971,7 @@ TEST_P(TrieIndexDBTest, EmptyDBOperations) {
     ASSERT_OK(iter->status());
   }
 
-  // Create an SST, delete its only key, compact → DB has no live data but
+  // Create an SST, delete its only key, compact -> DB has no live data but
   // the trie code path was exercised during flush.
   ASSERT_OK(db_->Put(WriteOptions(), "temp", "val"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -3019,7 +3019,7 @@ TEST_P(TrieIndexDBTest, SeekEdgeCases) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "ddd");
 
-    // Between keys (eee → fff).
+    // Between keys (eee -> fff).
     iter->Seek("eee");
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().ToString(), "fff");
@@ -3137,7 +3137,7 @@ TEST_P(TrieIndexDBTest, OverlappingL0SSTs) {
     }
   }
 
-  // Compact all L0 → L1, re-verify.
+  // Compact all L0 -> L1, re-verify.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   for (const auto& ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
     SCOPED_TRACE(ro.table_index_factory ? "trie" : "standard");
@@ -3367,7 +3367,7 @@ TEST_P(TrieIndexDBTest, IteratorUpperBound) {
        {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
     SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
 
-    // Upper bound = "dd" → should see aa, bb, cc only.
+    // Upper bound = "dd" -> should see aa, bb, cc only.
     std::string ub_str = "dd";
     Slice ub(ub_str);
     ReadOptions ro = base_ro;
@@ -3380,7 +3380,7 @@ TEST_P(TrieIndexDBTest, IteratorUpperBound) {
     ASSERT_OK(iter->status());
     ASSERT_EQ(keys, (std::vector<std::string>{"aa", "bb", "cc"}));
 
-    // Upper bound = "aa" → should see nothing.
+    // Upper bound = "aa" -> should see nothing.
     std::string ub2_str = "aa";
     Slice ub2(ub2_str);
     ReadOptions ro2 = base_ro;
@@ -3390,7 +3390,7 @@ TEST_P(TrieIndexDBTest, IteratorUpperBound) {
     ASSERT_FALSE(iter2->Valid());
     ASSERT_OK(iter2->status());
 
-    // Upper bound after all data → should see everything.
+    // Upper bound after all data -> should see everything.
     std::string ub3_str = "zz";
     Slice ub3(ub3_str);
     ReadOptions ro3 = base_ro;
@@ -3471,7 +3471,7 @@ TEST_P(TrieIndexDBTest, ManySmallSSTs) {
   options_.disable_auto_compactions = true;
   ASSERT_OK(OpenDB());
 
-  // 50 flushes, 2 keys each → 50 SSTs.
+  // 50 flushes, 2 keys each -> 50 SSTs.
   for (int f = 0; f < 50; f++) {
     char k1[16];
     char k2[16];
@@ -3537,7 +3537,7 @@ TEST_P(TrieIndexDBTest, ReopenWithoutTrieUDI) {
   // behavior where the UDI block is optional and reads fall back to the
   // standard index.
   if (IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Not applicable in primary mode");
+    ROCKSDB_GTEST_BYPASS("Not applicable in primary mode");
     return;
   }
   ASSERT_OK(OpenDB());
@@ -3573,12 +3573,12 @@ TEST_P(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   // index is always fully populated). This test validates the secondary-
   // mode mixed-SST fallback path.
   if (IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Not applicable in primary mode");
+    ROCKSDB_GTEST_BYPASS("Not applicable in primary mode");
     return;
   }
   options_.disable_auto_compactions = true;
 
-  // Phase 1: Write with UDI → SST1 has UDI + standard index.
+  // Phase 1: Write with UDI -> SST1 has UDI + standard index.
   ASSERT_OK(OpenDB());
   ASSERT_OK(db_->Put(WriteOptions(), "key_01", "udi_val1"));
   ASSERT_OK(db_->Put(WriteOptions(), "key_02", "udi_val2"));
@@ -3586,7 +3586,7 @@ TEST_P(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   ASSERT_OK(db_->Close());
   db_.reset();
 
-  // Phase 2: Reopen WITHOUT UDI, write more → SST2 has only standard index.
+  // Phase 2: Reopen WITHOUT UDI, write more -> SST2 has only standard index.
   ASSERT_OK(OpenDBWithoutUDI());
   ASSERT_OK(db_->Put(WriteOptions(), "key_03", "noudi_val3"));
   ASSERT_OK(db_->Put(WriteOptions(), "key_04", "noudi_val4"));
@@ -3595,7 +3595,7 @@ TEST_P(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   db_.reset();
 
   // Phase 3: Reopen WITH UDI again. SST1 uses trie, SST2 falls back to
-  // standard index (UDI block missing → logged warning, graceful fallback).
+  // standard index (UDI block missing -> logged warning, graceful fallback).
   options_.disable_auto_compactions = true;
   ASSERT_OK(OpenDB());
 
@@ -3608,7 +3608,7 @@ TEST_P(TrieIndexDBTest, MixedSSTsWithAndWithoutUDI) {
   ASSERT_NO_FATAL_FAILURE(
       VerifyScanBothIndexes({"key_01", "key_02", "key_03", "key_04"}));
 
-  // Compact: merges UDI + non-UDI SSTs → new SST has UDI.
+  // Compact: merges UDI + non-UDI SSTs -> new SST has UDI.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_NO_FATAL_FAILURE(
       VerifyScanBothIndexes({"key_01", "key_02", "key_03", "key_04"}));
@@ -4236,7 +4236,7 @@ TEST_P(TrieIndexDBTest, PrimaryUDIBackwardCompatibility) {
 
 TEST_P(TrieIndexDBTest, MigrationFullPath) {
   // Tests the complete recommended migration path:
-  // Step 1: No UDI → Step 2: UDI secondary → Step 3: Compact all SSTs →
+  // Step 1: No UDI -> Step 2: UDI secondary -> Step 3: Compact all SSTs ->
   // Step 4: UDI primary
 
   // Step 1: Start without UDI. Write some data.
@@ -4317,7 +4317,7 @@ TEST_P(TrieIndexDBTest, MigrationPrimaryRejectsPreUDISSTs) {
 }
 
 TEST_P(TrieIndexDBTest, RollbackFromPrimaryToSecondary) {
-  // Tests the rollback path: primary → compact with secondary → remove UDI.
+  // Tests the rollback path: primary -> compact with secondary -> remove UDI.
 
   // Start in primary mode. Write data.
   ASSERT_OK(OpenDBPrimary(/*block_size=*/128));
@@ -4412,7 +4412,7 @@ TEST_P(TrieIndexDBTest, PrimaryModeTableProperties) {
   // property is set (informational, does not affect read routing), and
   // reads work without setting ReadOptions::table_index_factory.
   if (!IsPrimaryMode()) {
-    ROCKSDB_GTEST_SKIP("Only applicable in primary mode");
+    ROCKSDB_GTEST_BYPASS("Only applicable in primary mode");
     return;
   }
   ASSERT_OK(OpenDB());
@@ -4617,7 +4617,7 @@ TEST_P(TrieIndexDBTest, GetEntityWithExplicitSnapshotComparison) {
   ASSERT_OK(db_->Put(WriteOptions(), "regular_key", "regular_val_v2"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // Read at snapshot through both indexes — should see v1 data.
+  // Read at snapshot through both indexes -- should see v1 data.
   for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
     SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
     base_ro.snapshot = snap;
@@ -4644,7 +4644,7 @@ TEST_P(TrieIndexDBTest, GetEntityWithExplicitSnapshotComparison) {
                     .IsNotFound());
   }
 
-  // Read without snapshot — should see v2 data.
+  // Read without snapshot -- should see v2 data.
   for (auto base_ro : {StandardIndexReadOptions(), TrieIndexReadOptions()}) {
     SCOPED_TRACE(base_ro.table_index_factory ? "trie" : "standard");
 

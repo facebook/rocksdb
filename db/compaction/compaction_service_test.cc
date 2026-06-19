@@ -127,6 +127,7 @@ class MyTestCompactionService : public CompactionService {
 
   void OnInstallation(const std::string& /*scheduled_job_id*/,
                       CompactionServiceJobStatus status) override {
+    installation_callback_count_.fetch_add(1);
     final_updated_status_ = status;
   }
 
@@ -167,6 +168,8 @@ class MyTestCompactionService : public CompactionService {
     return final_updated_status_.load();
   }
 
+  int GetOnInstallationCount() { return installation_callback_count_.load(); }
+
  protected:
   InstrumentedMutex mutex_;
   const std::string db_path_;
@@ -195,6 +198,7 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
+  std::atomic_int installation_callback_count_{0};
   std::atomic<CompactionServiceJobStatus> final_updated_status_{
       CompactionServiceJobStatus::kUseLocal};
 
@@ -607,6 +611,101 @@ TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(CompactionServiceTest,
+       StandaloneDeleteRangeTombstoneMakesInputCountInaccurate) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  options.compaction_verify_record_count = true;
+  ReopenWithCompactionService(&options);
+
+  std::vector<std::string> files;
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = dbname_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("b", "b1"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+
+    std::string file2 = dbname_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("x", "x1"));
+    ASSERT_OK(sst_file_writer.Put("y", "y1"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("b"), "b1");
+  ASSERT_EQ(Get("x"), "x1");
+  ASSERT_EQ(Get("y"), "y1");
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  auto my_cs = GetCompactionService();
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  size_t num_files_after_filtered = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        num_files_after_filtered = *static_cast<size_t*>(arg);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  {
+    // The standalone range tombstone can fully cover the old versioned files,
+    // so universal compaction may filter those files before iteration.
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = dbname_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+
+    std::string file3 = dbname_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("a", "a2"));
+    ASSERT_OK(sst_file_writer.Put("b", "b2"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+
+    std::string file4 = dbname_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("x", "x2"));
+    ASSERT_OK(sst_file_writer.Put("y", "y2"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_OK(db_->WaitForCompact(WaitForCompactOptions()));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+  ASSERT_FALSE(result.stats.has_accurate_num_input_records);
+  ASSERT_EQ(1, num_files_after_filtered);
+
+  ASSERT_EQ(Get("a"), "a2");
+  ASSERT_EQ(Get("b"), "b2");
+  ASSERT_EQ(Get("x"), "x2");
+  ASSERT_EQ(Get("y"), "y2");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, CompactionOutputFileIOError) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -933,6 +1032,37 @@ TEST_F(CompactionServiceTest, VerifyInputRecordCount) {
       "processed.";
   ASSERT_TRUE(std::strstr(s.getState(), expected_message));
 
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(CompactionServiceTest, InaccurateInputRecordCount) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        CompactionServiceResult* compaction_result =
+            *(static_cast<CompactionServiceResult**>(arg));
+        ASSERT_TRUE(compaction_result != nullptr);
+        compaction_result->stats.has_accurate_num_input_records = false;
+        compaction_result->stats.num_input_records = 0;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1281,6 +1411,10 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
 
 TEST_F(CompactionServiceTest, CustomFileChecksum) {
   Options options = CurrentOptions();
+  // Pin compression so the auto-compacted LSM shape (and thus whether the
+  // manual CompactRange below schedules a remote compaction) doesn't depend on
+  // the default compression type. kNoCompression is always available.
+  options.compression = kNoCompression;
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   ReopenWithCompactionService(&options);
   GenerateTestData();
@@ -1448,7 +1582,7 @@ TEST_F(CompactionServiceTest, FailedToStart) {
   ASSERT_TRUE(s.IsIncomplete());
 }
 
-TEST_F(CompactionServiceTest, InvalidResult) {
+TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   ReopenWithCompactionService(&options);
@@ -1456,15 +1590,22 @@ TEST_F(CompactionServiceTest, InvalidResult) {
   GenerateTestData();
 
   auto my_cs = GetCompactionService();
+  ASSERT_EQ(0, my_cs->GetOnInstallationCount());
   my_cs->OverrideWaitResult("Invalid Str");
+  int compaction_num_before = my_cs->GetCompactionNum();
 
   std::string start_str = Key(15);
   std::string end_str = Key(45);
   Slice start(start_str);
   Slice end(end_str);
+  // The remote result is malformed before any installation starts, so the
+  // primary should recover by rerunning the compaction locally for this job.
   Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
-  ASSERT_FALSE(s.ok());
-  ASSERT_EQ(CompactionServiceJobStatus::kFailure,
+  ASSERT_OK(s);
+  ASSERT_GE(my_cs->GetCompactionNum(), compaction_num_before + 1);
+  VerifyTestData();
+  ASSERT_EQ(1, my_cs->GetOnInstallationCount());
+  ASSERT_EQ(CompactionServiceJobStatus::kUseLocal,
             my_cs->GetFinalCompactionServiceJobStatus());
 }
 

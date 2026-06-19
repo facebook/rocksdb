@@ -347,6 +347,9 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_backup_engine_info_app_metadata(
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_info_destroy(
     const rocksdb_backup_engine_info_t* info);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_stop_backup(
+    rocksdb_backup_engine_t* be);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_close(
     rocksdb_backup_engine_t* be);
 
@@ -371,6 +374,12 @@ rocksdb_backup_engine_options_create(const char* backup_dir);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_set_env(
     rocksdb_backup_engine_options_t* options, rocksdb_env_t* env);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_destroy(
     rocksdb_backup_engine_options_t*);
@@ -1300,6 +1309,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_set_options(rocksdb_t* db, int count,
                                                     const char* const keys[],
                                                     const char* const values[],
                                                     char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_set_db_options(
+    rocksdb_t* db, int count, const char* const keys[],
+    const char* const values[], char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_options_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, int count,

@@ -323,7 +323,10 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // Say `db->GetLatestSequenceNumber()` was `a` last time `SaveAtAndAfter()`
   // was called and now it is `b`. Then this function replays `b - a` write
   // operations from "`a`.trace" onto "`a`.state", and then copies the resulting
-  // file into "LATEST.state".
+  // file into "LATEST.state". This relies on "`a`.trace" being an ordered
+  // superset of writes that could survive recovery: missing trace entries are
+  // fatal because replay length comes from DB sequence space, while extra tail
+  // entries are tolerated.
   Status Restore(DB* db) override;
 
  private:

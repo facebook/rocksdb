@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+#  Copyright (c) Meta Platforms, Inc. and affiliates.
+#  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
+#  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
 """
 Run clang-tidy on locally changed code and filter results to changed lines.
 
@@ -205,7 +208,7 @@ def collect_changed_lines(repo_root, diff_base_arg=None):
         )
         merge_into(all_changed, parse_diff_for_changed_lines(diff_staged))
 
-        # Untracked files — treat every line as changed
+        # Untracked files -- treat every line as changed
         untracked_out, _ = run_cmd(
             ["git", "ls-files", "--others", "--exclude-standard"], cwd=repo_root
         )
@@ -510,7 +513,7 @@ def main():
     jobs = args.jobs or os.cpu_count() or 4
 
     # ------------------------------------------------------------------
-    # Step 1 — detect changes
+    # Step 1 -- detect changes
     # ------------------------------------------------------------------
     log("=" * 70)
     log("Step 1: Detecting changes")
@@ -529,7 +532,7 @@ def main():
         log(f"    {f}  ({len(changed_lines[f])} lines)")
 
     # ------------------------------------------------------------------
-    # Step 2 — select compilable files present in compile_commands.json
+    # Step 2 -- select compilable files present in compile_commands.json
     # ------------------------------------------------------------------
     db_files = load_compile_db(compile_db_path, repo_root)
     cc_changed = sorted(
@@ -549,7 +552,7 @@ def main():
     log("=" * 70)
 
     # ------------------------------------------------------------------
-    # Step 3 — run clang-tidy in parallel via ThreadPoolExecutor
+    # Step 3 -- run clang-tidy in parallel via ThreadPoolExecutor
     # ------------------------------------------------------------------
     all_raw_output = []
     all_filtered = []
@@ -603,7 +606,7 @@ def main():
         log(f"\nFull clang-tidy output saved to {args.output}")
 
     # ------------------------------------------------------------------
-    # Step 4 — report filtered results
+    # Step 4 -- report filtered results
     # ------------------------------------------------------------------
     log(f"\n{'=' * 70}")
     log(f"Step 3: Results  (wall time {wall_time:.1f}s)")

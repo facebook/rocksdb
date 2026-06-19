@@ -58,6 +58,7 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
+#include "util/hash_containers.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -172,6 +173,7 @@ CompactionJob::CompactionJob(
       fs_(db_options.fs, io_tracer),
       file_options_for_read_(
           fs_->OptimizeForCompactionTableRead(file_options, db_options_)),
+      file_options_for_compaction_input_read_(file_options_for_read_),
       versions_(versions),
       shutting_down_(shutting_down),
       manual_compaction_canceled_(manual_compaction_canceled),
@@ -201,6 +203,11 @@ CompactionJob::CompactionJob(
   assert(log_buffer_ != nullptr);
   assert(job_context);
   assert(job_context->snapshot_context_initialized);
+
+  if (db_options_.use_direct_io_for_compaction_reads &&
+      !db_options_.use_direct_reads) {
+    file_options_for_compaction_input_read_.use_direct_reads = true;
+  }
 
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetEnableTracking(db_options_.enable_thread_tracking);
@@ -898,6 +905,10 @@ Status CompactionJob::VerifyOutputFiles() {
   }
 
   auto verify_table = [&](SubcompactionState& subcompaction_state) {
+    // Collect file open metadata during verification when fast_sst_open
+    // is enabled, keyed by file number.
+    UnorderedMap<uint64_t, std::string> file_open_metadata_map;
+
     for (const auto& output_file : subcompaction_state.GetOutputs()) {
       // Verify that the table is usable
       // We set for_compaction to false and don't
@@ -915,6 +926,10 @@ Status CompactionJob::VerifyOutputFiles() {
       TableReader* table_reader_ptr = table_reader_guard.get();
       verification_read_options.rate_limiter_priority =
           GetRateLimiterPriority();
+      std::string file_open_metadata;
+      std::string* file_open_metadata_ptr =
+          mutable_db_options_copy_.fast_sst_open ? &file_open_metadata
+                                                 : nullptr;
       InternalIterator* iter = cfd->table_cache()->NewIterator(
           verification_read_options, file_options_, cfd->internal_comparator(),
           output_file.meta,
@@ -927,7 +942,10 @@ Status CompactionJob::VerifyOutputFiles() {
           MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
+          /*allow_unprepared_value=*/false,
+          /*range_del_read_seqno=*/nullptr,
+          /*range_del_iter=*/nullptr,
+          /*maybe_pin_table_handle=*/false, file_open_metadata_ptr);
       auto s = iter->status();
       if (s.ok()) {
         // Check for remote/local compaction and verify_output_flags flags
@@ -1002,6 +1020,27 @@ Status CompactionJob::VerifyOutputFiles() {
         subcompaction_state.status = s;
         break;
       }
+
+      if (!file_open_metadata.empty()) {
+        file_open_metadata_map[output_file.meta.fd.GetNumber()] =
+            std::move(file_open_metadata);
+      }
+    }
+
+    // Apply collected file open metadata to mutable outputs
+    if (!file_open_metadata_map.empty()) {
+      auto apply_metadata =
+          [&file_open_metadata_map](
+              std::vector<CompactionOutputs::Output>& outputs) {
+            for (auto& output : outputs) {
+              auto it = file_open_metadata_map.find(output.meta.fd.GetNumber());
+              if (it != file_open_metadata_map.end()) {
+                output.meta.file_open_metadata = std::move(it->second);
+              }
+            }
+          };
+      apply_metadata(subcompaction_state.GetMutableCompactionOutputs());
+      apply_metadata(subcompaction_state.GetMutableProximalOutputs());
     }
   };
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
@@ -1503,10 +1542,20 @@ InternalIterator* CompactionJob::CreateInputIterator(
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
+  const bool open_ephemeral_table_reader =
+      db_options_.use_direct_io_for_compaction_reads &&
+      !db_options_.use_direct_reads;
+  FileOptions& input_file_options =
+      open_ephemeral_table_reader ? file_options_for_compaction_input_read_
+                                  : file_options_for_read_;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::CreateInputIterator:InputFileOptions",
+      &input_file_options);
   iterators.raw_input =
       std::unique_ptr<InternalIterator>(versions_->MakeInputIterator(
           read_options, sub_compact->compaction, sub_compact->RangeDelAgg(),
-          file_options_for_read_, boundaries.start, boundaries.end));
+          input_file_options, boundaries.start, boundaries.end,
+          open_ephemeral_table_reader));
   InternalIterator* input = iterators.raw_input.get();
 
   if (boundaries.start.has_value() || boundaries.end.has_value()) {
@@ -2032,10 +2081,18 @@ Status CompactionJob::FinishCompactionOutputFile(
     std::pair<SequenceNumber, SequenceNumber> keep_seqno_range{
         0, kMaxSequenceNumber};
     if (sub_compact->compaction->SupportsPerKeyPlacement()) {
+      // Point entries are routed to proximal output only when their seqno is
+      // strictly greater than `proximal_after_seqno_`. Range tombstones use a
+      // [lower, upper) filter, so split them at the next seqno to preserve the
+      // same boundary.
+      SequenceNumber range_del_split_seqno = proximal_after_seqno_;
+      if (range_del_split_seqno < kMaxSequenceNumber) {
+        range_del_split_seqno++;
+      }
       if (outputs.IsProximalLevel()) {
-        keep_seqno_range.first = proximal_after_seqno_;
+        keep_seqno_range.first = range_del_split_seqno;
       } else {
-        keep_seqno_range.second = proximal_after_seqno_;
+        keep_seqno_range.second = range_del_split_seqno;
       }
     }
     CompactionIterationStats range_del_out_stats;
@@ -2429,6 +2486,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   auto temperature =
       sub_compact->compaction->GetOutputTemperature(outputs.IsProximalLevel());
   fo_copy.temperature = temperature;
+  fo_copy.open_contract = FileOpenContract::kNoReopenForWrite |
+                          FileOpenContract::kNoReadersWhileOpenForWrite;
   fo_copy.write_hint = write_hint_;
 
   Status s;

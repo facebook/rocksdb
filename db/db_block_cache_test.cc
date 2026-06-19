@@ -542,7 +542,7 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringCompaction) {
   EXPECT_TRUE(tracking_cache->HasPriority(Cache::Priority::BOTTOM));
   EXPECT_FALSE(tracking_cache->HasPriority(Cache::Priority::LOW));
 
-  // Compaction output is in cache — reads should have zero misses.
+  // Compaction output is in cache -- reads should have zero misses.
   auto data_miss_before =
       options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
   ASSERT_EQ(value + "2", Get("key"));
@@ -1482,10 +1482,13 @@ TEST_P(DBBlockCacheTypeTest, AddRedundantStats) {
   // Access just data, forcing redundant load+insert
   ReadOptions read_options;
   std::unique_ptr<Iterator> iter{db_->NewIterator(read_options)};
+  ASSERT_OK(iter->Refresh());
+
   cache->SetNthLookupNotFound(1);
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), "bar");
+  ASSERT_EQ(iter->value(), "value");
 
   EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
   EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));

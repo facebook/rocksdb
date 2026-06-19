@@ -6,7 +6,9 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <cinttypes>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "db_stress_tool/db_stress_compaction_service.h"
@@ -19,12 +21,11 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/unique_id.h"
+#include "util/atomic.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
 DECLARE_int32(compact_files_one_in);
-
-extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -55,27 +56,22 @@ class DbStressListener : public EventListener {
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
                    const std::vector<ColumnFamilyDescriptor>& column_families,
-                   SharedState* shared)
-      : db_name_(db_name),
-        db_paths_(db_paths),
-        column_families_(column_families),
-        num_pending_file_creations_(0),
-        unique_ids_(FLAGS_expected_values_dir.empty()
-                        ? db_name
-                        : FLAGS_expected_values_dir),
-        shared_(shared) {}
+                   SharedState* shared);
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }
 
   ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
+
+  void OnDBShutdownBegin(DB* /*db*/) override { shutting_down_.Store(true); }
+
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
     // pretending doing some work here
     RandomSleep();
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
     }
     shared_->SetPersistedSeqno(info.largest_seqno);
   }
@@ -83,46 +79,118 @@ class DbStressListener : public EventListener {
   void OnFlushBegin(DB* /*db*/,
                     const FlushJobInfo& /*flush_job_info*/) override {
     RandomSleep();
-    if (fault_fs_guard) {
-      fault_fs_guard->SetThreadLocalErrorContext(
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kRead, static_cast<uint32_t>(FLAGS_seed),
           FLAGS_read_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kRead);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kWrite, static_cast<uint32_t>(FLAGS_seed),
           FLAGS_write_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kWrite);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kMetadataRead,
           static_cast<uint32_t>(FLAGS_seed), FLAGS_metadata_read_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kMetadataWrite,
           static_cast<uint32_t>(FLAGS_seed), FLAGS_metadata_write_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
     }
   }
 
-  void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) override {
+  void OnTableFileDeleted(const TableFileDeletionInfo& info) override {
+    // A file must not be deleted while it is still between
+    // OnCompactionBegin and OnCompactionPreCommit (i.e. actively being
+    // compacted with being_compacted == true). (Perhaps more realistically,
+    // this is checking for failure to call OnCompactionPreCommit.)
+    //
+    // During shutdown, compaction notifications are skipped so tracking
+    // state may be stale -- skip the check.
+    if (!shutting_down_.Load()) {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      uint64_t file_number = FileNumberFromPath(info.file_path);
+      if (file_number != 0 &&
+          compacting_files_.find(file_number) != compacting_files_.end()) {
+        fprintf(stderr,
+                "OnTableFileDeleted for file tracked as being compacted "
+                "(between Begin and PreCommit): file_number=%" PRIu64 "\n",
+                file_number);
+        fflush(stderr);
+        std::abort();
+      }
+    }
     RandomSleep();
   }
 
-  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) override {
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    // Sanity check inspired by a Meta-internal check: the same input file must
+    // not be in two concurrent compactions. Inserting input file numbers into a
+    // shared set on Begin and removing them on PreCommit (rather than on
+    // Completed) is what exercises the new OnCompactionPreCommit
+    // callback. Removing on Completed would race with another picker that
+    // grabs the same file as soon as ReleaseCompactionFiles flips
+    // FileMetaData::being_compacted back to false; PreCommit runs
+    // while being_compacted is still true and so closes that race.
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      for (const auto& info : ci.input_file_infos) {
+        auto [_, inserted] = compacting_files_.insert(info.file_number);
+        if (!inserted) {
+          fprintf(stderr,
+                  "Concurrent compaction of SST file detected: cf=%s "
+                  "file_number=%" PRIu64 "\n",
+                  ci.cf_name.c_str(), info.file_number);
+          fflush(stderr);
+          std::abort();
+        }
+      }
+    }
+    RandomSleep();
+  }
+
+  void OnCompactionPreCommit(DB* /*db*/, const CompactionJobInfo& ci) override {
+    // Pair with OnCompactionBegin's bookkeeping: move files from
+    // compacting_files_ and record the job for Completed verification.
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      std::unordered_set<uint64_t> job_files;
+      for (const auto& info : ci.input_file_infos) {
+        size_t erased = compacting_files_.erase(info.file_number);
+        if (erased != 1) {
+          fprintf(stderr,
+                  "OnCompactionPreCommit for file not in tracking set: "
+                  "cf=%s file_number=%" PRIu64 "\n",
+                  ci.cf_name.c_str(), info.file_number);
+          fflush(stderr);
+          std::abort();
+        }
+        job_files.insert(info.file_number);
+      }
+      auto [_, inserted] =
+          precommitted_jobs_.emplace(ci.job_id, std::move(job_files));
+      if (!inserted) {
+        fprintf(stderr, "OnCompactionPreCommit: duplicate job_id %d\n",
+                ci.job_id);
+        fflush(stderr);
+        std::abort();
+      }
+    }
     RandomSleep();
   }
 
@@ -135,49 +203,77 @@ class DbStressListener : public EventListener {
     for (const auto& file_path : ci.output_files) {
       VerifyFilePath(file_path);
     }
+
+    // Verify that OnCompactionPreCommit fired before OnCompactionCompleted
+    // for the same job, with matching input files.
+    {
+      std::lock_guard<std::mutex> lock(compacting_files_mu_);
+      auto it = precommitted_jobs_.find(ci.job_id);
+      if (it == precommitted_jobs_.end()) {
+        fprintf(stderr,
+                "OnCompactionCompleted without prior OnCompactionPreCommit: "
+                "cf=%s job_id=%d\n",
+                ci.cf_name.c_str(), ci.job_id);
+        fflush(stderr);
+        std::abort();
+      }
+      // Verify input file sets match between PreCommit and Completed.
+      for (const auto& info : ci.input_file_infos) {
+        if (it->second.find(info.file_number) == it->second.end()) {
+          fprintf(stderr,
+                  "OnCompactionCompleted: input file %" PRIu64
+                  " not in PreCommit set for job_id=%d\n",
+                  info.file_number, ci.job_id);
+          fflush(stderr);
+          std::abort();
+        }
+      }
+      precommitted_jobs_.erase(it);
+    }
+
     // pretending doing some work here
     RandomSleep();
   }
 
   void OnSubcompactionBegin(const SubcompactionJobInfo& /* si */) override {
-    if (fault_fs_guard) {
-      fault_fs_guard->SetThreadLocalErrorContext(
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kRead, static_cast<uint32_t>(FLAGS_seed),
           FLAGS_read_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kRead);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kWrite, static_cast<uint32_t>(FLAGS_seed),
           FLAGS_write_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kWrite);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kMetadataRead,
           static_cast<uint32_t>(FLAGS_seed), FLAGS_metadata_read_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataRead);
 
-      fault_fs_guard->SetThreadLocalErrorContext(
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
           FaultInjectionIOType::kMetadataWrite,
           static_cast<uint32_t>(FLAGS_seed), FLAGS_metadata_write_fault_one_in,
           FLAGS_inject_error_severity == 1 /* retryable */,
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-      fault_fs_guard->EnableThreadLocalErrorInjection(
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
     }
   }
 
   void OnSubcompactionCompleted(const SubcompactionJobInfo& /* si */) override {
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
     }
   }
 
@@ -270,11 +366,12 @@ class DbStressListener : public EventListener {
                             Status /* bg_error */,
                             bool* /* auto_recovery */) override {
     RandomSleep();
-    if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
-      fault_fs_guard->DisableAllThreadLocalErrorInjection();
+    if (FLAGS_error_recovery_with_no_fault_injection &&
+        db_fault_injection_fs_) {
+      db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
       // TODO(hx235): only exempt the flush thread during error recovery instead
       // of all the flush threads from error injection
-      fault_fs_guard->SetIOActivitiesExcludedFromFaultInjection(
+      db_fault_injection_fs_->SetIOActivitiesExcludedFromFaultInjection(
           {Env::IOActivity::kFlush});
     }
   }
@@ -282,9 +379,10 @@ class DbStressListener : public EventListener {
   void OnErrorRecoveryEnd(
       const BackgroundErrorRecoveryInfo& /*info*/) override {
     RandomSleep();
-    if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
-      fault_fs_guard->EnableAllThreadLocalErrorInjection();
-      fault_fs_guard->SetIOActivitiesExcludedFromFaultInjection({});
+    if (FLAGS_error_recovery_with_no_fault_injection &&
+        db_fault_injection_fs_) {
+      db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
+      db_fault_injection_fs_->SetIOActivitiesExcludedFromFaultInjection({});
     }
   }
 
@@ -375,8 +473,43 @@ class DbStressListener : public EventListener {
   std::atomic<int> num_pending_file_creations_;
   UniqueIdVerifier unique_ids_;
   SharedState* shared_;
+  std::shared_ptr<FaultInjectionTestFS> db_fault_injection_fs_;
   mutable std::mutex bg_pressure_mu_;
   BackgroundJobPressure last_bg_pressure_;
+  // Files (by file_number) currently in flight from OnCompactionBegin to
+  // OnCompactionPreCommit. Used to detect concurrent compaction of
+  // the same SST file -- the bug fixed by the OnCompactionPreCommit
+  // callback. Protected by compacting_files_mu_.
+  std::mutex compacting_files_mu_;
+  std::unordered_set<uint64_t> compacting_files_;
+  // Set when DBImpl begins shutdown to suppress false positives from stale
+  // tracking when compaction callbacks are skipped during shutdown.
+  Atomic<bool> shutting_down_{false};
+  // Jobs that have passed OnCompactionPreCommit but not yet
+  // OnCompactionCompleted. Maps job_id -> input file numbers.
+  // Used to verify Begin -> PreCommit -> Completed ordering per job.
+  // Protected by compacting_files_mu_.
+  std::unordered_map<int, std::unordered_set<uint64_t>> precommitted_jobs_;
+
+  // Extract file number from a file path like "/path/to/000123.sst".
+  // Returns 0 if the path cannot be parsed.
+  static uint64_t FileNumberFromPath(const std::string& file_path) {
+    size_t pos = file_path.find_last_of('/');
+    // Avoid copying file_path when no '/' separator is found
+    std::string file_name_buf;
+    if (pos != std::string::npos) {
+      file_name_buf = file_path.substr(pos + 1);
+    }
+    const std::string& file_name =
+        (pos == std::string::npos) ? file_path : file_name_buf;
+    uint64_t file_number = 0;
+    FileType file_type;
+    if (ParseFileName(file_name, &file_number, &file_type) &&
+        file_type == kTableFile) {
+      return file_number;
+    }
+    return 0;
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

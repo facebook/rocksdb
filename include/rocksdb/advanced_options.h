@@ -946,7 +946,7 @@ struct AdvancedColumnFamilyOptions {
   // (estimated_reads / file_size) exceeds this threshold. This helps reduce
   // read amplification for hot keys by compacting frequently-read files.
   //
-  // Only "collapsible" reads are counted — lookups that return NotFound
+  // Only "collapsible" reads are counted -- lookups that return NotFound
   // (bloom filter false positive), Delete/SingleDeletion (tombstone), or
   // Merge (partial result). These are reads where the file contributed no
   // final value and compaction would eliminate the wasted work.
@@ -972,15 +972,15 @@ struct AdvancedColumnFamilyOptions {
   //     r * S * B = 2 * (1 + F) * S
   //     r = 2 * (1 + F) / B
   //
-  //   With F = 10, B = 4096:  r = 22 / 4096 ≈ 0.005.
+  //   With F = 10, B = 4096:  r = 22 / 4096 ~= 0.005.
   //
-  // With a block-cache hit rate h (0 ≤ h < 1), each collapsible read
+  // With a block-cache hit rate h (0 <= h < 1), each collapsible read
   // only costs (1 - h) * B bytes of actual disk IO, so:
   //     r = 2 * (1 + F) / ((1 - h) * B)
   //
-  //   h = 0   → r ≈ 0.005
-  //   h = 0.5 → r ≈ 0.01
-  //   h = 0.9 → r ≈ 0.05
+  //   h = 0   -> r ~= 0.005
+  //   h = 0.5 -> r ~= 0.01
+  //   h = 0.9 -> r ~= 0.05
   //
   // A recommended starting point is 0.01, which avoids triggering
   // compactions that cost more IO than they save for most cache-friendly
@@ -1364,7 +1364,7 @@ struct AdvancedColumnFamilyOptions {
   // operation.
   // This option depends on memtable_protection_bytes_per_key to be non zero.
   // If memtable_protection_bytes_per_key is zero, no validation is performed.
-  bool memtable_veirfy_per_key_checksum_on_seek = false;
+  bool memtable_verify_per_key_checksum_on_seek = false;
 
   // When an iterator scans this number of invisible entries (tombstones or
   // hidden puts) from the active memtable during a single iterator operation,
@@ -1410,6 +1410,31 @@ struct AdvancedColumnFamilyOptions {
   // the current mutable memtable (only if memtable is not empty). This is a
   // logically redundant entry that does not change any data, but optimizes
   // future iterators by potentially skipping a large number of tombstone scans.
+  //
+  // This optimization is best-effort and is currently disabled for iterator
+  // configurations that may not expose all interior live keys, including:
+  // * user-defined timestamp reads without full visibility (for example,
+  //   ReadOptions::iter_start_ts or a non-max ReadOptions::timestamp)
+  // * prefix extractor reads that are neither total-order
+  //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
+  //   bounded by ReadOptions::prefix_same_as_start
+  //
+  // Even if the above restrictions are met, there are still scenarios where a
+  // converted range tombstone may be discarded:
+  //   * The snapshot's active mutable memtable has already become immutable.
+  //   * The iterator's snapshot seq is below the active memtable's earliest
+  //     sequence number.
+  //   * A range tombstone covering [first_tombstone_key, next_live_key) is
+  //     already present in the memtable.
+  //   * A WritePrepared/WriteUnprepared transaction read callback is in use
+  //     and the snapshot seq is at or above its min uncommitted seq.
+  //   * An IngestExternalFile call is currently in flight on this column
+  //     family OR the inserted range tombstone seqno would be lower than the
+  //     ingested file seqno.
+  //
+  // Read-write iterators using ReadOptions::table_filter are rejected while
+  // this option is enabled, see more details in ReadOptions::table_filter
+  // comments.
   //
   // Set to 0 to disable.
   //

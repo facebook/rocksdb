@@ -145,6 +145,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   WriteExternalSstFilesCommand::Help(ret);
   IngestExternalSstFilesCommand::Help(ret);
   UnsafeRemoveSstFileCommand::Help(ret);
+  RemoteCompactionPrimaryCommand::Help(ret);
+  RemoteCompactionWorkerCommand::Help(ret);
 
   fprintf(to_stderr ? stderr : stdout, "%s\n", ret.c_str());
 }

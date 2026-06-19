@@ -34,6 +34,21 @@ class MemTableList;
 
 struct FlushJobInfo;
 
+// Returns true when at least one bounded scan range overlaps the user-key
+// range. Unbounded scan options conservatively overlap.
+bool MultiScanOverlapsUserKeyRange(const MultiScanArgs* scan_opts,
+                                   const Comparator* user_comparator,
+                                   const Slice& smallest_user_key,
+                                   const Slice& largest_user_key);
+
+// Returns true when the memtable may contain keys or range deletions relevant
+// to the scan ranges. Iterator/status errors conservatively overlap.
+bool MultiScanIntersectsMemTable(
+    ReadOnlyMemTable* memtable, const ReadOptions& read_options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+    const SliceTransform* prefix_extractor, const MultiScanArgs* scan_opts,
+    const Comparator* user_comparator);
+
 // keeps a list of immutable memtables (ReadOnlyMemtable*) in a vector.
 // The list is immutable if refcount is bigger than one. It is used as
 // a state for Get() and iterator code paths.
@@ -61,29 +76,33 @@ class MemTableListVersion {
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr);
+           bool* is_blob_index = nullptr,
+           const BlobFetcher* blob_fetcher = nullptr);
 
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr) {
+           bool* is_blob_index = nullptr,
+           const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, callback,
-               is_blob_index);
+               is_blob_index, blob_fetcher);
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback);
+                ReadCallback* callback,
+                const BlobFetcher* blob_fetcher = nullptr);
 
   // Returns all the merge operands corresponding to the key by searching all
   // memtables starting from the most recent one.
   bool GetMergeOperands(const LookupKey& key, Status* s,
                         MergeContext* merge_context,
                         SequenceNumber* max_covering_tombstone_seq,
-                        const ReadOptions& read_opts);
+                        const ReadOptions& read_opts,
+                        const BlobFetcher* blob_fetcher = nullptr);
 
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only
@@ -94,17 +113,19 @@ class MemTableListVersion {
                       Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       SequenceNumber* seq, const ReadOptions& read_opts,
-                      bool* is_blob_index = nullptr);
+                      bool* is_blob_index = nullptr,
+                      const BlobFetcher* blob_fetcher = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value,
                       PinnableWideColumns* columns, std::string* timestamp,
                       Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       const ReadOptions& read_opts,
-                      bool* is_blob_index = nullptr) {
+                      bool* is_blob_index = nullptr,
+                      const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return GetFromHistory(key, value, columns, timestamp, s, merge_context,
                           max_covering_tombstone_seq, &seq, read_opts,
-                          is_blob_index);
+                          is_blob_index, blob_fetcher);
   }
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
@@ -116,11 +137,17 @@ class MemTableListVersion {
                     std::vector<InternalIterator*>* iterator_list,
                     Arena* arena);
 
+  // read_seq controls range tombstone visibility. It may be captured before
+  // lazy iterator initialization. scan_opts can prune immutable memtables that
+  // cannot intersect the requested scan ranges.
   void AddIterators(const ReadOptions& options,
                     UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
                     const SliceTransform* prefix_extractor,
                     MergeIteratorBuilder* merge_iter_builder,
-                    bool add_range_tombstone_iter);
+                    bool add_range_tombstone_iter,
+                    SequenceNumber read_seq = kMaxSequenceNumber,
+                    const MultiScanArgs* scan_opts = nullptr,
+                    const Comparator* user_comparator = nullptr);
 
   uint64_t GetTotalNumEntries() const;
 
@@ -188,7 +215,8 @@ class MemTableListVersion {
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    ReadCallback* callback = nullptr,
-                   bool* is_blob_index = nullptr);
+                   bool* is_blob_index = nullptr,
+                   const BlobFetcher* blob_fetcher = nullptr);
 
   void AddMemTable(ReadOnlyMemTable* m);
 

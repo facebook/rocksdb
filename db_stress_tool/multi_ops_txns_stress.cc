@@ -40,7 +40,7 @@ DEFINE_int32(clear_wp_commit_cache_one_in, 0,
              "write-unprepared transactions.");
 
 extern "C" bool rocksdb_write_prepared_TEST_ShouldClearCommitCache(void) {
-  static Random rand(static_cast<uint32_t>(db_stress_env->NowMicros()));
+  static Random rand(static_cast<uint32_t>(raw_env->NowMicros()));
   return FLAGS_clear_wp_commit_cache_one_in > 0 &&
          rand.OneIn(FLAGS_clear_wp_commit_cache_one_in);
 }
@@ -1413,7 +1413,7 @@ Status MultiOpsTxnsStressTest::CommitAndCreateTimestampedSnapshotIfNeeded(
   Status s;
   if (FLAGS_create_timestamped_snapshot_one_in > 0 &&
       thread->rand.OneInOpt(FLAGS_create_timestamped_snapshot_one_in)) {
-    uint64_t ts = db_stress_env->NowNanos();
+    uint64_t ts = raw_env->NowNanos();
     std::shared_ptr<const Snapshot> snapshot;
     s = txn.CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts, &snapshot);
   } else {
@@ -1428,7 +1428,7 @@ Status MultiOpsTxnsStressTest::CommitAndCreateTimestampedSnapshotIfNeeded(
   assert(txn_db_);
   if (FLAGS_create_timestamped_snapshot_one_in > 0 &&
       thread->rand.OneInOpt(50000)) {
-    uint64_t now = db_stress_env->NowNanos();
+    uint64_t now = raw_env->NowNanos();
     constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
     txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
   }
@@ -1767,8 +1767,11 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
   }
 }
 
-StressTest* CreateMultiOpsTxnsStressTest() {
-  return new MultiOpsTxnsStressTest();
+StressTest* CreateMultiOpsTxnsStressTest(int db_index,
+                                         const std::string& db_path,
+                                         const std::string& ev_path,
+                                         const std::string& sec_path) {
+  return new MultiOpsTxnsStressTest(db_index, db_path, ev_path, sec_path);
 }
 
 void CheckAndSetOptionsForMultiOpsTxnStressTest() {

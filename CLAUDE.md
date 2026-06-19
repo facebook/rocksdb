@@ -149,6 +149,26 @@ Cache management is critical for RocksDB's performance.
 
 When reviewing RocksDB code (or preparing code for review), use this checklist:
 
+### Contract Boundaries
+- [ ] Is each behavior owned by the right layer? High-level policy (for example,
+  "compaction wants this I/O mode") should live at the caller/policy layer, while
+  lower layers should expose generic mechanisms (for example, "open a fresh
+  reader", "skip shared cache insertion", or "use these FileOptions").
+- [ ] Do comments and names describe local contracts rather than leaking a
+  specific caller's rationale into reusable APIs? Generic code should not need to
+  know about one current use case unless the API itself is intentionally
+  use-case-specific.
+- [ ] Does each flag or parameter control one coherent behavior? If one boolean
+  starts implying ownership, cache policy, I/O mode, prefetching, and caller
+  identity, split it into explicit flags or an options struct.
+- [ ] Could a future caller use this lower-level API without accidentally
+  inheriting assumptions from compaction, backup, user reads, or a particular
+  table format? If not, tighten the contract with assertions, clearer names, or
+  a narrower API.
+- [ ] Are implementation details not being used as policy signals? Prefer an
+  explicit contract over inferring behavior from incidental fields such as file
+  options, cache handles, or current table-reader state.
+
 ### Correctness
 - [ ] Does the change preserve database semantics (e.g., snapshot isolation, key ordering)?
 - [ ] Are all error cases handled appropriately?
@@ -204,18 +224,83 @@ The following patterns emerged as frequent sources of review feedback:
 
 10. **Platform Compatibility:** Ensure changes work correctly on all supported platforms (Linux, Windows, macOS) and with all supported compilers (GCC, Clang, MSVC).
 
+11. **Contract Boundary Leaks:** When a change plumbs a new option or use-case
+specific behavior through multiple subsystems, review the call chain for
+contract leaks. Caller-specific rationale belongs at the call site or public API
+documentation; reusable layers should expose precise, layer-local capabilities.
+Watch especially for comments mentioning one caller in generic code, booleans
+that silently bundle several behaviors, and downstream code inferring policy
+from an implementation detail instead of an explicit option.
+
 ---
 
 ## Important tips
 
 ### Build system
-* There are 3 build system. Make, CMake, BUCK(meta internal).
+* There are 3 build system. Make for git clones, BUCK (meta internal) for hg
+  clones, and CMake for some special cases.
 * When a new .cc file is added, update Makefile, CMakeLists.txt, src.mk, BUCK.
 * Don't manually edit BUCK file, after updating src.mk, run
     /usr/local/bin/python3 buckifier/buckify_rocksdb.py to update it
-* Use make to build and run the test. CMake and BUCK are not used locally.
-* Use `make dbg` command to build all of the unit test in debug mode.
 * For -j in make command, use the number of CPU cores to decide it.
+
+### When to run `make clean` (avoid mixing build modes)
+
+The Makefile does **not** track build mode, so object files from a prior
+build are silently reused even when compiled with different flags, leading
+to confusing linker errors, sanitizer false negatives, ODR violations, or
+"phantom" bugs.
+
+Run `make clean` before switching any of these:
+* **`ASSERT_STATUS_CHECKED=1` ↔ unset** — changes the `Status` class layout (ABI break).
+* **Sanitizer builds** — toggling any of `COMPILE_WITH_ASAN=1`,
+    `COMPILE_WITH_UBSAN=1`, `COMPILE_WITH_TSAN=1` on/off.
+* `DEBUG_LEVEL=0` (release) ↔ `DEBUG_LEVEL=1` (debug, default for `make dbg`).
+* Different compilers, `OPT` levels, or other flags affecting codegen/ABI.
+
+**Notable exception:** `DEBUG_LEVEL=2` can be safely mixed with
+`DEBUG_LEVEL=1` — rebuild a subset of files with `DEBUG_LEVEL=2` to get
+extra/more accurate runtime checks for those files without a full clean.
+
+When in doubt, `make clean` is cheap insurance compared to chasing a
+phantom bug.
+
+### Source checks
+* Run `make check-sources` before committing. This catches non-ASCII
+    characters in source files and other source-level issues that CI will
+    reject. In particular, **do not use Unicode characters** (em dashes,
+    smart quotes, etc.) in comments or strings -- use ASCII equivalents
+    (`--` instead of em dash, `'` instead of smart quote, etc.).
+
+### RTTI and dynamic_cast
+* Production code and `db_stress` must build in **release mode
+    (`-fno-rtti`)**. Do not use `dynamic_cast` anywhere except unit tests.
+    Use `static_cast_with_check` from `util/cast_util.h` (validates with
+    `dynamic_cast` in debug builds, plain `static_cast` in release).
+* Unit tests (`*_test.cc`) are built in debug mode with RTTI enabled.
+
+### Cross-platform / portability
+Local `make` only exercises Linux with GCC/Clang, but CI
+(`.github/workflows/pr-jobs.yml` and `nightly.yml`) gates on a much wider
+matrix, so portability breaks are invisible locally until CI fails. Code must
+build (and where noted, run tests) across:
+
+| Axis | Must support |
+|------|--------------|
+| OS | Linux (x86_64 + ARM), macOS, Windows |
+| Compiler | GCC, Clang (libstdc++ **and** libc++), AppleClang, **MSVC (VS2022)**, MinGW (Linux cross-compile, build-only, no gflags) |
+| Build system | Make, CMake, and BUCK (internal) -- keep all in sync (see "Build system" above) |
+| Config | release (`-fno-rtti`), `ASSERT_STATUS_CHECKED`, ASAN/UBSAN/TSAN, folly, unity build, JNI/Java |
+
+Treat these as constraints to satisfy and infer the specifics from them before
+adding any system header, libc call, or compiler-specific construct. The most
+common trap: anything that compiles under GCC/Clang on Linux but not under
+**MSVC/MinGW** -- e.g. unguarded POSIX-only headers/functions (`<unistd.h>`,
+`<sys/*.h>`, `getpid`, `_exit`, ...) or GCC/Clang extensions
+(`__attribute__`, `__builtin_*`, VLAs, `alloca`). Prefer the `port::`/`Env`
+abstractions; otherwise guard with `#ifdef OS_WIN` (POSIX `<unistd.h>` ->
+Windows `<process.h>`). Because libc++ is also tested, include what you use
+rather than relying on libstdc++ transitive includes.
 
 ### Unit Test
 * After all of the unit tests are added, review them and try to extract common
@@ -232,6 +317,9 @@ The following patterns emerged as frequent sources of review feedback:
     COERCE_CONTEXT_SWITCH=1 make {test_binary}
     ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
     ```
+* For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
+    `--gtest_repeat`, or normal coerce-mode runs, inspect
+    `tools/gtest_parallel_repro.py --help`.
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object
@@ -265,6 +353,14 @@ The following patterns emerged as frequent sources of review feedback:
 
 ### Stress test
 * When adding a new feature, make sure stress test covers the new option.
+
+### Component docs
+* For component-level design notes and implementation walkthroughs, start with
+    `docs/components/index.md`.
+* Documentation under `docs/components/` is organized by subsystem in
+    `docs/components/<area>/`.
+* Each subsystem directory should have an `index.md` entry point plus focused
+    chapter files for deeper topics.
 
 ### DB bench update
 * When adding a performance related feature, support it in db_bench

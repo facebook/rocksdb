@@ -11,6 +11,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "monitoring/file_read_sample.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 // MergingIterator uses a min/max heap to combine data from point iterators.
@@ -1740,6 +1741,8 @@ void MergeIteratorBuilder::AddPointAndTombstoneIterator(
 
 InternalIterator* MergeIteratorBuilder::Finish(ArenaWrappedDBIter* db_iter) {
   InternalIterator* ret = nullptr;
+  TEST_SYNC_POINT_CALLBACK("MergeIteratorBuilder::Finish:UseMergingIterator",
+                           &use_merging_iter);
   if (!use_merging_iter) {
     ret = first_iter;
     first_iter = nullptr;
@@ -1748,9 +1751,13 @@ InternalIterator* MergeIteratorBuilder::Finish(ArenaWrappedDBIter* db_iter) {
       *(p.second) = &(merge_iter->range_tombstone_iters_[p.first]);
     }
     if (db_iter && !merge_iter->range_tombstone_iters_.empty()) {
-      // memtable is always the first level
-      db_iter->SetMemtableRangetombstoneIter(
-          &merge_iter->range_tombstone_iters_.front());
+      // memtable is always the first level, unless it has been pruned
+      if (memtable_pruned_) {
+        db_iter->SetMemtableRangetombstoneIter(nullptr);
+      } else {
+        db_iter->SetMemtableRangetombstoneIter(
+            &merge_iter->range_tombstone_iters_.front());
+      }
     }
     merge_iter->Finish();
     ret = merge_iter;

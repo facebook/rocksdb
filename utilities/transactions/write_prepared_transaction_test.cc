@@ -2360,6 +2360,62 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
   }
 }
 
+TEST_P(WritePreparedTransactionTest, RollbackPreparedAfterCommitWriteFailure) {
+  // This covers the db_stress failure mode where a transaction is already in
+  // PreparedHeap and the commit marker write hits a retryable IO error. The
+  // test injects that commit failure and a retryable rollback failure, then
+  // verifies rollback can still be retried to remove the prepared entry before
+  // DB teardown.
+  options.max_bgerror_resume_count = 0;
+  ASSERT_OK(ReOpen());
+  fault_fs->SetFileTypesExcludedFromFaultInjection({FileType::kInfoLogFile});
+
+  WriteOptions woptions;
+  woptions.sync = true;
+  TransactionOptions txn_options;
+  std::unique_ptr<Transaction> txn(db->BeginTransaction(woptions, txn_options));
+  ASSERT_NE(nullptr, txn);
+  ASSERT_OK(txn->SetName("commit_write_failure"));
+  ASSERT_OK(txn->Put(Slice("key"), Slice("value")));
+  ASSERT_OK(txn->Prepare());
+
+  fault_fs->SetThreadLocalErrorContext(FaultInjectionIOType::kWrite,
+                                       /*seed=*/0, /*one_in=*/1,
+                                       /*retryable=*/true,
+                                       /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  const Status commit_s = txn->Commit();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  ASSERT_NOK(commit_s);
+  ASSERT_TRUE(FaultInjectionTestFS::IsInjectedError(commit_s))
+      << commit_s.ToString();
+  ASSERT_EQ(1, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+                   FaultInjectionIOType::kWrite));
+
+  ASSERT_OK(db->Resume());
+
+  fault_fs->SetThreadLocalErrorContext(FaultInjectionIOType::kWrite,
+                                       /*seed=*/1, /*one_in=*/1,
+                                       /*retryable=*/true,
+                                       /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  const Status rollback_s = txn->Rollback();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  ASSERT_NOK(rollback_s);
+  ASSERT_TRUE(FaultInjectionTestFS::IsInjectedError(rollback_s))
+      << rollback_s.ToString();
+  ASSERT_EQ(1, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+                   FaultInjectionIOType::kWrite));
+
+  ASSERT_OK(db->Resume());
+  ASSERT_OK(txn->Rollback());
+  txn.reset();
+
+  ASSERT_OK(ReOpenNoDelete());
+}
+
 TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   // Use large buffer to avoid memtable flush after 1024 insertions
   options.write_buffer_size = 1024 * 1024;
@@ -4118,7 +4174,7 @@ TEST_P(WritePreparedTransactionTest, RangeTombstoneInsertionWithWritePrepared) {
       ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));
     }
 
-    // Begin a transaction and prepare it — the prepare_seq will be higher
+    // Begin a transaction and prepare it -- the prepare_seq will be higher
     // than the tombstone seqnos above.
     std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
     ASSERT_NE(txn, nullptr);
@@ -4173,14 +4229,14 @@ TEST_P(WritePreparedTransactionTest,
     }
     ASSERT_OK(db->Flush(FlushOptions()));
 
-    // Prepare a transaction first — the prepare_seq will be low.
+    // Prepare a transaction first -- the prepare_seq will be low.
     std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
     ASSERT_NE(txn, nullptr);
     ASSERT_OK(txn->SetName("txn1"));
     ASSERT_OK(txn->Put("z", "txn_val"));
     ASSERT_OK(txn->Prepare());
 
-    // Now delete 5 contiguous keys — these tombstones get seqnos AFTER
+    // Now delete 5 contiguous keys -- these tombstones get seqnos AFTER
     // the prepare_seq, so max_tombstone_seq >= min_uncommitted.
     for (char c = 'c'; c <= 'g'; c++) {
       ASSERT_OK(db->Delete(WriteOptions(), std::string(1, c)));

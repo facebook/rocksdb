@@ -1116,10 +1116,15 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   posix_handle->iov.iov_len = req.len;
 
   // Step 3: io_uring_sqe_set_data
-  struct io_uring_sqe* sqe;
-  sqe = io_uring_get_sqe(iu);
-  TEST_SYNC_POINT_CALLBACK("PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
-                           &sqe);
+  bool skip_get_sqe = false;
+  TEST_SYNC_POINT_CALLBACK(
+      "PosixRandomAccessFile::ReadAsync:skip_io_uring_get_sqe", &skip_get_sqe);
+  struct io_uring_sqe* sqe = nullptr;
+  if (!skip_get_sqe) {
+    sqe = io_uring_get_sqe(iu);
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::ReadAsync:io_uring_get_sqe", &sqe);
+  }
   if (sqe == nullptr) {
     // Submission queue is full, so outstanding completions have not been
     // reaped yet. Submission never succeeded, so clean up the local handle and
@@ -1324,6 +1329,7 @@ IOStatus PosixMmapFile::MapNewRegion() {
   if (ptr == MAP_FAILED) {
     return IOStatus::IOError("MMap failed on " + filename_);
   }
+  TsanAnnotateMappedMemory(ptr, map_size_);
   TEST_KILL_RANDOM("PosixMmapFile::Append:2");
 
   base_ = static_cast<char*>(ptr);

@@ -35,7 +35,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+  DBTest2() : DBTestBase("db_etc2_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTest2, OpenForReadOnly) {
@@ -107,7 +107,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   ASSERT_OK(Put("key2", "value2"));
   Close();
 
-  // Reopen as read-only — wal_in_db_path_ must be properly initialized.
+  // Reopen as read-only -- wal_in_db_path_ must be properly initialized.
   // Before the fix, closing this DB would read an uninitialized bool in
   // DeleteObsoleteFileImpl, which UBSan catches as undefined behavior.
   std::unique_ptr<DB> db_ptr;
@@ -115,7 +115,7 @@ TEST_F(DBTest2, ReadOnlyDBWalInDbPathInitialized) {
   std::string value;
   ASSERT_OK(db_ptr->Get(ReadOptions(), "key1", &value));
   ASSERT_EQ("value1", value);
-  // Close the read-only DB — this triggers PurgeObsoleteFiles which reads
+  // Close the read-only DB -- this triggers PurgeObsoleteFiles which reads
   // wal_in_db_path_. Under UBSan, an uninitialized bool here would fail.
   db_ptr.reset();
 
@@ -4172,72 +4172,6 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
-TEST_F(DBTest2, TracePreserveWriteOrderSkipsFailedWrite) {
-  for (bool enable_pipelined_write : {false, true}) {
-    SCOPED_TRACE("enable_pipelined_write=" +
-                 std::to_string(enable_pipelined_write));
-
-    Options options = CurrentOptions();
-    options.enable_pipelined_write = enable_pipelined_write;
-    std::unique_ptr<FaultInjectionTestEnv> fault_env(
-        new FaultInjectionTestEnv(env_));
-    options.env = fault_env.get();
-    DestroyAndReopen(options);
-
-    TraceOptions trace_opts;
-    trace_opts.preserve_write_order = true;
-    const std::string trace_filename = dbname_ +
-                                       "/rocksdb.trace_failed_write." +
-                                       std::to_string(enable_pipelined_write);
-
-    std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(
-        NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
-    ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
-
-    ASSERT_OK(Put("good", "1"));
-
-    fault_env->SetFilesystemActive(false);
-    ASSERT_NOK(Put("bad", "2"));
-    fault_env->SetFilesystemActive(true);
-
-    ASSERT_OK(db_->EndTrace());
-    Close();
-
-    options.env = env_;
-    Reopen(options);
-    ASSERT_EQ("1", Get("good"));
-    ASSERT_EQ("NOT_FOUND", Get("bad"));
-    Close();
-
-    const std::string replay_dbname = test::PerThreadDBPath(
-        env_, "/db_replay_failed." + std::to_string(enable_pipelined_write));
-    ASSERT_OK(DestroyDB(replay_dbname, options));
-
-    options.create_if_missing = true;
-    std::unique_ptr<DB> replay_db;
-    ASSERT_OK(DB::Open(options, replay_dbname, &replay_db));
-
-    std::unique_ptr<TraceReader> trace_reader;
-    ASSERT_OK(
-        NewFileTraceReader(env_, EnvOptions(), trace_filename, &trace_reader));
-    std::unique_ptr<Replayer> replayer;
-    ASSERT_OK(replay_db->NewDefaultReplayer({replay_db->DefaultColumnFamily()},
-                                            std::move(trace_reader),
-                                            &replayer));
-    ASSERT_OK(replayer->Prepare());
-    ASSERT_OK(replayer->Replay(ReplayOptions(), nullptr));
-
-    std::string value;
-    ASSERT_OK(replay_db->Get(ReadOptions(), "good", &value));
-    ASSERT_EQ("1", value);
-    ASSERT_TRUE(replay_db->Get(ReadOptions(), "bad", &value).IsNotFound());
-
-    replay_db.reset();
-    ASSERT_OK(DestroyDB(replay_dbname, options));
-  }
-}
-
 TEST_F(DBTest2, TraceWithLimit) {
   Options options = CurrentOptions();
   options.merge_operator = MergeOperators::CreatePutOperator();
@@ -7576,6 +7510,65 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
 
+TEST_F(DBTest2,
+       GetLatestSequenceForKeyFromHistoryWithBlobBackedWideColumnEntity) {
+  // Goal: exercise the memtable history lookup in GetLatestSequenceForKey()
+  // after blob direct write stores a blob-backed V2 entity in a flushed
+  // memtable. Using cache_only=true ensures the lookup succeeds only if the
+  // history path can resolve the wide-column base value under the newer merge.
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.min_blob_size = 50;
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.max_write_buffer_size_to_maintain = 64 << 10;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator("|");
+
+  Reopen(options);
+
+  const std::string key = "history_blob_entity";
+  const std::string default_value(100, 'd');
+  const std::string merge_operand = "suffix";
+  WideColumns columns{{kDefaultWideColumnName, default_value},
+                      {"meta", "inline"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key,
+                       merge_operand));
+  const SequenceNumber expected_seq = dbfull()->GetLatestSequenceNumber();
+
+  ASSERT_OK(Flush());
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  uint64_t num_immutable_memtables = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                  &num_immutable_memtables));
+  ASSERT_EQ(num_immutable_memtables, 0);
+
+  auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(
+      dbfull()->DefaultColumnFamily());
+  assert(cfhi);
+  assert(cfhi->cfd());
+  SuperVersion* sv = cfhi->cfd()->GetSuperVersion();
+
+  SequenceNumber seq = kMaxSequenceNumber;
+  bool found_record_for_key = false;
+  bool is_blob_index = false;
+  const Status s = dbfull()->GetLatestSequenceForKey(
+      sv, key, /*cache_only=*/true, /*lower_bound_seq=*/0, &seq,
+      /*timestamp=*/nullptr, &found_record_for_key, &is_blob_index);
+
+  ASSERT_OK(s);
+  ASSERT_TRUE(found_record_for_key);
+  ASSERT_EQ(expected_seq, seq);
+  ASSERT_FALSE(is_blob_index);
+}
+
 #if defined(ZSTD)
 TEST_F(DBTest2, ZSTDChecksum) {
   // Verify that corruption during decompression is caught.
@@ -7846,6 +7839,415 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         /*allow_concurrent_memtable_write=*/::testing::Bool(),
         /*min_tombstones_for_range_conversion=*/::testing::Values(0, 4)));
+
+// Test file system that supports GetFileOpenMetadata for fast_sst_open testing
+class FastOpenTestRandomAccessFile : public FSRandomAccessFileWrapper {
+ public:
+  explicit FastOpenTestRandomAccessFile(
+      std::unique_ptr<FSRandomAccessFile>&& file, const std::string& fname,
+      std::atomic<int>* metadata_retrieved_count)
+      : FSRandomAccessFileWrapper(file.get()),
+        file_(std::move(file)),
+        fname_(fname),
+        metadata_retrieved_count_(metadata_retrieved_count) {}
+
+  IOStatus GetFileOpenMetadata(std::string* metadata) override {
+    // Return the file name as opaque metadata for testing
+    *metadata = "fast_open_metadata:" + fname_;
+    metadata_retrieved_count_->fetch_add(1, std::memory_order_relaxed);
+    return IOStatus::OK();
+  }
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> file_;
+  std::string fname_;
+  std::atomic<int>* metadata_retrieved_count_;
+};
+
+class FastOpenTestFS : public FileSystemWrapper {
+ public:
+  explicit FastOpenTestFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  const char* Name() const override { return "FastOpenTestFS"; }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (file_opts.file_metadata != nullptr) {
+      metadata_passed_on_open_.fetch_add(1, std::memory_order_relaxed);
+      last_metadata_received_ = *file_opts.file_metadata;
+    }
+    IOStatus s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+    if (s.ok()) {
+      result->reset(new FastOpenTestRandomAccessFile(
+          std::move(*result), fname, &metadata_retrieved_count_));
+    }
+    return s;
+  }
+
+  int GetMetadataRetrievedCount() const {
+    return metadata_retrieved_count_.load(std::memory_order_relaxed);
+  }
+
+  int GetMetadataPassedOnOpenCount() const {
+    return metadata_passed_on_open_.load(std::memory_order_relaxed);
+  }
+
+  std::string GetLastMetadataReceived() const {
+    return last_metadata_received_;
+  }
+
+  void ResetCounters() {
+    metadata_retrieved_count_.store(0, std::memory_order_relaxed);
+    metadata_passed_on_open_.store(0, std::memory_order_relaxed);
+    last_metadata_received_.clear();
+  }
+
+ private:
+  std::atomic<int> metadata_retrieved_count_{0};
+  std::atomic<int> metadata_passed_on_open_{0};
+  std::string last_metadata_received_;
+};
+
+TEST_F(DBTest2, FastSstOpenDefaultFSReturnsNotSupported) {
+  // Verify that the default FS returns NotSupported for GetFileOpenMetadata.
+  std::string fname = dbname_ + "/000001.sst";
+  // Create a small file so we can open it
+  {
+    std::unique_ptr<FSWritableFile> wf;
+    ASSERT_OK(env_->GetFileSystem()->NewWritableFile(fname, FileOptions(), &wf,
+                                                     nullptr));
+    ASSERT_OK(wf->Append("test", IOOptions(), nullptr));
+    ASSERT_OK(wf->Close(IOOptions(), nullptr));
+  }
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(fname, FileOptions(),
+                                                       &file, nullptr));
+  std::string metadata;
+  IOStatus s = file->GetFileOpenMetadata(&metadata);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(metadata.empty());
+  // Clean up
+  ASSERT_OK(env_->GetFileSystem()->DeleteFile(fname, IOOptions(), nullptr));
+}
+
+TEST_F(DBTest2, FastSstOpenFlushAndReopen) {
+  // Test with default FS (GetFileOpenMetadata returns NotSupported).
+  // Verifies the code path works without crashing.
+  Options options = CurrentOptions();
+  options.fast_sst_open = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_EQ("value2", Get("key2"));
+}
+
+TEST_F(DBTest2, FastSstOpenCompactionAndReopen) {
+  Options options = CurrentOptions();
+  options.fast_sst_open = true;
+  options.level0_file_num_compaction_trigger = 2;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_EQ("value2", Get("key2"));
+}
+
+TEST_F(DBTest2, FastSstOpenWithTestFS) {
+  // Full fast_sst_open flow: flush produces 1 SST, verify exact counts.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_test");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  test_fs->ResetCounters();
+
+  // One flush produces one SST file -> exactly 1 GetFileOpenMetadata call
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+  ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
+
+  test_fs->ResetCounters();
+  db.reset();
+
+  // Reopen: the SST file should be opened with metadata
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_OK(db->Get(ReadOptions(), "key2", &value));
+  ASSERT_EQ("value2", value);
+
+  // Exactly 1 SST file was opened with metadata passed
+  ASSERT_EQ(1, test_fs->GetMetadataPassedOnOpenCount());
+  ASSERT_TRUE(test_fs->GetLastMetadataReceived().find("fast_open_metadata:") ==
+              0);
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenCompactionWithTestFS) {
+  // Compaction: 2 flushes trigger compaction, producing 1 output SST.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_compact");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  test_fs->ResetCounters();
+
+  // 2 flushes = 2 SST files -> 2 GetFileOpenMetadata calls from flushes
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(static_cast<DBImpl*>(db.get())->TEST_WaitForCompact());
+
+  // 2 flush SSTs retrieved metadata. Compaction output may or may not
+  // trigger an additional retrieval depending on table cache state.
+  ASSERT_GE(test_fs->GetMetadataRetrievedCount(), 2);
+
+  test_fs->ResetCounters();
+  db.reset();
+
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_OK(db->Get(ReadOptions(), "key2", &value));
+  ASSERT_EQ("value2", value);
+
+  // At least 1 SST opened with metadata on reopen
+  ASSERT_GE(test_fs->GetMetadataPassedOnOpenCount(), 1);
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenDisabledNoMetadata) {
+  // When fast_sst_open is disabled, no metadata should be retrieved or passed.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = false;
+  options.create_if_missing = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_disabled");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  test_fs->ResetCounters();
+
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // No metadata retrieved when disabled
+  ASSERT_EQ(0, test_fs->GetMetadataRetrievedCount());
+
+  test_fs->ResetCounters();
+  db.reset();
+
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+
+  // No metadata passed on open since none was saved
+  ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenToggleOption) {
+  // Toggle: disabled for first flush, enabled for second.
+  // Only the second file should have metadata on reopen.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = false;
+  options.create_if_missing = true;
+  // Prevent compaction so we have 2 separate L0 files
+  options.level0_file_num_compaction_trigger = 100;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_toggle");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_EQ(0, test_fs->GetMetadataRetrievedCount());
+  db.reset();
+
+  // Enable fast_sst_open for second session
+  options.fast_sst_open = true;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  test_fs->ResetCounters();
+
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Exactly 1 metadata retrieved (for the new flush)
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+
+  test_fs->ResetCounters();
+  db.reset();
+
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_OK(db->Get(ReadOptions(), "key2", &value));
+  ASSERT_EQ("value2", value);
+
+  // 2 SST files total, but only 1 has metadata (the one from the enabled
+  // session). The other file opens without metadata.
+  ASSERT_EQ(1, test_fs->GetMetadataPassedOnOpenCount());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenIngestion) {
+  // Test that file ingestion retrieves and persists metadata.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_ingest");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  // Create an SST file externally
+  std::string sst_file = test_dbname + "/external.sst";
+  SstFileWriter sst_writer(EnvOptions(), options);
+  ASSERT_OK(sst_writer.Open(sst_file));
+  ASSERT_OK(sst_writer.Put("ikey1", "ival1"));
+  ASSERT_OK(sst_writer.Put("ikey2", "ival2"));
+  ASSERT_OK(sst_writer.Finish());
+
+  test_fs->ResetCounters();
+
+  // Ingest the external SST file
+  IngestExternalFileOptions ingest_opts;
+  ingest_opts.move_files = false;
+  ASSERT_OK(db->IngestExternalFile({sst_file}, ingest_opts));
+
+  // Ingestion should retrieve metadata for the ingested file (1 call from
+  // the separate open in the ingestion path)
+  ASSERT_GE(test_fs->GetMetadataRetrievedCount(), 1);
+
+  test_fs->ResetCounters();
+  db.reset();
+
+  // Reopen and verify metadata is passed
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "ikey1", &value));
+  ASSERT_EQ("ival1", value);
+  ASSERT_OK(db->Get(ReadOptions(), "ikey2", &value));
+  ASSERT_EQ("ival2", value);
+
+  // Metadata should be passed when opening the ingested SST
+  ASSERT_GE(test_fs->GetMetadataPassedOnOpenCount(), 1);
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
+  // Verify that disabling fast_sst_open prevents previously-persisted
+  // metadata from being passed to NewRandomAccessFile. This is critical
+  // for cases where stale metadata (e.g. expired credentials) would
+  // cause file open failures.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_disable_after");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  // Open with fast_sst_open enabled, write and flush to persist metadata
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+  db.reset();
+
+  // Reopen with fast_sst_open DISABLED -- metadata is in the MANIFEST
+  // but should NOT be passed to the filesystem
+  options.fast_sst_open = false;
+  test_fs->ResetCounters();
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+
+  // No metadata should have been passed despite being in the MANIFEST
+  ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

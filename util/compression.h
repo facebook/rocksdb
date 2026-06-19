@@ -55,6 +55,26 @@ ZSTD_customMem GetJeZstdAllocationOverrides();
 #endif  // defined(ZSTD) && defined(ROCKSDB_JEMALLOC) && defined(OS_WIN) &&
         // defined(ZSTD_STATIC_LINKING_ONLY)
 
+#ifdef ZSTD
+// Translates a configured compression_opts.level into the effective ZSTD
+// compression level. Besides resolving the "use default" sentinel, this
+// removes a discontinuity at level 0: ZSTD itself treats a requested level of
+// 0 as "use the default level" (historically 3), which would make level 0
+// more aggressive than levels 1 and 2. Mapping 0 to -1 keeps the level spectrum
+// monotonic, which is friendlier to auto-tuning.
+inline int SanitizeZSTDCompressionLevel(int level) {
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
+    return ZSTD_CLEVEL_DEFAULT;
+  } else if (level == 0) {
+    // Avoid library's discontinuity at level 0
+    return -1;
+  } else {
+    return level;
+  }
+}
+#endif  // ZSTD
+
 // Cached data represents a portion that can be re-used
 // If, in the future we have more than one native context to
 // cache we can arrange this as a tuple
@@ -227,10 +247,7 @@ struct CompressionDict {
 #ifdef ZSTD
     zstd_cdict_ = nullptr;
     if (!dict_.empty() && type == kZSTD) {
-      if (level == CompressionOptions::kDefaultCompressionLevel) {
-        // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-        level = ZSTD_CLEVEL_DEFAULT;
-      }
+      level = SanitizeZSTDCompressionLevel(level);
       // Should be safe (but slower) if below call fails as we'll use the
       // raw dictionary to compress.
       zstd_cdict_ = ZSTD_createCDict(dict_.data(), dict_.size(), level);
@@ -316,10 +333,7 @@ class CompressionContext : public Compressor::WorkingArea {
 #ifdef ZSTD
     if (type == kZSTD) {
       zstd_ctx_ = CreateZSTDContext();
-      if (level == CompressionOptions::kDefaultCompressionLevel) {
-        // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-        level = ZSTD_CLEVEL_DEFAULT;
-      }
+      level = SanitizeZSTDCompressionLevel(level);
       size_t err =
           ZSTD_CCtx_setParameter(zstd_ctx_, ZSTD_c_compressionLevel, level);
       if (ZSTD_isError(err)) {
@@ -419,6 +433,12 @@ inline bool LZ4_Supported() {
 #else
   return false;
 #endif
+}
+
+inline CompressionType GetDefaultCompressionType() {
+  return LZ4_Supported()
+             ? kLZ4Compression
+             : (Snappy_Supported() ? kSnappyCompression : kNoCompression);
 }
 
 inline bool XPRESS_Supported() {
@@ -538,6 +558,18 @@ inline bool ZSTD_FinalizeDictionarySupported() {
 #endif
 }
 
+// Use to check whether compression types are related or unrelated
+inline CompressionType CanonicalCompressionType(CompressionType type) {
+  switch (type) {
+    // Configuring LZ4 or LZ4HC can result in using the other, depending on
+    // compression level.
+    case kLZ4HCCompression:
+      return kLZ4Compression;
+    default:
+      return type;
+  }
+}
+
 // The new compression APIs intentionally make it difficult to generate
 // compressed data larger than the original. (It is better to store the
 // uncompressed version in that case.) For legacy cases that must store
@@ -617,10 +649,9 @@ class StreamingCompress {
                        size_t* output_pos) = 0;
   // static method to create object of a class inherited from
   // StreamingCompress based on the actual compression type.
-  static StreamingCompress* Create(CompressionType compression_type,
-                                   const CompressionOptions& opts,
-                                   uint32_t compress_format_version,
-                                   size_t max_output_len);
+  static std::unique_ptr<StreamingCompress> Create(
+      CompressionType compression_type, const CompressionOptions& opts,
+      uint32_t compress_format_version, size_t max_output_len);
   virtual void Reset() = 0;
 
  protected:
@@ -658,9 +689,9 @@ class StreamingUncompress {
   // Returns -1 for errors, remaining input to be processed otherwise.
   virtual int Uncompress(const char* input, size_t input_size, char* output,
                          size_t* output_pos) = 0;
-  static StreamingUncompress* Create(CompressionType compression_type,
-                                     uint32_t compress_format_version,
-                                     size_t max_output_len);
+  static std::unique_ptr<StreamingUncompress> Create(
+      CompressionType compression_type, uint32_t compress_format_version,
+      size_t max_output_len);
   virtual void Reset() = 0;
 
  protected:

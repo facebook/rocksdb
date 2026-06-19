@@ -10,11 +10,14 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "cache/compressed_secondary_cache.h"
@@ -26,10 +29,12 @@
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
 #include "db/wide/wide_column_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/replayer.h"
@@ -101,6 +106,206 @@ class RecordingBlobDirectWritePartitionStrategy
   std::vector<Call> calls_;
 };
 
+namespace {
+
+// Matches BlobDB file names so the test filesystem can special-case only active
+// blob files without changing unrelated file opens.
+bool IsBlobFilePath(const std::string& fname) {
+  const size_t basename_pos = fname.find_last_of("/\\");
+  const std::string basename = basename_pos == std::string::npos
+                                   ? fname
+                                   : fname.substr(basename_pos + 1);
+  uint64_t file_number = 0;
+  FileType file_type = kWalFile;
+  return ParseFileName(basename, &file_number, &file_type) &&
+         file_type == kBlobFile;
+}
+
+// Keeps track of when an active blob file stops being writer-visible so the
+// test filesystem can model current-size visibility only while the file remains
+// active.
+class ActiveBlobVisibilityWritableFile : public FSWritableFileOwnerWrapper {
+ public:
+  ActiveBlobVisibilityWritableFile(std::unique_ptr<FSWritableFile>&& target,
+                                   std::function<void()> on_close)
+      : FSWritableFileOwnerWrapper(std::move(target)),
+        on_close_(std::move(on_close)) {}
+
+  ~ActiveBlobVisibilityWritableFile() override { DeactivateOnce(); }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus s = target()->Close(options, dbg);
+    DeactivateOnce();
+    return s;
+  }
+
+ private:
+  void DeactivateOnce() {
+    if (on_close_) {
+      on_close_();
+      on_close_ = nullptr;
+    }
+  }
+
+  std::function<void()> on_close_;
+};
+
+// Simulates a remote readable file whose GetFileSize() either exposes the live
+// on-disk size for default-contract active blobs or hides it for
+// append-only-no-readers files.
+class ActiveBlobVisibilityRandomAccessFile
+    : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ActiveBlobVisibilityRandomAccessFile(
+      std::unique_ptr<FSRandomAccessFile>&& target, bool expose_current_size,
+      std::shared_ptr<FileSystem> underlying_fs, std::string fname)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)),
+        expose_current_size_(expose_current_size),
+        underlying_fs_(std::move(underlying_fs)),
+        fname_(std::move(fname)) {}
+
+  IOStatus GetFileSize(uint64_t* result) override {
+    if (!expose_current_size_) {
+      *result = 0;
+      return IOStatus::OK();
+    }
+    // Delegate to the underlying FS path-level GetFileSize (bypassing the
+    // wrapper that reports 0 for active blobs) to simulate a remote FS that
+    // exposes the current file size through the open handle.
+    return underlying_fs_->GetFileSize(fname_, IOOptions(), result,
+                                       /*dbg=*/nullptr);
+  }
+
+ private:
+  const bool expose_current_size_;
+  std::shared_ptr<FileSystem> underlying_fs_;
+  std::string fname_;
+};
+
+// Models a remote filesystem where active direct-write blobs are only
+// reader-visible when the writer does not promise no concurrent readers.
+class RemoteBlobVisibilityFileSystem : public FileSystemWrapper {
+ public:
+  explicit RemoteBlobVisibilityFileSystem(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "RemoteBlobVisibilityFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    std::unique_ptr<FSWritableFile> file;
+    IOStatus s = target()->NewWritableFile(fname, opts, &file, dbg);
+    if (!s.ok() || !IsBlobFilePath(fname)) {
+      *result = std::move(file);
+      return IOStatus(std::move(s));
+    }
+
+    const bool has_no_reopen_for_write_contract = HasFileOpenContract(
+        opts.open_contract, FileOpenContract::kNoReopenForWrite);
+    const bool has_no_readers_while_open_for_write_contract =
+        HasFileOpenContract(opts.open_contract,
+                            FileOpenContract::kNoReadersWhileOpenForWrite);
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      saw_no_reopen_for_write_writer_contract_ |=
+          has_no_reopen_for_write_contract;
+      saw_no_readers_while_open_for_write_writer_contract_ |=
+          has_no_readers_while_open_for_write_contract;
+      if (!has_no_readers_while_open_for_write_contract) {
+        active_blob_paths_.insert(fname);
+      }
+    }
+
+    if (has_no_readers_while_open_for_write_contract) {
+      *result = std::move(file);
+      return IOStatus::OK();
+    }
+
+    result->reset(new ActiveBlobVisibilityWritableFile(
+        std::move(file), [this, tracked_path = std::string(fname)]() {
+          DeactivateBlobPath(tracked_path);
+        }));
+    return IOStatus::OK();
+  }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (!s.ok() || !IsBlobFilePath(fname)) {
+      *result = std::move(file);
+      return IOStatus(std::move(s));
+    }
+
+    const bool has_no_readers_while_open_for_write_contract =
+        HasFileOpenContract(opts.open_contract,
+                            FileOpenContract::kNoReadersWhileOpenForWrite);
+    const bool active_blob = IsActiveBlobPath(fname);
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      saw_no_readers_while_open_for_write_reader_contract_ |=
+          has_no_readers_while_open_for_write_contract;
+    }
+
+    if (!active_blob) {
+      *result = std::move(file);
+      return IOStatus::OK();
+    }
+
+    result->reset(new ActiveBlobVisibilityRandomAccessFile(
+        std::move(file), !has_no_readers_while_open_for_write_contract, target_,
+        fname));
+    return IOStatus::OK();
+  }
+
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
+    if (IsActiveBlobPath(fname)) {
+      *file_size = 0;
+      return IOStatus::OK();
+    }
+    return target()->GetFileSize(fname, options, file_size, dbg);
+  }
+
+  bool SawNoReopenForWriteWriterContract() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return saw_no_reopen_for_write_writer_contract_;
+  }
+
+  bool SawNoReadersWhileOpenForWriteWriterContract() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return saw_no_readers_while_open_for_write_writer_contract_;
+  }
+
+  bool SawNoReadersWhileOpenForWriteReaderContract() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return saw_no_readers_while_open_for_write_reader_contract_;
+  }
+
+ private:
+  void DeactivateBlobPath(const std::string& fname) {
+    std::lock_guard<std::mutex> lock(mu_);
+    active_blob_paths_.erase(fname);
+  }
+
+  bool IsActiveBlobPath(const std::string& fname) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return active_blob_paths_.find(fname) != active_blob_paths_.end();
+  }
+
+  mutable std::mutex mu_;
+  bool saw_no_reopen_for_write_writer_contract_ = false;
+  bool saw_no_readers_while_open_for_write_writer_contract_ = false;
+  bool saw_no_readers_while_open_for_write_reader_contract_ = false;
+  std::unordered_set<std::string> active_blob_paths_;
+};
+
+}  // namespace
+
 class DBBlobDirectWriteTest : public DBTestBase {
  protected:
   DBBlobDirectWriteTest()
@@ -151,6 +356,48 @@ class DBBlobDirectWriteTest : public DBTestBase {
     return reader.ReadHeader(header);
   }
 
+  Status ReadBlobFileRecords(uint64_t blob_file_number, size_t num_records,
+                             std::vector<BlobLogRecord>* records) {
+    assert(records != nullptr);
+    records->clear();
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    FileOptions file_options;
+    constexpr IODebugContext* dbg = nullptr;
+    const std::string blob_file_path = BlobFileName(dbname_, blob_file_number);
+    FileSystem* fs = env_->GetFileSystem().get();
+    SystemClock* clock = env_->GetSystemClock().get();
+
+    Status s =
+        fs->NewRandomAccessFile(blob_file_path, file_options, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(file), blob_file_path, clock));
+    BlobLogSequentialReader reader(std::move(file_reader), clock,
+                                   /*statistics=*/nullptr);
+
+    BlobLogHeader header;
+    s = reader.ReadHeader(&header);
+    if (!s.ok()) {
+      return s;
+    }
+
+    records->reserve(num_records);
+    for (size_t i = 0; i < num_records; ++i) {
+      BlobLogRecord record;
+      s = reader.ReadRecord(&record,
+                            BlobLogSequentialReader::kReadHeaderKeyBlob);
+      if (!s.ok()) {
+        return s;
+      }
+      records->push_back(std::move(record));
+    }
+
+    return Status::OK();
+  }
   CompressionType GetSupportedCompressedBlobCompression() {
     static constexpr std::array<CompressionType, 6> kCandidates{
         kSnappyCompression, kLZ4Compression,   kZSTD,
@@ -774,6 +1021,30 @@ TEST_F(DBBlobDirectWriteTest, DirectWriteImmutableMemtableRead) {
   verify_reads();
 }
 
+// Verifies active blob direct-write files promise no write reopen without also
+// promising no concurrent readers.
+TEST_F(DBBlobDirectWriteTest, DirectWriteUsesReadableContractForRemoteFile) {
+  auto remote_fs =
+      std::make_shared<RemoteBlobVisibilityFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> remote_env(new CompositeEnvWrapper(env_, remote_fs));
+
+  Options options = GetDirectWriteOptions();
+  options.env = remote_env.get();
+  Reopen(options);
+
+  const std::string key = "remote_blob_key";
+  const std::string value(128, 'w');
+
+  ASSERT_OK(Put(key, value));
+  ASSERT_TRUE(remote_fs->SawNoReopenForWriteWriterContract());
+  ASSERT_FALSE(remote_fs->SawNoReadersWhileOpenForWriteWriterContract());
+
+  ASSERT_EQ(Get(key), value);
+  ASSERT_FALSE(remote_fs->SawNoReadersWhileOpenForWriteReaderContract());
+
+  Close();
+}
+
 TEST_F(DBBlobDirectWriteTest, DirectWriteRefreshesReaderAfterFlush) {
   Options options = GetDirectWriteOptions();
   options.blob_direct_write_partitions = 1;
@@ -942,6 +1213,70 @@ TEST_F(DBBlobDirectWriteTest,
   ASSERT_EQ(Get(first_key), first_value);
   ASSERT_EQ(Get(second_key), second_value);
   ASSERT_EQ(Get(third_key), third_value);
+}
+
+TEST_F(DBBlobDirectWriteTest,
+       DirectWriteCompressionOptionsUpdateRebuildsCachedCompressor) {
+#ifndef ZSTD
+  ROCKSDB_GTEST_SKIP("This test requires ZSTD support");
+  return;
+#else
+  // Goal: verify BDW picks up dynamic blob_compression_opts updates instead of
+  // reusing a stale per-thread compressor keyed only by compression type.
+  // We toggle the ZSTD frame checksum flag on and off, then inspect the raw
+  // blob records in one blob file. With identical inputs and level, enabling
+  // checksum should add exactly 4 bytes to the stored compressed blob.
+  Options options = GetDirectWriteOptions();
+  options.blob_file_size = 1 << 20;
+  options.blob_compression_type = kZSTD;
+  options.blob_compression_opts.level = 1;
+  options.blob_compression_opts.checksum = false;
+
+  Reopen(options);
+
+  const std::string first_key = "checksum_off_before_update";
+  const std::string second_key = "checksum_on_after_update";
+  const std::string third_key = "checksum_off_after_second_update";
+  const std::string value(256, 'v');
+
+  ASSERT_OK(Put(first_key, value));
+  ASSERT_EQ(Get(first_key), value);
+
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"blob_compression_opts", "{level=1;checksum=true}"}}));
+  ASSERT_OK(Put(second_key, value));
+  ASSERT_EQ(Get(second_key), value);
+
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"blob_compression_opts", "{level=1;checksum=false}"}}));
+  ASSERT_OK(Put(third_key, value));
+  ASSERT_EQ(Get(third_key), value);
+
+  ASSERT_OK(Flush());
+  ASSERT_EQ(CountBlobFiles(), 1U);
+
+  const std::vector<uint64_t> blob_file_numbers = GetBlobFileNumbers();
+  ASSERT_EQ(blob_file_numbers.size(), 1U);
+
+  std::vector<BlobLogRecord> records;
+  ASSERT_OK(
+      ReadBlobFileRecords(blob_file_numbers[0], /*num_records=*/3, &records));
+  ASSERT_EQ(records.size(), 3U);
+  ASSERT_EQ(records[0].key.ToString(), first_key);
+  ASSERT_EQ(records[1].key.ToString(), second_key);
+  ASSERT_EQ(records[2].key.ToString(), third_key);
+  ASSERT_EQ(records[0].value.size(), records[2].value.size());
+  ASSERT_EQ(records[1].value.size(), records[0].value.size() + 4);
+
+  Close();
+  Reopen(options);
+
+  ASSERT_EQ(Get(first_key), value);
+  ASSERT_EQ(Get(second_key), value);
+  ASSERT_EQ(Get(third_key), value);
+#endif  // ZSTD
 }
 
 TEST_F(DBBlobDirectWriteTest, DirectWriteFailedBatchTrackedAsInitialGarbage) {

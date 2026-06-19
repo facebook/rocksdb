@@ -13,16 +13,17 @@
 
 #include <cmath>
 
+#include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
-ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
-ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+ROCKSDB_NAMESPACE::Env* raw_env = nullptr;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
 std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
+std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> wbm;
+std::shared_ptr<ROCKSDB_NAMESPACE::RateLimiter> rate_limiter;
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -114,10 +115,10 @@ void PoolSizeChangeThread(void* v) {
     if (new_thread_pool_size < 1) {
       new_thread_pool_size = 1;
     }
-    db_stress_env->SetBackgroundThreads(new_thread_pool_size,
-                                        ROCKSDB_NAMESPACE::Env::Priority::LOW);
+    raw_env->SetBackgroundThreads(new_thread_pool_size,
+                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
     // Sleep up to 3 seconds
-    db_stress_env->SleepForMicroseconds(
+    raw_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_compaction_thread_pool_adjust_interval *
             1000 +
         1);
@@ -144,7 +145,7 @@ void DbVerificationThread(void* v) {
     if (!shared->HasVerificationFailedYet()) {
       stress_test->ContinuouslyVerifyDb(thread);
     }
-    db_stress_env->SleepForMicroseconds(
+    raw_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_continuous_verification_interval * 1000 +
         1);
   }
@@ -166,7 +167,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         return;
       }
     }
-    db_stress_env->SleepForMicroseconds(FLAGS_secondary_cache_update_interval);
+    raw_env->SleepForMicroseconds(FLAGS_secondary_cache_update_interval);
     if (FLAGS_compressed_secondary_cache_size > 0) {
       Status s = compressed_secondary_cache->SetCapacity(0);
       size_t capacity;
@@ -174,7 +175,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         s = compressed_secondary_cache->GetCapacity(capacity);
         assert(capacity == 0);
       }
-      db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
+      raw_env->SleepForMicroseconds(10 * 1000 * 1000);
       if (s.ok()) {
         s = compressed_secondary_cache->SetCapacity(
             FLAGS_compressed_secondary_cache_size);
@@ -201,7 +202,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         block_cache->SetCapacity(capacity - adjustment);
         fprintf(stdout, "New cache capacity = %zu\n",
                 block_cache->GetCapacity());
-        db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
+        raw_env->SleepForMicroseconds(10 * 1000 * 1000);
         block_cache->SetCapacity(capacity);
       } else {
         Status s;
@@ -214,7 +215,7 @@ void CompressedCacheSetCapacityThread(void* v) {
         s = UpdateTieredCache(block_cache, /*capacity*/ -1,
                               new_comp_cache_ratio);
         if (s.ok()) {
-          db_stress_env->SleepForMicroseconds(10 * 1000 * 1000);
+          raw_env->SleepForMicroseconds(10 * 1000 * 1000);
         }
         if (s.ok()) {
           s = UpdateTieredCache(block_cache, /*capacity*/ -1,
@@ -231,36 +232,37 @@ void CompressedCacheSetCapacityThread(void* v) {
 
 #ifndef NDEBUG
 static void SetupFaultInjectionForRemoteCompaction(SharedState* shared) {
-  if (!fault_fs_guard) {
+  auto fault_fs = shared->GetStressTest()->GetDbFaultInjectionFs();
+  if (!fault_fs) {
     return;
   }
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kRead, shared->GetSeed(), FLAGS_read_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kRead);
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kWrite, shared->GetSeed(), FLAGS_write_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kMetadataRead, shared->GetSeed(),
       FLAGS_metadata_read_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(
+  fault_fs->EnableThreadLocalErrorInjection(
       FaultInjectionIOType::kMetadataRead);
 
-  fault_fs_guard->SetThreadLocalErrorContext(
+  fault_fs->SetThreadLocalErrorContext(
       FaultInjectionIOType::kMetadataWrite, shared->GetSeed(),
       FLAGS_metadata_write_fault_one_in,
       FLAGS_inject_error_severity == 1 /* retryable */,
       FLAGS_inject_error_severity == 2 /* has_data_loss*/);
-  fault_fs_guard->EnableThreadLocalErrorInjection(
+  fault_fs->EnableThreadLocalErrorInjection(
       FaultInjectionIOType::kMetadataWrite);
 }
 #endif  // NDEBUG
@@ -268,7 +270,7 @@ static void SetupFaultInjectionForRemoteCompaction(SharedState* shared) {
 static CompactionServiceOptionsOverride CreateOverrideOptions(
     const Options& options, const CompactionServiceJobInfo& job_info) {
   CompactionServiceOptionsOverride override_options{
-      .env = db_stress_env,
+      .env = options.env,
       .file_checksum_gen_factory = options.file_checksum_gen_factory,
       .merge_operator = options.merge_operator,
       .compaction_filter = options.compaction_filter,
@@ -311,14 +313,8 @@ static CompactionServiceOptionsOverride CreateOverrideOptions(
 }
 
 static Status CleanupOutputDirectory(const std::string& output_directory) {
-#ifndef NDEBUG
-  // Temporarily disable fault injection to ensure deletion always succeeds
-  if (fault_fs_guard) {
-    fault_fs_guard->DisableAllThreadLocalErrorInjection();
-  }
-#endif  // NDEBUG
-
-  Status s = DestroyDir(db_stress_env, output_directory);
+  // Uses raw_env (no fault injection); cleanup must always succeed.
+  Status s = DestroyDir(raw_env, output_directory);
   if (!s.ok()) {
     fprintf(stderr,
             "Failed to destroy output directory %s when allow_resumption is "
@@ -327,7 +323,7 @@ static Status CleanupOutputDirectory(const std::string& output_directory) {
   }
 
   if (s.ok()) {
-    s = db_stress_env->CreateDir(output_directory);
+    s = raw_env->CreateDir(output_directory);
     if (!s.ok()) {
       fprintf(stderr,
               "Failed to recreate output directory %s when allow_resumption is "
@@ -335,13 +331,6 @@ static Status CleanupOutputDirectory(const std::string& output_directory) {
               output_directory.c_str(), s.ToString().c_str());
     }
   }
-
-#ifndef NDEBUG
-  // Re-enable fault injection after deletion
-  if (fault_fs_guard) {
-    fault_fs_guard->EnableAllThreadLocalErrorInjection();
-  }
-#endif  // NDEBUG
 
   return s;
 }
@@ -497,7 +486,7 @@ void RemoteCompactionWorkerThread(void* v) {
           shared, stress_test, rand, successful_compaction_end_to_end_micros);
     }
 
-    db_stress_env->SleepForMicroseconds(
+    raw_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_remote_compaction_worker_interval * 1000 +
         1);
   }
@@ -679,7 +668,7 @@ bool VerifyIteratorAttributeGroups(
 }
 
 std::string GetNowNanos() {
-  uint64_t t = db_stress_env->NowNanos();
+  uint64_t t = raw_env->NowNanos();
   std::string ret;
   PutFixed64(&ret, t);
   return ret;
@@ -691,7 +680,7 @@ uint64_t GetWriteUnixTime(ThreadState* thread) {
                FLAGS_preclude_last_level_data_seconds);
   static uint64_t kFallbackTime = std::numeric_limits<uint64_t>::max();
   int64_t write_time = 0;
-  Status s = db_stress_env->GetCurrentTime(&write_time);
+  Status s = raw_env->GetCurrentTime(&write_time);
   uint32_t write_time_mode = thread->rand.Uniform(3);
   if (write_time_mode == 0 || !s.ok()) {
     return kFallbackTime;
@@ -806,6 +795,8 @@ std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
   return std::make_shared<DbStressChecksumGenFactory>(internal_name);
 }
 
+// Expected values state files are always on local filesystem (Python owns
+// this dir), so use Env::Default() (PosixEnv) even when raw_env is remote.
 Status DeleteFilesInDirectory(const std::string& dirname) {
   std::vector<std::string> filenames;
   Status s = Env::Default()->GetChildren(dirname, &filenames);
@@ -880,8 +871,12 @@ Status DestroyUnverifiedSubdir(const std::string& dirname) {
 Status DbStressDestroyDb(const std::string& db_path) {
   Status s;
   Options options;
-  // NOTE: using db_stress_listener_env in order to see obsolete MANIFEST files
-  options.env = db_stress_listener_env;
+  // Use raw_env (no DbStressFSWrapper) because DbStressFSWrapper renames
+  // MANIFEST files to MANIFEST-xxx_renamed_ instead of deleting them during
+  // normal DB operation (to preserve history for debugging). Using raw_env
+  // here ensures DestroyDB actually deletes these files. DestroyDir below
+  // catches any remaining files not known to DestroyDB.
+  options.env = raw_env;
   // Remove DB files in a principled way to avoid issues
   if (FLAGS_use_blob_db) {
     s = blob_db::DestroyBlobDB(db_path, options, blob_db::BlobDBOptions());
@@ -891,9 +886,8 @@ Status DbStressDestroyDb(const std::string& db_path) {
   if (!s.ok()) {
     return s;
   }
-  // Remove everything else recursively, only reporting success if able to
-  // delete everything
-  return DestroyDir(db_stress_listener_env, db_path);
+  // Remove everything else recursively (catches MANIFEST_renamed_ files)
+  return DestroyDir(raw_env, db_path);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

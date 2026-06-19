@@ -7,6 +7,13 @@ DB_STRESS_CMD?=./db_stress
 
 include common.mk
 
+ifdef COMPILE_WITH_TSAN
+	# Keep direct `make -f crash_test.mk COMPILE_WITH_TSAN=1 ...` runs
+	# aligned with the main Makefile's TSAN runtime options.
+	TSAN_OPTIONS?=suppressions=$(CURDIR)/tools/tsan_suppressions.txt
+	export TSAN_OPTIONS
+endif
+
 CRASHTEST_MAKE=$(MAKE) -f crash_test.mk
 CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD) --cleanup_cmd='$(DB_CLEANUP_CMD)' --destroy_db_initially=1
 

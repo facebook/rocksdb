@@ -1893,6 +1893,10 @@ void rocksdb_backup_engine_info_destroy(
   delete info;
 }
 
+void rocksdb_backup_engine_stop_backup(rocksdb_backup_engine_t* be) {
+  be->rep->StopBackup();
+}
+
 void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;
@@ -1907,6 +1911,20 @@ rocksdb_backup_engine_options_t* rocksdb_backup_engine_options_create(
 void rocksdb_backup_engine_options_set_env(
     rocksdb_backup_engine_options_t* options, rocksdb_env_t* env) {
   options->rep.backup_env = (env ? env->rep : nullptr);
+}
+
+void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.backup_rate_limiter = limiter->rep;
+  }
+}
+
+void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.restore_rate_limiter = limiter->rep;
+  }
 }
 
 void rocksdb_backup_engine_options_destroy(
@@ -5686,6 +5704,15 @@ void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
   SaveError(errptr, db->rep->SetOptions(options_map));
 }
 
+void rocksdb_set_db_options(rocksdb_t* db, int count, const char* const keys[],
+                            const char* const values[], char** errptr) {
+  std::unordered_map<std::string, std::string> options_map;
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
+  SaveError(errptr, db->rep->SetDBOptions(options_map));
+}
+
 void rocksdb_set_options_cf(rocksdb_t* db,
                             rocksdb_column_family_handle_t* handle, int count,
                             const char* const keys[],
@@ -9069,6 +9096,15 @@ size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
 }
 
+void rocksdb_options_set_async_wal_precreate(rocksdb_options_t* opt,
+                                             unsigned char v) {
+  opt->rep.async_wal_precreate = v;
+}
+
+unsigned char rocksdb_options_get_async_wal_precreate(rocksdb_options_t* opt) {
+  return opt->rep.async_wal_precreate;
+}
+
 void rocksdb_options_set_verify_manifest_content_on_close(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.verify_manifest_content_on_close = v;
@@ -9077,6 +9113,26 @@ void rocksdb_options_set_verify_manifest_content_on_close(
 unsigned char rocksdb_options_get_verify_manifest_content_on_close(
     rocksdb_options_t* opt) {
   return opt->rep.verify_manifest_content_on_close;
+}
+
+void rocksdb_options_set_optimize_manifest_for_recovery(rocksdb_options_t* opt,
+                                                        unsigned char v) {
+  opt->rep.optimize_manifest_for_recovery = v;
+}
+
+unsigned char rocksdb_options_get_optimize_manifest_for_recovery(
+    rocksdb_options_t* opt) {
+  return opt->rep.optimize_manifest_for_recovery;
+}
+
+void rocksdb_options_set_reuse_manifest_on_open(rocksdb_options_t* opt,
+                                                unsigned char v) {
+  opt->rep.reuse_manifest_on_open = v;
+}
+
+unsigned char rocksdb_options_get_reuse_manifest_on_open(
+    rocksdb_options_t* opt) {
+  return opt->rep.reuse_manifest_on_open;
 }
 
 void rocksdb_options_set_max_manifest_space_amp_pct(rocksdb_options_t* opt,
@@ -9147,6 +9203,16 @@ void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
 
 unsigned char rocksdb_options_get_use_direct_reads(rocksdb_options_t* opt) {
   return opt->rep.use_direct_reads;
+}
+
+void rocksdb_options_set_use_direct_io_for_compaction_reads(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_direct_io_for_compaction_reads = v;
+}
+
+unsigned char rocksdb_options_get_use_direct_io_for_compaction_reads(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_direct_io_for_compaction_reads;
 }
 
 void rocksdb_options_set_use_direct_io_for_flush_and_compaction(
@@ -9668,6 +9734,15 @@ void rocksdb_options_set_wal_write_temperature(rocksdb_options_t* opt, int v) {
 
 int rocksdb_options_get_wal_write_temperature(rocksdb_options_t* opt) {
   return static_cast<int>(opt->rep.wal_write_temperature);
+}
+
+void rocksdb_options_set_fast_sst_open(rocksdb_options_t* opt,
+                                       unsigned char v) {
+  opt->rep.fast_sst_open = v;
+}
+
+unsigned char rocksdb_options_get_fast_sst_open(rocksdb_options_t* opt) {
+  return opt->rep.fast_sst_open;
 }
 
 /* AdvancedColumnFamilyOptions */
@@ -10194,14 +10269,14 @@ unsigned char rocksdb_options_get_paranoid_memory_checks(
   return opt->rep.paranoid_memory_checks;
 }
 
-void rocksdb_options_set_memtable_veirfy_per_key_checksum_on_seek(
+void rocksdb_options_set_memtable_verify_per_key_checksum_on_seek(
     rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.memtable_veirfy_per_key_checksum_on_seek = v;
+  opt->rep.memtable_verify_per_key_checksum_on_seek = v;
 }
 
-unsigned char rocksdb_options_get_memtable_veirfy_per_key_checksum_on_seek(
+unsigned char rocksdb_options_get_memtable_verify_per_key_checksum_on_seek(
     rocksdb_options_t* opt) {
-  return opt->rep.memtable_veirfy_per_key_checksum_on_seek;
+  return opt->rep.memtable_verify_per_key_checksum_on_seek;
 }
 
 void rocksdb_options_set_memtable_op_scan_flush_trigger(rocksdb_options_t* opt,
@@ -10829,6 +10904,27 @@ void rocksdb_ingestexternalfileoptions_set_fill_cache(
 unsigned char rocksdb_ingestexternalfileoptions_get_fill_cache(
     rocksdb_ingestexternalfileoptions_t* opt) {
   return opt->rep.fill_cache;
+}
+
+void rocksdb_ingestexternalfileoptions_set_prefetch_lmax_index_and_filter_blocks(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char v) {
+  opt->rep.prefetch_lmax_index_and_filter_blocks = v;
+}
+
+unsigned char
+rocksdb_ingestexternalfileoptions_get_prefetch_lmax_index_and_filter_blocks(
+    rocksdb_ingestexternalfileoptions_t* opt) {
+  return opt->rep.prefetch_lmax_index_and_filter_blocks;
+}
+
+void rocksdb_ingestexternalfileoptions_set_file_opening_threads(
+    rocksdb_ingestexternalfileoptions_t* opt, int v) {
+  opt->rep.file_opening_threads = v;
+}
+
+int rocksdb_ingestexternalfileoptions_get_file_opening_threads(
+    rocksdb_ingestexternalfileoptions_t* opt) {
+  return opt->rep.file_opening_threads;
 }
 
 /* OpenAndCompactOptions */

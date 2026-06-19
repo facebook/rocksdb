@@ -247,7 +247,7 @@ class BitvectorBuilder {
 //
 // Created from serialized data (e.g., read from an SST file meta-block) or
 // from a BitvectorBuilder. The bitvector does NOT own the underlying memory
-// when created from a Slice — the caller must ensure the data outlives this
+// when created from a Slice -- the caller must ensure the data outlives this
 // object.
 //
 // Select acceleration: select hints store the rank LUT index where every
@@ -379,7 +379,7 @@ class Bitvector {
 
   // select1(i): Position of the i-th 1-bit (0-indexed).
   // Returns num_bits_ if there are fewer than (i+1) 1-bits.
-  // Inlined for hot-path performance — the hint lookup + linear scan is
+  // Inlined for hot-path performance -- the hint lookup + linear scan is
   // branch-predictor friendly and avoids function call overhead.
   inline uint64_t FindNthOneBit(uint64_t i) const {
     if (i >= num_ones_) {
@@ -422,7 +422,7 @@ class Bitvector {
 
   // Find the next set bit at or after position `pos`.
   // Returns num_bits_ if no set bit is found.
-  // Inlined for hot-path performance — called on every dense Seek, Advance,
+  // Inlined for hot-path performance -- called on every dense Seek, Advance,
   // and DescendToLeftmostLeaf.
   inline uint64_t NextSetBit(uint64_t pos) const {
     if (pos >= num_bits_) {
@@ -580,7 +580,7 @@ class EliasFano {
   // Custom move operations to re-seat low_words_ after moving owned_low_data_.
   // The default move would leave low_words_ pointing into the moved-from
   // object's owned_low_data_ buffer. For SSO-sized strings (owned_low_data_
-  // with <= ~22 bytes, e.g. count_=1 low_bits_=8 → 8 bytes), std::string
+  // with <= ~22 bytes, e.g. count_=1 low_bits_=8 -> 8 bytes), std::string
   // move copies the SSO buffer to a new address rather than transferring a
   // heap pointer, leaving low_words_ dangling. For heap-allocated strings
   // move transfers the pointer (address preserved), but we re-seat

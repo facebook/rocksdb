@@ -1889,6 +1889,10 @@ void rocksdb_backup_engine_info_destroy(
   delete info;
 }
 
+void rocksdb_backup_engine_stop_backup(rocksdb_backup_engine_t* be) {
+  be->rep->StopBackup();
+}
+
 void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;
@@ -1903,6 +1907,20 @@ rocksdb_backup_engine_options_t* rocksdb_backup_engine_options_create(
 void rocksdb_backup_engine_options_set_env(
     rocksdb_backup_engine_options_t* options, rocksdb_env_t* env) {
   options->rep.backup_env = (env ? env->rep : nullptr);
+}
+
+void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.backup_rate_limiter = limiter->rep;
+  }
+}
+
+void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.restore_rate_limiter = limiter->rep;
+  }
 }
 
 void rocksdb_backup_engine_options_destroy(
@@ -4526,6 +4544,15 @@ void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
     options_map[keys[i]] = values[i];
   }
   SaveError(errptr, db->rep->SetOptions(options_map));
+}
+
+void rocksdb_set_db_options(rocksdb_t* db, int count, const char* const keys[],
+                            const char* const values[], char** errptr) {
+  std::unordered_map<std::string, std::string> options_map;
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
+  SaveError(errptr, db->rep->SetDBOptions(options_map));
 }
 
 void rocksdb_set_options_cf(rocksdb_t* db,

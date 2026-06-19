@@ -327,6 +327,9 @@ missing_make_config_paths := $(shell				\
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) does not exist))
 
+# This (the first rule) must depend on "all".
+default: all
+
 ifeq ($(PLATFORM), OS_AIX)
 # no debug info
 else ifneq ($(PLATFORM), IOS)
@@ -384,6 +387,10 @@ endif
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
+	# Use a suppressions file instead of the process-wide TSAN default
+	# suppressions hook, which belongs to the final application.
+	TSAN_OPTIONS?=suppressions=$(CURDIR)/tools/tsan_suppressions.txt
+	export TSAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=thread
 	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
@@ -480,9 +487,6 @@ ifdef ROCKSDB_MODIFY_NPHASH
   PLATFORM_CCFLAGS += -DROCKSDB_MODIFY_NPHASH=1
   PLATFORM_CXXFLAGS += -DROCKSDB_MODIFY_NPHASH=1
 endif
-
-# This (the first rule) must depend on "all".
-default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
@@ -883,11 +887,25 @@ coverage: clean
 parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 .PHONY: gen_parallel_tests $(parallel_tests)
 # Shard size controls how many test cases run per process. The actual number
-# of shards per binary is: min(ceil(test_count / GTEST_SHARD_SIZE), NCORES * 8)
+# of shards per binary is: min(ceil(test_count / shard_size), NCORES * 8)
 # This adapts to machine size: many small shards on beefy machines, fewer
 # larger shards on CI (typically 2-4 cores).
 GTEST_SHARD_SIZE ?= 10
 NCORES ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+# Per-binary overrides for GTEST_SHARD_SIZE, used to chop up binaries whose
+# individual test cases are slow enough that the default of 10 leaves one
+# shard on the critical path of "make check". Format: whitespace-separated
+# tokens "BINARY:SIZE". Sizes were tuned from `make suggest-slow-tests`
+# output to keep max shard time under ~20s on a beefy box. Reducing too far
+# adds per-shard fixed overhead, so don't use 1 unless individual tests are
+# >5s.
+SHARD_SIZE_OVERRIDES ?= \
+  point_lock_manager_stress_test:1 \
+  external_sst_file_test:1 \
+  external_sst_file_basic_test:2 \
+  db_test:3 \
+  compaction_service_test:1
 
 $(parallel_tests):
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
@@ -895,11 +913,17 @@ $(parallel_tests):
     (./$$TEST_BINARY --gtest_list_tests 2>/dev/null || echo "  list_failure") \
     | grep -c '^ '`; \
 	if [ "$$TEST_COUNT" -le 0 ]; then TEST_COUNT=1; fi; \
+	SHARD_SIZE=$(GTEST_SHARD_SIZE); \
+	for o in $(SHARD_SIZE_OVERRIDES); do \
+		case "$$o" in \
+			"$$TEST_BINARY":*) SHARD_SIZE=$${o#*:} ;; \
+		esac; \
+	done; \
 	MAX_SHARDS=$$(( $(NCORES) * 8 )); \
-	NUM_SHARDS=$$(( (TEST_COUNT + $(GTEST_SHARD_SIZE) - 1) / $(GTEST_SHARD_SIZE) )); \
+	NUM_SHARDS=$$(( (TEST_COUNT + SHARD_SIZE - 1) / SHARD_SIZE )); \
 	if [ "$$NUM_SHARDS" -gt "$$MAX_SHARDS" ]; then NUM_SHARDS=$$MAX_SHARDS; fi; \
 	if [ "$$NUM_SHARDS" -le 0 ]; then NUM_SHARDS=1; fi; \
-	echo "  Generating $$NUM_SHARDS shards for $$TEST_BINARY ($$TEST_COUNT tests)"; \
+	echo "  Generating $$NUM_SHARDS shards for $$TEST_BINARY ($$TEST_COUNT tests, shard_size=$$SHARD_SIZE)"; \
 	SHARD_IDX=0; \
 	while [ "$$SHARD_IDX" -lt "$$NUM_SHARDS" ]; do \
 		if [ -n "$(CI_TOTAL_SHARDS)" ] && [ $$(( $$SHARD_IDX % $(CI_TOTAL_SHARDS) )) -ne $(CI_SHARD_INDEX) ]; then \
@@ -925,30 +949,63 @@ gen_parallel_tests:
 	$(AM_V_at)$(FIND) t -type f -name 'run-*' -exec rm -f {} \;
 	$(MAKE) $(parallel_tests)
 
-# Reorder input lines (which are one per test) so that the
-# longest-running tests appear first in the output.
-# Do this by prefixing each selected name with its duration,
-# sort the resulting names, and remove the leading numbers.
-# FIXME: the "100" we prepend is a fake time, for now.
-# FIXME: squirrel away timings from each run and use them
-# (when present) on subsequent runs to order these tests.
+# Reorder input lines (one per test or per shard) so the longest-running
+# tests/shards start first under "make check" parallel scheduling. The trick
+# is to prefix matched names with a fake duration (100), sort numerically
+# descending, then strip the prefix. Slow-matched tests therefore come ahead
+# of all unmatched tests; ordering within each group is unspecified.
 #
-# Without this reordering, these two tests would happen to start only
-# after almost all other tests had completed, thus adding 100 seconds
-# to the duration of parallel "make check".  That's the difference
-# between 4 minutes (old) and 2m20s (new).
+# Why this matters: gnu_parallel hands out jobs in input order. If a slow
+# test starts only after most others have finished, the run is bottlenecked
+# on its tail. Front-loading slow tests overlaps them with the bulk of
+# faster ones for much better wall-clock time.
 #
-# 152.120 PASS t/DBTest.FileCreationRandomFailure
-# 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
+# Maintenance:
+#   1) Run `make check` so LOG is up-to-date.
+#   2) Run `make suggest-slow-tests` to see candidate slow binaries.
+#   3) Add binaries with high per-shard time (slow critical path) or high
+#      total time across many shards (need early queueing for fan-out).
+# Each alternative is wrapped in `^.*NAME.*$$` so the *whole input line* is
+# captured into $$1; then `s,(...),100 $$1,` prepends "100 " to the line.
 #
-# With sharded test execution, prioritize binaries known to be slow.
-# These generate many shards and should start early for good load balancing.
+# Tiers below are based on observed timings (see suggest-slow-tests).
+# Tier 1: max single-shard time >= 30s (critical-path bottlenecks).
+# Tier 2: max single-shard time 15-30s.
+# Tier 3: huge total time across many tiny shards; front-loading them keeps
+#         the tail of the run busy while big shards finish.
 slow_test_regexp = \
-	^.*block_based_table_reader_test.*$$|^.*table_test.*$$|^.*block_test.*$$|^.*write_prepared_transaction_test.*$$|^.*transaction_test.*$$|^.*external_sst_file_test.*$$|^.*db_wal_test.*$$|^.*db_with_timestamp_basic_test.*$$|^.*db_test-.*$$
+	^.*point_lock_manager_stress_test.*$$|^.*db_test.*$$|^.*external_sst_file_test.*$$|^.*compaction_service_test.*$$|^.*corruption_test.*$$|^.*comparator_db_test.*$$|^.*external_sst_file_basic_test.*$$|^.*rate_limiter_test.*$$|^.*db_compaction_test.*$$|^.*write_prepared_transaction_test.*$$|^.*db_merge_operator_test.*$$|\
+	^.*db_dynamic_level_test.*$$|^.*db_bloom_filter_test.*$$|^.*error_handler_fs_test.*$$|^.*merge_helper_test.*$$|^.*transaction_test.*$$|^.*db_kv_checksum_test.*$$|^.*inlineskiplist_test.*$$|\
+	^.*db_with_timestamp_basic_test.*$$|^.*table_test.*$$|^.*db_wal_test.*$$|^.*block_based_table_reader_test.*$$|^.*block_test.*$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
     | sed 's/^[.0-9]* //'
+
+# Helper: print binaries observed to be slow in the last `make check` run.
+# Use this to decide whether `slow_test_regexp` above needs updating.
+# Aggregates per-binary across shards; flags any binary whose max single-shard
+# time is >= 20s OR whose total time is >= 200s.
+.PHONY: suggest-slow-tests
+suggest-slow-tests:
+	@if [ ! -s LOG ]; then \
+	  echo "No (or empty) LOG file. Run 'make check' first." >&2; exit 1; \
+	fi
+	@bash -c '$(quoted_perl_command)' < LOG | awk '\
+	  { \
+	    t=$$1; name=$$3; \
+	    sub(/^t\/run-/, "", name); \
+	    sub(/-shard-[0-9]+$$/, "", name); \
+	    total[name] += t; \
+	    if (t > max[name]) max[name] = t; \
+	    count[name]++; \
+	  } \
+	  END { \
+	    printf "%8s %8s %5s  %s\n", "TOTAL_s", "MAX_s", "SHRDS", "BINARY"; \
+	    for (n in total) \
+	      if (max[n] >= 20 || total[n] >= 200) \
+	        printf "%8.1f %8.1f %5d  %s\n", total[n], max[n], count[n], n; \
+	  }' | (read header; echo "$$header"; sort -k2,2gr)
 
 # "make check" uses
 # Run with "make J=1 check" to disable parallelism in "make check".
@@ -986,7 +1043,7 @@ check_0:
 		        awk -v s=$(CI_SHARD_INDEX) -v n=$(CI_TOTAL_SHARDS) '(NR-1)%n==s'; \
 		      else cat; fi; \
 		fi; \
-		find t -name 'run-*' -print; \
+		$(FIND) t -name 'run-*' -print; \
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
@@ -1008,7 +1065,7 @@ valgrind_check_0:
 	  '  run "make watch-log" in a separate window' '';		\
 	{								\
 	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
-	  find t -name 'run-*' -print; \
+	  $(FIND) t -name 'run-*' -print; \
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
@@ -1069,6 +1126,7 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
 	$(MAKE) check-sources
+	$(MAKE) check-workflow-yaml
 endif
 	$(MAKE) check-c-api-gen CHECK_C_API_GEN=$(CHECK_C_API_GEN)
 
@@ -1260,11 +1318,17 @@ clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-r
 
 clean-rocks:
 # Not practical to exactly match all versions/variants in naming (e.g. debug or not)
-	rm -f ${LIBNAME}*.so* ${LIBNAME}*.a
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
-	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
-	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
+	@echo Removing link targets
+	@rm -f ${LIBNAME}*.so* ${LIBNAME}*.a $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
+	@echo Finding and cleaning other files
+	@rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
+	@if $(FIND) Makefile -regextype awk &> /dev/null; then \
+		$(FIND) . -regextype awk \
+			-regex '.*/([.].*|third-party)' -prune -o \
+			-type f -regex '.*[.]([oda]|gcda|gcno)' -exec rm -f {} \; ; \
+	else \
+		$(FIND) . -name "*.[oda]" -exec rm -f {} \; ; \
+	fi
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -1277,7 +1341,7 @@ clean-ext-libraries-all:
 	rm -rf bzip2* snappy* zlib* lz4* zstd*
 
 clean-ext-libraries-bin:
-	find . -maxdepth 1 -type d \( -name bzip2\* -or -name snappy\* -or -name zlib\* -or -name lz4\* -or -name zstd\* \) -prune -exec rm -rf {} \;
+	$(FIND) . -maxdepth 1 -type d \( -name bzip2\* -or -name snappy\* -or -name zlib\* -or -name lz4\* -or -name zstd\* \) -prune -exec rm -rf {} \;
 
 tags:
 	ctags -R .
@@ -1302,6 +1366,8 @@ check-format:
 	build_tools/format-diff.sh -c
 
 
+# Crude alternative to setup-hooks: copies hooks into .git/hooks/ instead of
+# using core.hooksPath. The copies won't track changes to githooks/.
 install-hooks:
 	@echo "Installing git hooks from githooks/..."
 	@if [ -d githooks ]; then \
@@ -1317,6 +1383,7 @@ install-hooks:
 		exit 1; \
 	fi
 
+# Reverse of install-hooks (not needed if using setup-hooks / core.hooksPath).
 uninstall-hooks:
 	@echo "Removing installed git hooks..."
 	@for hook in githooks/*; do \
@@ -1331,6 +1398,9 @@ check-buck-targets:
 
 check-sources:
 	build_tools/check-sources.sh
+
+check-workflow-yaml:
+	build_tools/check-workflow-yaml.sh
 
 # Run clang-tidy on locally changed files, filtered to changed lines only.
 # Requires compile_commands.json (generate with cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
@@ -1549,7 +1619,7 @@ db_open_with_config_test: $(OBJ_DIR)/db/db_open_with_config_test.o $(TEST_LIBRAR
 db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
+db_etc2_test: $(OBJ_DIR)/db/db_etc2_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_etc3_test: $(OBJ_DIR)/db/db_etc3_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2695,7 +2765,7 @@ list_all_tests:
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources clang-tidy jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources check-workflow-yaml clang-tidy jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif

@@ -24,6 +24,7 @@
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
+#include "rocksdb/file_system.h"
 #include "util/aligned_buffer.h"
 #include "util/compression.h"
 #include "util/mutexlock.h"
@@ -54,13 +55,14 @@ class RoundRobinBlobFilePartitionStrategy : public BlobFilePartitionStrategy {
 };
 
 struct DirectWriteCompressionState {
+  CompressionOptions compression_opts;
   // `working_area` must be released before its owning compressor.
   std::unique_ptr<Compressor> compressor;
   Compressor::ManagedWorkingArea working_area;
 };
 
 DirectWriteCompressionState& GetDirectWriteCompressionState(
-    CompressionType compression) {
+    CompressionType compression, const CompressionOptions& compression_opts) {
   assert(compression <= kLastBuiltinCompression);
 
   static thread_local std::array<DirectWriteCompressionState,
@@ -71,12 +73,15 @@ DirectWriteCompressionState& GetDirectWriteCompressionState(
   auto& compression_state =
       compression_states[static_cast<size_t>(compression)];
   if (compression != kNoCompression &&
-      compression_state.compressor == nullptr) {
-    // BDW v1 mirrors BlobFileBuilder by using the built-in compressor with the
-    // default CompressionOptions only. Cache it per thread so repeated writes
-    // do not allocate a new compressor and working area every time.
+      (compression_state.compressor == nullptr ||
+       compression_state.compression_opts != compression_opts)) {
+    // BDW compression settings are mutable, so rebuild the per-thread cached
+    // compressor when the latest published opts for this type change.
+    compression_state.working_area = Compressor::ManagedWorkingArea{};
+    compression_state.compressor.reset();
+    compression_state.compression_opts = compression_opts;
     compression_state.compressor =
-        GetBuiltinV2CompressionManager()->GetCompressor(CompressionOptions{},
+        GetBuiltinV2CompressionManager()->GetCompressor(compression_opts,
                                                         compression);
     if (compression_state.compressor != nullptr) {
       compression_state.working_area =
@@ -195,7 +200,9 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   }
 
   std::unique_ptr<FSWritableFile> file;
-  Status s = NewWritableFile(fs_, blob_file_path, &file, file_options_);
+  FileOptions writer_file_options = file_options_;
+  writer_file_options.open_contract = FileOpenContract::kNoReopenForWrite;
+  Status s = NewWritableFile(fs_, blob_file_path, &file, writer_file_options);
   if (!s.ok()) {
     RemoveFilePartitionMapping(blob_file_number);
     return s;
@@ -204,7 +211,7 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   const bool perform_data_verification =
       checksum_handoff_file_types_.Contains(FileType::kBlobFile);
   auto file_writer = std::make_unique<WritableFileWriter>(
-      std::move(file), blob_file_path, file_options_, clock_, io_tracer_,
+      std::move(file), blob_file_path, writer_file_options, clock_, io_tracer_,
       statistics_, Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, listeners_,
       file_checksum_gen_factory_, perform_data_verification);
 
@@ -390,15 +397,15 @@ bool BlobFilePartitionManager::MarkSealedFileGarbage(
 }
 
 Status BlobFilePartitionManager::MaybePrepopulateBlobCache(
-    const BlobDirectWriteSettings* settings, const Slice& original_value,
+    const BlobDirectWriteSettings& settings, const Slice& original_value,
     uint64_t blob_file_number, uint64_t blob_offset) {
-  if (settings == nullptr || settings->blob_cache == nullptr ||
-      settings->prepopulate_blob_cache != PrepopulateBlobCache::kFlushOnly) {
+  if (settings.blob_cache == nullptr ||
+      settings.prepopulate_blob_cache != PrepopulateBlobCache::kFlushOnly) {
     return Status::OK();
   }
 
   FullTypedCacheInterface<BlobContents, BlobContentsCreator> blob_cache{
-      settings->blob_cache};
+      settings.blob_cache};
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
                                           blob_file_number);
   const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
@@ -419,7 +426,7 @@ Status BlobFilePartitionManager::WriteBlob(
     const WriteOptions& write_options, uint32_t column_family_id,
     CompressionType compression, const Slice& key, const Slice& value,
     uint64_t* blob_file_number, uint64_t* blob_offset, uint64_t* blob_size,
-    const BlobDirectWriteSettings* settings, const uint32_t* partition_idx) {
+    const BlobDirectWriteSettings& settings, const uint32_t* partition_idx) {
   assert(blob_file_number != nullptr);
   assert(blob_offset != nullptr);
   assert(blob_size != nullptr);
@@ -431,7 +438,8 @@ Status BlobFilePartitionManager::WriteBlob(
   GrowableBuffer compressed_value;
   Slice write_value = value;
   if (compression != kNoCompression) {
-    auto& compression_state = GetDirectWriteCompressionState(compression);
+    auto& compression_state =
+        GetDirectWriteCompressionState(compression, settings.compression_opts);
     if (compression_state.compressor == nullptr) {
       return Status::NotSupported(
           "Blob direct write compression type not supported");
@@ -781,13 +789,19 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
     }
   }
 
-  Status s = version != nullptr ? Status::Corruption("Invalid blob file number")
-                                : Status::NotFound();
-
   if (blob_file_cache == nullptr) {
-    return s;
+    return version != nullptr ? Status::Corruption("Invalid blob file number")
+                              : Status::NotFound();
   }
 
+  if (read_options.read_tier == kBlockCacheTier) {
+    // The direct-write fallback below may need to open the blob file reader,
+    // which `kBlockCacheTier` forbids. Keep the normal Version-backed path
+    // above eligible for cache-only hits.
+    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+  }
+
+  Status s;
   CacheHandleGuard<BlobFileReader> reader;
   s = blob_file_cache->GetBlobFileReader(read_options, blob_idx.file_number(),
                                          &reader,

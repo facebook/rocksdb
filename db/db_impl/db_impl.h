@@ -15,6 +15,8 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -74,6 +76,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class FileIngestionHandleImpl;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
@@ -573,6 +576,10 @@ class DBImpl : public DB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
 
+  Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& file_path,
+      std::shared_ptr<const PreparedFileInfo>* file_info) override;
+
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
@@ -601,6 +608,14 @@ class DBImpl : public DB {
   using DB::IngestExternalFiles;
   Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override;
+
+  using DB::PrepareFileIngestion;
+  Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& args,
+      std::unique_ptr<FileIngestionHandle>* handle) override;
+
+  Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> handles) override;
 
   using DB::CreateColumnFamilyWithImport;
   Status CreateColumnFamilyWithImport(
@@ -855,12 +870,22 @@ class DBImpl : public DB {
   // memtable range tombstone iterator used by the underlying merging iterator.
   // This range tombstone iterator can be refreshed later by db_iter.
   // @param read_options Must outlive the returned iterator.
-  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena, SequenceNumber sequence,
-                                        bool allow_unprepared_value,
-                                        ArenaWrappedDBIter* db_iter = nullptr);
+  // @param sequence The snapshot sequence captured when the DB iterator was
+  // created. Child iterators must use this instead of dereferencing
+  // read_options.snapshot, which may be released before lazy initialization.
+  // @param scan_opts Optional bounded scan ranges used only to prune the
+  // iterator tree during lazy Prepare() initialization.
+  InternalIterator* NewInternalIterator(
+      const ReadOptions& read_options, ColumnFamilyData* cfd,
+      SuperVersion* super_version, Arena* arena, SequenceNumber sequence,
+      bool allow_unprepared_value, ArenaWrappedDBIter* db_iter = nullptr,
+      const MultiScanArgs* scan_opts = nullptr);
+
+  // Release a SuperVersion held by an iterator. This preserves the cleanup
+  // behavior used by materialized internal iterators even when the DB iterator
+  // never needed to lazily build its child iterator tree.
+  void CleanupIteratorSuperVersion(SuperVersion* super_version,
+                                   bool background_purge);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -1096,6 +1121,7 @@ class DBImpl : public DB {
     superversions_to_free_queue_.push_back(sv);
   }
 
+  void EnableTrackPublishedSeqInSnapshotContext();
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
@@ -1452,6 +1478,13 @@ class DBImpl : public DB {
   std::atomic<int> next_job_id_ = 1;
 
   std::atomic<bool> shutting_down_ = false;
+  // Protected by mutex_. This is separate from shutting_down_ because
+  // OnDBShutdownBegin must fire before shutting_down_ is published, and the
+  // notification releases mutex_ while invoking listeners. Marking that the
+  // notification has started prevents a concurrent or reentrant
+  // CancelAllBackgroundWork() call from firing it again during that unlocked
+  // callback window.
+  bool shutdown_notification_sent_ = false;
 
   // No new background jobs can be queued if true. This is used to prevent new
   // background jobs from being queued after WaitForCompact() completes waiting
@@ -1526,6 +1559,16 @@ class DBImpl : public DB {
                                    const Status& st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
+  // Fires the OnCompactionPreCommit listener callback. Mirrors
+  // NotifyOnCompactionCompleted but is invoked before ReleaseCompactionFiles()
+  // (i.e. while input files still have being_compacted == true). Idempotent:
+  // safe to call from multiple potential release sites; only fires once per
+  // compaction, and only if NotifyOnCompactionBegin previously fired.
+  void NotifyOnCompactionPreCommit(ColumnFamilyData* cfd, Compaction* c,
+                                   const Status& st,
+                                   const CompactionJobStats& job_stats,
+                                   int job_id);
+  void NotifyOnDBShutdownBegin();
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 
@@ -1747,10 +1790,6 @@ class DBImpl : public DB {
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
       const PublishLastSeq publish_last_seq, const bool disable_memtable);
 
-  void MaybeTraceWriteGroupForPreservedWriteOrder(
-      const WriteThread::WriteGroup& write_group,
-      WriteBatchWithIndex* wbwi = nullptr, bool ingest_wbwi_for_commit = true);
-
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
   Status WriteRecoverableState();
@@ -1825,6 +1864,9 @@ class DBImpl : public DB {
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
                             const Slice& ts) const;
+  Status FailIfTableFilterWithRangeConversion(
+      const ReadOptions& read_options,
+      const MutableCFOptions& mutable_cf_options) const;
 
   // Check that the read timestamp `ts` is at or above the `full_history_ts_low`
   // timestamp in a `SuperVersion`. It's necessary to do this check after
@@ -1855,6 +1897,11 @@ class DBImpl : public DB {
   // Background work function for async file opening.
   static void BGWorkAsyncFileOpen(void* arg);
 
+  // Block the until any in-flight async file open work has
+  // completed. No-op when open_files_async is false. Returns early if
+  // shutdown begins.
+  void WaitForAsyncFileOpen();
+
   void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
 
   // Return true to proceed with current WAL record whose content is stored in
@@ -1870,6 +1917,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class DBImplReadOnly;
   friend class DBImplSecondary;
   friend class ErrorHandler;
   friend class InternalStats;
@@ -1881,6 +1929,7 @@ class DBImpl : public DB {
   friend class WriteBatchWithIndex;
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTxn;
+  friend class FileIngestionHandleImpl;
 
   friend class ForwardIterator;
   friend struct SuperVersion;
@@ -2217,6 +2266,10 @@ class DBImpl : public DB {
   // and blocked by any other pending_outputs_ calls)
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
+
+  // Rolls back one prepared file ingestion (delete its staged files, release
+  // the reserved file numbers)
+  void RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h);
 
   // Similar to pending_outputs, preserve OPTIONS file. Used for remote
   // compaction.
@@ -2568,10 +2621,15 @@ class DBImpl : public DB {
   // Helper function to perform trivial move by updating manifest metadata
   // without rewriting data files. This is called when IsTrivialMove() is true.
   // REQUIRES: mutex held
-  // Returns: Status of the trivial move operation
-  Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                            bool& compaction_released, size_t& moved_files,
-                            size_t& moved_bytes);
+  // Populates the Compaction's edit with DeleteFile/AddFile entries for
+  // a trivial move (no data rewriting). Does not commit the edit.
+  void PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                              size_t& moved_files, size_t& moved_bytes);
+
+  // REQUIRES: mutex held, PrepareTrivialMoveEdit already called
+  // Commits the trivial move by calling LogAndApply on the prepared edit.
+  // Returns: Status of the manifest write
+  Status CommitTrivialMove(Compaction& c, bool& compaction_released);
 
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
@@ -2744,6 +2802,8 @@ class DBImpl : public DB {
 
   Status MaybeReleaseTimestampedSnapshotsAndCheck();
 
+  Status MaybeWriteWalMarkersToManifestOnClose();
+
   Status CloseHelper();
 
   void WaitForBackgroundWork();
@@ -2802,7 +2862,68 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
+  // Returns true when async WAL precreation is enabled and compatible with the
+  // active WAL strategy. WAL recycling already avoids file creation latency, so
+  // precreation is disabled when recycle_log_file_num is non-zero.
+  bool AsyncWALPrecreateEnabled() const;
+
+  // A WAL file that has a reserved file number and may have an opened writer,
+  // but has not been added to DBImpl's in-memory logical WAL tracking lists
+  // (logs_ and alive_wal_files_).
+  struct UnpublishedWAL {
+    uint64_t log_number = 0;
+    std::unique_ptr<log::Writer> writer;
+
+    UnpublishedWAL() = default;
+    UnpublishedWAL(const UnpublishedWAL&) = delete;
+    UnpublishedWAL& operator=(const UnpublishedWAL&) = delete;
+
+    UnpublishedWAL(UnpublishedWAL&& other) noexcept {
+      *this = std::move(other);
+    }
+    UnpublishedWAL& operator=(UnpublishedWAL&& other) noexcept {
+      if (this != &other) {
+        log_number = other.log_number;
+        writer = std::move(other.writer);
+        other.Reset();
+      }
+      return *this;
+    }
+
+    void Reset() {
+      log_number = 0;
+      writer.reset();
+    }
+  };
+
+  // Reserves the next WAL file number and schedules a HIGH-priority background
+  // task to precreate that WAL file. A precreated WAL is not a logical WAL
+  // until a foreground WAL rotation consumes it.
+  void MaybeScheduleAsyncWALPrecreate(size_t preallocate_block_size);
+
+  // Background task for opening the reserved future WAL and publishing the
+  // result under mutex_.
+  static void BGWorkAsyncWALPrecreate(void* arg);
+
+  // Waits for an in-flight async WAL precreation and returns a prepared WAL if
+  // one is available. If precreation failed, returns an empty WAL and lets the
+  // foreground rotation create the WAL synchronously. Caller must hold mutex_.
+  UnpublishedWAL WaitForAsyncWALPrecreate();
+
+  // Opens and preallocates a WAL writer without writing logical WAL records.
+  // Used by async WAL precreation and by synchronous WAL creation.
+  IOStatus CreateWALWriter(const DBOptions& db_options, uint64_t log_file_num,
+                           uint64_t recycle_log_number,
+                           size_t preallocate_block_size,
+                           UnpublishedWAL* new_wal);
+
+  // Starts an opened WAL file by writing the initial records required before it
+  // can be installed as the current WAL for foreground writes.
+  IOStatus StartWALFile(const WriteOptions& write_options,
+                        const PredecessorWALInfo& predecessor_wal_info,
+                        log::Writer* new_log);
+  IOStatus CreateWAL(const DBOptions& db_options,
+                     const WriteOptions& write_options, uint64_t log_file_num,
                      uint64_t recycle_log_number, size_t preallocate_block_size,
                      const PredecessorWALInfo& predecessor_wal_info,
                      log::Writer** new_log);
@@ -2945,6 +3066,29 @@ class DBImpl : public DB {
       bool resolve_direct_write_value, const Version* current,
       ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
       Status* s, bool* is_blob_index, bool* value_found = nullptr);
+  // Resolves memtable read results that still carry blob references through
+  // either a raw blob-index payload in `value` or unresolved blob columns in
+  // `columns`. Unlike the direct-write helper above, this path only depends on
+  // a BlobFetcher and therefore works for read-only/secondary DBs.
+  static bool MaybeResolveMemtableBlobValue(const Slice& key,
+                                            const BlobFetcher* blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns,
+                                            Status* s, bool* is_blob_index,
+                                            bool* value_found = nullptr);
+  // Completes read-only/secondary memtable Get()/GetEntity() hits by resolving
+  // blob-backed payloads when `resolve_blob_backed_memtable_value` is true,
+  // pinning plain values on success, and clearing outputs on error. When the
+  // caller explicitly requested raw blob indices via
+  // `GetImplOptions::is_blob_index`, this helper leaves that payload
+  // untouched. `memtable_blob_fetcher` may be null when blob support is
+  // disabled for the column family.
+  static void PostprocessMemtableValueRead(
+      const Slice& key, const std::string* timestamp,
+      bool resolve_blob_backed_memtable_value,
+      const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+      bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>
@@ -3275,6 +3419,28 @@ class DBImpl : public DB {
   AsyncFileOpenState bg_async_file_open_state_ =
       AsyncFileOpenState::kNotScheduled;
 
+  // State machine for the single async WAL precreation slot protected by
+  // mutex_. Background precreation failure returns to kNotScheduled; foreground
+  // rotation handles it the same as no prepared WAL and creates one
+  // synchronously. kScheduled owns a reserved file number; kReady owns an
+  // opened writer that has not been started or added to logical WAL tracking.
+  enum class AsyncWALPrecreateState : uint8_t {
+    kNotScheduled = 0,  // No WAL precreate work is in-flight or ready.
+    kScheduled,         // Background task owns creation of the reserved WAL.
+    kReady,             // Reserved WAL writer is open but not logically live.
+  };
+
+  // Protected by mutex_. Tracks at most one background precreated WAL. A
+  // precreated WAL is only reserved empty storage until SwitchMemtable()
+  // consumes it and installs it in DBImpl's in-memory logical WAL tracking
+  // lists (logs_ and alive_wal_files_).
+  AsyncWALPrecreateState async_wal_precreate_state_ =
+      AsyncWALPrecreateState::kNotScheduled;
+
+  // Reserved in-flight/ready precreated WAL. The writer is populated only while
+  // state is kReady.
+  UnpublishedWAL async_wal_precreate_wal_;
+
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
   // shall we disable deletion of obsolete files
@@ -3324,6 +3490,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex held
   int num_running_ingest_file_ = 0;
 
+  // Number of FileIngestionHandle objects produced by PrepareFileIngestion()
+  // that have not been committed or destroyed yet.
+  std::atomic<uint32_t> num_outstanding_prepared_ingestions_{0};
+
   WalManager wal_manager_;
 
   // A value of > 0 temporarily disables scheduling of background work
@@ -3349,6 +3519,13 @@ class DBImpl : public DB {
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
+  // When set, InitSnapshotContext() appends GetLastPublishedSequence() to the
+  // job's snapshot_seqs (if not already present) so that flush/compaction
+  // preserves the published-sequence boundary even when no explicit user
+  // snapshot exists there. Unlike taking a real ManagedSnapshot, this just
+  // pins the seqno into the snapshot list: no allocation, no snapshot list
+  // mutation, and no SnapshotChecker.
+  bool track_published_seq_in_snapshot_context_ = false;
 
   // Callback for when the cached_recoverable_state_ is written to memtable
   // Only to be set during initialization
@@ -3535,6 +3712,18 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
     oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
         << ts_sz << " given";
     return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
+inline Status DBImpl::FailIfTableFilterWithRangeConversion(
+    const ReadOptions& read_options,
+    const MutableCFOptions& mutable_cf_options) const {
+  if (read_options.table_filter &&
+      mutable_cf_options.min_tombstones_for_range_conversion > 0) {
+    return Status::InvalidArgument(
+        "ReadOptions::table_filter is not supported when "
+        "min_tombstones_for_range_conversion > 0");
   }
   return Status::OK();
 }

@@ -247,6 +247,7 @@ class PosixFileSystem : public FileSystem {
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
+          TsanAnnotateMappedMemory(base, static_cast<size_t>(size));
           result->reset(
               new PosixMmapReadableFile(fd, fname, base, size, options));
         } else {
@@ -520,6 +521,8 @@ class PosixFileSystem : public FileSystem {
                   MAP_SHARED, fd, 0);
       if (base == MAP_FAILED) {
         status = IOError("while mmap file for read", fname, errno);
+      } else {
+        TsanAnnotateMappedMemory(base, static_cast<size_t>(size));
       }
     }
     if (status.ok()) {
@@ -947,15 +950,14 @@ class PosixFileSystem : public FileSystem {
   FileOptions OptimizeForCompactionTableRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
-    FileOptions fo = FileOptions(file_options);
+    FileOptions fo =
+        FileSystem::OptimizeForCompactionTableRead(file_options, db_options);
 #ifdef OS_LINUX
     // To fix https://github.com/facebook/rocksdb/issues/12038
-    if (!file_options.use_direct_reads &&
-        file_options.compaction_readahead_size > 0) {
+    if (!fo.use_direct_reads && fo.compaction_readahead_size > 0) {
       size_t system_limit =
           GetCompactionReadaheadSizeSystemLimit(db_options.db_paths);
-      if (system_limit > 0 &&
-          file_options.compaction_readahead_size > system_limit) {
+      if (system_limit > 0 && fo.compaction_readahead_size > system_limit) {
         fo.compaction_readahead_size = system_limit;
       }
     }
@@ -1111,10 +1113,10 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          fprintf(stderr, "Poll: io_uring_wait_cqe failed: %ld", (long)ret);
           if (ret == -EINTR || ret == -EAGAIN) {
             continue;  // Retry
           }
+          fprintf(stderr, "Poll: io_uring_wait_cqe failed: %ld\n", (long)ret);
           abort();
         }
 
@@ -1204,10 +1206,11 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          fprintf(stderr, "AbortIO: io_uring_wait_cqe failed: %ld", (long)ret);
           if (ret == -EINTR || ret == -EAGAIN) {
             continue;  // Retry
           }
+          fprintf(stderr, "AbortIO: io_uring_wait_cqe failed: %ld\n",
+                  (long)ret);
           abort();
         }
         assert(cqe != nullptr);

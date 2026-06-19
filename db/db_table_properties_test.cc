@@ -8,14 +8,17 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <memory>
+#include <mutex>
 #include <unordered_set>
 #include <vector>
 
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
@@ -51,6 +54,42 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   VerifySstUniqueIds(props);
 }
+
+class ParseCompressionDisplayNameManager : public CompressionManagerWrapper {
+ public:
+  static constexpr const char* kCompatibilityName =
+      "ParseCompressionDisplayNameManager";
+
+  ParseCompressionDisplayNameManager()
+      : CompressionManagerWrapper(GetBuiltinV2CompressionManager()) {}
+
+  const char* Name() const override { return kCompatibilityName; }
+  const char* CompatibilityName() const override { return kCompatibilityName; }
+
+  std::string CompressionTypeToString(CompressionType type) const override {
+    if (type == kCustomCompression8A) {
+      return "CustomAlpha";
+    }
+    if (type == kCustomCompression8B) {
+      return "CustomBeta";
+    }
+    return CompressionManagerWrapper::CompressionTypeToString(type);
+  }
+
+  static void Register() {
+    static std::once_flag loaded;
+    std::call_once(loaded, []() {
+      auto& library = *ObjectLibrary::Default();
+      library.AddFactory<CompressionManager>(
+          kCompatibilityName, [](const std::string& /*uri*/,
+                                 std::unique_ptr<CompressionManager>* guard,
+                                 std::string* /*errmsg*/) {
+            *guard = std::make_unique<ParseCompressionDisplayNameManager>();
+            return guard->get();
+          });
+    });
+  }
+};
 }  // anonymous namespace
 
 class DBTablePropertiesTest : public DBTestBase,
@@ -810,6 +849,90 @@ TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
     ASSERT_EQ(table_props->key_largest_seqno, table_props->key_smallest_seqno);
     ASSERT_EQ(table_props->key_largest_seqno, 0U);
   }
+}
+
+TEST_F(DBTablePropertiesTest, ParseCompressionNameForDisplay) {
+  auto custom_mgr = std::make_shared<ParseCompressionDisplayNameManager>();
+
+  // Test empty string
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay(""));
+
+  // Test old format (no semicolon)
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("ZSTD"));
+  EXPECT_EQ("Snappy", ParseCompressionNameForDisplay("Snappy"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("LZ4"));
+  EXPECT_EQ("kZSTD", ParseCompressionNameForDisplay("kZSTD"));
+  EXPECT_EQ("kSnappyCompression",
+            ParseCompressionNameForDisplay("kSnappyCompression"));
+
+  // Test new format version 7 with ZSTD
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("zstd;07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("BuiltinV2;07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("builtin_v2;07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay(";07;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("custom_mgr;07;extra;"));
+
+  // Test new format with LZ4
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("zstd;04;"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("lz4;04;"));
+
+  // Test lowercase hex for reserved/custom values
+  EXPECT_EQ("Reserved7F", ParseCompressionNameForDisplay("test;7f;"));
+  EXPECT_EQ("Custom8A", ParseCompressionNameForDisplay("test;8a;"));
+
+  // Test multiple compression types
+  EXPECT_EQ("LZ4,ZSTD", ParseCompressionNameForDisplay("test;0407;"));
+  EXPECT_EQ(
+      "ZSTD,LZ4",
+      ParseCompressionNameForDisplay("test;0704;"));  // sorted by appearance
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;0007;"));
+
+  // Test all standard compression types (01-07)
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;00;"));
+  EXPECT_EQ("Snappy", ParseCompressionNameForDisplay("test;01;"));
+  EXPECT_EQ("Zlib", ParseCompressionNameForDisplay("test;02;"));
+  EXPECT_EQ("BZip2", ParseCompressionNameForDisplay("test;03;"));
+  EXPECT_EQ("LZ4", ParseCompressionNameForDisplay("test;04;"));
+  EXPECT_EQ("LZ4HC", ParseCompressionNameForDisplay("test;05;"));
+  EXPECT_EQ("Xpress", ParseCompressionNameForDisplay("test;06;"));
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;07;"));
+
+  // Test custom/reserved types (>= 0x08)
+  // 0x08-0x7F are Reserved, 0x80-0xFE are Custom
+  EXPECT_EQ("Reserved08", ParseCompressionNameForDisplay("test;08;"));
+  EXPECT_EQ("Custom80", ParseCompressionNameForDisplay("test;80;"));
+  EXPECT_EQ("Reserved7F", ParseCompressionNameForDisplay("test;7F;"));
+  EXPECT_EQ("CustomFE", ParseCompressionNameForDisplay("test;FE;"));
+  EXPECT_EQ("CustomAlpha,CustomBeta",
+            ParseCompressionNameForDisplay(
+                "ParseCompressionDisplayNameManager;8A8B;", custom_mgr));
+  EXPECT_EQ("CustomAlpha,LZ4,CustomBeta",
+            ParseCompressionNameForDisplay(
+                "ParseCompressionDisplayNameManager;8A048B;", custom_mgr));
+
+  ParseCompressionDisplayNameManager::Register();
+  EXPECT_EQ("CustomAlpha", ParseCompressionNameForDisplay(
+                               "ParseCompressionDisplayNameManager;8A;"));
+
+  // Test DisableOption (0xFF) - filtered out
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;FF;"));
+
+  // Test NoCompression (empty hex field would be caught by validation, but test
+  // "00")
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;00;"));
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("BuiltinV2;;"));
+  EXPECT_EQ("NoCompression", ParseCompressionNameForDisplay("test;;"));
+
+  // Test three+ semicolons (future fields ignored)
+  EXPECT_EQ("ZSTD", ParseCompressionNameForDisplay("test;07;extra;fields;"));
+
+  // Test malformed inputs -> "Unknown"
+  EXPECT_EQ("Unknown", ParseCompressionNameForDisplay("only_one;"));
+  EXPECT_EQ("Unknown", ParseCompressionNameForDisplay("bad;0;"));  // odd length
+  EXPECT_EQ("Unknown",
+            ParseCompressionNameForDisplay("bad;0G;"));  // invalid hex
+  EXPECT_EQ("Unknown",
+            ParseCompressionNameForDisplay("bad;GG;"));  // invalid hex
 }
 
 INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,

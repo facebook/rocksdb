@@ -122,6 +122,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
     {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
+    {WAL_PRECREATE_HIT, "rocksdb.wal.precreate.hit"},
+    {WAL_PRECREATE_MISS, "rocksdb.wal.precreate.miss"},
+    {WAL_PRECREATE_WAITED, "rocksdb.wal.precreate.waited"},
+    {WAL_PRECREATE_WAIT_MICROS, "rocksdb.wal.precreate.wait.micros"},
+    {WAL_PRECREATE_FAILED, "rocksdb.wal.precreate.failed"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
     {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
     {WRITE_WITH_WAL, "rocksdb.write.wal"},
@@ -300,6 +305,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.read.path.range.tombstones.inserted"},
     {READ_PATH_RANGE_TOMBSTONES_DISCARDED,
      "rocksdb.read.path.range.tombstones.discarded"},
+    {FILE_OPEN_METADATA_RETRIEVED, "rocksdb.file.open.metadata.retrieved"},
+    {FILE_OPEN_METADATA_PASSED, "rocksdb.file.open.metadata.passed"},
+    {MANIFEST_VALIDATION_FAILURE_COUNT,
+     "rocksdb.manifest.validation.failure.count"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -377,6 +386,9 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {MULTISCAN_PREPARE_MICROS, "rocksdb.multiscan.prepare.micros"},
     {MULTISCAN_BLOCKS_PER_PREPARE, "rocksdb.multiscan.blocks.per.prepare"},
     {BLOCK_KEY_DISTRIBUTION_CV, "rocksdb.block.key.distribution.cv"},
+    {INGEST_EXTERNAL_FILE_PREPARE_TIME,
+     "rocksdb.ingest.external.file.prepare.micros"},
+    {INGEST_EXTERNAL_FILE_RUN_TIME, "rocksdb.ingest.external.file.run.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

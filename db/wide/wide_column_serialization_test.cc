@@ -391,7 +391,7 @@ static BlobIndex MakeBlobIndex(uint64_t file_number, uint64_t offset,
   return bi;
 }
 
-// Helper: V2 serialize → DeserializeV2 round-trip, returning
+// Helper: V2 serialize -> DeserializeV2 round-trip, returning
 // deserialized columns and blob column info.
 static void V2SerializeAndDeserialize(
     const std::vector<std::pair<std::string, std::string>>& columns,
@@ -798,7 +798,7 @@ TEST_F(WideColumnSerializationTest, RandomizedSerializeDeserializeRoundTrip) {
       }
     }
 
-    // V2 serialize → DeserializeV2 round-trip
+    // V2 serialize -> DeserializeV2 round-trip
     std::string serialized;
     std::vector<WideColumn> deserialized;
     std::vector<std::pair<size_t, BlobIndex>> blob_out;

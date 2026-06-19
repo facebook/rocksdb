@@ -359,7 +359,7 @@ class DBMemTableTestForSeek : public DBMemTableTest,
 TEST_P(DBMemTableTestForSeek, IntegrityChecks) {
   // Validate key corruption could be detected during seek.
   // We insert many keys into skiplist. Then we corrupt the each key one at a
-  // time. With memtable_veirfy_per_key_checksum_on_seek enabled, when the
+  // time. With memtable_verify_per_key_checksum_on_seek enabled, when the
   // corrupted key is searched, the checksum of every key visited during the
   // seek is validated. It will report data corruption. Otherwise seek returns
   // not found.
@@ -367,7 +367,7 @@ TEST_P(DBMemTableTestForSeek, IntegrityChecks) {
   Options options = CurrentOptions();
   options.allow_data_in_errors = allow_data_in_error;
   options.paranoid_memory_checks = std::get<1>(GetParam());
-  options.memtable_veirfy_per_key_checksum_on_seek = std::get<2>(GetParam());
+  options.memtable_verify_per_key_checksum_on_seek = std::get<2>(GetParam());
   options.memtable_protection_bytes_per_key = 8;
   DestroyAndReopen(options);
 
@@ -410,7 +410,7 @@ TEST_P(DBMemTableTestForSeek, IntegrityChecks) {
   ASSERT_EQ(raw_data_pointer.size(), key_count);
 
   bool enable_key_validation_on_seek =
-      options.memtable_veirfy_per_key_checksum_on_seek;
+      options.memtable_verify_per_key_checksum_on_seek;
 
   // For each key, corrupt it, validate corruption is detected correctly, then
   // revert it.

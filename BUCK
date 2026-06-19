@@ -378,10 +378,10 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
     ], deps=[
         "//folly/container:f14_hash",
-        "//folly/experimental/coro:blocking_wait",
-        "//folly/experimental/coro:collect",
-        "//folly/experimental/coro:coroutine",
-        "//folly/experimental/coro:task",
+        "//folly/coro:blocking_wait",
+        "//folly/coro:collect",
+        "//folly/coro:coroutine",
+        "//folly/coro:task",
         "//folly/synchronization:distributed_mutex",
     ], headers=glob(["**/*.h"]), link_whole=False, extra_test_libs=False)
 
@@ -4868,6 +4868,12 @@ cpp_unittest_wrapper(name="db_encryption_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_etc2_test",
+            srcs=["db/db_etc2_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_etc3_test",
             srcs=["db/db_etc3_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5020,12 +5026,6 @@ cpp_unittest_wrapper(name="db_tailing_iter_test",
 
 cpp_unittest_wrapper(name="db_test",
             srcs=["db/db_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
-cpp_unittest_wrapper(name="db_test2",
-            srcs=["db/db_test2.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

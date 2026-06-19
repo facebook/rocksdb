@@ -75,6 +75,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.track_and_verify_wals = immutable_db_options.track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       immutable_db_options.verify_sst_unique_id_in_manifest;
+  options.fast_sst_open = mutable_db_options.fast_sst_open;
   options.env = immutable_db_options.env;
   options.rate_limiter = immutable_db_options.rate_limiter;
   options.sst_file_manager = immutable_db_options.sst_file_manager;
@@ -100,6 +101,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
   options.keep_log_file_num = immutable_db_options.keep_log_file_num;
   options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
+  options.async_wal_precreate = immutable_db_options.async_wal_precreate;
   options.max_manifest_file_size = mutable_db_options.max_manifest_file_size;
   options.max_manifest_space_amp_pct =
       mutable_db_options.max_manifest_space_amp_pct;
@@ -112,6 +114,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
   options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
   options.use_direct_reads = immutable_db_options.use_direct_reads;
+  options.use_direct_io_for_compaction_reads =
+      immutable_db_options.use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       immutable_db_options.use_direct_io_for_flush_and_compaction;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
@@ -172,6 +176,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = immutable_db_options.write_dbid_to_manifest;
   options.write_identity_file = immutable_db_options.write_identity_file;
+  options.reuse_manifest_on_open = immutable_db_options.reuse_manifest_on_open;
   options.prefix_seek_opt_in_only =
       immutable_db_options.prefix_seek_opt_in_only;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
@@ -191,6 +196,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.enforce_single_del_contracts;
   options.verify_manifest_content_on_close =
       mutable_db_options.verify_manifest_content_on_close;
+  options.optimize_manifest_for_recovery =
+      mutable_db_options.optimize_manifest_for_recovery;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   options.max_compaction_trigger_wakeup_seconds =
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
@@ -239,8 +246,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
   cf_opts->paranoid_memory_checks = moptions.paranoid_memory_checks;
-  cf_opts->memtable_veirfy_per_key_checksum_on_seek =
-      moptions.memtable_veirfy_per_key_checksum_on_seek;
+  cf_opts->memtable_verify_per_key_checksum_on_seek =
+      moptions.memtable_verify_per_key_checksum_on_seek;
   cf_opts->bottommost_file_compaction_delay =
       moptions.bottommost_file_compaction_delay;
 
@@ -765,6 +772,11 @@ Status StringToMap(const std::string& opts_str,
   // Example:
   //   opts_str = "write_buffer_size=1024;max_write_buffer_number=2;"
   //              "nested_opt={opt1=1;opt2=2};max_bytes_for_level_base=100"
+  //
+  // Each value in the resulting map can be substituted directly into a
+  // `key=value;` context (e.g. SetOptions) and re-parsed without ambiguity:
+  // values that were wrapped in `{...}` in the input keep their wrapping,
+  // so embedded `;` characters stay escaped.
   size_t pos = 0;
   std::string opts = trim(opts_str);
   // If the input string starts and ends with "{...}", strip off the brackets
@@ -785,20 +797,75 @@ Status StringToMap(const std::string& opts_str,
       return Status::InvalidArgument("Empty key found");
     }
 
+    // Locate value start (after '=' and any whitespace).
+    size_t value_start = eq_pos + 1;
+    while (value_start < opts.size() && isspace(opts[value_start])) {
+      ++value_start;
+    }
+
     std::string value;
-    Status s = OptionTypeInfo::NextToken(opts, ';', eq_pos + 1, &pos, &value);
-    if (!s.ok()) {
-      return s;
-    } else {
-      (*opts_map)[key] = value;
-      if (pos == std::string::npos) {
-        break;
-      } else {
-        pos++;
+    if (value_start < opts.size() && opts[value_start] == '{') {
+      // Braced value: extract the entire `{...}` substring INCLUDING braces
+      // so that the value can be re-emitted as-is in a `key=value;` context.
+      int count = 1;
+      size_t brace_pos = value_start + 1;
+      while (brace_pos < opts.size() && count > 0) {
+        if (opts[brace_pos] == '{') {
+          ++count;
+        } else if (opts[brace_pos] == '}') {
+          --count;
+        }
+        if (count > 0) {
+          ++brace_pos;
+        }
       }
+      if (count != 0) {
+        return Status::InvalidArgument(
+            "Mismatched curly braces for nested options");
+      }
+      value = opts.substr(value_start, brace_pos - value_start + 1);
+      pos = brace_pos + 1;
+      // Allow whitespace, then either delimiter or end.
+      while (pos < opts.size() && isspace(opts[pos])) {
+        ++pos;
+      }
+      if (pos < opts.size() && opts[pos] != ';') {
+        return Status::InvalidArgument("Unexpected chars after nested options");
+      }
+    } else {
+      // Non-braced: scan to the next ';'. The value may contain '=' (only
+      // the first '=' separates key from value).
+      size_t end = opts.find(';', value_start);
+      if (end == std::string::npos) {
+        value = trim(opts.substr(value_start));
+        pos = std::string::npos;
+      } else {
+        value = trim(opts.substr(value_start, end - value_start));
+        pos = end;
+      }
+    }
+
+    (*opts_map)[key] = value;
+    if (pos == std::string::npos) {
+      break;
+    } else {
+      pos++;
     }
   }
 
+  return Status::OK();
+}
+
+Status MapToString(const std::unordered_map<std::string, std::string>& opts_map,
+                   std::string* opts_str) {
+  assert(opts_str);
+  opts_str->clear();
+  for (const auto& [key, value] : opts_map) {
+    opts_str->append(key);
+    opts_str->append("=");
+    opts_str->append(value);
+    opts_str->append(";");
+  }
   return Status::OK();
 }
 
@@ -1048,6 +1115,32 @@ Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
   return Status::OK();
 }
 
+std::string OptionTypeInfo::StripOuterBraces(const std::string& value) {
+  if (value.size() < 2 || value.front() != '{' || value.back() != '}') {
+    return value;
+  }
+  // Verify the leading '{' actually pairs with the trailing '}'.
+  // For `{a:b}` the leading brace closes only at the trailing `}` (one
+  // matching pair, OK to strip). For `{a}:{b}` the leading brace closes
+  // at the first inner `}`, so the leading and trailing braces are
+  // independent -- leave the value alone. We strip at most one layer:
+  // each layer of `{}` corresponds to one level of nesting that the
+  // encoder added for that level, and the typed parser at this level
+  // wants to peel exactly its own layer.
+  int depth = 0;
+  for (size_t i = 0; i + 1 < value.size(); ++i) {
+    if (value[i] == '{') {
+      ++depth;
+    } else if (value[i] == '}') {
+      --depth;
+      if (depth == 0) {
+        return value;  // outer braces are independent
+      }
+    }
+  }
+  return value.substr(1, value.size() - 2);
+}
+
 Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
                              const std::string& opt_name,
                              const std::string& value, void* opt_ptr) const {
@@ -1066,7 +1159,13 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
       copy.invoke_prepare_options = false;
       void* opt_addr = GetOffset(opt_ptr);
       return parse_func_(copy, opt_name, opt_value, opt_addr);
-    } else if (ParseOptionHelper(GetOffset(opt_ptr), type_, opt_value)) {
+    } else if (ParseOptionHelper(GetOffset(opt_ptr), type_,
+                                 StripOuterBraces(opt_value))) {
+      // Scalar types (int, bool, enum, string, ...). StringToMap now
+      // preserves outer braces in nested values, so a hand-crafted
+      // `key={42}` (or `db_log_dir={/tmp}`) lands here with a wrap
+      // that scalar parsers don't expect; permissively strip one
+      // level so braced scalar input still parses as before.
       return Status::OK();
     } else if (IsConfigurable()) {
       // The option is <config>.<name>

@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 
+#include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/dbformat.h"
@@ -70,6 +71,67 @@ Status GetDefaultColumnBlobIndexSlice(Slice entity, Slice* blob_index_slice) {
   return status;
 }
 
+Status PushWideColumnEntityDefaultOperand(const Slice& user_key,
+                                          const Slice& entity,
+                                          MergeContext* merge_context,
+                                          bool operand_pinned,
+                                          const BlobFetcher* blob_fetcher) {
+  assert(merge_context != nullptr);
+
+  Slice entity_ref = entity;
+  Slice value_of_default;
+  Status status = WideColumnSerialization::GetValueOfDefaultColumn(
+      entity_ref, value_of_default);
+  if (status.ok()) {
+    merge_context->PushOperand(value_of_default, operand_pinned);
+    return status;
+  }
+  if (!status.IsNotSupported()) {
+    return status;
+  }
+  if (blob_fetcher == nullptr) {
+    return Status::Corruption(
+        "Cannot resolve blob-backed default column without a blob fetcher");
+  }
+
+  PinnableSlice resolved_default;
+  bool resolved = false;
+  status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
+      entity, user_key, blob_fetcher, resolved_default, resolved);
+  if (status.ok()) {
+    // Resolved blob values are backed by this stack-local PinnableSlice, so
+    // copy them into MergeContext instead of pinning their storage.
+    merge_context->PushOperand(Slice(resolved_default), false);
+  }
+  return status;
+}
+
+Status MergeWithWideColumnEntityBaseValue(
+    const Slice& user_key, const Slice& entity,
+    const MergeOperator* merge_operator, MergeContext* merge_context,
+    Logger* logger, Statistics* statistics, SystemClock* clock,
+    std::string* value, PinnableWideColumns* columns,
+    const BlobFetcher* blob_fetcher) {
+  assert(merge_context != nullptr);
+
+  std::string resolved_entity;
+  Slice effective_entity;
+  Status status = WideColumnSerialization::ResolveEntityForMerge(
+      entity, user_key, blob_fetcher, nullptr /* prefetch_buffers */,
+      resolved_entity, effective_entity);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
+  return MergeHelper::TimedFullMerge(
+      merge_operator, user_key, MergeHelper::kWideBaseValue, effective_entity,
+      merge_context->GetOperands(), logger, statistics, clock,
+      /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr, value,
+      columns);
+}
+
 }  // namespace
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
@@ -97,8 +159,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
           mutable_cf_options.memtable_protection_bytes_per_key),
       allow_data_in_errors(ioptions.allow_data_in_errors),
       paranoid_memory_checks(mutable_cf_options.paranoid_memory_checks),
-      memtable_veirfy_per_key_checksum_on_seek(
-          mutable_cf_options.memtable_veirfy_per_key_checksum_on_seek),
+      memtable_verify_per_key_checksum_on_seek(
+          mutable_cf_options.memtable_verify_per_key_checksum_on_seek),
       memtable_batch_lookup_optimization(
           ioptions.memtable_batch_lookup_optimization) {}
 
@@ -194,7 +256,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           mutable_cf_options.memtable_max_range_deletions),
       key_validation_callback_(
           (moptions_.protection_bytes_per_key != 0 &&
-           moptions_.memtable_veirfy_per_key_checksum_on_seek)
+           moptions_.memtable_verify_per_key_checksum_on_seek)
               ? std::bind(&MemTable::ValidateKey, this, std::placeholders::_1,
                           std::placeholders::_2)
               : std::function<Status(const char*, bool)>(nullptr)) {
@@ -466,7 +528,7 @@ class MemTableIterator : public InternalIterator {
         paranoid_memory_checks_(mem.moptions_.paranoid_memory_checks),
         validate_on_seek_(
             mem.moptions_.paranoid_memory_checks ||
-            mem.moptions_.memtable_veirfy_per_key_checksum_on_seek),
+            mem.moptions_.memtable_verify_per_key_checksum_on_seek),
         allow_data_in_error_(mem.moptions_.allow_data_in_errors),
         key_validation_callback_(mem.key_validation_callback_) {
     if (kind == kRangeDelEntries) {
@@ -918,12 +980,11 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   }
 }
 
-bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
-                                                   const Slice& start_key,
-                                                   const Slice& end_key) {
-  // Fast path: skip if already immutable or empty. Some code paths (i.e.
-  // ExternalFileIngestion) rely ensuring memtable is empty after flushing.
-  if (is_immutable_.LoadRelaxed() || IsEmpty()) {
+bool MemTable::AddLogicallyRedundantRangeTombstone(
+    SequenceNumber seq, const Slice& start_key, const Slice& end_key,
+    port::RWMutex& ingest_sst_lock) {
+  // Fast path: skip if already immutable.
+  if (is_immutable_.LoadRelaxed()) {
     return false;
   }
 
@@ -939,6 +1000,33 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
     return false;
   }
 
+  // Range tombstone reads have an assumption that all levels below it have a
+  // LOWER seqno than it, so it is safe to skip reading files. Normally, this is
+  // true, but range tombstone conversion creates an exception.
+  //
+  // The inserted range tombstone uses iterator seqno. There are guards to
+  // ensure that we only insert it if it is within current memtable's bounds,
+  // BUT an external file ingestion can break that still, as the newly ingested
+  // L0 file will be assigned a higher seqno than an earlier iterator.
+  //
+  // So the solution here is to use a RW lock + ingest seqno to gate range
+  // tombstone conversions. An added side effect is also we can no longer insert
+  // to memtables while a file ingestion is in progress, which is an expectation
+  // of file ingestion. Note we expect this insertion to be rare, and we do not
+  // want to limit concurrent external file ingestions so the conversion path
+  // uses a write lock while the ingestion path uses a read lock.
+  TryWriteLock ingest_wl(&ingest_sst_lock);
+  if (!ingest_wl.OwnsLock()) {
+    return false;
+  }
+  // After ingestion releases its WriteLock, an iterator with an older
+  // snapshot could still try to convert a tombstone whose seq sits
+  // below the just-ingested file's seq. The barrier persists past the end
+  // of the ingestion that bumped it and refuses such inserts.
+  if (seq < ingest_seqno_barrier_.LoadRelaxed()) {
+    return false;
+  }
+
   MemTablePostProcessInfo post_process_info;
   Status s = Add(seq, kTypeRangeDeletion, start_key, end_key,
                  nullptr /* kv_prot_info */, true /* allow_concurrent */,
@@ -948,6 +1036,12 @@ bool MemTable::AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
     return true;
   }
   return false;
+}
+
+void MemTable::BumpIngestSeqnoBarrier(SequenceNumber y) {
+  if (ingest_seqno_barrier_.LoadRelaxed() < y) {
+    ingest_seqno_barrier_.StoreRelaxed(y);
+  }
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -1222,6 +1316,7 @@ struct Saver {
   bool inplace_update_support;
   bool do_merge;
   SystemClock* clock;
+  const BlobFetcher* blob_fetcher;
 
   ReadCallback* callback_;
   bool* is_blob_index;
@@ -1392,27 +1487,17 @@ static bool SaveValue(void* arg, const char* entry) {
           // Preserve the value with the goal of returning it as part of
           // raw merge operands to the user
 
-          Slice value_of_default;
-          *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
-              v, value_of_default);
-
-          if (s->status->ok()) {
-            merge_context->PushOperand(
-                value_of_default,
-                s->inplace_update_support == false /* operand_pinned */);
-          }
+          *(s->status) = PushWideColumnEntityDefaultOperand(
+              s->key->user_key(), v, merge_context,
+              s->inplace_update_support == false /* operand_pinned */,
+              s->blob_fetcher);
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
           if (s->value || s->columns) {
-            // `op_failure_scope` (an output parameter) is not provided (set
-            // to nullptr) since a failure must be propagated regardless of
-            // its value.
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), MergeHelper::kWideBaseValue,
-                v, merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true,
-                /* op_failure_scope */ nullptr, s->value, s->columns);
+            *(s->status) = MergeWithWideColumnEntityBaseValue(
+                s->key->user_key(), v, merge_operator, merge_context, s->logger,
+                s->statistics, s->clock, s->value, s->columns, s->blob_fetcher);
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1488,7 +1573,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback,
-                   bool* is_blob_index, bool do_merge) {
+                   bool* is_blob_index, bool do_merge,
+                   const BlobFetcher* blob_fetcher) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -1546,7 +1632,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
                  is_blob_index, value, columns, timestamp, s, merge_context,
-                 seq, &found_final_value, &merge_in_progress);
+                 seq, &found_final_value, &merge_in_progress, blob_fetcher);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -1569,7 +1655,8 @@ void MemTable::GetFromTable(const LookupKey& key,
                             PinnableWideColumns* columns,
                             std::string* timestamp, Status* s,
                             MergeContext* merge_context, SequenceNumber* seq,
-                            bool* found_final_value, bool* merge_in_progress) {
+                            bool* found_final_value, bool* merge_in_progress,
+                            const BlobFetcher* blob_fetcher) {
   Saver saver;
   saver.status = s;
   saver.found_final_value = found_final_value;
@@ -1587,6 +1674,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.inplace_update_support = moptions_.inplace_update_support;
   saver.statistics = moptions_.statistics;
   saver.clock = clock_;
+  saver.blob_fetcher = blob_fetcher;
   saver.callback_ = callback;
   saver.is_blob_index = is_blob_index;
   saver.do_merge = do_merge;
@@ -1594,7 +1682,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
 
   if (!moptions_.paranoid_memory_checks &&
-      !moptions_.memtable_veirfy_per_key_checksum_on_seek) {
+      !moptions_.memtable_verify_per_key_checksum_on_seek) {
     table_->Get(key, &saver, SaveValue);
   } else {
     Status check_s = table_->GetAndValidate(
@@ -1616,7 +1704,8 @@ Status MemTable::ValidateKey(const char* key, bool allow_data_in_errors) {
 }
 
 void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                        ReadCallback* callback, bool immutable_memtable) {
+                        ReadCallback* callback, bool immutable_memtable,
+                        const BlobFetcher* blob_fetcher) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -1661,7 +1750,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   // Use batch lookup optimization when enabled
   bool use_batch_optimization = moptions_.memtable_batch_lookup_optimization;
   bool validate = moptions_.paranoid_memory_checks ||
-                  moptions_.memtable_veirfy_per_key_checksum_on_seek;
+                  moptions_.memtable_verify_per_key_checksum_on_seek;
 
   if (use_batch_optimization) {
     // Phase 1: Handle range tombstones and set up Savers for batched lookup
@@ -1708,6 +1797,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       saver.inplace_update_support = moptions_.inplace_update_support;
       saver.statistics = moptions_.statistics;
       saver.clock = clock_;
+      saver.blob_fetcher = blob_fetcher;
       saver.callback_ = callback;
       saver.is_blob_index = &iter->is_blob_index;
       saver.do_merge = true;
@@ -1799,7 +1889,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           *(iter->lkey), iter->max_covering_tombstone_seq, true, callback,
           &iter->is_blob_index, iter->value ? iter->value->GetSelf() : nullptr,
           iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
-          &dummy_seq, &found_final_value, &merge_in_progress);
+          &dummy_seq, &found_final_value, &merge_in_progress, blob_fetcher);
 
       if (!found_final_value && merge_in_progress) {
         if (iter->s->ok()) {

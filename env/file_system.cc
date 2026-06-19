@@ -16,6 +16,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "test_util/sync_point.h"
 #include "util/string_util.h"
 #include "utilities/counted_fs.h"
 #include "utilities/env_timed.h"
@@ -105,6 +106,26 @@ IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
     return s;
   }
   return NewWritableFile(fname, opts, result, dbg);
+}
+
+IOStatus FileSystem::SyncFile(const std::string& fname,
+                              const FileOptions& file_opts,
+                              const IOOptions& io_opts, bool use_fsync,
+                              IODebugContext* dbg) {
+  std::unique_ptr<FSWritableFile> file_to_sync;
+  IOStatus status = ReopenWritableFile(fname, file_opts, &file_to_sync, dbg);
+  TEST_SYNC_POINT_CALLBACK("FileSystem::SyncFile:Open", &status);
+  if (status.ok()) {
+    status = use_fsync ? file_to_sync->Fsync(io_opts, dbg)
+                       : file_to_sync->Sync(io_opts, dbg);
+    IOStatus close_status = file_to_sync->Close(io_opts, dbg);
+    if (status.ok()) {
+      status = close_status;
+    } else {
+      close_status.PermitUncheckedError();
+    }
+  }
+  return status;
 }
 
 IOStatus FileSystem::NewLogger(const std::string& fname,

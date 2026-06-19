@@ -74,6 +74,7 @@ enum Tag : uint32_t {
   kWalDeletion2,
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
+  kLastCompactedManifestFileSize,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -112,6 +113,7 @@ enum NewFileCustomTag : uint32_t {
   kCompensatedRangeDeletionSize = 14,
   kTailSize = 15,
   kUserDefinedTimestampsPersisted = 16,
+  kFileOpenMetadata = 17,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -330,6 +332,16 @@ struct FileMetaData {
   // This is populated from the table properties "rocksdb.timestamp_max".
   std::string max_timestamp;
 
+  // Opaque file system metadata that can be used to accelerate file opening.
+  // Retrieved via FSRandomAccessFile::GetFileOpenMetadata() and passed back
+  // via FileOptions::file_metadata on subsequent opens. Empty if not available.
+  std::string file_open_metadata;
+
+  // Skips prefetching index and filter blocks into block cache on file open,
+  // not persisted in MANIFEST. NOTE: false does not guarantee prefetching
+  // either (e.g. when index and filter blocks are not cached in block cache).
+  bool skip_index_and_filter_blocks_prefetch = false;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -446,7 +458,7 @@ struct FileMetaData {
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     usage += smallest.size() + largest.size() + file_checksum.size() +
              file_checksum_func_name.size() + min_timestamp.size() +
-             max_timestamp.size();
+             max_timestamp.size() + file_open_metadata.size();
     return usage;
   }
 
@@ -971,6 +983,11 @@ class VersionEdit {
 
   bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
 
+  void MarkForegroundOperation() { is_foreground_operation_ = true; }
+  bool IsForegroundOperation() const {
+    return is_foreground_operation_ || IsColumnFamilyManipulation();
+  }
+
   void MarkNoManifestWriteDummy() { is_no_manifest_write_dummy_ = true; }
   bool IsNoManifestWriteDummy() const { return is_no_manifest_write_dummy_; }
 
@@ -1009,6 +1026,21 @@ class VersionEdit {
     has_subcompaction_progress_ = false;
     subcompaction_progress_.Clear();
   }
+
+  void SetLastCompactedManifestFileSize(uint64_t size) {
+    has_last_compacted_manifest_file_size_ = true;
+    last_compacted_manifest_file_size_ = size;
+  }
+  bool HasLastCompactedManifestFileSize() const {
+    return has_last_compacted_manifest_file_size_;
+  }
+  uint64_t GetLastCompactedManifestFileSize() const {
+    return last_compacted_manifest_file_size_;
+  }
+
+  // Recovery-time per-column-family edits only need to be written when they
+  // advance the CF's log number or carry some other manifest state.
+  bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
 
   // return true on success.
   // `ts_sz` is the size in bytes for the user-defined timestamp contained in
@@ -1089,6 +1121,7 @@ class VersionEdit {
   // it also includes column family name.
   bool is_column_family_drop_ = false;
   bool is_column_family_add_ = false;
+  bool is_foreground_operation_ = false;
   std::string column_family_name_;
 
   uint32_t remaining_entries_ = 0;
@@ -1100,6 +1133,9 @@ class VersionEdit {
 
   bool has_subcompaction_progress_ = false;
   SubcompactionProgress subcompaction_progress_;
+
+  bool has_last_compacted_manifest_file_size_ = false;
+  uint64_t last_compacted_manifest_file_size_ = 0;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them

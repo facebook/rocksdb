@@ -98,7 +98,31 @@ endif  # FMT_SOURCE_PATH
 	PLATFORM_LDFLAGS += -lglog
 endif
 
-FOLLY_COMMIT_HASH = 3b0eed0a128c484a2b077546c3e08c824a311357
+FOLLY_COMMIT_HASH = 548b16da0b3cc887d69cdb6ae06496ad8a2a9276
+FOLLY_GETDEPS_CACHE_DIR = /tmp/rocksdb-getdeps-cache
+
+define restore_folly_getdeps_downloads
+	@cd third-party/folly && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
+		mkdir -p "$$DOWNLOAD_DIR" && \
+		CACHE_DIR="$(FOLLY_GETDEPS_CACHE_DIR)" && \
+		mkdir -p "$$CACHE_DIR" && \
+		echo "Restoring cached downloads..." && \
+		if ls "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip >/dev/null 2>&1; then \
+			cp -n "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip "$$DOWNLOAD_DIR/" 2>/dev/null || true; \
+		fi && \
+		echo "Handling known unreliable downloads with fallback mirrors..." && \
+		$(PYTHON) ../../build_tools/getdeps_fallback_mirror.py "$$DOWNLOAD_DIR" "$$CACHE_DIR" build/fbcode_builder/manifests
+endef
+
+define cache_folly_getdeps_downloads
+	@cd third-party/folly && \
+		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
+		CACHE_DIR="$(FOLLY_GETDEPS_CACHE_DIR)" && \
+		if ls "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip >/dev/null 2>&1; then \
+			cp -n "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip "$$CACHE_DIR/" 2>/dev/null || true; \
+		fi
+endef
 
 # For public CI runs, checkout folly in a way that can build with RocksDB.
 # This is mostly intended as a test-only simulation of Meta-internal folly
@@ -117,26 +141,11 @@ checkout_folly:
 	@# const mismatch
 	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
 	@# Restore cached downloads and handle unreliable mirrors with fallback
-	@cd third-party/folly && \
-		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
-		mkdir -p "$$DOWNLOAD_DIR" && \
-		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
-		mkdir -p "$$CACHE_DIR" && \
-		echo "Restoring cached downloads..." && \
-		if ls "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip >/dev/null 2>&1; then \
-			cp -n "$$CACHE_DIR"/*.tar.gz "$$CACHE_DIR"/*.tar.xz "$$CACHE_DIR"/*.zip "$$DOWNLOAD_DIR/" 2>/dev/null || true; \
-		fi && \
-		echo "Handling known unreliable downloads with fallback mirrors..." && \
-		$(PYTHON) ../../build_tools/getdeps_fallback_mirror.py "$$DOWNLOAD_DIR" "$$CACHE_DIR" build/fbcode_builder/manifests
+	$(restore_folly_getdeps_downloads)
 	@# NOTE: boost and fmt source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on those headers
 	cd third-party/folly && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch boost && GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py fetch fmt
 	@# Update cache with any new downloads
-	@cd third-party/folly && \
-		DOWNLOAD_DIR=`$(PYTHON) build/fbcode_builder/getdeps.py show-inst-dir | sed 's|/installed/.*|/downloads|'` && \
-		CACHE_DIR="/tmp/rocksdb-getdeps-cache" && \
-		if ls "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip >/dev/null 2>&1; then \
-			cp -n "$$DOWNLOAD_DIR"/*.tar.gz "$$DOWNLOAD_DIR"/*.tar.xz "$$DOWNLOAD_DIR"/*.zip "$$CACHE_DIR/" 2>/dev/null || true; \
-		fi
+	$(cache_folly_getdeps_downloads)
 
 CXX_M_FLAGS = $(filter -m%, $(CXXFLAGS))
 
@@ -155,6 +164,8 @@ build_folly:
 		echo "Please run checkout_folly first"; \
 		false; \
 	fi
+	@# Restore fallback archives after the cleanup above removes downloads.
+	$(restore_folly_getdeps_downloads)
 	cd third-party/folly && \
 		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py build $(FOLLY_BUILD_FLAGS)
 	@# In the folly build, glog and gflags are only built as dynamic libraries,

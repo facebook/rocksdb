@@ -25,6 +25,10 @@ class Statistics;
 struct IODispatcherImplData;
 struct PendingPrefetchRequest;
 
+// EXPERIMENTAL
+// The interface defined in this file is experimental and the behavior and
+// interface are subject to change without notice.
+
 // Options for configuring IODispatcher behavior
 struct IODispatcherOptions {
   // Maximum memory (in bytes) for prefetching across all ReadSets.
@@ -148,6 +152,11 @@ class BlockBasedTable;
 struct JobOptions {
   uint64_t io_coalesce_threshold = 16 * 1024;
   ReadOptions read_options;
+
+  // True when IOJob::block_handles is already sorted by file offset. Callers
+  // that can guarantee sorted order may set this to let IODispatcher skip
+  // defensive sorting before cache lookup and coalescing.
+  bool block_handles_are_sorted = false;
 };
 
 class IOJob {
@@ -250,6 +259,17 @@ class ReadSet {
   // Poll and process a specific async IO request
   Status PollAndProcessAsyncIO(
       const std::shared_ptr<AsyncIOState>& async_state);
+
+  // Release memory budget acquired for a prefetched block.
+  void ReleasePrefetchMemory(size_t block_index);
+
+  // Stop tracking one block from an in-flight async IO request. If this was
+  // the last block using the request, abort and delete the IO handle before the
+  // async state is released.
+  void ReleaseAsyncIOForBlock(size_t block_index);
+
+  // Delete a completed or aborted async IO handle exactly once.
+  void DeleteAsyncIOHandle(const std::shared_ptr<AsyncIOState>& async_state);
 
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);

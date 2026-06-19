@@ -72,6 +72,8 @@ jobs:
       run: make check-buck-targets
     - name: Simple source code checks
       run: make check-sources
+    - name: Validate GitHub Actions YAML
+      run: make check-workflow-yaml
     - name: Sanity check check_format_compatible.sh
       run: |-
         export TEST_TMPDIR=/dev/shm/rocksdb
@@ -377,14 +379,17 @@ jobs:
           crash_duration: 240
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=16gb --ulimit nofile=1048576:1048576
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: mini-crashtest
-    - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
+    - run: |
+        ulimit -S -n $(ulimit -Hn) # Raise open files soft limit to hard limit
+        echo "Updated ulimit -Hn: $(ulimit -Hn) -Sn: $(ulimit -Sn)"
+        make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -538,7 +543,7 @@ jobs:
           suite_run: db_test
           run_java: "false"
         - test_shard: other
-          suite_run: arena_test,db_basic_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
+          suite_run: arena_test,db_basic_test,db_etc2_test,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test
           run_java: "false"
         - test_shard: java
           suite_run: ""

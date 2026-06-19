@@ -48,6 +48,11 @@
           "field": "request_id",
           "policy": "manual",
           "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+        },
+        {
+          "field": "read_scoped_block_buffer_provider",
+          "policy": "manual",
+          "reason": "Field type 'ReadScopedBlockBufferProvider *' is a pointer/owning handle to a complex type; needs an explicit C ownership and lifetime design rather than a simple scalar/enum/string wrapper."
         }
       ]
     },

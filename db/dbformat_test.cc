@@ -218,7 +218,7 @@ TEST_P(IterKeySwapTest, SwapAndDestroy) {
         b_use_secondary] = GetParam();
 
   std::string expected_a, expected_b;
-  // Storage for pinned keys — must outlive the IterKeys.
+  // Storage for pinned keys -- must outlive the IterKeys.
   std::string a_storage, b_storage;
   IterKey a;
   expected_a =
@@ -236,7 +236,7 @@ TEST_P(IterKeySwapTest, SwapAndDestroy) {
     // After swap: a has b's old data, b has a's old data.
     ASSERT_EQ(a.GetUserKey().ToString(), expected_b);
     ASSERT_EQ(b.GetUserKey().ToString(), expected_a);
-  }  // b destroyed here — must not corrupt a's data
+  }  // b destroyed here -- must not corrupt a's data
 
   // a must still hold valid data after b's destruction.
   ASSERT_EQ(a.GetUserKey().ToString(), expected_b);

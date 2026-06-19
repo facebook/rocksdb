@@ -35,6 +35,18 @@ struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
 
+struct TableCacheOpenOptions {
+  // Open a new TableReader owned by the returned iterator instead of reusing
+  // the pinned reader or shared TableCache entry.
+  bool open_ephemeral_table_reader = false;
+
+  // Avoid inserting open-time metadata blocks into the shared block cache.
+  bool avoid_shared_metadata_cache = false;
+
+  // Disable loading/accessing filter blocks for this open/iterator.
+  bool skip_filters = false;
+};
+
 // Manages caching for TableReader objects for a column family. The actual
 // cache is allocated separately and passed to the constructor. TableCache
 // wraps around the underlying SST file readers by providing Get(),
@@ -54,7 +66,7 @@ class TableCache {
              const FileOptions* storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_session_id);
+             const std::string& db_session_id, bool fast_sst_open = false);
   ~TableCache();
 
   // Cache interface for table cache
@@ -73,7 +85,9 @@ class TableCache {
   // underlying the returned iterator, or nullptr if no Table object underlies
   // the returned iterator.  The returned "*table_reader_ptr" object is owned
   // by the cache and should not be deleted, and is valid for as long as the
-  // returned iterator is live.
+  // returned iterator is live. `table_reader_ptr` must be nullptr when
+  // `open_options.open_ephemeral_table_reader` is set because that reader is
+  // owned by iterator cleanup rather than by the cache.
   // If !options.ignore_range_deletions, and range_del_iter is non-nullptr,
   // then range_del_iter is set to a TruncatedRangeDelIterator for range
   // tombstones in the SST file corresponding to the specified file number. The
@@ -82,12 +96,16 @@ class TableCache {
   // @param options Must outlive the returned iterator.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
-  // @param for_compaction If true, a new TableReader may be allocated (but
-  //                       not cached), depending on the CF options
+  // @param caller Identifies the high-level caller for table-reader behavior
+  //               such as compaction preparation.
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   // @param range_del_read_seqno If non-nullptr, will be used to create
   // *range_del_iter.
+  // @param open_options Optional table-open policy overrides. The caller must
+  //                       not combine `open_ephemeral_table_reader` with
+  //                       `ReadOptions::read_tier = kBlockCacheTier` (no_io);
+  //                       opening an ephemeral reader inherently requires I/O.
   InternalIterator* NewIterator(
       const ReadOptions& options, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
@@ -100,7 +118,11 @@ class TableCache {
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       const SequenceNumber* range_del_read_seqno = nullptr,
       std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter = nullptr,
-      bool maybe_pin_table_handle = false);
+      bool maybe_pin_table_handle = false,
+      // If non-null, and the table reader is newly opened (not cached),
+      // retrieves file open metadata via GetFileOpenMetadata().
+      std::string* file_open_metadata = nullptr,
+      const TableCacheOpenOptions& open_options = TableCacheOpenOptions());
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -187,17 +209,30 @@ class TableCache {
   // @param pin_table_handle If true, pins the table reader on file_meta so
   //              future lookups bypass the cache. *handle is set to nullptr
   //              on return in this case.
-  Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
-                   const InternalKeyComparator& internal_comparator,
-                   const FileMetaData& file_meta, TypedHandle**,
-                   const MutableCFOptions& mutable_cf_options,
-                   TableReader** table_reader, const bool no_io = false,
-                   HistogramImpl* file_read_hist = nullptr,
-                   bool skip_filters = false, int level = -1,
-                   bool prefetch_index_and_filter_in_cache = true,
-                   size_t max_file_size_for_l0_meta_pin = 0,
-                   Temperature file_temperature = Temperature::kUnknown,
-                   bool pin_table_handle = false);
+  // @param fresh_table_reader_owner If non-null, FindTable always opens a new
+  //              TableReader (skipping the pinned-reader fast path and the
+  //              shared cache) and writes ownership into this unique_ptr.
+  //              `*handle` will be nullptr on return and `*table_reader` will
+  //              point to the freshly allocated reader. Callers that pass this
+  //              are responsible for keeping the unique_ptr alive for the
+  //              lifetime of any iterators built on top.
+  // @param open_options Optional table-open policy overrides (e.g.
+  //              avoid_shared_metadata_cache, skip_filters).
+  //              `open_options.open_ephemeral_table_reader` must be set if and
+  //              only if `fresh_table_reader_owner` is non-null.
+  Status FindTable(
+      const ReadOptions& ro, const FileOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta, TypedHandle**,
+      const MutableCFOptions& mutable_cf_options, TableReader** table_reader,
+      const bool no_io = false, HistogramImpl* file_read_hist = nullptr,
+      bool skip_filters = false, int level = -1,
+      bool prefetch_index_and_filter_in_cache = true,
+      size_t max_file_size_for_l0_meta_pin = 0,
+      Temperature file_temperature = Temperature::kUnknown,
+      bool pin_table_handle = false, std::string* file_open_metadata = nullptr,
+      std::unique_ptr<TableReader>* fresh_table_reader_owner = nullptr,
+      const TableCacheOpenOptions& open_options = TableCacheOpenOptions());
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -266,6 +301,10 @@ class TableCache {
         cache_.get()->GetCapacity() >= kInfiniteCapacity;
   }
 
+  void SetFastSstOpen(bool enabled) {
+    fast_sst_open_.store(enabled, std::memory_order_relaxed);
+  }
+
  private:
   // Build a table reader
   Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
@@ -277,7 +316,9 @@ class TableCache {
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,
                         size_t max_file_size_for_l0_meta_pin = 0,
-                        Temperature file_temperature = Temperature::kUnknown);
+                        Temperature file_temperature = Temperature::kUnknown,
+                        std::string* file_open_metadata = nullptr,
+                        bool avoid_shared_metadata_cache = false);
 
   // Update the max_covering_tombstone_seq in the GetContext for each key based
   // on the range deletions in the table
@@ -307,6 +348,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   bool should_pin_table_handles_;
+  std::atomic<bool> fast_sst_open_;
   BlockCacheTracer* const block_cache_tracer_;
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;

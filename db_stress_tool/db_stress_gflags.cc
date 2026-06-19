@@ -206,6 +206,10 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
 DEFINE_bool(open_files_async, ROCKSDB_NAMESPACE::Options().open_files_async,
             "Options.open_files_async");
 
+DEFINE_bool(async_wal_precreate,
+            ROCKSDB_NAMESPACE::Options().async_wal_precreate,
+            "Options.async_wal_precreate");
+
 DEFINE_uint64(compressed_secondary_cache_size, 0,
               "Number of bytes to use as a cache of compressed data."
               " 0 means use default settings.");
@@ -728,6 +732,11 @@ DEFINE_bool(mmap_write, ROCKSDB_NAMESPACE::Options().allow_mmap_writes,
 DEFINE_bool(use_direct_reads, ROCKSDB_NAMESPACE::Options().use_direct_reads,
             "Use O_DIRECT for reading data");
 
+DEFINE_bool(use_direct_io_for_compaction_reads,
+            ROCKSDB_NAMESPACE::Options().use_direct_io_for_compaction_reads,
+            "Use O_DIRECT for compaction-input SST reads only, while keeping "
+            "user reads buffered");
+
 DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
             "Use O_DIRECT for writing data");
@@ -857,6 +866,19 @@ DEFINE_int32(ingest_external_file_one_in, 0,
 
 DEFINE_int32(ingest_external_file_width, 100,
              "The width of the ingested external files.");
+
+DEFINE_int32(ingest_external_file_prepare_commit_one_in, 0,
+             "If non-zero, an ingestion that would call IngestExternalFile() "
+             "instead uses the two-phase PrepareFileIngestion()/"
+             "CommitFileIngestion() API once for every N such ingestions on "
+             "average, occasionally dropping the prepared handle without "
+             "committing to exercise the rollback path. 0 disables it.");
+
+DEFINE_int32(ingest_external_file_use_file_info_one_in, 0,
+             "If non-zero, the ingestexternalfile flow reuses each file's "
+             "metadata via IngestExternalFileArg::file_infos (from "
+             "SstFileWriter::Finish) once every N ingestions on average, so "
+             "ingestion skips re-opening and scanning the files.");
 
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
@@ -1017,7 +1039,8 @@ DEFINE_int32(iterpercent, 10,
 static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
-DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
+DEFINE_uint64(num_iterations, 10,
+              "Number of iterations per iterator or MultiScan run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
@@ -1133,9 +1156,18 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(optimize_manifest_for_recovery,
+            ROCKSDB_NAMESPACE::Options().optimize_manifest_for_recovery,
+            "Reduce recovery work after a clean shutdown");
+
 DEFINE_bool(write_identity_file,
             ROCKSDB_NAMESPACE::Options().write_identity_file,
             "Write DB_ID to IDENTITY file");
+
+DEFINE_bool(reuse_manifest_on_open,
+            ROCKSDB_NAMESPACE::Options().reuse_manifest_on_open,
+            "Reopen existing MANIFEST for append after recovery instead of "
+            "creating a fresh one");
 
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
@@ -1325,6 +1357,10 @@ DEFINE_bool(
     "Enable DB options `verify_sst_unique_id_in_manifest`, if true, during "
     "DB-open try verifying the SST unique id between MANIFEST and SST "
     "properties.");
+
+DEFINE_bool(fast_sst_open, false,
+            "If true, retrieve and persist file open metadata in the MANIFEST "
+            "for faster SST file re-opening on DB open.");
 
 DEFINE_int32(
     create_timestamped_snapshot_one_in, 0,
@@ -1613,9 +1649,9 @@ DEFINE_bool(paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
 
 DEFINE_bool(
-    memtable_veirfy_per_key_checksum_on_seek,
-    ROCKSDB_NAMESPACE::Options().memtable_veirfy_per_key_checksum_on_seek,
-    "Sets CF option memtable_veirfy_per_key_checksum_on_seek.");
+    memtable_verify_per_key_checksum_on_seek,
+    ROCKSDB_NAMESPACE::Options().memtable_verify_per_key_checksum_on_seek,
+    "Sets CF option memtable_verify_per_key_checksum_on_seek.");
 
 DEFINE_bool(memtable_batch_lookup_optimization,
             ROCKSDB_NAMESPACE::Options().memtable_batch_lookup_optimization,
@@ -1651,6 +1687,10 @@ DEFINE_double(read_triggered_compaction_threshold,
               ROCKSDB_NAMESPACE::Options().read_triggered_compaction_threshold,
               "Sets CF option read_triggered_compaction_threshold.");
 
+DEFINE_string(listener_uri, "",
+              "URI for an additional EventListener to attach (e.g. "
+              "auto_tuner://). Empty means none.");
+
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot,
     ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
@@ -1684,10 +1724,27 @@ DEFINE_bool(use_multiscan, false,
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
 
+DEFINE_bool(read_scoped_block_buffer_provider, false,
+            "If set, configure ReadOptions::read_scoped_block_buffer_provider "
+            "with a stress-test provider for supported scan reads.");
+
 DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
               "If non-zero, sets the max_prefetch_memory_bytes on the "
               "IODispatcher used for MultiScan. This limits the total memory "
               "used for prefetching data blocks across all concurrent "
               "MultiScan ReadSets.");
+
+DEFINE_int32(num_dbs, 1,
+             "Number of DB instances to run in parallel. "
+             "For num_dbs=1: --db is the DB path directly (default). "
+             "For num_dbs>1: --db is a parent directory; db_stress "
+             "auto-creates db_0/, db_1/, ... subdirs underneath "
+             "(same for --expected_values_dir and secondaries). "
+             "Per-DB flags: threads, max_key, ops_per_thread, reopen, "
+             "column_families, and all DB options. "
+             "Shared across all instances: background env threads "
+             "(compaction, flush pool), cache, write_buffer_manager, "
+             "compressed_secondary_cache, rate_limiter, and "
+             "compaction_thread_pool_adjust_interval.");
 
 #endif  // GFLAGS

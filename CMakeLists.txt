@@ -654,6 +654,8 @@ if(USE_FOLLY)
     FMT_INST_PATH)
     exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
     GFLAGS_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../glog* OUTPUT_VARIABLE
+    GLOG_INST_PATH)
     set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.83.0)
     if(EXISTS ${FMT_INST_PATH}/lib64)
       set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
@@ -661,6 +663,42 @@ if(USE_FOLLY)
       set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
     endif()
     set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
+    if(EXISTS ${GLOG_INST_PATH}/lib64/cmake/glog)
+      set(GLOG_CMAKE_DIR ${GLOG_INST_PATH}/lib64/cmake/glog)
+    elseif(EXISTS ${GLOG_INST_PATH}/lib/cmake/glog)
+      set(GLOG_CMAKE_DIR ${GLOG_INST_PATH}/lib/cmake/glog)
+    endif()
+    if(NOT GLOG_CMAKE_DIR)
+      find_library(GETDEPS_GLOG_LIBRARY NAMES glogd glog
+        PATHS ${GLOG_INST_PATH}/lib64 ${GLOG_INST_PATH}/lib
+        NO_DEFAULT_PATH)
+      if(NOT GETDEPS_GLOG_LIBRARY OR
+         NOT EXISTS ${GLOG_INST_PATH}/include/glog/logging.h)
+        message(FATAL_ERROR "Could not find getdeps glog under "
+          "${GLOG_INST_PATH}")
+      endif()
+      set(GLOG_CMAKE_DIR ${CMAKE_CURRENT_BINARY_DIR}/getdeps-glog-cmake)
+      file(MAKE_DIRECTORY ${GLOG_CMAKE_DIR})
+      file(WRITE ${GLOG_CMAKE_DIR}/glog-config.cmake
+        "if(NOT TARGET glog::glog)\n"
+        "  add_library(glog::glog UNKNOWN IMPORTED)\n"
+        "  set_target_properties(glog::glog PROPERTIES\n"
+        "    IMPORTED_LOCATION \"${GETDEPS_GLOG_LIBRARY}\"\n"
+        "    INTERFACE_INCLUDE_DIRECTORIES \"${GLOG_INST_PATH}/include\")\n"
+        "endif()\n"
+        "set(glog_FOUND TRUE)\n"
+        "set(Glog_FOUND TRUE)\n"
+        "set(GLOG_FOUND TRUE)\n"
+        "set(GLOG_LIBRARY \"${GETDEPS_GLOG_LIBRARY}\")\n"
+        "set(GLOG_LIBRARIES \"${GETDEPS_GLOG_LIBRARY}\")\n"
+        "set(GLOG_INCLUDE_DIR \"${GLOG_INST_PATH}/include\")\n")
+    endif()
+    set(glog_DIR ${GLOG_CMAKE_DIR})
+    set(Glog_DIR ${GLOG_CMAKE_DIR})
+    # Unlike gflags, glog may also be installed system-wide. Pre-resolve the
+    # getdeps copy so folly-config.cmake cannot fall back to another version.
+    find_package(glog CONFIG REQUIRED PATHS ${GLOG_CMAKE_DIR}
+                 NO_DEFAULT_PATH)
 
     exec_program(sed ARGS -i 's/gflags_shared//g'
     ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
@@ -672,6 +710,31 @@ if(USE_FOLLY)
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath=${GFLAGS_INST_PATH}/lib")
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_INST_PATH}/lib/libgflags_debug.so.2.2")
     endif()
+  endif()
+
+  # Folly itself uses gflags transitively, but RocksDB tools and benchmarks
+  # also call gflags APIs directly, so they need an explicit link dependency.
+  if(WITH_GFLAGS)
+    if(NOT TARGET gflags::gflags AND NOT TARGET gflags_shared AND
+       NOT gflags_LIBRARIES)
+      find_package(gflags CONFIG QUIET)
+      if(NOT gflags_FOUND)
+        find_package(gflags REQUIRED)
+      endif()
+    endif()
+    if(TARGET gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
+    elseif(TARGET gflags_shared)
+      set(GFLAGS_LIB gflags_shared)
+    elseif(DEFINED GFLAGS_TARGET AND TARGET ${GFLAGS_TARGET})
+      set(GFLAGS_LIB ${GFLAGS_TARGET})
+    elseif(gflags_LIBRARIES)
+      set(GFLAGS_LIB ${gflags_LIBRARIES})
+    else()
+      message(FATAL_ERROR
+        "WITH_GFLAGS is enabled, but no gflags library could be resolved")
+    endif()
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
   endif()
 
   add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
@@ -1140,10 +1203,22 @@ if(USE_FOLLY_LITE)
   FMT_INCLUDE_DIR)
   include_directories(${FMT_INCLUDE_DIR})
 
+  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+  build/fbcode_builder/getdeps.py show-inst-dir glog OUTPUT_VARIABLE
+  GLOG_INST_PATH)
+  if(EXISTS ${GLOG_INST_PATH}/lib64)
+    set(GLOG_LIB_DIR ${GLOG_INST_PATH}/lib64)
+  else()
+    set(GLOG_LIB_DIR ${GLOG_INST_PATH}/lib)
+  endif()
+
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
-  find_library(GLOG_LIBRARY glog)
+  find_library(GLOG_LIBRARY NAMES glog PATHS ${GLOG_LIB_DIR} NO_DEFAULT_PATH)
+  if(NOT GLOG_LIBRARY)
+    find_library(GLOG_LIBRARY NAMES glog)
+  endif()
   if(GLOG_LIBRARY)
-    list(APPEND THIRDPARTY_LIBS glog)
+    list(APPEND THIRDPARTY_LIBS ${GLOG_LIBRARY})
   endif()
 endif()
 
@@ -1416,6 +1491,7 @@ if(WITH_TESTS)
         db/db_clip_test.cc
         db/db_dynamic_level_test.cc
         db/db_encryption_test.cc
+        db/db_etc2_test.cc
         db/db_etc3_test.cc
         db/db_flush_test.cc
         db/db_inplace_update_test.cc
@@ -1439,7 +1515,6 @@ if(WITH_TESTS)
         db/db_table_properties_test.cc
         db/db_tailing_iter_test.cc
         db/db_test.cc
-        db/db_test2.cc
         db/db_logical_block_size_cache_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc

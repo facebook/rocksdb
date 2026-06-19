@@ -129,7 +129,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
 }
 
 ColumnFamilyOptions::ColumnFamilyOptions()
-    : compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+    : compression(GetDefaultCompressionType()),
       table_factory(
           std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {}
 

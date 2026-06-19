@@ -795,7 +795,7 @@ TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneMultipleBatchesAndCommit) {
       ASSERT_OK(txn->Put("b", "txn_b"));  // batch 1, bounds start of run
       if (middle_tombstone) {
         // Txn Delete("e") fills the gap in the middle of committed deletes
-        // c, d, [e], f, g — making a contiguous run of 5 that contains an
+        // c, d, [e], f, g -- making a contiguous run of 5 that contains an
         // uncommitted seqno in the middle.
         ASSERT_OK(txn->Delete("e"));
       } else {
@@ -886,7 +886,7 @@ TEST_P(WriteUnpreparedTransactionTest,
     ASSERT_NE(txn, nullptr);
     txn->SetSnapshot();
 
-    // Multiple unprepared writes — these get seqnos beyond the snapshot.
+    // Multiple unprepared writes -- these get seqnos beyond the snapshot.
     // CalcMaxVisibleSeq returns max(last_unprep_seqno, snapshot_seq), so
     // the committed deletions (seqno between snap and unprep) are visible.
     ASSERT_OK(txn->Put("x", "txn_x"));
@@ -991,7 +991,7 @@ TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneOwnDeletionsAndRollback) {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
 
-    // Rollback — own Deletes and Puts are undone.
+    // Rollback -- own Deletes and Puts are undone.
     ASSERT_OK(txn->Rollback());
 
     // After rollback: committed deletes c-g remain, own deletes j-n are

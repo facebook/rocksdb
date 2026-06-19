@@ -73,7 +73,8 @@ class FlushJob {
            std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
-           BlobFileCompletionCallback* blob_callback = nullptr);
+           BlobFileCompletionCallback* blob_callback = nullptr,
+           bool fast_sst_open = false);
 
   ~FlushJob();
 
@@ -244,6 +245,7 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+  bool fast_sst_open_;
   // Write-path blob files that should be committed with this flush.
   std::vector<BlobFileAddition> external_blob_file_additions_;
   // Initial garbage for write-path blob files that were partially abandoned

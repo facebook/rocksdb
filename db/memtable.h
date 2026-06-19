@@ -39,6 +39,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFetcher;
 class BlobFilePartitionManager;
 struct FlushJobInfo;
 class Mutex;
@@ -67,7 +68,7 @@ struct ImmutableMemTableOptions {
   uint32_t protection_bytes_per_key;
   bool allow_data_in_errors;
   bool paranoid_memory_checks;
-  bool memtable_veirfy_per_key_checksum_on_seek;
+  bool memtable_verify_per_key_checksum_on_seek;
   bool memtable_batch_lookup_optimization;
 };
 
@@ -236,25 +237,27 @@ class ReadOnlyMemTable {
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback = nullptr,
-                   bool* is_blob_index = nullptr, bool do_merge = true) = 0;
+                   bool* is_blob_index = nullptr, bool do_merge = true,
+                   const BlobFetcher* blob_fetcher = nullptr) = 0;
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) {
+           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
-               callback, is_blob_index, do_merge);
+               callback, is_blob_index, do_merge, blob_fetcher);
   }
 
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
   virtual void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                        ReadCallback* callback, bool immutable_memtable) = 0;
+                        ReadCallback* callback, bool immutable_memtable,
+                        const BlobFetcher* blob_fetcher = nullptr) = 0;
 
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
@@ -320,7 +323,7 @@ class ReadOnlyMemTable {
   virtual uint64_t ApproximateOldestKeyTime() const = 0;
 
   // Inserts a range tombstone [start_key, end_key) that is logically redundant
-  // — it is derived from existing point tombstones observed during iteration
+  // -- it is derived from existing point tombstones observed during iteration
   // and does not delete any data that isn't already deleted. This is a
   // best-effort optimization. It allows future reads to skip iterating over
   // continuous single deletion tombstones.
@@ -328,11 +331,13 @@ class ReadOnlyMemTable {
   // Adding a range tombstone may fail if
   // - memtable switches to immutable state
   // - a range tombstone with the same key+seq already exists (duplicate insert)
-  //
+  // - the per-memtable ingest seqno barrier already exceeds `seq` (an
+  //   ingestion has committed an L0 file at a seq that this converted
+  //   tombstone would shadow) or an ingestion is in progress.
   // Returns true if the range tombstone was inserted, false if skipped.
-  virtual bool AddLogicallyRedundantRangeTombstone(SequenceNumber /*seq*/,
-                                                   const Slice& /*start_key*/,
-                                                   const Slice& /*end_key*/) {
+  virtual bool AddLogicallyRedundantRangeTombstone(
+      SequenceNumber /*seq*/, const Slice& /*start_key*/,
+      const Slice& /*end_key*/, port::RWMutex& /*ingest_sst_lock*/) {
     return false;
   }
 
@@ -686,10 +691,12 @@ class MemTable final : public ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) override;
+           bool do_merge = true,
+           const BlobFetcher* blob_fetcher = nullptr) override;
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback, bool immutable_memtable) override;
+                ReadCallback* callback, bool immutable_memtable,
+                const BlobFetcher* blob_fetcher = nullptr) override;
 
   // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
@@ -858,9 +865,19 @@ class MemTable final : public ReadOnlyMemTable {
   // SwitchMemtable() may fail.
   void ConstructFragmentedRangeTombstones();
 
-  bool AddLogicallyRedundantRangeTombstone(SequenceNumber seq,
-                                           const Slice& start_key,
-                                           const Slice& end_key) override;
+  bool AddLogicallyRedundantRangeTombstone(
+      SequenceNumber seq, const Slice& start_key, const Slice& end_key,
+      port::RWMutex& ingest_sst_lock) override;
+
+  // Monotonically raises ingest_seqno_barrier_ to `y` (no-op if `y` is not
+  // greater than the current value). The conversion's barrier check
+  // (`seq < ingest_seqno_barrier_.LoadRelaxed()`) refuses converted
+  // range tombstones that would shadow a just-installed L0 file.
+  //
+  // REQUIRES: DB mutex held by the caller. The DB mutex serializes all
+  // callers, so the load-then-store pattern is race-free without needing
+  // a CAS loop. Only IngestExternalFiles calls this.
+  void BumpIngestSeqnoBarrier(SequenceNumber y);
 
   bool IsFragmentedRangeTombstonesConstructed() const override {
     return fragmented_range_tombstone_list_.get() != nullptr ||
@@ -922,6 +939,10 @@ class MemTable final : public ReadOnlyMemTable {
   // if not set.
   std::atomic<SequenceNumber> earliest_seqno_;
 
+  // Seqno of the latest ingested external SST. See also
+  // ColumnFamilyData::ingest_sst_lock_.
+  RelaxedAtomic<SequenceNumber> ingest_seqno_barrier_{0};
+
   SequenceNumber creation_seq_;
 
   // the earliest log containing a prepared section
@@ -975,7 +996,8 @@ class MemTable final : public ReadOnlyMemTable {
                     std::string* value, PinnableWideColumns* columns,
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
-                    bool* found_final_value, bool* merge_in_progress);
+                    bool* found_final_value, bool* merge_in_progress,
+                    const BlobFetcher* blob_fetcher);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime

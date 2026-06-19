@@ -1123,6 +1123,16 @@ struct BlockBasedTableBuilder::Rep {
     props.compression_options =
         CompressionOptionsToString(tbo.compression_opts);
 
+    // Record the configured compression type as an extra pseudo-option for
+    // debugging/tracking. The per-block compression type actually recorded can
+    // differ from this (e.g. LZ4 vs LZ4HC is selected by compression level;
+    // compression manager can override), so this preserves the originally
+    // configured choice. Underscore prefix indicates a special pseudo-option.
+    props.compression_options.append("_type=");
+    props.compression_options.append(
+        std::to_string(static_cast<int>(tbo.compression_type)));
+    props.compression_options.append("; ");
+
     auto* mgr = tbo.moptions.compression_manager.get();
     if (mgr == nullptr) {
       uses_explicit_compression_manager = false;
@@ -1551,6 +1561,18 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   if (UNLIKELY(!ok())) {
     return;
   }
+  if (UNLIKELY(value.size() > std::numeric_limits<uint32_t>::max())) {
+    // NOTE:
+    // * WriteBatch and SstFileWriter check input value sizes
+    // * MergeHelper checks merge result size
+    // * AddWithLastKey() below requires < 4GB and we have seen random
+    // corruptions here
+    r->SetStatus(Status::Corruption(
+        "BlockBasedBuilder::Add() received a value sized >= 4GB. This could be "
+        "a random corruption. size=" +
+        std::to_string(value.size())));
+    return;
+  }
   ValueType value_type;
   SequenceNumber seq;
   UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
@@ -1588,6 +1610,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
       }
     }
 
+    // NOTE: WriteBatch guarantees keys < 4GB; value size checked above
     r->data_block.AddWithLastKey(ikey, value, r->last_ikey);
     r->last_ikey.assign(ikey.data(), ikey.size());
     assert(!r->last_ikey.empty());
@@ -1612,6 +1635,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     if (r->ts_sz > 0 && !r->persist_user_defined_timestamps) {
       persisted_end = StripTimestampFromUserKey(value, r->ts_sz);
     }
+    // NOTE: WriteBatch guarantees keys < 4GB; here 'value' is also a key
     r->range_del_block.Add(ikey, persisted_end);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),

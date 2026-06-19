@@ -56,7 +56,26 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/cache-getdeps-downloads"
     - uses: "./.github/actions/setup-folly"
-    - uses: "./.github/actions/build-folly"
+    - name: Build folly and dependencies
+      run: |
+        clean_path=()
+        IFS=: read -ra path_entries <<< "$PATH"
+        for entry in "${path_entries[@]}"; do
+          if [[ "$entry" != "/usr/lib/ccache" ]]; then
+            clean_path+=("$entry")
+          fi
+        done
+        export PATH="$(IFS=:; echo "${clean_path[*]}")"
+        ccache_bin="$(command -v ccache || true)"
+        if [[ -n "$ccache_bin" && -x "$ccache_bin" ]]; then
+          mv "$ccache_bin" "${ccache_bin}.disabled"
+        fi
+        export CC=gcc
+        export CXX=g++
+        export USE_CCACHE=0
+        export CCACHE_DISABLE=1
+        make build_folly
+      shell: bash
     - run: LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly:

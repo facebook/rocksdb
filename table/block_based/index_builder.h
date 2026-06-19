@@ -344,6 +344,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     // away the UDT from key in index block as data block does the same thing.
     // What are the implications if a "FindShortInternalKeySuccessor"
     // optimization is provided.
+    // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_block_builder_.Add(separator_with_seq, encoded_entry,
                              &delta_encoded_entry_slice, skip_delta_encoding);
     if (!must_use_separator_with_seq) {

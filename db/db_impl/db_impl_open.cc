@@ -21,6 +21,7 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "monitoring/statistics_impl.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/options.h"
@@ -120,6 +121,16 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
     //   Besides this bug, we believe the features are fundamentally compatible.
     result.recycle_log_file_num = 0;
+  }
+
+  if (result.async_wal_precreate && result.recycle_log_file_num != 0) {
+    // Async WAL precreation reserves a future log number, while WAL recycling
+    // chooses from old WAL files. Keep the recycling behavior and disable only
+    // the async optimization.
+    result.async_wal_precreate = false;
+    ROCKS_LOG_WARN(result.info_log,
+                   "async_wal_precreate is disabled since "
+                   "recycle_log_file_num is non-zero");
   }
 
   if (result.db_paths.size() == 0) {
@@ -242,6 +253,17 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
     return Status::NotSupported(
         "If memory mapped reads (allow_mmap_reads) are enabled "
         "then direct I/O reads (use_direct_reads) must be disabled. ");
+  }
+
+  if (db_options.allow_mmap_reads &&
+      db_options.use_direct_io_for_compaction_reads) {
+    // mmap reads and direct I/O share the same EnvOptions field, so enabling
+    // both would try to mmap and O_DIRECT the same reads. Reject it here rather
+    // than tripping a lower-level assert.
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then compaction-only direct I/O reads "
+        "(use_direct_io_for_compaction_reads) must be disabled. ");
   }
 
   if (db_options.allow_mmap_writes &&
@@ -495,7 +517,8 @@ Status DBImpl::Recover(
       std::unique_ptr<FSRandomAccessFile> idfile;
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
-          immutable_db_options_.use_direct_io_for_flush_and_compaction;
+          immutable_db_options_.use_direct_io_for_flush_and_compaction ||
+          immutable_db_options_.use_direct_io_for_compaction_reads;
       const std::string& fname =
           manifest_path.empty() ? current_fname : manifest_path;
       s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);
@@ -680,8 +703,18 @@ Status DBImpl::Recover(
   } else if (immutable_db_options_.write_dbid_to_manifest && recovery_ctx) {
     VersionEdit edit;
     s = SetupDBId(write_options, read_only, is_new_db, is_retry, &edit);
-    recovery_ctx->UpdateVersionEdits(
-        versions_->GetColumnFamilySet()->GetDefault(), edit);
+    // best_efforts_recovery rebuilds CURRENT/MANIFEST as the side-effect
+    // of LogAndApplyForRecovery emitting an edit, so the optimization is
+    // disabled there (see optimize_manifest_for_recovery doc).
+    const bool optimize_manifest_for_recovery =
+        mutable_db_options_.optimize_manifest_for_recovery &&
+        !immutable_db_options_.best_efforts_recovery;
+    if (!optimize_manifest_for_recovery || edit.HasDbId()) {
+      recovery_ctx->UpdateVersionEdits(
+          versions_->GetColumnFamilySet()->GetDefault(), edit);
+    } else {
+      TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:SetupDBId");
+    }
   } else {
     s = SetupDBId(write_options, read_only, is_new_db, is_retry, nullptr);
   }
@@ -770,6 +803,10 @@ Status DBImpl::Recover(
       // otherwise, in the future, if WAL tracking is enabled again,
       // since the WALs deleted when WAL tracking is disabled are not persisted
       // into MANIFEST, WAL check may fail.
+      //
+      // Intentionally NOT gated by optimize_manifest_for_recovery:
+      // this edit is safety-critical for a future re-enable of WAL tracking,
+      // even though it can look noop-ish under the current session.
       VersionEdit edit;
       WalNumber max_wal_number =
           versions_->GetWalSet().GetWals().rbegin()->first;
@@ -785,9 +822,19 @@ Status DBImpl::Recover(
 
     if (!wal_files.empty()) {
       if (error_if_wal_file_exists) {
-        return Status::Corruption(
-            "The db was opened in readonly mode with error_if_wal_file_exists"
-            "flag but a WAL file already exists");
+        for (const auto& wal_file : wal_files) {
+          uint64_t bytes;
+          s = env_->GetFileSize(wal_file.second, &bytes);
+          if (!s.ok()) {
+            return s;
+          }
+          if (bytes > 0) {
+            return Status::Corruption(
+                "The db was opened in readonly mode with "
+                "error_if_wal_file_exists flag but a non-empty WAL file "
+                "already exists");
+          }
+        }
       } else if (error_if_data_exists_in_wals) {
         for (auto& wal_file : wal_files) {
           uint64_t bytes;
@@ -983,7 +1030,11 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 
 Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
-  assert(versions_->descriptor_log_ == nullptr);
+  // descriptor_log_ is normally null after Recover, but when
+  // reuse_manifest_on_open is set VersionSet::Recover may have already
+  // bound a log::Writer to the existing MANIFEST for append.
+  assert(versions_->descriptor_log_ == nullptr ||
+         immutable_db_options_.reuse_manifest_on_open);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
 
@@ -1870,25 +1921,47 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
       versions_->MarkFileNumberUsed(max_wal_number + 1);
       assert(recovery_ctx != nullptr);
 
+      const bool optimize_manifest_for_recovery =
+          mutable_db_options_.optimize_manifest_for_recovery &&
+          !immutable_db_options_.best_efforts_recovery;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         auto iter = version_edits->find(cfd->GetID());
         assert(iter != version_edits->end());
-        recovery_ctx->UpdateVersionEdits(cfd, iter->second);
+        const VersionEdit& cf_edit = iter->second;
+        if (!optimize_manifest_for_recovery ||
+            cf_edit.ShouldEmitPerColumnFamilyRecoveryEdit(
+                cfd->GetLogNumber())) {
+          recovery_ctx->UpdateVersionEdits(cfd, cf_edit);
+        } else {
+          TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:PerCF");
+        }
       }
 
       if (flushed || !data_seen) {
+        const uint64_t new_min_log = max_wal_number + 1;
         VersionEdit wal_deletion;
+        bool emit_wal_deletion = false;
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-          wal_deletion.DeleteWalsBefore(max_wal_number + 1);
+          // Determining whether DeleteWalsBefore actually shrinks WalSet
+          // membership requires WalSet state outside this site, so emit
+          // unconditionally (pre-existing behavior).
+          wal_deletion.DeleteWalsBefore(new_min_log);
+          emit_wal_deletion = true;
         }
-        if (!allow_2pc()) {
-          // In non-2pc mode, flushing the memtables of the column families
-          // means we can advance min_log_number_to_keep.
-          wal_deletion.SetMinLogNumberToKeep(max_wal_number + 1);
+        const bool min_log_advances =
+            new_min_log > versions_->min_log_number_to_keep();
+        if (!allow_2pc() &&
+            (!optimize_manifest_for_recovery || min_log_advances)) {
+          wal_deletion.SetMinLogNumberToKeep(new_min_log);
+          emit_wal_deletion = true;
         }
         assert(versions_->GetColumnFamilySet() != nullptr);
-        recovery_ctx->UpdateVersionEdits(
-            versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
+        if (!optimize_manifest_for_recovery || emit_wal_deletion) {
+          recovery_ctx->UpdateVersionEdits(
+              versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
+        } else {
+          TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:WalDeletion");
+        }
       }
     }
   }
@@ -2174,6 +2247,16 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
+    // Before publishing any recovery edit, make the new SST's directory entry
+    // durable. Reused MANIFESTs have no CURRENT update, and fresh MANIFEST
+    // publication should not be relied on to order the recovered SST entry.
+    s = GetDataDir(cfd, meta.fd.GetPathId())
+            ->FsyncWithDirOptions(
+                IOOptions(), nullptr,
+                DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
+  }
+
+  if (s.ok() && has_output) {
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
@@ -2337,16 +2420,17 @@ Status DB::OpenAndTrimHistory(
   return s;
 }
 
-IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
-                           uint64_t log_file_num, uint64_t recycle_log_number,
-                           size_t preallocate_block_size,
-                           const PredecessorWALInfo& predecessor_wal_info,
-                           log::Writer** new_log) {
+IOStatus DBImpl::CreateWALWriter(const DBOptions& db_options,
+                                 uint64_t log_file_num,
+                                 uint64_t recycle_log_number,
+                                 size_t preallocate_block_size,
+                                 UnpublishedWAL* new_wal) {
+  assert(new_wal);
+  assert(new_wal->log_number == 0);
+  assert(new_wal->writer == nullptr);
   IOStatus io_s;
   std::unique_ptr<FSWritableFile> lfile;
 
-  DBOptions db_options =
-      BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
   opt_file_options.write_hint = CalculateWALWriteHint();
@@ -2384,19 +2468,160 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
         Histograms::HISTOGRAM_ENUM_MAX /* hist_type */, listeners, nullptr,
         tmp_set.Contains(FileType::kWalFile),
         tmp_set.Contains(FileType::kWalFile)));
-    *new_log = new log::Writer(std::move(file_writer), log_file_num,
-                               immutable_db_options_.recycle_log_file_num > 0,
-                               immutable_db_options_.manual_wal_flush,
-                               immutable_db_options_.wal_compression,
-                               immutable_db_options_.track_and_verify_wals);
-    io_s = (*new_log)->AddCompressionTypeRecord(write_options);
-    if (io_s.ok()) {
-      io_s = (*new_log)->MaybeAddPredecessorWALInfo(write_options,
-                                                    predecessor_wal_info);
-    }
+    new_wal->log_number = log_file_num;
+    new_wal->writer = std::make_unique<log::Writer>(
+        std::move(file_writer), log_file_num,
+        immutable_db_options_.recycle_log_file_num > 0,
+        immutable_db_options_.manual_wal_flush,
+        immutable_db_options_.wal_compression,
+        immutable_db_options_.track_and_verify_wals);
   }
 
   return io_s;
+}
+
+IOStatus DBImpl::StartWALFile(const WriteOptions& write_options,
+                              const PredecessorWALInfo& predecessor_wal_info,
+                              log::Writer* new_log) {
+  assert(new_log);
+  IOStatus io_s = new_log->AddCompressionTypeRecord(write_options);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::StartWALFile:AfterCompressionTypeRecord",
+                           &io_s);
+  if (io_s.ok()) {
+    io_s = new_log->MaybeAddPredecessorWALInfo(write_options,
+                                               predecessor_wal_info);
+  }
+  return io_s;
+}
+
+IOStatus DBImpl::CreateWAL(const DBOptions& db_options,
+                           const WriteOptions& write_options,
+                           uint64_t log_file_num, uint64_t recycle_log_number,
+                           size_t preallocate_block_size,
+                           const PredecessorWALInfo& predecessor_wal_info,
+                           log::Writer** new_log) {
+  assert(new_log);
+  assert(*new_log == nullptr);
+  UnpublishedWAL wal;
+  IOStatus io_s = CreateWALWriter(db_options, log_file_num, recycle_log_number,
+                                  preallocate_block_size, &wal);
+  if (io_s.ok()) {
+    io_s = StartWALFile(write_options, predecessor_wal_info, wal.writer.get());
+  }
+  if (io_s.ok()) {
+    *new_log = wal.writer.release();
+  }
+  return io_s;
+}
+
+bool DBImpl::AsyncWALPrecreateEnabled() const {
+  return immutable_db_options_.async_wal_precreate &&
+         immutable_db_options_.recycle_log_file_num == 0;
+}
+
+struct AsyncWALPrecreateContext {
+  DBImpl* db = nullptr;
+  DBOptions db_options;
+  uint64_t log_number = 0;
+  size_t preallocate_block_size = 0;
+};
+
+void DBImpl::MaybeScheduleAsyncWALPrecreate(size_t preallocate_block_size) {
+  mutex_.AssertHeld();
+
+  if (!AsyncWALPrecreateEnabled() ||
+      shutting_down_.load(std::memory_order_acquire) ||
+      error_handler_.IsBGWorkStopped() ||
+      async_wal_precreate_state_ != AsyncWALPrecreateState::kNotScheduled) {
+    return;
+  }
+
+  async_wal_precreate_wal_.Reset();
+  async_wal_precreate_wal_.log_number = versions_->NewFileNumber();
+  async_wal_precreate_state_ = AsyncWALPrecreateState::kScheduled;
+
+  auto* ctx = new AsyncWALPrecreateContext();
+  ctx->db = this;
+  ctx->db_options = BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  ctx->log_number = async_wal_precreate_wal_.log_number;
+  ctx->preallocate_block_size = preallocate_block_size;
+  env_->Schedule(&DBImpl::BGWorkAsyncWALPrecreate, ctx, Env::Priority::HIGH,
+                 nullptr);
+}
+
+DBImpl::UnpublishedWAL DBImpl::WaitForAsyncWALPrecreate() {
+  mutex_.AssertHeld();
+  UnpublishedWAL result;
+
+  if (!AsyncWALPrecreateEnabled()) {
+    return result;
+  }
+
+  TEST_SYNC_POINT("DBImpl::WaitForAsyncWALPrecreate:Begin");
+  bool waited = false;
+  uint64_t wait_start_micros = 0;
+  while (async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled) {
+    TEST_SYNC_POINT("DBImpl::WaitForAsyncWALPrecreate:BeforeWait");
+    if (!waited) {
+      waited = true;
+      wait_start_micros = immutable_db_options_.clock->NowMicros();
+      RecordTick(stats_, WAL_PRECREATE_WAITED);
+    }
+    bg_cv_.Wait();
+  }
+  if (waited) {
+    RecordTick(stats_, WAL_PRECREATE_WAIT_MICROS,
+               immutable_db_options_.clock->NowMicros() - wait_start_micros);
+  }
+
+  if (async_wal_precreate_state_ == AsyncWALPrecreateState::kReady) {
+    result = std::move(async_wal_precreate_wal_);
+    async_wal_precreate_state_ = AsyncWALPrecreateState::kNotScheduled;
+    RecordTick(stats_, WAL_PRECREATE_HIT);
+    return result;
+  }
+
+  assert(async_wal_precreate_state_ == AsyncWALPrecreateState::kNotScheduled);
+  RecordTick(stats_, WAL_PRECREATE_MISS);
+  return result;
+}
+
+void DBImpl::BGWorkAsyncWALPrecreate(void* arg) {
+  TEST_SYNC_POINT("DBImpl::BGWorkAsyncWALPrecreate:Start");
+  std::unique_ptr<AsyncWALPrecreateContext> ctx(
+      static_cast<AsyncWALPrecreateContext*>(arg));
+  DBImpl* db = ctx->db;
+
+  UnpublishedWAL new_wal;
+  IOStatus io_s = db->CreateWALWriter(ctx->db_options, ctx->log_number,
+                                      0 /* recycle_log_number */,
+                                      ctx->preallocate_block_size, &new_wal);
+  if (!io_s.ok()) {
+    RecordTick(db->stats_, WAL_PRECREATE_FAILED);
+    ROCKS_LOG_WARN(db->immutable_db_options_.info_log,
+                   "Async WAL precreate failed for #%" PRIu64 ": %s",
+                   ctx->log_number, io_s.ToString().c_str());
+  }
+
+  TEST_SYNC_POINT("DBImpl::BGWorkAsyncWALPrecreate:BeforePublish");
+  TEST_SYNC_POINT("DBImpl::BGWorkAsyncWALPrecreate:Publish");
+  {
+    InstrumentedMutexLock l(&db->mutex_);
+    if (db->async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled &&
+        db->async_wal_precreate_wal_.log_number == ctx->log_number) {
+      if (io_s.ok()) {
+        db->async_wal_precreate_wal_ = std::move(new_wal);
+        db->async_wal_precreate_state_ = AsyncWALPrecreateState::kReady;
+      } else {
+        // Async WAL precreation is best-effort. Clear the slot so foreground
+        // rotation falls back to normal synchronous WAL creation.
+        db->async_wal_precreate_wal_.Reset();
+        db->async_wal_precreate_state_ = AsyncWALPrecreateState::kNotScheduled;
+      }
+    }
+    db->bg_cv_.SignalAll();
+  }
+  TEST_SYNC_POINT("DBImpl::BGWorkAsyncWALPrecreate:Done");
 }
 
 void DBImpl::TrackExistingDataFiles(
@@ -2494,8 +2719,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // created during DB open with predecessor WALs from previous DB session due
     // to `avoid_flush_during_recovery == true`. This can protect the last WAL
     // recovered.
-    s = impl->CreateWAL(write_options, new_log_number, 0 /*recycle_log_number*/,
-                        preallocate_block_size,
+    const DBOptions db_options_snapshot =
+        BuildDBOptions(impl->immutable_db_options_, impl->mutable_db_options_);
+    s = impl->CreateWAL(db_options_snapshot, write_options, new_log_number,
+                        0 /*recycle_log_number*/, preallocate_block_size,
                         PredecessorWALInfo() /* predecessor_wal_info */,
                         &new_log);
     if (s.ok()) {
@@ -2700,6 +2927,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     if (impl->immutable_db_options_.open_files_async) {
       impl->ScheduleAsyncFileOpening();
     }
+    impl->MaybeScheduleAsyncWALPrecreate(
+        impl->GetWalPreallocateBlockSize(max_write_buffer_size));
     impl->mutex_.Unlock();
   }
 

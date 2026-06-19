@@ -101,7 +101,8 @@ FlushJob::FlushJob(
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
     const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
+    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback,
+    bool fast_sst_open)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -133,6 +134,7 @@ FlushJob::FlushJob(
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
+      fast_sst_open_(fast_sst_open),
       seqno_to_time_mapping_(std::move(seqno_to_time_mapping)) {
   assert(job_context->snapshot_context_initialized);
   // Update the thread status to indicate flush.
@@ -887,6 +889,13 @@ Status FlushJob::WriteLevel0Table() {
       ts_sz > 0 && !cfd_->ioptions().persist_user_defined_timestamps;
 
   std::vector<BlobFileAddition> blob_file_additions;
+  std::vector<BlobFileGarbage> blob_file_garbages;
+  // Only direct-write memtables can carry blob indexes that reference
+  // pre-existing blob files. Plain flushes write new blob files from inline
+  // values, so there is no pre-existing blob garbage to meter on the input
+  // side.
+  std::vector<BlobFileGarbage>* const blob_file_garbages_for_filtering =
+      cfd_->blob_partition_manager() != nullptr ? &blob_file_garbages : nullptr;
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats flush_stats(CompactionReason::kFlush,
                                              1 /* count**/);
@@ -1030,8 +1039,8 @@ Status FlushJob::WriteLevel0Table() {
           &io_s, io_tracer_, BlobFileCreationReason::kFlush,
           seqno_to_time_mapping_.get(), event_logger_, job_context_->job_id,
           &table_properties_, write_hint, full_history_ts_low, blob_callback_,
-          base_, &memtable_payload_bytes, &memtable_garbage_bytes,
-          &flush_stats);
+          base_, &memtable_payload_bytes, &memtable_garbage_bytes, &flush_stats,
+          blob_file_garbages_for_filtering, fast_sst_open_);
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
@@ -1102,29 +1111,27 @@ Status FlushJob::WriteLevel0Table() {
   }
   base_->Unref();
 
-  // Note that if file_size is zero, the file has been deleted and
-  // should not be added to the manifest.
+  // Note that if file_size is zero, the SST has been deleted and should not be
+  // added to the manifest. Blob metadata updates may still need to be
+  // committed for direct-write files or flush-time filtering.
   const bool has_output = meta_.fd.GetFileSize() > 0;
 
-  if (s.ok() && has_output) {
-    TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
-    // if we have more than 1 background thread, then we cannot
-    // insert files directly into higher levels because some other
-    // threads could be concurrently producing compacted files for
-    // that key range.
-    // Add file to L0
-    edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
-                   meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
-                   meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
-                   meta_.marked_for_compaction, meta_.temperature,
-                   meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
-                   meta_.file_creation_time, meta_.epoch_number,
-                   meta_.file_checksum, meta_.file_checksum_func_name,
-                   meta_.unique_id, meta_.compensated_range_deletion_size,
-                   meta_.tail_size, meta_.user_defined_timestamps_persisted,
-                   meta_.min_timestamp, meta_.max_timestamp);
-    edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+  if (s.ok()) {
+    if (has_output) {
+      TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
+      // if we have more than 1 background thread, then we cannot
+      // insert files directly into higher levels because some other
+      // threads could be concurrently producing compacted files for
+      // that key range.
+      // Add file to L0
+      TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", &meta_);
+      edit_->AddFile(0 /* level */, meta_);
+    }
 
+    edit_->SetBlobFileAdditions(std::move(blob_file_additions));
+    for (auto& garbage : blob_file_garbages) {
+      edit_->AddBlobFileGarbage(std::move(garbage));
+    }
     for (auto& addition : external_blob_file_additions_) {
       edit_->AddBlobFile(std::move(addition));
     }

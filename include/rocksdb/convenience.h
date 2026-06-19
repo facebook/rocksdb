@@ -432,8 +432,32 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
                             const Options& base_options,
                             const std::string& opts_str, Options* new_options);
 
+// StringToMap parses a serialized options string into a map. Each
+// resulting map value is in a self-contained form (it can be embedded
+// directly in a `key=value;` context -- e.g. SetOptions -- without further
+// escaping). Specifically: nested braced values from the input are
+// preserved with their outer braces. Permissive: accepts both braced and
+// unbraced forms; values not requiring braces are returned as-is.
+// Example:
+//   "filter_policy={id=ribbonfilter:10;bloom_before_level=-1};block_size=4096"
+// produces:
+//   {filter_policy -> "{id=ribbonfilter:10;bloom_before_level=-1}",
+//    block_size    -> "4096"}
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map);
+
+// MapToString is the inverse of StringToMap: a naive `key=value;` join.
+// Each map value must already be in self-contained form (as returned by
+// StringToMap) -- i.e. simple text or a single balanced `{...}` block.
+// Values from StringToMap satisfy this property, so the round-trip
+//
+//   StringToMap(MapToString(StringToMap(s))) == StringToMap(s)
+//
+// holds. Callers building a map by hand are responsible for ensuring
+// values are self-contained; raw values containing `;` or starting with
+// `{` without matching `}` won't round-trip.
+Status MapToString(const std::unordered_map<std::string, std::string>& opts_map,
+                   std::string* opts_str);
 
 // Request stopping background work, if wait is true wait until it's done
 void CancelAllBackgroundWork(DB* db, bool wait = false);

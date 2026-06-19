@@ -60,6 +60,7 @@ class CompactionOutputs {
   }
 
   const std::vector<Output>& GetOutputs() const { return outputs_; }
+  std::vector<Output>& GetMutableOutputs() { return outputs_; }
 
   // Set new table builder for the current output
   void NewBuilder(const TableBuilderOptions& tboptions);

@@ -5,6 +5,7 @@
 
 #include "rocksdb/sst_file_writer.h"
 
+#include <utility>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
@@ -15,6 +16,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
+#include "table/prepared_file_info.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 
@@ -57,7 +59,10 @@ struct SstFileWriter::Rep {
   WriteOptions write_options;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
+  InternalKey smallest_internal_key;
   InternalKey ikey;
+  InternalKey smallest_range_del_internal_key;
+  InternalKey largest_range_del_internal_key;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
   // If true, We will give the OS a hint that this file pages is not needed
@@ -80,6 +85,16 @@ struct SstFileWriter::Rep {
       return builder->status();
     }
 
+    // user_key + kNumInternalBytes must fit in uint32_t (BlockBuilder
+    // assumption). Also check value size.
+    if (user_key.size() >
+        size_t{std::numeric_limits<uint32_t>::max()} - kNumInternalBytes) {
+      return Status::InvalidArgument("key is too large");
+    }
+    if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+      return Status::InvalidArgument("value is too large");
+    }
+
     assert(user_key.size() >= ts_sz);
     if (strip_timestamp) {
       // In this mode, we expect users to always provide a min timestamp.
@@ -91,11 +106,9 @@ struct SstFileWriter::Rep {
             "minimum timestamp is accepted.");
       }
     }
-    if (file_info.num_entries == 0) {
-      file_info.smallest_key.assign(user_key.data(), user_key.size());
-    } else {
+    if (file_info.num_entries > 0) {
       if (internal_comparator.user_comparator()->Compare(
-              user_key, file_info.largest_key) <= 0) {
+              user_key, ikey.user_key()) <= 0) {
         // Make sure that keys are added in order
         return Status::InvalidArgument(
             "Keys must be added in strict ascending order.");
@@ -114,8 +127,10 @@ struct SstFileWriter::Rep {
     builder->Add(ikey.Encode(), value);
 
     // update file info
+    if (file_info.num_entries == 0) {
+      smallest_internal_key = ikey;
+    }
     file_info.num_entries++;
-    file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
@@ -173,6 +188,16 @@ struct SstFileWriter::Rep {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
+    // begin_key + kNumInternalBytes must fit in uint32_t (BlockBuilder
+    // assumption). end_key is stored as the value in the range deletion
+    // block, so it only needs to fit in uint32_t.
+    if (begin_key.size() >
+        size_t{std::numeric_limits<uint32_t>::max()} - kNumInternalBytes) {
+      return Status::InvalidArgument("key is too large");
+    }
+    if (end_key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+      return Status::InvalidArgument("end key is too large");
+    }
     int cmp = internal_comparator.user_comparator()->CompareWithoutTimestamp(
         begin_key, end_key);
     if (cmp > 0) {
@@ -207,26 +232,20 @@ struct SstFileWriter::Rep {
     }
 
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
-    if (file_info.num_range_del_entries == 0) {
-      file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
-                                              tombstone.start_key_.size());
-      file_info.largest_range_del_key.assign(tombstone.end_key_.data(),
-                                             tombstone.end_key_.size());
-    } else {
-      if (internal_comparator.user_comparator()->Compare(
-              tombstone.start_key_, file_info.smallest_range_del_key) < 0) {
-        file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
-                                                tombstone.start_key_.size());
-      }
-      if (internal_comparator.user_comparator()->Compare(
-              tombstone.end_key_, file_info.largest_range_del_key) > 0) {
-        file_info.largest_range_del_key.assign(tombstone.end_key_.data(),
-                                               tombstone.end_key_.size());
-      }
-    }
+    InternalKey range_del_start_bound = tombstone.SerializeKey();
+    InternalKey range_del_end_bound = tombstone.SerializeEndKey();
+    builder->Add(range_del_start_bound.Encode(), end_key);
 
-    auto ikey_and_end_key = tombstone.Serialize();
-    builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
+    if (file_info.num_range_del_entries == 0 ||
+        internal_comparator.Compare(range_del_start_bound,
+                                    smallest_range_del_internal_key) < 0) {
+      smallest_range_del_internal_key = std::move(range_del_start_bound);
+    }
+    if (file_info.num_range_del_entries == 0 ||
+        internal_comparator.Compare(range_del_end_bound,
+                                    largest_range_del_internal_key) > 0) {
+      largest_range_del_internal_key = std::move(range_del_end_bound);
+    }
 
     // update file info
     file_info.num_range_del_entries++;
@@ -330,6 +349,8 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   std::unique_ptr<FSWritableFile> sst_file;
   FileOptions cur_file_opts(r->env_options);
   cur_file_opts.temperature = temp;
+  cur_file_opts.open_contract = FileOpenContract::kNoReopenForWrite |
+                                FileOpenContract::kNoReadersWhileOpenForWrite;
   s = r->ioptions.env->GetFileSystem()->NewWritableFile(
       file_path, cur_file_opts, &sst_file, nullptr);
   if (!s.ok()) {
@@ -416,6 +437,7 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   r->file_info = ExternalSstFileInfo();
   r->file_info.file_path = file_path;
   r->file_info.version = 2;
+
   return s;
 }
 
@@ -491,34 +513,91 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     // Silence ASSERT_STATUS_CHECKED warning, since DeleteFile may fail under
     // some error injection, and we can just ignore the failure
     status.PermitUncheckedError();
+    r->builder.reset();
+    return s;
   }
 
-  if (file_info != nullptr) {
-    *file_info = r->file_info;
-    Slice smallest_key = r->file_info.smallest_key;
-    Slice largest_key = r->file_info.largest_key;
-    Slice smallest_range_del_key = r->file_info.smallest_range_del_key;
-    Slice largest_range_del_key = r->file_info.largest_range_del_key;
-    assert(smallest_key.empty() == largest_key.empty());
-    assert(smallest_range_del_key.empty() == largest_range_del_key.empty());
-    // Remove user-defined timestamps from external file metadata too when they
-    // should not be persisted.
-    if (r->strip_timestamp) {
-      if (!smallest_key.empty()) {
-        assert(smallest_key.size() >= r->ts_sz);
-        assert(largest_key.size() >= r->ts_sz);
-        file_info->smallest_key.resize(smallest_key.size() - r->ts_sz);
-        file_info->largest_key.resize(largest_key.size() - r->ts_sz);
-      }
-      if (!smallest_range_del_key.empty()) {
-        assert(smallest_range_del_key.size() >= r->ts_sz);
-        assert(largest_range_del_key.size() >= r->ts_sz);
-        file_info->smallest_range_del_key.resize(smallest_range_del_key.size() -
-                                                 r->ts_sz);
-        file_info->largest_range_del_key.resize(largest_range_del_key.size() -
-                                                r->ts_sz);
-      }
+  ExternalSstFileInfo finished_file_info = r->file_info;
+  PreparedFileInfo finished_prepared_file_info;
+
+  finished_prepared_file_info.file_size = finished_file_info.file_size;
+  InternalKey smallest;
+  InternalKey largest;
+  auto update_file_boundaries = [&](InternalKey smallest_candidate,
+                                    InternalKey largest_candidate) {
+    if (smallest.unset() ||
+        r->internal_comparator.Compare(smallest_candidate, smallest) < 0) {
+      smallest = std::move(smallest_candidate);
     }
+    if (largest.unset() ||
+        r->internal_comparator.Compare(largest_candidate, largest) > 0) {
+      largest = std::move(largest_candidate);
+    }
+  };
+
+  if (finished_file_info.num_entries > 0) {
+    finished_file_info.smallest_key =
+        r->smallest_internal_key.user_key().ToString();
+    finished_file_info.largest_key = r->ikey.user_key().ToString();
+    update_file_boundaries(r->smallest_internal_key, r->ikey);
+  }
+
+  if (finished_file_info.num_range_del_entries > 0) {
+    InternalKey smallest_range_del = r->smallest_range_del_internal_key;
+    InternalKey largest_range_del = r->largest_range_del_internal_key;
+
+    finished_file_info.smallest_range_del_key =
+        smallest_range_del.user_key().ToString();
+    finished_file_info.largest_range_del_key =
+        largest_range_del.user_key().ToString();
+
+    if (!r->strip_timestamp && r->ts_sz > 0) {
+      std::string max_ts(r->ts_sz, '\xff');
+      RangeTombstone tombstone(smallest_range_del.user_key(),
+                               largest_range_del.user_key(),
+                               0 /* Sequence Number */, max_ts);
+      smallest_range_del = tombstone.SerializeKey();
+      largest_range_del = tombstone.SerializeEndKey();
+    }
+
+    update_file_boundaries(std::move(smallest_range_del),
+                           std::move(largest_range_del));
+  }
+
+  if (r->strip_timestamp) {
+    auto strip_timestamp_from_user_key = [](std::string* user_key,
+                                            size_t ts_sz) {
+      assert(user_key != nullptr);
+      assert(user_key->size() >= ts_sz);
+      user_key->erase(user_key->size() - ts_sz);
+    };
+    if (finished_file_info.num_entries > 0) {
+      strip_timestamp_from_user_key(&finished_file_info.smallest_key, r->ts_sz);
+      strip_timestamp_from_user_key(&finished_file_info.largest_key, r->ts_sz);
+    }
+    if (finished_file_info.num_range_del_entries > 0) {
+      strip_timestamp_from_user_key(&finished_file_info.smallest_range_del_key,
+                                    r->ts_sz);
+      strip_timestamp_from_user_key(&finished_file_info.largest_range_del_key,
+                                    r->ts_sz);
+    }
+    assert(finished_prepared_file_info.smallest.unset());
+    assert(finished_prepared_file_info.largest.unset());
+    StripTimestampFromInternalKey(finished_prepared_file_info.smallest.rep(),
+                                  smallest.Encode(), r->ts_sz);
+    StripTimestampFromInternalKey(finished_prepared_file_info.largest.rep(),
+                                  largest.Encode(), r->ts_sz);
+  } else {
+    finished_prepared_file_info.smallest = std::move(smallest);
+    finished_prepared_file_info.largest = std::move(largest);
+  }
+
+  finished_prepared_file_info.table_properties =
+      r->builder->GetTableProperties();
+  if (file_info != nullptr) {
+    finished_file_info.prepared_file_info = std::make_shared<PreparedFileInfo>(
+        std::move(finished_prepared_file_info));
+    *file_info = std::move(finished_file_info);
   }
 
   r->builder.reset();

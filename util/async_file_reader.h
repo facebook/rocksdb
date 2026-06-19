@@ -36,10 +36,9 @@ class AsyncFileReader {
                                             const IOOptions& opts,
                                             FSReadRequest* read_reqs,
                                             size_t num_reqs,
-                                            AlignedBuf* aligned_buf,
                                             IODebugContext* dbg) noexcept {
-    return ReadOperation<ReadAwaiter>{*this,    file,        opts, read_reqs,
-                                      num_reqs, aligned_buf, dbg};
+    return ReadOperation<ReadAwaiter>{*this,     file,     opts,
+                                      read_reqs, num_reqs, dbg};
   }
 
  private:
@@ -50,8 +49,7 @@ class AsyncFileReader {
    public:
     explicit ReadAwaiter(AsyncFileReader& reader, RandomAccessFileReader* file,
                          const IOOptions& opts, FSReadRequest* read_reqs,
-                         size_t num_reqs, AlignedBuf* /*aligned_buf*/,
-                         IODebugContext* dbg) noexcept
+                         size_t num_reqs, IODebugContext* dbg) noexcept
         : reader_(reader),
           file_(file),
           opts_(opts),
@@ -105,20 +103,18 @@ class AsyncFileReader {
     explicit ReadOperation(AsyncFileReader& reader,
                            RandomAccessFileReader* file, const IOOptions& opts,
                            FSReadRequest* read_reqs, size_t num_reqs,
-                           AlignedBuf* aligned_buf,
                            IODebugContext* dbg) noexcept
         : reader_(reader),
           file_(file),
           opts_(opts),
           read_reqs_(read_reqs),
           num_reqs_(num_reqs),
-          aligned_buf_(aligned_buf),
           dbg_(dbg) {}
 
     auto viaIfAsync(folly::Executor::KeepAlive<> executor) const {
       return folly::coro::co_viaIfAsync(
-          std::move(executor), Awaiter{reader_, file_, opts_, read_reqs_,
-                                       num_reqs_, aligned_buf_, dbg_});
+          std::move(executor),
+          Awaiter{reader_, file_, opts_, read_reqs_, num_reqs_, dbg_});
     }
 
    private:
@@ -127,7 +123,6 @@ class AsyncFileReader {
     const IOOptions& opts_;
     FSReadRequest* read_reqs_;
     size_t num_reqs_;
-    AlignedBuf* aligned_buf_;
     IODebugContext* dbg_;
   };
 

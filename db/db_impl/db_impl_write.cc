@@ -16,6 +16,7 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/wide/wide_columns_helper.h"
+#include "file/filename.h"
 #include "logging/logging.h"
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/perf_context_imp.h"
@@ -509,6 +510,7 @@ struct DBImpl::BlobDirectWriteContext {
         sv->cfd->ioptions().enable_blob_direct_write;
     settings.min_blob_size = sv->mutable_cf_options.min_blob_size;
     settings.compression_type = sv->mutable_cf_options.blob_compression_type;
+    settings.compression_opts = sv->mutable_cf_options.blob_compression_opts;
     settings.blob_cache = sv->cfd->ioptions().blob_cache.get();
     settings.prepopulate_blob_cache =
         sv->mutable_cf_options.prepopulate_blob_cache;
@@ -860,37 +862,6 @@ Status DBImpl::SyncBlobDirectWriteManagers(
   }
 
   return Status::OK();
-}
-
-void DBImpl::MaybeTraceWriteGroupForPreservedWriteOrder(
-    const WriteThread::WriteGroup& write_group, WriteBatchWithIndex* wbwi,
-    bool ingest_wbwi_for_commit) {
-  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-  // grabs but does not seem thread-safe.
-  if (tracer_) {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
-      WriteBatch* wbwi_trace_batch = nullptr;
-      if (wbwi != nullptr && !ingest_wbwi_for_commit) {
-        // For transaction write, preserved-order tracing only needs the
-        // logical commit marker once, so trace the WBWI batch instead of the
-        // commit-time batch stored in each writer.
-        wbwi_trace_batch = wbwi->GetWriteBatch();
-      }
-      for (auto* writer : write_group) {
-        if (writer->CallbackFailed()) {
-          continue;
-        }
-        WriteBatch* trace_batch = wbwi_trace_batch != nullptr
-                                      ? wbwi_trace_batch
-                                      : writer->trace_batch;
-        // Preserve user-visible ordering while still tracing the logical batch
-        // for writers whose applied batch was rewritten earlier on the path.
-        // TODO: maybe handle the tracing status?
-        tracer_->Write(trace_batch).PermitUncheckedError();
-      }
-    }
-  }
 }
 
 Status DBImpl::WriteImpl(
@@ -1316,6 +1287,26 @@ Status DBImpl::WriteImpl(
         }
       }
     }
+    // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+    // grabs but does not seem thread-safe.
+    if (tracer_) {
+      InstrumentedMutexLock lock(&trace_mutex_);
+      if (tracer_ && tracer_->IsWriteOrderPreserved()) {
+        for (auto* writer : write_group) {
+          if (writer->CallbackFailed()) {
+            continue;
+          }
+          // TODO: maybe handle the tracing status?
+          if (wbwi && !ingest_wbwi_for_commit) {
+            // for transaction write, tracer only needs the commit marker which
+            // is in writer->batch
+            tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
+          } else {
+            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+          }
+        }
+      }
+    }
     // Note about seq_per_batch_: either disableWAL is set for the entire write
     // group or not. In either case we inc seq for each write batch with no
     // failed callback. This means that there could be a batch with
@@ -1423,11 +1414,6 @@ Status DBImpl::WriteImpl(
           status = SyncWAL();
         }
       }
-    }
-
-    if (status.ok()) {
-      MaybeTraceWriteGroupForPreservedWriteOrder(write_group, wbwi.get(),
-                                                 ingest_wbwi_for_commit);
     }
 
     // PreReleaseCallback is called after WAL write and before memtable write
@@ -1561,6 +1547,10 @@ Status DBImpl::WriteImpl(
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
       if (w.status.ok()) {  // Don't publish a partial batch write
+        TEST_SYNC_POINT(
+            "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause");
+        TEST_SYNC_POINT(
+            "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:resume");
         versions_->SetLastSequence(last_sequence);
       }
     }
@@ -1634,6 +1624,22 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           }
         }
       }
+      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+      // grabs but does not seem thread-safe.
+      if (tracer_) {
+        InstrumentedMutexLock lock(&trace_mutex_);
+        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+          for (auto* writer : wal_write_group) {
+            if (writer->CallbackFailed()) {
+              // When optimisitc txn conflict checking fails, we should
+              // not record to trace.
+              continue;
+            }
+            // TODO: maybe handle the tracing status?
+            tracer_->Write(writer->trace_batch).PermitUncheckedError();
+          }
+        }
+      }
       if (w.disable_wal) {
         has_unpersisted_data_.store(true, std::memory_order_relaxed);
       }
@@ -1693,9 +1699,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       // TODO: plumb Env::IOActivity, Env::IOPriority
       const ReadOptions read_options;
       w.status = ApplyWALToManifest(read_options, write_options, &synced_wals);
-    }
-    if (w.status.ok()) {
-      MaybeTraceWriteGroupForPreservedWriteOrder(wal_write_group);
     }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
@@ -1908,6 +1911,20 @@ Status DBImpl::WriteImplWALOnly(
 
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
+  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+  // grabs but does not seem thread-safe.
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      for (auto* writer : write_group) {
+        if (writer->CallbackFailed()) {
+          continue;
+        }
+        // TODO: maybe handle the tracing status?
+        tracer_->Write(writer->trace_batch).PermitUncheckedError();
+      }
+    }
+  }
 
   const bool concurrent_update = true;
   // Update stats while we are an exclusive group leader, so we know
@@ -1988,13 +2005,6 @@ Status DBImpl::WriteImplWALOnly(
     } else {
       status = SyncWAL();
     }
-  }
-  if (status.ok()) {
-    // Write trace  after WAL right. This ensures the replayer does not replay a
-    // record that has not been recorded in the DB. However, it is not a full
-    // solution as a crash may still happen before the trace write and after the
-    // WAL write. TODO: Atomically write WAL and trace.
-    MaybeTraceWriteGroupForPreservedWriteOrder(write_group);
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
@@ -3098,6 +3108,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   const WriteOptions write_options;
 
   log::Writer* new_log = nullptr;
+  UnpublishedWAL prepared_wal;
   MemTable* new_mem = nullptr;
   IOStatus io_s;
 
@@ -3125,8 +3136,16 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
       !wal_recycle_files_.empty() && IsFileDeletionsEnabled()) {
     recycle_log_number = wal_recycle_files_.front();
   }
-  uint64_t new_log_number =
-      creating_new_log ? versions_->NewFileNumber() : cur_wal_number_;
+  uint64_t new_log_number = cur_wal_number_;
+  if (creating_new_log) {
+    prepared_wal = WaitForAsyncWALPrecreate();
+    if (prepared_wal.writer) {
+      new_log_number = prepared_wal.log_number;
+    } else {
+      assert(prepared_wal.log_number == 0);
+      new_log_number = versions_->NewFileNumber();
+    }
+  }
   // For use outside of holding DB mutex
   const MutableCFOptions mutable_cf_options_copy =
       cfd->GetLatestMutableCFOptions();
@@ -3147,6 +3166,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   // Log this later after lock release. It may be outdated, e.g., if background
   // flush happens before logging, but that should be ok.
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
+  const DBOptions db_options_snapshot =
+      BuildDBOptions(immutable_db_options_, mutable_db_options_);
   const auto preallocate_block_size =
       GetWalPreallocateBlockSize(mutable_cf_options_copy.write_buffer_size);
   mutex_.Unlock();
@@ -3162,12 +3183,34 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     wal_write_mutex_.Unlock();
     // TODO: Write buffer size passed in should be max of all CF's instead
     // of mutable_cf_options.write_buffer_size.
-    io_s = CreateWAL(write_options, new_log_number, recycle_log_number,
-                     preallocate_block_size, info, &new_log);
+    if (prepared_wal.writer) {
+      io_s = StartWALFile(write_options, info, prepared_wal.writer.get());
+      if (io_s.ok()) {
+        new_log = prepared_wal.writer.release();
+      }
+    } else {
+      io_s =
+          CreateWAL(db_options_snapshot, write_options, new_log_number,
+                    recycle_log_number, preallocate_block_size, info, &new_log);
+    }
     TEST_SYNC_POINT_CALLBACK("DBImpl::SwitchMemtable:AfterCreateWAL", &io_s);
     if (s.ok()) {
       s = io_s;
     }
+  }
+  if (!s.ok() && prepared_wal.writer) {
+    const uint64_t prepared_wal_number = prepared_wal.log_number;
+    const std::string prepared_wal_fname =
+        LogFileName(immutable_db_options_.GetWalDir(), prepared_wal_number);
+    prepared_wal.Reset();
+    Status delete_s = env_->DeleteFile(prepared_wal_fname);
+    if (!delete_s.ok() && !delete_s.IsNotFound()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to delete unstarted async precreated WAL #%" PRIu64
+                     ": %s",
+                     prepared_wal_number, delete_s.ToString().c_str());
+    }
+    delete_s.PermitUncheckedError();
   }
   if (s.ok()) {
     // FIXME: from the comment for GetEarliestSequenceNumber(), any key with
@@ -3350,6 +3393,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
+  MaybeScheduleAsyncWALPrecreate(preallocate_block_size);
 
   // Notify client that memtable is sealed, now that we have successfully
   // installed a new memtable

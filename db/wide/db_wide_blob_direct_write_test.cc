@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/wide/wide_column_serialization.h"
@@ -340,6 +341,233 @@ class TTLOnlyLazyDropFilter : public CompactionFilter {
   std::atomic<int>* ttl_bad_size_count_;
   std::atomic<int>* missing_ttl_count_;
   std::atomic<int>* blob_columns_seen_;
+};
+
+class FlushOnlyTTLOnlyLazyDropFilterFactory : public CompactionFilterFactory {
+ public:
+  FlushOnlyTTLOnlyLazyDropFilterFactory(std::atomic<uint64_t>* ttl_cutoff,
+                                        std::atomic<int>* filter_call_count,
+                                        std::atomic<int>* ttl_columns_seen,
+                                        std::atomic<int>* ttl_bad_size_count,
+                                        std::atomic<int>* missing_ttl_count,
+                                        std::atomic<int>* blob_columns_seen)
+      : ttl_cutoff_(ttl_cutoff),
+        filter_call_count_(filter_call_count),
+        ttl_columns_seen_(ttl_columns_seen),
+        ttl_bad_size_count_(ttl_bad_size_count),
+        missing_ttl_count_(missing_ttl_count),
+        blob_columns_seen_(blob_columns_seen) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<TTLOnlyLazyDropFilter>(
+        ttl_cutoff_, filter_call_count_, ttl_columns_seen_, ttl_bad_size_count_,
+        missing_ttl_count_, blob_columns_seen_);
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == TableFileCreationReason::kFlush;
+  }
+
+  const char* Name() const override {
+    return "FlushOnlyTTLOnlyLazyDropFilterFactory";
+  }
+
+ private:
+  std::atomic<uint64_t>* ttl_cutoff_;
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* ttl_columns_seen_;
+  std::atomic<int>* ttl_bad_size_count_;
+  std::atomic<int>* missing_ttl_count_;
+  std::atomic<int>* blob_columns_seen_;
+};
+
+class ResolvingWideValueFilter : public CompactionFilter {
+ public:
+  ResolvingWideValueFilter(std::atomic<int>* filter_call_count,
+                           std::atomic<int>* resolve_attempt_count,
+                           std::atomic<int>* resolve_failure_count,
+                           std::string* resolved_default_value)
+      : filter_call_count_(filter_call_count),
+        resolve_attempt_count_(resolve_attempt_count),
+        resolve_failure_count_(resolve_failure_count),
+        resolved_default_value_(resolved_default_value) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kWideColumnEntity || !existing_columns) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+
+    if (blob_resolver == nullptr) {
+      ++(*resolve_failure_count_);
+      return Decision::kKeep;
+    }
+
+    for (size_t i = 0; i < existing_columns->size(); ++i) {
+      const auto& column = (*existing_columns)[i];
+      if (column.name() != kDefaultWideColumnName ||
+          !blob_resolver->IsBlobColumn(i)) {
+        continue;
+      }
+
+      ++(*resolve_attempt_count_);
+      Slice resolved_value;
+      const Status s = blob_resolver->ResolveColumn(i, &resolved_value);
+      if (!s.ok()) {
+        ++(*resolve_failure_count_);
+        return Decision::kKeep;
+      }
+
+      *resolved_default_value_ = resolved_value.ToString();
+      return Decision::kKeep;
+    }
+
+    ++(*resolve_failure_count_);
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override { return "ResolvingWideValueFilter"; }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_attempt_count_;
+  std::atomic<int>* resolve_failure_count_;
+  std::string* resolved_default_value_;
+};
+
+class FlushOnlyResolvingWideValueFilterFactory
+    : public CompactionFilterFactory {
+ public:
+  FlushOnlyResolvingWideValueFilterFactory(
+      std::atomic<int>* filter_call_count,
+      std::atomic<int>* resolve_attempt_count,
+      std::atomic<int>* resolve_failure_count,
+      std::string* resolved_default_value)
+      : filter_call_count_(filter_call_count),
+        resolve_attempt_count_(resolve_attempt_count),
+        resolve_failure_count_(resolve_failure_count),
+        resolved_default_value_(resolved_default_value) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<ResolvingWideValueFilter>(
+        filter_call_count_, resolve_attempt_count_, resolve_failure_count_,
+        resolved_default_value_);
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == TableFileCreationReason::kFlush;
+  }
+
+  const char* Name() const override {
+    return "FlushOnlyResolvingWideValueFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_attempt_count_;
+  std::atomic<int>* resolve_failure_count_;
+  std::string* resolved_default_value_;
+};
+
+class BlobResolvingErrorIgnoringFilter : public CompactionFilter {
+ public:
+  BlobResolvingErrorIgnoringFilter(std::atomic<int>* filter_call_count,
+                                   std::atomic<int>* resolve_error_count,
+                                   std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  Decision FilterV4(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice* /*existing_value*/, const WideColumns* existing_columns,
+      std::string* /*new_value*/,
+      std::vector<std::pair<std::string, std::string>>* /*new_columns*/,
+      std::string* /*skip_until*/,
+      WideColumnBlobResolver* blob_resolver = nullptr) const override {
+    if (value_type != ValueType::kWideColumnEntity || !existing_columns ||
+        blob_resolver == nullptr) {
+      return Decision::kKeep;
+    }
+
+    ++(*filter_call_count_);
+
+    for (size_t i = 0; i < existing_columns->size(); ++i) {
+      if (!blob_resolver->IsBlobColumn(i)) {
+        continue;
+      }
+
+      const auto& column = (*existing_columns)[i];
+      if (column.name() != "blob_attr") {
+        continue;
+      }
+
+      Slice resolved_value;
+      const Status s = blob_resolver->ResolveColumn(i, &resolved_value);
+      if (!s.ok()) {
+        ++(*resolve_error_count_);
+        *resolve_error_status_ = s.ToString();
+      }
+      break;
+    }
+
+    // Even if the filter returns kKeep after observing the read failure,
+    // flush must fail and surface the resolver error.
+    return Decision::kKeep;
+  }
+
+  bool SupportsFilterV4() const override { return true; }
+  const char* Name() const override {
+    return "BlobResolvingErrorIgnoringFilter";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
+};
+
+class FlushOnlyBlobResolvingErrorIgnoringFilterFactory
+    : public CompactionFilterFactory {
+ public:
+  FlushOnlyBlobResolvingErrorIgnoringFilterFactory(
+      std::atomic<int>* filter_call_count,
+      std::atomic<int>* resolve_error_count, std::string* resolve_error_status)
+      : filter_call_count_(filter_call_count),
+        resolve_error_count_(resolve_error_count),
+        resolve_error_status_(resolve_error_status) {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override {
+    return std::make_unique<BlobResolvingErrorIgnoringFilter>(
+        filter_call_count_, resolve_error_count_, resolve_error_status_);
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason == TableFileCreationReason::kFlush;
+  }
+
+  const char* Name() const override {
+    return "FlushOnlyBlobResolvingErrorIgnoringFilterFactory";
+  }
+
+ private:
+  std::atomic<int>* filter_call_count_;
+  std::atomic<int>* resolve_error_count_;
+  std::string* resolve_error_status_;
 };
 
 class NameBasedWideColumnPartitionStrategy : public BlobFilePartitionStrategy {
@@ -693,6 +921,322 @@ TEST_F(
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityLazyTTLFlushTracksExpiredBlobGarbage) {
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> ttl_columns_seen{0};
+  std::atomic<int> ttl_bad_size_count{0};
+  std::atomic<int> missing_ttl_count{0};
+  std::atomic<int> blob_columns_seen{0};
+  std::atomic<uint64_t> ttl_cutoff{1000};
+
+  auto filter_factory = std::make_shared<FlushOnlyTTLOnlyLazyDropFilterFactory>(
+      &ttl_cutoff, &filter_call_count, &ttl_columns_seen, &ttl_bad_size_count,
+      &missing_ttl_count, &blob_columns_seen);
+
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory = filter_factory;
+
+  Reopen(options);
+
+  const std::string expired_key = "expired_entity";
+  const std::string live_key = "live_entity";
+  const std::string expired_value = GenerateLargeValue(4096, 'E');
+  const std::string live_value = GenerateLargeValue(4096, 'L');
+  const std::string expired_ttl = EncodeFixedTTL(10);
+  const std::string live_ttl = EncodeFixedTTL(1000);
+  const auto expired_columns_data =
+      BuildTTLWideEntityData(expired_value, expired_ttl);
+  const WideColumns expired_columns = ToWideColumns(expired_columns_data);
+  const auto live_columns_data = BuildTTLWideEntityData(live_value, live_ttl);
+  const WideColumns live_columns = ToWideColumns(live_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           expired_key, expired_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), live_key,
+                           live_columns));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_GE(filter_call_count.load(), 2);
+  ASSERT_EQ(ttl_columns_seen.load(), filter_call_count.load());
+  ASSERT_EQ(ttl_bad_size_count.load(), 0);
+  ASSERT_EQ(missing_ttl_count.load(), 0);
+  ASSERT_EQ(blob_columns_seen.load(), filter_call_count.load());
+
+  PinnableWideColumns result;
+  ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             expired_key, &result)
+                  .IsNotFound());
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), live_key,
+                           &result));
+  ASSERT_EQ(result.columns(), live_columns);
+
+  const uint64_t expired_record_bytes =
+      expired_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(expired_key.size());
+  const uint64_t live_record_bytes =
+      live_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(live_key.size());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  const BlobMetaData& blob_meta = cf_meta.blob_files[0];
+  ASSERT_EQ(blob_meta.total_blob_count, 2U);
+  ASSERT_EQ(blob_meta.total_blob_bytes,
+            expired_record_bytes + live_record_bytes);
+  ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
+  ASSERT_EQ(blob_meta.garbage_blob_bytes, expired_record_bytes);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityLazyResolverMissingBlobFailsFlush) {
+  // Goal: verify flush-time FilterV4 lazy resolution errors fail the flush for
+  // direct-write wide entities. The filter resolves one blob-backed column,
+  // records the resulting read error, and still returns kKeep; flush must
+  // propagate the resolver status and latch bg_error instead of silently
+  // preserving the entry.
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> resolve_error_count{0};
+  std::string resolve_error_status;
+
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+  options.compaction_filter_factory =
+      std::make_shared<FlushOnlyBlobResolvingErrorIgnoringFilterFactory>(
+          &filter_call_count, &resolve_error_count, &resolve_error_status);
+
+  Reopen(options);
+
+  constexpr char key[] = "flush_missing_blob_key";
+  const std::string blob_attr_value(128, 'b');
+  const WideColumns columns{{kDefaultWideColumnName, "inline-default"},
+                            {"blob_attr", blob_attr_value},
+                            {"ttl", "00000001"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  auto* mgr = cfh->cfd()->blob_partition_manager();
+  ASSERT_NE(mgr, nullptr);
+
+  std::vector<BlobFileAddition> additions;
+  std::vector<BlobFileGarbage> garbages;
+  ASSERT_OK(mgr->PrepareFlushAdditions(WriteOptions(), /*num_generations=*/1,
+                                       &additions, &garbages));
+  ASSERT_EQ(additions.size(), 1U);
+  ASSERT_TRUE(garbages.empty());
+
+  ASSERT_OK(env_->DeleteFile(
+      BlobFileName(dbname_, additions.front().GetBlobFileNumber())));
+
+  const Status status = Flush();
+  ASSERT_FALSE(status.ok())
+      << "Flush should fail when FilterV4 lazy blob resolution hits a "
+         "missing blob file";
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(resolve_error_count.load(), 1);
+  ASSERT_FALSE(resolve_error_status.empty());
+
+  const Status bg_error = dbfull()->TEST_GetBGError();
+  ASSERT_FALSE(bg_error.ok());
+  ASSERT_TRUE(bg_error.IsCorruption() || bg_error.IsIOError() ||
+              bg_error.IsNotFound())
+      << bg_error.ToString();
+  ASSERT_GE(static_cast<int>(bg_error.severity()),
+            static_cast<int>(Status::Severity::kHardError));
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityFlushOverwriteElisionTracksBlobGarbage) {
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+
+  Reopen(options);
+
+  const std::string key = "overwritten_entity";
+  const std::string old_value = GenerateLargeValue(4096, 'O');
+  const std::string new_value = GenerateLargeValue(4096, 'N');
+  const auto old_columns_data =
+      WideColumnStringPairs{{"", old_value}, {"meta", "old_inline_meta"}};
+  const WideColumns old_columns = ToWideColumns(old_columns_data);
+  const auto new_columns_data =
+      WideColumnStringPairs{{"", new_value}, {"meta", "new_inline_meta"}};
+  const WideColumns new_columns = ToWideColumns(new_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           old_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,
+                           new_columns));
+
+  ASSERT_OK(Flush());
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result.columns(), new_columns);
+
+  const uint64_t old_record_bytes =
+      old_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key.size());
+  const uint64_t new_record_bytes =
+      new_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key.size());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+
+  const BlobMetaData& blob_meta = cf_meta.blob_files[0];
+  ASSERT_EQ(blob_meta.total_blob_count, 2U);
+  ASSERT_EQ(blob_meta.total_blob_bytes, old_record_bytes + new_record_bytes);
+  ASSERT_EQ(blob_meta.garbage_blob_count, 1U);
+  ASSERT_EQ(blob_meta.garbage_blob_bytes, old_record_bytes);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityLazyTTLFlushAllExpiredDoesNotLeakBlobGeneration) {
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> ttl_columns_seen{0};
+  std::atomic<int> ttl_bad_size_count{0};
+  std::atomic<int> missing_ttl_count{0};
+  std::atomic<int> blob_columns_seen{0};
+  std::atomic<uint64_t> ttl_cutoff{1000};
+
+  auto filter_factory = std::make_shared<FlushOnlyTTLOnlyLazyDropFilterFactory>(
+      &ttl_cutoff, &filter_call_count, &ttl_columns_seen, &ttl_bad_size_count,
+      &missing_ttl_count, &blob_columns_seen);
+
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory = filter_factory;
+
+  Reopen(options);
+
+  const std::string expired_key = "expired_only_entity";
+  const std::string expired_value = GenerateLargeValue(4096, 'X');
+  const std::string expired_ttl = EncodeFixedTTL(10);
+  const auto expired_columns_data =
+      BuildTTLWideEntityData(expired_value, expired_ttl);
+  const WideColumns expired_columns = ToWideColumns(expired_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           expired_key, expired_columns));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_EQ(ttl_columns_seen.load(), filter_call_count.load());
+  ASSERT_EQ(ttl_bad_size_count.load(), 0);
+  ASSERT_EQ(missing_ttl_count.load(), 0);
+  ASSERT_EQ(blob_columns_seen.load(), filter_call_count.load());
+
+  PinnableWideColumns result;
+  ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             expired_key, &result)
+                  .IsNotFound());
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 0U);
+  ASSERT_TRUE(cf_meta.blob_files.empty());
+
+  const std::string live_key = "live_after_empty_flush";
+  const std::string live_value = GenerateLargeValue(4096, 'Y');
+  const std::string live_ttl = EncodeFixedTTL(5000);
+  const auto live_columns_data = BuildTTLWideEntityData(live_value, live_ttl);
+  const WideColumns live_columns = ToWideColumns(live_columns_data);
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), live_key,
+                           live_columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), live_key,
+                           &result));
+  ASSERT_EQ(result.columns(), live_columns);
+
+  const uint64_t live_record_bytes =
+      live_value.size() +
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(live_key.size());
+
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  ASSERT_EQ(cf_meta.blob_file_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files.size(), 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_count, 1U);
+  ASSERT_EQ(cf_meta.blob_files[0].total_blob_bytes, live_record_bytes);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_count, 0U);
+  ASSERT_EQ(cf_meta.blob_files[0].garbage_blob_bytes, 0U);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteWideEntityBlobResolverWorksOnFlush) {
+  std::atomic<int> filter_call_count{0};
+  std::atomic<int> resolve_attempt_count{0};
+  std::atomic<int> resolve_failure_count{0};
+  std::string resolved_default_value;
+
+  auto filter_factory =
+      std::make_shared<FlushOnlyResolvingWideValueFilterFactory>(
+          &filter_call_count, &resolve_attempt_count, &resolve_failure_count,
+          &resolved_default_value);
+
+  Options options = GetDirectWriteOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.blob_direct_write_partitions = 1;
+  options.min_blob_size = 64;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = false;
+  options.compaction_filter_factory = filter_factory;
+
+  Reopen(options);
+
+  const std::string key = "resolver_entity";
+  const std::string large_value = GenerateLargeValue(4096, 'Z');
+  const std::string ttl_value = EncodeFixedTTL(5000);
+  const auto columns_data = BuildTTLWideEntityData(large_value, ttl_value);
+  const WideColumns columns = ToWideColumns(columns_data);
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  ASSERT_GE(filter_call_count.load(), 1);
+  ASSERT_GE(resolve_attempt_count.load(), 1);
+  ASSERT_EQ(resolve_failure_count.load(), 0);
+  ASSERT_EQ(resolved_default_value, large_value);
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+  ASSERT_EQ(result.columns(), columns);
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
        MultiCfCoalescingIteratorResolvesBlobBackedColumnsAfterSeekRefresh) {
   constexpr int kNumKeys = 32;
 
@@ -900,19 +1444,16 @@ TEST_F(DBWideBlobDirectWriteTest,
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
-       DirectWriteIteratorValueScanDefersUnneededBlobColumns) {
+       DirectWriteIteratorValueScanEagerlyResolvesBlobColumns) {
   struct IteratorScanCase {
     const char* name;
     std::string default_value;
     std::string blob_attr_value;
-    bool expect_default_blob_read;
   };
 
   const std::array<IteratorScanCase, 2> cases{{
-      {"inline_default", "inline-default", std::string(128, 'b'),
-       /*expect_default_blob_read=*/false},
-      {"blob_default", std::string(128, 'd'), std::string(160, 'e'),
-       /*expect_default_blob_read=*/true},
+      {"inline_default", "inline-default", std::string(128, 'b')},
+      {"blob_default", std::string(128, 'd'), std::string(160, 'e')},
   }};
 
   for (const auto& test_case : cases) {
@@ -948,23 +1489,57 @@ TEST_F(DBWideBlobDirectWriteTest,
 
     const uint64_t blob_bytes_before_columns =
         options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
-    if (test_case.expect_default_blob_read) {
-      ASSERT_GT(blob_bytes_before_columns, 0U)
-          << "Blob-backed default columns must be resolved for value() scans";
-    } else {
-      ASSERT_EQ(blob_bytes_before_columns, 0U)
-          << "Inline default columns should not trigger blob reads";
-    }
+    ASSERT_GT(blob_bytes_before_columns, 0U)
+        << "Iterator positioning should resolve all blob-backed columns before "
+           "the entry becomes valid";
 
     ASSERT_EQ(iter->columns(), columns);
     ASSERT_OK(iter->status());
 
     const uint64_t blob_bytes_after_columns =
         options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
-    ASSERT_GT(blob_bytes_after_columns, blob_bytes_before_columns)
-        << "Iterator positioning should defer non-default blob resolution "
-           "until columns() is requested";
+    ASSERT_EQ(blob_bytes_after_columns, blob_bytes_before_columns)
+        << "columns() should be a pure accessor for an already-valid iterator";
   }
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteIteratorBlobResolutionErrorInvalidatesEntry) {
+  // Goal: verify iterator positioning clears Valid() when resolving a
+  // blob-backed wide column fails. We keep the default column inline so the
+  // old lazy columns() behavior would have exposed a seemingly valid entry
+  // until columns() tried to read the missing blob data.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "wide_entity_key_missing_blob";
+  const std::string blob_attr_value(128, 'b');
+  const WideColumns columns{{kDefaultWideColumnName, "inline-default"},
+                            {"blob_attr", blob_attr_value},
+                            {"ttl", "00000001"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const auto blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(blob_files.size(), 1U);
+
+  Close();
+  ASSERT_OK(env_->DeleteFile(BlobFileName(dbname_, blob_files.front())));
+  Reopen(options);
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+
+  const Status status = iter->status();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_FALSE(status.ok()) << status.ToString();
+  ASSERT_TRUE(status.IsCorruption() || status.IsIOError() ||
+              status.IsNotFound())
+      << status.ToString();
 }
 
 TEST_F(DBWideBlobDirectWriteTest,
