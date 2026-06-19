@@ -1354,6 +1354,7 @@ enum {
 enum {
   rocksdb_block_based_table_index_block_search_type_binary = 0,
   rocksdb_block_based_table_index_block_search_type_interpolation = 1,
+  rocksdb_block_based_table_index_block_search_type_auto = 2,
 };
 // rocksdb_block_based_options_set_hash_index_allow_collision()
 // is removed since BlockBasedTableOptions.hash_index_allow_collision()
@@ -2947,7 +2948,8 @@ enum {
   rocksdb_filter_block_read_byte,
   rocksdb_compression_dict_block_read_byte,
   rocksdb_metadata_block_read_byte,
-  rocksdb_total_metric_count = 85
+  rocksdb_blob_cache_read_byte,
+  rocksdb_total_metric_count = 86
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
@@ -4485,6 +4487,12 @@ rocksdb_optimistictransactiondb_checkpoint_object_create(
     rocksdb_optimistictransactiondb_t* otxn_db, char** errptr);
 
 /* Transaction Options */
+
+enum {
+  rocksdb_txndb_write_policy_write_committed = 0,
+  rocksdb_txndb_write_policy_write_prepared = 1,
+  rocksdb_txndb_write_policy_write_unprepared = 2
+};
 
 extern ROCKSDB_LIBRARY_API rocksdb_transactiondb_options_t*
 rocksdb_transactiondb_options_create(void);

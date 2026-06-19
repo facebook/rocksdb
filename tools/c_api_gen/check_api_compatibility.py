@@ -102,6 +102,25 @@ def parse_signatures(header_text: str) -> dict[str, str]:
     return sigs
 
 
+def parse_symbols(header_text: str) -> set[str]:
+    """Non-function public identifiers: enum constants and typedef names.
+
+    These are part of the C API contract too (e.g. rocksdb_txndb_write_policy_*,
+    the rocksdb tickers enum). A rocksdb_* token followed by '=', ',' or '}' is
+    an enum constant; one introduced/closed by typedef is a type name. Anything
+    followed by '(' is a function (handled by parse_signatures) and excluded.
+    """
+    functions = {m.group(2) for m in DECL_RE.finditer(header_text)}
+    functions |= set(re.findall(r"\b(rocksdb_[A-Za-z0-9_]+)\s*\(", header_text))
+    symbols: set[str] = set()
+    for m in re.finditer(r"\b(rocksdb_[A-Za-z0-9_]+)\s*(?:=|,|\}|;)", header_text):
+        symbols.add(m.group(1))
+    symbols |= set(
+        re.findall(r"typedef\s+struct\s+(rocksdb_[A-Za-z0-9_]+)", header_text)
+    )
+    return symbols - functions
+
+
 def git_show(ref: str, path: str) -> str | None:
     proc = subprocess.run(
         ["git", "show", f"{ref}:{path}"],
@@ -116,14 +135,14 @@ def git_show(ref: str, path: str) -> str | None:
 
 
 def load_allowlist() -> dict[str, set[str]]:
-    """Return {"removed": {...}, "changed": {...}} of allowed incompatibilities."""
-    allowed = {"removed": set(), "changed": set()}
+    """Allowed incompatibilities keyed by kind: removed / changed / removed_symbol."""
+    allowed = {"removed": set(), "changed": set(), "removed_symbol": set()}
     if not ALLOWLIST_PATH.exists():
         return allowed
     data = json.loads(ALLOWLIST_PATH.read_text())
     for entry in data.get("allow", []):
         kind = entry.get("kind")
-        name = entry.get("function")
+        name = entry.get("function") or entry.get("symbol")
         if kind in allowed and name:
             allowed[kind].add(name)
     return allowed
@@ -149,8 +168,9 @@ def main() -> int:
         )
         return 2
 
+    cur_text = C_HEADER.read_text()
     ref = parse_signatures(ref_text)
-    cur = parse_signatures(C_HEADER.read_text())
+    cur = parse_signatures(cur_text)
     allowed = load_allowlist()
 
     removed = sorted(n for n in ref if n not in cur and n not in allowed["removed"])
@@ -160,6 +180,14 @@ def main() -> int:
         if n in cur and ref[n] != cur[n] and n not in allowed["changed"]
     )
     new = sorted(n for n in cur if n not in ref)
+
+    ref_symbols = parse_symbols(ref_text)
+    cur_symbols = parse_symbols(cur_text)
+    removed_symbols = sorted(
+        s
+        for s in ref_symbols
+        if s not in cur_symbols and s not in allowed["removed_symbol"]
+    )
 
     status = 0
     if removed:
@@ -180,17 +208,27 @@ def main() -> int:
             sys.stderr.write(f"  - {name}\n")
             sys.stderr.write(f"      was: {ref[name]}\n")
             sys.stderr.write(f"      now: {cur[name]}\n")
+    if removed_symbols:
+        status = 1
+        sys.stderr.write(
+            f"error: {len(removed_symbols)} public C API symbol(s) (enum "
+            f"constants / typedefs) present at '{args.ref}' are missing now "
+            "(backward-incompatible removal):\n"
+        )
+        for name in removed_symbols:
+            sys.stderr.write(f"  - {name}\n")
     if status != 0:
         sys.stderr.write(
             "\nIf a change is intentional and reviewed, record it in\n"
             f"{ALLOWLIST_PATH.relative_to(ROOT)} with a reason; otherwise restore "
-            "the original signature (see tools/c_api_gen/abi_type_overrides.json "
+            "the original declaration (see tools/c_api_gen/abi_type_overrides.json "
             "for pinning a generated C type).\n"
         )
     else:
         print(
             f"C API is backward-compatible with '{args.ref}': "
-            f"{len(ref)} reference functions preserved, {len(new)} new."
+            f"{len(ref)} reference functions preserved, {len(new)} new; "
+            f"{len(ref_symbols)} enum/typedef symbols preserved."
         )
     return status
 
