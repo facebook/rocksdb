@@ -44,6 +44,32 @@ GENERATED_SOURCE_ROOT = ROOT / "c_api_gen"
 CLANG_FORMAT = shutil.which("clang-format")
 BLOCKLIST_PATH = ROOT / "tools/c_api_gen/auto_simple_bindings_blocklist.json"
 BLOCKLIST_POLICIES = frozenset({"manual", "deferred"})
+# ABI-preserving C type overrides: function name -> pinned C type. See
+# abi_type_overrides.json for the rationale (RocksDB's C API must not change the
+# signature of an already-shipped function even when the C++ field type maps to
+# a different C type).
+ABI_TYPE_OVERRIDES_PATH = ROOT / "tools/c_api_gen/abi_type_overrides.json"
+
+
+def load_abi_type_overrides(path: Path) -> dict[str, str]:
+    import json
+
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text())
+    overrides: dict[str, str] = {}
+    for entry in data.get("overrides", []):
+        name = entry["function"]
+        if name in overrides and overrides[name] != entry["c_type"]:
+            raise ValueError(
+                f"Conflicting ABI type overrides for {name}: "
+                f"{overrides[name]} vs {entry['c_type']}"
+            )
+        overrides[name] = entry["c_type"]
+    return overrides
+
+
+ABI_TYPE_OVERRIDES = load_abi_type_overrides(ABI_TYPE_OVERRIDES_PATH)
 
 
 @dataclass(frozen=True)
@@ -1035,11 +1061,45 @@ def build_metadata_specs(
     return None
 
 
+def apply_abi_type_overrides(specs: list[dict] | None) -> list[dict] | None:
+    """Pin the public C type of already-shipped functions for ABI stability.
+
+    The generated body still assigns/returns through the real C++ field type
+    via static_cast, so only the C signature is held stable. See
+    abi_type_overrides.json.
+    """
+    if not specs:
+        return specs
+    for spec in specs:
+        c_type = ABI_TYPE_OVERRIDES.get(spec.get("name", ""))
+        if c_type is None:
+            continue
+        if spec["kind"] == "field_setter":
+            spec["value_type"] = c_type
+            # Cast the (ABI-pinned) C value to the actual C++ field type.
+            spec["value_expr"] = (
+                f"static_cast<decltype({spec['field']})>({spec['value_name']})"
+            )
+        elif spec["kind"] == "field_getter":
+            spec["return_type"] = c_type
+            spec["expr"] = f"static_cast<{c_type}>({spec['expr']})"
+        else:
+            raise ValueError(
+                f"ABI type override for {spec['name']} targets unsupported "
+                f"spec kind {spec['kind']!r}"
+            )
+    return specs
+
+
 def build_specs(family: FamilyConfig, field_name: str, qual_type: str) -> list[dict] | None:
     if family.mode == "options":
-        return build_option_specs(family, field_name, qual_type)
+        return apply_abi_type_overrides(
+            build_option_specs(family, field_name, qual_type)
+        )
     if family.mode == "metadata":
-        return build_metadata_specs(family, field_name, qual_type)
+        return apply_abi_type_overrides(
+            build_metadata_specs(family, field_name, qual_type)
+        )
     raise ValueError(f"Unknown family mode: {family.mode}")
 
 

@@ -469,7 +469,7 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writeoptions_get_sync(
     rocksdb_writeoptions_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_disable_WAL(
-    rocksdb_writeoptions_t* opt, unsigned char v);
+    rocksdb_writeoptions_t* opt, int v);
 
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writeoptions_get_disable_WAL(
     rocksdb_writeoptions_t* opt);
@@ -993,7 +993,7 @@ rocksdb_block_based_options_get_data_block_hash_table_util_ratio(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_checksum(
-    rocksdb_block_based_table_options_t* opt, int v);
+    rocksdb_block_based_table_options_t* opt, char v);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_block_based_options_get_checksum(
     rocksdb_block_based_table_options_t* opt);
@@ -1006,7 +1006,7 @@ rocksdb_block_based_options_get_no_block_cache(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_size(
-    rocksdb_block_based_table_options_t* opt, uint64_t v);
+    rocksdb_block_based_table_options_t* opt, size_t v);
 
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_block_based_options_get_block_size(
     rocksdb_block_based_table_options_t* opt);
@@ -1124,7 +1124,7 @@ rocksdb_block_based_options_get_read_amp_bytes_per_bit(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_format_version(
-    rocksdb_block_based_table_options_t* opt, uint32_t v);
+    rocksdb_block_based_table_options_t* opt, int v);
 
 extern ROCKSDB_LIBRARY_API uint32_t
 rocksdb_block_based_options_get_format_version(
@@ -1465,7 +1465,7 @@ rocksdb_create_backup_options_get_atomic_flush(
 /* RestoreOptions */
 
 extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_set_keep_log_files(
-    rocksdb_restore_options_t* opt, unsigned char v);
+    rocksdb_restore_options_t* opt, int v);
 
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_restore_options_get_keep_log_files(rocksdb_restore_options_t* opt);

@@ -10458,9 +10458,8 @@ unsigned char rocksdb_writeoptions_get_sync(rocksdb_writeoptions_t* opt) {
   return opt->rep.sync;
 }
 
-void rocksdb_writeoptions_disable_WAL(rocksdb_writeoptions_t* opt,
-                                      unsigned char v) {
-  opt->rep.disableWAL = v;
+void rocksdb_writeoptions_disable_WAL(rocksdb_writeoptions_t* opt, int v) {
+  opt->rep.disableWAL = static_cast<decltype(opt->rep.disableWAL)>(v);
 }
 
 unsigned char rocksdb_writeoptions_get_disable_WAL(
@@ -11174,7 +11173,7 @@ double rocksdb_block_based_options_get_data_block_hash_table_util_ratio(
 }
 
 void rocksdb_block_based_options_set_checksum(
-    rocksdb_block_based_table_options_t* opt, int v) {
+    rocksdb_block_based_table_options_t* opt, char v) {
   opt->rep.checksum = static_cast<decltype(opt->rep.checksum)>(v);
 }
 
@@ -11194,8 +11193,8 @@ unsigned char rocksdb_block_based_options_get_no_block_cache(
 }
 
 void rocksdb_block_based_options_set_block_size(
-    rocksdb_block_based_table_options_t* opt, uint64_t v) {
-  opt->rep.block_size = v;
+    rocksdb_block_based_table_options_t* opt, size_t v) {
+  opt->rep.block_size = static_cast<decltype(opt->rep.block_size)>(v);
 }
 
 uint64_t rocksdb_block_based_options_get_block_size(
@@ -11345,8 +11344,8 @@ uint32_t rocksdb_block_based_options_get_read_amp_bytes_per_bit(
 }
 
 void rocksdb_block_based_options_set_format_version(
-    rocksdb_block_based_table_options_t* opt, uint32_t v) {
-  opt->rep.format_version = v;
+    rocksdb_block_based_table_options_t* opt, int v) {
+  opt->rep.format_version = static_cast<decltype(opt->rep.format_version)>(v);
 }
 
 uint32_t rocksdb_block_based_options_get_format_version(
@@ -11796,8 +11795,8 @@ unsigned char rocksdb_create_backup_options_get_atomic_flush(
 /* RestoreOptions */
 
 void rocksdb_restore_options_set_keep_log_files(rocksdb_restore_options_t* opt,
-                                                unsigned char v) {
-  opt->rep.keep_log_files = v;
+                                                int v) {
+  opt->rep.keep_log_files = static_cast<decltype(opt->rep.keep_log_files)>(v);
 }
 
 unsigned char rocksdb_restore_options_get_keep_log_files(
