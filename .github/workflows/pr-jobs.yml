@@ -318,6 +318,11 @@ jobs:
       run: python3 tools/c_api_gen/check_api_completeness.py
     - name: Check C API is backward-compatible (no removed/changed signatures)
       run: |
+        # The container checkout is owned by a different user, so git refuses to
+        # operate on it ("dubious ownership") -- mark it safe for the fetch and
+        # the `git show` the checker runs.
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        git config --global --add safe.directory '*'
         git fetch --no-tags --depth=1 origin main
         python3 tools/c_api_gen/check_api_compatibility.py --ref FETCH_HEAD
     - name: Install clang-format-21 for C API gen check
