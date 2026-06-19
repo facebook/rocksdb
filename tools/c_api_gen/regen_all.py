@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GEN = ROOT / "tools/c_api_gen/generate_c_api.py"
 AUTO_GEN = ROOT / "tools/c_api_gen/auto_simple_bindings.py"
+ROUNDTRIP_GEN = ROOT / "tools/c_api_gen/gen_roundtrip_tests.py"
 SPEC = ROOT / "tools/c_api_gen/spec.json"
 GENERATED_ROOT = ROOT / "c_api_gen"
 CLANG_FORMAT_STYLE_FILE = ROOT / ".clang-format"
@@ -250,6 +251,14 @@ def main() -> int:
     # We do NOT re-run clang-format on them after inlining — the .inc content
     # is formatted above, and reformatting the inlined result would produce
     # different line-wrapping since clang-format sees more context.
+    #
+    # Generate the round-trip C tests last: they read the (now generated)
+    # c.h to discover which option objects have a parameterless create/destroy
+    # and the .h.inc fragments to pair setters with getters. Re-run formatting
+    # so the new test fragment is canonicalized like the rest. This does not
+    # affect c.h/c.cc, which are not assembled from the test fragment.
+    subprocess.run([sys.executable, str(ROUNDTRIP_GEN)], cwd=ROOT, check=True)
+    format_generated_outputs(args.clang_format)
     return 0
 
 
