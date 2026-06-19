@@ -16,12 +16,15 @@ and emits, for each option object with a parameterless ``_create`` /
 ``_destroy``, a test that creates the object, sets a sentinel value, asserts
 the getter returns it, and destroys the object.
 
-The sentinel is chosen from the getter's return type, which makes the
-round-trip reliable regardless of the (possibly ABI-pinned) setter parameter
-type, because the generated setters/getters are direct field assignments:
-  - ``const char*`` (string getter)  -> set "test", compare bytes
-  - ``unsigned char`` (bool field)   -> set 1
-  - any numeric type                 -> set 42
+Because the generated setters/getters are direct field assignments, a sentinel
+round-trips reliably:
+  - string getters (``const char*`` + ``size_t*``) -> set "test", compare bytes
+  - everything else -> set 1 then 0 and assert the getter returns each.
+
+1 and 0 are used (rather than a larger sentinel) because a bool field whose C
+getter has the legacy ``int`` shape -- indistinguishable from a real scalar by
+the C signature alone -- would collapse any value > 1 to 1. Using both 1 and 0
+also exercises the setter in both directions.
 
 No clang/libclang is required (it only reads the committed .inc files). The
 output, c_api_gen/c_generated_roundtrip_tests.c.inc, is included by db/c_test.c.
@@ -171,9 +174,16 @@ def emit() -> str:
                 )
                 lines.append("  }")
             else:
-                value = "1" if pair.ret == "unsigned char" else "42"
-                lines.append(f"  {pair.setter}(obj, {value});")
-                lines.append(f"  CheckCondition({pair.getter}(obj) == {value});")
+                # Use 1 and 0 (both directions). These round-trip through any
+                # numeric/enum field AND through bool fields -- a larger value
+                # would be collapsed to 1 by a bool field whose C getter is the
+                # legacy `int` shape (e.g. rocksdb_options_get_use_fsync), so we
+                # cannot tell bool from a plain scalar by the C signature alone.
+                for value in ("1", "0"):
+                    lines.append(f"  {pair.setter}(obj, {value});")
+                    lines.append(
+                        f"  CheckCondition({pair.getter}(obj) == {value});"
+                    )
         lines.append(f"  {prefix}_destroy(obj);")
         lines.append("}")
         lines.append("")
