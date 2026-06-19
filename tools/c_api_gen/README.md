@@ -227,27 +227,24 @@ make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
 If `clang++` is not installed, `make check` skips the C API staleness check
 with a message instead of failing — CI remains the authoritative gate.
 
-## Running the prototype
+## Running the generators
 
-From the repo root:
-
-```bash
-python3 tools/c_api_gen/generate_c_api.py \
-  --spec tools/c_api_gen/spec.json \
-  --header-out tools/c_api_gen/generated/c_preview.h.inc \
-  --source-out tools/c_api_gen/generated/c_preview.cc.inc
-```
-
-To refresh the integration fragments used by the current prototype:
+From the repo root, to regenerate all checked-in fragments and the inlined
+`c.h` / `c.cc`:
 
 ```bash
 python3 tools/c_api_gen/regen_all.py
 ```
 
-This will regenerate both:
+This regenerates:
 
 - the spec-driven fragments from `spec.json`
 - the auto-discovered fragments produced by `auto_simple_bindings.py`
+- the round-trip tests produced by `gen_roundtrip_tests.py`
+
+To preview only the spec-driven output for one section without touching the
+checked-in fragments, run `generate_c_api.py` directly with `--header-out` /
+`--source-out` pointing at a scratch path (e.g. under `/tmp`).
 
 To verify the auto-discovered checked-in output is up to date:
 

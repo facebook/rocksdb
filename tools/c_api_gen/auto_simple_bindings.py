@@ -82,6 +82,12 @@ class FamilyConfig:
     mode: str
     field_expr_format: str = "{receiver_name}->rep.{field_name}"
     enum_types: tuple[str, ...] = ()
+    # C integer type used for enum-typed fields. This is intentionally
+    # per-family to preserve each family's historical ABI: the option families
+    # have always exposed enums as `int`, while the listener/job-info families
+    # shipped them as `uint32_t` (e.g. the pre-existing
+    # rocksdb_flushjobinfo_flush_reason). Do NOT "unify" these to one type --
+    # it would change the signatures of already-shipped functions.
     enum_c_type: str = "int"
     section_name: str | None = None
     setter_name_overrides: tuple[tuple[str, str], ...] = ()
