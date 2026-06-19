@@ -168,9 +168,18 @@ Status YourNewAPI(const YourAPIOptions& /*options*/,
 
 ### Step 5: Add C API Bindings
 
-**Header:** `include/rocksdb/c.h`
+> **Important:** `include/rocksdb/c.h` and `db/c.cc` are `@generated` and must
+> NOT be edited by hand — your changes would be overwritten on the next
+> regeneration. Choose the right path first (see "Before writing C API code by
+> hand" below). For hand-written (manual) wrappers, edit the source templates
+> `tools/c_api_gen/c_base.h` (declarations) and `tools/c_api_gen/c_base.cc`
+> (implementations), then run `python3 tools/c_api_gen/regen_all.py` to produce
+> `c.h` / `c.cc`. The snippets below show the *declaration* and *implementation*
+> you would add to those templates.
 
-\`\`\`c
+**Header (declaration → `tools/c_api_gen/c_base.h`):**
+
+```c
 // Basic version
 extern ROCKSDB_LIBRARY_API void rocksdb_your_new_api(
     rocksdb_t* db,
@@ -191,7 +200,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_your_new_api_opt(
     char** errptr);
 \`\`\`
 
-**Implementation:** `db/c.cc`
+**Implementation (→ `tools/c_api_gen/c_base.cc`):**
 
 \`\`\`cpp
 void rocksdb_your_new_api(rocksdb_t* db, const char* start_key,
@@ -514,8 +523,8 @@ public class YourAPIOptionsTest {
 | StackableDB | `include/rocksdb/utilities/stackable_db.h` | ✓ |
 | Secondary DB | `db/db_impl/db_impl_secondary.h` | If not supported |
 | Compacted DB | `db/db_impl/compacted_db_impl.h` | If not supported |
-| C API Header | `include/rocksdb/c.h` | ✓ |
-| C API Implementation | `db/c.cc` | ✓ |
+| C API Header (manual wrappers) | `tools/c_api_gen/c_base.h` → regen → `include/rocksdb/c.h` (`@generated`) | ✓ |
+| C API Implementation (manual wrappers) | `tools/c_api_gen/c_base.cc` → regen → `db/c.cc` (`@generated`) | ✓ |
 | Java API | `java/src/main/java/org/rocksdb/RocksDB.java` | ✓ |
 | Java Options | `java/src/main/java/org/rocksdb/YourAPIOptions.java` | If needed |
 | JNI Implementation | `java/rocksjni/rocksjni.cc` | ✓ |
