@@ -310,7 +310,9 @@ struct rocksdb_walfilter_t : public WalFilter {
   rocksdb_walfilter_t(rocksdb_walfilter_t&&) = delete;
   rocksdb_walfilter_t& operator=(rocksdb_walfilter_t&&) = delete;
   ~rocksdb_walfilter_t() override {
-    if (destructor_) (*destructor_)(state_);
+    if (destructor_) {
+      (*destructor_)(state_);
+    }
   }
 
   void ColumnFamilyLogNumberMap(
@@ -365,7 +367,9 @@ struct rocksdb_walfilter_t : public WalFilter {
                                    log_file_name.size(), c_batch, &c_new_batch,
                                    &c_batch_changed);
     if (c_batch_changed != 0) {
-      *new_batch = c_new_batch.rep;
+      // c_new_batch is a local about to be destroyed; move instead of copying
+      // the WriteBatch out of it.
+      *new_batch = std::move(c_new_batch.rep);
     }
     *batch_changed = c_batch_changed != 0;
 
@@ -980,16 +984,22 @@ struct rocksdb_callback_logger_t : public Logger {
     char* buf = stack_buf;
     int len = 0;
     va_list ap1;
-    if (!logv_cb_) return;
+    if (!logv_cb_) {
+      return;
+    }
     va_copy(ap1, ap0);
     len = vsnprintf(buf, STACK_BUFSZ, fmt, ap0);
-    if (len <= 0)
+    if (len <= 0) {
       goto cleanup;
-    else if (len >= STACK_BUFSZ) {
+    } else if (len >= STACK_BUFSZ) {
       buf = alloc_buf = reinterpret_cast<char*>(malloc(len + 1));
-      if (!buf) goto cleanup;
+      if (!buf) {
+        goto cleanup;
+      }
       len = vsnprintf(buf, len + 1, fmt, ap1);
-      if (len <= 0) goto cleanup;
+      if (len <= 0) {
+        goto cleanup;
+      }
     }
     logv_cb_(priv_, unsigned(level), buf, size_t(len));
   cleanup:
@@ -1063,8 +1073,13 @@ static inline char* CopyString(const Slice& slice) {
 }
 
 static inline char** CopyStringVector(const std::vector<std::string>& values) {
-  if (values.empty()) return nullptr;
+  if (values.empty()) {
+    return nullptr;
+  }
   char** result = static_cast<char**>(malloc(sizeof(char*) * values.size()));
+  if (result == nullptr) {
+    return nullptr;
+  }
   for (size_t i = 0; i < values.size(); ++i) {
     result[i] = strdup(values[i].c_str());
   }
@@ -1752,13 +1767,16 @@ void rocksdb_create_backup_options_set_exclude_files_callback(
     options->rep.exclude_files_callback = {};
     return;
   }
-  options->rep.exclude_files_callback = [options](
+  // Capture the callback and state by value (matching progress_callback above)
+  // rather than the options wrapper pointer, so the lambda does not depend on
+  // the wrapper outliving it.
+  options->rep.exclude_files_callback = [callback, state](
                                             MaybeExcludeBackupFile* files_begin,
                                             MaybeExcludeBackupFile* files_end) {
     for (auto* file = files_begin; file != files_end; ++file) {
-      file->exclude_decision = options->exclude_files_callback(
-          options->exclude_files_state, file->info.relative_file.data(),
-          file->info.relative_file.size());
+      file->exclude_decision =
+          callback(state, file->info.relative_file.data(),
+                   file->info.relative_file.size());
     }
   };
 }
@@ -3207,7 +3225,8 @@ const rocksdb_livefiles_t* rocksdb_livefiles(rocksdb_t* db) {
 void rocksdb_compact_range(rocksdb_t* db, const char* start_key,
                            size_t start_key_len, const char* limit_key,
                            size_t limit_key_len) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   db->rep->CompactRange(
       CompactRangeOptions(),
       // Pass nullptr Slice if corresponding "const char*" is nullptr
@@ -3219,7 +3238,8 @@ void rocksdb_compact_range_cf(rocksdb_t* db,
                               rocksdb_column_family_handle_t* column_family,
                               const char* start_key, size_t start_key_len,
                               const char* limit_key, size_t limit_key_len) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   db->rep->CompactRange(
       CompactRangeOptions(), column_family->rep,
       // Pass nullptr Slice if corresponding "const char*" is nullptr
@@ -3230,7 +3250,8 @@ void rocksdb_compact_range_cf(rocksdb_t* db,
 void rocksdb_suggest_compact_range(rocksdb_t* db, const char* start_key,
                                    size_t start_key_len, const char* limit_key,
                                    size_t limit_key_len, char** errptr) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   Status s = ROCKSDB_NAMESPACE::experimental::SuggestCompactRange(
       db->rep,
       (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
@@ -3242,7 +3263,8 @@ void rocksdb_suggest_compact_range_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     const char* start_key, size_t start_key_len, const char* limit_key,
     size_t limit_key_len, char** errptr) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   Status s = db->rep->SuggestCompactRange(
       column_family->rep,
       (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
@@ -3253,7 +3275,8 @@ void rocksdb_suggest_compact_range_cf(
 void rocksdb_compact_range_opt(rocksdb_t* db, rocksdb_compactoptions_t* opt,
                                const char* start_key, size_t start_key_len,
                                const char* limit_key, size_t limit_key_len) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   db->rep->CompactRange(
       opt->rep,
       // Pass nullptr Slice if corresponding "const char*" is nullptr
@@ -3266,7 +3289,8 @@ void rocksdb_compact_range_cf_opt(rocksdb_t* db,
                                   rocksdb_compactoptions_t* opt,
                                   const char* start_key, size_t start_key_len,
                                   const char* limit_key, size_t limit_key_len) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   db->rep->CompactRange(
       opt->rep, column_family->rep,
       // Pass nullptr Slice if corresponding "const char*" is nullptr
@@ -5321,10 +5345,14 @@ const char* rocksdb_table_properties_user_collected_properties_key_at(
     const rocksdb_table_properties_t* props, size_t pos, size_t* key_len) {
   const auto it = GetMapEntryAt(props->rep.user_collected_properties, pos);
   if (it == props->rep.user_collected_properties.cend()) {
-    if (key_len != nullptr) *key_len = 0;
+    if (key_len != nullptr) {
+      *key_len = 0;
+    }
     return nullptr;
   }
-  if (key_len != nullptr) *key_len = it->first.size();
+  if (key_len != nullptr) {
+    *key_len = it->first.size();
+  }
   return it->first.data();
 }
 
@@ -5332,10 +5360,14 @@ const char* rocksdb_table_properties_user_collected_properties_value_at(
     const rocksdb_table_properties_t* props, size_t pos, size_t* value_len) {
   const auto it = GetMapEntryAt(props->rep.user_collected_properties, pos);
   if (it == props->rep.user_collected_properties.cend()) {
-    if (value_len != nullptr) *value_len = 0;
+    if (value_len != nullptr) {
+      *value_len = 0;
+    }
     return nullptr;
   }
-  if (value_len != nullptr) *value_len = it->second.size();
+  if (value_len != nullptr) {
+    *value_len = it->second.size();
+  }
   return it->second.data();
 }
 
@@ -5348,10 +5380,14 @@ const char* rocksdb_table_properties_readable_properties_key_at(
     const rocksdb_table_properties_t* props, size_t pos, size_t* key_len) {
   const auto it = GetMapEntryAt(props->rep.readable_properties, pos);
   if (it == props->rep.readable_properties.cend()) {
-    if (key_len != nullptr) *key_len = 0;
+    if (key_len != nullptr) {
+      *key_len = 0;
+    }
     return nullptr;
   }
-  if (key_len != nullptr) *key_len = it->first.size();
+  if (key_len != nullptr) {
+    *key_len = it->first.size();
+  }
   return it->first.data();
 }
 
@@ -5359,10 +5395,14 @@ const char* rocksdb_table_properties_readable_properties_value_at(
     const rocksdb_table_properties_t* props, size_t pos, size_t* value_len) {
   const auto it = GetMapEntryAt(props->rep.readable_properties, pos);
   if (it == props->rep.readable_properties.cend()) {
-    if (value_len != nullptr) *value_len = 0;
+    if (value_len != nullptr) {
+      *value_len = 0;
+    }
     return nullptr;
   }
-  if (value_len != nullptr) *value_len = it->second.size();
+  if (value_len != nullptr) {
+    *value_len = it->second.size();
+  }
   return it->second.data();
 }
 
@@ -5448,10 +5488,14 @@ const char* rocksdb_compactionjobinfo_table_properties_key_at(
     const rocksdb_compactionjobinfo_t* info, size_t pos, size_t* key_len) {
   const auto it = GetMapEntryAt(info->rep.table_properties, pos);
   if (it == info->rep.table_properties.cend()) {
-    if (key_len != nullptr) *key_len = 0;
+    if (key_len != nullptr) {
+      *key_len = 0;
+    }
     return nullptr;
   }
-  if (key_len != nullptr) *key_len = it->first.size();
+  if (key_len != nullptr) {
+    *key_len = it->first.size();
+  }
   return it->first.data();
 }
 
@@ -5459,7 +5503,9 @@ const rocksdb_table_properties_t*
 rocksdb_compactionjobinfo_table_properties_value_at(
     const rocksdb_compactionjobinfo_t* info, size_t pos) {
   const auto it = GetMapEntryAt(info->rep.table_properties, pos);
-  if (it == info->rep.table_properties.cend()) return nullptr;
+  if (it == info->rep.table_properties.cend()) {
+    return nullptr;
+  }
   return reinterpret_cast<const rocksdb_table_properties_t*>(it->second.get());
 }
 
@@ -6162,7 +6208,8 @@ void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t* opt) {
 }
 
 void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t* opt) {
-  opt->rep.memtable_factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
+  opt->rep.memtable_factory =
+      std::make_shared<ROCKSDB_NAMESPACE::VectorRepFactory>();
 }
 
 void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t* opt,
@@ -7435,14 +7482,16 @@ size_t rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache) {
 rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create(
     size_t buffer_size, bool allow_stall) {
   rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
-  wbm->rep.reset(new WriteBufferManager(buffer_size, {}, allow_stall));
+  wbm->rep = std::make_shared<WriteBufferManager>(
+      buffer_size, std::shared_ptr<Cache>{}, allow_stall);
   return wbm;
 }
 
 rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create_with_cache(
     size_t buffer_size, const rocksdb_cache_t* cache, bool allow_stall) {
   rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
-  wbm->rep.reset(new WriteBufferManager(buffer_size, cache->rep, allow_stall));
+  wbm->rep = std::make_shared<WriteBufferManager>(buffer_size, cache->rep,
+                                                  allow_stall);
   return wbm;
 }
 
@@ -8118,8 +8167,14 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create(
 void rocksdb_slicetransform_destroy(rocksdb_slicetransform_t* st) { delete st; }
 
 struct SliceTransformWrapper : public rocksdb_slicetransform_t {
-  const SliceTransform* rep_;
+  const SliceTransform* rep_ = nullptr;
+  SliceTransformWrapper() = default;
   ~SliceTransformWrapper() override { delete rep_; }
+  // Owns rep_ (deleted in the destructor); not copyable or movable.
+  SliceTransformWrapper(const SliceTransformWrapper&) = delete;
+  SliceTransformWrapper& operator=(const SliceTransformWrapper&) = delete;
+  SliceTransformWrapper(SliceTransformWrapper&&) = delete;
+  SliceTransformWrapper& operator=(SliceTransformWrapper&&) = delete;
   const char* Name() const override { return rep_->Name(); }
   std::string GetId() const override { return rep_->GetId(); }
   Slice Transform(const Slice& src) const override {
@@ -8519,7 +8574,8 @@ void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
 void rocksdb_delete_file_in_range(rocksdb_t* db, const char* start_key,
                                   size_t start_key_len, const char* limit_key,
                                   size_t limit_key_len, char** errptr) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   SaveError(
       errptr,
       DeleteFilesInRange(
@@ -8532,7 +8588,8 @@ void rocksdb_delete_file_in_range_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     const char* start_key, size_t start_key_len, const char* limit_key,
     size_t limit_key_len, char** errptr) {
-  Slice a, b;
+  Slice a;
+  Slice b;
   SaveError(
       errptr,
       DeleteFilesInRange(
