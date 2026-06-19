@@ -439,13 +439,15 @@ def main() -> int:
         args.generated_header
         if args.generated_header
         else active_generated_paths(
-            ROOT / "include/rocksdb/c_base.h", "c_api_gen", "c_api_gen"
+            ROOT / "tools/c_api_gen/c_base.h", "c_api_gen", "c_api_gen"
         )
     )
     generated_sources = (
         args.generated_source
         if args.generated_source
-        else active_generated_paths(ROOT / "db/c_base.cc", "c_api_gen", "c_api_gen")
+        else active_generated_paths(
+            ROOT / "tools/c_api_gen/c_base.cc", "c_api_gen", "c_api_gen"
+        )
     )
     allowlist = load_allowlist(args.allowlist)
 

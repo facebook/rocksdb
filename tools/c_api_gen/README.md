@@ -184,6 +184,30 @@ error-handling policy should remain explicit in the spec.
 - `../../c_api_gen/c_generated_subset.cc.inc`
   - generated implementation fragment intended for incremental integration
 
+## Toolchain requirements
+
+Regeneration needs two external tools:
+
+- **`clang++`** (libclang) — used to dump the C++ struct ASTs that drive
+  auto-discovery. Resolution order is `$CXX` (if it names a clang), then bare
+  `clang++`, then versioned fallbacks (`clang++-21` … `clang++-13`).
+- **`clang-format`** — used to canonicalize the generated `.inc` fragments (and
+  therefore the inlined `c.h` / `c.cc`).
+
+The checked-in generated output is byte-reproducible only for a **pinned
+clang-format version**. CI uses **clang-format-21** (see
+`.github/workflows/pr-jobs.yml`); pin the same version locally so your
+regeneration matches CI:
+
+```bash
+python3 tools/c_api_gen/regen_all.py --clang-format clang-format-21
+# or, when running the staleness check via make:
+make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
+```
+
+If `clang++` is not installed, `make check` skips the C API staleness check
+with a message instead of failing — CI remains the authoritative gate.
+
 ## Running the prototype
 
 From the repo root:

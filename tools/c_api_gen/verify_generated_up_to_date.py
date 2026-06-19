@@ -148,7 +148,14 @@ def main() -> int:
         copy_generated_dirs(checked_in_root)
         format_generated_dirs(checked_in_root, clang_format)
 
-        subprocess.run([sys.executable, str(REGEN_ALL)], cwd=ROOT, check=True)
+        # Pass the pinned formatter down so the regenerated .inc fragments (and
+        # thus the inlined c.h/c.cc) are canonicalized with the same clang-format
+        # version on both sides of the comparison.
+        subprocess.run(
+            [sys.executable, str(REGEN_ALL), "--clang-format", args.clang_format],
+            cwd=ROOT,
+            check=True,
+        )
         format_generated_dirs(ROOT, clang_format)
 
         copy_generated_dirs(regenerated_root)

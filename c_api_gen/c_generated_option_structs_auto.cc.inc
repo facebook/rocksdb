@@ -15,7 +15,7 @@
 //   - include/rocksdb/utilities/transaction_db.h
 //   - tools/c_api_gen/auto_simple_bindings_blocklist.json
 //   - include/rocksdb/c.h
-//   - db/c_base.cc
+//   - tools/c_api_gen/c_base.cc
 // -----------------------------------------------------------------------------
 
 // To regenerate this file:
@@ -252,6 +252,15 @@ size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
 }
 
+void rocksdb_options_set_async_wal_precreate(rocksdb_options_t* opt,
+                                             unsigned char v) {
+  opt->rep.async_wal_precreate = v;
+}
+
+unsigned char rocksdb_options_get_async_wal_precreate(rocksdb_options_t* opt) {
+  return opt->rep.async_wal_precreate;
+}
+
 void rocksdb_options_set_verify_manifest_content_on_close(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.verify_manifest_content_on_close = v;
@@ -260,6 +269,26 @@ void rocksdb_options_set_verify_manifest_content_on_close(
 unsigned char rocksdb_options_get_verify_manifest_content_on_close(
     rocksdb_options_t* opt) {
   return opt->rep.verify_manifest_content_on_close;
+}
+
+void rocksdb_options_set_optimize_manifest_for_recovery(rocksdb_options_t* opt,
+                                                        unsigned char v) {
+  opt->rep.optimize_manifest_for_recovery = v;
+}
+
+unsigned char rocksdb_options_get_optimize_manifest_for_recovery(
+    rocksdb_options_t* opt) {
+  return opt->rep.optimize_manifest_for_recovery;
+}
+
+void rocksdb_options_set_reuse_manifest_on_open(rocksdb_options_t* opt,
+                                                unsigned char v) {
+  opt->rep.reuse_manifest_on_open = v;
+}
+
+unsigned char rocksdb_options_get_reuse_manifest_on_open(
+    rocksdb_options_t* opt) {
+  return opt->rep.reuse_manifest_on_open;
 }
 
 void rocksdb_options_set_max_manifest_space_amp_pct(rocksdb_options_t* opt,
@@ -330,6 +359,16 @@ void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
 
 unsigned char rocksdb_options_get_use_direct_reads(rocksdb_options_t* opt) {
   return opt->rep.use_direct_reads;
+}
+
+void rocksdb_options_set_use_direct_io_for_compaction_reads(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_direct_io_for_compaction_reads = v;
+}
+
+unsigned char rocksdb_options_get_use_direct_io_for_compaction_reads(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_direct_io_for_compaction_reads;
 }
 
 void rocksdb_options_set_use_direct_io_for_flush_and_compaction(
@@ -851,6 +890,15 @@ void rocksdb_options_set_wal_write_temperature(rocksdb_options_t* opt, int v) {
 
 int rocksdb_options_get_wal_write_temperature(rocksdb_options_t* opt) {
   return static_cast<int>(opt->rep.wal_write_temperature);
+}
+
+void rocksdb_options_set_fast_sst_open(rocksdb_options_t* opt,
+                                       unsigned char v) {
+  opt->rep.fast_sst_open = v;
+}
+
+unsigned char rocksdb_options_get_fast_sst_open(rocksdb_options_t* opt) {
+  return opt->rep.fast_sst_open;
 }
 
 /* AdvancedColumnFamilyOptions */
@@ -1377,14 +1425,14 @@ unsigned char rocksdb_options_get_paranoid_memory_checks(
   return opt->rep.paranoid_memory_checks;
 }
 
-void rocksdb_options_set_memtable_veirfy_per_key_checksum_on_seek(
+void rocksdb_options_set_memtable_verify_per_key_checksum_on_seek(
     rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.memtable_veirfy_per_key_checksum_on_seek = v;
+  opt->rep.memtable_verify_per_key_checksum_on_seek = v;
 }
 
-unsigned char rocksdb_options_get_memtable_veirfy_per_key_checksum_on_seek(
+unsigned char rocksdb_options_get_memtable_verify_per_key_checksum_on_seek(
     rocksdb_options_t* opt) {
-  return opt->rep.memtable_veirfy_per_key_checksum_on_seek;
+  return opt->rep.memtable_verify_per_key_checksum_on_seek;
 }
 
 void rocksdb_options_set_memtable_op_scan_flush_trigger(rocksdb_options_t* opt,
@@ -2012,6 +2060,27 @@ void rocksdb_ingestexternalfileoptions_set_fill_cache(
 unsigned char rocksdb_ingestexternalfileoptions_get_fill_cache(
     rocksdb_ingestexternalfileoptions_t* opt) {
   return opt->rep.fill_cache;
+}
+
+void rocksdb_ingestexternalfileoptions_set_prefetch_lmax_index_and_filter_blocks(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char v) {
+  opt->rep.prefetch_lmax_index_and_filter_blocks = v;
+}
+
+unsigned char
+rocksdb_ingestexternalfileoptions_get_prefetch_lmax_index_and_filter_blocks(
+    rocksdb_ingestexternalfileoptions_t* opt) {
+  return opt->rep.prefetch_lmax_index_and_filter_blocks;
+}
+
+void rocksdb_ingestexternalfileoptions_set_file_opening_threads(
+    rocksdb_ingestexternalfileoptions_t* opt, int v) {
+  opt->rep.file_opening_threads = v;
+}
+
+int rocksdb_ingestexternalfileoptions_get_file_opening_threads(
+    rocksdb_ingestexternalfileoptions_t* opt) {
+  return opt->rep.file_opening_threads;
 }
 
 /* OpenAndCompactOptions */

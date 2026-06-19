@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ GEN = ROOT / "tools/c_api_gen/generate_c_api.py"
 AUTO_GEN = ROOT / "tools/c_api_gen/auto_simple_bindings.py"
 SPEC = ROOT / "tools/c_api_gen/spec.json"
 GENERATED_ROOT = ROOT / "c_api_gen"
-CLANG_FORMAT = shutil.which("clang-format")
+CLANG_FORMAT_STYLE_FILE = ROOT / ".clang-format"
 
 
 JOBS = [
@@ -90,22 +91,36 @@ def run_job(sections: list[str], header_out: Path, source_out: Path) -> None:
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 
-def format_generated_outputs() -> None:
-    if CLANG_FORMAT is None:
-        print("warning: clang-format not found in PATH; skipping formatting", file=sys.stderr)
+def format_generated_outputs(clang_format: str | None) -> None:
+    # The checked-in .inc fragments (and therefore the inlined c.h/c.cc) are
+    # clang-format-canonicalized. Pin the formatter (e.g. clang-format-21) to
+    # match CI so regeneration is byte-reproducible across environments; see
+    # tools/c_api_gen/README.md for the required version.
+    resolved = shutil.which(clang_format) if clang_format else None
+    if resolved is None:
+        print(
+            f"warning: clang-format binary '{clang_format}' not found in PATH; "
+            "skipping formatting (generated output may not be byte-reproducible)",
+            file=sys.stderr,
+        )
         return
 
     generated_paths = sorted(GENERATED_ROOT.glob("*.inc"))
     subprocess.run(
-        [CLANG_FORMAT, "-i", *(str(path) for path in generated_paths)],
+        [
+            resolved,
+            f"--style=file:{CLANG_FORMAT_STYLE_FILE}",
+            "-i",
+            *(str(path) for path in generated_paths),
+        ],
         cwd=ROOT,
         check=True,
     )
 
 
-C_BASE_H = ROOT / "include/rocksdb/c_base.h"
+C_BASE_H = ROOT / "tools/c_api_gen/c_base.h"
 C_H = ROOT / "include/rocksdb/c.h"
-C_BASE_CC = ROOT / "db/c_base.cc"
+C_BASE_CC = ROOT / "tools/c_api_gen/c_base.cc"
 C_CC = ROOT / "db/c.cc"
 
 
@@ -194,7 +209,7 @@ def generate_c_h() -> None:
         C_H,
         r'#include ["<](c_api_gen/[^">]+)[">]',
         ROOT,
-        generated_banner=_generated_banner("include/rocksdb/c_base.h"),
+        generated_banner=_generated_banner("tools/c_api_gen/c_base.h"),
     )
 
 
@@ -206,15 +221,29 @@ def generate_c_cc() -> None:
         r'#include "(c_api_gen/[^"]+)"',
         ROOT,
         main_include='#include "rocksdb/c.h"',
-        generated_banner=_generated_banner("db/c_base.cc"),
+        generated_banner=_generated_banner("tools/c_api_gen/c_base.cc"),
     )
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Regenerate all checked-in RocksDB C API generated fragments."
+    )
+    parser.add_argument(
+        "--clang-format",
+        default="clang-format",
+        help=(
+            "clang-format binary used to canonicalize the generated .inc "
+            "fragments (default: clang-format). Pin to the version CI uses "
+            "(e.g. clang-format-21) for byte-reproducible output."
+        ),
+    )
+    args = parser.parse_args()
+
     for sections, header_out, source_out in JOBS:
         run_job(sections, header_out, source_out)
     subprocess.run([sys.executable, str(AUTO_GEN)], cwd=ROOT, check=True)
-    format_generated_outputs()
+    format_generated_outputs(args.clang_format)
     generate_c_h()
     generate_c_cc()
     # c.h and c.cc are assembled from already-formatted .inc fragments.

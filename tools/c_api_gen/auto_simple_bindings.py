@@ -35,6 +35,10 @@ from generate_c_api import render_decl, render_impl, write_if_changed
 ROOT = Path(__file__).resolve().parents[2]
 INCLUDE_ROOT = ROOT / "include/rocksdb"
 SOURCE_ROOT = ROOT / "db"
+# Hand-written source templates for the C API. These are generator inputs (not
+# user-includable / not compiled), so they live next to the generator rather
+# than in include/rocksdb or db/.
+TEMPLATE_ROOT = ROOT / "tools/c_api_gen"
 GENERATED_INCLUDE_ROOT = ROOT / "c_api_gen"
 GENERATED_SOURCE_ROOT = ROOT / "c_api_gen"
 CLANG_FORMAT = shutil.which("clang-format")
@@ -693,48 +697,25 @@ def _find_clang_binary() -> str:
     Resolution order:
       1. $CXX if it contains 'clang'
       2. bare 'clang++'
-      3. versioned fallbacks clang++-18, clang++-13
+      3. versioned fallbacks, newest first
     Raises RuntimeError if none found.
     """
     import os
     cxx = os.environ.get("CXX", "")
     if "clang" in cxx and shutil.which(cxx):
         return cxx
-    for candidate in ("clang++", "clang++-18", "clang++-13", "clang++-15", "clang++-14"):
-        if shutil.which(candidate):
-            return candidate
-    raise RuntimeError(
-        "clang++ not found. Install clang or set CXX to a clang++ binary. "
-        "Alternatively, run 'python3 tools/c_api_gen/regen_all.py' on a machine "
-        "with clang++ available and commit the resulting checked-in .inc files."
-    )
-
-
-CLANG_BINARY: str | None = None
-
-
-def get_clang_binary() -> str:
-    global CLANG_BINARY
-    if CLANG_BINARY is None:
-        CLANG_BINARY = _find_clang_binary()
-    return CLANG_BINARY
-
-
-
-def _find_clang_binary() -> str:
-    """Return the clang++ binary to use for AST dumping.
-
-    Resolution order:
-      1. $CXX if it contains 'clang'
-      2. bare 'clang++'
-      3. versioned fallbacks clang++-18, clang++-13, clang++-15, clang++-14
-    Raises RuntimeError if none found.
-    """
-    import os
-    cxx = os.environ.get("CXX", "")
-    if "clang" in cxx and shutil.which(cxx):
-        return cxx
-    for candidate in ("clang++", "clang++-18", "clang++-15", "clang++-14", "clang++-13"):
+    for candidate in (
+        "clang++",
+        "clang++-21",
+        "clang++-20",
+        "clang++-19",
+        "clang++-18",
+        "clang++-17",
+        "clang++-16",
+        "clang++-15",
+        "clang++-14",
+        "clang++-13",
+    ):
         if shutil.which(candidate):
             return candidate
     raise RuntimeError(
@@ -809,8 +790,8 @@ def collect_function_names(root_file: Path, include_re: re.Pattern[str]) -> set[
 
 
 def collect_existing_bindings() -> tuple[set[str], set[str]]:
-    decls = collect_function_names(INCLUDE_ROOT / "c_base.h", HEADER_INCLUDE_RE)
-    defs = collect_function_names(SOURCE_ROOT / "c_base.cc", SOURCE_INCLUDE_RE)
+    decls = collect_function_names(TEMPLATE_ROOT / "c_base.h", HEADER_INCLUDE_RE)
+    defs = collect_function_names(TEMPLATE_ROOT / "c_base.cc", SOURCE_INCLUDE_RE)
     return decls, defs
 
 
@@ -1092,7 +1073,7 @@ def auto_header_banner(output_group: OutputGroup) -> list[str]:
         [
             f"//   - {display_path(BLOCKLIST_PATH)}",
             "//   - include/rocksdb/c.h",
-            "//   - db/c_base.cc",
+            "//   - tools/c_api_gen/c_base.cc",
             "// -----------------------------------------------------------------------------",
             "",
         ]

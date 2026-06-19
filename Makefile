@@ -1127,24 +1127,29 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-buck-targets
 	$(MAKE) check-sources
 	$(MAKE) check-workflow-yaml
+	$(MAKE) check-c-api-gen
 endif
-	$(MAKE) check-c-api-gen CHECK_C_API_GEN=$(CHECK_C_API_GEN)
 
-# Check that auto-generated C API files are up to date.
-# Requires clang++ (or a versioned variant) to parse C++ headers.
-# Runs automatically on non-CI environments (when GITHUB_ACTIONS is not set).
-# In CI, pass CHECK_C_API_GEN=1 to enable (used in build-linux-clang-18-no_test_run).
-# Run: make check-c-api-gen
+# Check that the auto-generated C API files are up to date. This regenerates
+# them in a temporary directory and diffs against the checked-in copies, so it
+# does NOT modify the working tree. It requires clang++ (libclang, used to parse
+# the C++ headers) and clang-format. If clang++ is not available the check is
+# skipped (with a message) so that `make check` still works without the codegen
+# toolchain; CI is the authoritative gate and runs the same verifier directly
+# with a pinned clang-format (see .github/workflows/pr-jobs.yml).
+#
+# Pin the formatter to match CI by setting CLANG_FORMAT_BINARY, e.g.:
+#   make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
+# This target is part of `make check` and is skipped by SKIP_FORMAT_BUCK_CHECKS.
+CLANG_FORMAT_BINARY ?=
 check-c-api-gen:
-ifdef CHECK_C_API_GEN
-	$(PYTHON) tools/c_api_gen/regen_all.py
-	git diff --exit-code -- c_api_gen include/rocksdb/c.h db/c.cc
-else ifndef GITHUB_ACTIONS
-	$(PYTHON) tools/c_api_gen/regen_all.py
-	git diff --exit-code -- c_api_gen include/rocksdb/c.h db/c.cc
-else
-	@echo "Skipping C API staleness check (set CHECK_C_API_GEN=1 to enable in CI)"
-endif
+	@cf_arg=""; \
+	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
+	if command -v clang++ >/dev/null 2>&1 || command -v "$(CXX)" >/dev/null 2>&1; then \
+	  $(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py $$cf_arg; \
+	else \
+	  echo "Skipping C API codegen staleness check (clang++ not found; install clang++ or set CXX to enable)"; \
+	fi
 
 # Quick local validation for C API generation plus the focused C API test.
 # This verifies the checked-in generated fragments as well as the inlined
@@ -2706,9 +2711,6 @@ $(OBJ_DIR)/%.o: %.cpp
 $(OBJ_DIR)/%.o: %.c
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
-
-$(OBJ_DIR)/db/c.o: $(C_API_CODEGEN_STAMP)
-$(OBJ_DIR)/db/c_test.o: $(C_API_CODEGEN_STAMP)
 
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection

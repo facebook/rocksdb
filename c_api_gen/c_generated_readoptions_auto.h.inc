@@ -6,7 +6,7 @@
 //   - include/rocksdb/options.h
 //   - tools/c_api_gen/auto_simple_bindings_blocklist.json
 //   - include/rocksdb/c.h
-//   - db/c_base.cc
+//   - tools/c_api_gen/c_base.cc
 // -----------------------------------------------------------------------------
 
 // To regenerate this file:
