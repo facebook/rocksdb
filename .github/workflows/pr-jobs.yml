@@ -314,6 +314,8 @@ jobs:
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - name: Check C API is link-complete (every declared function is defined)
+      run: python3 tools/c_api_gen/check_api_completeness.py
     - name: Install clang-format-21 for C API gen check
       run: apt-get update && apt-get install -y clang-format-21
     - name: Check C API generated files are up to date

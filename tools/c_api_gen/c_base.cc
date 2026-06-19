@@ -4645,6 +4645,54 @@ void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
   opt->rep.compression_opts.max_dict_bytes = max_dict_bytes;
 }
 
+// The bottommost_compression_opts setters below each write multiple fields of
+// the nested CompressionOptions struct (and flip `enabled`), so they cannot be
+// auto-generated as simple scalar field wrappers and are kept hand-written.
+void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
+                                                        int w_bits, int level,
+                                                        int strategy,
+                                                        int max_dict_bytes,
+                                                        unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.window_bits = w_bits;
+  opt->rep.bottommost_compression_opts.level = level;
+  opt->rep.bottommost_compression_opts.strategy = strategy;
+  opt->rep.bottommost_compression_opts.max_dict_bytes = max_dict_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt, int zstd_max_train_bytes, unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.zstd_max_train_bytes =
+      zstd_max_train_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+void rocksdb_options_set_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer,
+    unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.use_zstd_dict_trainer =
+      use_zstd_dict_trainer;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+void rocksdb_options_set_bottommost_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes,
+    unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.max_dict_buffer_bytes =
+      max_dict_buffer_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+// Takes a caller-owned array of per-level values, so it is hand-written rather
+// than auto-generated.
+void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
+    rocksdb_options_t* opt, int* level_values, size_t num_levels) {
+  opt->rep.max_bytes_for_level_multiplier_additional.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.max_bytes_for_level_multiplier_additional[i] = level_values[i];
+  }
+}
+
 void rocksdb_options_set_db_paths(rocksdb_options_t* opt,
                                   const rocksdb_dbpath_t** dbpath_values,
                                   size_t num_paths) {

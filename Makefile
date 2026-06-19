@@ -1143,6 +1143,11 @@ endif
 # This target is part of `make check` and is skipped by SKIP_FORMAT_BUCK_CHECKS.
 CLANG_FORMAT_BINARY ?=
 check-c-api-gen:
+	# Link-completeness is a property of the checked-in c.h/c.cc and needs no
+	# clang toolchain, so it always runs: every declared public C API function
+	# must have exactly one definition (guards against dropped wrappers that
+	# would break downstream language bindings at link time).
+	$(PYTHON) tools/c_api_gen/check_api_completeness.py
 	@cf_arg=""; \
 	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
 	if command -v clang++ >/dev/null 2>&1 || command -v "$(CXX)" >/dev/null 2>&1; then \
