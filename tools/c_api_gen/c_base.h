@@ -375,10 +375,12 @@ rocksdb_backup_engine_options_create(const char* backup_dir);
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_set_env(
     rocksdb_backup_engine_options_t* options, rocksdb_env_t* env);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_set_backup_rate_limiter(
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_options_set_backup_rate_limiter(
     rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_set_restore_rate_limiter(
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_options_set_restore_rate_limiter(
     rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_options_destroy(

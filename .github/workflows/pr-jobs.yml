@@ -318,8 +318,8 @@ jobs:
       run: python3 tools/c_api_gen/check_api_completeness.py
     - name: Check C API is backward-compatible (no removed/changed signatures)
       run: |
-        git fetch --no-tags --depth=1 origin main || true
-        python3 tools/c_api_gen/check_api_compatibility.py --ref origin/main
+        git fetch --no-tags --depth=1 origin main
+        python3 tools/c_api_gen/check_api_compatibility.py --ref FETCH_HEAD
     - name: Install clang-format-21 for C API gen check
       run: apt-get update && apt-get install -y clang-format-21
     - name: Check C API generated files are up to date

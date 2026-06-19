@@ -1770,9 +1770,8 @@ void rocksdb_create_backup_options_set_exclude_files_callback(
                                             MaybeExcludeBackupFile* files_begin,
                                             MaybeExcludeBackupFile* files_end) {
     for (auto* file = files_begin; file != files_end; ++file) {
-      file->exclude_decision =
-          callback(state, file->info.relative_file.data(),
-                   file->info.relative_file.size());
+      file->exclude_decision = callback(state, file->info.relative_file.data(),
+                                        file->info.relative_file.size());
     }
   };
 }
