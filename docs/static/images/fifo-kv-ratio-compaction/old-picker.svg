@@ -22,7 +22,8 @@
   <line x1="365" y1="90" x2="440" y2="90" stroke="#546e7a" stroke-width="2" marker-end="url(#old-arrow)"/>
   <rect x="465" y="72" width="86" height="36" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.6"/>
   <text x="508" y="94" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">256 KB</text>
-  <text x="590" y="94" font-size="11" fill="#546e7a">still far below 70 MB guard</text>
+  <text x="590" y="88" font-size="10.5" fill="#546e7a">still below</text>
+  <text x="590" y="101" font-size="10.5" fill="#546e7a">70 MB guard</text>
 
   <text x="36" y="153" font-size="12" font-weight="bold" fill="#37474f">Later</text>
   <rect x="100" y="135" width="74" height="36" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.6"/>
@@ -34,11 +35,13 @@
   <line x1="365" y1="153" x2="440" y2="153" stroke="#546e7a" stroke-width="2" marker-end="url(#old-arrow)"/>
   <rect x="465" y="135" width="110" height="36" rx="5" fill="#ffebee" stroke="#c62828" stroke-width="1.8"/>
   <text x="520" y="157" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">larger SST</text>
-  <text x="590" y="157" font-size="11" fill="#546e7a">can be selected again</text>
+  <text x="590" y="150" font-size="10.5" fill="#546e7a">can be</text>
+  <text x="590" y="163" font-size="10.5" fill="#546e7a">selected again</text>
 
   <rect x="100" y="202" width="560" height="30" rx="5" fill="#fafafa" stroke="#cfd8dc" stroke-width="1.2"/>
   <rect x="100" y="202" width="420" height="30" rx="5" fill="#eceff1"/>
   <text x="110" y="222" font-size="11" fill="#37474f">write_buffer_size guard: 1.1 x 64 MB ~= 70 MB</text>
   <line x1="520" y1="198" x2="520" y2="236" stroke="#c62828" stroke-width="2"/>
-  <text x="533" y="222" font-size="11" font-weight="bold" fill="#b71c1c">BlobDB SSTs can remain below this for many rounds</text>
+  <text x="533" y="215" font-size="10" font-weight="bold" fill="#b71c1c">BlobDB SSTs</text>
+  <text x="533" y="227" font-size="10" font-weight="bold" fill="#b71c1c">stay below this</text>
 </svg>

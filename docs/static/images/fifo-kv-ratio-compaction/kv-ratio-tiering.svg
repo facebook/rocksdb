@@ -22,8 +22,9 @@
 
   <rect x="420" y="76" width="300" height="76" rx="6" fill="#f1f8e9" stroke="#7cb342" stroke-width="1.3"/>
   <text x="436" y="99" font-size="12" font-weight="bold" fill="#33691e">Target graduated SST size</text>
-  <text x="436" y="122" font-size="11" fill="#33691e">target = max_data_files_size x sst_ratio / trigger</text>
-  <text x="436" y="143" font-size="11" fill="#546e7a">Files at or above target graduate and stay out of later tier merges.</text>
+  <text x="436" y="119" font-size="10.5" fill="#33691e">target = max_data_files_size x sst_ratio</text>
+  <text x="436" y="132" font-size="10.5" fill="#33691e">divided by trigger</text>
+  <text x="436" y="147" font-size="10.5" fill="#546e7a">Files at or above target graduate.</text>
 
   <text x="64" y="193" font-size="12" font-weight="bold" fill="#37474f">Small flush SSTs</text>
   <rect x="64" y="205" width="40" height="28" rx="4" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.3"/>
@@ -46,5 +47,6 @@
   <rect x="626" y="202" width="94" height="34" rx="5" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.7"/>
   <text x="673" y="223" text-anchor="middle" font-size="11" font-weight="bold" fill="#1b5e20">~1 MB</text>
 
-  <text x="380" y="260" text-anchor="middle" font-size="11" fill="#546e7a">Example shown with trigger = 10 and target = 1 MB. Actual targets are derived from the live SST/blob ratio unless overridden.</text>
+  <text x="380" y="255" text-anchor="middle" font-size="10.5" fill="#546e7a">Example: trigger = 10 and target = 1 MB.</text>
+  <text x="380" y="270" text-anchor="middle" font-size="10.5" fill="#546e7a">By default, targets come from the live SST/blob ratio.</text>
 </svg>
