@@ -11,8 +11,49 @@ inputs:
 runs:
   using: composite
   steps:
+  - name: Detect Visual Studio generator
+    id: detect_vs
+    shell: pwsh
+    run: |
+      $ErrorActionPreference = "Stop"
+
+      $vswhere = Join-Path ([Environment]::GetFolderPath("ProgramFilesX86")) "Microsoft Visual Studio\Installer\vswhere.exe"
+      if (!(Test-Path $vswhere)) {
+        throw "vswhere.exe was not found at $vswhere"
+      }
+
+      $vsInstallationsJson = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json -utf8
+      $vsInstallations = @($vsInstallationsJson | ConvertFrom-Json)
+      if ($vsInstallations.Count -eq 0) {
+        throw "No Visual Studio instance with C++ tools was found."
+      }
+
+      $vsInstallation = $vsInstallations[0]
+      $vsMajor = [int]$vsInstallation.catalog.productLineVersion
+      if ($vsMajor -eq 0) {
+        $vsMajor = [int]($vsInstallation.installationVersion.Split(".")[0])
+      }
+
+      $generatorLine = cmake --help | Where-Object {
+        $_ -match "^\*?\s*Visual Studio $vsMajor\s+\d{4}\s*="
+      } | Select-Object -First 1
+      if (!$generatorLine) {
+        throw "CMake does not support a Visual Studio generator for VS major version $vsMajor."
+      }
+
+      $cmakeGenerator = ($generatorLine -replace "^\*?\s*", "" -replace "\s*=.*$", "").Trim()
+      $vsVersionRange = "[{0}.0,{1}.0)" -f $vsMajor, ($vsMajor + 1)
+
+      echo "Detected Visual Studio at $($vsInstallation.installationPath)"
+      echo "Using CMake generator: $cmakeGenerator"
+      echo "Using setup-msbuild vs-version: $vsVersionRange"
+
+      "CMAKE_GENERATOR=$cmakeGenerator" >> $env:GITHUB_ENV
+      "vs_version=$vsVersionRange" >> $env:GITHUB_OUTPUT
   - name: Add msbuild to PATH
-    uses: microsoft/setup-msbuild@v1.3.1
+    uses: microsoft/setup-msbuild@v2
+    with:
+      vs-version: ${{ steps.detect_vs.outputs.vs_version }}
   - name: ccache
     uses: hendrikmuhs/ccache-action@v1.2
     with:
@@ -32,15 +73,23 @@ runs:
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
       CTEST_BIN: C:/Program Files/CMake/bin/ctest.exe
-      JAVA_HOME: C:/Program Files/BellSoft/LibericaJDK-8
       SNAPPY_HOME: ${{ github.workspace }}/thirdparty/snappy-1.2.2
       SNAPPY_INCLUDE: ${{ github.workspace }}/thirdparty/snappy-1.2.2;${{ github.workspace }}/thirdparty/snappy-1.2.2/build
       SNAPPY_LIB_DEBUG: ${{ github.workspace }}/thirdparty/snappy-1.2.2/build/Debug/snappy.lib
     run: |-
       # NOTE: if ... Exit $LASTEXITCODE lines needed to exit and report failure
       echo ===================== Install Dependencies =====================
-      choco install liberica8jdk -y
-      if(!$?) { Exit $LASTEXITCODE }
+      if (!$env:JAVA_HOME -or !(Test-Path (Join-Path $env:JAVA_HOME "bin\javac.exe"))) {
+        $javac = Get-Command javac -ErrorAction SilentlyContinue
+        if (!$javac) {
+          Write-Error "javac was not found on PATH and JAVA_HOME is not set."
+          Exit 1
+        }
+        $env:JAVA_HOME = Split-Path (Split-Path $javac.Source -Parent) -Parent
+      }
+      echo "JAVA_HOME=$env:JAVA_HOME"
+      & "$env:JAVA_HOME\bin\java.exe" -version
+      & "$env:JAVA_HOME\bin\javac.exe" -version
       mkdir $Env:THIRDPARTY_HOME
       cd $Env:THIRDPARTY_HOME
       echo "Building Snappy dependency..."
@@ -53,11 +102,11 @@ runs:
       cd build
       & cmake -G "$Env:CMAKE_GENERATOR" .. -DSNAPPY_BUILD_TESTS=OFF -DSNAPPY_BUILD_BENCHMARKS=OFF
       if(!$?) { Exit $LASTEXITCODE }
-      msbuild Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      cmake --build . --config Debug --parallel 32 -- /p:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
       echo ======================== Build RocksDB =========================
       cd ${{ github.workspace }}
-      $env:Path = $env:JAVA_HOME + ";" + $env:Path
+      $env:Path = "$env:JAVA_HOME\bin;" + $env:Path
       mkdir build
       cd build
       & cmake -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DWIN_CI=1 -DPORTABLE="$Env:CMAKE_PORTABLE" -DSNAPPY=1 -DXPRESS=1 -DJNI=1 ..
@@ -65,7 +114,7 @@ runs:
       cd ..
       echo "Building with VS version: $Env:CMAKE_GENERATOR"
       # use more parallel processes than the number of processes available, as most of the compile command would be cache hit
-      msbuild build/rocksdb.sln /m:32 /p:LinkIncremental=false -property:Configuration=Debug -property:Platform=x64
+      cmake --build build --config Debug --parallel 32 -- /p:LinkIncremental=false /p:Platform=x64
       if(!$?) { Exit $LASTEXITCODE }
       echo ========================= Test RocksDB =========================
       $suiteRun = "${{ inputs.suite-run }}"
