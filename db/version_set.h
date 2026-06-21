@@ -1480,8 +1480,9 @@ class VersionSet {
   // If an error occurs and recovery creates new memtables, SwitchMemtable
   // uses LastSequence() which may be lower than already-allocated sequences.
   //
-  // REQUIRED: DB mutex is held and no concurrent writers are active (i.e.,
-  // after WaitForBackgroundWork() in ResumeImpl).
+  // REQUIRED: DB mutex is held, and callers have reached a recovery fence
+  // where no concurrent writer can advance last_allocated_sequence_ before
+  // the memtable/WAL state that consumes last_sequence_ is created.
   void SyncLastSequenceWithAllocated() {
     uint64_t alloc_seq =
         last_allocated_sequence_.load(std::memory_order_seq_cst);
