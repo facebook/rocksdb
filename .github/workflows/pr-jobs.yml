@@ -528,7 +528,7 @@ jobs:
   build-windows-vs2022:
     if: needs.config.outputs.only_job == 'build-windows-vs2022' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
-    runs-on: windows-8-core
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
