@@ -210,6 +210,8 @@ public class Environment {
     } else if (isSolaris()) {
       final String arch = is64Bit() ? "64" : "32";
       return String.format("%sjni-solaris%s", name, arch);
+    } else if (isWindows() && isAarch64()) {
+      return String.format("%sjni-win-arm64", name);
     } else if (isWindows() && is64Bit()) {
       return String.format("%sjni-win64", name);
     } else if (isOpenBSD()) {
