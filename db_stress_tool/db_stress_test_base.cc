@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <cstdlib>
 #include <ios>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,7 @@
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "file/file_util.h"
 #include "options/options_parser.h"
+#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
@@ -258,6 +260,32 @@ bool NeedsFaultInjection() {
          FLAGS_write_fault_one_in || FLAGS_sync_fault_injection;
 }
 
+std::string GetFaultInjectionLogBaseDir() {
+  if (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) {
+    return "/tmp";
+  }
+  // db_stress reads environment variables during single-threaded startup,
+  // before worker threads are created.
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
+  const char* test_tmpdir = std::getenv("TEST_TMPDIR");
+  return test_tmpdir != nullptr && test_tmpdir[0] != '\0' ? test_tmpdir
+                                                          : "/tmp";
+}
+
+std::string GetFaultInjectionLogPath(const std::string& db_label) {
+  const std::string log_dir =
+      GetFaultInjectionLogBaseDir() + "/fault_injection_logs";
+  Status s = Env::Default()->CreateDirIfMissing(log_dir);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed to create directory %s: %s\n", log_dir.c_str(),
+            s.ToString().c_str());
+    exit(1);
+  }
+  return log_dir + "/fault_injection_" + std::to_string(port::GetProcessID()) +
+         "_" + std::to_string(Env::Default()->NowMicros()) + "_" + db_label +
+         ".bin";
+}
+
 }  // namespace
 
 const std::string& StressTest::GetDbLabel() const { return db_label_; }
@@ -285,7 +313,8 @@ StressTest::StressTest(int db_index, const std::string& db_path,
           std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem())),
       db_fault_injection_fs_(
           NeedsFaultInjection()
-              ? std::make_shared<FaultInjectionTestFS>(db_stress_fs_)
+              ? std::make_shared<FaultInjectionTestFS>(
+                    db_stress_fs_, GetFaultInjectionLogPath(db_label_))
               : nullptr),
       db_env_(std::make_unique<CompositeEnvWrapper>(
           raw_env, db_fault_injection_fs_
@@ -314,23 +343,6 @@ StressTest::StressTest(int db_index, const std::string& db_path,
     // StressTest::Open() for open fault injection and in RunStressTestImpl()
     // for proper fault injection setup.
     db_fault_injection_fs_->SetFilesystemDirectWritable(true);
-
-    // Set the fault injection log file path so that PrintAll() writes to a
-    // file instead of stderr (signal-safe). PrintAll() opens this path with
-    // plain POSIX open(), not through raw_env, so the log path must stay on
-    // the local filesystem. Store it in the local test directory (TEST_TMPDIR
-    // via Env::Default()) outside the DB directory so it survives DB reopen
-    // and gets included in the sandcastle db.tar.gz artifact for post-failure
-    // analysis.
-    std::string log_dir;
-    if (!Env::Default()->GetTestDirectory(&log_dir).ok() || log_dir.empty()) {
-      log_dir = "/tmp";
-    }
-    std::string log_path = log_dir + "/fault_injection_" +
-                           std::to_string(getpid()) + "_" +
-                           std::to_string(Env::Default()->NowMicros()) + "_" +
-                           GetDbLabel() + ".log";
-    db_fault_injection_fs_->SetInjectedErrorLogPath(log_path);
   }
 
   if (FLAGS_destroy_db_initially) {
