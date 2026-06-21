@@ -35,6 +35,11 @@ Status DBImpl::TEST_SwitchWAL() {
   return s;
 }
 
+Status DBImpl::TEST_ResumeImpl(DBRecoverContext context) {
+  InstrumentedMutexLock l(&mutex_);
+  return ResumeImpl(context);
+}
+
 uint64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
