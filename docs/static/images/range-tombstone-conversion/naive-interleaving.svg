@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="230" viewBox="0 32 760 230" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow-red" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 z" fill="#c62828"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="262" fill="#ffffff"/>
+  
+  <!-- key column labels -->
+  <text x="175" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">10</text>
+  <text x="255" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">15</text>
+  <text x="335" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">20</text>
+  <text x="415" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">25</text>
+  <text x="495" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">30</text>
+  <text x="575" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">35</text>
+  <text x="655" y="50" text-anchor="middle" font-size="12" fill="#9e9e9e">40</text>
+
+  <!-- L0 row: point tombstones, "contiguous" at this level -->
+  <rect x="130" y="62" width="580" height="44" rx="5" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.2"/>
+  <text x="14" y="80" font-size="13" font-weight="bold" fill="#37474f">L0</text>
+  <text x="14" y="95" font-size="10" fill="#9e9e9e">newer</text>
+
+  <rect x="147" y="66" width="56" height="36" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="175" y="81" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">10</text>
+  <text x="175" y="95" text-anchor="middle" font-size="9" fill="#b71c1c">DEL</text>
+  <rect x="307" y="66" width="56" height="36" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="335" y="81" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">20</text>
+  <text x="335" y="95" text-anchor="middle" font-size="9" fill="#b71c1c">DEL</text>
+  <rect x="467" y="66" width="56" height="36" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="495" y="81" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">30</text>
+  <text x="495" y="95" text-anchor="middle" font-size="9" fill="#b71c1c">DEL</text>
+  <rect x="627" y="66" width="56" height="36" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="655" y="89" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b5e20">40</text>
+
+  <!-- naive range tombstone spanning the run -->
+  <rect x="147" y="116" width="480" height="24" rx="5" fill="#c62828" fill-opacity="0.18" stroke="#c62828" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="387" y="132" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">naive: replace the run with one range tombstone [10, 40)</text>
+
+  <!-- L1 row: live keys interleaved one level below (would be wrongly deleted) -->
+  <rect x="130" y="150" width="580" height="44" rx="5" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.2"/>
+  <text x="14" y="168" font-size="13" font-weight="bold" fill="#37474f">L1</text>
+  <text x="14" y="183" font-size="10" fill="#9e9e9e">older</text>
+
+  <rect x="227" y="154" width="56" height="36" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="255" y="177" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">15</text>
+  <rect x="387" y="154" width="56" height="36" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="415" y="177" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">25</text>
+  <rect x="547" y="154" width="56" height="36" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="575" y="177" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">35</text>
+
+  <!-- arrows: the naive range would now hide the live keys below -->
+  <line x1="255" y1="140" x2="255" y2="153" stroke="#c62828" stroke-width="1.6" marker-end="url(#arrow-red)"/>
+  <line x1="415" y1="140" x2="415" y2="153" stroke="#c62828" stroke-width="1.6" marker-end="url(#arrow-red)"/>
+  <line x1="575" y1="140" x2="575" y2="153" stroke="#c62828" stroke-width="1.6" marker-end="url(#arrow-red)"/>
+
+  <!-- caption -->
+  <text x="380" y="222" text-anchor="middle" font-size="13" fill="#1a1a1a">The point tombstones hid only 10, 20, 30. A range tombstone over [10, 40) would also hide</text>
+  <text x="380" y="244" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">the live keys 15, 25, 35 one level down. Only a whole-LSM view knows the run is not truly contiguous.</text>
+</svg>
