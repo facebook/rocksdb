@@ -1707,6 +1707,10 @@ DEFINE_bool(
 DEFINE_bool(use_multiscan, false,
             "If set, use the batched MultiScan API for scans.");
 
+DEFINE_bool(multiscan_reverse, false,
+            "If set with use_multiscan, run MultiScan ranges in reverse "
+            "order using SeekForPrev and Prev.");
+
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
 

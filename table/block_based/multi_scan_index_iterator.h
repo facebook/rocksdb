@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -26,10 +27,8 @@ class Statistics;
 // to use the same SeekImpl()/FindBlockForward() code path for both
 // regular iteration and MultiScan.
 //
-// The iterator supports forward-only Seek() and Next(). Seek targets must
-// be non-decreasing (enforced via prev_seek_key_). When a scan range is
-// exhausted, Next() jumps to the start of the next scan range. When all
-// ranges are exhausted, the iterator becomes invalid.
+// The iterator supports forward Seek()/Next() or reverse SeekForPrev()/Prev()
+// depending on MultiScanArgs::reverse.
 class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
  public:
   // scan_opts and icomp must outlive this iterator. read_set is shared.
@@ -38,8 +37,8 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
       std::vector<std::string>&& data_block_separators,
       std::vector<std::tuple<size_t, size_t>>&& block_index_ranges_per_scan,
       const MultiScanArgs* scan_opts, std::shared_ptr<ReadSet> read_set,
-      size_t prefetch_max_idx, const InternalKeyComparator& icomp,
-      Statistics* statistics);
+      size_t prefetch_start_idx, size_t prefetch_max_idx,
+      const InternalKeyComparator& icomp, Statistics* statistics);
 
   ~MultiScanIndexIterator() override;
 
@@ -58,7 +57,6 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
   // Move to the first block of the first scan range.
   void SeekToFirst() override;
 
-  // Not supported -- sets valid_ = false.
   void SeekForPrev(const Slice& target) override;
   void SeekToLast() override;
   void Prev() override;
@@ -78,11 +76,18 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
 
   Status status() const override { return status_; }
 
-  // Returns the current index into the block_handles/read_set arrays.
-  size_t current_read_set_index() const { return cur_idx_; }
+  const MultiScanArgs* scan_opts() const { return scan_opts_; }
+
+  // Returns the current index into the ReadSet, or prefetch size if the
+  // current block was not prefetched.
+  size_t current_read_set_index() const;
 
   // Returns the max_prefetch_size from scan options.
   uint64_t GetMaxPrefetchSize() const;
+
+  size_t GetPrefetchBlockCount() const {
+    return prefetch_max_idx_ - prefetch_start_idx_;
+  }
 
   // Returns true if the last Next() crossed a scan range boundary.
   // Only valid immediately after Next(); reset to false on the next Seek().
@@ -90,6 +95,7 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
 
   // Returns true if there are more scan ranges after the current one.
   bool HasMoreScanRanges() const {
+    assert(!scan_opts_->reverse);
     return next_scan_idx_ < block_index_ranges_per_scan_.size();
   }
 
@@ -97,6 +103,8 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
   // Release blocks from from_idx (inclusive) to to_idx (exclusive),
   // counting wasted prefetched blocks.
   void ReleaseBlocks(size_t from_idx, size_t to_idx);
+  void ReleaseBlock(size_t block_idx);
+  bool IsPrefetchedBlock(size_t block_idx) const;
 
   // Find the correct scan range and block for an unexpected seek target
   // (target doesn't match expected scan range start).
@@ -104,6 +112,7 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
 
   // Position at block_idx after releasing any skipped blocks.
   void SeekToBlockIdx(size_t block_idx);
+  void SeekToBlockIdxReverse(size_t block_idx);
 
   // Mark the current scan range as exhausted. If more ranges remain,
   // positions at the next range's start (stays valid for out-of-bound
@@ -115,6 +124,7 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
   std::vector<std::tuple<size_t, size_t>> block_index_ranges_per_scan_;
   const MultiScanArgs* scan_opts_;
   std::shared_ptr<ReadSet> read_set_;
+  size_t prefetch_start_idx_;
   size_t prefetch_max_idx_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;
@@ -122,6 +132,7 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
 
   size_t cur_idx_ = 0;
   size_t next_scan_idx_ = 0;
+  size_t cur_scan_idx_ = 0;
   bool valid_ = false;
   Status status_;
   std::string prev_seek_key_;

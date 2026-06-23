@@ -2687,6 +2687,33 @@ TEST_F(TrieIndexFactoryTest, UpperBoundDoesNotDropValidBlocks) {
   ASSERT_EQ(result.bound_check_result, IterBoundCheck::kOutOfBound);
 }
 
+TEST_F(TrieIndexFactoryTest, PrevAfterPrepareDoesNotUseForwardUpperBound) {
+  auto ctx = BuildTrieAndGetIterator({
+      {"az", "b", 0, 500, 0, 0},
+      {"bz", "d", 1000, 500, 0, 0},
+      {"dz", "f", 2000, 500, 0, 0},
+  });
+
+  ScanOptions scans[] = {
+      ScanOptions(Slice("a"), Slice("c")),
+  };
+  ctx.iter->Prepare(scans, 1);
+
+  IterateResult result;
+  ASSERT_OK(ctx.iter->SeekAndGetResult(Slice("a"), &result,
+                                       SeekCtx(kMaxSequenceNumber)));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 0u);
+
+  ASSERT_OK(ctx.iter->NextAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 1000u);
+
+  ASSERT_OK(ctx.iter->PrevAndGetResult(&result));
+  ASSERT_EQ(result.bound_check_result, IterBoundCheck::kInbound);
+  ASSERT_EQ(ctx.iter->value().offset, 0u);
+}
+
 TEST_F(TrieIndexFactoryTest, MultiScanBoundsAdvanceCorrectly) {
   // Validates that current_scan_idx_ advances correctly when
   // the seek target is past the current scan's limit. Otherwise all

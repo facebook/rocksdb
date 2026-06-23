@@ -4097,6 +4097,8 @@ class Benchmark {
                 FLAGS_io_dispatcher_max_prefetch_memory_bytes);
         fprintf(stderr, "multiscan_max_prefetch_size = %" PRIu64 "\n",
                 FLAGS_multiscan_max_prefetch_size);
+        fprintf(stderr, "reverse_iterator = %s\n",
+                FLAGS_reverse_iterator ? "true" : "false");
         method = &Benchmark::MultiScan;
       } else if (name == "multiscanrandom") {
         int64_t max_range_keys = std::max<int64_t>(
@@ -4114,6 +4116,8 @@ class Benchmark {
                 FLAGS_multiscan_use_async_io ? "true" : "false");
         fprintf(stderr, "use_multiscan = %s\n",
                 FLAGS_use_multiscan ? "true" : "false");
+        fprintf(stderr, "reverse_iterator = %s\n",
+                FLAGS_reverse_iterator ? "true" : "false");
         method = &Benchmark::MultiScanRandom;
       } else if (name == "multireadwhilewriting") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
@@ -7366,6 +7370,7 @@ class Benchmark {
       opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
       opts.use_async_io = FLAGS_multiscan_use_async_io;
       opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+      opts.reverse = FLAGS_reverse_iterator;
       if (io_dispatcher) {
         opts.io_dispatcher = io_dispatcher;
       }
@@ -7436,6 +7441,7 @@ class Benchmark {
     }
 
     int64_t multiscans_done = 0;
+    uint64_t rows_scanned = 0;
     auto duration = thread->shared->MakeDuration(FLAGS_duration, reads_);
     int64_t num_keys = 1;
     while (!duration.Done(num_keys)) {
@@ -7500,6 +7506,7 @@ class Benchmark {
         opts.io_coalesce_threshold = FLAGS_multiscan_coalesce_threshold;
         opts.use_async_io = FLAGS_multiscan_use_async_io;
         opts.max_prefetch_size = FLAGS_multiscan_max_prefetch_size;
+        opts.reverse = FLAGS_reverse_iterator;
         if (io_dispatcher) {
           opts.io_dispatcher = io_dispatcher;
         }
@@ -7530,7 +7537,7 @@ class Benchmark {
           fprintf(stderr, "MultiScanException: %s\n", e.what());
         }
       } else {
-        // Normal iterator path: Seek + Next for each range
+        // Normal iterator path: Seek + Next/SeekForPrev + Prev for each range
         std::unique_ptr<const char[]> skey_guard;
         Slice skey = AllocateKey(&skey_guard);
         std::unique_ptr<const char[]> ekey_guard;
@@ -7538,21 +7545,45 @@ class Benchmark {
 
         std::unique_ptr<Iterator> iter(
             db->NewIterator(read_options_, db->DefaultColumnFamily()));
-        for (auto& r : non_overlapping) {
+        auto scan_range = [&](const RangeSpec& r) {
           GenerateKeyFromInt(r.start, FLAGS_num, &skey);
           GenerateKeyFromInt(r.start + r.size, FLAGS_num, &ekey);
-          for (iter->Seek(skey); iter->Valid() && iter->key().compare(ekey) < 0;
-               iter->Next()) {
-            keys++;
+          if (FLAGS_reverse_iterator) {
+            iter->SeekForPrev(ekey);
+            if (iter->Valid() && iter->key().compare(ekey) >= 0) {
+              iter->Prev();
+            }
+            for (; iter->Valid() && iter->key().compare(skey) >= 0;
+                 iter->Prev()) {
+              keys++;
+            }
+          } else {
+            for (iter->Seek(skey);
+                 iter->Valid() && iter->key().compare(ekey) < 0; iter->Next()) {
+              keys++;
+            }
           }
           if (!iter->status().ok()) {
             fprintf(stderr, "Iterator error: %s\n",
                     iter->status().ToString().c_str());
-            break;
+          }
+        };
+        if (FLAGS_reverse_iterator) {
+          for (auto it = non_overlapping.rbegin();
+               it != non_overlapping.rend() && iter->status().ok(); ++it) {
+            scan_range(*it);
+          }
+        } else {
+          for (auto& r : non_overlapping) {
+            scan_range(r);
+            if (!iter->status().ok()) {
+              break;
+            }
           }
         }
       }
       num_keys = std::max<int64_t>(1, keys);
+      rows_scanned += static_cast<uint64_t>(keys);
 
       if (thread->shared->read_rate_limiter.get() != nullptr) {
         thread->shared->read_rate_limiter->Request(
@@ -7563,10 +7594,13 @@ class Benchmark {
       multiscans_done += 1;
     }
 
-    char msg[100];
+    const uint64_t rows_per_multiscan =
+        multiscans_done == 0 ? 0 : rows_scanned / multiscans_done;
+    char msg[200];
     snprintf(msg, sizeof(msg),
-             "(multiscans:%" PRIu64 " max_range_keys:%" PRId64 ")",
-             multiscans_done, max_range_keys);
+             "(multiscans:%" PRIu64 " rows_scanned:%" PRIu64
+             " rows_per_multiscan:%" PRIu64 " max_range_keys:%" PRId64 ")",
+             multiscans_done, rows_scanned, rows_per_multiscan, max_range_keys);
     thread->stats.AddMessage(msg);
   }
 
