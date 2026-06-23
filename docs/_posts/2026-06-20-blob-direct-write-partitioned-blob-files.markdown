@@ -81,9 +81,10 @@ Blob Direct Write maintains a per-column-family `BlobFilePartitionManager`.
 The manager owns one active blob writer slot per configured partition:
 
 ```cpp
-ColumnFamilyOptions options;
+Options options;
 options.enable_blob_files = true;
 options.enable_blob_direct_write = true;
+options.allow_concurrent_memtable_write = false;
 options.min_blob_size = 1024;
 options.blob_direct_write_partitions = 8;
 ```
@@ -236,25 +237,42 @@ This keeps RocksDB byte-oriented. RocksDB manages keys, sequence numbers,
 or a higher layer remains responsible for schema, TTL interpretation, and value
 decoding.
 
-## Current Scope
+## Limitations
 
-Blob Direct Write is still a reduced-scope v1 feature. The current
-implementation is deliberately conservative in a few areas:
+Blob Direct Write is still a reduced-scope v1 feature. The durable boundary,
+write-thread model, and API compatibility are deliberately conservative.
+
+The most important limitation is crash recovery. Direct-write blob files are
+registered in the MANIFEST only when the memtable containing their `BlobIndex`
+references is flushed. Until that flush commits, the WAL can contain
+references to active blob files that are not part of versioned metadata. v1
+does not support recovering that active direct-write state through WAL replay,
+so applications should not treat WAL logging alone as the crash-recovery
+boundary for direct-written blobs. RocksDB forces a final flush for live
+direct-write column families during clean close, but a process crash, failed
+close-time flush, or shutdown path that cannot complete the flush can leave
+active direct-write blob files unregistered.
+
+There are also configuration and API limits:
 
 * `enable_blob_direct_write` requires `enable_blob_files`.
-* It is not dynamically changeable through `SetOptions()`.
-* The v1 implementation supports the ordered single-memtable-writer path. It
-  is not compatible with unordered write, pipelined write, two write queues, or
-  concurrent memtable writes.
-* Active direct-write blob files are not recovered through WAL replay in v1.
-  The durable registration boundary is flush plus MANIFEST commit. RocksDB
-  forces a close-time flush for live direct-write column families, and APIs
-  such as live-file enumeration may require flushing active direct-write state
-  first.
-* Read-only and secondary instances can read flushed, MANIFEST-visible blob
-  files, but they do not resolve still-active direct-write blob files.
-* MemPurge, user-defined timestamps, and
-  `DB::IngestWriteBatchWithIndex()` are outside the initial feature envelope.
+* `enable_blob_direct_write`, `blob_direct_write_partitions`, and
+  `blob_direct_write_partition_strategy` are not dynamically changeable
+  through `SetOptions()`.
+* The v1 write path requires the ordered single-memtable-writer mode. It is not
+  compatible with `unordered_write`, `enable_pipelined_write`,
+  `two_write_queues`, or `allow_concurrent_memtable_write`.
+* `DB::IngestWriteBatchWithIndex()` is not supported while any live column
+  family has `enable_blob_direct_write` enabled.
+* MemPurge and user-defined timestamps are not supported with Blob Direct
+  Write.
+* Pre-serialized wide-column entities that already contain blob references are
+  rejected when Blob Direct Write is enabled. RocksDB needs to create and track
+  the direct-write blob references inside the current write path.
+* Checkpoint, backup, and live-file enumeration must flush pending
+  direct-write state first. Calls that intentionally skip the flush, or that
+  run while the WAL is locked and therefore cannot flush, can return
+  `NotSupported`.
 
 One subtle implementation point is that partitions are currently a file
 placement and lifecycle abstraction. The manager has multiple active partition
