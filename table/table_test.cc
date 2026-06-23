@@ -1065,8 +1065,8 @@ class HarnessTest : public testing::Test {
   std::shared_ptr<InternalKeyComparator> internal_comparator_;
 };
 
-class ParameterizedHarnessTest : public HarnessTest,
-                                 public testing::WithParamInterface<TestArgs> {
+class ParameterizedHarnessTest : public testing::WithParamInterface<TestArgs>,
+                                 public HarnessTest {
  public:
   ParameterizedHarnessTest() : HarnessTest(GetParam()) {}
 };
