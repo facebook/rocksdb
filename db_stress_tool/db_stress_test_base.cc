@@ -1219,13 +1219,18 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
       std::string last_resume_status;
       if (!rollback_s.ok() && IsErrorInjectedAndRetryable(rollback_s) &&
           db_ != nullptr) {
-        constexpr int kMaxRollbackAfterRecoveryRetries = 100;
-        constexpr int kRollbackAfterRecoveryRetryIntervalMicros = 10 * 1000;
-        for (; rollback_recovery_retries < kMaxRollbackAfterRecoveryRetries &&
-               !rollback_s.ok();
-             ++rollback_recovery_retries) {
+        // Retry budget: count only actual rollback attempts (after Resume
+        // succeeds), not time spent waiting for recovery to finish on another
+        // thread. With many concurrent threads hitting write errors, recovery
+        // can take much longer than individual threads' retry budgets.
+        constexpr int kMaxRollbackRetries = 100;
+        constexpr int kMaxResumeBusyWaits = 3000;
+        constexpr int kRetryIntervalMicros = 10 * 1000;
+        for (; rollback_recovery_retries < kMaxRollbackRetries &&
+               resume_busy_count < kMaxResumeBusyWaits && !rollback_s.ok();) {
           const Status resume_s = db_->Resume();
           if (resume_s.ok()) {
+            ++rollback_recovery_retries;
             last_resume_status = resume_s.ToString();
             rollback_s = txn.Rollback();
             if (rollback_s.ok() || !IsErrorInjectedAndRetryable(rollback_s)) {
@@ -1238,8 +1243,7 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
             ++resume_busy_count;
             last_resume_status = resume_s.ToString();
           }
-          clock_->SleepForMicroseconds(
-              kRollbackAfterRecoveryRetryIntervalMicros);
+          clock_->SleepForMicroseconds(kRetryIntervalMicros);
         }
       }
       if (!rollback_s.ok()) {
