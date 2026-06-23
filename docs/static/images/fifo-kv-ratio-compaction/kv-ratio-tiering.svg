@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="280" viewBox="0 0 760 280" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="tier-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#1565c0"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="280" fill="#ffffff"/>
+
+  <text x="380" y="30" text-anchor="middle" font-size="17" font-weight="bold" fill="#263238">KV-ratio FIFO intra-L0 compaction</text>
+  <text x="380" y="52" text-anchor="middle" font-size="12" fill="#546e7a">Compute a BlobDB-aware target, then merge SST files through bounded size tiers.</text>
+
+  <rect x="38" y="76" width="288" height="76" rx="6" fill="#fafafa" stroke="#cfd8dc" stroke-width="1.3"/>
+  <text x="54" y="99" font-size="12" font-weight="bold" fill="#37474f">Observed data shape</text>
+  <rect x="54" y="113" width="64" height="18" rx="3" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.2"/>
+  <text x="86" y="126" text-anchor="middle" font-size="10" fill="#0d47a1">SST</text>
+  <rect x="124" y="113" width="170" height="18" rx="3" fill="#ede7f6" stroke="#5e35b1" stroke-width="1.2"/>
+  <text x="209" y="126" text-anchor="middle" font-size="10" fill="#4527a0">blob files</text>
+  <text x="54" y="143" font-size="11" fill="#546e7a">sst_ratio = SST / (SST + blob)</text>
+
+  <line x1="326" y1="114" x2="404" y2="114" stroke="#1565c0" stroke-width="2" marker-end="url(#tier-arrow)"/>
+
+  <rect x="420" y="76" width="300" height="76" rx="6" fill="#f1f8e9" stroke="#7cb342" stroke-width="1.3"/>
+  <text x="436" y="99" font-size="12" font-weight="bold" fill="#33691e">Target graduated SST size</text>
+  <text x="436" y="119" font-size="10.5" fill="#33691e">target = max_data_files_size x sst_ratio</text>
+  <text x="436" y="132" font-size="10.5" fill="#33691e">divided by trigger</text>
+  <text x="436" y="147" font-size="10.5" fill="#546e7a">Files at or above target graduate.</text>
+
+  <text x="64" y="193" font-size="12" font-weight="bold" fill="#37474f">Small flush SSTs</text>
+  <rect x="64" y="205" width="40" height="28" rx="4" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.3"/>
+  <rect x="110" y="205" width="40" height="28" rx="4" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.3"/>
+  <rect x="156" y="205" width="40" height="28" rx="4" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.3"/>
+  <rect x="202" y="205" width="40" height="28" rx="4" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.3"/>
+
+  <line x1="260" y1="219" x2="320" y2="219" stroke="#1565c0" stroke-width="2" marker-end="url(#tier-arrow)"/>
+
+  <text x="346" y="193" font-size="12" font-weight="bold" fill="#37474f">Tier files</text>
+  <rect x="346" y="204" width="62" height="30" rx="4" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.4"/>
+  <text x="377" y="223" text-anchor="middle" font-size="10" font-weight="bold" fill="#e65100">10 KB</text>
+  <line x1="418" y1="219" x2="466" y2="219" stroke="#1565c0" stroke-width="2" marker-end="url(#tier-arrow)"/>
+  <rect x="488" y="204" width="70" height="30" rx="4" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.4"/>
+  <text x="523" y="223" text-anchor="middle" font-size="10" font-weight="bold" fill="#e65100">100 KB</text>
+
+  <line x1="568" y1="219" x2="614" y2="219" stroke="#1565c0" stroke-width="2" marker-end="url(#tier-arrow)"/>
+
+  <text x="636" y="193" font-size="12" font-weight="bold" fill="#37474f">Graduated</text>
+  <rect x="626" y="202" width="94" height="34" rx="5" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.7"/>
+  <text x="673" y="223" text-anchor="middle" font-size="11" font-weight="bold" fill="#1b5e20">~1 MB</text>
+
+  <text x="380" y="255" text-anchor="middle" font-size="10.5" fill="#546e7a">Example: trigger = 10 and target = 1 MB.</text>
+  <text x="380" y="270" text-anchor="middle" font-size="10.5" fill="#546e7a">By default, targets come from the live SST/blob ratio.</text>
+</svg>
