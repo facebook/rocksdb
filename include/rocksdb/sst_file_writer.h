@@ -143,7 +143,7 @@ class SstFileWriter {
   // file.
   //
   // Requires the writer to use block-based table format_version >= 7. The
-  // resulting SST can be consumed by RocksDB >= 11.5.0.
+  // resulting SST can be consumed by RocksDB >= 11.6.0.
   Status OpenWithEmbeddedBlobs(
       const std::string& file_path,
       const SstFileWriterEmbeddedBlobOptions& embedded_blob_options,
