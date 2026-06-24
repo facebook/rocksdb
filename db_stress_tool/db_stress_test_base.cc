@@ -9,8 +9,12 @@
 //
 
 #include <algorithm>
+#include <cstdlib>
 #include <ios>
+#include <memory>
+#include <mutex>
 #include <thread>
+#include <unordered_set>
 
 #include "db_stress_tool/db_stress_compression_manager.h"
 #include "db_stress_tool/db_stress_listener.h"
@@ -28,16 +32,19 @@
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "file/file_util.h"
 #include "options/options_parser.h"
+#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
+#include "util/aligned_buffer.h"
 #include "util/cast_util.h"
 #include "util/simple_mixed_compressor.h"
 #include "utilities/backup/backup_engine_impl.h"
@@ -83,6 +90,120 @@ class ScopedThreadOperation {
   StressOperationType type_;
   FinishAction finish_action_;
   bool pushed_;
+};
+
+class StressReadScopedBlockBufferProvider
+    : public ReadScopedBlockBufferProvider {
+ public:
+  StressReadScopedBlockBufferProvider() : state_(std::make_shared<State>()) {}
+  StressReadScopedBlockBufferProvider(
+      const StressReadScopedBlockBufferProvider&) = delete;
+  StressReadScopedBlockBufferProvider& operator=(
+      const StressReadScopedBlockBufferProvider&) = delete;
+  StressReadScopedBlockBufferProvider(StressReadScopedBlockBufferProvider&&) =
+      delete;
+  StressReadScopedBlockBufferProvider& operator=(
+      StressReadScopedBlockBufferProvider&&) = delete;
+
+  ~StressReadScopedBlockBufferProvider() override {
+    state_->ValidateNoLiveAllocations();
+  }
+
+  Status Allocate(size_t size, size_t alignment, Lease* out) override {
+    Check(out != nullptr, "lease output is nullptr");
+    Check(size > 0, "allocation size is zero");
+    Check(alignment > 0 && (alignment & (alignment - 1)) == 0,
+          "alignment must be a power of two");
+
+    auto* allocation = new Allocation();
+    allocation->state = state_;
+    allocation->requested_size = size;
+    allocation->requested_alignment = alignment;
+    allocation->storage.Alignment(alignment);
+    allocation->storage.AllocateNewBuffer(size);
+    allocation->data = allocation->storage.BufferStart();
+    allocation->size = allocation->storage.Capacity();
+
+    Check(allocation->data != nullptr, "provider returned null data");
+    Check(allocation->size >= size, "provider returned short allocation");
+    Check(AlignedBuffer::isAligned(allocation->data, alignment),
+          "provider returned misaligned data");
+    Check(
+        alignment == 1 || AlignedBuffer::isAligned(allocation->size, alignment),
+        "provider returned misaligned direct-I/O size");
+
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      Check(state_->live_allocations.insert(allocation).second,
+            "duplicate allocation registration");
+      state_->live_bytes += allocation->size;
+      ++state_->total_allocations;
+    }
+
+    out->data = allocation->data;
+    out->size = allocation->size;
+    out->cleanup.Allocate();
+    out->cleanup->RegisterCleanup(&ReleaseAllocation, allocation, nullptr);
+    return Status::OK();
+  }
+
+ private:
+  struct Allocation;
+
+  struct State {
+    std::mutex mutex;
+    std::unordered_set<Allocation*> live_allocations;
+    size_t live_bytes = 0;
+    uint64_t total_allocations = 0;
+
+    void ValidateNoLiveAllocations() {
+      std::lock_guard<std::mutex> lock(mutex);
+      Check(live_allocations.empty(),
+            "provider destroyed with live allocations");
+      Check(live_bytes == 0, "provider destroyed with live bytes");
+    }
+  };
+
+  struct Allocation {
+    std::shared_ptr<State> state;
+    size_t requested_size = 0;
+    size_t requested_alignment = 1;
+    char* data = nullptr;
+    size_t size = 0;
+    AlignedBuffer storage;
+  };
+
+  static void Check(bool condition, const char* message) {
+    if (!condition) {
+      fprintf(stderr, "ReadScopedBlockBufferProvider invariant failed: %s\n",
+              message);
+      std::abort();
+    }
+  }
+
+  static void ReleaseAllocation(void* arg1, void* /*arg2*/) {
+    auto* allocation = static_cast<Allocation*>(arg1);
+    Check(allocation != nullptr, "cleanup received null allocation");
+    Check(allocation->state != nullptr, "cleanup received null state");
+    Check(allocation->data != nullptr, "cleanup received null data");
+    Check(allocation->size >= allocation->requested_size,
+          "cleanup received short allocation");
+    Check(AlignedBuffer::isAligned(allocation->data,
+                                   allocation->requested_alignment),
+          "cleanup received misaligned data");
+
+    {
+      std::lock_guard<std::mutex> lock(allocation->state->mutex);
+      Check(allocation->state->live_allocations.erase(allocation) == 1,
+            "cleanup for unknown or duplicate allocation");
+      Check(allocation->state->live_bytes >= allocation->size,
+            "cleanup underflowed live bytes");
+      allocation->state->live_bytes -= allocation->size;
+    }
+    delete allocation;
+  }
+
+  std::shared_ptr<State> state_;
 };
 
 std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
@@ -176,6 +297,32 @@ bool NeedsFaultInjection() {
          FLAGS_write_fault_one_in || FLAGS_sync_fault_injection;
 }
 
+std::string GetFaultInjectionLogBaseDir() {
+  if (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) {
+    return "/tmp";
+  }
+  // db_stress reads environment variables during single-threaded startup,
+  // before worker threads are created.
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
+  const char* test_tmpdir = std::getenv("TEST_TMPDIR");
+  return test_tmpdir != nullptr && test_tmpdir[0] != '\0' ? test_tmpdir
+                                                          : "/tmp";
+}
+
+std::string GetFaultInjectionLogPath(const std::string& db_label) {
+  const std::string log_dir =
+      GetFaultInjectionLogBaseDir() + "/fault_injection_logs";
+  Status s = Env::Default()->CreateDirIfMissing(log_dir);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed to create directory %s: %s\n", log_dir.c_str(),
+            s.ToString().c_str());
+    exit(1);
+  }
+  return log_dir + "/fault_injection_" + std::to_string(port::GetProcessID()) +
+         "_" + std::to_string(Env::Default()->NowMicros()) + "_" + db_label +
+         ".bin";
+}
+
 }  // namespace
 
 const std::string& StressTest::GetDbLabel() const { return db_label_; }
@@ -203,7 +350,8 @@ StressTest::StressTest(int db_index, const std::string& db_path,
           std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem())),
       db_fault_injection_fs_(
           NeedsFaultInjection()
-              ? std::make_shared<FaultInjectionTestFS>(db_stress_fs_)
+              ? std::make_shared<FaultInjectionTestFS>(
+                    db_stress_fs_, GetFaultInjectionLogPath(db_label_))
               : nullptr),
       db_env_(std::make_unique<CompositeEnvWrapper>(
           raw_env, db_fault_injection_fs_
@@ -232,23 +380,6 @@ StressTest::StressTest(int db_index, const std::string& db_path,
     // StressTest::Open() for open fault injection and in RunStressTestImpl()
     // for proper fault injection setup.
     db_fault_injection_fs_->SetFilesystemDirectWritable(true);
-
-    // Set the fault injection log file path so that PrintAll() writes to a
-    // file instead of stderr (signal-safe). PrintAll() opens this path with
-    // plain POSIX open(), not through raw_env, so the log path must stay on
-    // the local filesystem. Store it in the local test directory (TEST_TMPDIR
-    // via Env::Default()) outside the DB directory so it survives DB reopen
-    // and gets included in the sandcastle db.tar.gz artifact for post-failure
-    // analysis.
-    std::string log_dir;
-    if (!Env::Default()->GetTestDirectory(&log_dir).ok() || log_dir.empty()) {
-      log_dir = "/tmp";
-    }
-    std::string log_path = log_dir + "/fault_injection_" +
-                           std::to_string(getpid()) + "_" +
-                           std::to_string(Env::Default()->NowMicros()) + "_" +
-                           GetDbLabel() + ".log";
-    db_fault_injection_fs_->SetInjectedErrorLogPath(log_path);
   }
 
   if (FLAGS_destroy_db_initially) {
@@ -670,7 +801,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
     if (!s.ok()) {
       fprintf(stderr, "Error restoring historical expected values: %s\n",
               s.ToString().c_str());
-      exit(1);
+      port::ImmediateExit(1);
     }
   }
   if (FLAGS_use_txn && !FLAGS_use_optimistic_txn) {
@@ -703,7 +834,7 @@ void StressTest::TrackExpectedState(SharedState* shared) {
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
               s.ToString().c_str());
-      exit(1);
+      port::ImmediateExit(1);
     }
   }
 }
@@ -1125,13 +1256,18 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
       std::string last_resume_status;
       if (!rollback_s.ok() && IsErrorInjectedAndRetryable(rollback_s) &&
           db_ != nullptr) {
-        constexpr int kMaxRollbackAfterRecoveryRetries = 100;
-        constexpr int kRollbackAfterRecoveryRetryIntervalMicros = 10 * 1000;
-        for (; rollback_recovery_retries < kMaxRollbackAfterRecoveryRetries &&
-               !rollback_s.ok();
-             ++rollback_recovery_retries) {
+        // Retry budget: count only actual rollback attempts (after Resume
+        // succeeds), not time spent waiting for recovery to finish on another
+        // thread. With many concurrent threads hitting write errors, recovery
+        // can take much longer than individual threads' retry budgets.
+        constexpr int kMaxRollbackRetries = 100;
+        constexpr int kMaxResumeBusyWaits = 3000;
+        constexpr int kRetryIntervalMicros = 10 * 1000;
+        for (; rollback_recovery_retries < kMaxRollbackRetries &&
+               resume_busy_count < kMaxResumeBusyWaits && !rollback_s.ok();) {
           const Status resume_s = db_->Resume();
           if (resume_s.ok()) {
+            ++rollback_recovery_retries;
             last_resume_status = resume_s.ToString();
             rollback_s = txn.Rollback();
             if (rollback_s.ok() || !IsErrorInjectedAndRetryable(rollback_s)) {
@@ -1144,8 +1280,7 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
             ++resume_busy_count;
             last_resume_status = resume_s.ToString();
           }
-          clock_->SleepForMicroseconds(
-              kRollbackAfterRecoveryRetryIntervalMicros);
+          clock_->SleepForMicroseconds(kRetryIntervalMicros);
         }
       }
       if (!rollback_s.ok()) {
@@ -1243,6 +1378,14 @@ void StressTest::OperateDb(ThreadState* thread) {
       FLAGS_auto_refresh_iterator_with_snapshot;
   if (FLAGS_use_trie_index && !FLAGS_use_udi_as_primary_index && udi_factory_) {
     read_opts.table_index_factory = udi_factory_.get();
+  }
+  std::unique_ptr<StressReadScopedBlockBufferProvider>
+      read_scoped_block_buffer_provider;
+  if (FLAGS_read_scoped_block_buffer_provider) {
+    read_scoped_block_buffer_provider =
+        std::make_unique<StressReadScopedBlockBufferProvider>();
+    read_opts.read_scoped_block_buffer_provider =
+        read_scoped_block_buffer_provider.get();
   }
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
@@ -2048,6 +2191,16 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     return true;
   };
 
+  // Sometimes stop before draining all prefetched blocks, matching applications
+  // that stop after a bounded number of results. In one mode the whole prepared
+  // MultiScan is abandoned. In the other mode only the current range is
+  // stopped, so the next range's Seek() exercises releasing skipped blocks on
+  // the same prepared iterator.
+  const bool early_exit = thread->rand.OneIn(2);
+  const bool abandon_scan_after_early_exit =
+      early_exit && thread->rand.OneIn(2);
+  bool abandon_prepared_scan = false;
+
   for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
@@ -2108,13 +2261,25 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
                    key, rand_column_families, op_logs, verify_func, &diverged);
 
+    uint64_t range_iterations = 0;
     while (iter->Valid()) {
+      if (early_exit && range_iterations >= FLAGS_num_iterations) {
+        if (abandon_scan_after_early_exit) {
+          op_logs += "E";
+          abandon_prepared_scan = true;
+        } else {
+          op_logs += "R";
+        }
+        break;
+      }
+
       iter->Next();
       if (!diverged) {
         assert(cmp_iter->Valid());
         cmp_iter->Next();
       }
       op_logs += "N";
+      ++range_iterations;
 
       if (iter->Valid() && ro.allow_unprepared_value) {
         op_logs += "*";
@@ -2153,7 +2318,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     thread->stats.AddIterations(1);
 
     op_logs += "; ";
-    if (diverged) {
+    if (diverged || abandon_prepared_scan) {
       break;
     }
   }
@@ -4543,7 +4708,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
-    exit(1);
+    port::ImmediateExit(1);
   }
 
   if (db_->GetLatestSequenceNumber() < shared->GetPersistedSeqno()) {
@@ -4552,7 +4717,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             "did not recover to the persisted "
             "sequence number %" PRIu64 " from last DB session\n",
             db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
-    exit(1);
+    port::ImmediateExit(1);
   }
 }
 
@@ -5188,6 +5353,8 @@ void InitializeOptionsFromFlags(
   options.allow_mmap_reads = FLAGS_mmap_read;
   options.allow_mmap_writes = FLAGS_mmap_write;
   options.use_direct_reads = FLAGS_use_direct_reads;
+  options.use_direct_io_for_compaction_reads =
+      FLAGS_use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       FLAGS_use_direct_io_for_flush_and_compaction;
   options.recycle_log_file_num =

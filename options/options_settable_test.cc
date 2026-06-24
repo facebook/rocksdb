@@ -447,6 +447,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "allow_fallocate=true;"
       "allow_mmap_reads=false;"
       "use_direct_reads=false;"
+      "use_direct_io_for_compaction_reads=false;"
       "use_direct_io_for_flush_and_compaction=false;"
       "max_log_file_size=4607;"
       "advise_random_on_open=true;"

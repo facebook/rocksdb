@@ -716,20 +716,6 @@ DEFINE_string(
     "only tracked when --sync_fault_injection is set. See --seed and "
     "--nooverwritepercent for further requirements.");
 
-DEFINE_bool(expected_state_trace_debug, true,
-            "If true, print debug logs while replaying expected-state trace "
-            "records during crash recovery verification.");
-
-DEFINE_int64(
-    expected_state_trace_debug_key, -1,
-    "If non-negative, restrict expected-state trace debug logs to the "
-    "specified logical key where possible. Raw-key roundtrip mismatches for "
-    "that logical key are still logged.");
-
-DEFINE_int32(expected_state_trace_debug_max_logs, 200,
-             "Maximum number of expected-state trace debug log lines to emit "
-             "per restore attempt.");
-
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
 
@@ -741,6 +727,11 @@ DEFINE_bool(mmap_write, ROCKSDB_NAMESPACE::Options().allow_mmap_writes,
 
 DEFINE_bool(use_direct_reads, ROCKSDB_NAMESPACE::Options().use_direct_reads,
             "Use O_DIRECT for reading data");
+
+DEFINE_bool(use_direct_io_for_compaction_reads,
+            ROCKSDB_NAMESPACE::Options().use_direct_io_for_compaction_reads,
+            "Use O_DIRECT for compaction-input SST reads only, while keeping "
+            "user reads buffered");
 
 DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
@@ -871,6 +862,19 @@ DEFINE_int32(ingest_external_file_one_in, 0,
 
 DEFINE_int32(ingest_external_file_width, 100,
              "The width of the ingested external files.");
+
+DEFINE_int32(ingest_external_file_prepare_commit_one_in, 0,
+             "If non-zero, an ingestion that would call IngestExternalFile() "
+             "instead uses the two-phase PrepareFileIngestion()/"
+             "CommitFileIngestion() API once for every N such ingestions on "
+             "average, occasionally dropping the prepared handle without "
+             "committing to exercise the rollback path. 0 disables it.");
+
+DEFINE_int32(ingest_external_file_use_file_info_one_in, 0,
+             "If non-zero, the ingestexternalfile flow reuses each file's "
+             "metadata via IngestExternalFileArg::file_infos (from "
+             "SstFileWriter::Finish) once every N ingestions on average, so "
+             "ingestion skips re-opening and scanning the files.");
 
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
@@ -1031,7 +1035,8 @@ DEFINE_int32(iterpercent, 10,
 static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
-DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
+DEFINE_uint64(num_iterations, 10,
+              "Number of iterations per iterator or MultiScan run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
@@ -1714,6 +1719,10 @@ DEFINE_bool(use_multiscan, false,
 
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");
+
+DEFINE_bool(read_scoped_block_buffer_provider, false,
+            "If set, configure ReadOptions::read_scoped_block_buffer_provider "
+            "with a stress-test provider for supported scan reads.");
 
 DEFINE_uint64(multiscan_max_prefetch_memory_bytes, 0,
               "If non-zero, sets the max_prefetch_memory_bytes on the "

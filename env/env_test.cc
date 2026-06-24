@@ -295,6 +295,46 @@ class EnvPosixTestWithParam
     }
   }
 
+  // ReserveThreads() returns the number of threads observed waiting at that
+  // instant. When this test runs in parallel with many other CPU-heavy tests,
+  // worker-thread scheduling can vary enough that the sync points prove key
+  // transitions were reached before waiting-thread accounting has fully
+  // settled. Use this helper only for positive exact-reservation checks; it
+  // releases any partial reservation before retrying so the retry does not
+  // perturb test state.
+  testing::AssertionResult ReserveThreadsEventually(int expected, int requested,
+                                                    Env::Priority priority,
+                                                    int wait_micros) {
+    constexpr int kRetryMicros = 1000;
+    int last_reserved = -1;
+    for (int waited_micros = 0; waited_micros <= wait_micros;
+         waited_micros += kRetryMicros) {
+      int reserved = env_->ReserveThreads(requested, priority);
+      if (reserved == expected) {
+        return testing::AssertionSuccess();
+      }
+      if (reserved > 0) {
+        int released = env_->ReleaseThreads(reserved, priority);
+        if (released != reserved) {
+          return testing::AssertionFailure()
+                 << "ReserveThreads(" << requested << ") returned " << reserved
+                 << ", but ReleaseThreads(" << reserved << ") released "
+                 << released;
+        }
+      }
+      if (reserved > expected) {
+        return testing::AssertionFailure()
+               << "ReserveThreads(" << requested << ") returned " << reserved
+               << ", more than expected " << expected;
+      }
+      last_reserved = reserved;
+      Env::Default()->SleepForMicroseconds(kRetryMicros);
+    }
+    return testing::AssertionFailure()
+           << "ReserveThreads(" << requested << ") returned " << last_reserved
+           << " after waiting " << wait_micros << "us, expected " << expected;
+  }
+
   ~EnvPosixTestWithParam() override { WaitThreadPoolsEmpty(); }
 };
 
@@ -1022,7 +1062,7 @@ TEST_P(EnvPosixTestWithParam, ReserveThreads) {
   TEST_SYNC_POINT("EnvTest::ReserveThreads:2");
   TEST_SYNC_POINT("EnvTest::ReserveThreads:3");
   // Reserve 2 threads
-  ASSERT_EQ(2, env_->ReserveThreads(2, Env::Priority::HIGH));
+  ASSERT_TRUE(ReserveThreadsEventually(2, 2, Env::Priority::HIGH, kWaitMicros));
 
   // Schedule 3 tasks. Task 0 running (in this context, doing
   // SleepingBackgroundTask); Task 1, 2 waiting; 3 reserved threads.
@@ -1051,7 +1091,7 @@ TEST_P(EnvPosixTestWithParam, ReserveThreads) {
   // Add sync point to ensure the 4th thread starts
   TEST_SYNC_POINT("EnvTest::ReserveThreads:4");
   // As the thread pool is expanded, we can reserve one more thread
-  ASSERT_EQ(1, env_->ReserveThreads(3, Env::Priority::HIGH));
+  ASSERT_TRUE(ReserveThreadsEventually(1, 3, Env::Priority::HIGH, kWaitMicros));
   // No more threads can be reserved
   ASSERT_EQ(0, env_->ReserveThreads(3, Env::Priority::HIGH));
 
@@ -1070,7 +1110,7 @@ TEST_P(EnvPosixTestWithParam, ReserveThreads) {
   // Add sync point to ensure the number of waiting threads increases
   TEST_SYNC_POINT("EnvTest::ReserveThreads:5");
   // 1 more thread can be reserved
-  ASSERT_EQ(1, env_->ReserveThreads(3, Env::Priority::HIGH));
+  ASSERT_TRUE(ReserveThreadsEventually(1, 3, Env::Priority::HIGH, kWaitMicros));
   // 2 reserved threads now
 
   // Currently, two threads are blocked since the number of waiting
@@ -4125,10 +4165,12 @@ TEST_F(TestAsyncRead, ReadAsyncQueueFull) {
     std::unique_ptr<FSRandomAccessFile> file;
     ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
 
-    // Force io_uring_get_sqe to appear to return null via SyncPoint.
+    // Force the queue-full path without consuming an SQ slot. Overwriting the
+    // SQE pointer after io_uring_get_sqe() would leave a stale submission in
+    // the ring and pollute later tests using the same thread-local io_uring.
     SyncPoint::GetInstance()->SetCallBack(
-        "PosixRandomAccessFile::ReadAsync:io_uring_get_sqe",
-        [](void* arg) { *static_cast<io_uring_sqe**>(arg) = nullptr; });
+        "PosixRandomAccessFile::ReadAsync:skip_io_uring_get_sqe",
+        [](void* arg) { *static_cast<bool*>(arg) = true; });
     SyncPoint::GetInstance()->EnableProcessing();
 
     IOOptions opts;

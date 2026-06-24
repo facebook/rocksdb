@@ -1482,10 +1482,13 @@ TEST_P(DBBlockCacheTypeTest, AddRedundantStats) {
   // Access just data, forcing redundant load+insert
   ReadOptions read_options;
   std::unique_ptr<Iterator> iter{db_->NewIterator(read_options)};
+  ASSERT_OK(iter->Refresh());
+
   cache->SetNthLookupNotFound(1);
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), "bar");
+  ASSERT_EQ(iter->value(), "value");
 
   EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_ADD));
   EXPECT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_ADD));

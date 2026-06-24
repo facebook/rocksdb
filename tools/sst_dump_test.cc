@@ -279,6 +279,28 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
                       "--command=recompress");
 }
 
+TEST_F(SSTDumpToolTest, VerifyCompression) {
+  Options opts;
+  opts.env = env();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  char* usage[4];
+  auto cleanup_usage = CleanupUsage{usage};
+  PopulateCommandArgs(file_path, "--command=recompress", usage);
+  snprintf(usage[3], kOptLength, "--verify_compression=1");
+
+  SSTDumpTool tool;
+  ASSERT_TOOL_PASS(tool.Run(4, usage, opts));
+  snprintf(usage[3], kOptLength, "--verify_compression=0");
+  ASSERT_TOOL_PASS(tool.Run(4, usage, opts));
+
+  cleanup(opts, file_path);
+}
+
 TEST_F(SSTDumpToolTest, ListMetaBlocks) {
   Options opts;
   SSTDumpToolTestCase(opts, /*filter=*/true, /*wide_column_one_in=*/0,

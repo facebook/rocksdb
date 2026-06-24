@@ -201,6 +201,7 @@ DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
 DECLARE_bool(use_direct_reads);
+DECLARE_bool(use_direct_io_for_compaction_reads);
 DECLARE_bool(use_direct_io_for_flush_and_compaction);
 DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);
@@ -228,6 +229,8 @@ DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
+DECLARE_int32(ingest_external_file_prepare_commit_one_in);
+DECLARE_int32(ingest_external_file_use_file_info_one_in);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
 DECLARE_int32(promote_l0_one_in);
@@ -466,6 +469,7 @@ DECLARE_uint32(ingest_wbwi_one_in);
 DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
 DECLARE_bool(multiscan_use_async_io);
+DECLARE_bool(read_scoped_block_buffer_provider);
 DECLARE_uint64(multiscan_max_prefetch_memory_bytes);
 
 // Compaction deletion trigger declarations for stress testing

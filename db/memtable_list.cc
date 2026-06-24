@@ -17,6 +17,7 @@
 #include "db/version_set.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
+#include "memory/arena.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -30,6 +31,78 @@ namespace ROCKSDB_NAMESPACE {
 class InternalKeyComparator;
 class Mutex;
 class VersionSet;
+
+bool MultiScanOverlapsUserKeyRange(const MultiScanArgs* scan_opts,
+                                   const Comparator* user_comparator,
+                                   const Slice& smallest_user_key,
+                                   const Slice& largest_user_key) {
+  if (scan_opts == nullptr || !scan_opts->HasBoundedScanRanges()) {
+    return true;
+  }
+
+  for (const ScanOptions& scan_range : scan_opts->GetScanRanges()) {
+    if (user_comparator->CompareWithoutTimestamp(
+            scan_range.range.limit.value(), /*a_has_ts=*/false,
+            smallest_user_key, /*b_has_ts=*/true) <= 0) {
+      continue;
+    }
+    if (user_comparator->CompareWithoutTimestamp(
+            scan_range.range.start.value(), /*a_has_ts=*/false,
+            largest_user_key, /*b_has_ts=*/true) > 0) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+bool MultiScanIteratorOverlapsUserKeyRange(InternalIterator* iter,
+                                           const MultiScanArgs* scan_opts,
+                                           const Comparator* user_comparator) {
+  iter->SeekToFirst();
+  if (!iter->status().ok()) {
+    return true;
+  }
+  if (!iter->Valid()) {
+    return true;
+  }
+  const std::string smallest_user_key = ExtractUserKey(iter->key()).ToString();
+  iter->SeekToLast();
+  if (!iter->status().ok()) {
+    return true;
+  }
+  if (!iter->Valid()) {
+    return true;
+  }
+  const std::string largest_user_key = ExtractUserKey(iter->key()).ToString();
+  return MultiScanOverlapsUserKeyRange(scan_opts, user_comparator,
+                                       smallest_user_key, largest_user_key);
+}
+
+bool MultiScanIntersectsMemTable(
+    ReadOnlyMemTable* memtable, const ReadOptions& read_options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+    const SliceTransform* prefix_extractor, const MultiScanArgs* scan_opts,
+    const Comparator* user_comparator) {
+  if (scan_opts == nullptr || !scan_opts->HasBoundedScanRanges()) {
+    return true;
+  }
+  if (memtable->NumRangeDeletion() > 0) {
+    return true;
+  }
+
+  Arena arena;
+  ReadOptions intersect_read_options(read_options);
+  intersect_read_options.total_order_seek = true;
+  intersect_read_options.iterate_lower_bound = nullptr;
+  intersect_read_options.iterate_upper_bound = nullptr;
+  InternalIterator* iter =
+      memtable->NewIterator(intersect_read_options, seqno_to_time_mapping,
+                            &arena, prefix_extractor, /*for_flush=*/false);
+  ScopedArenaPtr<InternalIterator> iter_guard(iter);
+  return MultiScanIteratorOverlapsUserKeyRange(iter, scan_opts,
+                                               user_comparator);
+}
 
 void MemTableListVersion::AddMemTable(ReadOnlyMemTable* m) {
   if (!memlist_.empty()) {
@@ -229,33 +302,42 @@ void MemTableListVersion::AddIterators(
     const ReadOptions& options,
     UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
     const SliceTransform* prefix_extractor,
-    MergeIteratorBuilder* merge_iter_builder, bool add_range_tombstone_iter) {
+    MergeIteratorBuilder* merge_iter_builder, bool add_range_tombstone_iter,
+    SequenceNumber read_seq, const MultiScanArgs* scan_opts,
+    const Comparator* user_comparator) {
   for (auto& m : memlist_) {
+    const bool should_probe_scan_intersection =
+        scan_opts != nullptr && scan_opts->HasBoundedScanRanges() &&
+        m->NumRangeDeletion() == 0;
+    if (should_probe_scan_intersection &&
+        !MultiScanIntersectsMemTable(m, options, seqno_to_time_mapping,
+                                     prefix_extractor, scan_opts,
+                                     user_comparator)) {
+      continue;
+    }
     auto mem_iter =
         m->NewIterator(options, seqno_to_time_mapping,
                        merge_iter_builder->GetArena(), prefix_extractor,
                        /*for_flush=*/false);
+    ScopedArenaPtr<InternalIterator> mem_iter_guard(mem_iter);
     if (!add_range_tombstone_iter || options.ignore_range_deletions) {
-      merge_iter_builder->AddIterator(mem_iter);
+      merge_iter_builder->AddIterator(mem_iter_guard.release());
     } else {
-      // Except for snapshot read, using kMaxSequenceNumber is OK because these
-      // are immutable memtables.
-      SequenceNumber read_seq = options.snapshot != nullptr
-                                    ? options.snapshot->GetSequenceNumber()
-                                    : kMaxSequenceNumber;
+      const SequenceNumber range_del_read_seq =
+          read_seq != kMaxSequenceNumber || options.snapshot == nullptr
+              ? read_seq
+              : options.snapshot->GetSequenceNumber();
       std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
-      auto range_del_iter = m->NewRangeTombstoneIterator(
-          options, read_seq, true /* immutale_memtable */);
-      if (range_del_iter == nullptr || range_del_iter->empty()) {
-        delete range_del_iter;
-      } else {
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          m->NewRangeTombstoneIterator(options, range_del_read_seq,
+                                       true /* immutale_memtable */));
+      if (range_del_iter != nullptr && !range_del_iter->empty()) {
         mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
-            std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-            &m->GetInternalKeyComparator(), nullptr /* smallest */,
-            nullptr /* largest */);
+            std::move(range_del_iter), &m->GetInternalKeyComparator(),
+            nullptr /* smallest */, nullptr /* largest */);
       }
       merge_iter_builder->AddPointAndTombstoneIterator(
-          mem_iter, std::move(mem_tombstone_iter));
+          mem_iter_guard.release(), std::move(mem_tombstone_iter));
     }
   }
 }

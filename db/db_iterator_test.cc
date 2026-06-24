@@ -10,6 +10,9 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
@@ -85,6 +88,392 @@ TEST_F(DBIteratorBaseTest, APICallsWithPerfContext) {
   ASSERT_EQ(1, get_perf_context()->iter_prev_count);
 
   delete iter;
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanPrunesNonIntersectingFiles) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("z", "vz"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  int table_iterators_created = 0;
+  int files_added = 0;
+  int block_based_iterators = 0;
+  int level_iterators = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::NewIterator::BeforeFindTable",
+      [&](void* /*arg*/) { ++table_iterators_created; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:AddedFile",
+      [&](void* /*arg*/) { ++files_added; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:IteratorType", [&](void* arg) {
+        auto* iterator_type = static_cast<std::pair<bool, bool>*>(arg);
+        if (iterator_type->first) {
+          ++block_based_iterators;
+        }
+        if (iterator_type->second) {
+          ++level_iterators;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("a"), Slice("b"));
+  Slice upper_bound("b");
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  ASSERT_EQ(0, table_iterators_created);
+  ASSERT_EQ(0, files_added);
+  ASSERT_EQ(0, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  iter->Prepare(scan_opts);
+  ASSERT_EQ(1, table_iterators_created);
+  ASSERT_EQ(1, files_added);
+  ASSERT_EQ(1, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  std::vector<std::string> keys;
+  for (iter->Seek("a"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_EQ(keys, std::vector<std::string>({"a"}));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanPrunesNonIntersectingLevels) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("z", "vz"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put("m", "vm"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  int table_iterators_created = 0;
+  int files_added = 0;
+  int block_based_iterators = 0;
+  int level_iterators = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::NewIterator::BeforeFindTable",
+      [&](void* /*arg*/) { ++table_iterators_created; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:AddedFile",
+      [&](void* /*arg*/) { ++files_added; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:IteratorType", [&](void* arg) {
+        auto* iterator_type = static_cast<std::pair<bool, bool>*>(arg);
+        if (iterator_type->first) {
+          ++block_based_iterators;
+        }
+        if (iterator_type->second) {
+          ++level_iterators;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("a"), Slice("n"));
+  Slice upper_bound("n");
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  ASSERT_EQ(0, table_iterators_created);
+  ASSERT_EQ(0, files_added);
+  ASSERT_EQ(0, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  iter->Prepare(scan_opts);
+  ASSERT_EQ(0, table_iterators_created);
+  ASSERT_EQ(2, files_added);
+  ASSERT_EQ(0, block_based_iterators);
+  ASSERT_EQ(1, level_iterators);
+  std::vector<std::string> keys;
+  for (iter->Seek("a"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_EQ(keys, std::vector<std::string>({"a", "m"}));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanAllowsSingleUnboundedRange) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("b"));
+  ReadOptions read_options;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  iter->Prepare(scan_opts);
+  std::vector<std::string> keys;
+  for (iter->Seek("b"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_EQ(keys, std::vector<std::string>({"b", "c"}));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanRejectsRepeatedPrepare) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("a"), Slice("b"));
+  Slice upper_bound("b");
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  iter->Prepare(scan_opts);
+  ASSERT_OK(iter->status());
+  iter->Prepare(scan_opts);
+  ASSERT_NOK(iter->status());
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanDedupsMultipleRangesInSameFile) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("m", "vm"));
+  ASSERT_OK(Put("z", "vz"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  int table_iterators_created = 0;
+  int files_added = 0;
+  int block_based_iterators = 0;
+  int level_iterators = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::NewIterator::BeforeFindTable",
+      [&](void* /*arg*/) { ++table_iterators_created; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:AddedFile",
+      [&](void* /*arg*/) { ++files_added; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:IteratorType", [&](void* arg) {
+        auto* iterator_type = static_cast<std::pair<bool, bool>*>(arg);
+        if (iterator_type->first) {
+          ++block_based_iterators;
+        }
+        if (iterator_type->second) {
+          ++level_iterators;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("a"), Slice("b"));
+  scan_opts.insert(Slice("m"), Slice("n"));
+  Slice upper_bound("b");
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  ASSERT_EQ(0, table_iterators_created);
+  ASSERT_EQ(0, files_added);
+  ASSERT_EQ(0, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  iter->Prepare(scan_opts);
+  ASSERT_EQ(1, table_iterators_created);
+  ASSERT_EQ(1, files_added);
+  ASSERT_EQ(1, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+
+  std::vector<std::string> keys;
+  for (iter->Seek("a"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(keys, std::vector<std::string>({"a"}));
+
+  upper_bound = "n";
+  for (iter->Seek("m"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_EQ(keys, std::vector<std::string>({"a", "m"}));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanPrunesOverlappingL0Files) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("m", "vm"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  int table_iterators_created = 0;
+  int files_added = 0;
+  int block_based_iterators = 0;
+  int level_iterators = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::NewIterator::BeforeFindTable",
+      [&](void* /*arg*/) { ++table_iterators_created; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:AddedFile",
+      [&](void* /*arg*/) { ++files_added; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:IteratorType", [&](void* arg) {
+        auto* iterator_type = static_cast<std::pair<bool, bool>*>(arg);
+        if (iterator_type->first) {
+          ++block_based_iterators;
+        }
+        if (iterator_type->second) {
+          ++level_iterators;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("a"), Slice("n"));
+  Slice upper_bound("n");
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  ASSERT_EQ(0, table_iterators_created);
+  ASSERT_EQ(0, files_added);
+  ASSERT_EQ(0, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  iter->Prepare(scan_opts);
+  ASSERT_EQ(2, table_iterators_created);
+  ASSERT_EQ(2, files_added);
+  ASSERT_EQ(2, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  std::vector<std::string> keys;
+  for (iter->Seek("a"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_EQ(keys, std::vector<std::string>({"a", "m"}));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBIteratorBaseTest, PrepareWithMultiScanPrunesNonIntersectingMemTables) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  ASSERT_OK(db_->PauseBackgroundWork());
+  ASSERT_OK(Put("z_imm", "vz"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(Put("z_mem", "vz"));
+
+  int table_iterators_created = 0;
+  int files_added = 0;
+  int block_based_iterators = 0;
+  int level_iterators = 0;
+  int merging_iterators = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::NewIterator::BeforeFindTable",
+      [&](void* /*arg*/) { ++table_iterators_created; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:AddedFile",
+      [&](void* /*arg*/) { ++files_added; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::AddIteratorsForLevel:IteratorType", [&](void* arg) {
+        auto* iterator_type = static_cast<std::pair<bool, bool>*>(arg);
+        if (iterator_type->first) {
+          ++block_based_iterators;
+        }
+        if (iterator_type->second) {
+          ++level_iterators;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "MergeIteratorBuilder::Finish:UseMergingIterator", [&](void* arg) {
+        if (*static_cast<bool*>(arg)) {
+          ++merging_iterators;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  MultiScanArgs scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("a"), Slice("b"));
+  Slice upper_bound("b");
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+  std::unique_ptr<Iterator> iter(
+      db_->NewIterator(read_options, db_->DefaultColumnFamily()));
+
+  ASSERT_EQ(0, table_iterators_created);
+  ASSERT_EQ(0, files_added);
+  ASSERT_EQ(0, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  ASSERT_EQ(0, merging_iterators);
+  iter->Prepare(scan_opts);
+  ASSERT_EQ(1, table_iterators_created);
+  ASSERT_EQ(1, files_added);
+  ASSERT_EQ(1, block_based_iterators);
+  ASSERT_EQ(0, level_iterators);
+  ASSERT_EQ(0, merging_iterators);
+  std::vector<std::string> keys;
+  for (iter->Seek("a"); iter->Valid(); iter->Next()) {
+    keys.push_back(iter->key().ToString());
+  }
+  ASSERT_EQ(keys, std::vector<std::string>({"a"}));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(db_->ContinueBackgroundWork());
 }
 
 // Test param:
@@ -945,6 +1334,68 @@ TEST_P(DBIteratorTest, IteratorDeleteAfterCfDelete) {
   delete iter;
 }
 
+TEST_P(DBIteratorTest, IteratorSeekAfterCfDelete) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  ASSERT_OK(Put(1, "foo", "delete-cf-then-seek-iter"));
+  ASSERT_OK(Put(1, "hello", "value2"));
+
+  ColumnFamilyHandle* cf = handles_[1];
+  ReadOptions ro;
+
+  auto* iter = db_->NewIterator(ro, cf);
+
+  // Delete the CF handle before the lazy iterator tree is materialized.
+  EXPECT_OK(db_->DestroyColumnFamilyHandle(cf));
+  handles_.erase(std::begin(handles_) + 1);
+
+  iter->Seek("foo");
+  ASSERT_EQ(IterStatus(iter), "foo->delete-cf-then-seek-iter");
+  iter->SeekForPrev("hello");
+  ASSERT_EQ(IterStatus(iter), "hello->value2");
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "foo->delete-cf-then-seek-iter");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), "hello->value2");
+  delete iter;
+}
+
+TEST_P(DBIteratorTest, IteratorAutoRefreshAfterCfDeleteBeforeLazyInit) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  ASSERT_OK(Put(1, "foo", "delete-cf-then-auto-refresh"));
+  ASSERT_OK(Flush(1));
+
+  ColumnFamilyHandle* cf = handles_[1];
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ReadOptions ro;
+  ro.snapshot = snapshot;
+  ro.auto_refresh_iterator_with_snapshot = true;
+
+  auto* iter = db_->NewIterator(ro, cf);
+
+  ASSERT_OK(Put(1, "zzz", "after-snapshot"));
+  ASSERT_OK(Flush(1));
+
+  // Delete the CF handle before the lazy iterator tree is materialized. The
+  // following operations force auto-refresh to acquire a newer SuperVersion.
+  EXPECT_OK(db_->DestroyColumnFamilyHandle(cf));
+  handles_.erase(std::begin(handles_) + 1);
+
+  iter->Seek("foo");
+  ASSERT_EQ(IterStatus(iter), "foo->delete-cf-then-auto-refresh");
+  ASSERT_OK(iter->status());
+  iter->SeekForPrev("foo");
+  ASSERT_EQ(IterStatus(iter), "foo->delete-cf-then-auto-refresh");
+  ASSERT_OK(iter->status());
+  iter->Next();
+  ASSERT_OK(iter->status());
+
+  delete iter;
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_P(DBIteratorTest, IteratorDeleteAfterCfDrop) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
 
@@ -963,6 +1414,30 @@ TEST_P(DBIteratorTest, IteratorDeleteAfterCfDrop) {
   handles_.erase(std::begin(handles_) + 1);
 
   // delete Iterator after CF handle is dropped
+  delete iter;
+}
+
+TEST_P(DBIteratorTest, IteratorSeekAfterCfDrop) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  ASSERT_OK(Put(1, "foo", "drop-cf-then-seek-iter"));
+
+  ReadOptions ro;
+  ColumnFamilyHandle* cf = handles_[1];
+
+  auto* iter = db_->NewIterator(ro, cf);
+
+  // Drop and delete the CF before the lazy iterator tree is materialized.
+  EXPECT_OK(db_->DropColumnFamily(cf));
+  EXPECT_OK(db_->DestroyColumnFamilyHandle(cf));
+  handles_.erase(std::begin(handles_) + 1);
+
+  iter->Seek("foo");
+  ASSERT_EQ(IterStatus(iter), "foo->drop-cf-then-seek-iter");
+  iter->SeekForPrev("foo");
+  ASSERT_EQ(IterStatus(iter), "foo->drop-cf-then-seek-iter");
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "foo->drop-cf-then-seek-iter");
   delete iter;
 }
 
@@ -2696,6 +3171,8 @@ TEST_P(DBIteratorTest, CreationFailure) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   Iterator* iter = NewIterator(ReadOptions());
+  ASSERT_FALSE(iter->Valid());
+  iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().IsCorruption());
   delete iter;

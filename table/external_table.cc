@@ -5,8 +5,12 @@
 
 #include "rocksdb/external_table.h"
 
+#include <chrono>
+
 #include "db/dbformat.h"
 #include "logging/logging.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
 #include "table/get_context.h"
@@ -18,6 +22,244 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+Histograms GetExternalTableFileReadHistogram(Statistics* stats,
+                                             Env::IOActivity io_activity) {
+  switch (io_activity) {
+    case Env::IOActivity::kFlush:
+      return Histograms::FILE_READ_FLUSH_MICROS;
+    case Env::IOActivity::kCompaction:
+      return Histograms::FILE_READ_COMPACTION_MICROS;
+    case Env::IOActivity::kDBOpen:
+      return Histograms::FILE_READ_DB_OPEN_MICROS;
+    default:
+      break;
+  }
+
+  if (stats && stats->get_stats_level() > StatsLevel::kExceptDetailedTimers) {
+    switch (io_activity) {
+      case Env::IOActivity::kGet:
+        return Histograms::FILE_READ_GET_MICROS;
+      case Env::IOActivity::kMultiGet:
+        return Histograms::FILE_READ_MULTIGET_MICROS;
+      case Env::IOActivity::kDBIterator:
+        return Histograms::FILE_READ_DB_ITERATOR_MICROS;
+      case Env::IOActivity::kVerifyDBChecksum:
+        return Histograms::FILE_READ_VERIFY_DB_CHECKSUM_MICROS;
+      case Env::IOActivity::kVerifyFileChecksums:
+        return Histograms::FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
+      default:
+        break;
+    }
+  }
+  return Histograms::HISTOGRAM_ENUM_MAX;
+}
+
+class ExternalTableMetricsRandomAccessFile
+    : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ExternalTableMetricsRandomAccessFile(
+      std::unique_ptr<FSRandomAccessFile>&& file, std::string file_name,
+      Statistics* statistics,
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      Temperature file_temperature, bool is_last_level)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)),
+        file_name_(std::move(file_name)),
+        statistics_(statistics),
+        listeners_(),
+        file_temperature_(file_temperature),
+        is_last_level_(is_last_level) {
+    for (const auto& listener : listeners) {
+      if (listener->ShouldBeNotifiedOnFileIO()) {
+        listeners_.emplace_back(listener);
+      }
+    }
+  }
+
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    const auto start = std::chrono::steady_clock::now();
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts = FileOperationInfo::StartNow();
+    }
+    auto status = target()->Read(offset, n, options, result, scratch, dbg);
+    const auto bytes_read = result == nullptr ? 0 : result->size();
+    if (ShouldNotifyListeners()) {
+      const auto finish_ts = FileOperationInfo::FinishNow();
+      NotifyOnFileReadFinish(offset, bytes_read, start_ts, finish_ts, status);
+      if (!status.ok()) {
+        NotifyOnIOError(status, FileOperationType::kRead, file_name_,
+                        bytes_read, offset);
+      }
+    }
+    RecordRead(options, bytes_read, start);
+    return status;
+  }
+
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override {
+    const auto start = std::chrono::steady_clock::now();
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts = FileOperationInfo::StartNow();
+    }
+    auto status = target()->MultiRead(reqs, num_reqs, options, dbg);
+    const auto elapsed = ElapsedMicros(start);
+    FileOperationInfo::FinishTimePoint finish_ts;
+    if (ShouldNotifyListeners()) {
+      finish_ts = FileOperationInfo::FinishNow();
+    }
+    RecordReadHistogram(options, elapsed);
+    for (size_t i = 0; i < num_reqs; ++i) {
+      const auto bytes_read = reqs[i].result.size();
+      if (ShouldNotifyListeners()) {
+        NotifyOnFileReadFinish(reqs[i].offset, bytes_read, start_ts, finish_ts,
+                               reqs[i].status);
+        if (!reqs[i].status.ok()) {
+          NotifyOnIOError(reqs[i].status, FileOperationType::kRead, file_name_,
+                          bytes_read, reqs[i].offset);
+        }
+      }
+      RecordReadBytes(bytes_read);
+    }
+    return status;
+  }
+
+ private:
+  static uint64_t ElapsedMicros(std::chrono::steady_clock::time_point start) {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start)
+            .count());
+  }
+
+  void RecordRead(const IOOptions& options, size_t bytes,
+                  std::chrono::steady_clock::time_point start) const {
+    RecordReadHistogram(options, ElapsedMicros(start));
+    RecordReadBytes(bytes);
+  }
+
+  void RecordReadHistogram(const IOOptions& options, uint64_t elapsed) const {
+    if (statistics_ == nullptr) {
+      return;
+    }
+    statistics_->reportTimeToHistogram(Histograms::SST_READ_MICROS, elapsed);
+    const auto histogram =
+        GetExternalTableFileReadHistogram(statistics_, options.io_activity);
+    if (histogram != Histograms::HISTOGRAM_ENUM_MAX) {
+      statistics_->reportTimeToHistogram(histogram, elapsed);
+    }
+  }
+
+  void RecordReadBytes(size_t bytes) const {
+    if (statistics_ == nullptr) {
+      return;
+    }
+
+    statistics_->recordTick(is_last_level_ ? Tickers::LAST_LEVEL_READ_BYTES
+                                           : Tickers::NON_LAST_LEVEL_READ_BYTES,
+                            bytes);
+    statistics_->recordTick(is_last_level_
+                                ? Tickers::LAST_LEVEL_READ_COUNT
+                                : Tickers::NON_LAST_LEVEL_READ_COUNT);
+
+    switch (file_temperature_) {
+      case Temperature::kHot:
+        statistics_->recordTick(Tickers::HOT_FILE_READ_BYTES, bytes);
+        statistics_->recordTick(Tickers::HOT_FILE_READ_COUNT);
+        break;
+      case Temperature::kWarm:
+        statistics_->recordTick(Tickers::WARM_FILE_READ_BYTES, bytes);
+        statistics_->recordTick(Tickers::WARM_FILE_READ_COUNT);
+        break;
+      case Temperature::kCool:
+        statistics_->recordTick(Tickers::COOL_FILE_READ_BYTES, bytes);
+        statistics_->recordTick(Tickers::COOL_FILE_READ_COUNT);
+        break;
+      case Temperature::kCold:
+        statistics_->recordTick(Tickers::COLD_FILE_READ_BYTES, bytes);
+        statistics_->recordTick(Tickers::COLD_FILE_READ_COUNT);
+        break;
+      case Temperature::kIce:
+        statistics_->recordTick(Tickers::ICE_FILE_READ_BYTES, bytes);
+        statistics_->recordTick(Tickers::ICE_FILE_READ_COUNT);
+        break;
+      default:
+        break;
+    }
+  }
+
+  void NotifyOnFileReadFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& status) const {
+    FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
+                           finish_ts, status, file_temperature_);
+    info.offset = offset;
+    info.length = length;
+    for (const auto& listener : listeners_) {
+      listener->OnFileReadFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+
+  void NotifyOnIOError(const IOStatus& io_status, FileOperationType operation,
+                       const std::string& file_path, size_t length,
+                       uint64_t offset) const {
+    IOErrorInfo info(io_status, operation, file_path, length, offset);
+    for (const auto& listener : listeners_) {
+      listener->OnIOError(info);
+    }
+    info.io_status.PermitUncheckedError();
+  }
+
+  bool ShouldNotifyListeners() const { return !listeners_.empty(); }
+
+  const std::string file_name_;
+  Statistics* statistics_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
+  const Temperature file_temperature_;
+  const bool is_last_level_;
+};
+
+class ExternalTableMetricsFileSystem : public FileSystemWrapper {
+ public:
+  ExternalTableMetricsFileSystem(
+      const std::shared_ptr<FileSystem>& target, Statistics* statistics,
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      bool is_last_level)
+      : FileSystemWrapper(target),
+        statistics_(statistics),
+        listeners_(listeners),
+        is_last_level_(is_last_level) {}
+
+  const char* Name() const override { return target()->Name(); }
+
+  IOStatus NewRandomAccessFile(const std::string& file_name,
+                               const FileOptions& file_options,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    auto status =
+        target()->NewRandomAccessFile(file_name, file_options, &file, dbg);
+    if (!status.ok()) {
+      return status;
+    }
+
+    result->reset(new ExternalTableMetricsRandomAccessFile(
+        std::move(file), file_name, statistics_, listeners_,
+        file_options.temperature, is_last_level_));
+    return status;
+  }
+
+ private:
+  Statistics* statistics_;
+  const std::vector<std::shared_ptr<EventListener>>& listeners_;
+  const bool is_last_level_;
+};
 
 class ExternalTableIteratorAdapter : public InternalIterator {
  public:
@@ -425,9 +667,15 @@ class ExternalTableFactoryAdapter : public TableFactory {
     }
     std::unique_ptr<ExternalTableReader> reader;
     FileOptions fopts(topts.env_options);
+    fopts.io_options.io_activity = ro.io_activity;
+    std::shared_ptr<FileSystem> fs = topts.ioptions.fs;
+    if (topts.ioptions.stats != nullptr || !topts.ioptions.listeners.empty()) {
+      fs = std::make_shared<ExternalTableMetricsFileSystem>(
+          topts.ioptions.fs, topts.ioptions.stats, topts.ioptions.listeners,
+          topts.level >= 0 && topts.level == topts.ioptions.num_levels - 1);
+    }
     ExternalTableOptions ext_topts(topts.prefix_extractor,
-                                   topts.ioptions.user_comparator,
-                                   topts.ioptions.fs, fopts);
+                                   topts.ioptions.user_comparator, fs, fopts);
     auto status =
         inner_->NewTableReader(ro, file->file_name(), ext_topts, &reader);
     if (!status.ok()) {

@@ -2235,6 +2235,8 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
   Status status;
   if (immutable_db_options_.atomic_flush || flush_options.force_atomic_flush) {
     mutex_.Unlock();
+    TEST_SYNC_POINT(
+        "DBImpl::FlushAllColumnFamilies:BeforeAtomicFlushMemTables");
     status = AtomicFlushMemTables(flush_options, flush_reason);
     if (status.IsColumnFamilyDropped()) {
       status = Status::OK();
@@ -2246,6 +2248,7 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
         continue;
       }
       mutex_.Unlock();
+      TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:BeforeFlushMemTable");
       status = FlushMemTable(cfd, flush_options, flush_reason);
       TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:1");
       TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:2");
@@ -2600,6 +2603,14 @@ void DBImpl::NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
   }
 }
 
+void DBImpl::MaybeSyncLastSequenceWithAllocatedForRecovery(
+    FlushReason flush_reason) {
+  mutex_.AssertHeld();
+  if (two_write_queues_ && IsRecoveryFlush(flush_reason)) {
+    versions_->SyncLastSequenceWithAllocated();
+  }
+}
+
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason,
@@ -2638,6 +2649,12 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       }
     }
     WaitForPendingWrites();
+
+    // Recovery may have released `mutex_` after the earlier `ResumeImpl()`
+    // sync. Refresh sequence state at the actual memtable-switch fence, after
+    // both write queues are drained and before `SwitchMemtable()` consumes
+    // `LastSequence()`.
+    MaybeSyncLastSequenceWithAllocatedForRecovery(flush_reason);
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load() ||
         IsRecoveryFlush(flush_reason)) {
@@ -2827,6 +2844,11 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
     WaitForPendingWrites();
+
+    // Keep atomic recovery flushes consistent with the single-CF path: the
+    // sequence sync must happen after both write queues are drained and before
+    // any recovery memtable switch reads `LastSequence()`.
+    MaybeSyncLastSequenceWithAllocatedForRecovery(flush_reason);
 
     SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds, flush_reason);
 

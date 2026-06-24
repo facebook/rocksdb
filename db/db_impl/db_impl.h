@@ -76,6 +76,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class FileIngestionHandleImpl;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
@@ -575,6 +576,10 @@ class DBImpl : public DB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
 
+  Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& file_path,
+      std::shared_ptr<const PreparedFileInfo>* file_info) override;
+
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
@@ -603,6 +608,14 @@ class DBImpl : public DB {
   using DB::IngestExternalFiles;
   Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override;
+
+  using DB::PrepareFileIngestion;
+  Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& args,
+      std::unique_ptr<FileIngestionHandle>* handle) override;
+
+  Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> handles) override;
 
   using DB::CreateColumnFamilyWithImport;
   Status CreateColumnFamilyWithImport(
@@ -857,12 +870,22 @@ class DBImpl : public DB {
   // memtable range tombstone iterator used by the underlying merging iterator.
   // This range tombstone iterator can be refreshed later by db_iter.
   // @param read_options Must outlive the returned iterator.
-  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena, SequenceNumber sequence,
-                                        bool allow_unprepared_value,
-                                        ArenaWrappedDBIter* db_iter = nullptr);
+  // @param sequence The snapshot sequence captured when the DB iterator was
+  // created. Child iterators must use this instead of dereferencing
+  // read_options.snapshot, which may be released before lazy initialization.
+  // @param scan_opts Optional bounded scan ranges used only to prune the
+  // iterator tree during lazy Prepare() initialization.
+  InternalIterator* NewInternalIterator(
+      const ReadOptions& read_options, ColumnFamilyData* cfd,
+      SuperVersion* super_version, Arena* arena, SequenceNumber sequence,
+      bool allow_unprepared_value, ArenaWrappedDBIter* db_iter = nullptr,
+      const MultiScanArgs* scan_opts = nullptr);
+
+  // Release a SuperVersion held by an iterator. This preserves the cleanup
+  // behavior used by materialized internal iterators even when the DB iterator
+  // never needed to lazily build its child iterator tree.
+  void CleanupIteratorSuperVersion(SuperVersion* super_version,
+                                   bool background_purge);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -1191,6 +1214,8 @@ class DBImpl : public DB {
   Status TEST_GetBGError();
 
   bool TEST_IsRecoveryInProgress();
+
+  Status TEST_ResumeImpl(DBRecoverContext context);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
@@ -1906,6 +1931,7 @@ class DBImpl : public DB {
   friend class WriteBatchWithIndex;
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTxn;
+  friend class FileIngestionHandleImpl;
 
   friend class ForwardIterator;
   friend struct SuperVersion;
@@ -2243,6 +2269,10 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
+  // Rolls back one prepared file ingestion (delete its staged files, release
+  // the reserved file numbers)
+  void RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h);
+
   // Similar to pending_outputs, preserve OPTIONS file. Used for remote
   // compaction.
   std::list<uint64_t>::iterator CaptureOptionsFileNumber();
@@ -2453,6 +2483,10 @@ class DBImpl : public DB {
       const FlushOptions& options, FlushReason flush_reason,
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
+
+  // REQUIRES: mutex locked and write queues drained up to the recovery flush
+  // fence that is about to switch memtables.
+  void MaybeSyncLastSequenceWithAllocatedForRecovery(FlushReason flush_reason);
 
   Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
 
@@ -3461,6 +3495,10 @@ class DBImpl : public DB {
   // calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_ = 0;
+
+  // Number of FileIngestionHandle objects produced by PrepareFileIngestion()
+  // that have not been committed or destroyed yet.
+  std::atomic<uint32_t> num_outstanding_prepared_ingestions_{0};
 
   WalManager wal_manager_;
 

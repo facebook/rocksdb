@@ -255,6 +255,17 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "then direct I/O reads (use_direct_reads) must be disabled. ");
   }
 
+  if (db_options.allow_mmap_reads &&
+      db_options.use_direct_io_for_compaction_reads) {
+    // mmap reads and direct I/O share the same EnvOptions field, so enabling
+    // both would try to mmap and O_DIRECT the same reads. Reject it here rather
+    // than tripping a lower-level assert.
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then compaction-only direct I/O reads "
+        "(use_direct_io_for_compaction_reads) must be disabled. ");
+  }
+
   if (db_options.allow_mmap_writes &&
       db_options.use_direct_io_for_flush_and_compaction) {
     return Status::NotSupported(
@@ -506,7 +517,8 @@ Status DBImpl::Recover(
       std::unique_ptr<FSRandomAccessFile> idfile;
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
-          immutable_db_options_.use_direct_io_for_flush_and_compaction;
+          immutable_db_options_.use_direct_io_for_flush_and_compaction ||
+          immutable_db_options_.use_direct_io_for_compaction_reads;
       const std::string& fname =
           manifest_path.empty() ? current_fname : manifest_path;
       s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);
