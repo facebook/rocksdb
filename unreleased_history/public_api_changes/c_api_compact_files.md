@@ -1,0 +1,1 @@
+Added `rocksdb_compact_files()` and `rocksdb_compact_files_cf()` to the C API, wrapping `DB::CompactFiles()`. Added `rocksdb_compaction_options_t` with create/destroy and accessors for `compression`, `output_file_size_limit`, `max_subcompactions`, and `allow_trivial_move`.
