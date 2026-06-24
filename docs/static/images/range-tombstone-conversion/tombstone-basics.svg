@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="312" viewBox="0 0 760 312" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow-tb" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#37474f"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="312" fill="#ffffff"/>
+
+  <!-- key column labels -->
+  <text x="150" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">a</text>
+  <text x="210" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">b</text>
+  <text x="270" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">c</text>
+  <text x="330" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">d</text>
+  <text x="390" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">e</text>
+  <text x="450" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">f</text>
+  <text x="510" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">g</text>
+  <text x="570" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">h</text>
+  <text x="630" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">i</text>
+  <text x="690" y="18" text-anchor="middle" font-size="10" fill="#9e9e9e">j</text>
+
+  <!-- L0: a run of point tombstones -->
+  <rect x="118" y="28" width="600" height="38" rx="5" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.2"/>
+  <text x="14" y="44" font-size="13" font-weight="bold" fill="#37474f">L0</text>
+  <text x="10" y="57" font-size="8" fill="#9e9e9e">newest</text>
+  <rect x="185" y="31" width="50" height="32" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="210" y="45" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">b</text>
+  <text x="210" y="57" text-anchor="middle" font-size="8" fill="#b71c1c">DEL</text>
+  <rect x="245" y="31" width="50" height="32" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="270" y="45" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">c</text>
+  <text x="270" y="57" text-anchor="middle" font-size="8" fill="#b71c1c">DEL</text>
+  <rect x="305" y="31" width="50" height="32" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="330" y="45" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">d</text>
+  <text x="330" y="57" text-anchor="middle" font-size="8" fill="#b71c1c">DEL</text>
+
+  <!-- L1: a live key (e) in between, then a wider range tombstone -->
+  <rect x="118" y="78" width="600" height="38" rx="5" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.2"/>
+  <text x="14" y="101" font-size="13" font-weight="bold" fill="#37474f">L1</text>
+  <rect x="365" y="81" width="50" height="32" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="390" y="101" text-anchor="middle" font-size="12" font-weight="bold" fill="#1b5e20">e</text>
+  <rect x="425" y="81" width="240" height="32" rx="5" fill="#bbdefb" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="545" y="101" text-anchor="middle" font-size="10" font-weight="bold" fill="#0d47a1">DeleteRange [f, j)</text>
+
+  <!-- L2: live values; those under a deletion are hidden -->
+  <rect x="118" y="128" width="600" height="38" rx="5" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.2"/>
+  <text x="14" y="144" font-size="13" font-weight="bold" fill="#37474f">L2</text>
+  <text x="10" y="157" font-size="8" fill="#9e9e9e">oldest</text>
+  <rect x="125" y="131" width="50" height="32" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="150" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#1b5e20">a</text>
+  <rect x="185" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="210" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">b</text>
+  <rect x="245" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="270" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">c</text>
+  <rect x="305" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="330" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">d</text>
+  <rect x="425" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="450" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">f</text>
+  <rect x="485" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="510" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">g</text>
+  <rect x="545" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="570" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">h</text>
+  <rect x="605" y="131" width="50" height="32" rx="5" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.5"/>
+  <text x="630" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">i</text>
+  <rect x="665" y="131" width="50" height="32" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="690" y="151" text-anchor="middle" font-size="12" font-weight="bold" fill="#1b5e20">j</text>
+
+  <!-- scan: point tombstones are one step each, the range tombstone is a single skip -->
+  <text x="14" y="196" font-size="12" font-weight="bold" fill="#37474f">scan</text>
+  <line x1="150" y1="192" x2="390" y2="192" stroke="#37474f" stroke-width="2"/>
+  <circle cx="150" cy="192" r="3.2" fill="#2e7d32"/>
+  <circle cx="210" cy="192" r="3.2" fill="#c62828"/>
+  <circle cx="270" cy="192" r="3.2" fill="#c62828"/>
+  <circle cx="330" cy="192" r="3.2" fill="#c62828"/>
+  <circle cx="390" cy="192" r="3.2" fill="#2e7d32"/>
+  <path d="M390,192 C 480,232 600,232 690,192" fill="none" stroke="#37474f" stroke-width="2" marker-end="url(#arrow-tb)"/>
+  <circle cx="690" cy="192" r="3.2" fill="#2e7d32"/>
+
+  <!-- step annotations -->
+  <path d="M185,202 L185,207 L355,207 L355,202" fill="none" stroke="#9e9e9e" stroke-width="1.3"/>
+  <text x="270" y="221" text-anchor="middle" font-size="11" fill="#b71c1c">3 steps: one per point tombstone</text>
+  <text x="545" y="250" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">1 step: skip the whole range tombstone</text>
+
+  <!-- legend -->
+  <rect x="120" y="266" width="14" height="10" rx="2" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.1"/>
+  <text x="138" y="275" font-size="10" fill="#616161">live</text>
+  <rect x="186" y="266" width="14" height="10" rx="2" fill="#ffcdd2" stroke="#c62828" stroke-width="1.1"/>
+  <text x="204" y="275" font-size="10" fill="#616161">point tombstone</text>
+  <rect x="320" y="266" width="14" height="10" rx="2" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.1"/>
+  <text x="338" y="275" font-size="10" fill="#616161">shadowed value</text>
+  <rect x="452" y="266" width="14" height="10" rx="2" fill="#bbdefb" stroke="#1565c0" stroke-width="1.1"/>
+  <text x="470" y="275" font-size="10" fill="#616161">range tombstone</text>
+
+  <!-- caption -->
+  <text x="380" y="300" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a1a1a">Point tombstones cost one scan step each; a range tombstone is a single step. Only a, e, j are returned.</text>
+</svg>

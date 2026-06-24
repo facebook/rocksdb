@@ -333,12 +333,21 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   // FetchAddLastAllocatedSequence() before writes complete, but only
   // published via SetLastSequence() after success. If we're recovering from
   // an error, there may be allocated-but-not-published sequence numbers.
-  // We must sync last_sequence_ with last_allocated_sequence_ before creating
-  // any new memtables/WALs, otherwise the new WAL could start with a sequence
-  // number lower than what was already written, causing "sequence number
-  // going backwards" corruption on subsequent recovery.
-  if (immutable_db_options_.two_write_queues) {
+  // Start recovery from a published sequence number that covers writers which
+  // were already in flight. Recovery flushes repeat this sync at the actual
+  // memtable-switch fence, after FlushAllColumnFamilies() has dropped and
+  // re-acquired the DB mutex.
+  if (two_write_queues_) {
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+    WriteThread::Writer nonmem_w;
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    WaitForPendingWrites();
+
     versions_->SyncLastSequenceWithAllocated();
+
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    write_thread_.ExitUnbatched(&w);
   }
 
   TEST_SYNC_POINT("DBImpl::ResumeImpl:AfterSyncSeq");

@@ -542,8 +542,8 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
-  build-windows-vs2022:
-    if: needs.config.outputs.only_job == 'build-windows-vs2022' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+  build-windows-msvc:
+    if: needs.config.outputs.only_job == 'build-windows-msvc' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: windows-8-core
     strategy:
@@ -560,7 +560,6 @@ jobs:
           suite_run: ""
           run_java: "true"
     env:
-      CMAKE_GENERATOR: Visual Studio 17 2022
       CMAKE_PORTABLE: 1
     steps:
     - uses: actions/checkout@v4.1.0

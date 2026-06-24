@@ -5795,3 +5795,5 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
 
 
 export_file(name = "tools/db_crashtest.py")
+
+export_file(name = "tools/fault_injection_log_parser.py")
