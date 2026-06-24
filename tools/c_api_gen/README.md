@@ -225,7 +225,17 @@ make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
 ```
 
 If `clang++` is not installed, `make check` skips the C API staleness check
-with a message instead of failing — CI remains the authoritative gate.
+with a message instead of failing, so it still works without the codegen
+toolchain. CI is the authoritative gate.
+
+The dedicated `build-linux-clang-21-no_test_run` CI job runs this target with
+`CHECK_C_API_GEN_STRICT=1`, which turns every such "skip" (missing `clang++` or
+clang-format, or an unresolvable compat baseline ref) into a hard error, so the
+core CI coverage cannot silently regress to a no-op:
+
+```bash
+make check-c-api-gen CHECK_C_API_GEN_STRICT=1 CLANG_FORMAT_BINARY=clang-format-21
+```
 
 ## Running the generators
 

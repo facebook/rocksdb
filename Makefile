@@ -1130,22 +1130,29 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-c-api-gen
 endif
 
-# Check that the auto-generated C API files are up to date. This regenerates
-# them in a temporary directory and diffs against the checked-in copies, so it
-# does NOT modify the working tree. It requires clang++ (libclang, used to parse
-# the C++ headers) and clang-format. If clang++ is not available the check is
-# skipped (with a message) so that `make check` still works without the codegen
-# toolchain; CI is the authoritative gate and runs the same verifier directly
-# with a pinned clang-format (see .github/workflows/pr-jobs.yml).
+# Check that the auto-generated C API files are up to date. It regenerates the
+# fragments and the inlined c.h/c.cc and compares them against a snapshot of the
+# checked-in copies (no net change when everything is up to date). It requires
+# clang++ (libclang, used to parse the C++ headers) and clang-format. When those
+# are unavailable the staleness/compat sub-checks are SKIPPED with a message so
+# `make check` still works without the codegen toolchain; the link-completeness
+# sub-check always runs (it needs no toolchain).
 #
 # Pin the formatter to match CI by setting CLANG_FORMAT_BINARY, e.g.:
 #   make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
 # This target is part of `make check` and is skipped by SKIP_FORMAT_BUCK_CHECKS.
+#
+# Set CHECK_C_API_GEN_STRICT=1 to turn every "skip" below into a hard error, so a
+# core CI job that runs this target cannot silently regress to a no-op if a
+# prerequisite (clang++, or the compat baseline ref) goes missing. The dedicated
+# build-linux-clang-21-no_test_run CI job runs this target with the flag set.
+# Any non-empty value other than 0/no/false enables strict mode.
 CLANG_FORMAT_BINARY ?=
 # Backward-compatibility baseline for the C API (signature-level) check. CI
 # overrides this with the PR's merge target; locally it falls back to main /
 # origin/main and is skipped if neither resolves.
 API_COMPAT_REF ?= main
+CHECK_C_API_GEN_STRICT ?=
 check-c-api-gen:
 	# Link-completeness is a property of the checked-in c.h/c.cc and needs no
 	# clang toolchain, so it always runs: every declared public C API function
@@ -1154,21 +1161,35 @@ check-c-api-gen:
 	$(PYTHON) tools/c_api_gen/check_api_completeness.py
 	# Backward-compatibility: no public C function may be removed or have its
 	# signature changed vs the baseline. Skipped if the baseline ref is not
-	# resolvable locally (CI passes an explicit ref).
-	@ref=""; \
+	# resolvable locally (CI passes an explicit ref), unless CHECK_C_API_GEN_STRICT.
+	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
+	ref=""; \
 	if git rev-parse --verify --quiet "$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="$(API_COMPAT_REF)"; \
 	elif git rev-parse --verify --quiet "origin/$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="origin/$(API_COMPAT_REF)"; fi; \
 	if [ -n "$$ref" ]; then \
 	  $(PYTHON) tools/c_api_gen/check_api_compatibility.py --ref "$$ref"; \
+	elif [ -n "$$strict" ]; then \
+	  echo "ERROR: C API compat baseline '$(API_COMPAT_REF)' not resolvable and CHECK_C_API_GEN_STRICT is set" >&2; exit 1; \
 	else \
 	  echo "Skipping C API backward-compatibility check ($(API_COMPAT_REF) not found; set API_COMPAT_REF)"; \
 	fi
-	@cf_arg=""; \
+	# Staleness: regenerate and confirm the checked-in output is current. Needs a
+	# clang++ (the generator parses C++ ASTs); detect one the way the generator
+	# does (a clang in $(CXX) -- which may be ccache-prefixed/versioned -- else a
+	# bare/versioned clang++ on PATH) rather than testing $(CXX) verbatim.
+	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
+	cf_arg=""; \
 	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
-	if command -v clang++ >/dev/null 2>&1 || command -v "$(CXX)" >/dev/null 2>&1; then \
+	have_clang=""; \
+	for c in $$(printf '%s\n' $(CXX) | grep -i clang) clang++ clang++-21 clang++-20 clang++-19 clang++-18 clang++-17 clang++-16 clang++-15 clang++-14 clang++-13; do \
+	  if command -v "$$c" >/dev/null 2>&1; then have_clang=1; break; fi; \
+	done; \
+	if [ -n "$$have_clang" ]; then \
 	  $(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py $$cf_arg; \
+	elif [ -n "$$strict" ]; then \
+	  echo "ERROR: no clang++ found and CHECK_C_API_GEN_STRICT is set; cannot run the C API staleness check" >&2; exit 1; \
 	else \
-	  echo "Skipping C API codegen staleness check (clang++ not found; install clang++ or set CXX to enable)"; \
+	  echo "Skipping C API codegen staleness check (no clang++ found; install clang++ or set CXX to a clang to enable)"; \
 	fi
 
 # Quick local validation for C API generation plus the focused C API test.

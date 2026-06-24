@@ -118,6 +118,12 @@ class TARGETSBuilder:
         self.total_bin = self.total_bin + 1
 
     def add_c_test(self):
+        # The actual c_test_bin target is defined by add_c_test_wrapper in the
+        # internal //rocks/buckifier:defs.bzl (not in this OSS repo). db/c_test.c
+        # #includes the generated c_api_gen/*.inc fragments, so under Buck's
+        # hermetic sandbox that wrapper must expose them as headers, e.g.
+        #   headers = native.glob(["c_api_gen/**/*.inc"])
+        # (Make/CMake resolve the include via -I. / PROJECT_SOURCE_DIR.)
         with open(self.path, "ab") as targets_file:
             targets_file.write(
                 b"""

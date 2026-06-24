@@ -727,15 +727,19 @@ def _find_clang_binary() -> str:
     """Return the clang++ binary to use for AST dumping.
 
     Resolution order:
-      1. $CXX if it contains 'clang'
+      1. a clang token from $CXX -- which may be empty, a single binary, or
+         compiler-launcher-prefixed and/or versioned (e.g. "ccache clang++-21");
+         we use the clang word itself (a bare compiler, not the launcher, since
+         we run -ast-dump rather than compile)
       2. bare 'clang++'
       3. versioned fallbacks, newest first
     Raises RuntimeError if none found.
     """
     import os
     cxx = os.environ.get("CXX", "")
-    if "clang" in cxx and shutil.which(cxx):
-        return cxx
+    for token in cxx.split():
+        if "clang" in token and shutil.which(token):
+            return token
     for candidate in (
         "clang++",
         "clang++-21",
