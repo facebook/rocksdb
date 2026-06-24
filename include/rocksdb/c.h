@@ -1649,6 +1649,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_target_file_size_multiplier(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_target_file_size_multiplier(
     rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_target_file_size_is_upper_bound(rocksdb_options_t*,
+                                                    unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_target_file_size_is_upper_bound(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_bytes_for_level_base(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API uint64_t
@@ -1867,6 +1872,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_manifest_file_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_max_manifest_file_size(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_manifest_space_amp_pct(
+    rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_max_manifest_space_amp_pct(
+    rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_table_cache_numshardbits(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_table_cache_numshardbits(

@@ -1,0 +1,2 @@
+Added `rocksdb_options_set_target_file_size_is_upper_bound`, `rocksdb_options_get_target_file_size_is_upper_bound`, `rocksdb_options_get_max_manifest_space_amp_pct`, `rocksdb_options_set_max_manifest_space_amp_pct` to the C API, exposing the exisiting options - max_manifest_space_amp_pct , target_file_size_is_upper_bound. This allows C API users (and downstream language bindings) for finer-grained control over manifest and SST file sizings.
+
