@@ -1788,19 +1788,19 @@ TEST_F(DBOptionsTest, OptionCompatibilityCheckLevelRoundTrip) {
 
   DBOptions parsed;
   ConfigOptions config_options;
-  ASSERT_OK(GetDBOptionsFromString(
-      config_options, DBOptions(), "option_compatibility_check_level=kWarn",
-      &parsed));
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "option_compatibility_check_level=kWarn",
+                                   &parsed));
   ASSERT_EQ(parsed.option_compatibility_check_level,
             OptionCompatibilityCheckLevel::kWarn);
-  ASSERT_OK(GetDBOptionsFromString(
-      config_options, DBOptions(), "option_compatibility_check_level=reject",
-      &parsed));
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "option_compatibility_check_level=reject",
+                                   &parsed));
   ASSERT_EQ(parsed.option_compatibility_check_level,
             OptionCompatibilityCheckLevel::kReject);
-  ASSERT_OK(GetDBOptionsFromString(
-      config_options, DBOptions(), "option_compatibility_check_level=skip",
-      &parsed));
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "option_compatibility_check_level=skip",
+                                   &parsed));
   ASSERT_EQ(parsed.option_compatibility_check_level,
             OptionCompatibilityCheckLevel::kSkip);
 }

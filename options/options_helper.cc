@@ -80,8 +80,7 @@ Status ValidateDBOptionCompatibility(const DBOptions& db_opts) {
         "then direct I/O reads (use_direct_reads) must be disabled. ");
   }
 
-  if (db_opts.allow_mmap_reads &&
-      db_opts.use_direct_io_for_compaction_reads) {
+  if (db_opts.allow_mmap_reads && db_opts.use_direct_io_for_compaction_reads) {
     // mmap reads and direct I/O share the same EnvOptions field, so enabling
     // both would try to mmap and O_DIRECT the same reads.
     return Status::NotSupported(
@@ -103,8 +102,8 @@ Status ValidateDBOptionCompatibility(const DBOptions& db_opts) {
 
 Status ValidateOptionCompatibility(const DBOptions& db_opts,
                                    const ColumnFamilyOptions& cf_opts) {
-  return ValidateOptionCompatibility(
-      db_opts, cf_opts, db_opts.option_compatibility_check_level);
+  return ValidateOptionCompatibility(db_opts, cf_opts,
+                                     db_opts.option_compatibility_check_level);
 }
 
 Status ValidateOptionCompatibility(const DBOptions& db_opts,
