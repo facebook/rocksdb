@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "description": [
+    "ABI-preserving C type overrides for auto-generated C API wrappers.",
+    "",
+    "RocksDB's C API has a strong backward-compatibility guarantee: the C",
+    "signature of a function that has already shipped must never change, even",
+    "when the underlying C++ field type would naturally map to a different C",
+    "type. The auto-generator derives the C type from the C++ field (e.g. bool",
+    "-> unsigned char, uint64_t -> uint64_t, an enum -> int). For a handful of",
+    "pre-existing functions the historical hand-written C type differs from",
+    "that natural mapping, so we pin it here. The generated body still casts to",
+    "the real C++ field type via static_cast<decltype(field)>(value), so the",
+    "behavior is identical -- only the public C parameter/return type is held",
+    "stable.",
+    "",
+    "Only add entries for functions that already shipped with a different type.",
+    "Brand-new functions should use the natural mapping. The equivalence",
+    "validator (validate_generated_equivalence.py) enforces that generated",
+    "signatures match the reference revision, so any unintended drift here will",
+    "fail CI."
+  ],
+  "overrides": [
+    {
+      "function": "rocksdb_writeoptions_disable_WAL",
+      "role": "setter",
+      "c_type": "int",
+      "field_cxx_type": "bool",
+      "reason": "Shipped as `int disable` long before codegen; the field is bool but the C parameter type must stay `int` for ABI compatibility."
+    },
+    {
+      "function": "rocksdb_restore_options_set_keep_log_files",
+      "role": "setter",
+      "c_type": "int",
+      "field_cxx_type": "bool",
+      "reason": "Shipped as `int v`; the field is bool but the C parameter type must stay `int` for ABI compatibility."
+    },
+    {
+      "function": "rocksdb_block_based_options_set_checksum",
+      "role": "setter",
+      "c_type": "char",
+      "field_cxx_type": "ChecksumType",
+      "reason": "Shipped as `char`; the field is the ChecksumType enum but the C parameter type must stay `char` for ABI compatibility."
+    },
+    {
+      "function": "rocksdb_block_based_options_set_format_version",
+      "role": "setter",
+      "c_type": "int",
+      "field_cxx_type": "uint32_t",
+      "reason": "Shipped as `int`; the field is uint32_t but the C parameter type must stay `int` for ABI compatibility."
+    },
+    {
+      "function": "rocksdb_block_based_options_set_block_size",
+      "role": "setter",
+      "c_type": "size_t",
+      "field_cxx_type": "uint64_t",
+      "reason": "Shipped as `size_t block_size`; the field is uint64_t but the C parameter type must stay `size_t` for ABI compatibility."
+    }
+  ]
+}

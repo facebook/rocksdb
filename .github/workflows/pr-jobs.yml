@@ -314,6 +314,23 @@ jobs:
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - name: Install clang-format-21 for C API gen checks
+      run: apt-get update && apt-get install -y clang-format-21
+    - name: Check C API codegen (link-complete, backward-compatible, up to date)
+      # Run the make target in STRICT mode so this core CI job HARD-FAILS rather
+      # than silently skipping if a prerequisite (clang++, clang-format, or the
+      # compat baseline ref) is ever missing. See `make check-c-api-gen`.
+      run: |
+        # The container checkout is owned by a different user, so git refuses to
+        # operate on it ("dubious ownership") -- mark it safe for the `git fetch`
+        # and the `git show` the compat checker runs.
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        git config --global --add safe.directory '*'
+        git fetch --no-tags --depth=1 origin main
+        CXX=clang++-21 make check-c-api-gen \
+          CHECK_C_API_GEN_STRICT=1 \
+          API_COMPAT_REF=FETCH_HEAD \
+          CLANG_FORMAT_BINARY=clang-format-21
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
