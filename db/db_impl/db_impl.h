@@ -1214,6 +1214,7 @@ class DBImpl : public DB {
   Status TEST_GetBGError();
 
   bool TEST_IsRecoveryInProgress();
+  bool TEST_IsStopped() { return error_handler_.IsDBStopped(); }
 
   Status TEST_ResumeImpl(DBRecoverContext context);
 
