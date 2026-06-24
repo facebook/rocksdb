@@ -67,8 +67,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const MutableCFOptions& mutable_cf_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
-               ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-               bool expose_blob_index, ReadOnlyMemTable* active_mem)
+               ReadCallback* read_callback, DBImpl* db_impl,
+               ColumnFamilyData* cfd, bool expose_blob_index,
+               ReadOnlyMemTable* active_mem)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -76,21 +77,26 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       user_comparator_(cmp),
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
-      blob_state_(
-          version, read_options.read_tier, read_options.verify_checksums,
-          read_options.fill_cache, read_options.io_activity,
-          cfh ? cfh->cfd()->blob_file_cache() : nullptr,
-          cfh != nullptr && cfh->cfd()->blob_partition_manager() != nullptr),
+      blob_state_(version, read_options.read_tier,
+                  read_options.verify_checksums, read_options.fill_cache,
+                  read_options.io_activity,
+                  cfd ? cfd->blob_file_cache() : nullptr,
+                  cfd != nullptr && cfd->blob_partition_manager() != nullptr),
       read_callback_(read_callback),
       sequence_(s),
-      value_columns_state_(version, read_options, cfh),
+      value_columns_state_(version, read_options, cfd),
       statistics_(ioptions.stats),
       max_skip_(mutable_cf_options.max_sequential_skip_in_iterations),
       max_skippable_internal_keys_(read_options.max_skippable_internal_keys),
       num_internal_keys_skipped_(0),
       iterate_lower_bound_(read_options.iterate_lower_bound),
       iterate_upper_bound_(read_options.iterate_upper_bound),
-      cfh_(cfh),
+      trace_db_(db_impl),
+      trace_cf_id_(cfd != nullptr ? cfd->GetID() : 0),
+      has_trace_state_(db_impl != nullptr && cfd != nullptr),
+      allow_blob_write_path_fallback_(cfd != nullptr &&
+                                      cfd->blob_partition_manager() != nullptr),
+      ingest_sst_lock_(cfd != nullptr ? &cfd->GetIngestSstLock() : nullptr),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
@@ -305,10 +311,8 @@ bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
   // Keep the non-BDW iterator path on the pre-existing Version::GetBlob()
   // fast path. Only enable the direct-write fallback when this CF actually
   // has a write-path partition manager.
-  const bool allow_write_path_fallback =
-      cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
   const Status s = blob_state_.mut()->reader.RetrieveAndSetBlobValue(
-      user_key, blob_index, allow_write_path_fallback);
+      user_key, blob_index, allow_blob_write_path_fallback_);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
@@ -1617,10 +1621,8 @@ bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
     return false;
   }
 
-  const bool allow_write_path_fallback =
-      cfh_ != nullptr && cfh_->cfd()->blob_partition_manager() != nullptr;
   const Status s = blob_state_.mut()->reader.RetrieveAndSetBlobValue(
-      user_key, blob_index, allow_write_path_fallback);
+      user_key, blob_index, allow_blob_write_path_fallback_);
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
@@ -1816,10 +1818,10 @@ void DBIter::MaybeInsertRangeTombstone(const Slice& end_key) {
     }
   }
 
-  assert(cfh_ != nullptr);
+  assert(ingest_sst_lock_ != nullptr);
   if (active_mem_->AddLogicallyRedundantRangeTombstone(
           insert_seq, range_tomb_first_key_.GetUserKey(), end_key,
-          cfh_->cfd()->GetIngestSstLock())) {
+          *ingest_sst_lock_)) {
     RecordTick(statistics_, READ_PATH_RANGE_TOMBSTONES_INSERTED);
     ROCKS_LOG_DEBUG(logger_,
                     "Inserted range tombstone [%s, %s) @ seq %" PRIu64
@@ -1959,10 +1961,10 @@ Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
   return Status::OK();
 }
 
-void DBIter::Prepare(const MultiScanArgs& scan_opts) {
+Status DBIter::SetScanOptionsForPrepare(const MultiScanArgs& scan_opts) {
   status_ = ValidateScanOptions(scan_opts);
   if (!status_.ok()) {
-    return;
+    return status_;
   }
   std::optional<MultiScanArgs> new_scan_opts;
   new_scan_opts.emplace(scan_opts);
@@ -1975,11 +1977,24 @@ void DBIter::Prepare(const MultiScanArgs& scan_opts) {
   if (!scan_opts_.value().io_dispatcher) {
     scan_opts_->io_dispatcher.reset(NewIODispatcher());
   }
+  return Status::OK();
+}
 
-  if (!scan_opts.empty()) {
+void DBIter::PrepareInternalChildren() {
+  if (!scan_opts_.has_value() || !status_.ok()) {
+    return;
+  }
+
+  if (scan_opts_.value().HasBoundedScanRanges()) {
     iter_.Prepare(&scan_opts_.value());
   } else {
     iter_.Prepare(nullptr);
+  }
+}
+
+void DBIter::Prepare(const MultiScanArgs& scan_opts) {
+  if (SetScanOptionsForPrepare(scan_opts).ok()) {
+    PrepareInternalChildren();
   }
 }
 
@@ -2029,7 +2044,7 @@ void DBIter::Seek(const Slice& target) {
     scan_index_++;
   }
 
-  if (cfh_ != nullptr) {
+  if (has_trace_state_) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
     if (iterate_lower_bound_ != nullptr) {
@@ -2042,9 +2057,7 @@ void DBIter::Seek(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    cfh_->db()
-        ->TraceIteratorSeek(cfh_->cfd()->GetID(), target, lower_bound,
-                            upper_bound)
+    trace_db_->TraceIteratorSeek(trace_cf_id_, target, lower_bound, upper_bound)
         .PermitUncheckedError();
   }
 
@@ -2097,7 +2110,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-  if (cfh_ != nullptr) {
+  if (has_trace_state_) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
     if (iterate_lower_bound_ != nullptr) {
@@ -2110,8 +2123,8 @@ void DBIter::SeekForPrev(const Slice& target) {
     } else {
       upper_bound = Slice("");
     }
-    cfh_->db()
-        ->TraceIteratorSeekForPrev(cfh_->cfd()->GetID(), target, lower_bound,
+    trace_db_
+        ->TraceIteratorSeekForPrev(trace_cf_id_, target, lower_bound,
                                    upper_bound)
         .PermitUncheckedError();
   }

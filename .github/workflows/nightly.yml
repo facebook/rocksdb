@@ -113,11 +113,10 @@ jobs:
     - run: "USE_FOLLY=1 LIB_MODE=static DEBUG_LEVEL=0 V=1 make -j20 release"
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DCMAKE_BUILD_TYPE=Release .. && make VERBOSE=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
-  build-windows-vs2022-avx2:
+  build-windows-msvc-avx2:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: windows-2022
+    runs-on: windows-8-core
     env:
-      CMAKE_GENERATOR: Visual Studio 17 2022
       CMAKE_PORTABLE: AVX2
     steps:
     - uses: actions/checkout@v4.1.0

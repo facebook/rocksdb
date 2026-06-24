@@ -14,8 +14,13 @@ import sys
 import tempfile
 import time
 
+_TOOLS_DIR = os.path.dirname(__file__)
+if _TOOLS_DIR and _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+
 import db_crashtest_compatibility as compatibility
 import db_crashtest_legacy_compatibility as legacy_compatibility
+import fault_injection_log_parser
 
 per_iteration_random_seed_override = 0
 remain_argv = None
@@ -44,6 +49,7 @@ _COMPATIBILITY_MODE_ENV_VAR = "ROCKSDB_CRASHTEST_COMPATIBILITY_MODE"
 _COMPATIBILITY_MODE_DEPENDENCY = "dependency"
 _COMPATIBILITY_MODE_LEGACY = "legacy"
 _MULTISCAN_MAX_PREFETCH_MEMORY_BYTES_CHOICES = (0, 0, 64 * 1024, 256 * 1024)
+_FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
 
 
 def _compatibility_mode():
@@ -88,10 +94,7 @@ def quote_arg_for_display(arg):
 
 def stress_cmd_env():
     env = os.environ.copy()
-    if (
-        _TSAN_OPTIONS_ENV_VAR not in env
-        and os.path.exists(_TSAN_SUPPRESSIONS_FILE)
-    ):
+    if _TSAN_OPTIONS_ENV_VAR not in env and os.path.exists(_TSAN_SUPPRESSIONS_FILE):
         env[_TSAN_OPTIONS_ENV_VAR] = "suppressions=" + _TSAN_SUPPRESSIONS_FILE
     return env
 
@@ -243,6 +246,8 @@ default_params = {
     "index_block_search_type": lambda: random.choice([0, 1, 2]),
     "uniform_cv_threshold": lambda: random.choice([-1, 0.2, 1000]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
+    "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
+    "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
@@ -291,6 +296,7 @@ default_params = {
     "top_level_index_pinning": lambda: random.randint(0, 3),
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
+    "use_direct_io_for_compaction_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "use_sqfc_for_range_queries": lambda: random.choice([0, 1, 1, 1]),
     "mock_direct_io": False,
@@ -549,8 +555,7 @@ default_params = {
     "use_multiscan": random.choice([1] + [0] * 3),
     # By default, `statistics` use kExceptDetailedTimers level
     "statistics": random.choice([0, 1]),
-    # TODO: re-enable after resolving "Req failed: Unknown error -14" errors
-    "multiscan_use_async_io": 0,  # random.randint(0, 1),
+    "multiscan_use_async_io": lambda: random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -1049,17 +1054,41 @@ def _apply_special_rules(dest_params):
     if is_release_mode():
         set_param("read_fault_one_in", 0)
 
+    if dest_params.get("compression_max_dict_bytes") == 0:
+        set_param("compression_zstd_max_train_bytes", 0)
+        set_param("compression_max_dict_buffer_bytes", 0)
+    if dest_params.get("compression_type") != "zstd":
+        set_param("compression_zstd_max_train_bytes", 0)
+
+    if dest_params.get("mmap_read") == 1:
+        set_param("use_direct_io_for_flush_and_compaction", 0)
+        set_param("use_direct_reads", 0)
+        set_param("use_direct_io_for_compaction_reads", 0)
+        set_param("multiscan_use_async_io", 0)
+
+    if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
+        # SQFC range-query filtering installs ReadOptions::table_filter on
+        # iterators. Read-write iterators reject table_filter when read-path
+        # range tombstone conversion is enabled, because conversion must see
+        # the full relevant SST set before synthesizing a memtable tombstone.
+        set_param("use_sqfc_for_range_queries", 0)
+        # Delete range is not compatible with inplace_update_support.
+        set_param("inplace_update_support", 0)
+
     # 2. Direct IO support check (depends on filesystem)
     if (
         dest_params.get("use_direct_io_for_flush_and_compaction") == 1
         or dest_params.get("use_direct_reads") == 1
+        or dest_params.get("use_direct_io_for_compaction_reads") == 1
     ) and not is_direct_io_supported(dest_params["db"]):
         if is_release_mode():
             print(
-                "{} does not support direct IO. Disabling use_direct_reads and "
+                "{} does not support direct IO. Disabling use_direct_reads, "
+                "use_direct_io_for_compaction_reads and "
                 "use_direct_io_for_flush_and_compaction.\n".format(dest_params["db"])
             )
             set_param("use_direct_reads", 0)
+            set_param("use_direct_io_for_compaction_reads", 0)
             set_param("use_direct_io_for_flush_and_compaction", 0)
         else:
             set_param("mock_direct_io", True)
@@ -1726,52 +1755,41 @@ def cleanup_after_success(db_arg, num_dbs=1):
         sys.exit(2)
 
 
-def print_and_cleanup_fault_injection_log(pid):
+def _fault_injection_log_dir():
+    if is_remote_db:
+        base_dir = "/tmp"
+    else:
+        base_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
+    return os.path.join(
+        base_dir,
+        _FAULT_INJECTION_LOG_DIR_NAME,
+    )
+
+
+def print_fault_injection_log(pid):
     # Fault injection logs are stored in TEST_TMPDIR (or /tmp) to survive
-    # DB reopen cleanup, and to be included in sandcastle's db.tar.gz artifact.
-    # Filter by pid to only print the log from the current run.
-    max_tail_entries = 32
-    log_dir = os.environ.get(_TEST_DIR_ENV_VAR) or "/tmp"
-    pattern = os.path.join(log_dir, "fault_injection_%d_*.log" % pid)
-    for log in glob.glob(pattern):
-        print("=== Fault injection log: %s ===" % log)
+    # DB reopen cleanup, and to be included in crash-test artifacts.
+    # Filter by pid to only print the log from the current run. Raw and decoded
+    # logs are intentionally left behind for external artifact collection and
+    # cleanup.
+    log_dir = _fault_injection_log_dir()
+
+    raw_pattern = os.path.join(log_dir, "fault_injection_%d_*.bin" % pid)
+    for raw_log in sorted(glob.glob(raw_pattern)):
+        decoded_log = raw_log + ".txt"
         try:
-            with open(log) as f:
-                lines = f.readlines()
-            # Log format: header line(s), entry lines, footer line.
-            # The footer starts with "=== End of".
-            # Print header and footer always, truncate entries in the middle.
-            header = []
-            footer = []
-            entries = []
-            for line in lines:
-                stripped = line.strip()
-                if stripped.startswith("=== End of"):
-                    footer.append(line)
-                elif stripped.startswith("===") or stripped == "(none)":
-                    header.append(line)
-                else:
-                    entries.append(line)
-            total_entries = len(entries)
-            print("".join(header), end="")
-            if total_entries <= max_tail_entries:
-                print("".join(entries), end="")
-                print("".join(footer), end="")
-            else:
-                skipped = total_entries - max_tail_entries
-                print(
-                    "... (%d entries omitted, showing last %d. "
-                    "Full log: %s)\n" % (skipped, max_tail_entries, log),
-                    end="",
-                )
-                print("".join(entries[-max_tail_entries:]), end="")
-                print(
-                    "=== Showed %d of %d injected error entries ===\n"
-                    % (max_tail_entries, total_entries),
-                    end="",
-                )
-        except OSError:
-            pass
+            entry_count = fault_injection_log_parser.decode_fault_injection_log(
+                raw_log, decoded_log
+            )
+            print(
+                "Fault injection log saved: raw=%s decoded=%s entries=%d"
+                % (raw_log, decoded_log, entry_count)
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                "WARNING: failed to decode fault injection log %s: %s\n"
+                % (raw_log, exc)
+            )
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
@@ -1801,13 +1819,11 @@ def blackbox_crash_main(args, unknown_args):
 
     while time.time() < exit_time:
         apply_random_seed_per_iteration()
-        cmd, finalized_params = gen_cmd(
-            dict(list(cmd_params.items())), unknown_args
-        )
+        cmd, finalized_params = gen_cmd(dict(list(cmd_params.items())), unknown_args)
 
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
-        print_and_cleanup_fault_injection_log(pid)
+        print_fault_injection_log(pid)
         outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
 
         # Reset destroy_db_initially after each run (it may have been set by
@@ -1831,14 +1847,12 @@ def blackbox_crash_main(args, unknown_args):
     cmd_params.update({"verification_only": 1})
     cmd_params.update({"skip_verifydb": 0})
 
-    cmd, finalized_params = gen_cmd(
-        dict(list(cmd_params.items())), unknown_args
-    )
+    cmd, finalized_params = gen_cmd(dict(list(cmd_params.items())), unknown_args)
     hit_timeout, retcode, outs, errs, pid = execute_cmd(
         cmd, cmd_params["verify_timeout"], True
     )
 
-    print_and_cleanup_fault_injection_log(pid)
+    print_fault_injection_log(pid)
 
     # For the final run
     print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
@@ -1969,10 +1983,7 @@ def whitebox_crash_main(args, unknown_args):
         prev_compaction_style = cur_compaction_style
 
         cmd, finalized_params = gen_cmd(
-            dict(
-                list(cmd_params.items())
-                + list(additional_opts.items())
-            ),
+            dict(list(cmd_params.items()) + list(additional_opts.items())),
             unknown_args,
         )
 
@@ -1989,6 +2000,7 @@ def whitebox_crash_main(args, unknown_args):
         hit_timeout, retncode, stdoutdata, stderrdata, pid = execute_cmd(
             cmd, exit_time - time.time() + 900
         )
+        print_fault_injection_log(pid)
 
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run, or set for various reasons for a step)

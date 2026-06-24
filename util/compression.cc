@@ -355,10 +355,7 @@ std::string ZSTD_FinalizeDictionary(const std::string& samples,
   if (samples.empty()) {
     return "";
   }
-  if (level == CompressionOptions::kDefaultCompressionLevel) {
-    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-    level = ZSTD_CLEVEL_DEFAULT;
-  }
+  level = SanitizeZSTDCompressionLevel(level);
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_finalizeDictionary(
       dict_data.data(), max_dict_bytes, samples.data(),
@@ -485,6 +482,9 @@ class BuiltinSnappyCompressorV2 final : public CompressorWithSimpleDictBase {
   CompressionType GetPreferredCompressionType() const override {
     return kSnappyCompression;
   }
+
+  // Snappy is more often SLOWER with parallel compression than faster.
+  uint32_t GetRecommendedParallelThreads() const override { return 1; }
 
   std::unique_ptr<Compressor> CloneForDict(
       std::string&& dict_data) const override {
@@ -758,6 +758,10 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
     return kLZ4Compression;
   }
 
+  // LZ4 (accelerated, not LZ4HC) is more often SLOWER with parallel
+  // compression than faster.
+  uint32_t GetRecommendedParallelThreads() const override { return 1; }
+
   std::unique_ptr<Compressor> CloneForDict(
       std::string&& dict_data) const override {
     return std::make_unique<BuiltinLZ4CompressorV2WithDict>(
@@ -811,12 +815,7 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
       LZ4_loadDict(stream, dict_data_.data(),
                    static_cast<int>(dict_data_.size()));
     }
-    int acceleration;
-    if (opts_.level < 0) {
-      acceleration = -opts_.level;
-    } else {
-      acceleration = 1;
-    }
+    int acceleration = LZ4AccelerationFromLevel(opts_.level);
     auto outlen = LZ4_compress_fast_continue(
         stream, uncompressed_data.data(), alg_output,
         static_cast<int>(uncompressed_data.size()),
@@ -841,6 +840,24 @@ class BuiltinLZ4CompressorV2WithDict : public CompressorWithSimpleDictBase {
 #endif
     *out_compression_type = kNoCompression;
     return Status::OK();
+  }
+
+ protected:
+  // Translates a non-positive `level` to an LZ4 "acceleration" value (=
+  // -level), clamped to the maximum effective acceleration. The clamp avoids
+  // signed overflow when negating INT_MIN and reflects that lz4 internally caps
+  // acceleration at LZ4_ACCELERATION_MAX (currently 65537; not exposed by
+  // lz4.h).
+  [[maybe_unused]] static int LZ4AccelerationFromLevel(int level) {
+    assert(level <= 0 || level == CompressionOptions::kDefaultCompressionLevel);
+    constexpr int kLZ4MaxAcceleration = 65537;  // == LZ4_ACCELERATION_MAX
+    if (level <= -kLZ4MaxAcceleration) {
+      return kLZ4MaxAcceleration;
+    }
+    if (level >= 0) {
+      return 1;
+    }
+    return -level;
   }
 };
 
@@ -882,12 +899,7 @@ class BuiltinLZ4CompressorV2NoDict final
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
-    int acceleration;
-    if (opts_.level < 0) {
-      acceleration = -opts_.level;
-    } else {
-      acceleration = 1;
-    }
+    int acceleration = LZ4AccelerationFromLevel(opts_.level);
     auto outlen =
         LZ4_compress_fast(uncompressed_data.data(), alg_output,
                           static_cast<int>(uncompressed_data.size()),
@@ -963,6 +975,10 @@ class BuiltinLZ4HCCompressorV2 final : public CompressorWithSimpleDictBase {
     int level = opts_.level;
     if (level == CompressionOptions::kDefaultCompressionLevel) {
       level = 0;  // lz4hc.h says any value < 1 will be sanitized to default
+    } else if (level > LZ4HC_CLEVEL_MAX) {
+      // Map large positive levels to the maximum effective level. lz4hc clamps
+      // internally too, but make it explicit for clarity/determinism.
+      level = LZ4HC_CLEVEL_MAX;
     }
 
     ManagedWorkingArea tmp_wa;
@@ -1071,6 +1087,14 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
 
   CompressionType GetPreferredCompressionType() const override { return kZSTD; }
 
+  uint32_t GetRecommendedParallelThreads() const override {
+    // Accelerated ZSTD levels could see a small throughput increase with
+    // parallel compression, but the overall CPU overhead is generally not worth
+    // it.
+    return opts_.level < 0 ? 1
+                           : CompressorBase::GetRecommendedParallelThreads();
+  }
+
   std::unique_ptr<Compressor> Clone() const override {
     CompressionDict dict_copy{dict_.GetRawDict().ToString(), kZSTD,
                               opts_.level};
@@ -1101,11 +1125,7 @@ class BuiltinZSTDCompressorV2 final : public CompressorBase {
 #else   // ROCKSDB_ZSTD_CUSTOM_MEM
         ZSTD_createCCtx();
 #endif  // ROCKSDB_ZSTD_CUSTOM_MEM
-    auto level = opts_.level;
-    if (level == CompressionOptions::kDefaultCompressionLevel) {
-      // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-      level = ZSTD_CLEVEL_DEFAULT;
-    }
+    int level = SanitizeZSTDCompressionLevel(opts_.level);
     size_t err = ZSTD_CCtx_setParameter(ctx, ZSTD_c_compressionLevel, level);
     if (ZSTD_isError(err)) {
       assert(false);
@@ -1751,9 +1771,31 @@ class BuiltinCompressionManagerV2 final : public CompressionManager {
       case kBZip2Compression:
         return std::make_unique<BuiltinBZip2CompressorV2>(opts);
       case kLZ4Compression:
-        return std::make_unique<BuiltinLZ4CompressorV2NoDict>(opts);
-      case kLZ4HCCompression:
-        return std::make_unique<BuiltinLZ4HCCompressorV2>(opts);
+      case kLZ4HCCompression: {
+        // LZ4 and LZ4HC share the same wire format and decompressor. It is a
+        // historical oddity that they are distinct CompressionTypes. To blend
+        // them together more naturally, we now allow either configured
+        // compression type to access the same spectrum of compression levels
+        // supported by LZ4 and LZ4HC compressors. The appropriate compressor
+        // for the specified level is chosen regardless of which of the two
+        // types is configured, except that the default levels vary:
+        //   level <= 0    -> LZ4 fast (acceleration = max(1, -level))
+        //   level >= 1    -> LZ4HC (that level, 1..12)
+        //   default level ->
+        //     LZ4 -> LZ4 fast, acceleration 1 (equivalent to level -1)
+        //     LZ4HC -> LZ4HC level 9
+        bool use_hc;
+        if (opts.level == CompressionOptions::kDefaultCompressionLevel) {
+          use_hc = (type == kLZ4HCCompression);
+        } else {
+          use_hc = (opts.level >= 1);
+        }
+        if (use_hc) {
+          return std::make_unique<BuiltinLZ4HCCompressorV2>(opts);
+        } else {
+          return std::make_unique<BuiltinLZ4CompressorV2NoDict>(opts);
+        }
+      }
       case kXpressCompression:
         return std::make_unique<BuiltinXpressCompressorV2>(opts);
       case kZSTD:

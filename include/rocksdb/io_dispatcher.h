@@ -260,6 +260,17 @@ class ReadSet {
   Status PollAndProcessAsyncIO(
       const std::shared_ptr<AsyncIOState>& async_state);
 
+  // Release memory budget acquired for a prefetched block.
+  void ReleasePrefetchMemory(size_t block_index);
+
+  // Stop tracking one block from an in-flight async IO request. If this was
+  // the last block using the request, abort and delete the IO handle before the
+  // async state is released.
+  void ReleaseAsyncIOForBlock(size_t block_index);
+
+  // Delete a completed or aborted async IO handle exactly once.
+  void DeleteAsyncIOHandle(const std::shared_ptr<AsyncIOState>& async_state);
+
   // Perform synchronous read for a specific block
   Status SyncRead(size_t block_index);
 

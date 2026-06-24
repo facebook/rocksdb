@@ -11,6 +11,8 @@
 #include "rocksdb/io_dispatcher.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -18,6 +20,7 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
+#include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -26,6 +29,8 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "util/aligned_buffer.h"
 
 // Enable io_uring support for this test
 extern "C" bool RocksDbIOUringEnable() { return true; }
@@ -177,6 +182,168 @@ IOStatus ReadTrackingRandomAccessFile::ReadAsync(
   return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
 }
 
+class ControlledAsyncFS;
+
+// Test-only async handle used by ControlledAsyncFS. It stores the callback and
+// original read parameters so the test filesystem can decide exactly when the
+// async read completes.
+struct ControlledAsyncHandle {
+  FSRandomAccessFile* target = nullptr;
+  IOOptions opts;
+  uint64_t offset = 0;
+  size_t len = 0;
+  char* scratch = nullptr;
+  std::function<void(FSReadRequest&, void*)> cb;
+  void* cb_arg = nullptr;
+};
+
+// Wraps a real random-access file but defers ReadAsync() completion to
+// ControlledAsyncFS. This keeps the read data realistic while making completion
+// ordering deterministic.
+class ControlledAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ControlledAsyncRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
+                                  ControlledAsyncFS* fs)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override;
+
+ private:
+  ControlledAsyncFS* fs_;
+};
+
+// A scheduling wrapper around the real filesystem. ReadAsync() requests stay
+// pending until Poll() or AbortIO() is called, letting tests model io_uring
+// completing an unrelated request while waiting for a requested handle.
+class ControlledAsyncFS : public ReadTrackingFS {
+ public:
+  explicit ControlledAsyncFS(const std::shared_ptr<FileSystem>& target)
+      : ReadTrackingFS(target) {}
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (s.ok()) {
+      result->reset(new ControlledAsyncRandomAccessFile(std::move(file), this));
+    }
+    return s;
+  }
+
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
+    assert(!io_handles.empty());
+    auto* requested_handle =
+        static_cast<ControlledAsyncHandle*>(io_handles.front());
+
+    // io_uring can reap completions for handles other than the one the caller
+    // is waiting on. Complete a different pending handle first to exercise that
+    // ordering deterministically.
+    if (complete_stray_first_) {
+      for (auto it = pending_handles_.begin(); it != pending_handles_.end();
+           ++it) {
+        if (*it != requested_handle) {
+          ControlledAsyncHandle* stray_handle = *it;
+          pending_handles_.erase(it);
+          stray_completion_count_++;
+          CompleteHandle(stray_handle);
+          break;
+        }
+      }
+    }
+
+    auto requested_it = std::find(pending_handles_.begin(),
+                                  pending_handles_.end(), requested_handle);
+    if (requested_it != pending_handles_.end()) {
+      pending_handles_.erase(requested_it);
+      CompleteHandle(requested_handle);
+    }
+
+    return IOStatus::OK();
+  }
+
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    for (void* io_handle : io_handles) {
+      auto* handle = static_cast<ControlledAsyncHandle*>(io_handle);
+      auto it =
+          std::find(pending_handles_.begin(), pending_handles_.end(), handle);
+      if (it == pending_handles_.end()) {
+        continue;
+      }
+      pending_handles_.erase(it);
+      abort_count_++;
+
+      // Match the filesystem contract: aborting an in-flight read completes its
+      // callback with an aborted status before the handle is deleted.
+      FSReadRequest req;
+      req.offset = handle->offset;
+      req.len = handle->len;
+      req.scratch = handle->scratch;
+      req.status = IOStatus::Aborted();
+      handle->cb(req, handle->cb_arg);
+    }
+    return IOStatus::OK();
+  }
+
+  void AddHandle(ControlledAsyncHandle* handle) {
+    pending_handles_.push_back(handle);
+  }
+
+  void SetCompleteStrayFirst(bool complete_stray_first) {
+    complete_stray_first_ = complete_stray_first;
+  }
+
+  size_t abort_count() const { return abort_count_; }
+  size_t stray_completion_count() const { return stray_completion_count_; }
+
+ private:
+  void CompleteHandle(ControlledAsyncHandle* handle) {
+    FSReadRequest req;
+    req.offset = handle->offset;
+    req.len = handle->len;
+    req.scratch = handle->scratch;
+    // Use the wrapped file for the actual bytes; only scheduling is mocked.
+    req.status =
+        handle->target->Read(handle->offset, handle->len, handle->opts,
+                             &req.result, handle->scratch, nullptr /*dbg*/);
+    handle->cb(req, handle->cb_arg);
+  }
+
+  std::vector<ControlledAsyncHandle*> pending_handles_;
+  bool complete_stray_first_ = true;
+  size_t abort_count_ = 0;
+  size_t stray_completion_count_ = 0;
+};
+
+IOStatus ControlledAsyncRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  fs_->RecordReadAsync(req.offset, req.len);
+
+  // Do not submit to the real filesystem here. The handle is queued until the
+  // test explicitly completes it through ControlledAsyncFS::Poll() or
+  // AbortIO().
+  auto* handle = new ControlledAsyncHandle();
+  handle->target = target();
+  handle->opts = opts;
+  handle->offset = req.offset;
+  handle->len = req.len;
+  handle->scratch = req.scratch;
+  handle->cb = std::move(cb);
+  handle->cb_arg = cb_arg;
+
+  *io_handle = handle;
+  *del_fn = [](void* arg) { delete static_cast<ControlledAsyncHandle*>(arg); };
+  fs_->AddHandle(handle);
+  return IOStatus::OK();
+}
+
 class IODispatcherTest : public DBTestBase {
  public:
   IODispatcherTest()
@@ -277,26 +444,197 @@ class IODispatcherTest : public DBTestBase {
   // The BlockBasedTable keeps references to these options
   std::vector<std::unique_ptr<ImmutableOptions>> all_ioptions_;
   std::vector<std::unique_ptr<EnvOptions>> all_env_options_;
+  std::vector<std::unique_ptr<InternalKeyComparator>> all_comparators_;
+
+  class TestReadScopedBlockBufferProvider
+      : public ReadScopedBlockBufferProvider {
+   public:
+    struct Allocation {
+      TestReadScopedBlockBufferProvider* owner = nullptr;
+      char* data = nullptr;
+      size_t size = 0;
+      size_t alignment = 1;
+      AlignedBuffer storage;
+    };
+
+    struct AllocationRange {
+      const char* data = nullptr;
+      size_t size = 0;
+    };
+
+    Status Allocate(size_t size, size_t alignment, Lease* out) override {
+      if (out == nullptr) {
+        return Status::InvalidArgument("lease output is nullptr");
+      }
+      if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+        return Status::InvalidArgument("alignment must be a power of two");
+      }
+      auto* allocation = new Allocation();
+      allocation->owner = this;
+      allocation->size = size;
+      allocation->alignment = alignment;
+      allocation->storage.Alignment(alignment);
+      allocation->storage.AllocateNewBuffer(size);
+      allocation->data = allocation->storage.BufferStart();
+      bytes_outstanding_.fetch_add(size, std::memory_order_relaxed);
+      allocations_.fetch_add(1, std::memory_order_relaxed);
+      size_t current_alignment =
+          max_requested_alignment_.load(std::memory_order_relaxed);
+      while (current_alignment < alignment &&
+             !max_requested_alignment_.compare_exchange_weak(
+                 current_alignment, alignment, std::memory_order_relaxed,
+                 std::memory_order_relaxed)) {
+      }
+      {
+        std::lock_guard<std::mutex> lock(live_allocations_mutex_);
+        live_allocations_.push_back(AllocationRange{allocation->data, size});
+      }
+
+      out->data = allocation->data;
+      out->size = size;
+      out->cleanup.Allocate();
+      out->cleanup->RegisterCleanup(&ReleaseAllocation, allocation, nullptr);
+      return Status::OK();
+    }
+
+    size_t allocations() const {
+      return allocations_.load(std::memory_order_relaxed);
+    }
+
+    size_t bytes_outstanding() const {
+      return bytes_outstanding_.load(std::memory_order_relaxed);
+    }
+
+    size_t max_requested_alignment() const {
+      return max_requested_alignment_.load(std::memory_order_relaxed);
+    }
+
+    bool OwnsLiveAddressRange(const char* data, size_t size) const {
+      if (data == nullptr) {
+        return false;
+      }
+      const uintptr_t slice_begin = reinterpret_cast<uintptr_t>(data);
+      const uintptr_t slice_end = slice_begin + size;
+
+      std::lock_guard<std::mutex> lock(live_allocations_mutex_);
+      for (const auto& allocation : live_allocations_) {
+        const uintptr_t allocation_begin =
+            reinterpret_cast<uintptr_t>(allocation.data);
+        const uintptr_t allocation_end = allocation_begin + allocation.size;
+        if (slice_begin >= allocation_begin && slice_end <= allocation_end) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+   private:
+    static void ReleaseAllocation(void* arg1, void* /*arg2*/) {
+      auto* allocation = static_cast<Allocation*>(arg1);
+      allocation->owner->bytes_outstanding_.fetch_sub(
+          allocation->size, std::memory_order_relaxed);
+      {
+        std::lock_guard<std::mutex> lock(
+            allocation->owner->live_allocations_mutex_);
+        auto& live_allocations = allocation->owner->live_allocations_;
+        for (auto it = live_allocations.begin(); it != live_allocations.end();
+             ++it) {
+          if (it->data == allocation->data) {
+            live_allocations.erase(it);
+            break;
+          }
+        }
+      }
+      delete allocation;
+    }
+
+    std::atomic<size_t> allocations_{0};
+    std::atomic<size_t> bytes_outstanding_{0};
+    std::atomic<size_t> max_requested_alignment_{1};
+    mutable std::mutex live_allocations_mutex_;
+    std::vector<AllocationRange> live_allocations_;
+  };
+
+  class InvalidReadScopedBlockBufferProvider
+      : public ReadScopedBlockBufferProvider {
+   public:
+    enum class Mode {
+      kReturnError,
+      kNullData,
+      kShortSize,
+      kMissingCleanup,
+    };
+
+    explicit InvalidReadScopedBlockBufferProvider(Mode mode) : mode_(mode) {}
+    ~InvalidReadScopedBlockBufferProvider() override {
+      for (char* ptr : owned_buffers_) {
+        delete[] ptr;
+      }
+    }
+
+    Status Allocate(size_t size, size_t /*alignment*/, Lease* out) override {
+      if (out == nullptr) {
+        return Status::InvalidArgument("lease output is nullptr");
+      }
+      switch (mode_) {
+        case Mode::kReturnError:
+          return Status::MemoryLimit("injected allocate failure");
+        case Mode::kNullData:
+          out->size = size;
+          out->cleanup.Allocate();
+          return Status::OK();
+        case Mode::kShortSize:
+          out->data = new char[size];
+          owned_buffers_.push_back(out->data);
+          out->size = size - 1;
+          out->cleanup.Allocate();
+          return Status::OK();
+        case Mode::kMissingCleanup:
+          out->data = new char[size];
+          owned_buffers_.push_back(out->data);
+          out->size = size;
+          return Status::OK();
+      }
+      return Status::InvalidArgument("unknown invalid provider mode");
+    }
+
+   private:
+    Mode mode_;
+    std::vector<char*> owned_buffers_;
+  };
 
   // Helper to create an SST file and open it as a table
   // Following pattern from table_test.cc TableConstructor
-  Status CreateAndOpenSST(int num_blocks,
-                          std::unique_ptr<BlockBasedTable>* table,
-                          std::vector<BlockHandle>* block_handles_out) {
+  Status CreateAndOpenSST(
+      int num_blocks, std::unique_ptr<BlockBasedTable>* table,
+      std::vector<BlockHandle>* block_handles_out,
+      const BlockBasedTableOptions* table_options_override = nullptr,
+      bool use_direct_reads = false,
+      CompressionType compression_type = kNoCompression,
+      bool allow_mmap_reads = false, Env* env_override = nullptr) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
     Options options{};
     options.statistics = nullptr;
+    options.allow_mmap_reads = allow_mmap_reads;
+    if (env_override != nullptr) {
+      options.env = env_override;
+    }
     BlockBasedTableOptions table_options;
-    table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
-    table_options.block_size = 16 * 1024;
-    table_options.no_block_cache = false;
+    if (table_options_override != nullptr) {
+      table_options = *table_options_override;
+    } else {
+      table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+      table_options.block_size = 16 * 1024;
+      table_options.no_block_cache = false;
+    }
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    // Store these in member variables so they outlive the function
+    // These are stored in member variables after the table reader opens.
     auto ioptions = std::make_unique<ImmutableOptions>(options);
     auto moptions = MutableCFOptions{options};
-    InternalKeyComparator internal_comparator(options.comparator);
+    auto internal_comparator =
+        std::make_unique<InternalKeyComparator>(options.comparator);
 
     // Create in-memory file using StringSink (like table_test.cc)
     auto table_name = "test_table";
@@ -310,10 +648,10 @@ class IODispatcherTest : public DBTestBase {
     std::vector<std::unique_ptr<InternalTblPropCollFactory>>
         int_tbl_prop_coll_factories;
     TableBuilderOptions builder_options(
-        *ioptions, moptions, read_options, write_options, internal_comparator,
-        &int_tbl_prop_coll_factories, kNoCompression, options.compression_opts,
-        0 /* column_family_id */, column_family_name, -1 /* level */,
-        kUnknownNewestKeyTime);
+        *ioptions, moptions, read_options, write_options, *internal_comparator,
+        &int_tbl_prop_coll_factories, compression_type,
+        options.compression_opts, 0 /* column_family_id */, column_family_name,
+        -1 /* level */, kUnknownNewestKeyTime);
 
     std::unique_ptr<TableBuilder> builder(
         options.table_factory->NewTableBuilder(builder_options,
@@ -344,19 +682,19 @@ class IODispatcherTest : public DBTestBase {
     // Now open the file for reading using StringSource (like table_test.cc)
     std::unique_ptr<RandomAccessFileReader> file;
     FileOptions foptions;
-    foptions.use_direct_reads = false;
+    foptions.use_direct_reads = use_direct_reads;
+    foptions.use_mmap_reads = allow_mmap_reads;
 
     NewFileReader(table_name, foptions, &file, nullptr);
 
-    // Store EnvOptions and InternalKeyComparator to avoid use-after-scope
     auto soptions = std::make_unique<EnvOptions>();
+    soptions->use_mmap_reads = allow_mmap_reads;
     BlockCacheTracer block_cache_tracer;
     std::unique_ptr<TableReader> table_reader;
 
-    auto ikc = InternalKeyComparator(options.comparator);
     TableReaderOptions reader_options(*ioptions, moptions.prefix_extractor,
                                       moptions.compression_manager.get(),
-                                      *soptions, ikc,
+                                      *soptions, *internal_comparator,
                                       0 /* block_protection_bytes_per_key */);
 
     s = options.table_factory->NewTableReader(reader_options, std::move(file),
@@ -365,6 +703,11 @@ class IODispatcherTest : public DBTestBase {
     if (!s.ok()) {
       return s;
     }
+
+    // Keep table reader dependencies alive for the returned BlockBasedTable.
+    all_ioptions_.push_back(std::move(ioptions));
+    all_env_options_.push_back(std::move(soptions));
+    all_comparators_.push_back(std::move(internal_comparator));
 
     table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
 
@@ -375,10 +718,6 @@ class IODispatcherTest : public DBTestBase {
     if (!s.ok()) {
       return s;
     }
-
-    // Store all options in member variables to keep them alive
-    all_ioptions_.push_back(std::move(ioptions));
-    all_env_options_.push_back(std::move(soptions));
 
     return Status::OK();
   }
@@ -429,6 +768,680 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
                          read_set->GetNumAsyncReads() +
                          read_set->GetNumCacheHits();
   ASSERT_EQ(total_reads, block_handles.size());
+}
+
+// Verifies that setting a read-scoped provider makes IODispatcher data-block
+// reads bypass the block cache even when one exists. The test checks there are
+// no cache hits and the returned block memory belongs to the provider.
+TEST_F(IODispatcherTest, ReadScopedProviderBypassesBlockCache) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = false;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options));
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_GT(provider.allocations(), 0);
+  EXPECT_EQ(read_set->GetNumCacheHits(), 0);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
+
+  block.Reset();
+  read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
+// Verifies the provider path also works for tables configured without a block
+// cache. The test reads a block and asserts the BlockContents points into the
+// provider allocation and that releasing the block releases the provider lease.
+TEST_F(IODispatcherTest, ReadScopedProviderWorksWithoutBlockCache) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options));
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_GT(provider.allocations(), 0);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
+
+  block.Reset();
+  read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
+// Verifies mmap reads disable the read-scoped provider path. The provider is
+// ignored because mmap file reads can return pointers into the mapped file
+// instead of writing into RocksDB-provided scratch buffers.
+TEST_F(IODispatcherTest, ReadScopedProviderIgnoredWithMmapReads) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             true /* allow_mmap_reads */));
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(provider.allocations(), 0);
+
+  block.Reset();
+  read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
+// Verifies compressed blocks are decompressed directly into provider-backed
+// storage. The test builds a compressed table, reads a block through
+// IODispatcher, and checks the final uncompressed block bytes are provider
+// owned without using provider-backed serialized read scratch.
+TEST_F(IODispatcherTest, ReadScopedBuffersOwnDecompressedBlocks) {
+  CompressionType compression_type = kNoCompression;
+  for (CompressionType supported : GetSupportedCompressions()) {
+    if (supported != kNoCompression) {
+      compression_type = supported;
+      break;
+    }
+  }
+  if (compression_type == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("Test requires a supported compression type");
+    return;
+  }
+
+  for (bool use_direct_reads : {false, true}) {
+    SCOPED_TRACE("use_direct_reads=" + std::to_string(use_direct_reads));
+    TestReadScopedBlockBufferProvider provider;
+    BlockBasedTableOptions table_options;
+    table_options.block_cache = nullptr;
+    table_options.block_size = 16 * 1024;
+    table_options.no_block_cache = true;
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                               use_direct_reads, compression_type));
+    ASSERT_GT(block_handles.size(), 0);
+
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+    std::shared_ptr<ReadSet> read_set;
+    ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+    ASSERT_NE(read_set, nullptr);
+    EXPECT_EQ(provider.allocations(), block_handles.size());
+    EXPECT_EQ(provider.max_requested_alignment(), 1);
+
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(0, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+    EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                              block.GetValue()->size()));
+
+    block.Reset();
+    read_set.reset();
+    EXPECT_EQ(provider.bytes_outstanding(), 0);
+  }
+}
+
+// Verifies RocksDB rejects invalid provider leases instead of pinning unsafe
+// memory. The test uses a provider that omits cleanup and expects ReadIndex()
+// to fail with InvalidArgument.
+TEST_F(IODispatcherTest, InvalidReadScopedLeaseFailsRead) {
+  InvalidReadScopedBlockBufferProvider provider(
+      InvalidReadScopedBlockBufferProvider::Mode::kMissingCleanup);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options));
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+
+  CachableEntry<Block> block;
+  Status s = read_set->ReadIndex(0, &block);
+  EXPECT_TRUE(s.IsInvalidArgument()) << s.ToString();
+}
+
+// Verifies uncompressed provider-backed blocks require a cleanup object on the
+// read buffer before RocksDB pins the block. The test clears the cleanup via a
+// sync point and checks the block is not made available.
+TEST_F(IODispatcherTest,
+       ReadScopedProviderRequiresReadBufferCleanupForUncompressedBlock) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options));
+  ASSERT_GT(block_handles.size(), 0);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  auto* sync_point = SyncPoint::GetInstance();
+  struct SyncPointGuard {
+    explicit SyncPointGuard(SyncPoint* sp) : sync_point(sp) {}
+    ~SyncPointGuard() {
+      sync_point->DisableProcessing();
+      sync_point->ClearAllCallBacks();
+    }
+
+    SyncPoint* sync_point;
+  } sync_point_guard(sync_point);
+
+  int cleanup_callbacks = 0;
+  sync_point->SetCallBack(
+      "CreateAndPinBlockFromBuffer:ReadBufferCleanup", [&](void* arg) {
+        ++cleanup_callbacks;
+        auto* cleanup = static_cast<SharedCleanablePtr*>(arg);
+        cleanup->Reset();
+      });
+  sync_point->EnableProcessing();
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  Status s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_GT(cleanup_callbacks, 0);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
+// Verifies cache lookup is a no-op when the table has no block cache. The test
+// calls LookupAndPinBlocksInCache() directly and checks it returns no pinned
+// block without crashing.
+TEST_F(IODispatcherTest, LookupAndPinBlocksInCacheNoOpsWithoutBlockCache) {
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(5, &table, &block_handles, &table_options));
+  ASSERT_NE(table, nullptr);
+  ASSERT_FALSE(table->get_rep()->table_options.block_cache);
+  ASSERT_FALSE(block_handles.empty());
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CachableEntry<Block_kData> block;
+  ASSERT_OK(table->LookupAndPinBlocksInCache<Block_kData>(
+      ReadOptions(), block_handles.front(), &block));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(lookup_calls, 1);
+  EXPECT_EQ(block.GetValue(), nullptr);
+}
+
+// Verifies SubmitJob() does not perform cache lookups for tables without a
+// block cache. The test counts the lookup sync point while reading blocks and
+// expects disk reads but zero lookup calls.
+TEST_F(IODispatcherTest, SubmitJobWithoutBlockCacheSkipsCacheLookup) {
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles, &table_options));
+  ASSERT_NE(table, nullptr);
+  ASSERT_FALSE(table->get_rep()->table_options.block_cache);
+  ASSERT_GE(block_handles.size(), 5);
+  block_handles.resize(5);
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  tracking_fs_->ClearReadOps();
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_EQ(read_set->GetNumCacheHits(), 0);
+  for (size_t i = 0; i < block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(lookup_calls, 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+}
+
+// Verifies fill_cache=false still permits cache hits while avoiding insertion
+// for newly read blocks. The test warms one block, reads a hit and miss with
+// fill_cache=false, then verifies the miss was not cached.
+TEST_F(IODispatcherTest, FillCacheFalseStillLooksUpExistingCacheEntries) {
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles));
+  ASSERT_NE(table, nullptr);
+  ASSERT_TRUE(table->get_rep()->table_options.block_cache);
+  ASSERT_GE(block_handles.size(), 2);
+
+  auto warm_job = std::make_shared<IOJob>();
+  warm_job->block_handles = {block_handles[0]};
+  warm_job->table = table.get();
+  warm_job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> warm_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(warm_job, &warm_read_set));
+  ASSERT_NE(warm_read_set, nullptr);
+  {
+    CachableEntry<Block> block;
+    ASSERT_OK(warm_read_set->ReadIndex(0, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  warm_read_set.reset();
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  tracking_fs_->ClearReadOps();
+  auto fill_cache_false_job = std::make_shared<IOJob>();
+  fill_cache_false_job->block_handles = {block_handles[0], block_handles[1]};
+  fill_cache_false_job->table = table.get();
+  fill_cache_false_job->job_options.read_options.fill_cache = false;
+  fill_cache_false_job->job_options.read_options.async_io = false;
+  fill_cache_false_job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::shared_ptr<ReadSet> fill_cache_false_read_set;
+  ASSERT_OK(
+      dispatcher->SubmitJob(fill_cache_false_job, &fill_cache_false_read_set));
+  ASSERT_NE(fill_cache_false_read_set, nullptr);
+  EXPECT_EQ(lookup_calls, 2);
+  EXPECT_EQ(fill_cache_false_read_set->GetNumCacheHits(), 1);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (size_t i = 0; i < fill_cache_false_job->block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(fill_cache_false_read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  fill_cache_false_read_set.reset();
+
+  tracking_fs_->ClearReadOps();
+  auto verify_miss_not_cached_job = std::make_shared<IOJob>();
+  verify_miss_not_cached_job->block_handles = {block_handles[1]};
+  verify_miss_not_cached_job->table = table.get();
+  verify_miss_not_cached_job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> verify_miss_not_cached_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(verify_miss_not_cached_job,
+                                  &verify_miss_not_cached_read_set));
+  ASSERT_NE(verify_miss_not_cached_read_set, nullptr);
+  EXPECT_EQ(verify_miss_not_cached_read_set->GetNumCacheHits(), 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+  CachableEntry<Block> block;
+  ASSERT_OK(verify_miss_not_cached_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+// Verifies a read-scoped provider skips both data-block cache lookup and
+// data-block cache insertion. The test warms one block, reads a warmed block
+// plus a miss with the provider enabled, and then confirms the missed block was
+// still not cached.
+TEST_F(IODispatcherTest, ReadScopedProviderSkipsCacheLookupAndInsert) {
+  TestReadScopedBlockBufferProvider provider;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles));
+  ASSERT_NE(table, nullptr);
+  ASSERT_TRUE(table->get_rep()->table_options.block_cache);
+  ASSERT_GE(block_handles.size(), 2);
+
+  auto warm_job = std::make_shared<IOJob>();
+  warm_job->block_handles = {block_handles[0]};
+  warm_job->table = table.get();
+  warm_job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> warm_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(warm_job, &warm_read_set));
+  ASSERT_NE(warm_read_set, nullptr);
+  {
+    CachableEntry<Block> block;
+    ASSERT_OK(warm_read_set->ReadIndex(0, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  warm_read_set.reset();
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  tracking_fs_->ClearReadOps();
+  auto provider_job = std::make_shared<IOJob>();
+  provider_job->block_handles = {block_handles[0], block_handles[1]};
+  provider_job->table = table.get();
+  provider_job->job_options.read_options.async_io = false;
+  provider_job->job_options.read_options.read_scoped_block_buffer_provider =
+      &provider;
+  provider_job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::shared_ptr<ReadSet> provider_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(provider_job, &provider_read_set));
+  ASSERT_NE(provider_read_set, nullptr);
+  EXPECT_EQ(provider_read_set->GetNumCacheHits(), 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+  for (size_t i = 0; i < provider_job->block_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(provider_read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr);
+  }
+  EXPECT_EQ(lookup_calls, 0);
+  provider_read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  tracking_fs_->ClearReadOps();
+  auto verify_miss_not_cached_job = std::make_shared<IOJob>();
+  verify_miss_not_cached_job->block_handles = {block_handles[1]};
+  verify_miss_not_cached_job->table = table.get();
+  verify_miss_not_cached_job->job_options.read_options.async_io = false;
+
+  std::shared_ptr<ReadSet> verify_miss_not_cached_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(verify_miss_not_cached_job,
+                                  &verify_miss_not_cached_read_set));
+  ASSERT_NE(verify_miss_not_cached_read_set, nullptr);
+  EXPECT_EQ(verify_miss_not_cached_read_set->GetNumCacheHits(), 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+  CachableEntry<Block> block;
+  ASSERT_OK(verify_miss_not_cached_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
+// Verifies read-scoped provider cache bypass is also honored when prefetch
+// cannot acquire memory and ReadIndex() falls back to synchronous reading. The
+// test forces the fallback with a one-byte memory budget and checks no
+// data-block cache lookup occurred.
+TEST_F(IODispatcherTest,
+       ReadScopedProviderSkipsCacheLookupForSyncReadFallback) {
+  TestReadScopedBlockBufferProvider provider;
+  IODispatcherOptions opts;
+  opts.max_prefetch_memory_bytes = 1;
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles));
+  ASSERT_NE(table, nullptr);
+  ASSERT_TRUE(table->get_rep()->table_options.block_cache);
+  ASSERT_FALSE(block_handles.empty());
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto provider_job = std::make_shared<IOJob>();
+  provider_job->block_handles = {block_handles[0]};
+  provider_job->table = table.get();
+  provider_job->job_options.read_options.async_io = false;
+  provider_job->job_options.read_options.read_scoped_block_buffer_provider =
+      &provider;
+
+  std::shared_ptr<ReadSet> provider_read_set;
+  ASSERT_OK(dispatcher->SubmitJob(provider_job, &provider_read_set));
+  ASSERT_NE(provider_read_set, nullptr);
+  EXPECT_EQ(provider_read_set->GetNumCacheHits(), 0);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(provider_read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(provider_read_set->GetNumSyncReads(), 1);
+  EXPECT_EQ(lookup_calls, 0);
+  block.Reset();
+  provider_read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Verifies MultiScan passes the read-scoped provider through to IODispatcher.
+// The provider makes supported data-block reads bypass the data-block cache.
+TEST_F(IODispatcherTest, MultiScanReadScopedProviderSkipsLookup) {
+  TestReadScopedBlockBufferProvider provider;
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(10, &table, &block_handles));
+  ASSERT_NE(table, nullptr);
+  ASSERT_TRUE(table->get_rep()->table_options.block_cache);
+
+  int lookup_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::LookupAndPinBlocksInCache:Start",
+      [&](void*) { ++lookup_calls; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  tracking_fs_->ClearReadOps();
+  ReadOptions read_options;
+  read_options.read_scoped_block_buffer_provider = &provider;
+  std::unique_ptr<InternalIterator> iter(table->NewIterator(
+      read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  std::string start = Key(0);
+  std::string limit = Key(64);
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.insert(Slice(start), Slice(limit));
+
+  iter->Prepare(&scan_options);
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(lookup_calls, 0);
+  EXPECT_GT(tracking_fs_->GetMultiReadCount(), 0);
+  iter.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
+// Verifies direct I/O MultiRead uses one aligned provider allocation as the
+// scratch buffer. The test opens the table with direct reads and checks the
+// provider saw one aligned allocation and owns the returned block memory.
+TEST_F(IODispatcherTest, ReadScopedDirectIOUsesAlignedProviderScratch) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             true /* use_direct_reads */));
+  ASSERT_GT(block_handles.size(), 0);
+
+  tracking_fs_->ClearReadOps();
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.read_scoped_block_buffer_provider = &provider;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_EQ(tracking_fs_->GetMultiReadCount(), 1);
+  EXPECT_EQ(provider.allocations(), 1);
+  EXPECT_GT(provider.max_requested_alignment(), 1);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_TRUE(provider.OwnsLiveAddressRange(block.GetValue()->data(),
+                                            block.GetValue()->size()));
+
+  block.Reset();
+  read_set.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
+}
+
+// Verifies the regular block-based table iterator path, outside MultiScan,
+// backs data blocks with the read-scoped provider. The test covers buffered and
+// direct-I/O reads, and compressed and uncompressed blocks; each case seeks a
+// normal iterator and checks its returned value slice points into a live
+// provider allocation.
+TEST_F(IODispatcherTest, RegularIteratorUsesReadScopedProvider) {
+  std::vector<CompressionType> compression_types = {kNoCompression};
+  for (CompressionType supported : GetSupportedCompressions()) {
+    if (supported != kNoCompression) {
+      compression_types.push_back(supported);
+      break;
+    }
+  }
+
+  for (bool use_direct_reads : {false, true}) {
+    for (CompressionType compression_type : compression_types) {
+      SCOPED_TRACE("use_direct_reads=" + std::to_string(use_direct_reads) +
+                   " compression_type=" +
+                   std::to_string(static_cast<int>(compression_type)));
+
+      TestReadScopedBlockBufferProvider provider;
+      BlockBasedTableOptions table_options;
+      table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+      table_options.block_size = 16 * 1024;
+      table_options.no_block_cache = false;
+
+      std::unique_ptr<BlockBasedTable> table;
+      std::vector<BlockHandle> block_handles;
+      ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                                 use_direct_reads, compression_type));
+      ASSERT_GT(block_handles.size(), 0);
+
+      ReadOptions read_options;
+      read_options.read_scoped_block_buffer_provider = &provider;
+      std::unique_ptr<InternalIterator> iter(table->NewIterator(
+          read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+          /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+      iter->SeekToFirst();
+      ASSERT_OK(iter->status());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_GT(provider.allocations(), 0);
+      EXPECT_TRUE(provider.OwnsLiveAddressRange(iter->value().data(),
+                                                iter->value().size()));
+      if (use_direct_reads && compression_type == kNoCompression) {
+        EXPECT_GT(provider.max_requested_alignment(), 1);
+      } else {
+        EXPECT_EQ(provider.max_requested_alignment(), 1);
+      }
+
+      iter.reset();
+      EXPECT_EQ(provider.bytes_outstanding(), 0);
+    }
+  }
 }
 
 TEST_F(IODispatcherTest, MultipleSSTFiles) {
@@ -1990,6 +3003,238 @@ TEST_F(IODispatcherTest, DestructorReleasesMemoryAfterReadIndex) {
   }
 }
 
+// Verifies releasing one block from a coalesced async read removes only that
+// block from the shared async state. The test releases block 0, reads block 1
+// from the same in-flight request, and checks block 0 is not pinned later and
+// the underlying request is not aborted.
+TEST_F(IODispatcherTest, ReleaseBlockRemovesBlockFromCoalescedAsyncRead) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(20, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 4);
+
+  std::vector<BlockHandle> test_handles(block_handles.begin(),
+                                        block_handles.begin() + 4);
+
+  tracking_fs_->ClearReadOps();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+
+  if (tracking_fs_->GetReadAsyncCount() != 1 ||
+      tracking_fs_->GetMultiReadCount() != 0) {
+    ROCKSDB_GTEST_SKIP("Async IO not available (sync fallback used)");
+    return;
+  }
+
+  auto* sync_point = SyncPoint::GetInstance();
+  size_t abort_count = 0;
+  sync_point->SetCallBack("ReadSet::ReleaseAsyncIOForBlock:AbortIO",
+                          [&](void*) { abort_count++; });
+  sync_point->EnableProcessing();
+
+  read_set->ReleaseBlock(0);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+  EXPECT_EQ(abort_count, 0);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(1, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+  EXPECT_EQ(abort_count, 0);
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+}
+
+// Verifies releasing the final block covered by a coalesced async read aborts
+// and deletes the pending IO handle before the async state is released. The
+// test releases all blocks in the request and counts the abort sync point.
+TEST_F(IODispatcherTest, ReleaseLastBlockFromCoalescedAsyncReadAbortsIO) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(20, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 4);
+
+  std::vector<BlockHandle> test_handles(block_handles.begin(),
+                                        block_handles.begin() + 4);
+
+  tracking_fs_->ClearReadOps();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+
+  if (tracking_fs_->GetReadAsyncCount() != 1 ||
+      tracking_fs_->GetMultiReadCount() != 0) {
+    ROCKSDB_GTEST_SKIP("Async IO not available (sync fallback used)");
+    return;
+  }
+
+  auto* sync_point = SyncPoint::GetInstance();
+  size_t abort_count = 0;
+  sync_point->SetCallBack("ReadSet::ReleaseAsyncIOForBlock:AbortIO",
+                          [&](void*) { abort_count++; });
+  sync_point->EnableProcessing();
+
+  for (size_t i = 0; i + 1 < test_handles.size(); ++i) {
+    read_set->ReleaseBlock(i);
+    EXPECT_EQ(abort_count, 0);
+  }
+
+  read_set->ReleaseBlock(test_handles.size() - 1);
+  EXPECT_EQ(abort_count, 1);
+
+  sync_point->DisableProcessing();
+  sync_point->ClearAllCallBacks();
+}
+
+// Uses a controlled async filesystem to force the old failure mode: after block
+// 0 is released, a later Poll() for block 1 completes block 0's raw filesystem
+// callback first. With the old ReleaseBlock() behavior, that callback reaches
+// RandomAccessFileReader::ReadAsyncCallback after AsyncIOState is gone. The fix
+// aborts block 0's handle during ReleaseBlock(), so Poll() must never see it.
+TEST_F(IODispatcherTest, ReleasedDirectIOAsyncReadIsNotCompletedByLaterPoll) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(
+      20, &table, &block_handles, nullptr /* table_options_override */,
+      true /* use_direct_reads */, kNoCompression, false /* allow_mmap_reads */,
+      controlled_env.get());
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 2);
+
+  std::vector<BlockHandle> test_handles = {block_handles[0], block_handles[2]};
+
+  tracking_fs_->ClearReadOps();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 0;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+  ASSERT_EQ(tracking_fs_->GetReadAsyncCount(), test_handles.size());
+  ASSERT_EQ(tracking_fs_->GetMultiReadCount(), 0);
+
+  read_set->ReleaseBlock(0);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(1, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(controlled_fs->abort_count(), 1);
+  EXPECT_EQ(controlled_fs->stray_completion_count(), 0);
+}
+
+// Simulates a MultiScan that reads one block from a first range, skips the
+// remaining pending block in that range, and then seeks into a later range. The
+// skipped block must be aborted before polling the later range so Poll() only
+// drains completions for blocks still owned by the ReadSet.
+TEST_F(IODispatcherTest, ReleasedRangeRemainderDoesNotBlockLaterAsyncRead) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Async IO not supported on this platform");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(
+      30, &table, &block_handles, nullptr /* table_options_override */,
+      true /* use_direct_reads */, kNoCompression, false /* allow_mmap_reads */,
+      controlled_env.get());
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 6);
+
+  // Logical ranges: [0, 1] and [2, 3]. Each block uses a separate async IO.
+  std::vector<BlockHandle> test_handles = {block_handles[0], block_handles[2],
+                                           block_handles[4], block_handles[6]};
+
+  tracking_fs_->ClearReadOps();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 0;
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+  ASSERT_EQ(tracking_fs_->GetReadAsyncCount(), test_handles.size());
+  ASSERT_EQ(tracking_fs_->GetMultiReadCount(), 0);
+
+  controlled_fs->SetCompleteStrayFirst(false);
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_FALSE(read_set->IsBlockAvailable(0));
+  EXPECT_EQ(controlled_fs->abort_count(), 0);
+  EXPECT_EQ(controlled_fs->stray_completion_count(), 0);
+
+  controlled_fs->SetCompleteStrayFirst(true);
+  read_set->ReleaseBlock(1);
+  EXPECT_FALSE(read_set->IsBlockAvailable(1));
+  EXPECT_EQ(controlled_fs->abort_count(), 1);
+
+  ASSERT_OK(read_set->ReadIndex(2, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+  EXPECT_EQ(controlled_fs->abort_count(), 1);
+  EXPECT_EQ(controlled_fs->stray_completion_count(), 1);
+
+  ASSERT_OK(read_set->ReadIndex(3, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+}
+
 // Regression test: when ReadAsync returns NotSupported (e.g., io_uring
 // unavailable at runtime due to seccomp), ExecuteAsyncIO must fall back to
 // sync IO during SubmitJob. Without the fix, no MultiRead is issued during
@@ -2067,6 +3312,36 @@ TEST_F(IODispatcherTest, AsyncNotSupportedFallsBackToSync) {
     ASSERT_NE(block.GetValue(), nullptr)
         << "Block " << i << " should be readable after sync fallback";
   }
+}
+
+TEST_F(IODispatcherTest,
+       RegularIteratorIgnoresReadScopedProviderWithMmapReads) {
+  TestReadScopedBlockBufferProvider provider;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             true /* allow_mmap_reads */));
+  ASSERT_GT(block_handles.size(), 0);
+
+  ReadOptions read_options;
+  read_options.read_scoped_block_buffer_provider = &provider;
+  std::unique_ptr<InternalIterator> iter(table->NewIterator(
+      read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(provider.allocations(), 0);
+
+  iter.reset();
+  EXPECT_EQ(provider.bytes_outstanding(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

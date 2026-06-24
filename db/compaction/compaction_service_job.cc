@@ -431,6 +431,14 @@ Status CompactionServiceCompactionJob::Run() {
   // Please note that input stats will be updated by primary host when all
   // subcompactions are finished
   UpdateCompactionJobOutputStatsFromInternalStats(status, internal_stats_);
+  // Whole-file filtering changes which keys are fed to the iterator, so the
+  // iterator-based input record count should not be treated as exact.
+  for (size_t level = 1; level < c->num_input_levels(); ++level) {
+    if (!c->filtered_input_levels(level).empty()) {
+      compaction_result_->stats.has_accurate_num_input_records = false;
+      break;
+    }
+  }
   // and set fields that are not propagated as part of the update
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
   compaction_result_->stats.is_full_compaction = c->is_full_compaction();

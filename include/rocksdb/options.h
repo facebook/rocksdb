@@ -52,6 +52,7 @@ class MergeOperator;
 class Snapshot;
 class MemTableRepFactory;
 class RateLimiter;
+class ReadScopedBlockBufferProvider;
 class Slice;
 class Statistics;
 class InternalKeyComparator;
@@ -208,15 +209,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // incompressible, the compression implementation will
   // efficiently detect that and fall back on no compression.
   //
-  // If you do not set `compression_opts.level`, or set it to
-  // `CompressionOptions::kDefaultCompressionLevel`, we will attempt to pick the
-  // default corresponding to `compression` as follows:
-  //
-  // - kZSTD: 3
-  // - kZlibCompression: Z_DEFAULT_COMPRESSION (currently -1)
-  // - kLZ4HCCompression: 0
-  // - kLZ4: -1 (i.e., `acceleration=1`; see `CompressionOptions::level` doc)
-  // - For all others, we do not specify a compression level
+  // See CompressionOptions for more options.
   //
   // Dynamically changeable through SetOptions() API
   CompressionType compression;
@@ -1154,7 +1147,46 @@ struct DBOptions {
   // Default: false
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for writes in background flush and compactions.
+  // Use O_DIRECT for compaction-input SST reads only, leaving user reads
+  // buffered. Useful when sequential compaction reads would otherwise evict
+  // the hot user-read working set from the OS page cache. When this is true
+  // and use_direct_reads is false, compaction opens short-lived O_DIRECT
+  // readers for its input files instead of reusing the buffered readers cached
+  // for user reads. This is the read-side analogue of
+  // use_direct_io_for_flush_and_compaction, and the two are often paired on
+  // write-heavy workloads.
+  //
+  // Scope and limits:
+  //   * DBOption scope (applies to all column families); no per-CF setting.
+  //   * Covers compaction inputs only. Blob-file reads and compaction-output
+  //     verification (paranoid_file_checks) still use the buffered path.
+  //   * The ephemeral readers bypass the TableCache and are not counted against
+  //     max_open_files. Non-L0 levels keep one reader open at a time; L0 opens
+  //     all of a subcompaction's overlapping inputs at once, so with large L0
+  //     fan-in and many subcompactions, watch RLIMIT_NOFILE.
+  //   * Every input file is reopened per compaction, so NO_FILE_OPENS and
+  //     TABLE_OPEN_IO_MICROS rise while this is enabled.
+  //
+  // The same SST can be open through both a buffered handle (user reads) and an
+  // O_DIRECT handle (the compaction scan) at once; modern Linux handles this
+  // fine. The flag is neutral or slightly negative for in-memory DBs or
+  // uniform random reads, so measure before enabling.
+  //
+  // Has no effect when use_direct_reads is true (all reads are already
+  // O_DIRECT). Rejected at DB::Open when allow_mmap_reads is set.
+  //
+  // On a filesystem without O_DIRECT support (e.g. tmpfs), DB::Open fails: it
+  // probes by opening the MANIFEST with O_DIRECT. The probe only checks the
+  // filesystem holding the DB directory, so if SST files live elsewhere (via
+  // db_paths/cf_paths) without O_DIRECT, Open succeeds and the first compaction
+  // fails instead.
+  //
+  // Default: false
+  bool use_direct_io_for_compaction_reads = false;
+
+  // Use O_DIRECT for writes in background flush and compactions. See also
+  // use_direct_io_for_compaction_reads, the read-side analogue often paired
+  // with this on write-heavy workloads.
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 
@@ -2018,6 +2050,21 @@ class MultiScanArgs {
   size_t size() const { return original_ranges_.size(); }
   bool empty() const { return original_ranges_.empty(); }
 
+  bool HasBoundedScanRanges() const {
+    if (empty()) {
+      return false;
+    }
+
+    for (const ScanOptions& scan_range : original_ranges_) {
+      if (!scan_range.range.start.has_value() ||
+          !scan_range.range.limit.has_value()) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   void reserve(size_t size) { original_ranges_.reserve(size); }
 
   operator std::vector<ScanOptions>*() { return &original_ranges_; }
@@ -2389,6 +2436,30 @@ struct ReadOptions {
   // the UDI is a secondary index and you want to explicitly select it for
   // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
+
+  // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by
+  // scans using this ReadOptions. Applications that set it are attempting
+  // advanced performance optimizations and are responsible for ensuring the
+  // provider outlives the iterator/read scope and any provider-backed data that
+  // can remain pinned by that scope.
+  //
+  // This is a raw pointer rather than a shared_ptr because ReadOptions is
+  // copied through stack frames and iterator internals; a shared_ptr would add
+  // refcount overhead to those copies. An internal shadow ReadOptions that
+  // strips ownership would add maintenance overhead for this advanced option.
+  //
+  // Current support is limited to block-based table iterators and MultiScan
+  // data-block reads, and is ignored when mmap reads are enabled. When set,
+  // supported scan reads bypass the data-block cache and use provider-backed
+  // final data-block memory. RocksDB may still use ordinary temporary scratch
+  // for serialized block bytes, such as when a block may be compressed. When
+  // unset, scans use the normal RocksDB data-block backing for the table: use
+  // the configured block cache when present, otherwise use RocksDB-owned block
+  // memory. Index/filter blocks keep their normal block-cache behavior.
+  //
+  // TODO: Extend support to point lookups (Get/MultiGet) once those paths can
+  // preserve provider-backed block ownership.
+  ReadScopedBlockBufferProvider* read_scoped_block_buffer_provider = nullptr;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -2880,7 +2951,29 @@ struct IngestExternalFileOptions {
   // When ingesting to multiple families, this option should be the same across
   // ingestion options.
   bool fill_cache = true;
+
+  // Controls whether external file ingestion should prefetch index and filter
+  // blocks while opening table readers during commit. Setting this to false can
+  // reduce commit latency for bulk loads into Lmax when
+  // (BlockBasedTableOptions::cache_index_and_filter_blocks=true or partitioned
+  // filters/indexes are enabled).
+  bool prefetch_lmax_index_and_filter_blocks = true;
+
+  // Maximum number of threads used to open table readers for the files being
+  // ingested during commit, can speed up ingestion performance, when ingesting
+  // multiple files at once.
+  int file_opening_threads = 1;
+
+  bool operator==(const IngestExternalFileOptions& rhs) const = default;
 };
+
+// Opaque per-file metadata accepted through IngestExternalFileArg::file_infos.
+// Supplying it lets DB::IngestExternalFiles() and DB::PrepareFileIngestion()
+// prepare ingestion without re-opening and scanning the SST to recompute file
+// metadata. It is produced by SstFileWriter::Finish() for writer-created files
+// or by DB::GetPreparedFileInfoForExternalSstIngestion() for live DB-generated
+// files.
+struct PreparedFileInfo;
 
 // It is valid that files_checksums and files_checksum_func_names are both
 // empty (no checksum information is provided for ingestion). Otherwise,
@@ -2918,6 +3011,14 @@ struct IngestExternalFileArg {
   // exclusive, so it is best not to depend on one or the other until it is
   // sorted out.
   std::optional<RangeOpt> atomic_replace_range;
+
+  // Optimizes for prepare performance, see `PreparedFileInfo` for details.
+  // The owning handle must stay alive until ingestion completes.
+  // Not compatible with options.write_global_seqno (the file is not opened, so
+  // a global seqno cannot be written back into it). Because the file is not
+  // opened, ingestion does not read its storage temperature and trusts the
+  // caller-supplied `file_temperature` hint as-is.
+  std::vector<const PreparedFileInfo*> file_infos;
 };
 
 enum TraceFilterType : uint64_t {

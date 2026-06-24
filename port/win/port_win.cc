@@ -266,6 +266,8 @@ void Crash(const std::string& srcfile, int srcline) {
   abort();
 }
 
+void ImmediateExit(int code) { _exit(code); }
+
 int GetMaxOpenFiles() { return -1; }
 
 // Assume 4KB page size

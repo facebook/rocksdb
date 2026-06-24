@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="260" viewBox="0 0 760 260" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="old-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#546e7a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="260" fill="#ffffff"/>
+
+  <text x="380" y="30" text-anchor="middle" font-size="17" font-weight="bold" fill="#263238">Old FIFO intra-L0 picker</text>
+  <text x="380" y="52" text-anchor="middle" font-size="12" fill="#546e7a">The guard is based on write_buffer_size, but BlobDB SST files can be much smaller.</text>
+
+  <text x="36" y="90" font-size="12" font-weight="bold" fill="#37474f">Round 1</text>
+  <rect x="100" y="72" width="54" height="36" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.4"/>
+  <text x="127" y="94" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">64 KB</text>
+  <rect x="164" y="72" width="54" height="36" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.4"/>
+  <text x="191" y="94" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">64 KB</text>
+  <rect x="228" y="72" width="54" height="36" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.4"/>
+  <text x="255" y="94" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">64 KB</text>
+  <rect x="292" y="72" width="54" height="36" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.4"/>
+  <text x="319" y="94" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">64 KB</text>
+  <line x1="365" y1="90" x2="440" y2="90" stroke="#546e7a" stroke-width="2" marker-end="url(#old-arrow)"/>
+  <rect x="465" y="72" width="86" height="36" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.6"/>
+  <text x="508" y="94" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">256 KB</text>
+  <text x="590" y="88" font-size="10.5" fill="#546e7a">still below</text>
+  <text x="590" y="101" font-size="10.5" fill="#546e7a">70 MB guard</text>
+
+  <text x="36" y="153" font-size="12" font-weight="bold" fill="#37474f">Later</text>
+  <rect x="100" y="135" width="74" height="36" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.6"/>
+  <text x="137" y="157" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">2.5 MB</text>
+  <rect x="184" y="135" width="74" height="36" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.6"/>
+  <text x="221" y="157" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">2.5 MB</text>
+  <rect x="268" y="135" width="74" height="36" rx="5" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.6"/>
+  <text x="305" y="157" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">2.5 MB</text>
+  <line x1="365" y1="153" x2="440" y2="153" stroke="#546e7a" stroke-width="2" marker-end="url(#old-arrow)"/>
+  <rect x="465" y="135" width="110" height="36" rx="5" fill="#ffebee" stroke="#c62828" stroke-width="1.8"/>
+  <text x="520" y="157" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">larger SST</text>
+  <text x="590" y="150" font-size="10.5" fill="#546e7a">can be</text>
+  <text x="590" y="163" font-size="10.5" fill="#546e7a">selected again</text>
+
+  <rect x="100" y="202" width="560" height="30" rx="5" fill="#fafafa" stroke="#cfd8dc" stroke-width="1.2"/>
+  <rect x="100" y="202" width="420" height="30" rx="5" fill="#eceff1"/>
+  <text x="110" y="222" font-size="11" fill="#37474f">write_buffer_size guard: 1.1 x 64 MB ~= 70 MB</text>
+  <line x1="520" y1="198" x2="520" y2="236" stroke="#c62828" stroke-width="2"/>
+  <text x="533" y="215" font-size="10" font-weight="bold" fill="#b71c1c">BlobDB SSTs</text>
+  <text x="533" y="227" font-size="10" font-weight="bold" fill="#b71c1c">stay below this</text>
+</svg>

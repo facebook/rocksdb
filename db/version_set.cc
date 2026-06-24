@@ -18,7 +18,9 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "db/blob/blob_fetcher.h"
@@ -69,7 +71,6 @@
 #include "table/multiget_context.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
-#include "table/two_level_iterator.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
@@ -108,6 +109,181 @@ int FindFileInRange(const InternalKeyComparator& icmp,
   };
   const auto& b = file_level.files;
   return static_cast<int>(std::lower_bound(b + left, b + right, key, cmp) - b);
+}
+
+InternalKey MultiScanInternalKey(const Slice& user_key,
+                                 const Comparator* user_comparator) {
+  const size_t timestamp_size = user_comparator->timestamp_size();
+  if (timestamp_size == 0) {
+    return InternalKey(user_key, kMaxSequenceNumber, kValueTypeForSeek);
+  }
+
+  std::string key_with_ts;
+  AppendKeyWithMaxTimestamp(&key_with_ts, user_key, timestamp_size);
+  return InternalKey(key_with_ts, kMaxSequenceNumber, kValueTypeForSeek);
+}
+
+bool MultiScanRangeOverlapsFile(const UserComparatorWrapper& user_comparator,
+                                const ScanOptions& scan_opts,
+                                const FdWithKeyRange& file) {
+  assert(scan_opts.range.start.has_value());
+  assert(scan_opts.range.limit.has_value());
+
+  if (user_comparator.CompareWithoutTimestamp(
+          scan_opts.range.limit.value(), /*a_has_ts=*/false,
+          ExtractUserKey(file.smallest_key), /*b_has_ts=*/true) <= 0) {
+    return false;
+  }
+
+  if (user_comparator.CompareWithoutTimestamp(
+          scan_opts.range.start.value(), /*a_has_ts=*/false,
+          ExtractUserKey(file.largest_key), /*b_has_ts=*/true) > 0) {
+    return false;
+  }
+
+  return true;
+}
+
+void AddMultiScanFileIndex(std::vector<size_t>* file_indexes,
+                           std::vector<char>* selected, size_t file_index) {
+  if ((*selected)[file_index]) {
+    return;
+  }
+  (*selected)[file_index] = true;
+  file_indexes->push_back(file_index);
+}
+
+template <typename OnOverlappingFile>
+bool NotifyMultiScanOverlappingFile(OnOverlappingFile& on_overlapping_file,
+                                    size_t file_index,
+                                    const ScanOptions& scan_range) {
+  if constexpr (std::is_same_v<std::invoke_result_t<OnOverlappingFile, size_t,
+                                                    const ScanOptions&>,
+                               bool>) {
+    return on_overlapping_file(file_index, scan_range);
+  } else {
+    on_overlapping_file(file_index, scan_range);
+    return true;
+  }
+}
+
+template <typename OnOverlappingFile>
+void ForEachMultiScanOverlappingFile(const InternalKeyComparator& icmp,
+                                     const UserComparatorWrapper& ucmp,
+                                     const LevelFilesBrief& file_level,
+                                     int level, const MultiScanArgs& scan_opts,
+                                     OnOverlappingFile on_overlapping_file) {
+  assert(scan_opts.HasBoundedScanRanges());
+  if (file_level.num_files == 0) {
+    return;
+  }
+
+  if (level == 0) {
+    for (size_t i = 0; i < file_level.num_files; ++i) {
+      for (const ScanOptions& scan_range : scan_opts.GetScanRanges()) {
+        if (MultiScanRangeOverlapsFile(ucmp, scan_range, file_level.files[i])) {
+          if (!NotifyMultiScanOverlappingFile(on_overlapping_file, i,
+                                              scan_range)) {
+            return;
+          }
+        }
+
+        if (ucmp.CompareWithoutTimestamp(
+                scan_range.range.start.value(), /*a_has_ts=*/false,
+                ExtractUserKey(file_level.files[i].largest_key),
+                /*b_has_ts=*/true) > 0) {
+          break;
+        }
+      }
+    }
+    return;
+  }
+
+  for (const ScanOptions& scan_range : scan_opts.GetScanRanges()) {
+    const InternalKey start_key = MultiScanInternalKey(
+        scan_range.range.start.value(), ucmp.user_comparator());
+    size_t first_file = FindFile(icmp, file_level, start_key.Encode());
+    if (first_file >= file_level.num_files) {
+      continue;
+    }
+
+    const InternalKey limit_key = MultiScanInternalKey(
+        scan_range.range.limit.value(), ucmp.user_comparator());
+    size_t last_file = FindFile(icmp, file_level, limit_key.Encode());
+    if (last_file >= file_level.num_files) {
+      last_file = file_level.num_files - 1;
+    }
+
+    for (size_t i = first_file; i <= last_file; ++i) {
+      if (MultiScanRangeOverlapsFile(ucmp, scan_range, file_level.files[i])) {
+        if (!NotifyMultiScanOverlappingFile(on_overlapping_file, i,
+                                            scan_range)) {
+          return;
+        }
+      }
+    }
+  }
+}
+
+std::vector<size_t> GetMultiScanOverlappingFiles(
+    const InternalKeyComparator& icmp, const UserComparatorWrapper& ucmp,
+    const LevelFilesBrief& file_level, int level,
+    const MultiScanArgs& scan_opts,
+    size_t max_file_indexes = std::numeric_limits<size_t>::max()) {
+  std::vector<size_t> file_indexes;
+  if (!scan_opts.HasBoundedScanRanges() || file_level.num_files == 0) {
+    return file_indexes;
+  }
+  file_indexes.reserve(
+      std::min(static_cast<size_t>(file_level.num_files), max_file_indexes));
+
+  std::vector<char> selected(file_level.num_files, false);
+  ForEachMultiScanOverlappingFile(
+      icmp, ucmp, file_level, level, scan_opts,
+      [&](size_t file_index, const ScanOptions& /*scan_range*/) {
+        if (file_indexes.size() >= max_file_indexes) {
+          return false;
+        }
+        AddMultiScanFileIndex(&file_indexes, &selected, file_index);
+        return file_indexes.size() < max_file_indexes;
+      });
+
+  return file_indexes;
+}
+
+void AddTableIteratorForLevel(
+    ColumnFamilyData* cfd, const ReadOptions& read_options,
+    const FileOptions& soptions, const MutableCFOptions& mutable_cf_options,
+    MergeIteratorBuilder* merge_iter_builder, Arena* arena,
+    const LevelFilesBrief& file_level, int level, size_t file_index,
+    bool skip_filters, size_t max_file_size_for_l0_meta_pin,
+    bool allow_unprepared_value, SequenceNumber read_seq) {
+  std::unique_ptr<TruncatedRangeDelIterator> tombstone_iter = nullptr;
+  const auto& file = file_level.files[file_index];
+  auto table_iter = cfd->table_cache()->NewIterator(
+      read_options, soptions, cfd->internal_comparator(), *file.file_metadata,
+      /*range_del_agg=*/nullptr, mutable_cf_options, nullptr,
+      cfd->internal_stats()->GetFileReadHist(level),
+      TableReaderCaller::kUserIterator, arena, skip_filters, level,
+      max_file_size_for_l0_meta_pin,
+      /*smallest_compaction_key=*/nullptr,
+      /*largest_compaction_key=*/nullptr, allow_unprepared_value, &read_seq,
+      &tombstone_iter,
+      /*maybe_pin_table_handle=*/true);
+#ifndef NDEBUG
+  TEST_SYNC_POINT_CALLBACK("Version::AddIteratorsForLevel:AddedFile",
+                           file.file_metadata);
+  std::pair<bool, bool> iterator_type(true /* is_block_based_table_iterator */,
+                                      false /* is_level_iterator */);
+  TEST_SYNC_POINT_CALLBACK("Version::AddIteratorsForLevel:IteratorType",
+                           &iterator_type);
+#endif
+  if (read_options.ignore_range_deletions) {
+    merge_iter_builder->AddIterator(table_iter);
+  } else {
+    merge_iter_builder->AddPointAndTombstoneIterator(table_iter,
+                                                     std::move(tombstone_iter));
+  }
 }
 
 Status OverlapWithIterator(const Comparator* ucmp,
@@ -966,6 +1142,15 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 
 namespace {
 
+TableCacheOpenOptions GetCompactionTableCacheOpenOptions(
+    bool open_ephemeral_table_reader) {
+  TableCacheOpenOptions options;
+  options.open_ephemeral_table_reader = open_ephemeral_table_reader;
+  options.avoid_shared_metadata_cache = open_ephemeral_table_reader;
+  options.skip_filters = open_ephemeral_table_reader;
+  return options;
+}
+
 class LevelIterator final : public InternalIterator {
  public:
   // NOTE: many of the const& parameters are saved in this object (so
@@ -981,7 +1166,9 @@ class LevelIterator final : public InternalIterator {
       bool allow_unprepared_value = false,
       std::unique_ptr<TruncatedRangeDelIterator>*** range_tombstone_iter_ptr_ =
           nullptr,
-      Statistics* db_statistics = nullptr, SystemClock* clock = nullptr)
+      SequenceNumber read_seq = kMaxSequenceNumber,
+      Statistics* db_statistics = nullptr, SystemClock* clock = nullptr,
+      bool open_ephemeral_table_reader = false)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -997,9 +1184,11 @@ class LevelIterator final : public InternalIterator {
         pinned_iters_mgr_(nullptr),
         compaction_boundaries_(compaction_boundaries),
         range_tombstone_iter_(nullptr),
-        read_seq_(read_options.snapshot
-                      ? read_options.snapshot->GetSequenceNumber()
-                      : kMaxSequenceNumber),
+        range_tombstone_iter_required_(range_tombstone_iter_ptr_ != nullptr),
+        read_seq_(read_seq != kMaxSequenceNumber ||
+                          read_options.snapshot == nullptr
+                      ? read_seq
+                      : read_options.snapshot->GetSequenceNumber()),
         level_(level),
         skip_filters_(skip_filters),
         allow_unprepared_value_(allow_unprepared_value),
@@ -1007,7 +1196,9 @@ class LevelIterator final : public InternalIterator {
         to_return_sentinel_(false),
         scan_opts_(nullptr),
         db_statistics_(db_statistics),
-        clock_(clock) {
+        clock_(clock),
+        table_cache_open_options_(
+            GetCompactionTableCacheOpenOptions(open_ephemeral_table_reader)) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
     if (range_tombstone_iter_ptr_) {
@@ -1146,69 +1337,18 @@ class LevelIterator final : public InternalIterator {
     assert(so->GetComparator() == user_comparator_.user_comparator());
 
     file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
-    for (size_t k = 0; k < scan_opts_->size(); k++) {
-      const ScanOptions& opt = scan_opts_->GetScanRanges().at(k);
-      auto start = opt.range.start;
-      auto end = opt.range.limit;
-
-      if (!start.has_value()) {
-        continue;
-      }
-
-      // We can capture this case in the future, but for now lets skip this.
-      if (!end.has_value()) {
-        continue;
-      }
-
-      const size_t timestamp_size =
-          user_comparator_.user_comparator()->timestamp_size();
-      InternalKey istart, iend;
-      if (timestamp_size == 0) {
-        istart =
-            InternalKey(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
-        // end key is exclusive for multiscan
-        iend = InternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
-      } else {
-        std::string start_key_with_ts, end_key_with_ts;
-        AppendKeyWithMaxTimestamp(&start_key_with_ts, start.value(),
-                                  timestamp_size);
-        AppendKeyWithMaxTimestamp(&end_key_with_ts, end.value(),
-                                  timestamp_size);
-        istart = InternalKey(start_key_with_ts, kMaxSequenceNumber,
-                             kValueTypeForSeek);
-        // end key is exclusive for multiscan
-        iend =
-            InternalKey(end_key_with_ts, kMaxSequenceNumber, kValueTypeForSeek);
-      }
-
-      // TODO: This needs to be optimized, right now we iterate twice, which
-      // we dont need to. We can do this in N rather than 2N.
-      size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
-      size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
-
-      // We need to check the relevant cases
-      // Cases:
-      // 1. [  S        E  ]
-      // 2. [  S  ]  [  E  ]
-      // 3. [  S  ] ...... [  E  ]
-      for (auto i = fstart; i <= fend; i++) {
-        if (i < flevel_->num_files) {
-          // FindFile only compares against the largest_key, so we need this
-          // additional check to ensure the scan range overlaps the file
-          if (icomparator_.InternalKeyComparator::Compare(
-                  iend.Encode(), flevel_->files[i].smallest_key) < 0) {
-            continue;
-          }
-          auto const metadata = flevel_->files[i].file_metadata;
+    ForEachMultiScanOverlappingFile(
+        icomparator_, user_comparator_, *flevel_, level_, *scan_opts_,
+        [&](size_t file_index, const ScanOptions& scan_range) {
+          auto const metadata = flevel_->files[file_index].file_metadata;
           if (metadata->FileIsStandAloneRangeTombstone()) {
             // Skip stand alone range deletion files.
-            continue;
+            return;
           }
-          auto& args = GetMultiScanArgForFile(i);
-          args.insert(start.value(), end.value(), opt.property_bag);
-        }
-      }
-    }
+          auto& args = GetMultiScanArgForFile(file_index);
+          args.insert(scan_range.range.start.value(),
+                      scan_range.range.limit.value(), scan_range.property_bag);
+        });
 
     StopWatch timer(clock_, db_statistics_, MULTISCAN_PREPARE_ITERATORS);
 
@@ -1221,7 +1361,8 @@ class LevelIterator final : public InternalIterator {
                           file_to_arg.first));
     }
 
-    if (so->use_async_io) {
+    if (so->use_async_io &&
+        (!range_tombstone_iter_required_ || range_tombstone_iter_ != nullptr)) {
       auto before = file_index_;
       // Pre-create and prepare only relevant file iterators
       for (auto& file_to_arg : *file_to_scan_opts_) {
@@ -1314,7 +1455,9 @@ class LevelIterator final : public InternalIterator {
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_, &read_seq_,
         range_tombstone_iter_,
-        /*maybe_pin_table_handle=*/true);
+        /*maybe_pin_table_handle=*/
+        !table_cache_open_options_.open_ephemeral_table_reader,
+        /*file_open_metadata=*/nullptr, table_cache_open_options_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1371,6 +1514,7 @@ class LevelIterator final : public InternalIterator {
   //
   // *range_tombstone_iter_ points to range tombstones of the current SST file
   std::unique_ptr<TruncatedRangeDelIterator>* range_tombstone_iter_;
+  bool range_tombstone_iter_required_;
 
   // The sentinel key to be returned
   Slice sentinel_;
@@ -1391,6 +1535,7 @@ class LevelIterator final : public InternalIterator {
 
   Statistics* db_statistics_ = nullptr;
   SystemClock* clock_ = nullptr;
+  TableCacheOpenOptions table_cache_open_options_;
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
@@ -1680,22 +1825,20 @@ bool LevelIterator::SkipEmptyFileForward() {
       if (scan_opts_ && FileHasMultiScanArg(file_index_)) {
         const ScanOptions& opts =
             GetMultiScanArgForFile(file_index_).GetScanRanges().front();
-        if (opts.range.start.has_value()) {
-          InternalKey target;
-          const size_t ts_size =
-              user_comparator_.user_comparator()->timestamp_size();
-          if (ts_size == 0) {
-            target = InternalKey(opts.range.start.value(), kMaxSequenceNumber,
-                                 kValueTypeForSeek);
-          } else {
-            std::string seek_key;
-            AppendKeyWithMaxTimestamp(&seek_key, opts.range.start.value(),
-                                      ts_size);
-            target =
-                InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
-          }
-          file_iter_.Seek(target.Encode());
+        assert(opts.range.start.has_value());
+        InternalKey target;
+        const size_t ts_size =
+            user_comparator_.user_comparator()->timestamp_size();
+        if (ts_size == 0) {
+          target = InternalKey(opts.range.start.value(), kMaxSequenceNumber,
+                               kValueTypeForSeek);
+        } else {
+          std::string seek_key;
+          AppendKeyWithMaxTimestamp(&seek_key, opts.range.start.value(),
+                                    ts_size);
+          target = InternalKey(seek_key, kMaxSequenceNumber, kValueTypeForSeek);
         }
+        file_iter_.Seek(target.Encode());
       } else {
         file_iter_.SeekToFirst();
       }
@@ -1742,14 +1885,8 @@ void LevelIterator::SkipEmptyFileBackward() {
 
 #ifndef NDEBUG
 bool LevelIterator::OverlapRange(const ScanOptions& opts, size_t file_index) {
-  return (user_comparator_.CompareWithoutTimestamp(
-              opts.range.start.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index].largest_key),
-              /*b_has_ts=*/true) <= 0 &&
-          user_comparator_.CompareWithoutTimestamp(
-              opts.range.limit.value(), /*a_has_ts=*/false,
-              ExtractUserKey(flevel_->files[file_index].smallest_key),
-              /*b_has_ts=*/true) > 0);
+  return MultiScanRangeOverlapsFile(user_comparator_, opts,
+                                    flevel_->files[file_index]);
 }
 #endif
 
@@ -2271,7 +2408,9 @@ InternalIterator* Version::TEST_GetLevelIterator(
       mutable_cf_options_, cfd_->internal_stats()->GetFileReadHist(level),
       TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
       nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
-      allow_unprepared_value, &tombstone_iter_ptr, db_statistics_, clock_);
+      allow_unprepared_value,
+      read_options.ignore_range_deletions ? nullptr : &tombstone_iter_ptr,
+      kMaxSequenceNumber, db_statistics_, clock_);
   if (read_options.ignore_range_deletions) {
     merge_iter_builder->AddIterator(level_iter);
   } else {
@@ -2342,19 +2481,22 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 void Version::AddIterators(const ReadOptions& read_options,
                            const FileOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder,
-                           bool allow_unprepared_value) {
+                           bool allow_unprepared_value, SequenceNumber read_seq,
+                           const MultiScanArgs* scan_opts) {
   assert(storage_info_.finalized_);
 
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
     AddIteratorsForLevel(read_options, soptions, merge_iter_builder, level,
-                         allow_unprepared_value);
+                         allow_unprepared_value, read_seq, scan_opts);
   }
 }
 
 void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const FileOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
-                                   int level, bool allow_unprepared_value) {
+                                   int level, bool allow_unprepared_value,
+                                   SequenceNumber read_seq,
+                                   const MultiScanArgs* scan_opts) {
   assert(storage_info_.finalized_);
   if (level >= storage_info_.num_non_empty_levels()) {
     // This is an empty level
@@ -2365,37 +2507,95 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   }
 
   auto* arena = merge_iter_builder->GetArena();
+  const LevelFilesBrief& file_level = storage_info_.LevelFilesBrief(level);
+  const UserComparatorWrapper user_comparator(
+      cfd_->internal_comparator().user_comparator());
+
+  if (scan_opts != nullptr) {
+    const std::vector<size_t> file_indexes = GetMultiScanOverlappingFiles(
+        cfd_->internal_comparator(), user_comparator, file_level, level,
+        *scan_opts, level == 0 ? std::numeric_limits<size_t>::max() : 2);
+    if (file_indexes.empty()) {
+      return;
+    }
+
+    if (level == 0) {
+      const bool should_sample = should_sample_file_read();
+      for (size_t file_index : file_indexes) {
+        AddTableIteratorForLevel(
+            cfd_, read_options, soptions, mutable_cf_options_,
+            merge_iter_builder, arena, file_level, level, file_index,
+            /*skip_filters=*/false, max_file_size_for_l0_meta_pin_,
+            allow_unprepared_value, read_seq);
+        if (should_sample) {
+          sample_file_read_inc(file_level.files[file_index].file_metadata);
+        }
+      }
+      return;
+    }
+
+    if (file_indexes.size() == 1) {
+      AddTableIteratorForLevel(cfd_, read_options, soptions,
+                               mutable_cf_options_, merge_iter_builder, arena,
+                               file_level, level, file_indexes.front(),
+                               IsFilterSkipped(level),
+                               /*max_file_size_for_l0_meta_pin=*/0,
+                               allow_unprepared_value, read_seq);
+      return;
+    }
+
+#ifndef NDEBUG
+    for (size_t file_index = 0; file_index < file_level.num_files;
+         ++file_index) {
+      TEST_SYNC_POINT_CALLBACK("Version::AddIteratorsForLevel:AddedFile",
+                               file_level.files[file_index].file_metadata);
+    }
+#endif
+    auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
+    std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr = nullptr;
+    auto level_iter = new (mem) LevelIterator(
+        cfd_->table_cache(), read_options, soptions,
+        cfd_->internal_comparator(), &file_level, mutable_cf_options_,
+        cfd_->internal_stats()->GetFileReadHist(level),
+        TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
+        /*range_del_agg=*/nullptr,
+        /*compaction_boundaries=*/nullptr, allow_unprepared_value,
+        read_options.ignore_range_deletions ? nullptr : &tombstone_iter_ptr,
+        read_seq, db_statistics_, clock_);
+#ifndef NDEBUG
+    std::pair<bool, bool> iterator_type(
+        false /* is_block_based_table_iterator */,
+        true /* is_level_iterator */);
+    TEST_SYNC_POINT_CALLBACK("Version::AddIteratorsForLevel:IteratorType",
+                             &iterator_type);
+#endif
+    if (read_options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(level_iter);
+    } else {
+      assert(tombstone_iter_ptr);
+      merge_iter_builder->AddPointAndTombstoneIterator(
+          level_iter, nullptr /* tombstone_iter */, tombstone_iter_ptr);
+    }
+    return;
+  }
+
   if (level == 0) {
     // Merge all level zero files together since they may overlap
-    std::unique_ptr<TruncatedRangeDelIterator> tombstone_iter = nullptr;
-    for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
-      const auto& file = storage_info_.LevelFilesBrief(0).files[i];
-      auto table_iter = cfd_->table_cache()->NewIterator(
-          read_options, soptions, cfd_->internal_comparator(),
-          *file.file_metadata, /*range_del_agg=*/nullptr, mutable_cf_options_,
-          nullptr, cfd_->internal_stats()->GetFileReadHist(0),
-          TableReaderCaller::kUserIterator, arena,
-          /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
-          /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr, allow_unprepared_value,
-          /*range_del_read_seqno=*/nullptr, &tombstone_iter,
-          /*maybe_pin_table_handle=*/true);
-      if (read_options.ignore_range_deletions) {
-        merge_iter_builder->AddIterator(table_iter);
-      } else {
-        merge_iter_builder->AddPointAndTombstoneIterator(
-            table_iter, std::move(tombstone_iter));
+    const bool should_sample = should_sample_file_read();
+    for (size_t i = 0; i < file_level.num_files; i++) {
+      AddTableIteratorForLevel(
+          cfd_, read_options, soptions, mutable_cf_options_, merge_iter_builder,
+          arena, file_level, level, i,
+          /*skip_filters=*/false, max_file_size_for_l0_meta_pin_,
+          allow_unprepared_value, read_seq);
+      if (should_sample) {
+        // Count once for every L0 file. This is done per iterator creation
+        // rather than Seek(), while files in other levels are sampled on
+        // seek/next/prev.
+        sample_file_read_inc(file_level.files[i].file_metadata);
       }
     }
-    if (should_sample_file_read()) {
-      // Count ones for every L0 files. This is done per iterator creation
-      // rather than Seek(), while files in other levels are sampled on
-      // seek/next/prev.
-      for (FileMetaData* meta : storage_info_.LevelFiles(0)) {
-        sample_file_read_inc(meta);
-      }
-    }
-  } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
+  } else if (file_level.num_files > 0) {
     // For levels > 0, we can use a concatenating iterator that sequentially
     // walks through the non-overlapping files in the level, opening them
     // lazily.
@@ -2403,12 +2603,13 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr = nullptr;
     auto level_iter = new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
-        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_, cfd_->internal_stats()->GetFileReadHist(level),
+        cfd_->internal_comparator(), &file_level, mutable_cf_options_,
+        cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
         /*range_del_agg=*/nullptr,
         /*compaction_boundaries=*/nullptr, allow_unprepared_value,
-        &tombstone_iter_ptr, db_statistics_, clock_);
+        read_options.ignore_range_deletions ? nullptr : &tombstone_iter_ptr,
+        read_seq, db_statistics_, clock_);
     if (read_options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(level_iter);
     } else {
@@ -2464,7 +2665,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
         mutable_cf_options_, cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        &range_del_agg, nullptr, false, nullptr, db_statistics_, clock_));
+        &range_del_agg, nullptr, false, nullptr, kMaxSequenceNumber,
+        db_statistics_, clock_));
     status = OverlapWithIterator(ucmp, smallest_user_key, largest_user_key,
                                  iter.get(), overlap);
   }
@@ -5520,16 +5722,19 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const autovector<VersionEdit*>& edit_list;
   const std::function<void(const Status&)> manifest_write_callback;
+  int max_file_opening_threads;
 
   explicit ManifestWriter(
       InstrumentedMutex* mu, ColumnFamilyData* _cfd,
       const autovector<VersionEdit*>& e,
-      const std::function<void(const Status&)>& manifest_wcb)
+      const std::function<void(const Status&)>& manifest_wcb,
+      int _max_file_opening_threads = 1)
       : done(false),
         cv(mu),
         cfd(_cfd),
         edit_list(e),
-        manifest_write_callback(manifest_wcb) {}
+        manifest_write_callback(manifest_wcb),
+        max_file_opening_threads(_max_file_opening_threads) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
   bool IsAllWalEdits() const {
@@ -5904,6 +6109,10 @@ Status VersionSet::ProcessManifestWrites(
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
 
+  // Supports opening table readers with multiple threads, mostly useful for
+  // batched external sst file ingestion.
+  int batch_max_file_opening_threads = 1;
+
   assert(!manifest_writers_.empty());
   assert(manifest_writers_.front() == &first_writer);
 
@@ -5940,6 +6149,9 @@ Status VersionSet::ProcessManifestWrites(
     for (;;) {
       assert(!(*it)->edit_list.front()->IsColumnFamilyManipulation());
       last_writer = *it;
+      batch_max_file_opening_threads =
+          std::max(batch_max_file_opening_threads,
+                   last_writer->max_file_opening_threads);
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
       if (last_writer->cfd->IsDropped()) {
@@ -6198,7 +6410,7 @@ Status VersionSet::ProcessManifestWrites(
                builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
         s = builder_guards[i]->version_builder()->LoadTableHandlers(
-            cfd->internal_stats(), 1 /* max_threads */,
+            cfd->internal_stats(), batch_max_file_opening_threads,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */, versions[i]->GetMutableCFOptions(),
             MaxFileSizeForL0MetaPin(versions[i]->GetMutableCFOptions()),
@@ -6561,7 +6773,7 @@ Status VersionSet::LogAndApply(
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
     const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
-    const std::function<Status()>& pre_cb) {
+    const std::function<Status()>& pre_cb, int max_file_opening_threads) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -6593,7 +6805,8 @@ Status VersionSet::LogAndApply(
   for (int i = 0; i < num_cfds; ++i) {
     const auto wcb =
         manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
-    writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb);
+    writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb,
+                         max_file_opening_threads);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
@@ -7859,7 +8072,7 @@ InternalIterator* VersionSet::MakeInputIterator(
     RangeDelAggregator* range_del_agg,
     const FileOptions& file_options_compactions,
     const std::optional<const Slice>& start,
-    const std::optional<const Slice>& end) {
+    const std::optional<const Slice>& end, bool open_ephemeral_table_reader) {
   auto cfd = c->column_family_data();
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
@@ -7878,6 +8091,8 @@ InternalIterator* VersionSet::MakeInputIterator(
       range_tombstones;
   size_t num = 0;
   [[maybe_unused]] size_t num_input_files = 0;
+  const TableCacheOpenOptions table_cache_open_options =
+      GetCompactionTableCacheOpenOptions(open_ephemeral_table_reader);
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     const LevelFilesBrief* flevel = c->input_levels(which);
     num_input_files += flevel->num_files;
@@ -7914,7 +8129,9 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*largest_compaction_key=*/nullptr,
               /*allow_unprepared_value=*/false,
               /*range_del_read_seqno=*/nullptr,
-              /*range_del_iter=*/&range_tombstone_iter);
+              /*range_del_iter=*/&range_tombstone_iter,
+              /*maybe_pin_table_handle=*/false,
+              /*file_open_metadata=*/nullptr, table_cache_open_options);
           range_tombstones.emplace_back(std::move(range_tombstone_iter),
                                         nullptr);
         }
@@ -7929,7 +8146,8 @@ InternalIterator* VersionSet::MakeInputIterator(
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
             c->boundaries(which), false, &tombstone_iter_ptr,
-            db_options_->statistics.get(), clock_);
+            kMaxSequenceNumber, db_options_->statistics.get(), clock_,
+            open_ephemeral_table_reader);
         range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
       }
     }

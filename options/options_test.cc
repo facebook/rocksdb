@@ -171,6 +171,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"allow_mmap_reads", "true"},
       {"allow_mmap_writes", "false"},
       {"use_direct_reads", "false"},
+      {"use_direct_io_for_compaction_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
@@ -357,6 +358,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.allow_mmap_reads, true);
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
+  ASSERT_EQ(new_db_opt.use_direct_io_for_compaction_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
@@ -2706,6 +2708,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"allow_mmap_reads", "true"},
       {"allow_mmap_writes", "false"},
       {"use_direct_reads", "false"},
+      {"use_direct_io_for_compaction_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
@@ -2897,6 +2900,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.allow_mmap_reads, true);
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
+  ASSERT_EQ(new_db_opt.use_direct_io_for_compaction_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);

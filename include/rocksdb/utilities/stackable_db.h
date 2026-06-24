@@ -176,6 +176,19 @@ class StackableDB : public DB {
     return db_->IngestExternalFiles(args);
   }
 
+  using DB::PrepareFileIngestion;
+  Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& args,
+      std::unique_ptr<FileIngestionHandle>* handle) override {
+    return db_->PrepareFileIngestion(args, handle);
+  }
+
+  using DB::CommitFileIngestionHandles;
+  Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> handles) override {
+    return db_->CommitFileIngestionHandles(std::move(handles));
+  }
+
   using DB::CreateColumnFamilyWithImport;
   Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
@@ -446,6 +459,13 @@ class StackableDB : public DB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override {
     return db_->GetLiveFilesStorageInfo(opts, files);
+  }
+
+  Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& file_path,
+      std::shared_ptr<const PreparedFileInfo>* file_info) override {
+    return db_->GetPreparedFileInfoForExternalSstIngestion(file_path,
+                                                           file_info);
   }
 
   void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,

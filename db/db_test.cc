@@ -3516,6 +3516,18 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented");
   }
 
+  using DB::PrepareFileIngestion;
+  Status PrepareFileIngestion(
+      const std::vector<IngestExternalFileArg>& /*args*/,
+      std::unique_ptr<FileIngestionHandle>* /*handle*/) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
+  Status CommitFileIngestionHandles(
+      std::vector<std::unique_ptr<FileIngestionHandle>> /*handles*/) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
   using DB::CreateColumnFamilyWithImport;
   Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& /*options*/,
@@ -3771,6 +3783,12 @@ class ModelDB : public DB {
       const LiveFilesStorageInfoOptions& /*opts*/,
       std::vector<LiveFileStorageInfo>* /*files*/) override {
     return Status::OK();
+  }
+
+  Status GetPreparedFileInfoForExternalSstIngestion(
+      const std::string& /*file_path*/,
+      std::shared_ptr<const PreparedFileInfo>* /*file_info*/) override {
+    return Status::NotSupported();
   }
 
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {

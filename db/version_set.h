@@ -85,6 +85,7 @@ class MergeIteratorBuilder;
 class SystemClock;
 class ManifestTailer;
 class FilePickerMultiGet;
+class MultiScanArgs;
 
 // VersionEdit is always supposed to be valid and it is used to point at
 // entries in Manifest. Ideally it should not be used as a container to
@@ -916,17 +917,27 @@ class Version {
   // yield the contents of this Version when merged together.
   // @param read_options Must outlive any iterator built by
   // `merger_iter_builder`.
+  // @param read_seq Snapshot sequence to use for range tombstone visibility.
+  // This is passed separately because lazy iterator initialization may happen
+  // after read_options.snapshot has been released by the caller.
+  // @param scan_opts Optional bounded scan ranges used to prune levels/files
+  // while building the iterator tree.
   void AddIterators(const ReadOptions& read_options,
                     const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
-                    bool allow_unprepared_value);
+                    bool allow_unprepared_value, SequenceNumber read_seq,
+                    const MultiScanArgs* scan_opts = nullptr);
 
   // @param read_options Must outlive any iterator built by
   // `merger_iter_builder`.
+  // @param read_seq Snapshot sequence to use for range tombstone visibility.
+  // @param scan_opts Optional bounded scan ranges used to prune this level.
   void AddIteratorsForLevel(const ReadOptions& read_options,
                             const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
-                            int level, bool allow_unprepared_value);
+                            int level, bool allow_unprepared_value,
+                            SequenceNumber read_seq,
+                            const MultiScanArgs* scan_opts = nullptr);
 
   Status OverlapWithLevelIterator(const ReadOptions&, const FileOptions&,
                                   const Slice& smallest_user_key,
@@ -1319,7 +1330,8 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr,
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs = {},
-      const std::function<Status()>& pre_cb = {});
+      const std::function<Status()>& pre_cb = {},
+      int max_file_opening_threads = 1);
 
   void WakeUpWaitingManifestWriters();
 
@@ -1468,8 +1480,9 @@ class VersionSet {
   // If an error occurs and recovery creates new memtables, SwitchMemtable
   // uses LastSequence() which may be lower than already-allocated sequences.
   //
-  // REQUIRED: DB mutex is held and no concurrent writers are active (i.e.,
-  // after WaitForBackgroundWork() in ResumeImpl).
+  // REQUIRED: DB mutex is held, and callers have reached a recovery fence
+  // where no concurrent writer can advance last_allocated_sequence_ before
+  // the memtable/WAL state that consumes last_sequence_ is created.
   void SyncLastSequenceWithAllocated() {
     uint64_t alloc_seq =
         last_allocated_sequence_.load(std::memory_order_seq_cst);
@@ -1558,12 +1571,16 @@ class VersionSet {
   // The caller should delete the iterator when no longer needed.
   // @param read_options Must outlive the returned iterator.
   // @param start, end indicates compaction range
+  // @param open_ephemeral_table_reader When true, the per-file iterators
+  //              bypass the shared TableCache and open fresh TableReaders
+  //              using `file_options_compactions`.
   InternalIterator* MakeInputIterator(
       const ReadOptions& read_options, const Compaction* c,
       RangeDelAggregator* range_del_agg,
       const FileOptions& file_options_compactions,
       const std::optional<const Slice>& start,
-      const std::optional<const Slice>& end);
+      const std::optional<const Slice>& end,
+      bool open_ephemeral_table_reader = false);
 
   // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.
@@ -1950,7 +1967,8 @@ class ReactiveVersionSet : public VersionSet {
       InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
       const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/,
-      const std::function<Status()>& /*pre_cb*/) override {
+      const std::function<Status()>& /*pre_cb*/,
+      int /*max_file_opening_threads*/) override {
     return Status::NotSupported("not supported in reactive mode");
   }
 

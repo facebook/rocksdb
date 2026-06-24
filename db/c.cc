@@ -1385,6 +1385,10 @@ void rocksdb_backup_engine_info_destroy(
   delete info;
 }
 
+void rocksdb_backup_engine_stop_backup(rocksdb_backup_engine_t* be) {
+  be->rep->StopBackup();
+}
+
 void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;
@@ -1464,6 +1468,20 @@ void rocksdb_backup_engine_options_set_restore_rate_limit(
 uint64_t rocksdb_backup_engine_options_get_restore_rate_limit(
     rocksdb_backup_engine_options_t* options) {
   return options->rep.restore_rate_limit;
+}
+
+void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.backup_rate_limiter = limiter->rep;
+  }
+}
+
+void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  if (limiter) {
+    options->rep.restore_rate_limiter = limiter->rep;
+  }
 }
 
 void rocksdb_backup_engine_options_set_max_background_operations(
@@ -4248,6 +4266,15 @@ void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
   SaveError(errptr, db->rep->SetOptions(options_map));
 }
 
+void rocksdb_set_db_options(rocksdb_t* db, int count, const char* const keys[],
+                            const char* const values[], char** errptr) {
+  std::unordered_map<std::string, std::string> options_map;
+  for (int i = 0; i < count; i++) {
+    options_map[keys[i]] = values[i];
+  }
+  SaveError(errptr, db->rep->SetDBOptions(options_map));
+}
+
 void rocksdb_set_options_cf(rocksdb_t* db,
                             rocksdb_column_family_handle_t* handle, int count,
                             const char* const keys[],
@@ -5042,6 +5069,16 @@ void rocksdb_options_set_use_direct_io_for_flush_and_compaction(
 unsigned char rocksdb_options_get_use_direct_io_for_flush_and_compaction(
     rocksdb_options_t* opt) {
   return opt->rep.use_direct_io_for_flush_and_compaction;
+}
+
+void rocksdb_options_set_use_direct_io_for_compaction_reads(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_direct_io_for_compaction_reads = v;
+}
+
+unsigned char rocksdb_options_get_use_direct_io_for_compaction_reads(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_direct_io_for_compaction_reads;
 }
 
 void rocksdb_options_set_allow_mmap_reads(rocksdb_options_t* opt,

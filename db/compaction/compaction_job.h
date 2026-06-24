@@ -462,6 +462,8 @@ class CompactionJob {
   FileSystemPtr fs_;
   // env_option optimized for compaction table reads
   FileOptions file_options_for_read_;
+  // file_options_for_read_ plus compaction-input-only overrides.
+  FileOptions file_options_for_compaction_input_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<bool>& manual_compaction_canceled_;
