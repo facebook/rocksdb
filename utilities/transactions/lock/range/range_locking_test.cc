@@ -136,6 +136,38 @@ TEST_F(RangeLockingTest, RangeLockWithReverseComparator) {
   delete txn1;
 }
 
+// A point-equality range lock passes [infimum(K), supremum(K)]: the same user
+// key with the infimum endpoint as the left bound and the supremum endpoint as
+// the right bound. The infimum endpoint must sort before the supremum endpoint
+// even under a reverse comparator (the suffix marker is positional, not key
+// content), otherwise the locktree's left <= right invariant is violated and
+// try_acquire_lock aborts. Regression test for a crash on MyRocks equality
+// lookups on a reverse ('rev:') column family.
+TEST_F(RangeLockingTest, PointRangeLockWithReverseComparator) {
+  delete db;
+  db = nullptr;
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  options.comparator = ReverseBytewiseComparator();
+  range_lock_mgr.reset(NewRangeLockManager(nullptr));
+  txn_db_options.lock_mgr_handle = range_lock_mgr;
+
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname, &db));
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  txn_options.lock_timeout = 50;
+  auto cf = db->DefaultColumnFamily();
+
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+
+  // [infimum("a"), supremum("a")] : same user key, infimum -> supremum.
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a", false), Endpoint("a", true)));
+
+  txn0->Rollback();
+  delete txn0;
+}
+
 // CompareDbtEndpoints must use CompareWithoutTimestamp for range lock
 // endpoints, which never contain user-defined timestamps.
 TEST_F(RangeLockingTest, RangeLockWithTimestampComparator) {
