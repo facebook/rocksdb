@@ -1371,6 +1371,7 @@ class DBImpl : public DB {
 
  protected:
   const std::string dbname_;
+  const bool read_only_;
   // TODO(peterd): unify with VersionSet::db_id_
   std::string db_id_;
   // db_session_id_ is an identifier that gets reset

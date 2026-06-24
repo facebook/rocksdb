@@ -3162,7 +3162,7 @@ void DBImpl::ResumeAllCompactions() {
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   TEST_SYNC_POINT("DBImpl::MaybeScheduleFlushOrCompaction:Start");
-  if (!opened_successfully_) {
+  if (!opened_successfully_ || read_only_) {
     // Compaction may introduce data race to DB open
     return;
   }
