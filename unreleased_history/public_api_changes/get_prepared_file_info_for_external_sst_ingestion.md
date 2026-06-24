@@ -1,1 +1,0 @@
-`DB::GetPreparedFileInfoForExternalSstIngestion()` can now prepare metadata for a live DB-generated SST file so it can be passed to `IngestExternalFileArg::file_infos`. The input path must exactly match a live table file owned by the source DB, and the returned metadata handle must outlive the ingestion.

@@ -38,7 +38,7 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
 // Raw pointers for signal-safe crash callback. Signal handlers can only
 // access file-static/global variables; can't capture StressTest instances.
 static std::vector<ROCKSDB_NAMESPACE::FaultInjectionTestFS*>
-    fault_fs_for_crash_report;
+    fault_fs_for_crash_flush;
 
 int ValidateNumDbsFlags() {
   if (FLAGS_num_dbs < 1) {
@@ -88,20 +88,20 @@ int DestroyAllDbs() {
 
 void RegisterCrashCallbacks(
     const std::vector<std::unique_ptr<StressTest>>& stress_tests, int num_dbs) {
-  fault_fs_for_crash_report.resize(num_dbs, nullptr);
+  fault_fs_for_crash_flush.resize(num_dbs, nullptr);
   bool any_fault_fs = false;
   for (int i = 0; i < num_dbs; i++) {
-    fault_fs_for_crash_report[i] =
+    fault_fs_for_crash_flush[i] =
         stress_tests[i]->GetDbFaultInjectionFs().get();
-    if (fault_fs_for_crash_report[i]) {
+    if (fault_fs_for_crash_flush[i]) {
       any_fault_fs = true;
     }
   }
   if (any_fault_fs) {
     port::RegisterCrashCallback([]() {
-      for (auto* fs : fault_fs_for_crash_report) {
+      for (auto* fs : fault_fs_for_crash_flush) {
         if (fs) {
-          fs->PrintRecentInjectedErrors();
+          fs->FlushRecentInjectedErrors();
         }
       }
     });
@@ -633,7 +633,7 @@ int db_stress_tool(int argc, char** argv) {
     }
     stress_tests[i]->CleanUp();
   }
-  for (auto& fs : fault_fs_for_crash_report) {
+  for (auto& fs : fault_fs_for_crash_flush) {
     fs = nullptr;
   }
   return all_passed ? 0 : 1;

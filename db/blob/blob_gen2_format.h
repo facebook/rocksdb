@@ -44,12 +44,12 @@ inline constexpr size_t kSimpleGen2BlobTrailerSize = 5;
 
 // Cache key for the SimpleGen2Blob record at byte `record_offset` within a file
 // whose base cache key is `base_cache_key`. Delegates to the shared
-// OffsetableCacheKey::WithOffsetForMinSizeRecord scheme -- the exact same scheme
-// block-based SST data blocks use via BlockBasedTable::GetCacheKey -- which is
-// valid because a SimpleGen2Blob record always carries a >= 5-byte trailer. As
-// a result the cache key is collision-free with the file's data blocks even
-// when the blob cache and block cache are the same cache, with no separately
-// maintained algorithm to drift out of sync.
+// OffsetableCacheKey::WithOffsetForMinSizeRecord scheme -- the exact same
+// scheme block-based SST data blocks use via BlockBasedTable::GetCacheKey --
+// which is valid because a SimpleGen2Blob record always carries a >= 5-byte
+// trailer. As a result the cache key is collision-free with the file's data
+// blocks even when the blob cache and block cache are the same cache, with no
+// separately maintained algorithm to drift out of sync.
 inline CacheKey GetSimpleGen2BlobCacheKey(
     const OffsetableCacheKey& base_cache_key, uint64_t record_offset) {
   return base_cache_key.WithOffsetForMinSizeRecord(record_offset);
@@ -65,8 +65,8 @@ inline CacheKey GetSimpleGen2BlobCacheKey(
 // the caller expects the record to carry (from the blob index); it must match
 // the record's marker, and currently must be kNoCompression.
 //
-// On success, buf[0, payload_size) holds the verified, uncompressed payload (the
-// trailer remains at the tail of `buf` and can be ignored).
+// On success, buf[0, payload_size) holds the verified, uncompressed payload
+// (the trailer remains at the tail of `buf` and can be ignored).
 Status ReadAndVerifySimpleGen2BlobRecord(
     const ReadOptions& read_options, RandomAccessFileReader* file,
     uint64_t record_offset, size_t payload_size, size_t record_size,

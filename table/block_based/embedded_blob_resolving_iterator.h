@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -153,9 +158,7 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
     return iter_->status();
   }
 
-  uint64_t write_unix_time() const override {
-    return iter_->write_unix_time();
-  }
+  uint64_t write_unix_time() const override { return iter_->write_unix_time(); }
 
   bool IsKeyPinned() const override {
     // The rewritten key is owned by this wrapper, so it is not pinned.
@@ -263,7 +266,8 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
     }
 
     BlobIndex blob_index;
-    // Decodes the inline BlobIndex from the data block; still no blob-region IO.
+    // Decodes the inline BlobIndex from the data block; still no blob-region
+    // IO.
     status_ = blob_index.DecodeFrom(iter_->value());
     if (!status_.ok()) {
       return false;
@@ -296,8 +300,7 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
 
     const Slice current_key = iter_->key();
     const ValueType value_type = ExtractValueType(current_key);
-    if (value_type != kTypeBlobIndex &&
-        value_type != kTypeWideColumnEntity) {
+    if (value_type != kTypeBlobIndex && value_type != kTypeWideColumnEntity) {
       return true;
     }
 

@@ -208,7 +208,8 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  // Whether this SST advertises an embedded blob record range in its metaindex.
+  // Whether this SST contains embedded (same-file) blob records, as advertised
+  // by the embedded blob stats property.
   bool HasEmbeddedBlobRecords() const;
 
   // Reads a single same-file blob record referenced by `blob_index`.

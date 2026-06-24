@@ -183,8 +183,9 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   // END for FilterBuildingContext
 
   const uint64_t cur_file_num;
-  // Non-null only for table builders that should wrap their normal output with
-  // embedded-blob prefix writing.
+  // Non-null only for table builders that should write eligible large values as
+  // same-file ("embedded") blob records. Currently only honored by
+  // BlockBasedTableBuilder.
   const EmbeddedBlobSstBuilderOptions* embedded_blob_options;
 };
 

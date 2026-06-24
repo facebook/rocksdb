@@ -1,0 +1,8 @@
+{
+  "allowlist": [
+    {
+      "name": "rocksdb_transactiondb_options_set_use_per_key_point_lock_mgr",
+      "reason": "The old handwritten implementation existed in db/c.cc but was not declared in include/rocksdb/c.h. The generated declaration intentionally fixes that historical inconsistency."
+    }
+  ]
+}

@@ -1215,6 +1215,8 @@ class DBImpl : public DB {
 
   bool TEST_IsRecoveryInProgress();
 
+  Status TEST_ResumeImpl(DBRecoverContext context);
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   uint64_t TEST_MaxNextLevelOverlappingBytes(
@@ -2481,6 +2483,10 @@ class DBImpl : public DB {
       const FlushOptions& options, FlushReason flush_reason,
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
+
+  // REQUIRES: mutex locked and write queues drained up to the recovery flush
+  // fence that is about to switch memtables.
+  void MaybeSyncLastSequenceWithAllocatedForRecovery(FlushReason flush_reason);
 
   Status RetryFlushesForErrorRecovery(FlushReason flush_reason, bool wait);
 

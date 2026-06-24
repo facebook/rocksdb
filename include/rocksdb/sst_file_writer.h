@@ -137,10 +137,9 @@ class SstFileWriter {
   // EXPERIMENTAL: opens an SST writer mode that stores eligible blob payloads
   // inside the same block-based SST file and stores same-file BlobIndex
   // references in table entries. This is a special-purpose mode that doesn't
-  // maintain all the benefits of standard blob support, and requires extra
-  // memory during construction to buffer SST data (keys, blob references,
-  // smaller values) other than values stored in the blob prefix of the SST
-  // file.
+  // offer write-amp improvements under compaction like standard blob support
+  // does. Blob records are written inline (interleaved with data blocks) as
+  // eligible values are added.
   //
   // Requires the writer to use block-based table format_version >= 7. The
   // resulting SST can be consumed by RocksDB >= 11.6.0.

@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="196" viewBox="0 30 760 196" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow-cba" markerWidth="11" markerHeight="11" refX="8" refY="3.2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#1565c0"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="262" fill="#ffffff"/>
+  
+  <text x="190" y="46" text-anchor="middle" font-size="14" font-weight="bold" fill="#37474f">Before</text>
+  <text x="582" y="46" text-anchor="middle" font-size="14" font-weight="bold" fill="#0d47a1">After</text>
+
+  <!-- conversion arrow between the panels -->
+  <line x1="360" y1="120" x2="414" y2="120" stroke="#1565c0" stroke-width="2.5" marker-end="url(#arrow-cba)"/>
+  <text x="387" y="110" text-anchor="middle" font-size="10" fill="#1565c0">convert</text>
+  <text x="387" y="135" text-anchor="middle" font-size="9" fill="#1565c0">(scan)</text>
+
+  <!-- ===== LEFT (Before) ===== -->
+  <text x="8" y="76" font-size="9" fill="#37474f">memtable</text>
+  <text x="8" y="111" font-size="11" font-weight="bold" fill="#37474f">L0</text>
+  <text x="8" y="145" font-size="11" font-weight="bold" fill="#37474f">L1</text>
+  <text x="8" y="179" font-size="11" font-weight="bold" fill="#37474f">L2</text>
+
+  <rect x="56" y="58" width="296" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+  <rect x="56" y="92" width="296" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+  <rect x="56" y="126" width="296" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+  <rect x="56" y="160" width="296" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+
+  <!-- L0: point tombstones k1, k3 -->
+  <rect x="67" y="95" width="58" height="24" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+  <text x="96" y="111" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k1</text>
+  <rect x="211" y="95" width="58" height="24" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+  <text x="240" y="111" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k3</text>
+  <!-- L1: point tombstone k2 -->
+  <rect x="139" y="129" width="58" height="24" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+  <text x="168" y="145" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k2</text>
+  <!-- L2: hidden values k1,k2,k3 + live k4 -->
+  <rect x="67" y="163" width="58" height="24" rx="4" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.4"/>
+  <text x="96" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k1</text>
+  <rect x="139" y="163" width="58" height="24" rx="4" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.4"/>
+  <text x="168" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k2</text>
+  <rect x="211" y="163" width="58" height="24" rx="4" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.4"/>
+  <text x="240" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k3</text>
+  <rect x="283" y="163" width="58" height="24" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.4"/>
+  <text x="312" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#1b5e20">k4</text>
+
+  <!-- ===== RIGHT (After) ===== -->
+  <text x="420" y="76" font-size="9" fill="#37474f">memtable</text>
+  <text x="420" y="111" font-size="11" font-weight="bold" fill="#37474f">L0</text>
+  <text x="420" y="145" font-size="11" font-weight="bold" fill="#37474f">L1</text>
+  <text x="420" y="179" font-size="11" font-weight="bold" fill="#37474f">L2</text>
+
+  <rect x="466" y="58" width="288" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+  <rect x="466" y="92" width="288" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+  <rect x="466" y="126" width="288" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+  <rect x="466" y="160" width="288" height="30" rx="4" fill="#fafafa" stroke="#e0e0e0" stroke-width="1.1"/>
+
+  <!-- memtable: NEW range tombstone [k1, k4) -->
+  <rect x="473" y="61" width="216" height="24" rx="4" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+  <text x="581" y="77" text-anchor="middle" font-size="9" font-weight="bold" fill="#0d47a1">range tombstone [k1, k4)</text>
+  <!-- L0: unchanged -->
+  <rect x="473" y="95" width="58" height="24" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+  <text x="502" y="111" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k1</text>
+  <rect x="617" y="95" width="58" height="24" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+  <text x="646" y="111" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k3</text>
+  <rect x="545" y="129" width="58" height="24" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+  <text x="574" y="145" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k2</text>
+  <rect x="473" y="163" width="58" height="24" rx="4" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.4"/>
+  <text x="502" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k1</text>
+  <rect x="545" y="163" width="58" height="24" rx="4" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.4"/>
+  <text x="574" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k2</text>
+  <rect x="617" y="163" width="58" height="24" rx="4" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.4"/>
+  <text x="646" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">k3</text>
+  <rect x="689" y="163" width="58" height="24" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.4"/>
+  <text x="718" y="179" text-anchor="middle" font-size="11" font-weight="bold" fill="#1b5e20">k4</text>
+
+  <!-- legend -->
+  <rect x="60" y="206" width="14" height="10" rx="2" fill="#ffcdd2" stroke="#c62828" stroke-width="1.1"/>
+  <text x="78" y="215" font-size="10" fill="#616161">point tombstone</text>
+  <rect x="190" y="206" width="14" height="10" rx="2" fill="#ffe3e3" stroke="#ef9a9a" stroke-width="1.1"/>
+  <text x="208" y="215" font-size="10" fill="#616161">shadowed value</text>
+  <rect x="306" y="206" width="14" height="10" rx="2" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.1"/>
+  <text x="324" y="215" font-size="10" fill="#616161">live</text>
+  <rect x="368" y="206" width="14" height="10" rx="2" fill="#bbdefb" stroke="#1565c0" stroke-width="1.1"/>
+  <text x="386" y="215" font-size="10" fill="#616161">range tombstone</text>
+
+  </svg>

@@ -88,6 +88,8 @@ fbcode/
 fbcode
 buckifier/*.pyc
 buckifier/__pycache__
+tools/__pycache__/
+tools/c_api_gen/__pycache__/
 .arcconfig
 
 compile_commands.json

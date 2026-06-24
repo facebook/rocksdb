@@ -764,7 +764,6 @@ util/build_version.cc: $(filter-out $(OBJ_DIR)/util/build_version.o, $(LIB_OBJEC
 	$(AM_V_at)$(gen_build_version) > $@
 endif
 CLEAN_FILES += util/build_version.cc
-
 default: all
 
 #-----------------------------------------------
@@ -809,7 +808,8 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: check clean coverage ldb_tests package dbg gen-pc build_size \
 	release tags tags0 valgrind_check format static_lib shared_lib all \
 	rocksdbjavastatic rocksdbjava install install-static install-shared \
-	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy
+	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy \
+	check-c-api-c_test
 
 # Auto-configure git hooks on first build so developers do not need to run
 # "make install-hooks" manually. This is a no-op if already set.
@@ -1127,7 +1127,88 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-buck-targets
 	$(MAKE) check-sources
 	$(MAKE) check-workflow-yaml
+	$(MAKE) check-c-api-gen
 endif
+
+# Check that the auto-generated C API files are up to date. It regenerates the
+# fragments and the inlined c.h/c.cc and compares them against a snapshot of the
+# checked-in copies (no net change when everything is up to date). It requires
+# clang++ (libclang, used to parse the C++ headers) and clang-format. When those
+# are unavailable the staleness/compat sub-checks are SKIPPED with a message so
+# `make check` still works without the codegen toolchain; the link-completeness
+# sub-check always runs (it needs no toolchain).
+#
+# Pin the formatter to match CI by setting CLANG_FORMAT_BINARY, e.g.:
+#   make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
+# This target is part of `make check` and is skipped by SKIP_FORMAT_BUCK_CHECKS.
+#
+# Set CHECK_C_API_GEN_STRICT=1 to turn every "skip" below into a hard error, so a
+# core CI job that runs this target cannot silently regress to a no-op if a
+# prerequisite (clang++, or the compat baseline ref) goes missing. The dedicated
+# build-linux-clang-21-no_test_run CI job runs this target with the flag set.
+# Any non-empty value other than 0/no/false enables strict mode.
+CLANG_FORMAT_BINARY ?=
+# Backward-compatibility baseline for the C API (signature-level) check. CI
+# overrides this with the PR's merge target; locally it falls back to main /
+# origin/main and is skipped if neither resolves.
+API_COMPAT_REF ?= main
+CHECK_C_API_GEN_STRICT ?=
+check-c-api-gen:
+	# Link-completeness is a property of the checked-in c.h/c.cc and needs no
+	# clang toolchain, so it always runs: every declared public C API function
+	# must have exactly one definition (guards against dropped wrappers that
+	# would break downstream language bindings at link time).
+	$(PYTHON) tools/c_api_gen/check_api_completeness.py
+	# Backward-compatibility: no public C function may be removed or have its
+	# signature changed vs the baseline. Skipped if the baseline ref is not
+	# resolvable locally (CI passes an explicit ref), unless CHECK_C_API_GEN_STRICT.
+	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
+	ref=""; \
+	if git rev-parse --verify --quiet "$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="$(API_COMPAT_REF)"; \
+	elif git rev-parse --verify --quiet "origin/$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="origin/$(API_COMPAT_REF)"; fi; \
+	if [ -n "$$ref" ]; then \
+	  $(PYTHON) tools/c_api_gen/check_api_compatibility.py --ref "$$ref"; \
+	elif [ -n "$$strict" ]; then \
+	  echo "ERROR: C API compat baseline '$(API_COMPAT_REF)' not resolvable and CHECK_C_API_GEN_STRICT is set" >&2; exit 1; \
+	else \
+	  echo "Skipping C API backward-compatibility check ($(API_COMPAT_REF) not found; set API_COMPAT_REF)"; \
+	fi
+	# Staleness: regenerate and confirm the checked-in output is current. Needs a
+	# clang++ (the generator parses C++ ASTs); detect one the way the generator
+	# does (a clang in $(CXX) -- which may be ccache-prefixed/versioned -- else a
+	# bare/versioned clang++ on PATH) rather than testing $(CXX) verbatim.
+	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
+	cf_arg=""; \
+	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
+	have_clang=""; \
+	for c in $$(printf '%s\n' $(CXX) | grep -i clang) clang++ clang++-21 clang++-20 clang++-19 clang++-18 clang++-17 clang++-16 clang++-15 clang++-14 clang++-13; do \
+	  if command -v "$$c" >/dev/null 2>&1; then have_clang=1; break; fi; \
+	done; \
+	if [ -n "$$have_clang" ]; then \
+	  $(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py $$cf_arg; \
+	elif [ -n "$$strict" ]; then \
+	  echo "ERROR: no clang++ found and CHECK_C_API_GEN_STRICT is set; cannot run the C API staleness check" >&2; exit 1; \
+	else \
+	  echo "Skipping C API codegen staleness check (no clang++ found; install clang++ or set CXX to a clang to enable)"; \
+	fi
+
+# Quick local validation for C API generation plus the focused C API test.
+# This verifies the checked-in generated fragments as well as the inlined
+# include/rocksdb/c.h and db/c.cc outputs, then runs c_test in an isolated
+# TEST_TMPDIR to avoid stale-state failures.
+check-c-api-c_test:
+	$(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py
+	$(MAKE) c_test
+	@tmpdir=$$(mktemp -d); \
+	  trap 'rm -rf "$$tmpdir"' EXIT; \
+	  echo "===== Running c_test with TEST_TMPDIR=$$tmpdir"; \
+	  if command -v timeout >/dev/null 2>&1; then \
+	    TEST_TMPDIR="$$tmpdir" timeout 60 ./c_test; \
+	  elif command -v gtimeout >/dev/null 2>&1; then \
+	    TEST_TMPDIR="$$tmpdir" gtimeout 60 ./c_test; \
+	  else \
+	    TEST_TMPDIR="$$tmpdir" ./c_test; \
+	  fi
 
 # TODO add ldb_tests
 check_some: $(ROCKSDBTESTS_SUBSET)

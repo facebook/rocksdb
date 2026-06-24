@@ -12,7 +12,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <string>
 
 #include "db/blob/blob_gen2_format.h"
@@ -25,8 +24,8 @@ namespace ROCKSDB_NAMESPACE {
 struct SstFileWriterEmbeddedBlobOptions;
 
 // Internal builder-side spelling for the public SstFileWriter options. Keeping
-// this as an alias makes the table-builder wrapper's contract explicit without
-// forking the option definition.
+// this as an alias makes the table builder's contract explicit without forking
+// the option definition.
 using EmbeddedBlobSstBuilderOptions = SstFileWriterEmbeddedBlobOptions;
 
 // User property with best-effort diagnostic counters for the embedded blob

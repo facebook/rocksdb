@@ -3,17 +3,19 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-// Test to verify that sequence numbers remain consistent during error recovery
-// with WritePrepared TransactionDB and two_write_queues=true.
+// Test coverage for sequence numbers during error recovery with
+// WritePrepared/WriteUnprepared TransactionDB and two_write_queues=true.
 //
-// The fix: SyncLastSequenceWithAllocated() is called during ResumeImpl to
-// ensure that allocated-but-not-published sequence numbers are accounted for
-// before creating new memtables/WALs, preventing "sequence number going
-// backwards" corruption on subsequent recovery.
+// The fix keeps LastSequence() caught up to LastAllocatedSequence() at recovery
+// fences that create memtables/WALs. Without that sync, WAL-only writes on the
+// nonmem queue can leave recovery using a stale LastSequence(), which later
+// surfaces as "sequence number going backwards" corruption.
 
 #include <atomic>
+#include <cassert>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -26,6 +28,16 @@
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+template <typename T>
+T& AssertNotNull(T* ptr) {
+  assert(ptr != nullptr);
+  return *ptr;
+}
+
+}  // namespace
 
 class WritePreparedTransactionSeqnoTest : public ::testing::Test {
  public:
@@ -95,6 +107,220 @@ class WritePreparedTransactionSeqnoTest : public ::testing::Test {
   TransactionDBOptions txn_db_options_;
   std::vector<ColumnFamilyHandle*> handles_;
 };
+
+// Regression test for a WriteUnprepared sequence-number race during error
+// recovery. The test pauses a prepare after it has allocated and ingested its
+// sequence range but before it publishes that range with SetLastSequence().
+// While the prepare is paused, a WAL-only commit on the nonmem write queue
+// advances LastAllocatedSequence(). ResumeImpl() must enter both write queues
+// before SyncLastSequenceWithAllocated(); otherwise recovery can publish the
+// newer allocation first, and the paused prepare later trips the
+// s >= last_sequence_ assertion in SetLastSequence().
+TEST_F(WritePreparedTransactionSeqnoTest,
+       WriteUnpreparedInFlightPrepareDoesNotRaceWithRecoverySeqnoSync) {
+  // WRITE_UNPREPARED exercises the split path where Prepare writes data and
+  // Commit can later write only a WAL marker on the nonmem write queue.
+  txn_db_options_.write_policy = TxnDBWritePolicy::WRITE_UNPREPARED;
+  ASSERT_OK(Open());
+  TransactionDB& db = AssertNotNull(db_);
+  DBImpl& db_impl =
+      AssertNotNull(static_cast_with_check<DBImpl>(db.GetRootDB()));
+  VersionSet& versions = AssertNotNull(db_impl.GetVersionSet());
+  SyncPoint& sync_point = AssertNotNull(SyncPoint::GetInstance());
+
+  WriteOptions write_opts;
+  TransactionOptions txn_opts;
+  // Prepare a transaction whose later WAL-only commit will advance
+  // LastAllocatedSequence() while another prepare is paused.
+  std::unique_ptr<Transaction> wal_only_commit_txn(
+      db.BeginTransaction(write_opts, txn_opts));
+  Transaction& wal_only_commit_txn_ref =
+      AssertNotNull(wal_only_commit_txn.get());
+  ASSERT_OK(wal_only_commit_txn_ref.SetName("wal_only_commit_txn"));
+  ASSERT_OK(wal_only_commit_txn_ref.Put("commit_key", "commit_value"));
+  ASSERT_OK(wal_only_commit_txn_ref.Prepare());
+
+  // Pause the second prepare after WBWI ingestion and before it publishes its
+  // allocated sequence range with SetLastSequence().
+  const std::string test_prefix =
+      "WriteUnpreparedInFlightPrepareDoesNotRaceWithRecoverySeqnoSync";
+  sync_point.LoadDependency(
+      {{"DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:pause",
+        test_prefix + ":writer_paused"},
+       {test_prefix + ":release_writer",
+        "DBImpl::WriteImpl:AfterWBWIIngestBeforeSetLastSequence:resume"}});
+
+  std::atomic<bool> release_writer_called{false};
+  std::atomic<bool> recovery_waited_for_writer{false};
+  auto release_writer = [&]() {
+    if (!release_writer_called.exchange(true)) {
+      sync_point.Process(test_prefix + ":release_writer");
+    }
+  };
+  // The fixed path reaches EnterUnbatched() and releases the paused writer only
+  // after recovery is waiting for in-flight writes. The AfterSyncSeq callback
+  // prevents a hang on the buggy path, where recovery syncs without waiting.
+  sync_point.SetCallBack("WriteThread::EnterUnbatched:Wait", [&](void*) {
+    recovery_waited_for_writer.store(true);
+    release_writer();
+  });
+  sync_point.SetCallBack("DBImpl::ResumeImpl:AfterSyncSeq",
+                         [&](void*) { release_writer(); });
+  sync_point.EnableProcessing();
+
+  Status blocked_prepare_status;
+  Transaction* blocked_prepare_txn = nullptr;
+  // This prepare owns an allocated-but-not-yet-published sequence range while
+  // it is paused at the sync point above.
+  std::thread blocked_prepare([&]() {
+    blocked_prepare_txn = db.BeginTransaction(write_opts, txn_opts);
+    if (blocked_prepare_txn == nullptr) {
+      blocked_prepare_status =
+          Status::Aborted("failed to create blocked prepare transaction");
+      return;
+    }
+    blocked_prepare_status =
+        blocked_prepare_txn->SetName("blocked_prepare_txn");
+    if (blocked_prepare_status.ok()) {
+      blocked_prepare_status =
+          blocked_prepare_txn->Put("blocked_key", "blocked_value");
+    }
+    if (blocked_prepare_status.ok()) {
+      blocked_prepare_status = blocked_prepare_txn->Prepare();
+    }
+  });
+
+  // Wait until the vulnerable window is open: allocation has advanced, but
+  // LastSequence() still reflects the previous published writer.
+  sync_point.Process(test_prefix + ":writer_paused");
+
+  const SequenceNumber last_sequence_before_commit = versions.LastSequence();
+  const SequenceNumber allocated_after_prepare =
+      versions.LastAllocatedSequence();
+  EXPECT_LT(last_sequence_before_commit, allocated_after_prepare);
+
+  // Advance LastAllocatedSequence() again through the nonmem queue while the
+  // first prepare is still paused before SetLastSequence().
+  Status commit_status = wal_only_commit_txn_ref.Commit();
+  const SequenceNumber allocated_after_commit =
+      versions.LastAllocatedSequence();
+  EXPECT_OK(commit_status);
+  EXPECT_LT(allocated_after_prepare, allocated_after_commit);
+
+  // Recovery must wait for both write queues before syncing LastSequence() to
+  // LastAllocatedSequence(); otherwise it can publish past the paused writer.
+  Status resume_status;
+  std::thread resume_thread([&]() {
+    DBRecoverContext context(FlushReason::kErrorRecoveryRetryFlush);
+    resume_status = db_impl.TEST_ResumeImpl(context);
+  });
+
+  resume_thread.join();
+  blocked_prepare.join();
+  std::unique_ptr<Transaction> blocked_prepare_txn_guard(blocked_prepare_txn);
+  sync_point.DisableProcessing();
+
+  ASSERT_OK(commit_status);
+  ASSERT_OK(resume_status);
+  ASSERT_OK(blocked_prepare_status);
+  Transaction& blocked_prepare_txn_ref =
+      AssertNotNull(blocked_prepare_txn_guard.get());
+  // The expected fixed behavior is that ResumeImpl() waited in the write queue,
+  // then sequence state ended up fully published and still covers the WAL-only
+  // commit allocation.
+  ASSERT_TRUE(recovery_waited_for_writer.load());
+  ASSERT_EQ(versions.LastSequence(), versions.LastAllocatedSequence());
+  ASSERT_GE(versions.LastSequence(), allocated_after_commit);
+  ASSERT_OK(blocked_prepare_txn_ref.Commit());
+
+  blocked_prepare_txn_guard.reset();
+  wal_only_commit_txn.reset();
+  Close();
+}
+
+// Regression test for the gap left by syncing only at the start of
+// ResumeImpl(). Recovery drops mutex_ in FlushAllColumnFamilies() before it
+// enters FlushMemTable(), so a WriteUnprepared WAL-only commit can advance
+// LastAllocatedSequence() after the early sync but before SwitchMemtable()
+// reads LastSequence(). The fix syncs again at the recovery flush fence, after
+// both write queues are drained and immediately before switching memtables.
+TEST_F(WritePreparedTransactionSeqnoTest,
+       WriteUnpreparedWalOnlyCommitDuringRecoveryFlushUpdatesSwitchSeq) {
+  // Use WRITE_UNPREPARED because a prepared transaction's commit marker is a
+  // WAL-only write on nonmem_write_thread_ when there is no commit-time data.
+  txn_db_options_.write_policy = TxnDBWritePolicy::WRITE_UNPREPARED;
+  ASSERT_OK(Open());
+  TransactionDB& db = AssertNotNull(db_);
+  DBImpl& db_impl =
+      AssertNotNull(static_cast_with_check<DBImpl>(db.GetRootDB()));
+  VersionSet& versions = AssertNotNull(db_impl.GetVersionSet());
+  SyncPoint& sync_point = AssertNotNull(SyncPoint::GetInstance());
+
+  WriteOptions write_opts;
+  TransactionOptions txn_opts;
+
+  // Prepare a transaction that already put its data in the memtable. Its later
+  // Commit() will only write the commit marker to WAL, which advances
+  // LastAllocatedSequence() without publishing LastSequence().
+  std::unique_ptr<Transaction> wal_only_commit_txn(
+      db.BeginTransaction(write_opts, txn_opts));
+  Transaction& wal_only_commit_txn_ref =
+      AssertNotNull(wal_only_commit_txn.get());
+  ASSERT_OK(wal_only_commit_txn_ref.SetName("wal_only_commit_txn"));
+  ASSERT_OK(wal_only_commit_txn_ref.Put("gap_key", "gap_value"));
+  ASSERT_OK(wal_only_commit_txn_ref.Prepare());
+
+  const SequenceNumber allocated_after_prepare =
+      versions.LastAllocatedSequence();
+
+  std::atomic<bool> committed_in_flush_gap{false};
+  Status commit_status;
+  SequenceNumber last_sequence_before_gap_commit = 0;
+  SequenceNumber allocated_before_gap_commit = 0;
+  SequenceNumber last_sequence_after_gap_commit = 0;
+  SequenceNumber allocated_after_gap_commit = 0;
+
+  // Force the reviewed interleaving: ResumeImpl() has completed its early sync
+  // and FlushAllColumnFamilies() has released mutex_, but FlushMemTable() has
+  // not yet joined/drained both write queues before SwitchMemtable().
+  sync_point.SetCallBack(
+      "DBImpl::FlushAllColumnFamilies:BeforeFlushMemTable", [&](void*) {
+        if (committed_in_flush_gap.exchange(true)) {
+          return;
+        }
+        last_sequence_before_gap_commit = versions.LastSequence();
+        allocated_before_gap_commit = versions.LastAllocatedSequence();
+        commit_status = wal_only_commit_txn_ref.Commit();
+        last_sequence_after_gap_commit = versions.LastSequence();
+        allocated_after_gap_commit = versions.LastAllocatedSequence();
+      });
+  sync_point.EnableProcessing();
+
+  // Run the recovery path that force-flushes all column families. This is the
+  // path where the unlocked gap exists before the recovery memtable switch.
+  DBRecoverContext context(FlushReason::kErrorRecovery);
+  Status resume_status = db_impl.TEST_ResumeImpl(context);
+  sync_point.DisableProcessing();
+
+  ASSERT_TRUE(committed_in_flush_gap.load());
+  ASSERT_OK(commit_status);
+  ASSERT_OK(resume_status);
+
+  // Confirm the test actually created the intended nonmem sequence gap.
+  ASSERT_GE(allocated_before_gap_commit, allocated_after_prepare);
+  ASSERT_EQ(last_sequence_before_gap_commit, last_sequence_after_gap_commit);
+  ASSERT_LT(allocated_before_gap_commit, allocated_after_gap_commit);
+  ASSERT_LT(last_sequence_after_gap_commit, allocated_after_gap_commit);
+
+  // Without the flush-fence sync, LastSequence() remains at the stale value
+  // consumed by SwitchMemtable(). The fixed path catches it up before the
+  // switch creates a new memtable/WAL boundary.
+  ASSERT_EQ(versions.LastSequence(), versions.LastAllocatedSequence());
+  ASSERT_GE(versions.LastSequence(), allocated_after_gap_commit);
+
+  wal_only_commit_txn.reset();
+  Close();
+}
 
 // Regression test: verify that after error recovery with two_write_queues,
 // the DB can be closed and reopened without sequence number corruption.

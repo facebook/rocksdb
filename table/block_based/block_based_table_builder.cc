@@ -1628,7 +1628,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   if (IsValueType(value_type)) {
     if (r->embedded_blob_options) {
       if (!MaybeExtractEmbeddedBlobs(seq, value_type, &entry_ikey,
-                                    &entry_value)) {
+                                     &entry_value)) {
         return;  // failed status already recorded
       }
     }
