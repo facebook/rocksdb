@@ -976,9 +976,10 @@ struct BlockBasedTableBuilder::Rep {
   // is in embedded mode: index value delta encoding is disabled and eligible
   // large values are written inline as same-file blob records as values are
   // added (so they may be interleaved with data blocks), with table entries
-  // rewritten to same-file BlobIndex references. The options are owned by the
-  // caller (e.g. SstFileWriter) and must outlive the builder.
-  UnownedPtr<const EmbeddedBlobSstBuilderOptions> embedded_blob_options;
+  // rewritten to same-file BlobIndex references. This is a private owned copy:
+  // the caller (e.g. SstFileWriter::OpenWithEmbeddedBlobs) may free its own
+  // copy as soon as the builder is constructed, so we must not alias it.
+  std::unique_ptr<const EmbeddedBlobSstBuilderOptions> embedded_blob_options;
 
   // Mutable state for embedded blob writing, lazily allocated when the first
   // blob record is written. Its presence is the signal that the file contains
@@ -1137,7 +1138,11 @@ struct BlockBasedTableBuilder::Rep {
                        table_options.block_restart_interval,
                        table_options.index_block_restart_interval),
         tail_size(0),
-        embedded_blob_options(tbo.embedded_blob_options) {
+        embedded_blob_options(
+            tbo.embedded_blob_options
+                ? std::make_unique<EmbeddedBlobSstBuilderOptions>(
+                      *tbo.embedded_blob_options)
+                : nullptr) {
     FilterBuildingContext filter_context(table_options);
 
     filter_context.info_log = ioptions.logger;
