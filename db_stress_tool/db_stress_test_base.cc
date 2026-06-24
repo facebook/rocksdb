@@ -27,6 +27,7 @@
 #include "db_stress_tool/db_stress_compaction_service.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_filters.h"
+#include "db_stress_tool/db_stress_flag_validator.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "file/file_util.h"
@@ -5208,6 +5209,14 @@ void InitializeOptionsFromFlags(
       FLAGS_use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       FLAGS_use_direct_io_for_flush_and_compaction;
+  Status option_compatibility_status =
+      ParseDbStressOptionCompatibilityCheckLevel(
+          &options.option_compatibility_check_level);
+  if (!option_compatibility_status.ok()) {
+    fprintf(stderr, "Error: %s\n",
+            option_compatibility_status.ToString().c_str());
+    exit(1);
+  }
   options.recycle_log_file_num =
       static_cast<size_t>(FLAGS_recycle_log_file_num);
   options.target_file_size_base = FLAGS_target_file_size_base;

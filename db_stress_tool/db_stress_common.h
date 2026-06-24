@@ -104,6 +104,8 @@ DECLARE_bool(histogram);
 DECLARE_bool(destroy_db_initially);
 DECLARE_bool(destroy_db_and_exit);
 DECLARE_string(delete_dir_and_exit);
+DECLARE_bool(validate_db_stress_flags_only);
+DECLARE_string(option_compatibility_check_level);
 DECLARE_bool(verbose);
 DECLARE_bool(progress_reports);
 DECLARE_uint64(db_write_buffer_size);

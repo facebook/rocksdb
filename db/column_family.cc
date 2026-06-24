@@ -1694,6 +1694,10 @@ Status ColumnFamilyData::ValidateOptions(
           "level0_file_num_compaction_trigger.");
     }
   }
+  s = ValidateColumnFamilyOptionCompatibility(db_options, cf_options);
+  if (!s.ok()) {
+    return s;
+  }
   return s;
 }
 

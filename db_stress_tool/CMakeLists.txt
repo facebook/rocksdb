@@ -6,6 +6,7 @@ add_executable(db_stress${ARTIFACT_SUFFIX}
   db_stress_compression_manager.cc
   db_stress_common.cc
   db_stress_driver.cc
+  db_stress_flag_validator.cc
   db_stress_filters.cc
   db_stress_gflags.cc
   db_stress_listener.cc

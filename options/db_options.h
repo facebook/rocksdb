@@ -59,6 +59,7 @@ struct ImmutableDBOptions {
   bool use_direct_reads;
   bool use_direct_io_for_compaction_reads;
   bool use_direct_io_for_flush_and_compaction;
+  OptionCompatibilityCheckLevel option_compatibility_check_level;
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;

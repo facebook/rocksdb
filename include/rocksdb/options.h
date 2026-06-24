@@ -447,6 +447,17 @@ enum class WALRecoveryMode : char {
   kSkipAnyCorruptedRecords = 0x03,
 };
 
+enum class OptionCompatibilityCheckLevel : char {
+  // Do not run optional option-compatibility checks. Mandatory product
+  // validation still runs and can reject invalid option combinations.
+  kSkip = 0,
+  // Log optional option-compatibility diagnostics through info_log when
+  // configured, and continue.
+  kWarn = 1,
+  // Reject optional option-compatibility diagnostics with InvalidArgument.
+  kReject = 2,
+};
+
 struct DbPath {
   std::string path;
   uint64_t target_size;  // Target size of total files under the path, in byte.
@@ -1189,6 +1200,16 @@ struct DBOptions {
   // with this on write-heavy workloads.
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
+
+  // Controls optional option-compatibility checks for known feature
+  // combinations. These checks are intended for compatibility validation and
+  // rollout policy, not for exhaustively validating numeric/string option
+  // spaces. Mandatory product validation is not controlled by this option and
+  // still rejects invalid RocksDB configurations.
+  //
+  // Default: kSkip
+  OptionCompatibilityCheckLevel option_compatibility_check_level =
+      OptionCompatibilityCheckLevel::kSkip;
 
   // If false, fallocate() calls are bypassed, which disables file
   // preallocation. The file space preallocation is used to increase the file

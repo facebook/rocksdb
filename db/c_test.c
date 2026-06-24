@@ -2877,6 +2877,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_wal_recovery_mode(o, 2);
     CheckCondition(2 == rocksdb_options_get_wal_recovery_mode(o));
 
+    rocksdb_options_set_option_compatibility_check_level(o, 2);
+    CheckCondition(2 ==
+                   rocksdb_options_get_option_compatibility_check_level(o));
+
     rocksdb_options_set_compression(o, 5);
     CheckCondition(5 == rocksdb_options_get_compression(o));
 
@@ -3055,6 +3059,8 @@ int main(int argc, char** argv) {
     CheckCondition(28 == rocksdb_options_get_inplace_update_num_locks(copy));
     CheckCondition(1 == rocksdb_options_get_report_bg_io_stats(copy));
     CheckCondition(2 == rocksdb_options_get_wal_recovery_mode(copy));
+    CheckCondition(2 ==
+                   rocksdb_options_get_option_compatibility_check_level(copy));
     CheckCondition(5 == rocksdb_options_get_compression(copy));
     CheckCondition(4 == rocksdb_options_get_bottommost_compression(copy));
     CheckCondition(2 == rocksdb_options_get_compaction_style(copy));

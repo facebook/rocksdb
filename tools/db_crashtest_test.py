@@ -130,10 +130,21 @@ class DBCrashTestTest(unittest.TestCase):
         db_crashtest = self.load_db_crashtest()
         params = self.build_params(
             db_crashtest.default_params,
-            {"disable_wal": 1, "test_batches_snapshots": 1},
+            {
+                "disable_wal": 1,
+                "test_batches_snapshots": 1,
+                # Keep unrelated fixed-across-run defaults from legitimately
+                # re-enabling WAL; this test is only about the disable_wal
+                # consequence on test_batches_snapshots.
+                "inplace_update_support": 0,
+            },
         )
 
-        finalized = db_crashtest.finalize_and_sanitize(params)
+        # Pin disable_wal as the winning root so this test verifies the
+        # disable_wal consequence rather than random-priority conflict choice.
+        finalized = db_crashtest.finalize_and_sanitize(
+            params, explicit_keys={"disable_wal"}
+        )
 
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
@@ -161,6 +172,8 @@ class DBCrashTestTest(unittest.TestCase):
         params = self.build_params(
             db_crashtest.default_params,
             {
+                "inplace_update_support": 1,
+                "memtablerep": "skip_list",
                 "test_batches_snapshots": 0,
                 "use_multiscan": 0,
                 "use_sqfc_for_range_queries": 1,
@@ -168,10 +181,38 @@ class DBCrashTestTest(unittest.TestCase):
             },
         )
 
-        finalized = db_crashtest.finalize_and_sanitize(params)
+        finalized = db_crashtest.finalize_and_sanitize(
+            params,
+            explicit_keys={"min_tombstones_for_range_conversion", "use_multiscan"},
+        )
 
         self.assertEqual(2, finalized["min_tombstones_for_range_conversion"])
         self.assertEqual(0, finalized["use_sqfc_for_range_queries"])
+        self.assertEqual(0, finalized["inplace_update_support"])
+
+    def test_finalize_disables_direct_io_for_mmap_read(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "mmap_read": 1,
+                "multiscan_use_async_io": 1,
+                "use_direct_io_for_compaction_reads": 1,
+                "use_direct_io_for_flush_and_compaction": 1,
+                "use_direct_reads": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(
+            params,
+            explicit_keys={"mmap_read"},
+        )
+
+        self.assertEqual(1, finalized["mmap_read"])
+        self.assertEqual(0, finalized["multiscan_use_async_io"])
+        self.assertEqual(0, finalized["use_direct_io_for_compaction_reads"])
+        self.assertEqual(0, finalized["use_direct_io_for_flush_and_compaction"])
+        self.assertEqual(0, finalized["use_direct_reads"])
 
     def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
         db_crashtest = self.load_db_crashtest()

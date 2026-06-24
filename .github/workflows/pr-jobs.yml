@@ -98,6 +98,8 @@ jobs:
       with:
         cache-key-prefix: build-linux
     - run: make V=1 J=32 -j32 check
+      env:
+        RUN_DB_CRASHTEST_COMPATIBILITY_TESTS: 1
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
