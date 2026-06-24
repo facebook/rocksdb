@@ -311,6 +311,22 @@ enum Tickers : uint32_t {
 
   // Number of refill intervals where rate limiter's bytes are fully consumed.
   NUMBER_RATE_LIMITER_DRAINS,
+  // Bytes granted by the rate limiter for read requests.
+  RATE_LIMITER_BYTES_READ,
+  // Bytes granted by the rate limiter for write requests.
+  RATE_LIMITER_BYTES_WRITE,
+  // Number of read requests granted by the rate limiter.
+  RATE_LIMITER_REQUESTS_READ,
+  // Number of write requests granted by the rate limiter.
+  RATE_LIMITER_REQUESTS_WRITE,
+  // Number of read requests that waited for a future rate limiter refill.
+  RATE_LIMITER_DELAYED_REQUESTS_READ,
+  // Number of write requests that waited for a future rate limiter refill.
+  RATE_LIMITER_DELAYED_REQUESTS_WRITE,
+  // Total time read requests spent waiting for rate limiter refills.
+  RATE_LIMITER_TOTAL_WAIT_MICROS_READ,
+  // Total time write requests spent waiting for rate limiter refills.
+  RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE,
 
   // BlobDB specific stats
   // # of Put/PutWithTTL to BlobDB. Only applicable to legacy BlobDB.
@@ -774,6 +790,11 @@ enum Histograms : uint32_t {
   // (work under the DB mutex while writes are blocked). One sample per
   // successful call; requires stats level > kExceptTimers.
   INGEST_EXTERNAL_FILE_RUN_TIME,
+
+  // Time read requests spent waiting for rate limiter refills.
+  RATE_LIMITER_WAIT_MICROS_READ,
+  // Time write requests spent waiting for rate limiter refills.
+  RATE_LIMITER_WAIT_MICROS_WRITE,
 
   HISTOGRAM_ENUM_MAX
 };

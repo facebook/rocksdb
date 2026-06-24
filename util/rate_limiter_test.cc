@@ -183,6 +183,64 @@ TEST_F(RateLimiterTest, Modes) {
   }
 }
 
+TEST_F(RateLimiterTest, Statistics) {
+  constexpr int64_t kBytesPerSecond = 100;
+  constexpr int64_t kMicrosPerSecond = 1000 * 1000;
+  constexpr int64_t kBytesPerRefill = kBytesPerSecond;
+
+  auto stats = CreateDBStatistics();
+  auto mock_clock =
+      std::make_shared<MockSystemClock>(Env::Default()->GetSystemClock());
+  GenericRateLimiter write_limiter(
+      kBytesPerSecond, kMicrosPerSecond, 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, mock_clock, false /* auto_tuned */,
+      0 /* single_burst_bytes */);
+
+  write_limiter.Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
+                        RateLimiter::OpType::kRead);
+  EXPECT_EQ(0, stats->getTickerCount(RATE_LIMITER_BYTES_READ));
+  EXPECT_EQ(0, stats->getTickerCount(RATE_LIMITER_REQUESTS_READ));
+
+  write_limiter.Request(kBytesPerRefill, Env::IO_HIGH, stats.get(),
+                        RateLimiter::OpType::kWrite);
+  EXPECT_EQ(kBytesPerRefill, stats->getTickerCount(RATE_LIMITER_BYTES_WRITE));
+  EXPECT_EQ(1, stats->getTickerCount(RATE_LIMITER_REQUESTS_WRITE));
+  EXPECT_EQ(0, stats->getTickerCount(RATE_LIMITER_DELAYED_REQUESTS_WRITE));
+  EXPECT_EQ(0, stats->getTickerCount(RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE));
+
+  HistogramData hist;
+  stats->histogramData(RATE_LIMITER_WAIT_MICROS_WRITE, &hist);
+  EXPECT_EQ(0, hist.count);
+
+  write_limiter.Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
+                        RateLimiter::OpType::kWrite);
+  EXPECT_EQ(kBytesPerRefill + 1,
+            stats->getTickerCount(RATE_LIMITER_BYTES_WRITE));
+  EXPECT_EQ(2, stats->getTickerCount(RATE_LIMITER_REQUESTS_WRITE));
+  EXPECT_EQ(1, stats->getTickerCount(RATE_LIMITER_DELAYED_REQUESTS_WRITE));
+  EXPECT_GT(stats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS), 0);
+  EXPECT_GT(stats->getTickerCount(RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE), 0);
+
+  stats->histogramData(RATE_LIMITER_WAIT_MICROS_WRITE, &hist);
+  EXPECT_EQ(1, hist.count);
+  EXPECT_GT(hist.sum, 0);
+
+  auto read_stats = CreateDBStatistics();
+  auto read_mock_clock =
+      std::make_shared<MockSystemClock>(Env::Default()->GetSystemClock());
+  GenericRateLimiter read_limiter(kBytesPerSecond, kMicrosPerSecond,
+                                  10 /* fairness */, RateLimiter::Mode::kAllIo,
+                                  read_mock_clock, false /* auto_tuned */,
+                                  0 /* single_burst_bytes */);
+
+  read_limiter.Request(10 /* bytes */, Env::IO_HIGH, read_stats.get(),
+                       RateLimiter::OpType::kRead);
+  EXPECT_EQ(10, read_stats->getTickerCount(RATE_LIMITER_BYTES_READ));
+  EXPECT_EQ(1, read_stats->getTickerCount(RATE_LIMITER_REQUESTS_READ));
+  EXPECT_EQ(0, read_stats->getTickerCount(RATE_LIMITER_BYTES_WRITE));
+  EXPECT_EQ(0, read_stats->getTickerCount(RATE_LIMITER_REQUESTS_WRITE));
+}
+
 TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(
       200 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,

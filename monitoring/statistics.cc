@@ -164,6 +164,18 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
     {READ_AMP_TOTAL_READ_BYTES, "rocksdb.read.amp.total.read.bytes"},
     {NUMBER_RATE_LIMITER_DRAINS, "rocksdb.number.rate_limiter.drains"},
+    {RATE_LIMITER_BYTES_READ, "rocksdb.rate.limiter.bytes.read"},
+    {RATE_LIMITER_BYTES_WRITE, "rocksdb.rate.limiter.bytes.write"},
+    {RATE_LIMITER_REQUESTS_READ, "rocksdb.rate.limiter.requests.read"},
+    {RATE_LIMITER_REQUESTS_WRITE, "rocksdb.rate.limiter.requests.write"},
+    {RATE_LIMITER_DELAYED_REQUESTS_READ,
+     "rocksdb.rate.limiter.delayed.requests.read"},
+    {RATE_LIMITER_DELAYED_REQUESTS_WRITE,
+     "rocksdb.rate.limiter.delayed.requests.write"},
+    {RATE_LIMITER_TOTAL_WAIT_MICROS_READ,
+     "rocksdb.rate.limiter.total.wait.micros.read"},
+    {RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE,
+     "rocksdb.rate.limiter.total.wait.micros.write"},
     {BLOB_DB_NUM_PUT, "rocksdb.blobdb.num.put"},
     {BLOB_DB_NUM_WRITE, "rocksdb.blobdb.num.write"},
     {BLOB_DB_NUM_GET, "rocksdb.blobdb.num.get"},
@@ -389,6 +401,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {INGEST_EXTERNAL_FILE_PREPARE_TIME,
      "rocksdb.ingest.external.file.prepare.micros"},
     {INGEST_EXTERNAL_FILE_RUN_TIME, "rocksdb.ingest.external.file.run.micros"},
+    {RATE_LIMITER_WAIT_MICROS_READ, "rocksdb.rate.limiter.wait.micros.read"},
+    {RATE_LIMITER_WAIT_MICROS_WRITE, "rocksdb.rate.limiter.wait.micros.write"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
