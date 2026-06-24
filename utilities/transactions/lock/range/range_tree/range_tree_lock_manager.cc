@@ -239,10 +239,18 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
       int r = b[0] == SUFFIX_INFIMUM ? 1 : -1;
       return is_reverse ? -r : r;
     } else {
+      // Same user key, differing only in the endpoint-type suffix byte. The
+      // suffix (SUFFIX_INFIMUM vs SUFFIX_SUPREMUM) is a positional boundary
+      // marker for that key, not key content, so the infimum endpoint always
+      // sorts before the supremum endpoint regardless of the column family's
+      // sort direction. This must NOT be flipped for a reverse comparator:
+      // doing so makes m_cmp(infimum(K), supremum(K)) > 0 and trips the
+      // locktree's "left <= right" invariant for a [infimum(K), supremum(K)]
+      // point range (e.g. a MyRocks equality lookup on a reverse 'rev:' CF).
       if (a[0] < b[0]) {
-        return is_reverse ? 1 : -1;
+        return -1;
       } else if (a[0] > b[0]) {
-        return is_reverse ? -1 : 1;
+        return 1;
       } else {
         return 0;
       }
