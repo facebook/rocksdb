@@ -261,6 +261,22 @@ below set `AUTO_CLEAN=1` for you.
     smart quotes, etc.) in comments or strings -- use ASCII equivalents
     (`--` instead of em dash, `'` instead of smart quote, etc.).
 
+### License headers
+* Every new source file needs a license header. For a file that does **not**
+    carry an outside/third-party copyright, use the standard Meta dual-licensed
+    header (the dual-license designation is required -- a bare
+    "All Rights Reserved" copyright is not an acceptable open-source header):
+    ```
+    //  Copyright (c) Meta Platforms, Inc. and affiliates.
+    //  This source code is licensed under both the GPLv2 (found in the
+    //  COPYING file in the root directory) and Apache 2.0 License
+    //  (found in the LICENSE.Apache file in the root directory).
+    ```
+    Use a `#` comment prefix instead of `//` for shell, Python, and Makefile
+    fragments.
+* Files derived from an external source (e.g. LevelDB) keep their original
+    upstream copyright line in addition to the header above.
+
 ### RTTI and dynamic_cast
 * Production code and `db_stress` must build in **release mode
     (`-fno-rtti`)**. Do not use `dynamic_cast` anywhere except unit tests.

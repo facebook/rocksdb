@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved.
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# This source code is licensed under both the GPLv2 (found in the
+# COPYING file in the root directory) and Apache 2.0 License
+# (found in the LICENSE.Apache file in the root directory).
 #
 # Build RocksDB unit test binaries and run them under gtest-parallel,
 # which shards the test cases across CPUs for faster execution.
