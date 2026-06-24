@@ -21,12 +21,12 @@
 #include <utility>
 
 #include "block_cache.h"
+#include "builtin_index_factory.h"
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
-#include "index_builder.h"
 #include "logging/logging.h"
 #include "memory/memory_allocator_impl.h"
 #include "options/options_helper.h"
@@ -45,6 +45,7 @@
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
+#include "table/block_based/partition_coordinator.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/block_based/user_defined_index_wrapper.h"
 #include "table/format.h"
@@ -73,7 +74,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
-    PartitionedIndexBuilder* const p_index_builder, size_t ts_sz,
+    PartitionCoordinator* const partition_coordinator, size_t ts_sz,
     const bool persist_user_defined_timestamps) {
   const BlockBasedTableOptions& table_opt = context.table_options;
   assert(table_opt.filter_policy);  // precondition
@@ -84,7 +85,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     return nullptr;
   } else {
     if (table_opt.partition_filters) {
-      assert(p_index_builder != nullptr);
+      assert(partition_coordinator != nullptr);
       // Since after partition cut request from filter builder it takes time
       // until index builder actully cuts the partition, until the end of a
       // data block potentially with many keys, we take the lower bound as
@@ -99,8 +100,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          use_delta_encoding_for_index_values, p_index_builder, partition_size,
-          ts_sz, persist_user_defined_timestamps,
+          use_delta_encoding_for_index_values, partition_coordinator,
+          partition_size, ts_sz, persist_user_defined_timestamps,
           table_opt.decouple_partitioned_filters);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
@@ -279,7 +280,14 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     std::string uncompressed;
     GrowableBuffer compressed;
     CompressionType compression_type = kNoCompression;
-    std::unique_ptr<IndexBuilder::PreparedIndexEntry> prepared_index_entry;
+    std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry> prepared_index_entry;
+    bool index_entry_prepared = false;
+
+    // Staged entries, one per Rep::custom_indexes element in matching
+    // order. Empty unless every custom builder supports parallel.
+    std::vector<std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>>
+        custom_prepared_entries;
+    bool custom_entries_prepared = false;
   };
 
   // Ring buffer of emitted blocks that may or may not yet be compressed.
@@ -843,9 +851,129 @@ struct BlockBasedTableBuilder::Rep {
   BlockBuilder range_del_block;
 
   InternalKeySliceTransform internal_prefix_transform;
-  std::unique_ptr<IndexBuilder> index_builder;
+  std::unique_ptr<IndexFactoryBuilder> index_builder;
   std::string index_separator_scratch;
-  PartitionedIndexBuilder* p_index_builder_ = nullptr;
+
+  // Custom indexes built alongside the built-in index.
+  struct CustomIndex {
+    // Meta block key is kIndexFactoryMetaPrefix + name.
+    std::string name;
+    std::unique_ptr<IndexFactoryBuilder> builder;
+    // Owned by this CustomIndex so a Slice returned from
+    // AddIndexEntry that references this buffer isn't invalidated by
+    // another builder's call.
+    std::string separator_scratch;
+  };
+  std::vector<CustomIndex> custom_indexes;
+
+  // Forwards OnKeyAdded per key to the built-in builder (full internal
+  // key) and each custom builder (parsed user key + ValueType).
+  // index_builder is null only in kCustomOnly mode; custom_indexes is
+  // empty when no user_defined_index_factory is configured.
+  void ForwardOnKeyAddedToAll(const Slice& internal_key,
+                              const std::optional<Slice>& value) {
+    if (LIKELY(index_builder != nullptr)) {
+      static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
+          ->OnKeyAddedInternal(internal_key, value);
+    }
+    if (LIKELY(custom_indexes.empty())) {
+      return;
+    }
+    // Parse failure on a builder-constructed internal key is unreachable;
+    // surface as Corruption to avoid divergence (built-in builder above
+    // already received the key).
+    ParsedInternalKey pkey;
+    Status parse_s = ParseInternalKey(internal_key, &pkey, false);
+    assert(parse_s.ok());
+    if (UNLIKELY(!parse_s.ok())) {
+      SetStatus(Status::Corruption(
+          "Failed to parse internal_key in ForwardOnKeyAddedToAll: " +
+          parse_s.ToString()));
+      return;
+    }
+    IndexFactoryBuilder::ValueType vt;
+    switch (pkey.type) {
+      case kTypeValue:
+      case kTypeValuePreferredSeqno:
+        vt = IndexFactoryBuilder::ValueType::kValue;
+        break;
+      case kTypeDeletion:
+      case kTypeSingleDeletion:
+      case kTypeDeletionWithTimestamp:
+        vt = IndexFactoryBuilder::ValueType::kDelete;
+        break;
+      case kTypeMerge:
+        vt = IndexFactoryBuilder::ValueType::kMerge;
+        break;
+      default:
+        vt = IndexFactoryBuilder::ValueType::kOther;
+    }
+    // kTypeValuePreferredSeqno packs the user value with a preferred
+    // seqno; extract the user value portion before forwarding.
+    Slice user_value;
+    if (value.has_value()) {
+      user_value = (pkey.type == kTypeValuePreferredSeqno)
+                       ? ParsePackedValueForValue(*value)
+                       : *value;
+    }
+    for (auto& ci : custom_indexes) {
+      ci.builder->OnKeyAdded(pkey.user_key, vt, user_value);
+    }
+  }
+
+  // Forwards AddIndexEntry to all index builders. The built-in builder
+  // takes the direct (no-parse) path; the parse runs only when at least
+  // one custom index needs the user-key form.
+  void ForwardAddIndexEntryToAll(const Slice& last_internal_key,
+                                 const Slice* first_internal_key_next,
+                                 const BlockHandle& handle,
+                                 bool skip_delta_encoding = false) {
+    if (LIKELY(index_builder != nullptr)) {
+      static_cast<BuiltinIndexFactoryBuilder*>(index_builder.get())
+          ->AddIndexEntryDirect(last_internal_key, first_internal_key_next,
+                                handle, &index_separator_scratch,
+                                skip_delta_encoding);
+    }
+    if (LIKELY(custom_indexes.empty())) {
+      return;
+    }
+    // Parse failure on a builder-constructed internal key is unreachable;
+    // surface as Corruption if it ever happens to avoid built-in vs
+    // custom index divergence (the built-in entry was staged above).
+    ParsedInternalKey last_pkey;
+    Status parse_s = ParseInternalKey(last_internal_key, &last_pkey, false);
+    assert(parse_s.ok());
+    if (UNLIKELY(!parse_s.ok())) {
+      SetStatus(Status::Corruption(
+          "Failed to parse last_internal_key in ForwardAddIndexEntryToAll: " +
+          parse_s.ToString()));
+      return;
+    }
+    IndexFactoryBuilder::IndexEntryContext ctx;
+    ctx.last_key_tag = PackSequenceAndType(last_pkey.sequence, last_pkey.type);
+    ParsedInternalKey next_pkey;
+    const Slice* next_user = nullptr;
+    if (first_internal_key_next != nullptr) {
+      Status next_parse_s =
+          ParseInternalKey(*first_internal_key_next, &next_pkey, false);
+      assert(next_parse_s.ok());
+      if (UNLIKELY(!next_parse_s.ok())) {
+        SetStatus(
+            Status::Corruption("Failed to parse first_internal_key_next in "
+                               "ForwardAddIndexEntryToAll: " +
+                               next_parse_s.ToString()));
+        return;
+      }
+      next_user = &next_pkey.user_key;
+      ctx.first_key_tag =
+          PackSequenceAndType(next_pkey.sequence, next_pkey.type);
+    }
+    IndexFactoryBuilder::BlockHandle pub{handle.offset(), handle.size()};
+    for (auto& ci : custom_indexes) {
+      ci.builder->AddIndexEntry(last_pkey.user_key, next_user, pub,
+                                &ci.separator_scratch, ctx);
+    }
+  }
 
   std::string last_ikey;  // Internal key or empty (unset)
   bool uses_explicit_compression_manager = false;
@@ -1229,10 +1357,12 @@ struct BlockBasedTableBuilder::Rep {
         compression_parallel_threads = recommended;
       }
     }
-    // Hard structural constraints override any recommendation
-    if ((table_opt.partition_filters &&
-         !table_opt.decouple_partitioned_filters) ||
-        table_options.user_defined_index_factory) {
+    // partition_filters without decoupling requires single-threaded
+    // compression. The UDI parallel-support check happens after builder
+    // construction (each IndexFactoryBuilder votes via
+    // SupportsParallelAddEntry).
+    if (table_opt.partition_filters &&
+        !table_opt.decouple_partitioned_filters) {
       compression_parallel_threads = 1;
     }
 
@@ -1269,62 +1399,94 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
-    if (table_options.index_type ==
-        BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
-          &internal_comparator, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps,
-          ioptions.stats);
-      index_builder.reset(p_index_builder_);
-    } else {
-      index_builder.reset(IndexBuilder::CreateIndexBuilder(
-          table_options.index_type, &internal_comparator,
-          &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps,
-          ioptions.stats));
-    }
-
-    // If user_defined_index_factory is provided, wrap the index builder with
-    // UserDefinedIndexWrapper
-    if (table_options.use_udi_as_primary_index &&
+    if (table_options.index_mode >=
+            BlockBasedTableOptions::IndexMode::kStandardDefault &&
         table_options.user_defined_index_factory == nullptr) {
-      SetStatus(Status::InvalidArgument(
-          "use_udi_as_primary_index requires user_defined_index_factory to "
-          "be set"));
+      SetStatus(
+          Status::InvalidArgument("index_mode >= kStandardDefault requires "
+                                  "user_defined_index_factory to be set"));
     }
-    if (table_options.user_defined_index_factory != nullptr) {
-      if (tbo.moptions.compression_opts.parallel_threads > 1 ||
-          tbo.moptions.bottommost_compression_opts.parallel_threads > 1) {
-        SetStatus(
-            Status::InvalidArgument("user_defined_index_factory not supported "
-                                    "with parallel compression"));
-      } else if (table_options.use_udi_as_primary_index &&
-                 table_options.index_type ==
-                     BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    if (table_options.index_mode >=
+            BlockBasedTableOptions::IndexMode::kStandardDefault &&
+        table_options.user_defined_index_factory != nullptr) {
+      if (table_options.index_mode >=
+              BlockBasedTableOptions::IndexMode::kCustomDefault &&
+          table_options.index_type ==
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
         SetStatus(Status::InvalidArgument(
-            "use_udi_as_primary_index is incompatible with partitioned index "
-            "(kTwoLevelIndexSearch)"));
-      } else if (table_options.use_udi_as_primary_index &&
+            "index_mode kCustomDefault/kCustomOnly is incompatible with "
+            "partitioned index (kTwoLevelIndexSearch)"));
+      } else if (table_options.index_mode >=
+                     BlockBasedTableOptions::IndexMode::kCustomDefault &&
                  table_options.partition_filters) {
         SetStatus(Status::InvalidArgument(
-            "use_udi_as_primary_index is incompatible with partitioned "
-            "filters"));
-      } else {
-        std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder;
-        UserDefinedIndexOption udi_options;
-        udi_options.comparator = internal_comparator.user_comparator();
-        auto s = table_options.user_defined_index_factory->NewBuilder(
-            udi_options, user_defined_index_builder);
-        if (!s.ok()) {
-          SetStatus(s);
-        } else {
-          if (user_defined_index_builder != nullptr) {
-            index_builder = std::make_unique<UserDefinedIndexBuilderWrapper>(
-                std::string(table_options.user_defined_index_factory->Name()),
-                std::move(index_builder), std::move(user_defined_index_builder),
-                &internal_comparator, ts_sz, persist_user_defined_timestamps);
+            "index_mode kCustomDefault/kCustomOnly is incompatible with "
+            "partitioned filters"));
+      }
+    }
+
+    // kCustomOnly skips the built-in builder; a minimal empty index
+    // block is written by WriteIndexBlock to satisfy the SST footer.
+    const bool build_standard_index =
+        table_options.index_mode !=
+        BlockBasedTableOptions::IndexMode::kCustomOnly;
+    if (build_standard_index) {
+      BuiltinIndexFactoryConfig builtin_config;
+      builtin_config.internal_comparator = &internal_comparator;
+      builtin_config.internal_prefix_transform =
+          &this->internal_prefix_transform;
+      builtin_config.use_delta_encoding_for_index_values =
+          use_delta_encoding_for_index_values;
+      builtin_config.table_options = &table_options;
+      builtin_config.ts_sz = ts_sz;
+      builtin_config.persist_user_defined_timestamps =
+          persist_user_defined_timestamps;
+      builtin_config.stats = ioptions.stats;
+
+      IndexFactoryOptions builtin_opts;
+      builtin_opts.comparator = internal_comparator.user_comparator();
+      Status s = NewBuiltinIndexFactoryBuilder(table_options.index_type,
+                                               builtin_config, builtin_opts,
+                                               index_builder);
+      if (!s.ok()) {
+        SetStatus(s);
+      }
+    }
+
+    if (table_options.index_mode >=
+            BlockBasedTableOptions::IndexMode::kStandardDefault &&
+        table_options.user_defined_index_factory != nullptr) {
+      IndexFactoryOptions custom_opts;
+      custom_opts.comparator = internal_comparator.user_comparator();
+      CustomIndex ci;
+      ci.name = table_options.user_defined_index_factory->Name();
+      auto s = table_options.user_defined_index_factory->NewBuilder(custom_opts,
+                                                                    ci.builder);
+      if (!s.ok()) {
+        SetStatus(s);
+      } else if (ci.builder != nullptr) {
+        custom_indexes.push_back(std::move(ci));
+      }
+    }
+
+    // Final compression_parallel_threads decision: silently fall back to
+    // single-threaded compression if any configured IndexFactoryBuilder
+    // doesn't support the parallel AddEntry protocol.
+    if (compression_parallel_threads > 1) {
+      bool all_support = true;
+      if (index_builder && !index_builder->SupportsParallelAddEntry()) {
+        all_support = false;
+      }
+      if (all_support) {
+        for (const auto& ci : custom_indexes) {
+          if (!ci.builder->SupportsParallelAddEntry()) {
+            all_support = false;
+            break;
           }
         }
+      }
+      if (!all_support) {
+        compression_parallel_threads = 1;
       }
     }
 
@@ -1338,8 +1500,9 @@ struct BlockBasedTableBuilder::Rep {
     } else {
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, tbo.moptions, filter_context,
-          use_delta_encoding_for_index_values, p_index_builder_, ts_sz,
-          persist_user_defined_timestamps));
+          use_delta_encoding_for_index_values,
+          index_builder ? index_builder->GetPartitionCoordinator() : nullptr,
+          ts_sz, persist_user_defined_timestamps));
     }
 
     assert(tbo.internal_tbl_prop_coll_factories);
@@ -1618,7 +1781,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
       // Buffered keys will be replayed from data_block_buffers during
       // `Finish()` once compression dictionary has been finalized.
     } else {
-      r->index_builder->OnKeyAdded(ikey, value);
+      r->ForwardOnKeyAddedToAll(ikey, value);
     }
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),
@@ -1784,9 +1947,76 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
   pc_rep.estimated_inflight_size.FetchAddRelaxed(uncompressed.size() +
                                                  kBlockTrailerSize);
   std::swap(uncompressed, block_rep->uncompressed);
-  r->index_builder->PrepareIndexEntry(last_key_in_current_block,
-                                      first_key_in_next_block,
-                                      block_rep->prepared_index_entry.get());
+
+  // Reset before any conditional staging below: BlockReps are reused via
+  // the ring buffer, and a stale `true` flag would cause BGWorker to
+  // commit data from the slot's previous iteration.
+  block_rep->index_entry_prepared = false;
+  block_rep->custom_entries_prepared = false;
+
+  // Stage the built-in index entry (skipped only in kCustomOnly).
+  // PrepareAddEntryDirect bypasses ParseInternalKey + repack.
+  if (r->index_builder) {
+    static_cast<BuiltinIndexFactoryBuilder*>(r->index_builder.get())
+        ->PrepareAddEntryDirect(last_key_in_current_block,
+                                first_key_in_next_block,
+                                block_rep->prepared_index_entry.get());
+    block_rep->index_entry_prepared = true;
+  }
+
+  // Stage entries for custom indexes. Every builder reachable here
+  // supports the parallel protocol (verified at Rep construction).
+  if (!r->custom_indexes.empty()) {
+    // Test hook: skip_custom_prepare=true exercises the stale-flag-reset
+    // above by leaving custom_entries_prepared false. A real parse
+    // failure on a builder-constructed key is unreachable; if it ever
+    // happens we abort with Corruption below to avoid index divergence.
+    bool skip_custom_prepare = false;
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::EmitBlockForParallel:SkipCustomPrepare",
+        &skip_custom_prepare);
+    if (!skip_custom_prepare) {
+      ParsedInternalKey last_pkey;
+      Status parse_s = ParseInternalKey(last_key_in_current_block, &last_pkey,
+                                        /*log_err_key=*/false);
+      assert(parse_s.ok());
+      if (UNLIKELY(!parse_s.ok())) {
+        r->SetStatus(
+            Status::Corruption("Failed to parse last_key_in_current_block in "
+                               "EmitBlockForParallel: " +
+                               parse_s.ToString()));
+        return;
+      }
+      IndexFactoryBuilder::IndexEntryContext ctx;
+      ctx.last_key_tag =
+          PackSequenceAndType(last_pkey.sequence, last_pkey.type);
+      const Slice* next_user = nullptr;
+      ParsedInternalKey next_pkey;
+      if (first_key_in_next_block != nullptr) {
+        Status next_parse_s =
+            ParseInternalKey(*first_key_in_next_block, &next_pkey,
+                             /*log_err_key=*/false);
+        assert(next_parse_s.ok());
+        if (UNLIKELY(!next_parse_s.ok())) {
+          r->SetStatus(
+              Status::Corruption("Failed to parse first_key_in_next_block in "
+                                 "EmitBlockForParallel: " +
+                                 next_parse_s.ToString()));
+          return;
+        }
+        next_user = &next_pkey.user_key;
+        ctx.first_key_tag =
+            PackSequenceAndType(next_pkey.sequence, next_pkey.type);
+      }
+      for (size_t i = 0; i < r->custom_indexes.size(); i++) {
+        r->custom_indexes[i].builder->PrepareAddEntry(
+            last_pkey.user_key, next_user, ctx,
+            block_rep->custom_prepared_entries[i].get());
+      }
+      block_rep->custom_entries_prepared = true;
+    }
+  }
+
   block_rep->compressed.Reset();
   block_rep->compression_type = kNoCompression;
 
@@ -1847,9 +2077,9 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
     // "the r" as the key for the index block entry since it is >= all
     // entries in the first block and < all entries in subsequent
     // blocks.
-    r->index_builder->AddIndexEntry(
-        last_key_in_current_block, first_key_in_next_block, r->pending_handle,
-        &r->index_separator_scratch, skip_delta_encoding);
+    r->ForwardAddIndexEntryToAll(last_key_in_current_block,
+                                 first_key_in_next_block, r->pending_handle,
+                                 skip_delta_encoding);
   }
 }
 
@@ -1934,9 +2164,27 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
 
-        rep_->index_builder->FinishIndexEntry(
-            rep_->pending_handle, block_rep->prepared_index_entry.get(),
-            skip_delta_encoding);
+        // The parallel pipeline state machine serializes write_fn so
+        // FinishAddEntry runs on a single writer thread at a time. That
+        // makes it safe to use each builder's per-builder scratch buffer
+        // without locking.
+        IndexFactoryBuilder::BlockHandle pub_handle{
+            rep_->pending_handle.offset(), rep_->pending_handle.size()};
+        // Built-in index (null only in kCustomOnly mode).
+        if (rep_->index_builder && block_rep->index_entry_prepared) {
+          rep_->index_builder->FinishAddEntry(
+              pub_handle, block_rep->prepared_index_entry.get(),
+              &rep_->index_separator_scratch, skip_delta_encoding);
+        }
+        // Custom indexes that opted into the parallel protocol.
+        if (block_rep->custom_entries_prepared) {
+          for (size_t i = 0; i < rep_->custom_indexes.size(); i++) {
+            rep_->custom_indexes[i].builder->FinishAddEntry(
+                pub_handle, block_rep->custom_prepared_entries[i].get(),
+                &rep_->custom_indexes[i].separator_scratch,
+                skip_delta_encoding);
+          }
+        }
       }
     };
     switch (thread_state) {
@@ -2273,9 +2521,24 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
   rep_->pc_rep = std::make_unique<ParallelCompressionRep>(
       rep_->compression_parallel_threads);
   auto& pc_rep = *rep_->pc_rep;
-  for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
-    pc_rep.ring_buffer[i].prepared_index_entry =
-        rep_->index_builder->CreatePreparedIndexEntry();
+  // index_builder is null only in kCustomOnly mode.
+  if (rep_->index_builder) {
+    for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
+      pc_rep.ring_buffer[i].prepared_index_entry =
+          rep_->index_builder->CreatePreparedAddEntry();
+    }
+  }
+  // Every custom builder reachable here supports the parallel protocol
+  // (enforced at Rep construction).
+  if (!rep_->custom_indexes.empty()) {
+    for (uint32_t i = 0; i <= pc_rep.ring_buffer_mask; i++) {
+      auto& slot = pc_rep.ring_buffer[i];
+      slot.custom_prepared_entries.reserve(rep_->custom_indexes.size());
+      for (auto& ci : rep_->custom_indexes) {
+        slot.custom_prepared_entries.emplace_back(
+            ci.builder->CreatePreparedAddEntry());
+      }
+    }
   }
   pc_rep.worker_threads.reserve(pc_rep.num_worker_threads);
   pc_rep.working_areas.resize(pc_rep.num_worker_threads);
@@ -2424,84 +2687,144 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   }
 }
 
+// Adapter that bridges IndexFactoryBuilder::IndexBlockWriter callbacks
+// (invoked from FinishAndWrite) to BlockBasedTableBuilder's private
+// block-write helpers and the meta-index builder. Defined out-of-line as
+// a private nested class so it can access BlockBasedTableBuilder's private
+// WriteBlock / WriteMaybeCompressedBlock methods.
+class BlockBasedTableBuilder::IndexBlockWriterImpl
+    : public IndexFactoryBuilder::IndexBlockWriter {
+ public:
+  IndexBlockWriterImpl(BlockBasedTableBuilder* builder,
+                       MetaIndexBuilder* meta_builder, bool compress,
+                       BlockType block_type)
+      : builder_(builder),
+        meta_builder_(meta_builder),
+        compress_(compress),
+        block_type_(block_type) {}
+
+  Status WriteBlock(const Slice& contents,
+                    IndexFactoryBuilder::BlockHandle* handle,
+                    bool compress_this) override {
+    BlockHandle internal_handle;
+    // Two-level compression control: compress_ is the SST-level setting
+    // (enable_index_compression), while compress_this is per-block
+    // (callers may request uncompressed writes for auxiliary blocks).
+    // The compressed WriteBlock path currently supports only built-in index
+    // blocks; UDI blocks keep their existing uncompressed encoding.
+    bool should_compress = compress_ && compress_this;
+    if (should_compress && block_type_ == BlockType::kIndex) {
+      builder_->WriteBlock(contents, &internal_handle, block_type_);
+    } else {
+      builder_->WriteMaybeCompressedBlock(contents, kNoCompression,
+                                          &internal_handle, block_type_);
+    }
+    if (!builder_->ok()) {
+      return builder_->status();
+    }
+    handle->offset = internal_handle.offset();
+    handle->size = internal_handle.size();
+    return Status::OK();
+  }
+
+  void AddMetaBlock(const std::string& name,
+                    const IndexFactoryBuilder::BlockHandle& handle) override {
+    BlockHandle internal_handle;
+    internal_handle.set_offset(handle.offset);
+    internal_handle.set_size(handle.size);
+    meta_builder_->Add(name, internal_handle);
+  }
+
+ private:
+  BlockBasedTableBuilder* builder_;
+  MetaIndexBuilder* meta_builder_;
+  bool compress_;
+  BlockType block_type_;
+};
+
 void BlockBasedTableBuilder::WriteIndexBlock(
     MetaIndexBuilder* meta_index_builder, BlockHandle* index_block_handle) {
   if (UNLIKELY(!ok())) {
     return;
   }
-  IndexBuilder::IndexBlocks index_blocks;
-  auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
-  if (LIKELY(ok()) && !index_builder_status.ok() &&
-      !index_builder_status.IsIncomplete()) {
-    // If the index builder failed for non-Incomplete errors, we should
-    // mark the entire builder as having failed wit that status. However,
-    // If the index builder failed with an incomplete error, we should
-    // continue writing out any meta blocks that may have been generated.
-    rep_->SetStatus(index_builder_status);
-  }
 
-  if (LIKELY(ok())) {
-    for (const auto& item : index_blocks.meta_blocks) {
-      BlockHandle block_handle;
-      if (item.second.first == BlockType::kIndex) {
-        WriteBlock(item.second.second, &block_handle, item.second.first);
-      } else {
-        assert(item.second.first == BlockType::kUserDefinedIndex);
-        WriteMaybeCompressedBlock(item.second.second, kNoCompression,
-                                  &block_handle, item.second.first);
-      }
-      if (UNLIKELY(!ok())) {
-        break;
-      }
-      meta_index_builder->Add(item.first, block_handle);
-    }
-  }
-  if (LIKELY(ok())) {
-    if (rep_->table_options.enable_index_compression) {
-      WriteBlock(index_blocks.index_block_contents, index_block_handle,
-                 BlockType::kIndex);
-    } else {
-      WriteMaybeCompressedBlock(index_blocks.index_block_contents,
-                                kNoCompression, index_block_handle,
+  // Use the FinishAndWrite protocol which handles:
+  // - Multi-partition writes for partitioned indexes
+  // - Auxiliary meta blocks (e.g., hash index prefix blocks)
+  // - Single-block writes for simple indexes
+  // The IndexBlockWriter callback adapts between the public
+  // IndexFactoryBuilder::BlockHandle and the internal BlockHandle.
+  bool compress = rep_->table_options.enable_index_compression;
+
+  if (rep_->index_builder) {
+    // Normal path: built-in index is present.
+    IndexBlockWriterImpl writer(this, meta_index_builder, compress,
                                 BlockType::kIndex);
+    IndexFactoryBuilder::BlockHandle final_handle{0, 0};
+    Status s =
+        rep_->index_builder->FinishAndWrite(&writer, &final_handle, compress);
+    if (!s.ok()) {
+      rep_->SetStatus(s);
+      return;
     }
-  }
-  // If there are more index partitions, finish them and write them out
-  if (index_builder_status.IsIncomplete()) {
-    bool index_building_finished = false;
-    while (LIKELY(ok()) && !index_building_finished) {
-      Status s =
-          rep_->index_builder->Finish(&index_blocks, *index_block_handle);
-      if (s.ok()) {
-        index_building_finished = true;
-      } else if (s.IsIncomplete()) {
-        // More partitioned index after this one
-        assert(!index_building_finished);
-      } else {
-        // Error
-        rep_->SetStatus(s);
-        return;
-      }
+    // Convert the public handle back to internal handle
+    index_block_handle->set_offset(final_handle.offset);
+    index_block_handle->set_size(final_handle.size);
 
-      if (rep_->table_options.enable_index_compression) {
-        WriteBlock(index_blocks.index_block_contents, index_block_handle,
-                   BlockType::kIndex);
-      } else {
-        WriteMaybeCompressedBlock(index_blocks.index_block_contents,
-                                  kNoCompression, index_block_handle,
-                                  BlockType::kIndex);
-      }
-      // The last index_block_handle will be for the partition index block
+    if (LIKELY(ok())) {
+      // index_size reports logical (uncompressed) top-level index size +
+      // trailer, not the on-disk compressed size. Compaction estimators
+      // and other callers depend on this contract.
+      rep_->props.index_size =
+          rep_->index_builder->IndexSize() + kBlockTrailerSize;
+      rep_->props.num_uniform_blocks =
+          rep_->index_builder->NumUniformIndexBlocks();
     }
-  }
-  if (LIKELY(ok())) {
-    rep_->props.num_uniform_blocks =
-        rep_->index_builder->NumUniformIndexBlocks();
+  } else {
+    // index_mode=kCustomOnly: no built-in index builder.
+    // Write a minimal empty index block to satisfy the SST footer.
+    // Only index_size is set here (it needs the just-written handle); the
+    // other stub properties are written by WritePropertiesBlock.
+    BlockBuilder empty_index_block(1 /* block_restart_interval */,
+                                   false /* use_delta_encoding */,
+                                   false /* use_value_delta_encoding */);
+    Slice empty_contents = empty_index_block.Finish();
+    WriteMaybeCompressedBlock(empty_contents, kNoCompression,
+                              index_block_handle, BlockType::kIndex);
+    if (LIKELY(ok())) {
+      // Stub block is uncompressed: handle.size() is the exact data size.
+      rep_->props.index_size = index_block_handle->size() + kBlockTrailerSize;
+    }
   }
   // If success and need to record in metaindex rather than footer...
   if (LIKELY(ok()) && !FormatVersionUsesIndexHandleInFooter(
                           rep_->table_options.format_version)) {
     meta_index_builder->Add(kIndexBlockName, *index_block_handle);
+  }
+
+  // Finish and write custom index blocks (e.g., trie index). Drive the full
+  // FinishAndWrite protocol so custom builders can emit auxiliary meta blocks.
+  // The top-level handle is registered as kIndexFactoryMetaPrefix + name.
+  for (auto& ci : rep_->custom_indexes) {
+    if (UNLIKELY(!ok())) {
+      break;
+    }
+    IndexBlockWriterImpl writer(this, meta_index_builder, /*compress=*/false,
+                                BlockType::kUserDefinedIndex);
+    IndexFactoryBuilder::BlockHandle final_handle{0, 0};
+    Status cs = ci.builder->FinishAndWrite(&writer, &final_handle,
+                                           /*compress=*/false);
+    if (!cs.ok()) {
+      rep_->SetStatus(cs);
+      break;
+    }
+    BlockHandle custom_handle;
+    custom_handle.set_offset(final_handle.offset);
+    custom_handle.set_size(final_handle.size);
+    if (LIKELY(ok())) {
+      meta_index_builder->Add(std::string(kIndexFactoryMetaPrefix) + ci.name,
+                              custom_handle);
+    }
   }
 }
 
@@ -2514,8 +2837,9 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         rep_->table_options.filter_policy != nullptr
             ? rep_->table_options.filter_policy->Name()
             : "";
-    rep_->props.index_size =
-        rep_->index_builder->IndexSize() + kBlockTrailerSize;
+    // rep_->props.index_size is set in WriteIndexBlock(), which has direct
+    // access to the index block handle (needed for accurate kCustomOnly stub
+    // reporting).
     rep_->props.comparator_name = rep_->ioptions.user_comparator != nullptr
                                       ? rep_->ioptions.user_comparator->Name()
                                       : "nullptr";
@@ -2539,23 +2863,31 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
 
     rep_->PostPopulateCompressionProperties();
 
-    if (rep_->table_options.index_type ==
-        BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      assert(rep_->p_index_builder_ != nullptr);
-      rep_->props.index_partitions = rep_->p_index_builder_->NumPartitions();
-      rep_->props.top_level_index_size =
-          rep_->p_index_builder_->TopLevelIndexSize(rep_->offset.LoadRelaxed());
-    }
-    rep_->props.index_key_is_user_key =
-        !rep_->index_builder->separator_is_key_plus_seq();
-    if (rep_->table_options.use_udi_as_primary_index &&
-        rep_->table_options.user_defined_index_factory != nullptr) {
+    if (rep_->index_builder) {
+      // Normal path: built-in index is present.
+      if (rep_->table_options.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        rep_->props.index_partitions = rep_->index_builder->NumPartitions();
+        rep_->props.top_level_index_size =
+            rep_->index_builder->TopLevelIndexSize(rep_->offset.LoadRelaxed());
+      }
+      rep_->props.index_key_is_user_key =
+          !rep_->index_builder->separator_is_key_plus_seq();
+      if (rep_->table_options.index_mode >=
+              BlockBasedTableOptions::IndexMode::kCustomDefault &&
+          rep_->table_options.user_defined_index_factory != nullptr) {
+        rep_->props.udi_is_primary_index = 1;
+      }
+      // The standard index is always fully populated (even in primary mode),
+      // so delta encoding applies normally.
+      rep_->props.index_value_is_delta_encoded =
+          rep_->use_delta_encoding_for_index_values;
+    } else {
+      // kCustomOnly stub properties; index_size is written by
+      // WriteIndexBlock (it needs the just-written block handle).
+      rep_->props.index_key_is_user_key = 1;
       rep_->props.udi_is_primary_index = 1;
     }
-    // The standard index is always fully populated (even in primary mode),
-    // so delta encoding applies normally.
-    rep_->props.index_value_is_delta_encoded =
-        rep_->use_delta_encoding_for_index_values;
     if (rep_->sampled_input_data_bytes.LoadRelaxed() > 0) {
       rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
           static_cast<double>(
@@ -2831,7 +3163,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
         // unbuffered operation.
         r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
       }
-      r->index_builder->OnKeyAdded(key, iter->value());
+      r->ForwardOnKeyAddedToAll(key, iter->value());
     }
 
     Slice first_key_in_loop_next_block;
@@ -2988,14 +3320,12 @@ uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
 uint64_t BlockBasedTableBuilder::EstimatedTailSize() const {
   uint64_t estimated_tail_size = 0;
 
-  // 1. Estimate index size
-  if (rep_->table_options.index_type ==
-      BlockBasedTableOptions::kTwoLevelIndexSearch) {
-    assert(rep_->p_index_builder_);
-    estimated_tail_size += rep_->p_index_builder_->CurrentIndexSizeEstimate();
-  } else {
-    assert(rep_->index_builder);
-    estimated_tail_size += rep_->index_builder->CurrentIndexSizeEstimate();
+  // 1. Estimate index size (built-in + custom indexes)
+  if (rep_->index_builder) {
+    estimated_tail_size += rep_->index_builder->EstimatedSize();
+  }
+  for (const auto& ci : rep_->custom_indexes) {
+    estimated_tail_size += ci.builder->EstimatedSize();
   }
 
   // 2. Estimate filter size

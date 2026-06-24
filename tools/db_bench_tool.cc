@@ -698,6 +698,24 @@ DEFINE_bool(use_trie_index, false,
             "providing space reduction compared to the default binary search "
             "index. Requires BytewiseComparator.");
 
+DEFINE_int32(
+    index_mode, 0,
+    "BlockBasedTableOptions::IndexMode. Controls how the custom index (e.g. "
+    "trie when --use_trie_index=1) interacts with the standard index: "
+    "0=kStandardOnly (no UDI, default), 1=kStandardDefault (UDI built, "
+    "standard is read default), 2=kCustomDefault (UDI built, UDI is read "
+    "default), 3=kCustomOnly (only UDI built, standard is a minimal stub). "
+    "If --use_trie_index=1 this flag overrides the default of "
+    "kStandardDefault. Without --use_trie_index, this flag is only valid as "
+    "kStandardOnly because there is no custom factory to wire up.");
+
+DEFINE_int32(
+    read_index, 0,
+    "Per-read ReadOptions::ReadIndex override (only meaningful with "
+    "--use_trie_index=1). 0=kDefault (use whatever index_mode says), "
+    "1=kBuiltin (force the standard index), 2=kPreferCustom (use the UDI "
+    "when this SST has one, fall back to standard otherwise).");
+
 DEFINE_bool(
     optimize_filters_for_memory,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
@@ -3176,7 +3194,7 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   ReadOptions read_options_;
   WriteOptions write_options_;
-  std::shared_ptr<ROCKSDB_NAMESPACE::UserDefinedIndexFactory> udi_factory_;
+  std::shared_ptr<ROCKSDB_NAMESPACE::IndexFactory> udi_factory_;
   Options open_options_;  // keep options around to properly destroy db later
   TraceOptions trace_options_;
   TraceOptions block_cache_trace_options_;
@@ -3965,7 +3983,15 @@ class Benchmark {
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
       if (FLAGS_use_trie_index && udi_factory_) {
-        read_options_.table_index_factory = udi_factory_.get();
+        // Default --read_index to kPreferCustom when --use_trie_index=1
+        // unless the user explicitly overrode it.
+        read_options_.read_index =
+            FLAGS_read_index == 0
+                ? ReadOptions::ReadIndex::kPreferCustom
+                : static_cast<ReadOptions::ReadIndex>(FLAGS_read_index);
+      } else if (FLAGS_read_index != 0) {
+        read_options_.read_index =
+            static_cast<ReadOptions::ReadIndex>(FLAGS_read_index);
       }
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
@@ -5336,6 +5362,28 @@ class Benchmark {
       if (FLAGS_use_trie_index) {
         udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
         block_based_options.user_defined_index_factory = udi_factory_;
+        // Default to kStandardDefault when --use_trie_index=1 unless the
+        // user explicitly picked a different mode via --index_mode.
+        block_based_options.index_mode =
+            FLAGS_index_mode == 0
+                ? BlockBasedTableOptions::IndexMode::kStandardDefault
+                : static_cast<BlockBasedTableOptions::IndexMode>(
+                      FLAGS_index_mode);
+      } else if (FLAGS_index_mode != 0) {
+        fprintf(stderr,
+                "--index_mode=%d ignored: no user_defined_index_factory "
+                "configured. Pass --use_trie_index=1 to enable UDI.\n",
+                FLAGS_index_mode);
+      }
+      if (FLAGS_index_mode < 0 || FLAGS_index_mode > 3) {
+        fprintf(stderr, "--index_mode=%d out of range [0..3]\n",
+                FLAGS_index_mode);
+        db_bench_exit(1);
+      }
+      if (FLAGS_read_index < 0 || FLAGS_read_index > 2) {
+        fprintf(stderr, "--read_index=%d out of range [0..2]\n",
+                FLAGS_read_index);
+        db_bench_exit(1);
       }
 
       options.table_factory.reset(
