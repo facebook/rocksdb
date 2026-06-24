@@ -9,6 +9,8 @@
 
 #include "db/blob/blob_index.h"
 #include "db/dbformat.h"
+#include "db/pinned_iterators_manager.h"
+#include "rocksdb/slice.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/internal_iterator.h"
 
@@ -123,6 +125,11 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   Slice value() const override {
     assert(Valid());
     if (MaterializeValue() && value_resolved_) {
+      if (value_is_pinned_) {
+        // Whole-value blob payload pinned in the blob cache (or an owned
+        // buffer); returned without a copy.
+        return Slice(resolved_pinned_value_);
+      }
       return Slice(resolved_value_);
     }
     // MaterializeValue() may have set an error (corruption or blob-region I/O).
@@ -158,14 +165,22 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
     return iter_->IsKeyPinned();
   }
   bool IsValuePinned() const override {
-    // The materialized value is owned by this wrapper, so it is not pinned.
     if (value_resolved_) {
-      return false;
+      // A resolved whole-value blob payload is pinned in the blob cache (or an
+      // owned buffer). The IsValuePinned() contract requires the value to stay
+      // valid until the iterator is deleted / ReleasePinnedData is called, so
+      // only advertise it as pinned when a PinnedIteratorsManager is active to
+      // take over the pin's cleanup across repositioning (see ResetState). A
+      // built (wide-column) value lives in `resolved_value_` and is never
+      // pinned.
+      return value_is_pinned_ && pinned_iters_mgr_ != nullptr &&
+             pinned_iters_mgr_->PinningEnabled();
     }
     return iter_->IsValuePinned();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
     iter_->SetPinnedItersMgr(pinned_iters_mgr);
   }
 
@@ -206,6 +221,17 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
     value_resolved_ = false;
     resolved_internal_key_.clear();
     resolved_value_.clear();
+    if (value_is_pinned_) {
+      // If a PinnedIteratorsManager is active it has been told (via
+      // IsValuePinned) that the previous entry's pinned blob stays valid until
+      // ReleasePinnedData; hand the cache pin's cleanup to it so the slice
+      // outlives this reposition. Otherwise just release the pin now.
+      if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
+        resolved_pinned_value_.DelegateCleanupsTo(pinned_iters_mgr_);
+      }
+      value_is_pinned_ = false;
+    }
+    resolved_pinned_value_.Reset();
   }
 
   // Cheap, key-only resolution: for a whole-value same-file BlobIndex entry,
@@ -286,9 +312,10 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
     std::string resolved_key;
     std::string resolved_value;
     bool resolved = false;
+    bool value_pinned = false;
     status_ = table_->MaybeResolveEmbeddedValue(
         read_options_, current_key, iter_->value(), &resolved_key,
-        &resolved_value, &resolved);
+        &resolved_value, &resolved, &resolved_pinned_value_, &value_pinned);
     if (!status_.ok()) {
       return false;
     }
@@ -300,7 +327,13 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
       resolved_internal_key_ = std::move(resolved_key);
       key_resolved_ = true;
     }
-    resolved_value_ = std::move(resolved_value);
+    if (value_pinned) {
+      // Whole-value blob: payload pinned into resolved_pinned_value_ (no copy).
+      value_is_pinned_ = true;
+    } else {
+      // Built (wide-column) value: owned by this wrapper.
+      resolved_value_ = std::move(resolved_value);
+    }
     value_resolved_ = true;
     return true;
   }
@@ -309,6 +342,7 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   const ReadOptions& read_options_;
   InternalIterator* iter_;
   const bool arena_mode_;
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 
   // Cached resolution state for the current entry, reset on every reposition.
   // Mutable because resolution is driven lazily from the const key()/value()
@@ -316,10 +350,15 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   mutable Status status_;
   mutable std::string resolved_internal_key_;
   mutable std::string resolved_value_;
+  // Holds a whole-value same-file blob payload pinned in the blob cache (or an
+  // owned buffer when no cache is configured), avoiding a copy. Used only when
+  // value_is_pinned_ is true; wide-column values use resolved_value_ instead.
+  mutable PinnableSlice resolved_pinned_value_;
   mutable bool key_prepared_ = false;
   mutable bool value_prepared_ = false;
   mutable bool key_resolved_ = false;
   mutable bool value_resolved_ = false;
+  mutable bool value_is_pinned_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

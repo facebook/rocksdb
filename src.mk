@@ -25,6 +25,7 @@ LIB_SOURCES =                                                   \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_file_reader.cc                                   \
   db/blob/blob_garbage_meter.cc                                 \
+  db/blob/blob_gen2_format.cc                                   \
   db/blob/blob_log_format.cc                                    \
   db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \

@@ -54,6 +54,7 @@ class TableCache;
 class TableReader;
 class WritableFile;
 class BlobIndex;
+class BlobSource;
 struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
@@ -172,7 +173,8 @@ class BlockBasedTable : public TableReader {
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
       UniqueId64x2 expected_unique_id = {},
       const bool user_defined_timestamps_persisted = true,
-      bool avoid_shared_metadata_cache = false);
+      bool avoid_shared_metadata_cache = false,
+      BlobSource* blob_source = nullptr);
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,
@@ -218,6 +220,17 @@ class BlockBasedTable : public TableReader {
   // `value` (via a registered cleanup) and pins it, avoiding a copy. Use on the
   // Get()/MultiGet() path so the resolved value can be pinned into the output.
   Status ResolveEmbeddedBlobPinned(const ReadOptions& read_options,
+                                   const BlobIndex& blob_index,
+                                   PinnableSlice* value) const;
+
+  // Like ResolveEmbeddedBlobPinned, but routes the read through the CFD's
+  // BlobSource so the payload is served from / inserted into the blob value
+  // cache and BLOB_DB_* statistics are recorded. BlobSource derives the cache
+  // key from the SimpleGen2Blob format (the same offset scheme as the SST's
+  // data blocks; see GetSimpleGen2BlobCacheKey), so embedded blob records stay
+  // collision-free with data blocks even when the blob cache and block cache
+  // are shared. Must only be called when rep_->blob_source_ is non-null.
+  Status ResolveEmbeddedBlobCached(const ReadOptions& read_options,
                                    const BlobIndex& blob_index,
                                    PinnableSlice* value) const;
 
@@ -267,13 +280,6 @@ class BlockBasedTable : public TableReader {
                                    const BlobIndex& blob_index,
                                    size_t* payload_size,
                                    size_t* record_size) const;
-
-  // Reads a `record_size`-byte embedded blob record into `buf` and verifies its
-  // compression marker and checksum. `buf` must have capacity for record_size.
-  Status ReadAndVerifyEmbeddedBlobRecord(const ReadOptions& read_options,
-                                         const BlobIndex& blob_index, char* buf,
-                                         size_t payload_size,
-                                         size_t record_size) const;
 
   Status MultiGetFilter(const ReadOptions& read_options,
                         const SliceTransform* prefix_extractor,
@@ -834,6 +840,14 @@ struct BlockBasedTable::Rep {
   // has_embedded_blob_record_range is true.
   EmbeddedBlobRecordRange embedded_blob_record_range;
   bool has_embedded_blob_record_range = false;
+
+  // BlobSource for routing same-file ("embedded") blob reads through the blob
+  // value cache + BLOB_DB_* statistics. Owned by the ColumnFamilyData; this
+  // reader is owned (via TableCache) by the same CFD, so the raw pointer is
+  // lifetime-safe. nullptr for non-DB openers (SstFileReader, sst_dump,
+  // repair, external-file ingestion prevalidation, etc.); in that case
+  // embedded reads fall back to a direct (uncached) read.
+  BlobSource* blob_source_ = nullptr;
 
   // Whether block checksums in metadata blocks were verified on open.
   // This is only to mostly maintain current dubious behavior of VerifyChecksum

@@ -15,6 +15,7 @@
 #include <limits>
 #include <string>
 
+#include "db/blob/blob_gen2_format.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
@@ -40,9 +41,9 @@ inline constexpr char kEmbeddedBlobSstRecordRangeName[] =
 inline constexpr char kEmbeddedBlobSstStatsPropertyName[] =
     "rocksdb.embedded.blob.stats";
 
-// Embedded blob records are encoded as payload bytes followed by a block-like
-// trailer: one compression marker byte and a four-byte checksum.
-inline constexpr size_t kEmbeddedBlobSstRecordTrailerSize = 5;
+// Embedded blob records use the SimpleGen2Blob record format (payload bytes
+// followed by a compression-marker byte and a four-byte checksum); see
+// db/blob/blob_gen2_format.h.
 
 // Byte range within the SST file containing embedded blob records. This is the
 // reader's sanity-checking locator for same-file BlobIndex references.
@@ -57,7 +58,7 @@ struct EmbeddedBlobRecordRange {
   // fully contained in this range.
   bool ContainsRecord(
       uint64_t record_offset, uint64_t payload_size,
-      uint64_t trailer_size = kEmbeddedBlobSstRecordTrailerSize) const {
+      uint64_t trailer_size = kSimpleGen2BlobTrailerSize) const {
     if (record_offset < offset) {
       return false;
     }

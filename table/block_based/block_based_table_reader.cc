@@ -23,7 +23,9 @@
 #include "block_cache.h"
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "db/blob/blob_gen2_format.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_source.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
@@ -32,6 +34,7 @@
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "parsed_full_filter_block.h"
 #include "port/lang.h"
@@ -858,8 +861,10 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
                                       const BlockHandle& handle) {
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
-  // from offet.
-  return base_cache_key.WithOffset(handle.offset() >> 2);
+  // from offset. This is the same scheme SimpleGen2Blob records use (see
+  // OffsetableCacheKey::WithOffsetForMinSizeRecord), so blocks and embedded
+  // blob records in the same file share one collision-free keyspace.
+  return base_cache_key.WithOffsetForMinSizeRecord(handle.offset());
 }
 
 Status BlockBasedTable::Open(
@@ -880,7 +885,7 @@ Status BlockBasedTable::Open(
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
     uint64_t cur_file_num, UniqueId64x2 expected_unique_id,
     const bool user_defined_timestamps_persisted,
-    const bool avoid_shared_metadata_cache) {
+    const bool avoid_shared_metadata_cache, BlobSource* blob_source) {
   table_reader->reset();
 
   Status s;
@@ -956,6 +961,7 @@ Status BlockBasedTable::Open(
       file_size, level, immortal_table, user_defined_timestamps_persisted);
   rep->file = std::move(file);
   rep->footer = footer;
+  rep->blob_source_ = blob_source;
 
   // For fully portable/stable cache keys, we need to read the properties
   // block before setting up cache keys. TODO: consider setting up a bootstrap
@@ -1354,7 +1360,7 @@ Status BlockBasedTable::ValidateEmbeddedBlobIndex(
   const uint64_t payload_size_u64 = blob_index.size();
   if (payload_size_u64 >
       static_cast<uint64_t>(std::numeric_limits<size_t>::max()) -
-          kEmbeddedBlobSstRecordTrailerSize) {
+          kSimpleGen2BlobTrailerSize) {
     return Status::Corruption("Embedded blob record is too large");
   }
   if (!rep_->embedded_blob_record_range.ContainsRecord(blob_index.offset(),
@@ -1364,62 +1370,7 @@ Status BlockBasedTable::ValidateEmbeddedBlobIndex(
   }
 
   *payload_size = static_cast<size_t>(payload_size_u64);
-  *record_size = *payload_size + kEmbeddedBlobSstRecordTrailerSize;
-  return Status::OK();
-}
-
-Status BlockBasedTable::ReadAndVerifyEmbeddedBlobRecord(
-    const ReadOptions& read_options, const BlobIndex& blob_index, char* buf,
-    size_t payload_size, size_t record_size) const {
-  assert(buf != nullptr);
-  Slice result;
-  IOOptions opts;
-  IODebugContext dbg;
-  Status s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
-  if (s.ok()) {
-    s = rep_->file->Read(opts, blob_index.offset(), record_size, &result, buf,
-                         nullptr, &dbg);
-  }
-  if (!s.ok()) {
-    return s;
-  }
-  if (result.size() != record_size) {
-    return Status::Corruption("Could not read complete embedded blob record");
-  }
-  // With mmap reads the data lands outside `buf`; copy it in so the caller can
-  // rely on `buf` owning the bytes (this is the only copy on the mmap path).
-  // TODO: fix this extra memcpy in the mmap case
-  if (result.data() != buf) {
-    memcpy(buf, result.data(), record_size);
-  }
-
-  const char* record = buf;
-  const CompressionType compression =
-      static_cast<CompressionType>(record[payload_size]);
-  if (compression != blob_index.compression()) {
-    return Status::Corruption(
-        "Embedded blob record compression does not match blob index");
-  }
-
-  if (read_options.verify_checksums) {
-    uint32_t stored = DecodeFixed32(record + payload_size + 1);
-    stored -= ChecksumModifierForContext(rep_->footer.base_context_checksum(),
-                                         blob_index.offset());
-    const uint32_t computed =
-        ComputeBuiltinChecksumWithLastByte(rep_->footer.checksum_type(), record,
-                                           payload_size, record[payload_size]);
-    if (stored != computed) {
-      return Status::Corruption("Embedded blob record checksum mismatch in " +
-                                rep_->file->file_name() + " offset " +
-                                std::to_string(blob_index.offset()) + " size " +
-                                std::to_string(payload_size));
-    }
-  }
-
-  if (compression != kNoCompression) {
-    return Status::Corruption(
-        "Embedded blob record compression is not supported");
-  }
+  *record_size = *payload_size + kSimpleGen2BlobTrailerSize;
   return Status::OK();
 }
 
@@ -1437,8 +1388,11 @@ Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
   // Read the record (payload + trailer) directly into `value`, then drop the
   // trailer with a shrink (no extra copy on the common non-mmap path).
   value->resize(record_size);
-  s = ReadAndVerifyEmbeddedBlobRecord(read_options, blob_index, &(*value)[0],
-                                      payload_size, record_size);
+  s = ReadAndVerifySimpleGen2BlobRecord(
+      read_options, rep_->file.get(), blob_index.offset(), payload_size,
+      record_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(),
+      &(*value)[0]);
   if (!s.ok()) {
     return s;
   }
@@ -1461,14 +1415,41 @@ Status BlockBasedTable::ResolveEmbeddedBlobPinned(
   // payload can be pinned (no copy) and outlive this reader. The trailer just
   // sits unused at the tail of the buffer.
   std::unique_ptr<char[]> buf(new char[record_size]);
-  s = ReadAndVerifyEmbeddedBlobRecord(read_options, blob_index, buf.get(),
-                                      payload_size, record_size);
+  s = ReadAndVerifySimpleGen2BlobRecord(
+      read_options, rep_->file.get(), blob_index.offset(), payload_size,
+      record_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(),
+      buf.get());
   if (!s.ok()) {
     return s;
   }
   char* raw = buf.release();
   value->PinSlice(Slice(raw, payload_size), &DeleteCharArray, raw, nullptr);
   return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlobCached(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    PinnableSlice* value) const {
+  assert(value != nullptr);
+  assert(rep_->blob_source_ != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // BlobSource derives the cache key from the SimpleGen2Blob format (the same
+  // offset scheme as the SST's data blocks; see GetSimpleGen2BlobCacheKey), so
+  // we only pass the SST's base cache key. This keeps embedded blob records
+  // collision-free with data blocks even when blob_cache == block_cache.
+  return rep_->blob_source_->GetSimpleGen2Blob(
+      read_options, rep_->base_cache_key, rep_->file.get(), blob_index.offset(),
+      payload_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(), value,
+      /*bytes_read=*/nullptr);
 }
 
 Status BlockBasedTable::MaybeResolveEmbeddedValue(
@@ -1503,10 +1484,26 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
       return s;
     }
 
-    // Whole-value same-file blob. When the caller provides a PinnableSlice,
-    // read the payload into an owned buffer and pin it (no copy); otherwise
-    // fall back to materializing into `resolved_value`.
-    if (pinned_value != nullptr) {
+    // Whole-value same-file blob. Route through the BlobSource (blob value
+    // cache + BLOB_DB_* stats) when available, pinning the cached payload (no
+    // copy). When no BlobSource is wired (SstFileReader/sst_dump/repair), fall
+    // back to a direct read. When the caller provides no PinnableSlice, use a
+    // local one so we still benefit from caching, then copy into
+    // `resolved_value`.
+    if (rep_->blob_source_ != nullptr) {
+      if (pinned_value != nullptr) {
+        s = ResolveEmbeddedBlobCached(read_options, blob_index, pinned_value);
+        if (s.ok() && value_pinned != nullptr) {
+          *value_pinned = true;
+        }
+      } else {
+        PinnableSlice local_value;
+        s = ResolveEmbeddedBlobCached(read_options, blob_index, &local_value);
+        if (s.ok()) {
+          resolved_value->assign(local_value.data(), local_value.size());
+        }
+      }
+    } else if (pinned_value != nullptr) {
       s = ResolveEmbeddedBlobPinned(read_options, blob_index, pinned_value);
       if (s.ok() && value_pinned != nullptr) {
         *value_pinned = true;
@@ -1567,8 +1564,20 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
       return Status::Corruption("Wide-column blob index out of range");
     }
 
-    s = ResolveEmbeddedBlob(read_options, blob_index,
-                            &rewritten_columns[column_index].second);
+    // Per-column same-file blob: cache via BlobSource when available (same
+    // SST-like key, keyed by this column's record offset), copying into the
+    // rebuilt column value; otherwise read directly.
+    if (rep_->blob_source_ != nullptr) {
+      PinnableSlice column_value;
+      s = ResolveEmbeddedBlobCached(read_options, blob_index, &column_value);
+      if (s.ok()) {
+        rewritten_columns[column_index].second.assign(column_value.data(),
+                                                      column_value.size());
+      }
+    } else {
+      s = ResolveEmbeddedBlob(read_options, blob_index,
+                              &rewritten_columns[column_index].second);
+    }
     if (!s.ok()) {
       return s;
     }

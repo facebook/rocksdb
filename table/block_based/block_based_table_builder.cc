@@ -3407,7 +3407,7 @@ class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
       return Status::InvalidArgument("Embedded blob value is too large");
     }
 
-    std::array<char, kEmbeddedBlobSstRecordTrailerSize> trailer;
+    std::array<char, kSimpleGen2BlobTrailerSize> trailer;
     const CompressionType actual_compression = kNoCompression;
     // Placeholder for future embedded blob compression support.
     trailer[0] = lossless_cast<char>(actual_compression);

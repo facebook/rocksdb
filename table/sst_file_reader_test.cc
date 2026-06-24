@@ -518,7 +518,7 @@ TEST_F(SstFileReaderTest, EmbeddedBlobRecordRangeAllowsExtraPrefixBytes) {
   EmbeddedBlobRecordRange range;
   GetEmbeddedBlobRecordRange(sst_name_, &range);
   EXPECT_EQ(range.offset, before_records.size());
-  EXPECT_EQ(range.size, value.size() + kEmbeddedBlobSstRecordTrailerSize);
+  EXPECT_EQ(range.size, value.size() + kSimpleGen2BlobTrailerSize);
   EXPECT_TRUE(range.ContainsRecord(before_records.size(), value.size()));
 
   std::string raw_bytes;

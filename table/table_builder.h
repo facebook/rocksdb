@@ -31,6 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class Status;
+class BlobSource;
 
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
@@ -110,6 +111,14 @@ struct TableReaderOptions {
   // Open-time metadata reads should not insert index/filter/dictionary blocks
   // into the shared block cache.
   bool avoid_shared_metadata_cache;
+
+  // Blob source for routing same-file ("embedded") blob reads through the blob
+  // value cache + BLOB_DB_* statistics. Owned by the ColumnFamilyData; the
+  // table reader's lifetime is a subset of the CFD's (it is owned via the CFD's
+  // TableCache), so a raw pointer is lifetime-safe. nullptr for non-DB openers
+  // (SstFileReader, sst_dump, repair, external-file ingestion prevalidation,
+  // etc.), in which case embedded reads fall back to a direct (uncached) read.
+  BlobSource* blob_source = nullptr;
 };
 
 struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
