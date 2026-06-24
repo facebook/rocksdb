@@ -847,7 +847,7 @@ class TestIdempotency(unittest.TestCase):
 class TestKnownConflicts(unittest.TestCase):
     """Specific configs that previously caused oscillation."""
 
-    def _assert_converges(self, params, desc):
+    def _assert_converges(self, params, desc, explicit_keys=None):
         """Assert params converge and return the result.
 
         Non-convergence is now a hard sys.exit(1), so if
@@ -856,7 +856,10 @@ class TestKnownConflicts(unittest.TestCase):
         _ensure_test_db(params)
         params.setdefault("column_families", 1)
         params.setdefault("reopen", 0)
-        result = db_crashtest.finalize_and_sanitize(params)
+        result = db_crashtest.finalize_and_sanitize(
+            params,
+            explicit_keys=explicit_keys,
+        )
         return result
 
     def test_ber_plus_udt_memtable_only(self):
@@ -1298,6 +1301,9 @@ class TestKnownConflicts(unittest.TestCase):
         params.update({
             "best_efforts_recovery": 1,
             "inplace_update_support": 1,
+            "memtablerep": "skip_list",
+            "min_tombstones_for_range_conversion": 0,
+            "test_batches_snapshots": 0,
         })
         _ensure_test_db(params)
         with self.assertRaises(SystemExit) as cm:
@@ -1340,8 +1346,13 @@ class TestKnownConflicts(unittest.TestCase):
             "skip_stats_update_on_db_open": 1,
             "open_files_async": 1,
             "multiscan_max_prefetch_memory_bytes": 12345,
+            "min_tombstones_for_range_conversion": 0,
         })
-        result = self._assert_converges(params, "multiscan adjustments")
+        result = self._assert_converges(
+            params,
+            "multiscan adjustments",
+            explicit_keys={"use_multiscan", "min_tombstones_for_range_conversion"},
+        )
         self.assertEqual(result["use_multiscan"], 1)
         self.assertEqual(result["prefix_size"], -1)
         self.assertEqual(result["delpercent"], 10)
@@ -1366,10 +1377,15 @@ class TestKnownConflicts(unittest.TestCase):
             "user_timestamp_size": 0,
             "enable_compaction_filter": 0,
             "inplace_update_support": 0,
+            "min_tombstones_for_range_conversion": 0,
         })
         params.pop("multiscan_max_prefetch_memory_bytes", None)
 
-        result = self._assert_converges(params, "multiscan prefetch absent")
+        result = self._assert_converges(
+            params,
+            "multiscan prefetch absent",
+            explicit_keys={"use_multiscan", "min_tombstones_for_range_conversion"},
+        )
 
         self.assertIn(
             result["multiscan_max_prefetch_memory_bytes"],
@@ -1475,14 +1491,27 @@ class TestGenCmd(unittest.TestCase):
         params.update({
             "use_optimistic_txn": 1,
             "use_txn": 1,
+            "txn_write_policy": 0,
+            "test_batches_snapshots": 0,
+            "test_multi_ops_txns": 0,
+            "best_efforts_recovery": 0,
+            "disable_wal": 0,
+            "write_fault_one_in": 0,
+            "mmap_read": 0,
+            "min_tombstones_for_range_conversion": 0,
             "write_buffer_size": 4 * 1024 * 1024,
             "max_write_buffer_size_to_maintain": 4 * 1024 * 1024,
         })
 
         cmd, _ = db_crashtest.gen_cmd(
-            params, ["--max_write_buffer_size_to_maintain=1048576"]
+            params,
+            [
+                "--use_optimistic_txn=1",
+                "--max_write_buffer_size_to_maintain=1048576",
+            ],
         )
 
+        self.assertIn("--use_optimistic_txn=1", cmd)
         self.assertIn("--max_write_buffer_size_to_maintain=1048576", cmd)
         self.assertIn("--write_buffer_size=1048576", cmd)
 
@@ -1543,6 +1572,7 @@ class TestSpecialRules(unittest.TestCase):
         params = _new_blackbox_params()
         params.update({
             "use_direct_reads": 1,
+            "use_direct_io_for_compaction_reads": 1,
             "use_direct_io_for_flush_and_compaction": 1,
             "mock_direct_io": False,
         })
@@ -1555,8 +1585,50 @@ class TestSpecialRules(unittest.TestCase):
             result = db_crashtest.finalize_and_sanitize(params)
 
         self.assertEqual(result["use_direct_reads"], 0)
+        self.assertEqual(result["use_direct_io_for_compaction_reads"], 0)
         self.assertEqual(result["use_direct_io_for_flush_and_compaction"], 0)
         self.assertFalse(result["mock_direct_io"])
+
+    def test_mmap_read_disables_direct_io_read_modes(self):
+        params = _new_blackbox_params()
+        params.update({
+            "mmap_read": 1,
+            "use_direct_reads": 1,
+            "use_direct_io_for_compaction_reads": 1,
+            "use_direct_io_for_flush_and_compaction": 1,
+            "multiscan_use_async_io": 1,
+        })
+
+        result = db_crashtest.finalize_and_sanitize(
+            params,
+            explicit_keys={"mmap_read"},
+        )
+
+        self.assertEqual(result["mmap_read"], 1)
+        self.assertEqual(result["use_direct_reads"], 0)
+        self.assertEqual(result["use_direct_io_for_compaction_reads"], 0)
+        self.assertEqual(result["use_direct_io_for_flush_and_compaction"], 0)
+        self.assertEqual(result["multiscan_use_async_io"], 0)
+
+    def test_range_conversion_disables_sqfc_and_inplace_update(self):
+        params = _new_blackbox_params()
+        params.update({
+            "min_tombstones_for_range_conversion": 2,
+            "use_multiscan": 0,
+            "use_sqfc_for_range_queries": 1,
+            "inplace_update_support": 1,
+            "test_batches_snapshots": 0,
+            "memtablerep": "skip_list",
+        })
+
+        result = db_crashtest.finalize_and_sanitize(
+            params,
+            explicit_keys={"min_tombstones_for_range_conversion", "use_multiscan"},
+        )
+
+        self.assertEqual(result["min_tombstones_for_range_conversion"], 2)
+        self.assertEqual(result["use_sqfc_for_range_queries"], 0)
+        self.assertEqual(result["inplace_update_support"], 0)
 
 
 def _extract_relevant(params):

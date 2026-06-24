@@ -40,6 +40,15 @@ static std::unordered_map<std::string, CacheTier> cache_tier_string_map = {
     {"kVolatileCompressedTier", CacheTier::kVolatileCompressedTier},
     {"kNonVolatileBlockTier", CacheTier::kNonVolatileBlockTier}};
 
+static std::unordered_map<std::string, OptionCompatibilityCheckLevel>
+    option_compatibility_check_level_string_map = {
+        {"kSkip", OptionCompatibilityCheckLevel::kSkip},
+        {"skip", OptionCompatibilityCheckLevel::kSkip},
+        {"kWarn", OptionCompatibilityCheckLevel::kWarn},
+        {"warn", OptionCompatibilityCheckLevel::kWarn},
+        {"kReject", OptionCompatibilityCheckLevel::kReject},
+        {"reject", OptionCompatibilityCheckLevel::kReject}};
+
 static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
     {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
      {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
@@ -205,6 +214,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    use_direct_io_for_flush_and_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"option_compatibility_check_level",
+         OptionTypeInfo::Enum<OptionCompatibilityCheckLevel>(
+             offsetof(struct ImmutableDBOptions,
+                      option_compatibility_check_level),
+             &option_compatibility_check_level_string_map,
+             OptionTypeFlags::kNone, OptionVerificationType::kNormal)},
         {"allow_2pc",
          {offsetof(struct ImmutableDBOptions, allow_2pc), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -794,6 +809,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
           options.use_direct_io_for_compaction_reads),
       use_direct_io_for_flush_and_compaction(
           options.use_direct_io_for_flush_and_compaction),
+      option_compatibility_check_level(
+          options.option_compatibility_check_level),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
@@ -923,6 +940,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "        Options.use_direct_io_for_flush_and_compaction: %d",
                    use_direct_io_for_flush_and_compaction);
+  ROCKS_LOG_HEADER(log,
+                   "             Options.option_compatibility_check_level: %d",
+                   static_cast<int>(option_compatibility_check_level));
   ROCKS_LOG_HEADER(log, "         Options.create_missing_column_families: %d",
                    create_missing_column_families);
   ROCKS_LOG_HEADER(log, "                             Options.db_log_dir: %s",

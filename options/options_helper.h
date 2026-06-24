@@ -42,6 +42,26 @@ inline bool IsSupportedChecksumType(ChecksumType type) {
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts);
 
+// Runs mandatory DB option compatibility checks. These checks are not
+// controlled by DBOptions::option_compatibility_check_level.
+Status ValidateDBOptionCompatibility(const DBOptions& db_opts);
+
+// Runs mandatory DB option compatibility checks followed by optional
+// product-option compatibility checks controlled by
+// DBOptions::option_compatibility_check_level or by an explicit check level.
+// Optional checks report known feature-combination issues without trying to
+// cover full numeric/string option space.
+Status ValidateOptionCompatibility(const DBOptions& db_opts,
+                                   const ColumnFamilyOptions& cf_opts);
+Status ValidateOptionCompatibility(const DBOptions& db_opts,
+                                   const ColumnFamilyOptions& cf_opts,
+                                   OptionCompatibilityCheckLevel level);
+Status ValidateColumnFamilyOptionCompatibility(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts);
+Status ValidateColumnFamilyOptionCompatibility(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts,
+    OptionCompatibilityCheckLevel level);
+
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
 // Overwrites `options`

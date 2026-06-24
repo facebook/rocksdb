@@ -409,6 +409,7 @@ STRESS_LIB_SOURCES =                                           \
   db_stress_tool/db_stress_compaction_service.cc               \
   db_stress_tool/db_stress_compression_manager.cc              \
   db_stress_tool/db_stress_driver.cc                           \
+  db_stress_tool/db_stress_flag_validator.cc                   \
   db_stress_tool/db_stress_filters.cc                          \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \

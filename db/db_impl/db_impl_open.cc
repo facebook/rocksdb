@@ -248,30 +248,9 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "More than four DB paths are not supported yet. ");
   }
 
-  if (db_options.allow_mmap_reads && db_options.use_direct_reads) {
-    // Protect against assert in PosixMMapReadableFile constructor
-    return Status::NotSupported(
-        "If memory mapped reads (allow_mmap_reads) are enabled "
-        "then direct I/O reads (use_direct_reads) must be disabled. ");
-  }
-
-  if (db_options.allow_mmap_reads &&
-      db_options.use_direct_io_for_compaction_reads) {
-    // mmap reads and direct I/O share the same EnvOptions field, so enabling
-    // both would try to mmap and O_DIRECT the same reads. Reject it here rather
-    // than tripping a lower-level assert.
-    return Status::NotSupported(
-        "If memory mapped reads (allow_mmap_reads) are enabled "
-        "then compaction-only direct I/O reads "
-        "(use_direct_io_for_compaction_reads) must be disabled. ");
-  }
-
-  if (db_options.allow_mmap_writes &&
-      db_options.use_direct_io_for_flush_and_compaction) {
-    return Status::NotSupported(
-        "If memory mapped writes (allow_mmap_writes) are enabled "
-        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
-        "be disabled. ");
+  Status s = ValidateDBOptionCompatibility(db_options);
+  if (!s.ok()) {
+    return s;
   }
 
   if (db_options.keep_log_file_num == 0) {

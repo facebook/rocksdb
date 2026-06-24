@@ -550,6 +550,7 @@ _COMPATIBILITY_OPTION_DOMAINS = {
     "unordered_write": (0, 1),
     "use_attribute_group": (0, 1),
     "use_blob_db": (0, 1),
+    "use_direct_io_for_compaction_reads": (0, 1),
     "use_direct_io_for_flush_and_compaction": (0, 1),
     "use_direct_reads": (0, 1),
     "use_full_merge_v1": (0, 1),
@@ -713,6 +714,7 @@ _COMPATIBILITY_RULES = (
         [_a("mmap_read", 1)],
         [
             _a("use_direct_io_for_flush_and_compaction", 0),
+            _a("use_direct_io_for_compaction_reads", 0),
             _a("use_direct_reads", 0),
             _a("multiscan_use_async_io", 0),
         ],

@@ -1782,6 +1782,29 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsRoundTrip) {
   ASSERT_FALSE(parsed.use_direct_io_for_compaction_reads);
 }
 
+TEST_F(DBOptionsTest, OptionCompatibilityCheckLevelRoundTrip) {
+  ASSERT_EQ(DBOptions().option_compatibility_check_level,
+            OptionCompatibilityCheckLevel::kSkip);
+
+  DBOptions parsed;
+  ConfigOptions config_options;
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options, DBOptions(), "option_compatibility_check_level=kWarn",
+      &parsed));
+  ASSERT_EQ(parsed.option_compatibility_check_level,
+            OptionCompatibilityCheckLevel::kWarn);
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options, DBOptions(), "option_compatibility_check_level=reject",
+      &parsed));
+  ASSERT_EQ(parsed.option_compatibility_check_level,
+            OptionCompatibilityCheckLevel::kReject);
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options, DBOptions(), "option_compatibility_check_level=skip",
+      &parsed));
+  ASSERT_EQ(parsed.option_compatibility_check_level,
+            OptionCompatibilityCheckLevel::kSkip);
+}
+
 // Validates that Open rejects the documented incompatible combination.
 TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsValidation) {
   // mmap_reads + use_direct_io_for_compaction_reads is rejected at Open
@@ -1793,6 +1816,30 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsValidation) {
   bad_options.use_direct_io_for_compaction_reads = true;
   Status bad_status = TryReopen(bad_options);
   ASSERT_TRUE(bad_status.IsNotSupported()) << bad_status.ToString();
+}
+
+TEST_F(DBOptionsTest, OptionCompatibilityCheckLevelPolicy) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  options.inplace_update_support = true;
+  options.min_tombstones_for_range_conversion = 2;
+
+  options.option_compatibility_check_level =
+      OptionCompatibilityCheckLevel::kSkip;
+  DestroyAndReopen(options);
+
+  options.option_compatibility_check_level =
+      OptionCompatibilityCheckLevel::kWarn;
+  DestroyAndReopen(options);
+
+  Destroy(options);
+  options.option_compatibility_check_level =
+      OptionCompatibilityCheckLevel::kReject;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("option compatibility check"), std::string::npos)
+      << s.ToString();
 }
 
 // Confirms the option is plumbed all the way to the live DB's options API:

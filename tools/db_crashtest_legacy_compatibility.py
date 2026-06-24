@@ -29,6 +29,7 @@ def run_legacy_compatibility_sanitizer(
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+        dest_params["use_direct_io_for_compaction_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
     if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
         # SQFC range-query filtering installs ReadOptions::table_filter on
@@ -41,13 +42,16 @@ def run_legacy_compatibility_sanitizer(
     if (
         dest_params["use_direct_io_for_flush_and_compaction"] == 1
         or dest_params["use_direct_reads"] == 1
+        or dest_params["use_direct_io_for_compaction_reads"] == 1
     ) and not is_direct_io_supported(dest_params["db"]):
         if is_release_mode():
             print(
-                "{} does not support direct IO. Disabling use_direct_reads and "
+                "{} does not support direct IO. Disabling use_direct_reads, "
+                "use_direct_io_for_compaction_reads and "
                 "use_direct_io_for_flush_and_compaction.\n".format(dest_params["db"])
             )
             dest_params["use_direct_reads"] = 0
+            dest_params["use_direct_io_for_compaction_reads"] = 0
             dest_params["use_direct_io_for_flush_and_compaction"] = 0
         else:
             dest_params["mock_direct_io"] = True
@@ -660,7 +664,8 @@ def run_legacy_compatibility_sanitizer(
 
     if dest_params.get("num_dbs", 1) > 1:
         # These features assume a single DB instance.
-        # See ValidateNumDbsFlags() in db_stress_tool.cc for C++ guards.
+        # See ValidateNumDbsFlags() in db_stress_flag_validator.cc for C++
+        # guards.
         dest_params["clear_column_family_one_in"] = 0
         dest_params["test_multi_ops_txns"] = 0
 

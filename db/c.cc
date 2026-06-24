@@ -117,6 +117,7 @@ using ROCKSDB_NAMESPACE::NewLRUCache;
 using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
 using ROCKSDB_NAMESPACE::NewSstPartitionerFixedPrefixFactory;
 using ROCKSDB_NAMESPACE::OpenAndCompactOptions;
+using ROCKSDB_NAMESPACE::OptionCompatibilityCheckLevel;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
 using ROCKSDB_NAMESPACE::Options;
@@ -5079,6 +5080,17 @@ void rocksdb_options_set_use_direct_io_for_compaction_reads(
 unsigned char rocksdb_options_get_use_direct_io_for_compaction_reads(
     rocksdb_options_t* opt) {
   return opt->rep.use_direct_io_for_compaction_reads;
+}
+
+void rocksdb_options_set_option_compatibility_check_level(
+    rocksdb_options_t* opt, int v) {
+  opt->rep.option_compatibility_check_level =
+      static_cast<OptionCompatibilityCheckLevel>(v);
+}
+
+int rocksdb_options_get_option_compatibility_check_level(
+    rocksdb_options_t* opt) {
+  return static_cast<int>(opt->rep.option_compatibility_check_level);
 }
 
 void rocksdb_options_set_allow_mmap_reads(rocksdb_options_t* opt,

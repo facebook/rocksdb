@@ -449,6 +449,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "use_direct_reads=false;"
       "use_direct_io_for_compaction_reads=false;"
       "use_direct_io_for_flush_and_compaction=false;"
+      "option_compatibility_check_level=kWarn;"
       "max_log_file_size=4607;"
       "advise_random_on_open=true;"
       "enable_pipelined_write=false;"

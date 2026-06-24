@@ -1917,6 +1917,10 @@ rocksdb_options_set_use_direct_io_for_compaction_reads(rocksdb_options_t*,
                                                        unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_use_direct_io_for_compaction_reads(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_option_compatibility_check_level(rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_options_get_option_compatibility_check_level(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_is_fd_close_on_exec(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char

@@ -2,15 +2,20 @@
 
 ## TLDR
 
-This document describes the `db_crashtest.py` feature compatibility dependency
-solver. The solver is wired into production `finalize_and_sanitize()` in
-`tools/db_crashtest.py`; its implementation and rule declarations live in
-`tools/db_crashtest_compatibility.py`.
+This document describes how crash test generates compatible `db_stress`
+configurations. Python owns randomized option generation and dependency solving
+in `tools/db_crashtest.py` and `tools/db_crashtest_compatibility.py`.
+RocksDB core owns product option compatibility checks in
+`options/options_helper.cc`, and `db_stress` owns final stress-harness
+validation in `db_stress_tool/db_stress_flag_validator.cc`.
 
-The dependency solver is the default compatibility mode. During rollout,
-`ROCKSDB_CRASHTEST_COMPATIBILITY_MODE=legacy` switches `db_crashtest.py` back
-to the old in-place sanitizer and old passthrough-flag handling without
-reverting the refactor.
+The split is intentional:
+
+| Layer | Owns | Does not own |
+| --- | --- | --- |
+| RocksDB options | Mandatory product-level option validity and optional compatibility checks controlled by `DBOptions::option_compatibility_check_level`. | Stress workload policy or coverage requirements. |
+| `db_stress` | Stress harness validity after gflags parsing, including workload shape and stress-only feature restrictions. It passes `--option_compatibility_check_level` into RocksDB options and defaults optional core compatibility checks to `reject`. | Random candidate selection. |
+| `db_crashtest.py` | Randomized crash-test option generation, explicit flag priority, dependency solving, and workload normalization before command generation. | The final source of truth for whether a `db_stress` invocation is valid. |
 
 Solver rules cover:
 
@@ -59,6 +64,7 @@ fail with a clear conflict.
 | Good errors | Conflicts should explain the fixed value, the conflicting implied value, and the rule path. |
 | Static validation | Rule contradictions should be detected by unit tests before crash tests run. |
 | Preserve workload shape | Operation percentages must preserve total operation pressure when disabling incompatible operation kinds. Standard operation buckets sum to 100; specialized modes can include `customopspercent` in that total. |
+| C++ backstop | RocksDB core and `db_stress` must enforce mandatory invalid combinations, and optional product compatibility checks must have skip/warn/reject policy, even when `db_stress` is launched without `db_crashtest.py`. |
 
 ## Non-Goals
 
@@ -66,6 +72,42 @@ fail with a clear conflict.
 | --- | --- |
 | Force every rule into a pure graph edge | Some rules are runtime-derived, numeric, or workload-shape normalizers. |
 | Require manual contrapositives for every rule | Non-boolean contrapositives are often not concrete assignments and can drift. |
+| Reject production RocksDB configs because stress coverage is missing | Coverage gaps should be reported by a comparison layer, not enforced as product option invalidity. Optional core compatibility checks cover known product incompatibilities, not stress coverage. |
+
+## Coverage Boundary
+
+Compatibility validation and coverage detection are related but separate:
+
+| Question | Owner |
+| --- | --- |
+| Is this a valid RocksDB option combination for users? | RocksDB mandatory option validation plus optional compatibility checks when `DBOptions::option_compatibility_check_level` is `kWarn` or `kReject`. |
+| Is this a valid `db_stress` workload and harness configuration? | The crash-test solver, `ValidateDbStressFlags()`, and RocksDB core option validation. |
+| Does stress test cover the feature mix seen in production? | A coverage comparison layer built from normalized feature facts. |
+
+The crash-test solver should not reject production-only configurations. A
+future production coverage audit should compare normalized production feature
+facts against feature facts emitted by stress-test runs and report uncovered
+combinations as coverage gaps.
+
+## Core Option Compatibility Mode
+
+RocksDB core exposes `DBOptions::option_compatibility_check_level` for known
+product-option compatibility checks:
+
+| Level | Behavior |
+| --- | --- |
+| `kSkip` | Skip optional compatibility diagnostics. Mandatory product validation still runs. |
+| `kWarn` | Log optional compatibility diagnostics when `info_log` is configured and continue. |
+| `kReject` | Return `InvalidArgument` for optional compatibility diagnostics. |
+
+Mandatory product validation is separate from this mode. For example,
+`allow_mmap_reads=true` remains incompatible with direct I/O reads regardless
+of the configured compatibility level.
+
+`db_stress` has a matching `--option_compatibility_check_level` flag with
+`reject` as the default, so stress runs fail early on known compatibility gaps.
+Applications that want rollout diagnostics without rejection can set
+`DBOptions::option_compatibility_check_level = kWarn`.
 
 ## Core Model
 
@@ -181,6 +223,12 @@ already-fixed assignments
 9. Rerun runtime/computed rules and solve again if those rules changed keys
    after compatibility solving.
 10. Emit db_stress flags.
+11. `db_stress` parses the flags, runs `ValidateDbStressFlags()` for
+    stress-only invariants, maps `--option_compatibility_check_level` into
+    `DBOptions`, and lets RocksDB core run product option compatibility checks
+    while opening the DB. `--validate_db_stress_flags_only` runs the stress-only
+    validation plus the same core compatibility helper without executing the
+    workload.
 
 ### Candidate Rejection Example
 
@@ -741,8 +789,9 @@ _strip_derived_compatibility_keys(fixed)
 | Pinned-root priority | `run_compatibility_solver()`, `_compatibility_priority_option_order()`, `_apply_special_rules_and_get_changed_keys()`, `_COMPATIBILITY_ALWAYS_PINNED_KEYS` | Keep explicit flags, runtime/computed facts, and operation percentages ahead of ordinary randomized options. |
 | Operation-mix normalizer | `_move_op_assignment()`, `_disable_op_assignment()`, `_normalize_operation_mix()`, `_OPERATION_PERCENT_KEYS`, `_OPERATION_TOTAL_PERCENT_KEYS` | Convert operation-move or disable facts into atomic percentage redistribution while preserving total operation pressure. |
 | Production integration | `_apply_feature_compatibility_solver()`, `finalize_and_sanitize()` | Run runtime/computed rules, solve feature compatibility, rerun runtime/computed rules if needed, and emit sanitized db_stress parameters. |
-| Rollout fallback | `ROCKSDB_CRASHTEST_COMPATIBILITY_MODE=legacy`, `tools/db_crashtest_legacy_compatibility.py`, `_apply_legacy_feature_compatibility_sanitizer()` | Keep an operational switch back to the old sanitizer while the dependency solver is validated in stress test production. |
-| Parity audit | `tools/check_crashtest_compatibility_parity.py` | Generate production-shaped configs, pass finalized output through the other sanitizer, and report changed keys for rollout triage. |
+| Core option compatibility | `DBOptions::option_compatibility_check_level`, `ValidateDBOptionCompatibility()`, `ValidateOptionCompatibility()`, `ValidateColumnFamilyOptionCompatibility()` | Keep mandatory product incompatibilities in RocksDB core and expose optional compatibility checks in skip/warn/reject mode. |
+| C++ validation backstop | `ValidateDbStressFlags()` and `ValidateDbStressCoreOptionCompatibility()` in `db_stress_tool/db_stress_flag_validator.cc` | Reject invalid `db_stress` flag combinations after gflags parsing, even when `db_stress` is not launched through crash test. |
+| Validation-only mode | `--validate_db_stress_flags_only` | Let generators and tests validate a complete `db_stress` flag set without running a workload by running both stress-only validation and core option compatibility checks. |
 
 ## FAQ
 
@@ -755,5 +804,7 @@ _strip_derived_compatibility_keys(fixed)
 | Is closure precomputed globally? | No. The implementation validates rule declarations statically, then computes closure during pinned-root validation and candidate evaluation because production inputs include runtime facts and sampled numeric values. |
 | Does the solver reroll valid sampled values? | No. It prefers sampled values when they already satisfy compatibility. For example, UDI primary mode preserves `index_type` when it is already compatible, and multiscan prefetch only clamps unsupported values instead of rerolling every run. |
 | How are chained operation moves handled? | `_normalize_operation_mix()` resolves moves in operation order, so chained facts such as `prefix -> iter` and `iter -> read` move the original prefix pressure to `readpercent` while preserving the selected total. |
-| How can production switch back during rollout? | Set `ROCKSDB_CRASHTEST_COMPATIBILITY_MODE=legacy`. The default `dependency` mode continues to use the declarative solver. |
-| How do we audit compatibility with the old sanitizer? | Run `python3 tools/check_crashtest_compatibility_parity.py --trials N --workers W --allow-mismatches`. `new-to-old` should stay clean; `old-to-new` reports old one-pass outputs that the dependency solver would further normalize. |
+| Why keep a C++ validation backstop if Python already solves compatibility? | `db_stress` can be launched directly or by other generators. C++ validation keeps stress harness validity local to the executable. |
+| How can production users opt into compatibility diagnostics? | Set `DBOptions::option_compatibility_check_level` to `kWarn` for diagnostics or `kReject` for enforcement. `kSkip` remains the default so this does not become a broad coverage gate by accident. |
+| Should production coverage gaps be enforced in RocksDB option sanitization? | No. Core option sanitization can skip, warn, or reject known product incompatibilities. Stress coverage gaps should be reported by comparing normalized production feature facts with stress-run feature facts. |
+| How can a tool validate a generated stress command without running it? | Append `--validate_db_stress_flags_only=1` to the generated `db_stress` command. This runs stress-only validation and core option compatibility checks. |
