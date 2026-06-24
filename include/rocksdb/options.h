@@ -2276,10 +2276,12 @@ struct ReadOptions {
   // point to key without timestamp part.
   const Slice* iterate_upper_bound = nullptr;
 
-  // Specify to create a tailing iterator -- a special iterator that has a
-  // view of the complete database (i.e. it can also be used to read newly
-  // added data) and is optimized for sequential reads. It will return records
-  // that were inserted into the database after the creation of the iterator.
+  // Specify to create a tailing iterator -- a special iterator that is
+  // optimized for sequential reads and can also be used to read newly added
+  // data. The view is refreshed on Seek(), SeekToFirst(), and after internal
+  // iterator renewal, but not on every Next(). In particular, Next() is not
+  // guaranteed to observe keys inserted after the most recent Seek() that sort
+  // before the next key visible to that Seek().
   bool tailing = false;
 
   // Enable a total order seek regardless of index format (e.g. hash index)
