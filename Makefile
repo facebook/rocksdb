@@ -2452,6 +2452,7 @@ BUILD_SIG_NONBUILD_GOALS := \
 	check-sources check-workflow-yaml check-progress clang-tidy \
 	tags tags0 package jclean checkout_folly \
 	watch-log dump-log suggest-slow-tests list_all_tests gen-pc \
+	gen_parallel_tests check-c-api-gen \
 	setup-hooks install-hooks uninstall-hooks uninstall db_crashtest_tests
 # Goals that clean before building (depend on or invoke `clean`): they manage
 # their own freshness, so the check must not block them (it would error before
@@ -2478,7 +2479,12 @@ BUILD_SIG_CLEANING := $(filter $(BUILD_SIG_CLEAN_GOALS),$(MAKECMDGOALS))
 # parse-time $(shell) below would otherwise run even under -n.
 BUILD_SIG_DRYRUN := $(findstring n,$(firstword -$(MAKEFLAGS)))
 
+# Only enforce at the top level. Sub-makes (e.g. `check` invokes
+# $(MAKE) gen_parallel_tests / check-c-api-gen / check_0) inherit the parent's
+# build flags, so the top-level check already covers them; re-checking inside a
+# sub-make only causes spurious failures.
 ifneq ($(ALLOW_BUILD_PARAMETER_CHANGE),1)
+ifeq ($(MAKELEVEL),0)
 ifeq ($(BUILD_SIG_DRYRUN),)
 ifeq ($(BUILD_SIG_CLEANING),)
 ifneq ($(BUILD_SIG_DO_BUILD),)
@@ -2496,6 +2502,7 @@ ifneq ($(BUILD_SIG_DO_BUILD),)
   endif
   # Record the current signature for the next build.
   BUILD_SIG_WRITE := $(shell mkdir -p $(OBJ_DIR) 2>/dev/null; printf '%s\n' '$(BUILD_SIG)' > $(BUILD_SIG_FILE))
+endif
 endif
 endif
 endif
