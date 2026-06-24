@@ -175,6 +175,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                const bool seq_per_batch, const bool batch_per_txn,
                bool read_only)
     : dbname_(dbname),
+      read_only_(read_only),
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options, read_only,
                                           &init_logger_creation_s_)),
@@ -653,7 +654,8 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
 Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
   mutex_.AssertHeld();
   if (!mutable_db_options_.optimize_manifest_for_recovery ||
-      !opened_successfully_ || versions_ == nullptr || logs_.empty()) {
+      !opened_successfully_ || read_only_ || versions_ == nullptr ||
+      logs_.empty()) {
     return Status::OK();
   }
 
@@ -855,7 +857,7 @@ Status DBImpl::CloseHelper() {
   // manifest file), it is not able to identify live files correctly. As a
   // result, all "live" files can get deleted by accident. However, corrupted
   // manifest is recoverable by RepairDB().
-  if (opened_successfully_) {
+  if (opened_successfully_ && !read_only_) {
     JobContext job_context(next_job_id_.fetch_add(1));
     FindObsoleteFiles(&job_context, true);
 
