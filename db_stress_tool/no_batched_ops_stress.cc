@@ -2436,8 +2436,8 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     std::vector<ExternalSstFileInfo> file_infos(data_file_count);
-    // Embedded blobs are only supported by block-based table format_version >= 7
-    // (the default db_stress table factory is block-based).
+    // Embedded blobs are only supported by block-based table format_version >=
+    // 7 (the default db_stress table factory is block-based).
     const bool use_embedded_blobs =
         FLAGS_ingest_external_file_with_embedded_blobs &&
         FLAGS_format_version >= 7;
