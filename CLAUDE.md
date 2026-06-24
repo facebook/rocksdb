@@ -244,26 +244,15 @@ from an implementation detail instead of an explicit option.
     /usr/local/bin/python3 buckifier/buckify_rocksdb.py to update it
 * For -j in make command, use the number of CPU cores to decide it.
 
-### When to run `make clean` (avoid mixing build modes)
+### Avoiding mixed build modes with Make (use `AUTO_CLEAN=1`)
 
-The Makefile does **not** track build mode, so object files from a prior
-build are silently reused even when compiled with different flags, leading
-to confusing linker errors, sanitizer false negatives, ODR violations, or
-"phantom" bugs.
-
-Run `make clean` before switching any of these:
-* **`ASSERT_STATUS_CHECKED=1` ↔ unset** — changes the `Status` class layout (ABI break).
-* **Sanitizer builds** — toggling any of `COMPILE_WITH_ASAN=1`,
-    `COMPILE_WITH_UBSAN=1`, `COMPILE_WITH_TSAN=1` on/off.
-* `DEBUG_LEVEL=0` (release) ↔ `DEBUG_LEVEL=1` (debug, default for `make dbg`).
-* Different compilers, `OPT` levels, or other flags affecting codegen/ABI.
-
-**Notable exception:** `DEBUG_LEVEL=2` can be safely mixed with
-`DEBUG_LEVEL=1` — rebuild a subset of files with `DEBUG_LEVEL=2` to get
-extra/more accurate runtime checks for those files without a full clean.
-
-When in doubt, `make clean` is cheap insurance compared to chasing a
-phantom bug.
+Object files are written to the same paths regardless of build flags, so
+reusing objects from a prior build with different flags causes confusing
+linker errors, etc. This problem is essentially avoidable by ALWAYS using
+`AUTO_CLEAN=1 make -j<n> <something>` for manual make invocations. This
+will automatically clean object files if the build parameters/flavor have
+changed. The `build_tools/rockstest.sh` / `rocksptest.sh` helpers described
+below set `AUTO_CLEAN=1` for you.
 
 ### Source checks
 * Run `make check-sources` before committing. This catches non-ASCII
@@ -309,13 +298,22 @@ rather than relying on libstdc++ transitive includes.
 * Don't use sleep to wait for certain events to happen. This will cause test to
     be flaky. Instead, use sync point to synchronize thread progress.
 * Cap unit test execution with 60 seconds timeout.
-* When there are multiple unit tests need to be executed, try to use
-    gtest_parallel.py if available. E.g.
-    python3 ${GTEST_PARALLEL}/gtest_parallel.py ./table_test
-* After writing a test, stress-test for flakiness:
+* To build and run unit tests locally, prefer these helper scripts:
+    * `build_tools/rocksptest.sh <test_binary> [more_binaries...] [args...]`
+        builds the binary(ies) with parallel make and `AUTO_CLEAN=1` and runs
+        them under gtest-parallel, sharding the test cases across CPUs. Prefer
+        this whenever running more than a couple of test cases, e.g.
+        `build_tools/rocksptest.sh table_test` or
+        `build_tools/rocksptest.sh db_test env_test --gtest_filter=*Foo*`.
+    * `build_tools/rockstest.sh <test_binary> [args...]` builds with parallel
+        make and `AUTO_CLEAN=1` and runs the binary directly (serially).
+        Use it only for a very small number of test cases, e.g.
+        `build_tools/rockstest.sh db_test --gtest_filter=*MixedSlowdown*`.
+* After writing a test, stress-test for flakiness (AUTO_CLEAN handles the
+    rebuild needed by the `COERCE_CONTEXT_SWITCH=1` flag change):
     ```bash
-    COERCE_CONTEXT_SWITCH=1 make {test_binary}
-    ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
+    COERCE_CONTEXT_SWITCH=1 build_tools/rockstest.sh {test_binary} -r100 \
+        --gtest_filter="*YourTestName*"
     ```
 * For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
     `--gtest_repeat`, or normal coerce-mode runs, inspect
@@ -372,12 +370,13 @@ rather than relying on libstdc++ transitive includes.
 * Blog post authors must be defined in `docs/_data/authors.yml` to be displayed
 
 ### Final verification of the change
-* Execute make clean to clean all of the changes.
-* Execute make check to build all of the changes and execute all of the tests.
-    Note that executing all of the tests could take multiple minutes.
-* Run `ASSERT_STATUS_CHECKED=1 make check` to verify all Status objects are
-    properly checked. This catches missing error handling that can lead to
-    silent data corruption.
+* Execute `AUTO_CLEAN=1 make check` to build all of the changes and execute all
+    of the tests. `AUTO_CLEAN=1` ensures a clean rebuild if your previous build
+    used different parameters. Note that executing all of the tests could take
+    multiple minutes.
+* Run `AUTO_CLEAN=1 ASSERT_STATUS_CHECKED=1 make check` to verify all Status
+    objects are properly checked. This catches missing error handling that can
+    lead to silent data corruption.
 
 ### Monitoring make check progress
 * Use `make check-progress` to get machine-parseable JSON progress while
@@ -385,7 +384,7 @@ rather than relying on libstdc++ transitive includes.
     builds without timeout issues.
 * Run `make check` in background, then poll progress:
     ```bash
-    make check &
+    AUTO_CLEAN=1 make check &
     # Poll periodically:
     make check-progress
     ```
@@ -410,9 +409,10 @@ rather than relying on libstdc++ transitive includes.
 
 ### Executing benchmark using db_bench
 * Since the goal is to measure performance, we need to build a release binary
-    using `make clean && DEBUG_LEVEL=0 make db_bench`. If there is an engine
-    crash due to bug, we need to switch back to debug build. Make sure to run
-    `make clean` before running `make dbg`.
+    using `AUTO_CLEAN=1 DEBUG_LEVEL=0 make db_bench`. If there is an engine
+    crash due to a bug, switch back to a debug build with
+    `AUTO_CLEAN=1 make dbg`; `AUTO_CLEAN=1` handles the release<->debug rebuild
+    automatically.
 
 ### Formatting code
 * After making change, use `make format-auto` to auto-apply formatting without
