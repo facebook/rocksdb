@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.1.2 (06/24/2026)
+### Bug Fixes
+* Fixed a bug where closing a read-only DB instance could delete live SST files created by a concurrent read-write DB sharing the same directory.
+
 ## 11.1.1 (04/10/2026)
 ### Public API Changes
 * Changed experimental feature `ExternalTableReader::Get` and `ExternalTableReader::MultiGet` to use `PinnableSlice` instead of `std::string` for output values, enabling zero-copy pinning. This will break existing implementations.
