@@ -549,7 +549,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
     // The scratch (reused across entries) is only constructed for embedded
     // tables and avoids per-entry allocation.
     std::optional<EmbeddedValueGetScratch> embedded_scratch;
-    if (rep_->has_embedded_blob_record_range) {
+    if (rep_->has_embedded_blobs) {
       embedded_scratch.emplace();
     }
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();

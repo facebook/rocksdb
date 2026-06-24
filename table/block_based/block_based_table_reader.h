@@ -265,7 +265,7 @@ class BlockBasedTable : public TableReader {
   // *value_pinner is the pinner to use: the zero-copy blob payload pinner (in
   // `scratch`), nullptr for a copied wide-column value, or `block_pinner` when
   // nothing needed resolving. Only call this when the table actually has
-  // embedded blob records (see Rep::has_embedded_blob_record_range); the common
+  // embedded blob records (see Rep::has_embedded_blobs); the common
   // non-embedded path should skip it entirely.
   Status ResolveEmbeddedValueForGet(const ReadOptions& read_options,
                                     const Slice& key, const Slice& value,
@@ -644,8 +644,6 @@ class BlockBasedTable : public TableReader {
                              FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
                              const SequenceNumber largest_seqno);
-  // Reads the embedded blob record locator from the metaindex, if present.
-  Status ReadEmbeddedBlobRecordRange(InternalIterator* meta_iter);
   Status ReadRangeDelBlock(const ReadOptions& ro,
                            FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
@@ -836,10 +834,10 @@ struct BlockBasedTable::Rep {
 
   // If true, then data blocks have keys and values separated.
   bool separate_key_value_in_data_block = false;
-  // Locator for the raw embedded blob record range. Valid only when
-  // has_embedded_blob_record_range is true.
-  EmbeddedBlobRecordRange embedded_blob_record_range;
-  bool has_embedded_blob_record_range = false;
+  // Whether this SST contains embedded (same-file) blob records, detected from
+  // the presence of the embedded blob stats property. Same-file BlobIndex
+  // references are only valid when this is true.
+  bool has_embedded_blobs = false;
 
   // BlobSource for routing same-file ("embedded") blob reads through the blob
   // value cache + BLOB_DB_* statistics. Owned by the ColumnFamilyData; this

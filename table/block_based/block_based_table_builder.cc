@@ -28,6 +28,7 @@
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/blob/blob_constants.h"
+#include "db/blob/blob_gen2_format.h"
 #include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "db/wide/wide_column_serialization.h"
@@ -971,9 +972,26 @@ struct BlockBasedTableBuilder::Rep {
   // This is used for logging compaction stats.
   uint64_t pre_compression_size = 0;
 
-  EmbeddedBlobRecordRange embedded_blob_record_range;
-  EmbeddedBlobStats embedded_blob_stats;
-  bool has_embedded_blob_record_range = false;
+  // Embedded-blob SST support. When `embedded_blob_options` is set the builder
+  // is in embedded mode: index value delta encoding is disabled and eligible
+  // large values are written inline as same-file blob records as values are
+  // added (so they may be interleaved with data blocks), with table entries
+  // rewritten to same-file BlobIndex references. The options are owned by the
+  // caller (e.g. SstFileWriter) and must outlive the builder.
+  UnownedPtr<const EmbeddedBlobSstBuilderOptions> embedded_blob_options;
+
+  // Mutable state for embedded blob writing, lazily allocated when the first
+  // blob record is written. Its presence is the signal that the file contains
+  // embedded blobs (driving the presence property). Holds the diagnostic
+  // counters plus scratch buffers reused across Add() calls to avoid per-entry
+  // allocation.
+  struct EmbeddedBlobState {
+    EmbeddedBlobStats stats;
+    std::string key_buf;
+    std::string blob_index_buf;
+    std::string entity_buf;
+  };
+  std::unique_ptr<EmbeddedBlobState> embedded_blob_state;
 
   // See class Footer
   uint32_t base_context_checksum;
@@ -1097,8 +1115,10 @@ struct BlockBasedTableBuilder::Rep {
         compression_parallel_threads(tbo.compression_opts.parallel_threads),
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
-        use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
-                                            !table_opt.block_align),
+        use_delta_encoding_for_index_values(
+            table_opt.format_version >= 4 && !table_opt.block_align &&
+            /* surely no embedded blobs */ tbo.embedded_blob_options ==
+                nullptr),
         reason(tbo.reason),
         target_file_size_is_upper_bound(
             tbo.moptions.target_file_size_is_upper_bound),
@@ -1116,7 +1136,8 @@ struct BlockBasedTableBuilder::Rep {
                            BlockBasedTableOptions::kBinarySearchWithFirstKey,
                        table_options.block_restart_interval,
                        table_options.index_block_restart_interval),
-        tail_size(0) {
+        tail_size(0),
+        embedded_blob_options(tbo.embedded_blob_options) {
     FilterBuildingContext filter_context(table_options);
 
     filter_context.info_log = ioptions.logger;
@@ -1246,7 +1267,10 @@ struct BlockBasedTableBuilder::Rep {
     // Hard structural constraints override any recommendation
     if ((table_opt.partition_filters &&
          !table_opt.decouple_partitioned_filters) ||
-        table_options.user_defined_index_factory) {
+        table_options.user_defined_index_factory || embedded_blob_options) {
+      // Embedded-blob SSTs write blob records inline on the emit thread, so
+      // they require single-threaded writes for correct, race-free ordering of
+      // blob appends and data-block writes.
       compression_parallel_threads = 1;
     }
 
@@ -1593,10 +1617,25 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
   r->props.key_largest_seqno = std::max(r->props.key_largest_seqno, seq);
   r->props.key_smallest_seqno = std::min(r->props.key_smallest_seqno, seq);
+
+  // For embedded-blob SSTs, large value payloads are written inline as
+  // same-file blob records and the table entry is rewritten to reference them
+  // before the normal flush/add logic. entry_ikey / entry_value alias the
+  // inputs unless rewriting occurs.
+  Slice entry_ikey = ikey;
+  Slice entry_value = value;
+
   if (IsValueType(value_type)) {
+    if (r->embedded_blob_options) {
+      if (!MaybeExtractEmbeddedBlobs(seq, value_type, &entry_ikey,
+                                    &entry_value)) {
+        return;  // failed status already recorded
+      }
+    }
 #ifndef NDEBUG
     if (r->props.num_entries > r->props.num_range_deletions) {
-      assert(r->internal_comparator.Compare(ikey, Slice(r->last_ikey)) > 0);
+      assert(r->internal_comparator.Compare(entry_ikey, Slice(r->last_ikey)) >
+             0);
     }
     bool skip = false;
     TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::Add::skip", (void*)&skip);
@@ -1605,10 +1644,10 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     }
 #endif  // !NDEBUG
 
-    auto should_flush = r->flush_block_policy->Update(ikey, value);
+    auto should_flush = r->flush_block_policy->Update(entry_ikey, entry_value);
     if (should_flush) {
       assert(!r->data_block.empty());
-      Flush(/*first_key_in_next_block=*/&ikey);
+      Flush(/*first_key_in_next_block=*/&entry_ikey);
     }
 
     // Note: PartitionedFilterBlockBuilder with
@@ -1618,7 +1657,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     if (r->state == Rep::State::kUnbuffered) {
       if (r->filter_builder != nullptr) {
         r->filter_builder->AddWithPrevKey(
-            ExtractUserKeyAndStripTimestamp(ikey, r->ts_sz),
+            ExtractUserKeyAndStripTimestamp(entry_ikey, r->ts_sz),
             r->last_ikey.empty()
                 ? Slice{}
                 : ExtractUserKeyAndStripTimestamp(r->last_ikey, r->ts_sz));
@@ -1626,17 +1665,17 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     }
 
     // NOTE: WriteBatch guarantees keys < 4GB; value size checked above
-    r->data_block.AddWithLastKey(ikey, value, r->last_ikey);
-    r->last_ikey.assign(ikey.data(), ikey.size());
+    r->data_block.AddWithLastKey(entry_ikey, entry_value, r->last_ikey);
+    r->last_ikey.assign(entry_ikey.data(), entry_ikey.size());
     assert(!r->last_ikey.empty());
     if (r->state == Rep::State::kBuffered) {
       // Buffered keys will be replayed from data_block_buffers during
       // `Finish()` once compression dictionary has been finalized.
     } else {
-      r->index_builder->OnKeyAdded(ikey, value);
+      r->index_builder->OnKeyAdded(entry_ikey, entry_value);
     }
     // TODO offset passed in is not accurate for parallel compression case
-    NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),
+    NotifyCollectTableCollectorsOnAdd(entry_ikey, entry_value, r->get_offset(),
                                       r->table_properties_collectors,
                                       r->ioptions.logger);
 
@@ -1665,11 +1704,11 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   }
 
   r->props.num_entries++;
-  r->props.raw_key_size += ikey.size();
+  r->props.raw_key_size += entry_ikey.size();
   if (!r->persist_user_defined_timestamps) {
     r->props.raw_key_size -= r->ts_sz;
   }
-  r->props.raw_value_size += value.size();
+  r->props.raw_value_size += entry_value.size();
   if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
       value_type == kTypeDeletionWithTimestamp) {
     r->props.num_deletions++;
@@ -2350,43 +2389,141 @@ IOStatus BlockBasedTableBuilder::io_status() const {
 
 bool BlockBasedTableBuilder::ok() const { return rep_->StatusOk(); }
 
-BlockBasedTableBuilder::BorrowedFileWriter
-BlockBasedTableBuilder::BorrowFileWriterForPrefix() const {
-  assert(rep_->state != Rep::State::kClosed);
-  assert(IsEmpty());
-  return {rep_->file, rep_->base_context_checksum};
+Status BlockBasedTableBuilder::WriteEmbeddedBlobRecord(const Slice& payload) {
+  Rep* r = rep_.get();
+  assert(r->embedded_blob_options);
+  // Inline blob writing requires single-threaded writes so the running table
+  // offset matches the file position (enforced in the Rep constructor).
+  assert(!r->IsParallelCompressionActive());
+
+  // Embedded blob payloads share the 32-bit value-size limit with the rest of
+  // the table format; enforcing it here keeps record sizes in range and gives
+  // an early, cheap corruption check.
+  if (payload.size() > std::numeric_limits<uint32_t>::max()) {
+    return Status::InvalidArgument("Embedded blob value is too large");
+  }
+
+  if (!r->embedded_blob_state) {
+    r->embedded_blob_state = std::make_unique<Rep::EmbeddedBlobState>();
+  }
+
+  // The builder's running table offset equals the current file size, so the
+  // record begins exactly here.
+  const uint64_t offset = r->get_offset();
+  // Placeholder for future embedded blob compression support.
+  const CompressionType compression = kNoCompression;
+  IOStatus io_s = WriteSimpleGen2BlobRecord(
+      r->file, r->write_options, r->table_options.checksum,
+      r->base_context_checksum, offset, payload, compression);
+  if (!io_s.ok()) {
+    r->SetIOStatus(io_s);
+    return io_s;
+  }
+
+  const uint64_t record_size = payload.size() + kSimpleGen2BlobTrailerSize;
+  r->set_offset(offset + record_size);
+  r->embedded_blob_state->stats.blob_count++;
+  r->embedded_blob_state->stats.payload_bytes += payload.size();
+
+  BlobIndex::EncodeBlob(&r->embedded_blob_state->blob_index_buf,
+                        kCurrentFileBlobIndexFileNumber, offset, payload.size(),
+                        compression);
+  return Status::OK();
 }
 
-Status BlockBasedTableBuilder::UnborrowFileWriterForPrefix(
-    const EmbeddedBlobRecordRange& embedded_blob_record_range,
-    const EmbeddedBlobStats& embedded_blob_stats) {
-  assert(rep_->state != Rep::State::kClosed);
-  if (!IsEmpty()) {
-    return Status::InvalidArgument(
-        "Cannot unborrow prefix file writer after adding table entries");
+Status BlockBasedTableBuilder::BuildEmbeddedWideColumnEntity(const Slice& value,
+                                                             bool* rewritten) {
+  Rep* r = rep_.get();
+  assert(rewritten != nullptr);
+  *rewritten = false;
+
+  WideColumns columns;
+  Slice input = value;
+  Status s = WideColumnSerialization::Deserialize(input, columns);
+  if (!s.ok()) {
+    return s;
   }
 
-  const uint64_t file_size = rep_->file->GetFileSize();
-  if (embedded_blob_record_range.HasRecords()) {
-    if (embedded_blob_record_range.offset > file_size ||
-        embedded_blob_record_range.size >
-            file_size - embedded_blob_record_range.offset) {
-      return Status::InvalidArgument(
-          "Embedded blob record range extends past file size");
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  blob_columns.reserve(columns.size());
+
+  const uint64_t min_blob_size = r->embedded_blob_options->min_blob_size;
+  for (size_t column_idx = 0; column_idx < columns.size(); ++column_idx) {
+    const Slice& column_value = columns[column_idx].value();
+    if (column_value.size() < min_blob_size) {
+      continue;
     }
-    if (!embedded_blob_stats.HasRecords()) {
-      return Status::InvalidArgument(
-          "Embedded blob records missing stats metadata");
+    s = WriteEmbeddedBlobRecord(column_value);
+    if (!s.ok()) {
+      return s;
     }
-    rep_->embedded_blob_record_range = embedded_blob_record_range;
-    rep_->embedded_blob_stats = embedded_blob_stats;
-    rep_->has_embedded_blob_record_range = true;
-  } else if (file_size != 0) {
-    return Status::InvalidArgument(
-        "Prefix file writer has bytes without embedded blob metadata");
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(r->embedded_blob_state->blob_index_buf);
+    if (!s.ok()) {
+      return s;
+    }
+    blob_columns.emplace_back(column_idx, blob_index);
   }
-  rep_->set_offset(file_size);
+
+  if (blob_columns.empty()) {
+    return Status::OK();
+  }
+
+  // At least one record was written above, so the state exists.
+  r->embedded_blob_state->entity_buf.clear();
+  s = WideColumnSerialization::SerializeV2(columns, blob_columns,
+                                           r->embedded_blob_state->entity_buf);
+  if (!s.ok()) {
+    return s;
+  }
+  *rewritten = true;
   return Status::OK();
+}
+
+bool BlockBasedTableBuilder::MaybeExtractEmbeddedBlobs(SequenceNumber seq,
+                                                       ValueType value_type,
+                                                       Slice* key,
+                                                       Slice* value) {
+  Rep* r = rep_.get();
+  assert(r->embedded_blob_options);
+  assert(key != nullptr);
+  assert(value != nullptr);
+
+  if (value_type == kTypeValue) {
+    if (value->size() < r->embedded_blob_options->min_blob_size) {
+      return true;  // leave small values inline
+    }
+    Status s = WriteEmbeddedBlobRecord(*value);
+    if (!s.ok()) {
+      r->SetStatus(std::move(s));
+      return false;
+    }
+    // Rewrite the internal key footer type to kTypeBlobIndex in scratch (the
+    // input key is not mutated in place).
+    std::string& key_buf = r->embedded_blob_state->key_buf;
+    key_buf.assign(key->data(), key->size());
+    assert(key_buf.size() >= kNumInternalBytes);
+    EncodeFixed64(&key_buf[key_buf.size() - kNumInternalBytes],
+                  PackSequenceAndType(seq, kTypeBlobIndex));
+    *key = Slice(key_buf);
+    *value = Slice(r->embedded_blob_state->blob_index_buf);
+    return true;
+  }
+
+  if (value_type == kTypeWideColumnEntity) {
+    bool rewritten = false;
+    Status s = BuildEmbeddedWideColumnEntity(*value, &rewritten);
+    if (!s.ok()) {
+      r->SetStatus(std::move(s));
+      return false;
+    }
+    if (rewritten) {
+      *value = Slice(r->embedded_blob_state->entity_buf);
+    }
+    return true;
+  }
+
+  return true;
 }
 
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
@@ -2636,9 +2773,9 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
 
-    if (rep_->embedded_blob_stats.HasRecords()) {
+    if (rep_->embedded_blob_state) {
       std::string encoded_stats;
-      EncodeEmbeddedBlobStats(rep_->embedded_blob_stats, &encoded_stats);
+      EncodeEmbeddedBlobStats(rep_->embedded_blob_state->stats, &encoded_stats);
       rep_->props.user_collected_properties[kEmbeddedBlobSstStatsPropertyName] =
           std::move(encoded_stats);
     }
@@ -2717,15 +2854,6 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
                               &range_del_block_handle,
                               BlockType::kRangeDeletion);
     meta_index_builder->Add(kRangeDelBlockName, range_del_block_handle);
-  }
-}
-
-void BlockBasedTableBuilder::WriteEmbeddedBlobRecordRange(
-    MetaIndexBuilder* meta_index_builder) {
-  if (rep_->has_embedded_blob_record_range) {
-    meta_index_builder->Add(kEmbeddedBlobSstRecordRangeName,
-                            BlockHandle(rep_->embedded_blob_record_range.offset,
-                                        rep_->embedded_blob_record_range.size));
   }
 }
 
@@ -2982,7 +3110,6 @@ Status BlockBasedTableBuilder::Finish() {
   WriteIndexBlock(&meta_index_builder, &index_block_handle);
   WriteCompressionDictBlock(&meta_index_builder);
   WriteRangeDelBlock(&meta_index_builder);
-  WriteEmbeddedBlobRecordRange(&meta_index_builder);
   WritePropertiesBlock(&meta_index_builder);
   if (LIKELY(ok())) {
     // flush the meta index block
@@ -3134,449 +3261,6 @@ void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
   assert(rep_->props.seqno_to_time_mapping.empty());
   relevant_mapping.EncodeTo(rep_->props.seqno_to_time_mapping);
   rep_->props.creation_time = oldest_ancestor_time;
-}
-
-namespace {
-
-// TableBuilder wrapper for embedded-blob SST creation. It borrows the
-// block-based table file writer to append blob records as a strict file prefix,
-// buffers table entries, then unborrows the writer and replays the buffered
-// entries, with blob references, into the inner block-based table builder
-// during Finish(). The buffering is necessary to avoid staggering blob data
-// and SST data blocks, which at a minimum would interfere with compact index
-// encoding which assumes subsequent data blocks are byte-adjacent.
-class EmbeddedBlobBlockBasedTableBuilder : public TableBuilder {
- public:
-  EmbeddedBlobBlockBasedTableBuilder(
-      const BlockBasedTableOptions& table_options,
-      const TableBuilderOptions& table_builder_options,
-      WritableFileWriter* file,
-      const EmbeddedBlobSstBuilderOptions& embedded_blob_options)
-      : table_builder_(new BlockBasedTableBuilder(table_options,
-                                                  table_builder_options, file)),
-        embedded_blob_options_(embedded_blob_options),
-        write_options_(table_builder_options.write_options),
-        checksum_type_(table_options.checksum) {
-    const auto borrowed = table_builder_->BorrowFileWriterForPrefix();
-    file_writer_ = borrowed.file_writer;
-    base_context_checksum_ = borrowed.base_context_checksum;
-  }
-
-  // No copy/move
-  EmbeddedBlobBlockBasedTableBuilder(
-      const EmbeddedBlobBlockBasedTableBuilder&) = delete;
-  EmbeddedBlobBlockBasedTableBuilder& operator=(
-      const EmbeddedBlobBlockBasedTableBuilder&) = delete;
-  EmbeddedBlobBlockBasedTableBuilder(EmbeddedBlobBlockBasedTableBuilder&&) =
-      delete;
-  EmbeddedBlobBlockBasedTableBuilder& operator=(
-      EmbeddedBlobBlockBasedTableBuilder&&) = delete;
-
-  ~EmbeddedBlobBlockBasedTableBuilder() override {
-    if (!closed_) {
-      io_status_.PermitUncheckedError();
-    }
-  }
-
-  void Add(const Slice& key, const Slice& value) override {
-    if (!io_status_.ok()) {
-      return;
-    }
-
-    PendingTableEntry entry;
-    Status s = BuildTableEntry(key, value, &entry);
-    if (!s.ok()) {
-      SetStatus(std::move(s));
-      return;
-    }
-    pending_entries_.emplace_back(std::move(entry));
-  }
-
-  Status status() const override {
-    if (!io_status_.ok()) {
-      return io_status_;
-    }
-    return table_builder_->status();
-  }
-
-  IOStatus io_status() const override {
-    if (!io_status_.ok()) {
-      return io_status_;
-    }
-    return table_builder_->io_status();
-  }
-
-  Status Finish() override {
-    if (closed_) {
-      return Status::InvalidArgument("Table builder is already closed");
-    }
-
-    Status s = status();
-    if (!s.ok()) {
-      table_builder_->Abandon();
-      closed_ = true;
-      return s;
-    }
-
-    if (embedded_blob_record_range_.HasRecords()) {
-      s = TEST_MaybeAppendIgnorablePrefixBytes(
-          "EmbeddedBlobBlockBasedTableBuilder::AfterBlobRecords");
-    }
-    if (s.ok()) {
-      s = table_builder_->UnborrowFileWriterForPrefix(
-          embedded_blob_record_range_, embedded_blob_stats_);
-    }
-    if (s.ok()) {
-      returned_file_writer_ = true;
-      s = ReplayPendingEntries();
-    }
-
-    if (s.ok()) {
-      s = table_builder_->Finish();
-    } else {
-      table_builder_->Abandon();
-    }
-    closed_ = true;
-    return s;
-  }
-
-  void Abandon() override {
-    if (!closed_) {
-      table_builder_->Abandon();
-      closed_ = true;
-      io_status_.PermitUncheckedError();
-    }
-    pending_entries_.clear();
-  }
-
-  uint64_t NumEntries() const override {
-    return table_builder_->NumEntries() + pending_entries_.size();
-  }
-
-  bool IsEmpty() const override {
-    return table_builder_->IsEmpty() && pending_entries_.empty();
-  }
-
-  uint64_t PreCompressionSize() const override {
-    return table_builder_->PreCompressionSize();
-  }
-
-  uint64_t FileSize() const override {
-    if (!returned_file_writer_ && file_writer_ != nullptr) {
-      return file_writer_->GetFileSize();
-    }
-    return table_builder_->FileSize();
-  }
-
-  uint64_t EstimatedFileSize() const override { return FileSize(); }
-
-  uint64_t EstimatedTailSize() const override {
-    return table_builder_->EstimatedTailSize();
-  }
-
-  uint64_t GetTailSize() const override {
-    return table_builder_->GetTailSize();
-  }
-
-  bool NeedCompact() const override { return table_builder_->NeedCompact(); }
-
-  TableProperties GetTableProperties() const override {
-    return table_builder_->GetTableProperties();
-  }
-
-  std::string GetFileChecksum() const override {
-    return table_builder_->GetFileChecksum();
-  }
-
-  const char* GetFileChecksumFuncName() const override {
-    return table_builder_->GetFileChecksumFuncName();
-  }
-
-  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
-                                   uint64_t oldest_ancestor_time) override {
-    table_builder_->SetSeqnoTimeTableProperties(relevant_mapping,
-                                                oldest_ancestor_time);
-  }
-
-  uint64_t GetWorkerCPUMicros() const override {
-    return table_builder_->GetWorkerCPUMicros();
-  }
-
- private:
-  // Arena-owned key/value slices to replay into the inner block-based table
-  // builder after the embedded blob prefix is sealed.
-  struct PendingTableEntry {
-    Slice key;
-    Slice value;
-  };
-
-  // Keep one local IOStatus, matching BlockBasedTableBuilder's status model.
-  // Non-I/O failures are converted so status() and io_status() share one source
-  // of truth for prefix-writing failures.
-  void SetStatus(Status&& s) {
-    if (!s.ok() && io_status_.ok()) {
-      io_status_ = status_to_io_status(std::move(s));
-    }
-  }
-
-  void SetIOStatus(IOStatus&& io_s) {
-    if (!io_s.ok() && io_status_.ok()) {
-      io_status_ = std::move(io_s);
-    }
-  }
-
-  // Test hook for injecting bytes around the embedded blob record range. This
-  // verifies readers use the explicit metaindex locator rather than assuming
-  // the whole file prefix consists only of blob records.
-  Status TEST_MaybeAppendIgnorablePrefixBytes(const std::string& sync_point) {
-    assert(file_writer_ != nullptr);
-    (void)sync_point;
-#ifndef NDEBUG
-    std::string bytes;
-    TEST_SYNC_POINT_CALLBACK(sync_point, &bytes);
-    if (bytes.empty()) {
-      return Status::OK();
-    }
-
-    IOOptions opts;
-    Status s = WritableFileWriter::PrepareIOOptions(write_options_, opts);
-    if (!s.ok()) {
-      return s;
-    }
-    IOStatus io_s = file_writer_->Append(opts, bytes);
-    if (!io_s.ok()) {
-      SetIOStatus(std::move(io_s));
-      return io_status_;
-    }
-#endif  // NDEBUG
-    return Status::OK();
-  }
-
-  // Store pending entry data in one arena for cheap bulk free and stable
-  // slices.
-  Slice CopySliceToArena(const Slice& value) {
-    if (value.empty()) {
-      return Slice();
-    }
-
-    char* const buffer = pending_entry_arena_.Allocate(value.size());
-    std::memcpy(buffer, value.data(), value.size());
-    return Slice(buffer, value.size());
-  }
-
-  // Rewrites the sequence/type trailer after changing a buffered entry's value
-  // to a BlobIndex.
-  static void UpdateInternalKeyInPlace(Slice* key, uint64_t seq, ValueType t) {
-    assert(key != nullptr);
-    assert(key->size() >= kNumInternalBytes);
-
-    char* const key_data = const_cast<char*>(key->data());
-    EncodeFixed64(key_data + key->size() - kNumInternalBytes, (seq << 8) | t);
-  }
-
-  // Appends one uncompressed embedded blob record to the borrowed file prefix
-  // and returns a same-file BlobIndex pointing at it.
-  Status BuildEmbeddedBlobRecord(const Slice& value,
-                                 std::string* encoded_blob_index) {
-    assert(encoded_blob_index != nullptr);
-    assert(file_writer_ != nullptr);
-
-    if (!embedded_blob_record_range_.HasRecords()) {
-      Status s = TEST_MaybeAppendIgnorablePrefixBytes(
-          "EmbeddedBlobBlockBasedTableBuilder::BeforeBlobRecords");
-      if (!s.ok()) {
-        return s;
-      }
-    }
-
-    const uint64_t offset = file_writer_->GetFileSize();
-    if (!embedded_blob_record_range_.HasRecords()) {
-      embedded_blob_record_range_.offset = offset;
-    } else if (offset != embedded_blob_record_range_.offset +
-                             embedded_blob_record_range_.size) {
-      return Status::Corruption(
-          "Embedded blob records are not contiguous with file writes");
-    }
-
-    Slice payload = value;
-
-    // Embedded blob payloads are bounded by the 32-bit value-size limit shared
-    // with the rest of the table format. Enforcing it here keeps record sizes
-    // in range and gives an early, cheap corruption check.
-    if (payload.size() > std::numeric_limits<uint32_t>::max()) {
-      return Status::InvalidArgument("Embedded blob value is too large");
-    }
-
-    std::array<char, kSimpleGen2BlobTrailerSize> trailer;
-    const CompressionType actual_compression = kNoCompression;
-    // Placeholder for future embedded blob compression support.
-    trailer[0] = lossless_cast<char>(actual_compression);
-    uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
-        checksum_type_, payload.data(), payload.size(),
-        /*last_byte*/ trailer[0]);
-    checksum += ChecksumModifierForContext(base_context_checksum_, offset);
-    EncodeFixed32(trailer.data() + 1, checksum);
-
-    IOOptions opts;
-    Status s = WritableFileWriter::PrepareIOOptions(write_options_, opts);
-    if (!s.ok()) {
-      return s;
-    }
-
-    if (!payload.empty()) {
-      IOStatus io_s = file_writer_->Append(opts, payload);
-      if (!io_s.ok()) {
-        SetIOStatus(std::move(io_s));
-        return io_status_;
-      }
-    }
-    IOStatus io_s =
-        file_writer_->Append(opts, Slice(trailer.data(), trailer.size()));
-    if (!io_s.ok()) {
-      SetIOStatus(std::move(io_s));
-      return io_status_;
-    }
-
-    const uint64_t record_size = payload.size() + trailer.size();
-    embedded_blob_record_range_.size += record_size;
-    embedded_blob_stats_.blob_count++;
-    embedded_blob_stats_.payload_bytes += payload.size();
-
-    BlobIndex::EncodeBlob(encoded_blob_index, kCurrentFileBlobIndexFileNumber,
-                          offset, payload.size(), actual_compression);
-    return Status::OK();
-  }
-
-  // Rewrites eligible wide-column values as embedded blob references while
-  // leaving smaller columns inline in the wide-column entity.
-  // FIXME: a limitation of the TableBuilder interface and implementing this
-  // functionality as a TableBuilder wrapper means the wide columns are
-  // serialized in the caller, deserialized here, then modified and
-  // re-serialized. Obviously it would be good to elimiate that first
-  // serialize->deserialize.
-  Status BuildWideColumnEntity(const Slice& value, Slice* entity) {
-    assert(entity != nullptr);
-
-    WideColumns columns;
-    Slice input = value;
-    Status s = WideColumnSerialization::Deserialize(input, columns);
-    if (!s.ok()) {
-      return s;
-    }
-
-    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-    blob_columns.reserve(columns.size());
-
-    for (size_t column_idx = 0; column_idx < columns.size(); ++column_idx) {
-      const Slice& column_value = columns[column_idx].value();
-      if (column_value.size() < embedded_blob_options_.min_blob_size) {
-        continue;
-      }
-
-      std::string encoded_blob_index;
-      s = BuildEmbeddedBlobRecord(column_value, &encoded_blob_index);
-      if (!s.ok()) {
-        return s;
-      }
-
-      BlobIndex blob_index;
-      s = blob_index.DecodeFrom(encoded_blob_index);
-      if (!s.ok()) {
-        return s;
-      }
-      blob_columns.emplace_back(column_idx, blob_index);
-    }
-
-    if (blob_columns.empty()) {
-      *entity = CopySliceToArena(value);
-      return Status::OK();
-    }
-
-    std::string serialized_entity;
-    s = WideColumnSerialization::SerializeV2(columns, blob_columns,
-                                             serialized_entity);
-    if (!s.ok()) {
-      return s;
-    }
-    *entity = CopySliceToArena(serialized_entity);
-    return Status::OK();
-  }
-
-  // Converts one incoming table entry to the buffered form that will be
-  // replayed into the block-based table builder after all embedded blob records
-  // have been written.
-  Status BuildTableEntry(const Slice& key, const Slice& value,
-                         PendingTableEntry* entry) {
-    assert(entry != nullptr);
-
-    if (key.size() < kNumInternalBytes) {
-      return Status::Corruption(
-          "Embedded blob table builder received malformed internal key");
-    }
-    entry->key = CopySliceToArena(key);
-
-    ValueType value_type;
-    SequenceNumber sequence_number;
-    UnPackSequenceAndType(ExtractInternalKeyFooter(key), &sequence_number,
-                          &value_type);
-
-    if (value_type == kTypeValue &&
-        value.size() >= embedded_blob_options_.min_blob_size) {
-      std::string encoded_blob_index;
-      Status s = BuildEmbeddedBlobRecord(value, &encoded_blob_index);
-      if (s.ok()) {
-        entry->value = CopySliceToArena(encoded_blob_index);
-        UpdateInternalKeyInPlace(&entry->key, sequence_number, kTypeBlobIndex);
-      }
-      return s;
-    }
-
-    if (value_type == kTypeWideColumnEntity) {
-      return BuildWideColumnEntity(value, &entry->value);
-    }
-
-    entry->value = CopySliceToArena(value);
-    return Status::OK();
-  }
-
-  // Replays buffered entries in original order. Requires: the inner BBT builder
-  // owns the file writer again.
-  Status ReplayPendingEntries() {
-    for (const PendingTableEntry& entry : pending_entries_) {
-      table_builder_->Add(entry.key, entry.value);
-      Status s = table_builder_->status();
-      if (!s.ok()) {
-        return s;
-      }
-    }
-
-    pending_entries_.clear();
-    return Status::OK();
-  }
-
-  std::unique_ptr<BlockBasedTableBuilder> table_builder_;
-  EmbeddedBlobSstBuilderOptions embedded_blob_options_;
-  WriteOptions write_options_;
-  ChecksumType checksum_type_;
-  WritableFileWriter* file_writer_ = nullptr;
-  uint32_t base_context_checksum_ = 0;
-  EmbeddedBlobRecordRange embedded_blob_record_range_;
-  EmbeddedBlobStats embedded_blob_stats_;
-  Arena pending_entry_arena_;
-  std::deque<PendingTableEntry> pending_entries_;
-  IOStatus io_status_;
-  bool returned_file_writer_ = false;
-  bool closed_ = false;
-};
-
-}  // namespace
-
-TableBuilder* NewEmbeddedBlobBlockBasedTableBuilder(
-    const BlockBasedTableOptions& table_options,
-    const TableBuilderOptions& table_builder_options, WritableFileWriter* file,
-    const EmbeddedBlobSstBuilderOptions& embedded_blob_options) {
-  return new EmbeddedBlobBlockBasedTableBuilder(
-      table_options, table_builder_options, file, embedded_blob_options);
 }
 
 const std::string BlockBasedTable::kObsoleteFilterBlockPrefix = "filter.";

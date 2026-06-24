@@ -5,13 +5,16 @@
 
 #include "db/blob/blob_gen2_format.h"
 
+#include <array>
 #include <cstring>
 #include <string>
 
 #include "file/random_access_file_reader.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "table/format.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -71,6 +74,38 @@ Status ReadAndVerifySimpleGen2BlobRecord(
     return Status::Corruption("Blob record compression is not supported");
   }
   return Status::OK();
+}
+
+IOStatus WriteSimpleGen2BlobRecord(WritableFileWriter* file,
+                                   const WriteOptions& write_options,
+                                   ChecksumType checksum_type,
+                                   uint32_t base_context_checksum,
+                                   uint64_t record_offset, const Slice& payload,
+                                   CompressionType compression) {
+  assert(file != nullptr);
+  // Placeholder for future embedded blob compression support; only
+  // uncompressed payloads are currently written.
+  assert(compression == kNoCompression);
+
+  std::array<char, kSimpleGen2BlobTrailerSize> trailer;
+  trailer[0] = lossless_cast<char>(compression);
+  uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
+      checksum_type, payload.data(), payload.size(), /*last_byte=*/trailer[0]);
+  checksum += ChecksumModifierForContext(base_context_checksum, record_offset);
+  EncodeFixed32(trailer.data() + 1, checksum);
+
+  IOOptions opts;
+  IOStatus io_s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  if (!payload.empty()) {
+    io_s = file->Append(opts, payload);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+  return file->Append(opts, Slice(trailer.data(), trailer.size()));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

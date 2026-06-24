@@ -39,15 +39,6 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 
 class BlockBasedTableBuilder : public TableBuilder {
  public:
-  // File writer temporarily exposed for callers that must write a strict file
-  // prefix before any table blocks. `base_context_checksum` is the checksum
-  // context at the borrowed offset and must be used for prefix records that
-  // participate in whole-file checksum context.
-  struct BorrowedFileWriter {
-    WritableFileWriter* file_writer = nullptr;
-    uint32_t base_context_checksum = 0;
-  };
-
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
@@ -127,26 +118,6 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   uint64_t GetWorkerCPUMicros() const override;
 
-  // Temporarily gives the caller direct access to the file writer while the
-  // table builder is still empty. Requires: no entries have been Add()ed yet.
-  // See also UnborrowFileWriterForPrefix().
-  //
-  // Block-based table SST files are indexed from the tail, so arbitrary data
-  // can be inserted before the first data block without affecting the SST
-  // integrity or fundamental format. This function facilitates that outside
-  // of BlockBasedTableBuilder (so that BlockBasedTableBuilder is not so
-  // polluted with concerns of EmbeddedBlobBlockBasedTableBuilder).
-  BorrowedFileWriter BorrowFileWriterForPrefix() const;
-
-  // Ends a prefix-writing borrow. The builder's table offset is advanced to the
-  // current file size, and the optional embedded blob metadata is recorded for
-  // the table metaindex/properties before normal table writes begin. The set
-  // of metadata provided back to BlockBasedTableBuilder could expand in the
-  // future.
-  Status UnborrowFileWriterForPrefix(
-      const EmbeddedBlobRecordRange& embedded_blob_record_range,
-      const EmbeddedBlobStats& embedded_blob_stats);
-
 #ifndef NDEBUG
   // Test-only: inject an IOError into the builder's status.
   void TEST_InjectIOError();
@@ -206,10 +177,33 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WritePropertiesBlock(MetaIndexBuilder* meta_index_builder);
   void WriteCompressionDictBlock(MetaIndexBuilder* meta_index_builder);
   void WriteRangeDelBlock(MetaIndexBuilder* meta_index_builder);
-  // Writes the metaindex entry locating the raw embedded blob record range.
-  void WriteEmbeddedBlobRecordRange(MetaIndexBuilder* meta_index_builder);
   void WriteFooter(BlockHandle& metaindex_block_handle,
                    BlockHandle& index_block_handle);
+
+  // Embedded-blob SST support. These are only exercised when the builder is in
+  // embedded mode (rep_->embedded_blob_options is set), in which delta encoding
+  // of index values is disabled so blob records can be written inline as values
+  // are added (possibly interleaved with data blocks).
+
+  // For an embedded-mode value entry, possibly extracts large value payload(s)
+  // into inline same-file blob records and rewrites *key / *value to reference
+  // them (a kTypeBlobIndex entry for whole values, or a rebuilt wide-column
+  // entity with per-column BlobIndex refs). On no-op, *key / *value are left
+  // unchanged. Returns false and records a failed status on error.
+  bool MaybeExtractEmbeddedBlobs(SequenceNumber seq, ValueType value_type,
+                                 Slice* key, Slice* value);
+
+  // Rewrites eligible wide-column values as inline same-file blob records,
+  // building the rebuilt entity into rep_->embedded_blob_state->entity_buf.
+  // Sets *rewritten when at least one column was extracted (otherwise the
+  // original value should be used as-is).
+  Status BuildEmbeddedWideColumnEntity(const Slice& value, bool* rewritten);
+
+  // Appends one uncompressed same-file blob record for `payload` at the current
+  // table offset, advances the offset, lazily allocates and updates the
+  // embedded-blob state (counters), and encodes a same-file BlobIndex into
+  // rep_->embedded_blob_state->blob_index_buf.
+  Status WriteEmbeddedBlobRecord(const Slice& payload);
 
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
@@ -247,13 +241,5 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Stop worker threads for parallel compression
   void StopParallelCompression(bool abort);
 };
-
-// Creates a TableBuilder wrapper wrapping a BlockBasedTableBuilder that writes
-// eligible values into a same-file embedded blob prefix before replaying table
-// entries into the block-based table builder.
-TableBuilder* NewEmbeddedBlobBlockBasedTableBuilder(
-    const BlockBasedTableOptions& table_options,
-    const TableBuilderOptions& table_builder_options, WritableFileWriter* file,
-    const EmbeddedBlobSstBuilderOptions& embedded_blob_options);
 
 }  // namespace ROCKSDB_NAMESPACE

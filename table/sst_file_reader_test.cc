@@ -129,35 +129,6 @@ class SstFileReaderTest : public testing::Test {
     ASSERT_OK(DecodeEmbeddedBlobStats(Slice(stats_iter->second), stats));
   }
 
-  void GetEmbeddedBlobRecordRange(const std::string& file_name,
-                                  EmbeddedBlobRecordRange* range) {
-    ASSERT_NE(range, nullptr);
-
-    uint64_t file_size = 0;
-    ASSERT_OK(env_->GetFileSize(file_name, &file_size));
-
-    std::unique_ptr<FSRandomAccessFile> file;
-    ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(
-        file_name, FileOptions(), &file, nullptr));
-    std::unique_ptr<RandomAccessFileReader> file_reader;
-    file_reader.reset(new RandomAccessFileReader(std::move(file), file_name));
-
-    BlockContents metaindex_contents;
-    const ReadOptions read_options;
-    ASSERT_OK(ReadMetaIndexBlockInFile(
-        file_reader.get(), file_size, 0U /* table_magic_number */,
-        ImmutableOptions(options_), read_options, &metaindex_contents));
-    Block metaindex_block(std::move(metaindex_contents));
-    std::unique_ptr<InternalIterator> meta_iter;
-    meta_iter.reset(metaindex_block.NewMetaIterator());
-
-    BlockHandle handle;
-    ASSERT_OK(FindOptionalMetaBlock(meta_iter.get(),
-                                    kEmbeddedBlobSstRecordRangeName, &handle));
-    ASSERT_FALSE(handle.IsNull());
-    *range = {handle.offset(), handle.size()};
-  }
-
   void ReadFileBytes(const std::string& file_name, uint64_t offset, size_t size,
                      std::string* bytes) {
     ASSERT_NE(bytes, nullptr);
@@ -312,14 +283,15 @@ TEST_F(SstFileReaderTest, EmbeddedBlobRoundTrip) {
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
 
-  EmbeddedBlobRecordRange range;
-  GetEmbeddedBlobRecordRange(sst_name_, &range);
-  EXPECT_EQ(range.offset, 0);
+  // Embedded-blob SSTs disable index value delta encoding so blob records can
+  // be written interleaved with data blocks.
+  std::shared_ptr<const TableProperties> props = reader.GetTableProperties();
+  ASSERT_NE(props, nullptr);
+  EXPECT_EQ(props->index_value_is_delta_encoded, 0);
 
   EmbeddedBlobStats stats;
   GetEmbeddedBlobStats(&reader, &stats);
   EXPECT_EQ(stats.blob_count, 2);
-  EXPECT_GT(range.size, stats.payload_bytes);
   EXPECT_GT(stats.payload_bytes, 0);
 }
 
@@ -481,57 +453,112 @@ TEST_F(SstFileReaderTest, EmbeddedBlobDefaultMinBlobSize) {
   EXPECT_EQ(stats.payload_bytes, large_value.size());
 }
 
-TEST_F(SstFileReaderTest, EmbeddedBlobRecordRangeAllowsExtraPrefixBytes) {
-  const std::string before_records = "ignored bytes before blob records";
-  const std::string after_records = "ignored bytes after blob records";
-  const std::string value(4096, 'v');
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->SetCallBack(
-      "EmbeddedBlobBlockBasedTableBuilder::BeforeBlobRecords",
-      [&](void* arg) { *static_cast<std::string*>(arg) = before_records; });
-  SyncPoint::GetInstance()->SetCallBack(
-      "EmbeddedBlobBlockBasedTableBuilder::AfterBlobRecords",
-      [&](void* arg) { *static_cast<std::string*>(arg) = after_records; });
-  SyncPoint::GetInstance()->EnableProcessing();
+TEST_F(SstFileReaderTest, EmbeddedBlobInterleavedLayout) {
+  // Force one entry per data block so blob records (written inline as values
+  // are added) end up interleaved between data blocks rather than buffered in a
+  // strict front prefix.
+  BlockBasedTableOptions bbto;
+  bbto.block_size = 1;
+  options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
   SstFileWriterEmbeddedBlobOptions embedded_blob_options;
-  embedded_blob_options.min_blob_size = 1;
+  embedded_blob_options.min_blob_size = 64;
+  const std::string large0(4096, '0');
+  const std::string large1(4096, '1');
+  const std::string large2(4096, '2');
 
   SstFileWriter writer(soptions_, options_);
   ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_name_, embedded_blob_options));
-  ASSERT_OK(writer.Put("a", value));
+  // The first entry is small, so data block 0 is flushed (at file offset 0)
+  // before any blob record is written.
+  ASSERT_OK(writer.Put("a", "tiny"));
+  ASSERT_OK(writer.Put("b", large0));
+  ASSERT_OK(writer.Put("c", "tiny"));
+  ASSERT_OK(writer.Put("d", large1));
+  ASSERT_OK(writer.Put("e", "tiny"));
+  ASSERT_OK(writer.Put("f", large2));
   ASSERT_OK(writer.Finish());
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   SstFileReader reader(options_);
   ASSERT_OK(reader.Open(sst_name_));
   ASSERT_OK(reader.VerifyChecksum());
 
-  std::string read_value;
-  ASSERT_OK(reader.Get(ReadOptions(), "a", &read_value));
-  EXPECT_EQ(read_value, value);
+  // Index value delta encoding is off for embedded-blob SSTs (the mechanism
+  // that allows interleaving blob records with data blocks), and there is more
+  // than one data block.
+  std::shared_ptr<const TableProperties> props = reader.GetTableProperties();
+  ASSERT_NE(props, nullptr);
+  EXPECT_EQ(props->index_value_is_delta_encoded, 0);
+  EXPECT_GT(props->num_data_blocks, 1);
 
-  EmbeddedBlobRecordRange range;
-  GetEmbeddedBlobRecordRange(sst_name_, &range);
-  EXPECT_EQ(range.offset, before_records.size());
-  EXPECT_EQ(range.size, value.size() + kSimpleGen2BlobTrailerSize);
-  EXPECT_TRUE(range.ContainsRecord(before_records.size(), value.size()));
-
-  std::string raw_bytes;
-  ReadFileBytes(sst_name_, 0, before_records.size(), &raw_bytes);
-  EXPECT_EQ(raw_bytes, before_records);
-  ReadFileBytes(sst_name_, range.offset + range.size, after_records.size(),
-                &raw_bytes);
-  EXPECT_EQ(raw_bytes, after_records);
+  // The blob records are interleaved with data blocks rather than buffered as a
+  // contiguous front prefix: immediately after the first blob record sits a
+  // data block, not the second blob's payload (which is what a strict prefix
+  // layout would place there).
+  const size_t first_record_size = large0.size() + kSimpleGen2BlobTrailerSize;
+  std::string after_first_record;
+  ReadFileBytes(sst_name_, first_record_size, 32, &after_first_record);
+  EXPECT_NE(after_first_record, std::string(32, '1'));
 
   EmbeddedBlobStats stats;
   GetEmbeddedBlobStats(&reader, &stats);
-  EXPECT_EQ(stats.blob_count, 1);
-  EXPECT_EQ(stats.payload_bytes, value.size());
+  EXPECT_EQ(stats.blob_count, 3);
+  EXPECT_EQ(stats.payload_bytes, large0.size() + large1.size() + large2.size());
+
+  // All values, large and small, read back correctly.
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {"a", "tiny"}, {"b", large0}, {"c", "tiny"},
+      {"d", large1}, {"e", "tiny"}, {"f", large2}};
+  std::string value;
+  for (const auto& kv : expected) {
+    ASSERT_OK(reader.Get(ReadOptions(), kv.first, &value));
+    EXPECT_EQ(value, kv.second);
+  }
+
+  std::unique_ptr<Iterator> iter(reader.NewIterator(ReadOptions()));
+  size_t idx = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_LT(idx, expected.size());
+    EXPECT_EQ(iter->key(), expected[idx].first);
+    EXPECT_EQ(iter->value(), expected[idx].second);
+    ++idx;
+  }
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(idx, expected.size());
+}
+
+TEST_F(SstFileReaderTest, EmbeddedBlobRecordCorruptionDetected) {
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 1;
+  const std::string value(4096, 'v');
+
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_name_, embedded_blob_options));
+  // A single large value: its blob record is written first, at file offset 0,
+  // so byte 100 falls within the blob payload.
+  ASSERT_OK(writer.Put("a", value));
+  ASSERT_OK(writer.Finish());
+
+  // Flip a byte inside the embedded blob record's payload. The offset-keyed
+  // record checksum is now the only guard against this (no range pre-check).
+  {
+    std::unique_ptr<RandomRWFile> rw_file;
+    ASSERT_OK(env_->NewRandomRWFile(sst_name_, &rw_file, EnvOptions()));
+    char scratch = 0;
+    Slice chunk;
+    ASSERT_OK(rw_file->Read(100, 1, &chunk, &scratch));
+    ASSERT_EQ(chunk.size(), 1);
+    char corrupted = static_cast<char>(chunk[0] ^ 0xff);
+    ASSERT_OK(rw_file->Write(100, Slice(&corrupted, 1)));
+    ASSERT_OK(rw_file->Close());
+  }
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::string read_value;
+  Status s = reader.Get(ReadOptions(), "a", &read_value);
+  EXPECT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
 TEST_F(SstFileReaderTest, EmbeddedBlobAppendErrorsSurfaceEarly) {

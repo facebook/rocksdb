@@ -992,10 +992,6 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-  s = new_table->ReadEmbeddedBlobRecordRange(metaindex_iter.get());
-  if (!s.ok()) {
-    return s;
-  }
 
   // Read compression metadata and configure decompressor
   s = GetDecompressor(
@@ -1284,6 +1280,11 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
   // Read index_type from properties (required for format_version >= 2)
   auto& props = rep_->table_properties->user_collected_properties;
+  // The presence of the embedded blob stats property signals that this SST
+  // contains same-file ("embedded") blob records. The counter values are
+  // diagnostic only; only presence matters for correctness.
+  rep_->has_embedded_blobs =
+      props.find(kEmbeddedBlobSstStatsPropertyName) != props.end();
   auto index_type_pos = props.find(BlockBasedTablePropertyNames::kIndexType);
   if (index_type_pos == props.end()) {
     return Status::Corruption("Missing index type property");
@@ -1309,31 +1310,8 @@ Status BlockBasedTable::ReadPropertiesBlock(
   return s;
 }
 
-Status BlockBasedTable::ReadEmbeddedBlobRecordRange(
-    InternalIterator* meta_iter) {
-  BlockHandle handle;
-  Status s = FindOptionalMetaBlock(meta_iter, kEmbeddedBlobSstRecordRangeName,
-                                   &handle);
-  if (!s.ok() || handle.IsNull()) {
-    return s;
-  }
-
-  if (handle.size() == 0) {
-    return Status::Corruption("Embedded blob record range is empty");
-  }
-  if (handle.offset() > rep_->file_size ||
-      handle.size() > rep_->file_size - handle.offset()) {
-    return Status::Corruption(
-        "Embedded blob record range extends past table file size");
-  }
-
-  rep_->embedded_blob_record_range = {handle.offset(), handle.size()};
-  rep_->has_embedded_blob_record_range = true;
-  return Status::OK();
-}
-
 bool BlockBasedTable::HasEmbeddedBlobRecords() const {
-  return rep_->has_embedded_blob_record_range;
+  return rep_->has_embedded_blobs;
 }
 
 Status BlockBasedTable::ValidateEmbeddedBlobIndex(
@@ -1348,9 +1326,9 @@ Status BlockBasedTable::ValidateEmbeddedBlobIndex(
     return Status::Corruption(
         "Embedded blob index must not contain TTL metadata");
   }
-  if (!rep_->has_embedded_blob_record_range) {
+  if (!rep_->has_embedded_blobs) {
     return Status::Corruption(
-        "Same-file blob index found without embedded blob record range");
+        "Same-file blob index found without embedded blob records");
   }
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete(
@@ -1363,14 +1341,19 @@ Status BlockBasedTable::ValidateEmbeddedBlobIndex(
           kSimpleGen2BlobTrailerSize) {
     return Status::Corruption("Embedded blob record is too large");
   }
-  if (!rep_->embedded_blob_record_range.ContainsRecord(blob_index.offset(),
-                                                       payload_size_u64)) {
-    return Status::Corruption(
-        "Embedded blob index is outside blob record range");
+  const uint64_t record_size_u64 =
+      payload_size_u64 + kSimpleGen2BlobTrailerSize;
+  // The per-record context checksum is the correctness guard for same-file
+  // references; this cheap bound just prevents a wild read past EOF (the range
+  // pre-check no longer exists now that records are interleaved with blocks).
+  const uint64_t record_offset = blob_index.offset();
+  if (record_offset > rep_->file_size ||
+      record_size_u64 > rep_->file_size - record_offset) {
+    return Status::Corruption("Embedded blob record extends past file size");
   }
 
   *payload_size = static_cast<size_t>(payload_size_u64);
-  *record_size = *payload_size + kSimpleGen2BlobTrailerSize;
+  *record_size = static_cast<size_t>(record_size_u64);
   return Status::OK();
 }
 
@@ -1465,7 +1448,7 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
   if (value_pinned != nullptr) {
     *value_pinned = false;
   }
-  if (!rep_->has_embedded_blob_record_range) {
+  if (!rep_->has_embedded_blobs) {
     return Status::OK();
   }
 
@@ -3057,7 +3040,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     // scratch (reused across entries) is only constructed for embedded tables
     // and avoids per-entry allocation.
     std::optional<EmbeddedValueGetScratch> embedded_scratch;
-    if (rep_->has_embedded_blob_record_range) {
+    if (rep_->has_embedded_blobs) {
       embedded_scratch.emplace();
     }
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
@@ -3438,9 +3421,6 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
                                     nullptr /* prefetch_buffer */, rep_->footer,
                                     rep_->ioptions, &table_properties,
                                     nullptr /* memory_allocator */);
-    } else if (meta_block_name == kEmbeddedBlobSstRecordRangeName) {
-      // This metaindex entry is a locator for raw embedded blob records, not a
-      // block with a block trailer.
     } else if (rep_->verify_checksum_set_on_open &&
                meta_block_name == kIndexBlockName) {
       // WART: For now, to maintain similar I/O behavior as before

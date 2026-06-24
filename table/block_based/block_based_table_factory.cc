@@ -630,11 +630,8 @@ Status BlockBasedTableFactory::NewTableReader(
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  if (table_builder_options.embedded_blob_options != nullptr) {
-    return NewEmbeddedBlobBlockBasedTableBuilder(
-        table_options_, table_builder_options, file,
-        *table_builder_options.embedded_blob_options);
-  }
+  // BlockBasedTableBuilder self-detects embedded-blob mode from
+  // table_builder_options.embedded_blob_options.
   return new BlockBasedTableBuilder(table_options_, table_builder_options,
                                     file);
 }

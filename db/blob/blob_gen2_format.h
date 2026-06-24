@@ -10,13 +10,17 @@
 
 #include "cache/cache_key.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 struct ReadOptions;
+struct WriteOptions;
 class RandomAccessFileReader;
+class WritableFileWriter;
+class Slice;
 enum ChecksumType : char;
 
 // "SimpleGen2Blob" is the second-generation on-disk format for a blob payload
@@ -68,5 +72,21 @@ Status ReadAndVerifySimpleGen2BlobRecord(
     uint64_t record_offset, size_t payload_size, size_t record_size,
     ChecksumType checksum_type, uint32_t base_context_checksum,
     CompressionType expected_compression, char* buf);
+
+// Writes a SimpleGen2Blob record for `payload` at the current end of `file`,
+// which the caller asserts is byte offset `record_offset`. Appends the payload
+// bytes followed by the 5-byte trailer (compression marker + context-modified
+// builtin checksum), mirroring ReadAndVerifySimpleGen2BlobRecord so the on-disk
+// record format lives in one module.
+//
+// `checksum_type` and `base_context_checksum` are the file's checksum context
+// (e.g. from the SST footer). `compression` is the payload's compression type,
+// which currently must be kNoCompression.
+IOStatus WriteSimpleGen2BlobRecord(WritableFileWriter* file,
+                                   const WriteOptions& write_options,
+                                   ChecksumType checksum_type,
+                                   uint32_t base_context_checksum,
+                                   uint64_t record_offset, const Slice& payload,
+                                   CompressionType compression);
 
 }  // namespace ROCKSDB_NAMESPACE

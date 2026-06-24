@@ -38,7 +38,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 **SIMD and Vectorization:** Leverage SIMD instructions (SSE, AVX) for data-parallel operations when appropriate. Structure data to enable auto-vectorization by the compiler. Consider explicit SIMD intrinsics for critical hot paths like checksum computation, encoding/decoding, and bulk data processing.
 
-**Branch Prediction:** Minimize unpredictable branches in hot paths. Use `LIKELY`/`UNLIKELY` macros to hint branch prediction. Consider branchless alternatives for simple conditionals. Order switch cases and if-else chains by frequency.
+**Branch Prediction:** Minimize unpredictable branches in hot paths. Use `LIKELY`/`UNLIKELY` macros to hint branch prediction, e.g. for error cases and other rare or otherwise costly cases, but NOT for predicting popular configurations. Consider branchless alternatives for simple conditionals. Order switch cases and if-else chains by frequency.
 
 **Memory and Resource Management:** Be mindful of memory allocations, especially in hot paths. Use RAII patterns, smart pointers, and RocksDB's memory management utilities appropriately.
 
