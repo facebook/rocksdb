@@ -2436,11 +2436,27 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     std::vector<ExternalSstFileInfo> file_infos(data_file_count);
+    // Embedded blobs are only supported by block-based table format_version >= 7
+    // (the default db_stress table factory is block-based).
+    const bool use_embedded_blobs =
+        FLAGS_ingest_external_file_with_embedded_blobs &&
+        FLAGS_format_version >= 7;
+    // Set the embedded-blob threshold so that only the largest values generated
+    // by GenerateValue() (size kRandomValueMaxFactor * value_size_mult) are
+    // written as same-file blob records; smaller values stay inline.
+    SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+    embedded_blob_options.min_blob_size =
+        static_cast<uint64_t>(kRandomValueMaxFactor) * FLAGS_value_size_mult;
     std::deque<SstFileWriter> sst_file_writers;
     for (size_t file_idx = 0; s.ok() && file_idx < data_file_count;
          ++file_idx) {
       sst_file_writers.emplace_back(EnvOptions(options_), options_);
-      s = sst_file_writers.back().Open(data_filenames[file_idx]);
+      if (use_embedded_blobs) {
+        s = sst_file_writers.back().OpenWithEmbeddedBlobs(
+            data_filenames[file_idx], embedded_blob_options);
+      } else {
+        s = sst_file_writers.back().Open(data_filenames[file_idx]);
+      }
     }
     SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
                                                       options_);

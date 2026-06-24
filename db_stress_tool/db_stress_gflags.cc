@@ -866,6 +866,13 @@ DEFINE_int32(ingest_external_file_use_file_info_one_in, 0,
              "SstFileWriter::Finish) once every N ingestions on average, so "
              "ingestion skips re-opening and scanning the files.");
 
+DEFINE_bool(ingest_external_file_with_embedded_blobs, false,
+            "If true, external files for ingestion are written with embedded "
+            "blobs via SstFileWriter::OpenWithEmbeddedBlobs(). min_blob_size is "
+            "set so that only the largest generated values are embedded. "
+            "Requires block-based table format_version >= 7 and "
+            "ingest_external_file_one_in > 0.");
+
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
              "operations on average.  0 indicates CompactFiles() is disabled.");
