@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.5.2 (06/25/2026)
+### Bug Fixes
+* Reverted PR14831 that made range_lock_manager aware of reverse-order CF
+
 ## 11.5.1 (06/24/2026)
 ### Bug Fixes
 * Fixed a bug where closing a read-only DB instance could delete live SST files created by a concurrent read-write DB sharing the same directory.
