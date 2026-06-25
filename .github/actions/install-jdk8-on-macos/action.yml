@@ -4,6 +4,18 @@ runs:
   steps:
   - name: Install JDK 8 on macos
     run: |-
-      HOMEBREW_NO_AUTO_UPDATE=1 brew tap bell-sw/liberica
-      HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask liberica-jdk8
+      set -euo pipefail
+
+      if JAVA_8_HOME="$(/usr/libexec/java_home -v 1.8 2>/dev/null)"; then
+        echo "Using existing JDK 8 at ${JAVA_8_HOME}"
+      else
+        HOMEBREW_NO_AUTO_UPDATE=1 brew tap bell-sw/liberica
+        # Homebrew requires third-party casks to be trusted before loading them.
+        HOMEBREW_NO_AUTO_UPDATE=1 brew trust --cask bell-sw/liberica/liberica-jdk8
+        HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask bell-sw/liberica/liberica-jdk8
+        JAVA_8_HOME="$(/usr/libexec/java_home -v 1.8)"
+      fi
+
+      echo "JAVA_HOME=${JAVA_8_HOME}" >> "$GITHUB_ENV"
+      echo "${JAVA_8_HOME}/bin" >> "$GITHUB_PATH"
     shell: bash

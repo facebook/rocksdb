@@ -4,7 +4,7 @@ permissions: {}
 env:
   # Set to a job name to run only that job (on any repo), or leave empty for
   # normal behavior (all jobs on facebook repo only).
-  ONLY_JOB: ''
+  ONLY_JOB: discover-macos-jdk
 jobs:
   config:
     runs-on: ubuntu-latest
@@ -13,6 +13,25 @@ jobs:
     steps:
     - id: set
       run: echo "only_job=$ONLY_JOB" >> "$GITHUB_OUTPUT"
+  discover-macos-jdk:
+    if: needs.config.outputs.only_job == 'discover-macos-jdk'
+    needs: config
+    runs-on: macos-15-xlarge
+    steps:
+    - name: Discover installed JDKs
+      run: |-
+        set -euxo pipefail
+        uname -a
+        sw_vers
+        command -v java || true
+        command -v javac || true
+        java -version || true
+        javac -version || true
+        /usr/libexec/java_home -V 2>&1 || true
+        ls -la /Library/Java/JavaVirtualMachines || true
+        ls -la "$HOME/Library/Java/JavaVirtualMachines" || true
+        brew list --versions --cask 2>/dev/null | grep -Ei 'jdk|java|temurin|zulu|liberica|corretto|openjdk' || true
+        env | sort | grep -E '^(ImageOS|ImageVersion|JAVA_HOME|PATH|RUNNER_)=' || true
   # NOTE: multiple workflows would be recommended, but the current GHA UI in
   # PRs doesn't make it clear when there's an overall error with a workflow,
   # making it easy to overlook something broken. Grouping everything into one
