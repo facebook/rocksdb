@@ -439,6 +439,15 @@ class VersionBuilder::Rep {
         f->fd.pinned_reader.Release(table_cache_->get_cache().get());
       }
 
+      // Evict from table cache to prevent leaked entries for files whose
+      // last reference is held by the VersionBuilder (e.g., files from a
+      // failed LogAndApply that were never installed in any Version).
+      // Release() above only releases the pinned handle's ref but does not
+      // remove the entry from the cache hash table.
+      if (table_cache_ != nullptr) {
+        TableCache::Evict(table_cache_->get_cache().get(), f->fd.GetNumber());
+      }
+
       if (file_metadata_cache_res_mgr_) {
         Status s = file_metadata_cache_res_mgr_->UpdateCacheReservation(
             f->ApproximateMemoryUsage(), false /* increase */);
