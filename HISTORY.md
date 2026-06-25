@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.3.2 (06/24/2026)
+### Bug Fixes
+* Fixed a bug where closing a read-only DB instance could delete live SST files created by a concurrent read-write DB sharing the same directory.
+
 ## 11.3.1 (06/04/2026)
 * Don't call `EventListener::OnCompactionPreCommit` during DB shutdown, like other compaction callbacks
 
