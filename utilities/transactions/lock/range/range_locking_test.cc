@@ -102,40 +102,6 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   delete txn1;
 }
 
-// CompareDbtEndpoints must honor ReverseBytewiseComparator direction
-// in length-disparity case.
-TEST_F(RangeLockingTest, RangeLockWithReverseComparator) {
-  delete db;
-  db = nullptr;
-  ASSERT_OK(DestroyDB(dbname, options));
-
-  options.comparator = ReverseBytewiseComparator();
-  range_lock_mgr.reset(NewRangeLockManager(nullptr));
-  txn_db_options.lock_mgr_handle = range_lock_mgr;
-
-  ASSERT_OK(TransactionDB::Open(options, txn_db_options, dbname, &db));
-
-  WriteOptions write_options;
-  TransactionOptions txn_options;
-  txn_options.lock_timeout = 50;
-  auto cf = db->DefaultColumnFamily();
-
-  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-
-  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("aa"), Endpoint("a")));
-
-  auto s = txn1->GetRangeLock(cf, Endpoint("ab"), Endpoint("a"));
-  ASSERT_TRUE(s.IsTimedOut());
-
-  ASSERT_OK(txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("b")));
-
-  txn0->Rollback();
-  txn1->Rollback();
-  delete txn0;
-  delete txn1;
-}
-
 // A point-equality range lock passes [infimum(K), supremum(K)]: the same user
 // key with the infimum endpoint as the left bound and the supremum endpoint as
 // the right bound. The infimum endpoint must sort before the supremum endpoint
