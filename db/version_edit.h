@@ -18,6 +18,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
+#include "db/external_log_file_edit.h"
 #include "db/wal_edit.h"
 #include "memory/arena.h"
 #include "port/malloc.h"
@@ -75,7 +76,14 @@ enum Tag : uint32_t {
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
   kLastCompactedManifestFileSize,
+  kExternalLogFileAddition,
+  kExternalLogFileDeletion,
 };
+
+static_assert((kExternalLogFileAddition & kTagSafeIgnoreMask) != 0,
+              "External log MANIFEST addition records must be safe to ignore");
+static_assert((kExternalLogFileDeletion & kTagSafeIgnoreMask) != 0,
+              "External log MANIFEST deletion records must be safe to ignore");
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
   kSubcompactionProgressPerLevelTerminate = 1,  // End of fields marker
@@ -944,11 +952,64 @@ class VersionEdit {
                              (entries == !wal_deletion_.IsEmpty()));
   }
 
+  void AddExternalLogFile(ExternalLogFileNumber number,
+                          ExternalLogFileMetadata metadata) {
+    external_log_file_additions_.emplace_back(number, std::move(metadata));
+    files_to_quarantine_.push_back(number);
+  }
+
+  void AddExternalLogFile(ExternalLogFileAddition file) {
+    external_log_file_additions_.emplace_back(std::move(file));
+    files_to_quarantine_.push_back(
+        external_log_file_additions_.back().GetFileNumber());
+  }
+
+  const ExternalLogFileAdditions& GetExternalLogFileAdditions() const {
+    return external_log_file_additions_;
+  }
+
+  bool IsExternalLogFileAddition() const {
+    return !external_log_file_additions_.empty();
+  }
+
+  void DeleteExternalLogFile(std::string name) {
+    external_log_file_deletions_.emplace_back(std::move(name));
+  }
+
+  void DeleteExternalLogFile(ExternalLogFileDeletion file) {
+    external_log_file_deletions_.emplace_back(std::move(file));
+  }
+
+  const ExternalLogFileDeletions& GetExternalLogFileDeletions() const {
+    return external_log_file_deletions_;
+  }
+
+  bool IsExternalLogFileDeletion() const {
+    return !external_log_file_deletions_.empty();
+  }
+
+  bool IsExternalLogFileManipulation() const {
+    size_t entries = NumEntries();
+    return (entries > 0) &&
+           (entries == external_log_file_additions_.size() +
+                           external_log_file_deletions_.size());
+  }
+
+  bool IsWalOrExternalLogFileManipulation() const {
+    size_t entries = NumEntries();
+    return (entries > 0) &&
+           (entries == wal_additions_.size() + !wal_deletion_.IsEmpty() +
+                           external_log_file_additions_.size() +
+                           external_log_file_deletions_.size());
+  }
+
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
            blob_file_additions_.size() + blob_file_garbages_.size() +
-           wal_additions_.size() + !wal_deletion_.IsEmpty();
+           wal_additions_.size() + !wal_deletion_.IsEmpty() +
+           external_log_file_additions_.size() +
+           external_log_file_deletions_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -1112,6 +1173,9 @@ class VersionEdit {
 
   WalAdditions wal_additions_;
   WalDeletion wal_deletion_;
+
+  ExternalLogFileAdditions external_log_file_additions_;
+  ExternalLogFileDeletions external_log_file_deletions_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

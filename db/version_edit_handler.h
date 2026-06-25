@@ -207,6 +207,10 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   Status OnWalDeletion(VersionEdit& edit);
 
+  Status OnExternalLogFileAddition(VersionEdit& edit);
+
+  Status OnExternalLogFileDeletion(VersionEdit& edit);
+
   Status Initialize() override;
 
   void CheckColumnFamilyId(const VersionEdit& edit, bool* do_not_open_cf,

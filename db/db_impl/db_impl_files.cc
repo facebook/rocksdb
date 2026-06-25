@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <array>
 #include <cinttypes>
+#include <optional>
 #include <set>
 #include <unordered_set>
 
@@ -285,6 +286,21 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   if (doing_the_full_scan) {
     versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
+    std::unordered_set<uint64_t> external_log_live_seen;
+    for (const auto& external_log_file :
+         versions_->GetExternalLogFileSet().GetFiles()) {
+      if (external_log_live_seen.insert(external_log_file.first).second) {
+        job_context->external_log_live.push_back(external_log_file.first);
+      }
+    }
+    for (const auto& active_external_log_file :
+         active_external_log_file_refs_) {
+      if (external_log_live_seen.insert(active_external_log_file.first)
+              .second) {
+        job_context->external_log_live.push_back(
+            active_external_log_file.first);
+      }
+    }
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
     // PurgeObsoleteFiles will dedupe duplicate files.
@@ -474,7 +490,14 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   IGNORE_STATUS_IF_ERROR(Status::IOError());
 
   Status file_deletion_status;
-  if (type == kTableFile || type == kBlobFile || type == kWalFile) {
+  if (type == kExternalLogFile) {
+    // External log files are not tracked by SstFileManager size accounting, but
+    // should still use its DeleteScheduler for rate-limited background purge.
+    file_deletion_status =
+        DeleteUnaccountedDBFile(&immutable_db_options_, fname, path_to_sync,
+                                /*force_bg=*/false,
+                                /*force_fg=*/false, /*bucket=*/std::nullopt);
+  } else if (type == kTableFile || type == kBlobFile || type == kWalFile) {
     // Rate limit WAL deletion only if its in the DB dir
     file_deletion_status = DeleteDBFile(
         &immutable_db_options_, fname, path_to_sync,
@@ -534,6 +557,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                             state.sst_live.end());
   std::unordered_set<uint64_t> blob_live_set(state.blob_live.begin(),
                                              state.blob_live.end());
+  std::unordered_set<uint64_t> external_log_live_set(
+      state.external_log_live.begin(), state.external_log_live.end());
   std::unordered_set<uint64_t> wal_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
   std::unordered_set<uint64_t> quarantine_files_set(
@@ -705,6 +730,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         }
         break;
       }
+      case kExternalLogFile:
+        keep = (external_log_live_set.find(number) !=
+                external_log_live_set.end()) ||
+               number >= state.min_pending_output;
+        break;
       case kTempFile:
         // Any temp files that are currently being written to must
         // be recorded in pending_outputs_, which is inserted into "live".
@@ -716,6 +746,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         //                 remove the temp options files.
         keep = (sst_live_set.find(number) != sst_live_set.end()) ||
                (blob_live_set.find(number) != blob_live_set.end()) ||
+               (external_log_live_set.find(number) !=
+                external_log_live_set.end()) ||
                (number == state.pending_manifest_file_number) ||
                (to_delete.find(kOptionsFileNamePrefix) != std::string::npos);
         break;
