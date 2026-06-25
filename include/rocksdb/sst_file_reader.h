@@ -49,6 +49,25 @@ class SstFileReader {
   Status Get(const ReadOptions& options, const Slice& key,
              PinnableSlice* value);
 
+  // Bloom-only batch check. For each key, false means the key is definitely
+  // absent from this SST; true means the key may be present, the table has
+  // no filter, the table type does not support filter-only batch checks, or
+  // the filter block could not be read under the supplied ReadOptions
+  // (e.g. read_tier=kBlockCacheTier and filter not in cache). This call
+  // never reads data blocks; it only consults the filter.
+  //
+  // Returns OK on success. If the underlying filter probe returns a non-OK
+  // status for any batch (e.g. Incomplete from kBlockCacheTier with the
+  // filter not cached, NotSupported from a table type without a filter-only
+  // batch probe, or an I/O / corruption error), the first such status is
+  // returned and the corresponding result entries are left as true so the
+  // results array is always safe for the caller to consult.
+  Status MayMatch(const ReadOptions& read_options, const Slice* keys,
+                  size_t num_keys, bool* results);
+
+  // Equivalent to MayMatch(ReadOptions(), keys, num_keys, results).
+  Status MayMatch(const Slice* keys, size_t num_keys, bool* results);
+
   // Returns a new iterator over the table contents as a raw table iterator,
   // a.k.a a `TableIterator`that iterates all point data entries in the table
   // including logically invisible entries like delete entries.
