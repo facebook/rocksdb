@@ -452,8 +452,8 @@ class WBWIOverwriteTest : public WBWIBaseTest {
  public:
   WBWIOverwriteTest() : WBWIBaseTest(true) {}
 };
-class WriteBatchWithIndexTest : public WBWIBaseTest,
-                                public testing::WithParamInterface<bool> {
+class WriteBatchWithIndexTest : public testing::WithParamInterface<bool>,
+                                public WBWIBaseTest {
  public:
   WriteBatchWithIndexTest() : WBWIBaseTest(GetParam()) {}
 };

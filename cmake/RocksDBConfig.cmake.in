@@ -44,10 +44,6 @@ if(@WITH_NUMA@)
   find_dependency(NUMA)
 endif()
 
-if(@WITH_TBB@)
-  find_dependency(TBB)
-endif()
-
 find_dependency(Threads)
 
 include("${CMAKE_CURRENT_LIST_DIR}/RocksDBTargets.cmake")
