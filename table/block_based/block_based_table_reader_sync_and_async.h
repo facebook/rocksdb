@@ -4,6 +4,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <optional>
+
 #include "util/aligned_buffer.h"
 #include "util/async_file_reader.h"
 #include "util/coro_utils.h"
@@ -542,6 +544,14 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
     DataBlockIter next_biter;
     size_t idx_in_batch = 0;
     SharedCleanablePtr shared_cleanable;
+    // Embedded blob resolution is gated on this table actually having embedded
+    // blob records, so the common (non-embedded) MultiGet path is unchanged.
+    // The scratch (reused across entries) is only constructed for embedded
+    // tables and avoids per-entry allocation.
+    std::optional<EmbeddedValueGetScratch> embedded_scratch;
+    if (rep_->has_embedded_blobs) {
+      embedded_scratch.emplace();
+    }
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -671,17 +681,28 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
         // Call the *saver function on each entry/block until it returns false
         for (; biter->status().ok() && biter->Valid(); biter->Next()) {
+          Slice key_to_save = biter->key();
+          Slice value_to_save = biter->value();
+          Cleanable* effective_pinner = value_pinner;
+          if (embedded_scratch) {
+            s = ResolveEmbeddedValueForGet(
+                read_options, biter->key(), biter->value(), &*embedded_scratch,
+                value_pinner, &key_to_save, &value_to_save, &effective_pinner);
+            if (!s.ok()) {
+              break;
+            }
+          }
+
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
-              biter->key(), &parsed_key, false /* log_err_key */);  // TODO
+              key_to_save, &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
             break;
           }
           Status read_status;
-          bool ret = get_context->SaveValue(
-              parsed_key, biter->value(), &matched, &read_status,
-              value_pinner ? value_pinner : nullptr);
+          bool ret = get_context->SaveValue(parsed_key, value_to_save, &matched,
+                                            &read_status, effective_pinner);
           if (!read_status.ok()) {
             s = read_status;
             break;

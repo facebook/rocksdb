@@ -626,12 +626,15 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,
       table_reader_options.unique_id,
       table_reader_options.user_defined_timestamps_persisted,
-      table_reader_options.avoid_shared_metadata_cache);
+      table_reader_options.avoid_shared_metadata_cache,
+      table_reader_options.blob_source);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
+  // BlockBasedTableBuilder self-detects embedded-blob mode from
+  // table_builder_options.embedded_blob_options.
   return new BlockBasedTableBuilder(table_options_, table_builder_options,
                                     file);
 }

@@ -32,6 +32,9 @@ Status BlobGarbageMeter::GetBlobReferenceDetails(const ParsedInternalKey& ikey,
   if (blob_index.IsInlined() || blob_index.HasTTL()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
+  if (blob_index.IsSameFile()) {
+    return Status::OK();
+  }
 
   *blob_file_number = blob_index.file_number();
   *bytes =
@@ -125,7 +128,9 @@ Status BlobGarbageMeter::ProcessEntityBlobReferences(
             !s.ok()) {
           return s;
         }
-        AddFlow(file_number, blob_bytes, is_inflow);
+        if (file_number != kInvalidBlobFileNumber) {
+          AddFlow(file_number, blob_bytes, is_inflow);
+        }
         return Status::OK();
       });
 }

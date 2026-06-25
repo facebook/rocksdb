@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
@@ -27,6 +28,7 @@
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/uncompression_dict_reader.h"
+#include "table/embedded_blob_sst.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
 #include "table/table_properties_internal.h"
@@ -51,6 +53,8 @@ class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
+class BlobIndex;
+class BlobSource;
 struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
@@ -169,7 +173,8 @@ class BlockBasedTable : public TableReader {
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
       UniqueId64x2 expected_unique_id = {},
       const bool user_defined_timestamps_persisted = true,
-      bool avoid_shared_metadata_cache = false);
+      bool avoid_shared_metadata_cache = false,
+      BlobSource* blob_source = nullptr);
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,
@@ -202,6 +207,80 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
+
+  // Whether this SST contains embedded (same-file) blob records, as advertised
+  // by the embedded blob stats property.
+  bool HasEmbeddedBlobRecords() const;
+
+  // Reads a single same-file blob record referenced by `blob_index`.
+  Status ResolveEmbeddedBlob(const ReadOptions& read_options,
+                             const BlobIndex& blob_index,
+                             std::string* value) const;
+
+  // Like ResolveEmbeddedBlob, but reads the payload into a heap buffer owned by
+  // `value` (via a registered cleanup) and pins it, avoiding a copy. Use on the
+  // Get()/MultiGet() path so the resolved value can be pinned into the output.
+  Status ResolveEmbeddedBlobPinned(const ReadOptions& read_options,
+                                   const BlobIndex& blob_index,
+                                   PinnableSlice* value) const;
+
+  // Like ResolveEmbeddedBlobPinned, but routes the read through the CFD's
+  // BlobSource so the payload is served from / inserted into the blob value
+  // cache and BLOB_DB_* statistics are recorded. BlobSource derives the cache
+  // key from the SimpleGen2Blob format (the same offset scheme as the SST's
+  // data blocks; see GetSimpleGen2BlobCacheKey), so embedded blob records stay
+  // collision-free with data blocks even when the blob cache and block cache
+  // are shared. Must only be called when rep_->blob_source_ is non-null.
+  Status ResolveEmbeddedBlobCached(const ReadOptions& read_options,
+                                   const BlobIndex& blob_index,
+                                   PinnableSlice* value) const;
+
+  // If `value` is a same-file BlobIndex, materializes the referenced payload
+  // and updates `resolved_internal_key` to the corresponding value type. Leaves
+  // `resolved` false when no embedded resolution is needed. When `pinned_value`
+  // is non-null, a whole-value same-file blob is pinned into it without a copy
+  // (and `*value_pinned` is set); otherwise the value is built into
+  // `resolved_value`. Wide-column entities are always built into
+  // `resolved_value`.
+  Status MaybeResolveEmbeddedValue(const ReadOptions& read_options,
+                                   const Slice& internal_key,
+                                   const Slice& value,
+                                   std::string* resolved_internal_key,
+                                   std::string* resolved_value, bool* resolved,
+                                   PinnableSlice* pinned_value = nullptr,
+                                   bool* value_pinned = nullptr) const;
+
+  // Reusable scratch for resolving embedded values across a Get()/MultiGet()
+  // loop, so the hot loop performs no per-entry allocation. Construct one per
+  // Get()/MultiGet() call and pass it to ResolveEmbeddedValueForGet().
+  struct EmbeddedValueGetScratch {
+    std::string key_buf;
+    std::string value_buf;
+    PinnableSlice pinned_value;
+  };
+
+  // Resolves the embedded blob / wide-column value for one Get()/MultiGet()
+  // entry and selects the Cleanable to hand to GetContext::SaveValue.
+  // `block_pinner` is the data block iterator's value pinner (or nullptr). On
+  // return, *key_to_save / *value_to_save are the slices to save and
+  // *value_pinner is the pinner to use: the zero-copy blob payload pinner (in
+  // `scratch`), nullptr for a copied wide-column value, or `block_pinner` when
+  // nothing needed resolving. Only call this when the table actually has
+  // embedded blob records (see Rep::has_embedded_blobs); the common
+  // non-embedded path should skip it entirely.
+  Status ResolveEmbeddedValueForGet(const ReadOptions& read_options,
+                                    const Slice& key, const Slice& value,
+                                    EmbeddedValueGetScratch* scratch,
+                                    Cleanable* block_pinner, Slice* key_to_save,
+                                    Slice* value_to_save,
+                                    Cleanable** value_pinner) const;
+
+  // Validates a same-file `blob_index` and returns the payload and full record
+  // (payload + trailer) sizes. Shared by the ResolveEmbeddedBlob* variants.
+  Status ValidateEmbeddedBlobIndex(const ReadOptions& read_options,
+                                   const BlobIndex& blob_index,
+                                   size_t* payload_size,
+                                   size_t* record_size) const;
 
   Status MultiGetFilter(const ReadOptions& read_options,
                         const SliceTransform* prefix_extractor,
@@ -756,6 +835,18 @@ struct BlockBasedTable::Rep {
 
   // If true, then data blocks have keys and values separated.
   bool separate_key_value_in_data_block = false;
+  // Whether this SST contains embedded (same-file) blob records, detected from
+  // the presence of the embedded blob stats property. Same-file BlobIndex
+  // references are only valid when this is true.
+  bool has_embedded_blobs = false;
+
+  // BlobSource for routing same-file ("embedded") blob reads through the blob
+  // value cache + BLOB_DB_* statistics. Owned by the ColumnFamilyData; this
+  // reader is owned (via TableCache) by the same CFD, so the raw pointer is
+  // lifetime-safe. nullptr for non-DB openers (SstFileReader, sst_dump,
+  // repair, external-file ingestion prevalidation, etc.); in that case
+  // embedded reads fall back to a direct (uncached) read.
+  BlobSource* blob_source_ = nullptr;
 
   // Whether block checksums in metadata blocks were verified on open.
   // This is only to mostly maintain current dubious behavior of VerifyChecksum

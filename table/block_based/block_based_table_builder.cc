@@ -12,6 +12,8 @@
 #include <atomic>
 #include <cassert>
 #include <cstdio>
+#include <cstring>
+#include <deque>
 #include <list>
 #include <map>
 #include <memory>
@@ -25,9 +27,14 @@
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
+#include "db/blob/blob_constants.h"
+#include "db/blob/blob_gen2_format.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 #include "index_builder.h"
 #include "logging/logging.h"
+#include "memory/arena.h"
 #include "memory/memory_allocator_impl.h"
 #include "options/options_helper.h"
 #include "rocksdb/cache.h"
@@ -36,8 +43,10 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/table.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wide_columns.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -50,6 +59,7 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "test_util/sync_point.h"
 #include "util/bit_fields.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -962,6 +972,28 @@ struct BlockBasedTableBuilder::Rep {
   // This is used for logging compaction stats.
   uint64_t pre_compression_size = 0;
 
+  // Embedded-blob SST support. When `embedded_blob_options` is set the builder
+  // is in embedded mode: index value delta encoding is disabled and eligible
+  // large values are written inline as same-file blob records as values are
+  // added (so they may be interleaved with data blocks), with table entries
+  // rewritten to same-file BlobIndex references. This is a private owned copy:
+  // the caller (e.g. SstFileWriter::OpenWithEmbeddedBlobs) may free its own
+  // copy as soon as the builder is constructed, so we must not alias it.
+  std::unique_ptr<const EmbeddedBlobSstBuilderOptions> embedded_blob_options;
+
+  // Mutable state for embedded blob writing, lazily allocated when the first
+  // blob record is written. Its presence is the signal that the file contains
+  // embedded blobs (driving the presence property). Holds the diagnostic
+  // counters plus scratch buffers reused across Add() calls to avoid per-entry
+  // allocation.
+  struct EmbeddedBlobState {
+    EmbeddedBlobStats stats;
+    std::string key_buf;
+    std::string blob_index_buf;
+    std::string entity_buf;
+  };
+  std::unique_ptr<EmbeddedBlobState> embedded_blob_state;
+
   // See class Footer
   uint32_t base_context_checksum;
 
@@ -1084,8 +1116,10 @@ struct BlockBasedTableBuilder::Rep {
         compression_parallel_threads(tbo.compression_opts.parallel_threads),
         max_compressed_bytes_per_kb(
             tbo.compression_opts.max_compressed_bytes_per_kb),
-        use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
-                                            !table_opt.block_align),
+        use_delta_encoding_for_index_values(
+            table_opt.format_version >= 4 && !table_opt.block_align &&
+            /* surely no embedded blobs */ tbo.embedded_blob_options ==
+                nullptr),
         reason(tbo.reason),
         target_file_size_is_upper_bound(
             tbo.moptions.target_file_size_is_upper_bound),
@@ -1103,7 +1137,12 @@ struct BlockBasedTableBuilder::Rep {
                            BlockBasedTableOptions::kBinarySearchWithFirstKey,
                        table_options.block_restart_interval,
                        table_options.index_block_restart_interval),
-        tail_size(0) {
+        tail_size(0),
+        embedded_blob_options(
+            tbo.embedded_blob_options
+                ? std::make_unique<EmbeddedBlobSstBuilderOptions>(
+                      *tbo.embedded_blob_options)
+                : nullptr) {
     FilterBuildingContext filter_context(table_options);
 
     filter_context.info_log = ioptions.logger;
@@ -1133,25 +1172,26 @@ struct BlockBasedTableBuilder::Rep {
         std::to_string(static_cast<int>(tbo.compression_type)));
     props.compression_options.append("; ");
 
-    auto* mgr = tbo.moptions.compression_manager.get();
-    if (mgr == nullptr) {
+    auto* compression_manager = tbo.moptions.compression_manager.get();
+    if (compression_manager == nullptr) {
       uses_explicit_compression_manager = false;
-      mgr = GetBuiltinV2CompressionManager().get();
+      compression_manager = GetBuiltinV2CompressionManager().get();
     } else {
       uses_explicit_compression_manager = true;
 
       // Stuff some extra debugging info as extra pseudo-options. Using
       // underscore prefix to indicate they are special.
       props.compression_options.append("_compression_manager=");
-      props.compression_options.append(mgr->GetId());
+      props.compression_options.append(compression_manager->GetId());
       props.compression_options.append("; ");
     }
+    assert(compression_manager);
 
     // Sanitize to only allowing compression when it saves space.
     max_compressed_bytes_per_kb =
         std::min(int{1023}, tbo.compression_opts.max_compressed_bytes_per_kb);
 
-    basic_compressor = mgr->GetCompressorForSST(
+    basic_compressor = compression_manager->GetCompressorForSST(
         filter_context, tbo.compression_opts, tbo.compression_type);
     if (basic_compressor) {
       if (table_options.enable_index_compression) {
@@ -1201,7 +1241,7 @@ struct BlockBasedTableBuilder::Rep {
       basic_decompressor = basic_compressor->GetOptimizedDecompressor();
       if (basic_decompressor == nullptr) {
         // Optimized version not available
-        basic_decompressor = mgr->GetDecompressor();
+        basic_decompressor = compression_manager->GetDecompressor();
       }
       create_context.decompressor = basic_decompressor.get();
 
@@ -1232,7 +1272,10 @@ struct BlockBasedTableBuilder::Rep {
     // Hard structural constraints override any recommendation
     if ((table_opt.partition_filters &&
          !table_opt.decouple_partitioned_filters) ||
-        table_options.user_defined_index_factory) {
+        table_options.user_defined_index_factory || embedded_blob_options) {
+      // Embedded-blob SSTs write blob records inline on the emit thread, so
+      // they require single-threaded writes for correct, race-free ordering of
+      // blob appends and data-block writes.
       compression_parallel_threads = 1;
     }
 
@@ -1390,7 +1433,7 @@ struct BlockBasedTableBuilder::Rep {
     props.key_largest_seqno = 0;
     // Default is UINT64_MAX for unknown.
     props.key_smallest_seqno = UINT64_MAX;
-    PrePopulateCompressionProperties(mgr);
+    PrePopulateCompressionProperties(compression_manager);
 
     if (FormatVersionUsesContextChecksum(table_options.format_version)) {
       // Must be non-zero and semi- or quasi-random
@@ -1431,14 +1474,15 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
-  void PrePopulateCompressionProperties(UnownedPtr<CompressionManager> mgr) {
+  void PrePopulateCompressionProperties(
+      UnownedPtr<CompressionManager> compression_manager) {
     if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
-      assert(mgr);
+      assert(compression_manager);
       // Use newer compression_name property
       props.compression_name.reserve(32);
       // If compression is disabled, use empty manager name
       if (basic_compressor) {
-        props.compression_name.append(mgr->CompatibilityName());
+        props.compression_name.append(compression_manager->CompatibilityName());
       }
       props.compression_name.push_back(';');
       // Rest of property to be filled out at the end of building the file
@@ -1447,7 +1491,7 @@ struct BlockBasedTableBuilder::Rep {
       // building the file. Not compatible with compression managers using
       // custom algorithms / compression types.
       assert(
-          Slice(mgr->CompatibilityName())
+          Slice(compression_manager->CompatibilityName())
               .compare(GetBuiltinV2CompressionManager()->CompatibilityName()) ==
           0);
     }
@@ -1578,10 +1622,25 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
   r->props.key_largest_seqno = std::max(r->props.key_largest_seqno, seq);
   r->props.key_smallest_seqno = std::min(r->props.key_smallest_seqno, seq);
+
+  // For embedded-blob SSTs, large value payloads are written inline as
+  // same-file blob records and the table entry is rewritten to reference them
+  // before the normal flush/add logic. entry_ikey / entry_value alias the
+  // inputs unless rewriting occurs.
+  Slice entry_ikey = ikey;
+  Slice entry_value = value;
+
   if (IsValueType(value_type)) {
+    if (r->embedded_blob_options) {
+      if (!MaybeExtractEmbeddedBlobs(seq, value_type, &entry_ikey,
+                                     &entry_value)) {
+        return;  // failed status already recorded
+      }
+    }
 #ifndef NDEBUG
     if (r->props.num_entries > r->props.num_range_deletions) {
-      assert(r->internal_comparator.Compare(ikey, Slice(r->last_ikey)) > 0);
+      assert(r->internal_comparator.Compare(entry_ikey, Slice(r->last_ikey)) >
+             0);
     }
     bool skip = false;
     TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::Add::skip", (void*)&skip);
@@ -1590,10 +1649,10 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     }
 #endif  // !NDEBUG
 
-    auto should_flush = r->flush_block_policy->Update(ikey, value);
+    auto should_flush = r->flush_block_policy->Update(entry_ikey, entry_value);
     if (should_flush) {
       assert(!r->data_block.empty());
-      Flush(/*first_key_in_next_block=*/&ikey);
+      Flush(/*first_key_in_next_block=*/&entry_ikey);
     }
 
     // Note: PartitionedFilterBlockBuilder with
@@ -1603,7 +1662,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     if (r->state == Rep::State::kUnbuffered) {
       if (r->filter_builder != nullptr) {
         r->filter_builder->AddWithPrevKey(
-            ExtractUserKeyAndStripTimestamp(ikey, r->ts_sz),
+            ExtractUserKeyAndStripTimestamp(entry_ikey, r->ts_sz),
             r->last_ikey.empty()
                 ? Slice{}
                 : ExtractUserKeyAndStripTimestamp(r->last_ikey, r->ts_sz));
@@ -1611,17 +1670,17 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     }
 
     // NOTE: WriteBatch guarantees keys < 4GB; value size checked above
-    r->data_block.AddWithLastKey(ikey, value, r->last_ikey);
-    r->last_ikey.assign(ikey.data(), ikey.size());
+    r->data_block.AddWithLastKey(entry_ikey, entry_value, r->last_ikey);
+    r->last_ikey.assign(entry_ikey.data(), entry_ikey.size());
     assert(!r->last_ikey.empty());
     if (r->state == Rep::State::kBuffered) {
       // Buffered keys will be replayed from data_block_buffers during
       // `Finish()` once compression dictionary has been finalized.
     } else {
-      r->index_builder->OnKeyAdded(ikey, value);
+      r->index_builder->OnKeyAdded(entry_ikey, entry_value);
     }
     // TODO offset passed in is not accurate for parallel compression case
-    NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),
+    NotifyCollectTableCollectorsOnAdd(entry_ikey, entry_value, r->get_offset(),
                                       r->table_properties_collectors,
                                       r->ioptions.logger);
 
@@ -1650,11 +1709,11 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   }
 
   r->props.num_entries++;
-  r->props.raw_key_size += ikey.size();
+  r->props.raw_key_size += entry_ikey.size();
   if (!r->persist_user_defined_timestamps) {
     r->props.raw_key_size -= r->ts_sz;
   }
-  r->props.raw_value_size += value.size();
+  r->props.raw_value_size += entry_value.size();
   if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
       value_type == kTypeDeletionWithTimestamp) {
     r->props.num_deletions++;
@@ -2335,6 +2394,143 @@ IOStatus BlockBasedTableBuilder::io_status() const {
 
 bool BlockBasedTableBuilder::ok() const { return rep_->StatusOk(); }
 
+Status BlockBasedTableBuilder::WriteEmbeddedBlobRecord(const Slice& payload) {
+  Rep* r = rep_.get();
+  assert(r->embedded_blob_options);
+  // Inline blob writing requires single-threaded writes so the running table
+  // offset matches the file position (enforced in the Rep constructor).
+  assert(!r->IsParallelCompressionActive());
+
+  // Embedded blob payloads share the 32-bit value-size limit with the rest of
+  // the table format; enforcing it here keeps record sizes in range and gives
+  // an early, cheap corruption check.
+  if (payload.size() > std::numeric_limits<uint32_t>::max()) {
+    return Status::InvalidArgument("Embedded blob value is too large");
+  }
+
+  if (!r->embedded_blob_state) {
+    r->embedded_blob_state = std::make_unique<Rep::EmbeddedBlobState>();
+  }
+
+  // The builder's running table offset equals the current file size, so the
+  // record begins exactly here.
+  const uint64_t offset = r->get_offset();
+  // Placeholder for future embedded blob compression support.
+  const CompressionType compression = kNoCompression;
+  IOStatus io_s = WriteSimpleGen2BlobRecord(
+      r->file, r->write_options, r->table_options.checksum,
+      r->base_context_checksum, offset, payload, compression);
+  if (!io_s.ok()) {
+    r->SetIOStatus(io_s);
+    return io_s;
+  }
+
+  const uint64_t record_size = payload.size() + kSimpleGen2BlobTrailerSize;
+  r->set_offset(offset + record_size);
+  r->embedded_blob_state->stats.blob_count++;
+  r->embedded_blob_state->stats.payload_bytes += payload.size();
+
+  BlobIndex::EncodeBlob(&r->embedded_blob_state->blob_index_buf,
+                        kCurrentFileBlobIndexFileNumber, offset, payload.size(),
+                        compression);
+  return Status::OK();
+}
+
+Status BlockBasedTableBuilder::BuildEmbeddedWideColumnEntity(const Slice& value,
+                                                             bool* rewritten) {
+  Rep* r = rep_.get();
+  assert(rewritten != nullptr);
+  *rewritten = false;
+
+  WideColumns columns;
+  Slice input = value;
+  Status s = WideColumnSerialization::Deserialize(input, columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  blob_columns.reserve(columns.size());
+
+  const uint64_t min_blob_size = r->embedded_blob_options->min_blob_size;
+  for (size_t column_idx = 0; column_idx < columns.size(); ++column_idx) {
+    const Slice& column_value = columns[column_idx].value();
+    if (column_value.size() < min_blob_size) {
+      continue;
+    }
+    s = WriteEmbeddedBlobRecord(column_value);
+    if (!s.ok()) {
+      return s;
+    }
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(r->embedded_blob_state->blob_index_buf);
+    if (!s.ok()) {
+      return s;
+    }
+    blob_columns.emplace_back(column_idx, blob_index);
+  }
+
+  if (blob_columns.empty()) {
+    return Status::OK();
+  }
+
+  // At least one record was written above, so the state exists.
+  r->embedded_blob_state->entity_buf.clear();
+  s = WideColumnSerialization::SerializeV2(columns, blob_columns,
+                                           r->embedded_blob_state->entity_buf);
+  if (!s.ok()) {
+    return s;
+  }
+  *rewritten = true;
+  return Status::OK();
+}
+
+bool BlockBasedTableBuilder::MaybeExtractEmbeddedBlobs(SequenceNumber seq,
+                                                       ValueType value_type,
+                                                       Slice* key,
+                                                       Slice* value) {
+  Rep* r = rep_.get();
+  assert(r->embedded_blob_options);
+  assert(key != nullptr);
+  assert(value != nullptr);
+
+  if (value_type == kTypeValue) {
+    if (value->size() < r->embedded_blob_options->min_blob_size) {
+      return true;  // leave small values inline
+    }
+    Status s = WriteEmbeddedBlobRecord(*value);
+    if (!s.ok()) {
+      r->SetStatus(std::move(s));
+      return false;
+    }
+    // Rewrite the internal key footer type to kTypeBlobIndex in scratch (the
+    // input key is not mutated in place).
+    std::string& key_buf = r->embedded_blob_state->key_buf;
+    key_buf.assign(key->data(), key->size());
+    assert(key_buf.size() >= kNumInternalBytes);
+    EncodeFixed64(&key_buf[key_buf.size() - kNumInternalBytes],
+                  PackSequenceAndType(seq, kTypeBlobIndex));
+    *key = Slice(key_buf);
+    *value = Slice(r->embedded_blob_state->blob_index_buf);
+    return true;
+  }
+
+  if (value_type == kTypeWideColumnEntity) {
+    bool rewritten = false;
+    Status s = BuildEmbeddedWideColumnEntity(*value, &rewritten);
+    if (!s.ok()) {
+      r->SetStatus(std::move(s));
+      return false;
+    }
+    if (rewritten) {
+      *value = Slice(r->embedded_blob_state->entity_buf);
+    }
+    return true;
+  }
+
+  return true;
+}
+
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
     BlockType block_type) {
@@ -2581,6 +2777,13 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
     rep_->props.user_defined_timestamps_persisted =
         rep_->persist_user_defined_timestamps;
+
+    if (rep_->embedded_blob_state) {
+      std::string encoded_stats;
+      EncodeEmbeddedBlobStats(rep_->embedded_blob_state->stats, &encoded_stats);
+      rep_->props.user_collected_properties[kEmbeddedBlobSstStatsPropertyName] =
+          std::move(encoded_stats);
+    }
 
     rep_->props.num_data_blocks_compression_rejected =
         rep_->num_data_blocks_compression_rejected.LoadRelaxed();

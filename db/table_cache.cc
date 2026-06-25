@@ -179,20 +179,22 @@ Status TableCache::GetTableReader(
     } else {
       expected_unique_id = kNullUniqueId64x2;  // null ID == no verification
     }
+    TableReaderOptions table_reader_options(
+        ioptions_, mutable_cf_options.prefix_extractor,
+        mutable_cf_options.compression_manager.get(), file_options,
+        internal_comparator, mutable_cf_options.block_protection_bytes_per_key,
+        skip_filters, immortal_tables_, false /* force_direct_prefetch */,
+        level, block_cache_tracer_, max_file_size_for_l0_meta_pin,
+        db_session_id_, file_meta.fd.GetNumber(), expected_unique_id,
+        file_meta.fd.largest_seqno, file_meta.tail_size,
+        file_meta.user_defined_timestamps_persisted,
+        avoid_shared_metadata_cache);
+    // Route same-file ("embedded") blob reads through the CFD's BlobSource for
+    // caching + stats. nullptr in non-DB contexts (e.g. repair).
+    table_reader_options.blob_source = blob_source_;
     s = mutable_cf_options.table_factory->NewTableReader(
-        ro,
-        TableReaderOptions(
-            ioptions_, mutable_cf_options.prefix_extractor,
-            mutable_cf_options.compression_manager.get(), file_options,
-            internal_comparator,
-            mutable_cf_options.block_protection_bytes_per_key, skip_filters,
-            immortal_tables_, false /* force_direct_prefetch */, level,
-            block_cache_tracer_, max_file_size_for_l0_meta_pin, db_session_id_,
-            file_meta.fd.GetNumber(), expected_unique_id,
-            file_meta.fd.largest_seqno, file_meta.tail_size,
-            file_meta.user_defined_timestamps_persisted,
-            avoid_shared_metadata_cache),
-        std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
+        ro, table_reader_options, std::move(file_reader),
+        file_meta.fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }

@@ -1,0 +1,367 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+#pragma once
+
+#include <limits>
+#include <string>
+
+#include "db/blob/blob_index.h"
+#include "db/dbformat.h"
+#include "db/pinned_iterators_manager.h"
+#include "rocksdb/slice.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/internal_iterator.h"
+
+namespace ROCKSDB_NAMESPACE {
+
+// Wraps a block-based table iterator and resolves same-file ("embedded") blob
+// references so that callers never see an unresolved same-file BlobIndex. It
+// makes an embedded entry look like an ordinary key/value entry:
+//   - key(): a whole-value same-file BlobIndex's internal key has its value
+//     type rewritten from kTypeBlobIndex back to kTypeValue.
+//   - value(): the referenced same-file blob payload is materialized (a wide-
+//     column entity's same-file blob columns are rewritten inline).
+// Traditional (separate-file) BlobIndex entries and plain entries pass through
+// untouched.
+//
+// Why a wrapper instead of putting this in BlockBasedTableIterator:
+//   - The wrapped iterator is created with allow_unprepared_value=false, so it
+//     always materializes the data block and never sits in the "first key from
+//     index" deferred state. That keeps the "never expose an unresolved
+//     same-file blob index" invariant structural rather than relying on every
+//     downstream consumer re-checking the key type after PrepareValue().
+//   - The wrapper preserves value laziness on its own: key() does only the
+//     cheap key-type rewrite (no blob-region I/O), while the payload is read
+//     lazily in value()/PrepareValue().
+//   - It keeps the embedded-blob concern out of the hot, complex
+//     BlockBasedTableIterator, and is only instantiated for SSTs that actually
+//     carry an embedded blob segment.
+//
+// Only created when the table advertises an embedded blob segment and the
+// caller is not the SST dump tool (which must keep seeing raw BlobIndex
+// values).
+class EmbeddedBlobResolvingIterator : public InternalIterator {
+ public:
+  // `iter` is owned by this wrapper. `arena_mode` must match how `iter` (and
+  // this wrapper) were allocated so the destructor frees `iter` correctly.
+  EmbeddedBlobResolvingIterator(const BlockBasedTable* table,
+                                const ReadOptions& read_options,
+                                InternalIterator* iter, bool arena_mode)
+      : table_(table),
+        read_options_(read_options),
+        iter_(iter),
+        arena_mode_(arena_mode) {
+    status_.PermitUncheckedError();
+  }
+
+  ~EmbeddedBlobResolvingIterator() override {
+    if (arena_mode_) {
+      iter_->~InternalIteratorBase<Slice>();
+    } else {
+      delete iter_;
+    }
+  }
+
+  // No copying allowed
+  EmbeddedBlobResolvingIterator(const EmbeddedBlobResolvingIterator&) = delete;
+  EmbeddedBlobResolvingIterator& operator=(
+      const EmbeddedBlobResolvingIterator&) = delete;
+
+  bool Valid() const override { return iter_->Valid() && status_.ok(); }
+
+  void SeekToFirst() override {
+    ResetState();
+    iter_->SeekToFirst();
+  }
+  void SeekToLast() override {
+    ResetState();
+    iter_->SeekToLast();
+  }
+  void Seek(const Slice& target) override {
+    ResetState();
+    iter_->Seek(target);
+  }
+  void SeekForPrev(const Slice& target) override {
+    ResetState();
+    iter_->SeekForPrev(target);
+  }
+  void Next() override {
+    ResetState();
+    iter_->Next();
+  }
+  bool NextAndGetResult(IterateResult* result) override {
+    ResetState();
+    iter_->Next();
+    if (!Valid()) {
+      return false;
+    }
+    result->key = key();
+    result->bound_check_result = iter_->UpperBoundCheckResult();
+    result->value_prepared = false;
+    // key() may have set a (corruption) status while resolving the key type.
+    return Valid();
+  }
+  void Prev() override {
+    ResetState();
+    iter_->Prev();
+  }
+
+  Slice key() const override {
+    assert(Valid());
+    if (ResolveKeyType() && key_resolved_) {
+      return Slice(resolved_internal_key_);
+    }
+    // ResolveKeyType() may have set a (corruption-only, no I/O) error. This
+    // const accessor falls back to the raw key; the error is still surfaced
+    // through status()/Valid(), so permit it from being unchecked here.
+    status_.PermitUncheckedError();
+    return iter_->key();
+  }
+
+  Slice user_key() const override { return ExtractUserKey(key()); }
+
+  Slice value() const override {
+    assert(Valid());
+    if (MaterializeValue() && value_resolved_) {
+      if (value_is_pinned_) {
+        // Whole-value blob payload pinned in the blob cache (or an owned
+        // buffer); returned without a copy.
+        return Slice(resolved_pinned_value_);
+      }
+      return Slice(resolved_value_);
+    }
+    // MaterializeValue() may have set an error (corruption or blob-region I/O).
+    // Fall back to the raw value; the error is surfaced via status()/Valid().
+    status_.PermitUncheckedError();
+    return iter_->value();
+  }
+
+  bool PrepareValue() override {
+    assert(Valid());
+    if (!iter_->PrepareValue()) {
+      return false;
+    }
+    return MaterializeValue();
+  }
+
+  Status status() const override {
+    if (!status_.ok()) {
+      return status_;
+    }
+    return iter_->status();
+  }
+
+  uint64_t write_unix_time() const override { return iter_->write_unix_time(); }
+
+  bool IsKeyPinned() const override {
+    // The rewritten key is owned by this wrapper, so it is not pinned.
+    if (key_resolved_) {
+      return false;
+    }
+    return iter_->IsKeyPinned();
+  }
+  bool IsValuePinned() const override {
+    if (value_resolved_) {
+      // A resolved whole-value blob payload is pinned in the blob cache (or an
+      // owned buffer). The IsValuePinned() contract requires the value to stay
+      // valid until the iterator is deleted / ReleasePinnedData is called, so
+      // only advertise it as pinned when a PinnedIteratorsManager is active to
+      // take over the pin's cleanup across repositioning (see ResetState). A
+      // built (wide-column) value lives in `resolved_value_` and is never
+      // pinned.
+      return value_is_pinned_ && pinned_iters_mgr_ != nullptr &&
+             pinned_iters_mgr_->PinningEnabled();
+    }
+    return iter_->IsValuePinned();
+  }
+
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+    iter_->SetPinnedItersMgr(pinned_iters_mgr);
+  }
+
+  IterBoundCheck UpperBoundCheckResult() override {
+    return iter_->UpperBoundCheckResult();
+  }
+  bool MayBeOutOfLowerBound() override { return iter_->MayBeOutOfLowerBound(); }
+
+  void SetRangeDelReadSeqno(SequenceNumber read_seqno) override {
+    iter_->SetRangeDelReadSeqno(read_seqno);
+  }
+  bool IsDeleteRangeSentinelKey() const override {
+    return iter_->IsDeleteRangeSentinelKey();
+  }
+
+  void GetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
+    iter_->GetReadaheadState(readahead_file_info);
+  }
+  void SetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
+    iter_->SetReadaheadState(readahead_file_info);
+  }
+
+  Status GetProperty(std::string prop_name, std::string* prop) override {
+    return iter_->GetProperty(std::move(prop_name), prop);
+  }
+
+  void Prepare(const MultiScanArgs* scan_opts) override {
+    iter_->Prepare(scan_opts);
+  }
+
+ private:
+  void ResetState() {
+    status_.PermitUncheckedError();
+    status_ = Status::OK();
+    key_prepared_ = false;
+    value_prepared_ = false;
+    key_resolved_ = false;
+    value_resolved_ = false;
+    resolved_internal_key_.clear();
+    resolved_value_.clear();
+    if (value_is_pinned_) {
+      // If a PinnedIteratorsManager is active it has been told (via
+      // IsValuePinned) that the previous entry's pinned blob stays valid until
+      // ReleasePinnedData; hand the cache pin's cleanup to it so the slice
+      // outlives this reposition. Otherwise just release the pin now.
+      if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
+        resolved_pinned_value_.DelegateCleanupsTo(pinned_iters_mgr_);
+      }
+      value_is_pinned_ = false;
+    }
+    resolved_pinned_value_.Reset();
+  }
+
+  // Cheap, key-only resolution: for a whole-value same-file BlobIndex entry,
+  // computes the logical internal key with its value type rewritten from
+  // kTypeBlobIndex to kTypeValue. Only touches data already in the data block
+  // (the key and the inline serialized BlobIndex) -- it does NOT read the blob
+  // region. No-op (returns true) for entries that are not a same-file
+  // BlobIndex. Returns false and sets `status_` (corruption only) on a
+  // malformed key/BlobIndex.
+  bool ResolveKeyType() const {
+    if (!iter_->Valid()) {
+      return true;
+    }
+    if (key_prepared_) {
+      return status_.ok();
+    }
+    key_prepared_ = true;
+
+    const Slice current_key = iter_->key();
+    if (ExtractValueType(current_key) != kTypeBlobIndex) {
+      return true;
+    }
+
+    ParsedInternalKey parsed_key;
+    // Only data-corruption errors are possible here (no I/O).
+    status_ = ParseInternalKey(current_key, &parsed_key, false /* log_err */);
+    if (!status_.ok()) {
+      return false;
+    }
+
+    BlobIndex blob_index;
+    // Decodes the inline BlobIndex from the data block; still no blob-region
+    // IO.
+    status_ = blob_index.DecodeFrom(iter_->value());
+    if (!status_.ok()) {
+      return false;
+    }
+    if (!blob_index.IsSameFile()) {
+      // Traditional (separate-file) BlobDB index; leave the key type as
+      // kTypeBlobIndex for the higher layers to resolve.
+      return true;
+    }
+
+    InternalKey resolved_key(parsed_key.user_key, parsed_key.sequence,
+                             kTypeValue);
+    const Slice encoded_resolved_key = resolved_key.Encode();
+    resolved_internal_key_.assign(encoded_resolved_key.data(),
+                                  encoded_resolved_key.size());
+    key_resolved_ = true;
+    return true;
+  }
+
+  // Heavyweight value resolution: materializes the logical value for the
+  // current entry. For a same-file BlobIndex entry this reads the blob payload
+  // (may do I/O); for a wide-column entity it rewrites same-file blob columns
+  // inline. For a BlobIndex entry it first resolves the key type so key() and
+  // value() agree. No-op (returns true) for plain entries. Returns false and
+  // sets `status_` (corruption or I/O error) on failure.
+  bool MaterializeValue() const {
+    if (!iter_->Valid()) {
+      return true;
+    }
+
+    const Slice current_key = iter_->key();
+    const ValueType value_type = ExtractValueType(current_key);
+    if (value_type != kTypeBlobIndex && value_type != kTypeWideColumnEntity) {
+      return true;
+    }
+
+    if (value_type == kTypeBlobIndex && !ResolveKeyType()) {
+      return false;
+    }
+    if (value_prepared_) {
+      return status_.ok();
+    }
+    value_prepared_ = true;
+
+    std::string resolved_key;
+    std::string resolved_value;
+    bool resolved = false;
+    bool value_pinned = false;
+    status_ = table_->MaybeResolveEmbeddedValue(
+        read_options_, current_key, iter_->value(), &resolved_key,
+        &resolved_value, &resolved, &resolved_pinned_value_, &value_pinned);
+    if (!status_.ok()) {
+      return false;
+    }
+    if (!resolved) {
+      return true;
+    }
+
+    if (!resolved_key.empty()) {
+      resolved_internal_key_ = std::move(resolved_key);
+      key_resolved_ = true;
+    }
+    if (value_pinned) {
+      // Whole-value blob: payload pinned into resolved_pinned_value_ (no copy).
+      value_is_pinned_ = true;
+    } else {
+      // Built (wide-column) value: owned by this wrapper.
+      resolved_value_ = std::move(resolved_value);
+    }
+    value_resolved_ = true;
+    return true;
+  }
+
+  const BlockBasedTable* table_;
+  const ReadOptions& read_options_;
+  InternalIterator* iter_;
+  const bool arena_mode_;
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
+
+  // Cached resolution state for the current entry, reset on every reposition.
+  // Mutable because resolution is driven lazily from the const key()/value()
+  // accessors.
+  mutable Status status_;
+  mutable std::string resolved_internal_key_;
+  mutable std::string resolved_value_;
+  // Holds a whole-value same-file blob payload pinned in the blob cache (or an
+  // owned buffer when no cache is configured), avoiding a copy. Used only when
+  // value_is_pinned_ is true; wide-column values use resolved_value_ instead.
+  mutable PinnableSlice resolved_pinned_value_;
+  mutable bool key_prepared_ = false;
+  mutable bool value_prepared_ = false;
+  mutable bool key_resolved_ = false;
+  mutable bool value_resolved_ = false;
+  mutable bool value_is_pinned_ = false;
+};
+
+}  // namespace ROCKSDB_NAMESPACE
