@@ -488,6 +488,13 @@ int db_stress_tool(int argc, char** argv) {
         "all be 0 when using compaction filter or inplace update support\n");
     exit(1);
   }
+  if (FLAGS_separate_key_value_in_data_block && FLAGS_test_backward_scan) {
+    // When keys and values are stored separately in data blocks, the
+    // block-based table iterator cannot pin values. DBIter requires pinned
+    // values for backward iteration (Prev/SeekForPrev), returning
+    // NotSupported otherwise. Disable backward scan automatically.
+    FLAGS_test_backward_scan = false;
+  }
   if (FLAGS_test_multi_ops_txns) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
   }
