@@ -95,6 +95,13 @@ bool RunStressTestImpl(SharedState* shared) {
 
   shared->SetThreads(n);
 
+  const bool liveness_watchdog_enabled =
+      FLAGS_liveness_check_interval_sec > 0 &&
+      FLAGS_liveness_no_progress_timeout_sec > 0;
+  if (liveness_watchdog_enabled) {
+    shared->IncBgThreads();
+  }
+
   if (FLAGS_continuous_verification_interval > 0) {
     shared->IncBgThreads();
   }
@@ -129,6 +136,11 @@ bool RunStressTestImpl(SharedState* shared) {
   ThreadState continuous_verification_thread(0, shared);
   if (FLAGS_continuous_verification_interval > 0) {
     raw_env->StartThread(DbVerificationThread, &continuous_verification_thread);
+  }
+
+  ThreadState liveness_watchdog_thread(0, shared);
+  if (liveness_watchdog_enabled) {
+    raw_env->StartThread(LivenessWatchdogThread, &liveness_watchdog_thread);
   }
 
   // Spawn at most one CompressedCacheSetCapacityThread globally. The cache
@@ -268,7 +280,7 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
-      FLAGS_continuous_verification_interval > 0 ||
+      FLAGS_continuous_verification_interval > 0 || liveness_watchdog_enabled ||
       FLAGS_compressed_secondary_cache_size > 0 ||
       FLAGS_compressed_secondary_cache_ratio > 0.0 ||
       remote_compaction_worker_thread_count > 0) {

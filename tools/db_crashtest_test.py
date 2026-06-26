@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 
 
 _DB_CRASHTEST_PATH = os.path.join(os.path.dirname(__file__), "db_crashtest.py")
@@ -88,6 +89,22 @@ class DBCrashTestTest(unittest.TestCase):
         if overrides:
             params.update(overrides)
         return params
+
+    def build_mode_args(self, test_type="liveness", **overrides):
+        args = {
+            "test_type": test_type,
+            "simple": False,
+            "cf_consistency": False,
+            "txn": False,
+            "optimistic_txn": False,
+            "test_best_efforts_recovery": False,
+            "enable_ts": False,
+            "test_multiops_txn": False,
+            "test_tiered_storage": False,
+            "print_stderr_separately": False,
+        }
+        args.update(overrides)
+        return SimpleNamespace(**args)
 
     def test_stress_cmd_env_defaults_tsan_suppressions(self):
         os.environ.pop(_TSAN_OPTIONS_ENV_VAR, None)
@@ -373,6 +390,148 @@ class DBCrashTestTest(unittest.TestCase):
             f"{remote_output_dir} subtree=5B local=5B local_files=1 local_dirs=0",
             diagnostics,
         )
+
+    def test_liveness_params_keep_mixed_workload_and_enable_watchdog(self):
+        db_crashtest = self.load_db_crashtest()
+
+        # Liveness mode should inherit the normal mixed workload. The C++
+        # watchdog tracks per-thread active operation type, so Python does not
+        # need to force an all-write workload to keep the signal readable.
+        params = db_crashtest.gen_cmd_params(self.build_mode_args())
+        params["db"] = self.test_tmpdir
+        finalized_params = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC, params["duration"])
+        self.assertEqual(1, params["liveness_check_interval_sec"])
+        self.assertEqual(300, params["liveness_no_progress_timeout_sec"])
+        self.assertEqual(1, params["enable_thread_tracking"])
+        self.assertEqual(1, params["progress_reports"])
+        self.assertEqual(100000000, params["ops_per_thread"])
+        for fault_param in [
+            "error_recovery_with_no_fault_injection",
+            "exclude_wal_from_write_fault_injection",
+            "metadata_read_fault_one_in",
+            "metadata_write_fault_one_in",
+            "open_metadata_read_fault_one_in",
+            "open_metadata_write_fault_one_in",
+            "open_read_fault_one_in",
+            "open_write_fault_one_in",
+            "read_fault_one_in",
+            "secondary_cache_fault_one_in",
+            "sync_fault_injection",
+            "write_fault_one_in",
+        ]:
+            self.assertEqual(0, finalized_params[fault_param])
+        self.assertIn(
+            finalized_params["abort_and_resume_compactions_one_in"],
+            [0, 1000, 10000],
+        )
+        self.assertEqual(db_crashtest.default_params["readpercent"], params["readpercent"])
+        self.assertEqual(
+            db_crashtest.default_params["prefixpercent"], params["prefixpercent"]
+        )
+        self.assertEqual(
+            db_crashtest.default_params["writepercent"], params["writepercent"]
+        )
+        self.assertGreaterEqual(params["writepercent"], 20)
+        self.assertEqual(db_crashtest.default_params["delpercent"], params["delpercent"])
+        self.assertEqual(
+            db_crashtest.default_params["delrangepercent"], params["delrangepercent"]
+        )
+        self.assertEqual(db_crashtest.default_params["iterpercent"], params["iterpercent"])
+
+        params = db_crashtest.gen_cmd_params(
+            self.build_mode_args(read_fault_one_in=32, sync_fault_injection=1)
+        )
+        self.assertEqual(0, params["read_fault_one_in"])
+        self.assertEqual(0, params["sync_fault_injection"])
+
+    def test_liveness_command_passes_watchdog_flags_not_wrapper_duration(self):
+        db_crashtest = self.load_db_crashtest()
+        check_interval_sec = 2
+        no_progress_timeout_sec = 7
+        wrapper_duration_sec = 17
+        args = self.build_mode_args(
+            duration=wrapper_duration_sec,
+            liveness_check_interval_sec=check_interval_sec,
+            liveness_no_progress_timeout_sec=no_progress_timeout_sec,
+        )
+        params = db_crashtest.gen_cmd_params(args)
+        params["db"] = self.test_tmpdir
+
+        # The Python wrapper owns duration; db_stress only needs the watchdog
+        # interval and no-progress timeout flags.
+        cmd, _ = db_crashtest.gen_cmd(params, [])
+        cmd_flags = {}
+        for arg in cmd:
+            if arg.startswith("--") and "=" in arg:
+                key, value = arg[2:].split("=", 1)
+                cmd_flags[key] = value
+
+        self.assertEqual(
+            str(check_interval_sec), cmd_flags["liveness_check_interval_sec"]
+        )
+        self.assertEqual(
+            str(no_progress_timeout_sec),
+            cmd_flags["liveness_no_progress_timeout_sec"],
+        )
+        self.assertNotIn("duration", cmd_flags)
+
+    def test_liveness_timeout_zero_uses_default_duration(self):
+        db_crashtest = self.load_db_crashtest()
+
+        # A zero/None duration still needs a finite wrapper runtime.
+        self.assertEqual(
+            db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC,
+            db_crashtest.liveness_timeout({"duration": 0}),
+        )
+        self.assertEqual(
+            db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC,
+            db_crashtest.liveness_timeout({"duration": None}),
+        )
+        self.assertEqual(30, db_crashtest.liveness_timeout({"duration": 30}))
+
+    def test_liveness_wrapper_timeout_is_successful_end_of_run(self):
+        db_crashtest = self.load_db_crashtest()
+        execute_calls = []
+        cleanups = []
+
+        def fake_execute_cmd(cmd, timeout=None, timeout_pstack=False, expected_to_timeout=True):
+            execute_calls.append((cmd, timeout, timeout_pstack, expected_to_timeout))
+            return (
+                True,
+                -15,
+                "Received signal 15 (Terminated)\n",
+                "",
+                123,
+            )
+
+        db_crashtest.execute_cmd = fake_execute_cmd
+        db_crashtest.print_fault_injection_log = lambda pid: None
+        db_crashtest.cleanup_after_success = lambda db_arg, num_dbs=1: cleanups.append(
+            (db_arg, num_dbs)
+        )
+
+        db_crashtest.liveness_main(self.build_mode_args(duration=17), [])
+
+        self.assertEqual(1, len(execute_calls))
+        self.assertEqual(17, execute_calls[0][1])
+        self.assertFalse(execute_calls[0][2])
+        self.assertFalse(execute_calls[0][3])
+        self.assertEqual(1, len(cleanups))
+
+    def test_liveness_can_target_transaction_lock_manager(self):
+        db_crashtest = self.load_db_crashtest()
+
+        # Transaction mode remains composable with liveness mode, which lets
+        # the same watchdog cover point-lock-manager deadlocks/livelocks.
+        params = db_crashtest.gen_cmd_params(self.build_mode_args(txn=True))
+
+        self.assertEqual(1, params["use_txn"])
+        self.assertEqual(0, params["use_optimistic_txn"])
+        self.assertIn("use_per_key_point_lock_mgr", params)
+        self.assertEqual(0, params.get("kill_random_test", 0))
+        self.assertGreater(params["liveness_no_progress_timeout_sec"], 0)
 
     # Goal: verify db_crashtest decodes the headerless streaming binary fault
     # injection log format used on crash paths while keeping stdout concise.

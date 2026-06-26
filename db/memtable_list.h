@@ -383,11 +383,11 @@ class MemTableList {
   // Returns an estimate of the timestamp of the earliest key.
   uint64_t ApproximateOldestKeyTime() const;
 
-  // Request a flush of all existing memtables to storage.  This will
-  // cause future calls to IsFlushPending() to return true if this list is
-  // non-empty (regardless of the min_write_buffer_number_to_merge
-  // parameter). This flush request will persist until the next time
-  // PickMemtablesToFlush() is called.
+  // Request a flush of all existing memtables to storage. This will cause
+  // future calls to IsFlushPending() to return true if this list is non-empty
+  // (regardless of the min_write_buffer_number_to_merge parameter). This flush
+  // request will persist until PickMemtablesToFlush() has picked all unstarted
+  // memtables.
   void FlushRequested() {
     flush_requested_ = true;
     // If there are some memtables stored in imm() that don't trigger

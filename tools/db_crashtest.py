@@ -43,6 +43,7 @@ _TSAN_OPTIONS_ENV_VAR = "TSAN_OPTIONS"
 _TSAN_SUPPRESSIONS_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "tsan_suppressions.txt")
 )
+DEFAULT_LIVENESS_TIMEOUT_SEC = 3600
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
 
 
@@ -120,20 +121,25 @@ early_argument_parsing_before_main()
 
 # params overwrite priority:
 #   for default:
-#       default_params < {blackbox,whitebox}_default_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params < args
 #   for simple:
-#       default_params < {blackbox,whitebox}_default_params <
+#       default_params < {blackbox,whitebox,liveness}_default_params <
 #       simple_default_params <
 #       {blackbox,whitebox}_simple_default_params < args
 #   for cf_consistency:
-#       default_params < {blackbox,whitebox}_default_params <
+#       default_params < {blackbox,whitebox,liveness}_default_params <
 #       cf_consistency_params < args
 #   for txn:
-#       default_params < {blackbox,whitebox}_default_params < txn_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params <
+#       txn_params < args
 #   for ts:
-#       default_params < {blackbox,whitebox}_default_params < ts_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params <
+#       ts_params < args
 #   for multiops_txn:
-#       default_params < {blackbox,whitebox}_default_params < multiops_txn_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params <
+#       multiops_txn_params < args
+# Liveness mode reapplies liveness_fault_injection_params after args so the
+# base liveness profile cannot accidentally turn fault injection back on.
 
 
 default_params = {
@@ -249,7 +255,7 @@ default_params = {
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
     "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
-    "abort_and_resume_compactions_one_in": lambda: random.choice([10000, 1000000]),
+    "abort_and_resume_compactions_one_in": lambda: random.choice([0, 1000, 10000]),
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -648,6 +654,43 @@ whitebox_default_params = {
     "random_kill_odd": 888887,
     "reopen": 20,
 }
+
+# Liveness mode inherits the normal randomized stress-test matrix and mixed
+# workload by default. The C++ watchdog tracks the active operation and
+# per-operation completion counts, so liveness does not need to force an
+# all-write workload to keep the failure signal understandable. Keep fault
+# injection disabled, though: injected read/open/write/sync/cache faults can
+# legitimately put the DB into background-error recovery or a no-progress write
+# stall for longer than the liveness timeout. Those cases are covered by other
+# test modes.
+# The Python wrapper owns duration, so keep db_stress's operation budget high
+# enough for long liveness runs. The C++ abort/resume path is additionally
+# gated on completed compaction progress and backs off when write stall pressure
+# is already visible.
+liveness_fault_injection_params = {
+    "error_recovery_with_no_fault_injection": 0,
+    "exclude_wal_from_write_fault_injection": 0,
+    "metadata_read_fault_one_in": 0,
+    "metadata_write_fault_one_in": 0,
+    "open_metadata_read_fault_one_in": 0,
+    "open_metadata_write_fault_one_in": 0,
+    "open_read_fault_one_in": 0,
+    "open_write_fault_one_in": 0,
+    "read_fault_one_in": 0,
+    "secondary_cache_fault_one_in": 0,
+    "sync_fault_injection": 0,
+    "write_fault_one_in": 0,
+}
+
+liveness_default_params = {
+    "duration": DEFAULT_LIVENESS_TIMEOUT_SEC,
+    "enable_thread_tracking": 1,
+    "liveness_check_interval_sec": 1,
+    "liveness_no_progress_timeout_sec": 300,
+    "ops_per_thread": 100000000,
+    "progress_reports": 1,
+}
+liveness_default_params.update(liveness_fault_injection_params)
 
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
@@ -1597,6 +1640,8 @@ def gen_cmd_params(args):
         params.update(blackbox_default_params)
     if args.test_type == "whitebox":
         params.update(whitebox_default_params)
+    if args.test_type == "liveness":
+        params.update(liveness_default_params)
     if args.simple:
         params.update(simple_default_params)
         if args.test_type == "blackbox":
@@ -1625,6 +1670,7 @@ def gen_cmd_params(args):
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
+        and args.test_type != "liveness"
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
@@ -1650,6 +1696,8 @@ def gen_cmd_params(args):
     for k, v in vars(args).items():
         if v is not None:
             params[k] = v
+    if args.test_type == "liveness":
+        params.update(liveness_fault_injection_params)
     return params
 
 
@@ -1949,7 +1997,7 @@ def diagnostic_paths(finalized_params):
     ]
 
 
-def execute_cmd(cmd, timeout=None, timeout_pstack=False):
+def execute_cmd(cmd, timeout=None, timeout_pstack=False, expected_to_timeout=True):
     child = subprocess.Popen(
         cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=stress_cmd_env()
     )
@@ -1962,11 +2010,20 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     try:
         outs, errs = child.communicate(timeout=timeout)
         hit_timeout = False
-        print("WARNING: db_stress ended before kill: exitcode=%d\n" % child.returncode)
+        if expected_to_timeout:
+            print(
+                "WARNING: db_stress ended before kill: exitcode=%d\n"
+                % child.returncode
+            )
+        else:
+            print("db_stress ended: exitcode=%d\n" % child.returncode)
     except subprocess.TimeoutExpired:
         hit_timeout = True
         if timeout_pstack:
-            os.system("pstack %d" % pid)
+            try:
+                subprocess.call(["pstack", str(pid)], env=stress_cmd_env())
+            except OSError as exc:
+                print("WARNING: failed to run pstack for pid %d: %s\n" % (pid, exc))
         child.terminate()  # SIGTERM -- triggers TerminationHandler
         try:
             outs, errs = child.communicate(timeout=3)
@@ -2101,6 +2158,60 @@ def print_fault_injection_log(pid):
                 "WARNING: failed to decode fault injection log %s: %s\n"
                 % (raw_log, exc)
             )
+
+
+def liveness_timeout(cmd_params):
+    duration = cmd_params.get("duration", 0)
+    if duration is None or duration <= 0:
+        return DEFAULT_LIVENESS_TIMEOUT_SEC
+    return duration
+
+
+def liveness_main(args, unknown_args):
+    cmd_params = gen_cmd_params(args)
+    db_parent_dir = get_db_parent_dir("liveness")
+    num_dbs = cmd_params.get("num_dbs", 1)
+
+    if not cmd_params.get("db"):
+        cmd_params["db"] = db_parent_dir
+
+    apply_random_seed_per_iteration()
+    wrapper_timeout = liveness_timeout(cmd_params)
+
+    print(
+        "Running liveness-test with \n"
+        + "liveness_check_interval_sec="
+        + str(cmd_params["liveness_check_interval_sec"])
+        + "\n"
+        + "liveness_no_progress_timeout_sec="
+        + str(cmd_params["liveness_no_progress_timeout_sec"])
+        + "\n"
+        + "wrapper-duration="
+        + str(wrapper_timeout)
+        + "\n"
+    )
+
+    cmd, finalized_params = gen_cmd(dict(list(cmd_params.items())), unknown_args)
+    hit_timeout, retcode, outs, errs, pid = execute_cmd(
+        cmd, wrapper_timeout, False, False
+    )
+
+    print_fault_injection_log(pid)
+    outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
+    print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+
+    if hit_timeout:
+        if retcode == -9:
+            print("TEST FAILED. db_stress ignored SIGTERM on wrapper timeout\n")
+            sys.exit(1)
+        print("db_stress reached liveness wrapper duration\n")
+        cleanup_after_success(cmd_params["db"], num_dbs)
+        return
+    if retcode != 0:
+        print("TEST FAILED. db_stress exited with code %d\n" % retcode)
+        sys.exit(1)
+
+    cleanup_after_success(cmd_params["db"], num_dbs)
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
@@ -2365,7 +2476,7 @@ def main():
         description="This script runs and kills \
         db_stress multiple times"
     )
-    parser.add_argument("test_type", choices=["blackbox", "whitebox"])
+    parser.add_argument("test_type", choices=["blackbox", "whitebox", "liveness"])
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action="store_true")
     parser.add_argument("--txn", action="store_true")
@@ -2382,6 +2493,7 @@ def main():
         list(default_params.items())
         + list(blackbox_default_params.items())
         + list(whitebox_default_params.items())
+        + list(liveness_default_params.items())
         + list(simple_default_params.items())
         + list(blackbox_simple_default_params.items())
         + list(whitebox_simple_default_params.items())
@@ -2423,6 +2535,8 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == "whitebox":
         whitebox_crash_main(args, unknown_args)
+    if args.test_type == "liveness":
+        liveness_main(args, unknown_args)
     # Delete the expected values base dir if test passes.
     # Per-DB subdirectories (db_0, db_1, ...) live under the base,
     # so rmtree of the parent cleans everything.

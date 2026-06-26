@@ -11,7 +11,10 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <limits>
 
 #include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
@@ -88,6 +91,265 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
   int64_t tmp_zipf_seed = zipf * max_key / zipf_sum_size;
   Random64 rand_local(tmp_zipf_seed);
   return rand_local.Next() % max_key;
+}
+
+namespace {
+
+constexpr uint64_t kLongActiveOperationTimeoutMultiplier = 4;
+
+using UIntMicros = std::chrono::duration<uint64_t, std::micro>;
+using UIntSeconds = std::chrono::duration<uint64_t>;
+
+uint64_t SecondsToMicrosSaturated(uint64_t seconds) {
+  const UIntSeconds max_seconds =
+      std::chrono::duration_cast<UIntSeconds>(UIntMicros::max());
+  if (seconds > max_seconds.count()) {
+    return UIntMicros::max().count();
+  }
+  return std::chrono::duration_cast<UIntMicros>(UIntSeconds(seconds)).count();
+}
+
+int LivenessSleepMicros() {
+  const std::chrono::microseconds max_sleep_micros(
+      std::numeric_limits<int>::max());
+  const uint64_t max_sleep_seconds =
+      std::chrono::duration_cast<std::chrono::seconds>(max_sleep_micros)
+          .count();
+  const std::chrono::seconds sleep_seconds(
+      std::min(FLAGS_liveness_check_interval_sec, max_sleep_seconds));
+  return static_cast<int>(
+      std::chrono::duration_cast<std::chrono::microseconds>(sleep_seconds)
+          .count());
+}
+
+bool StopBgThreadIfNeeded(SharedState* shared) {
+  port::Mutex* mu = shared->GetMutex();
+  // The liveness watchdog must not block on the shared harness mutex; a stuck
+  // holder is one of the failure modes it needs to report.
+  if (!mu->TryLock()) {
+    return false;
+  }
+
+  if (!shared->ShouldStopBgThread()) {
+    mu->Unlock();
+    return false;
+  }
+
+  shared->IncBgThreadsFinished();
+  if (shared->BgThreadsFinished()) {
+    shared->GetCondVar()->SignalAll();
+  }
+  mu->Unlock();
+  return true;
+}
+
+uint64_t ElapsedMicros(uint64_t now, uint64_t start) {
+  return now >= start ? now - start : 0;
+}
+
+uint64_t SaturatingMultiply(uint64_t value, uint64_t multiplier) {
+  if (multiplier != 0 &&
+      value > std::numeric_limits<uint64_t>::max() / multiplier) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+  return value * multiplier;
+}
+
+uint64_t ActiveOperationTimeoutMicros(StressOperationType type,
+                                      uint64_t no_progress_timeout_micros) {
+  switch (type) {
+    case StressOperationType::kNone:
+    case StressOperationType::kCount:
+      return 0;
+    case StressOperationType::kCompactFiles:
+    case StressOperationType::kCompactRange:
+    case StressOperationType::kFlush:
+    case StressOperationType::kVerifyDb:
+    case StressOperationType::kVerifyChecksum:
+    case StressOperationType::kVerifyFileChecksums:
+    case StressOperationType::kIngestExternalFile:
+    case StressOperationType::kBackup:
+    case StressOperationType::kCheckpoint:
+    case StressOperationType::kApproximateSize:
+    case StressOperationType::kPauseBackground:
+    case StressOperationType::kGetLiveFiles:
+      return SaturatingMultiply(no_progress_timeout_micros,
+                                kLongActiveOperationTimeoutMultiplier);
+    case StressOperationType::kPrepare:
+    case StressOperationType::kReopen:
+    case StressOperationType::kSetOptions:
+    case StressOperationType::kManualWalFlush:
+    case StressOperationType::kLockWal:
+    case StressOperationType::kSyncWal:
+    case StressOperationType::kMetadata:
+    case StressOperationType::kDisableFileDeletions:
+    case StressOperationType::kDisableManualCompaction:
+    case StressOperationType::kAbortResumeCompactions:
+    case StressOperationType::kGetProperty:
+    case StressOperationType::kTableProperties:
+    case StressOperationType::kSnapshot:
+    case StressOperationType::kKeyMayExist:
+    case StressOperationType::kRead:
+    case StressOperationType::kPrefixScan:
+    case StressOperationType::kWrite:
+    case StressOperationType::kDelete:
+    case StressOperationType::kDeleteRange:
+    case StressOperationType::kIterate:
+    case StressOperationType::kCustom:
+      return no_progress_timeout_micros;
+  }
+  return no_progress_timeout_micros;
+}
+
+void PrintLivenessState(SharedState* shared, uint64_t now) {
+  fprintf(stderr, "Finished db_stress operations=%" PRIu64 "\n",
+          shared->GetFinishedOps());
+  fprintf(stderr, "Successful compactions=%" PRIu64 "\n",
+          shared->GetSuccessfulCompactions());
+  fprintf(stderr, "Completed db_stress operation scopes by type:");
+  bool printed_completed_op_count = false;
+  for (size_t i = 1; i < kStressOperationTypeCount; ++i) {
+    const auto type = static_cast<StressOperationType>(i);
+    const uint64_t count = shared->GetCompletedOpsForDiagnostics(type);
+    if (count > 0) {
+      fprintf(stderr, " %s=%" PRIu64, StressOperationTypeName(type), count);
+      printed_completed_op_count = true;
+    }
+  }
+  if (!printed_completed_op_count) {
+    fprintf(stderr, " none");
+  }
+  fprintf(stderr, "\n");
+
+  for (uint32_t tid = 0; tid < shared->GetNumThreads(); ++tid) {
+    const ThreadOperationSnapshot snapshot =
+        shared->GetThreadOperationSnapshot(tid);
+    if (snapshot.type == StressOperationType::kNone ||
+        snapshot.started_micros == 0) {
+      fprintf(stderr, "thread %" PRIu32 " active_op=none\n", tid);
+      continue;
+    }
+
+    fprintf(stderr,
+            "thread %" PRIu32 " active_op=%s active_op_started_micros=%" PRIu64
+            " active_op_elapsed_micros=%" PRIu64 "\n",
+            tid, StressOperationTypeName(snapshot.type),
+            snapshot.started_micros,
+            ElapsedMicros(now, snapshot.started_micros));
+  }
+}
+
+bool HasStuckWriteOperation(SharedState* shared, uint64_t now,
+                            uint64_t timeout_micros) {
+  for (uint32_t tid = 0; tid < shared->GetNumThreads(); ++tid) {
+    const ThreadOperationSnapshot snapshot =
+        shared->GetThreadOperationSnapshot(tid);
+    const uint64_t elapsed_micros = ElapsedMicros(now, snapshot.started_micros);
+    if (snapshot.type == StressOperationType::kWrite &&
+        snapshot.started_micros != 0 && elapsed_micros >= timeout_micros) {
+      const uint64_t elapsed_seconds =
+          std::chrono::duration_cast<UIntSeconds>(UIntMicros(elapsed_micros))
+              .count();
+      const uint64_t timeout_seconds =
+          std::chrono::duration_cast<UIntSeconds>(UIntMicros(timeout_micros))
+              .count();
+      fprintf(stderr,
+              "Liveness watchdog detected a stuck write operation on thread "
+              "%" PRIu32 " for %" PRIu64
+              " seconds. active_op_elapsed_micros=%" PRIu64
+              " active_op_timeout_seconds=%" PRIu64 "\n",
+              tid, elapsed_seconds, elapsed_micros, timeout_seconds);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool HasTimedOutNonWriteOperation(SharedState* shared, uint64_t now,
+                                  uint64_t no_progress_timeout_micros) {
+  for (uint32_t tid = 0; tid < shared->GetNumThreads(); ++tid) {
+    const ThreadOperationSnapshot snapshot =
+        shared->GetThreadOperationSnapshot(tid);
+    if (snapshot.type == StressOperationType::kWrite ||
+        snapshot.started_micros == 0) {
+      continue;
+    }
+
+    const uint64_t timeout_micros =
+        ActiveOperationTimeoutMicros(snapshot.type, no_progress_timeout_micros);
+    if (timeout_micros != 0 &&
+        ElapsedMicros(now, snapshot.started_micros) >= timeout_micros) {
+      fprintf(stderr,
+              "Liveness watchdog detected a timed out active operation on "
+              "thread %" PRIu32
+              ". active_op=%s active_op_elapsed_micros=%" PRIu64
+              " active_op_timeout_micros=%" PRIu64 "\n",
+              tid, StressOperationTypeName(snapshot.type),
+              ElapsedMicros(now, snapshot.started_micros), timeout_micros);
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
+void LivenessWatchdogThread(void* v) {
+  assert(FLAGS_liveness_check_interval_sec > 0);
+  assert(FLAGS_liveness_no_progress_timeout_sec > 0);
+
+  auto* thread = static_cast<ThreadState*>(v);
+  SharedState* shared = thread->shared;
+
+  uint64_t last_finished_ops = shared->GetFinishedOps();
+  uint64_t last_progress_time_micros = raw_env->NowMicros();
+  const uint64_t no_progress_timeout_micros =
+      SecondsToMicrosSaturated(FLAGS_liveness_no_progress_timeout_sec);
+
+  while (true) {
+    if (StopBgThreadIfNeeded(shared)) {
+      return;
+    }
+
+    const bool started = shared->OperationStarted();
+    const bool all_operated = shared->OperationFinished();
+
+    const uint64_t now = raw_env->NowMicros();
+    if (!started || all_operated) {
+      last_finished_ops = shared->GetFinishedOps();
+      last_progress_time_micros = now;
+      raw_env->SleepForMicroseconds(LivenessSleepMicros());
+      continue;
+    }
+
+    const uint64_t finished_ops = shared->GetFinishedOps();
+    if (HasStuckWriteOperation(shared, now, no_progress_timeout_micros)) {
+      PrintLivenessState(shared, now);
+      fflush(stderr);
+      shared->TerminateWithoutMutex();
+    } else if (HasTimedOutNonWriteOperation(shared, now,
+                                            no_progress_timeout_micros)) {
+      PrintLivenessState(shared, now);
+      fflush(stderr);
+      shared->TerminateWithoutMutex();
+    } else if (finished_ops != last_finished_ops) {
+      last_finished_ops = finished_ops;
+      last_progress_time_micros = now;
+    } else if (now >= last_progress_time_micros &&
+               now - last_progress_time_micros >= no_progress_timeout_micros) {
+      fprintf(stderr,
+              "Liveness watchdog detected no completed db_stress operations "
+              "for %" PRIu64 " seconds. finished_ops=%" PRIu64 "\n",
+              FLAGS_liveness_no_progress_timeout_sec, finished_ops);
+      PrintLivenessState(shared, now);
+      fflush(stderr);
+      shared->TerminateWithoutMutex();
+    } else if (now < last_progress_time_micros) {
+      last_progress_time_micros = now;
+    }
+
+    raw_env->SleepForMicroseconds(LivenessSleepMicros());
+  }
 }
 
 void PoolSizeChangeThread(void* v) {
