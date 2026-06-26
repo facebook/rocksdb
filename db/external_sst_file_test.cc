@@ -2530,6 +2530,8 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
     }
     get_live_files_thread_1.join();
     get_live_files_thread_2.join();
+    EXPECT_OK(get_live_files_status[0]);
+    EXPECT_OK(get_live_files_status[1]);
     ASSERT_TRUE(saw_both_atomic_flushes)
         << "Timed out waiting for both GetLiveFilesStorageInfo calls to "
            "schedule their flushes. scheduled="
@@ -2593,6 +2595,9 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
       }
     }
     ingest_thread.join();
+    EXPECT_OK(get_live_files_status[0]);
+    EXPECT_OK(get_live_files_status[1]);
+    EXPECT_OK(ingest_status);
     ASSERT_TRUE(sleeping_task_done);
     ASSERT_TRUE(saw_ingest_wait)
         << "Timed out waiting for IngestExternalFile to enter its flush wait";
@@ -2608,35 +2613,36 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
   const bool ingest_completed_without_unblock =
       wait_until([&] { return ingest_done.load(std::memory_order_acquire); },
                  kIngestWaitMicros);
-  Status unblock_flush_status;
 
   if (!ingest_completed_without_unblock) {
     FlushOptions unblock_flush_options;
     unblock_flush_options.wait = false;
-    unblock_flush_status = db_->Flush(unblock_flush_options);
-    wait_until([&] { return ingest_done.load(std::memory_order_acquire); },
-               kIngestWaitMicros);
-  }
-  if (!ingest_done.load(std::memory_order_acquire)) {
-    dbfull()->CancelAllBackgroundWork(false /* wait */);
+    const Status unblock_flush_status = db_->Flush(unblock_flush_options);
     wait_until([&] { return ingest_done.load(std::memory_order_acquire); },
                kIngestWaitMicros);
     if (!ingest_done.load(std::memory_order_acquire)) {
-      dbfull()->CancelAllBackgroundWork(true /* wait */);
+      dbfull()->CancelAllBackgroundWork(false /* wait */);
       wait_until([&] { return ingest_done.load(std::memory_order_acquire); },
                  kIngestWaitMicros);
+      if (!ingest_done.load(std::memory_order_acquire)) {
+        dbfull()->CancelAllBackgroundWork(true /* wait */);
+        wait_until([&] { return ingest_done.load(std::memory_order_acquire); },
+                   kIngestWaitMicros);
+      }
     }
+    ingest_thread.join();
+    ASSERT_TRUE(sleeping_task_done);
+    ASSERT_OK(get_live_files_status[0]);
+    ASSERT_OK(get_live_files_status[1]);
+    ASSERT_OK(unblock_flush_status);
+    FAIL() << "IngestExternalFile remained blocked waiting for a flush that "
+              "was deduped behind an older queued flush request";
   }
 
   ingest_thread.join();
   ASSERT_TRUE(sleeping_task_done);
   ASSERT_OK(get_live_files_status[0]);
   ASSERT_OK(get_live_files_status[1]);
-  if (!ingest_completed_without_unblock) {
-    ASSERT_OK(unblock_flush_status);
-    FAIL() << "IngestExternalFile remained blocked waiting for a flush that "
-              "was deduped behind an older queued flush request";
-  }
   ASSERT_OK(ingest_status);
   ASSERT_EQ("ingested_value", Get("ingest_key"));
 }
