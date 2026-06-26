@@ -1995,12 +1995,14 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
         use_async_io(other.use_async_io),
+        reverse(other.reverse),
         io_dispatcher(std::move(other.io_dispatcher)),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
@@ -2011,6 +2013,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
     return *this;
   }
@@ -2022,6 +2025,7 @@ class MultiScanArgs {
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
       use_async_io = other.use_async_io;
+      reverse = other.reverse;
       io_dispatcher = std::move(other.io_dispatcher);
     }
     return *this;
@@ -2085,6 +2089,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
   }
 
@@ -2106,6 +2111,10 @@ class MultiScanArgs {
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
+
+  // Scan ranges in reverse order. Ranges are still specified in comparator
+  // order as [start, limit), and reverse scans require bounded ranges.
+  bool reverse = false;
 
   // Optional IODispatcher for multi-scan operations.
   // If nullptr (default), a new IODispatcher is created internally.

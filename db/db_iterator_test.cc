@@ -5418,6 +5418,98 @@ TEST_P(DBMultiScanIteratorTest, AsyncPrefetchAcrossMultipleFiles) {
   iter.reset();
 }
 
+TEST_P(DBMultiScanIteratorTest, ReversePrefetchAcrossMultipleRanges) {
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(303);
+  for (int i = 0; i < 1000; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_GT(NumTableFilesAtLevel(49), 3);
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = false;
+  scan_options.reverse = true;
+  scan_options.io_dispatcher = tracking_dispatcher;
+  std::vector<std::string> key_ranges(
+      {Key(100), Key(200), Key(500), Key(600), Key(800), Key(900)});
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  std::vector<std::string> actual_keys;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        actual_keys.push_back(it.first.ToString());
+      }
+    }
+  } catch (MultiScanException& ex) {
+    FAIL() << "Iterator returned status " << ex.what();
+  } catch (std::logic_error& ex) {
+    FAIL() << "Iterator returned logic error " << ex.what();
+  }
+
+  std::vector<std::string> expected_keys;
+  for (int i = 899; i >= 800; --i) {
+    expected_keys.push_back(Key(i));
+  }
+  for (int i = 599; i >= 500; --i) {
+    expected_keys.push_back(Key(i));
+  }
+  for (int i = 199; i >= 100; --i) {
+    expected_keys.push_back(Key(i));
+  }
+  ASSERT_EQ(actual_keys, expected_keys);
+  ASSERT_GT(tracking_dispatcher->GetReadSets().size(), 0);
+}
+
+TEST_P(DBMultiScanIteratorTest, ReverseRequiresUpperBounds) {
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.reverse = true;
+  scan_options.insert("a");
+  scan_options.insert("b", "c");
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+  try {
+    (void)iter->begin();
+    FAIL() << "Expected reverse MultiScan without an upper bound to fail";
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    ASSERT_TRUE(ex.status().IsInvalidArgument());
+  }
+}
+
 // Wrapper filesystem that does not support async IO.
 // Used to verify that MultiScan gracefully falls back to sync IO.
 class NoAsyncIOFS : public FileSystemWrapper {

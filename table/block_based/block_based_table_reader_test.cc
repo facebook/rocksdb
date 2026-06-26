@@ -1611,6 +1611,90 @@ TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanPrefetchSizeLimit) {
   }
 }
 
+TEST_P(BlockBasedTableReaderMultiScanTest, ReverseMultiScanPrepare) {
+  if (std::string(options_.comparator->Name()).find("Reverse") !=
+      std::string::npos) {
+    ROCKSDB_GTEST_BYPASS("This test asserts bytewise iterator order.");
+    return;
+  }
+
+  ReadOptions read_opts;
+  size_t ts_sz = options_.comparator->timestamp_size();
+
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          20 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz, same_key_diff_ts_, comparator_);
+
+  std::string table_name = "BlockBasedTableReaderTest_ReverseMultiScanPrepare" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options_);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options_.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  MultiScanArgs scan_options(comparator_);
+  scan_options.reverse = true;
+  scan_options.max_prefetch_size = 10 * 1024 * 1024;  // 10MB
+  scan_options.insert(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[4 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[8 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[10 * kEntriesPerBlock].first));
+  scan_options.insert(ExtractUserKey(kv[14 * kEntriesPerBlock].first),
+                      ExtractUserKey(kv[16 * kEntriesPerBlock].first));
+
+  iter->Prepare(&scan_options);
+
+  iter->SeekForPrev(kv[19 * kEntriesPerBlock].first);
+  ASSERT_TRUE(iter->status().ok()) << iter->status().ToString();
+  ASSERT_TRUE(iter->Valid());
+
+  std::string limit_seek_key;
+  AppendInternalKey(
+      &limit_seek_key,
+      ParsedInternalKey(ExtractUserKey(kv[16 * kEntriesPerBlock].first),
+                        kMaxSequenceNumber, kValueTypeForSeekForPrev));
+  iter->SeekForPrev(limit_seek_key);
+  for (size_t i = 16 * kEntriesPerBlock; i > 14 * kEntriesPerBlock; --i) {
+    ASSERT_TRUE(iter->status().ok()) << iter->status().ToString();
+    ASSERT_TRUE(iter->Valid()) << i;
+    ASSERT_EQ(iter->key().ToString(), kv[i - 1].first);
+    iter->Prev();
+  }
+  ASSERT_OK(iter->status());
+
+  iter->SeekForPrev(kv[10 * kEntriesPerBlock - 1].first);
+  for (size_t i = 10 * kEntriesPerBlock; i > 8 * kEntriesPerBlock; --i) {
+    ASSERT_TRUE(iter->status().ok()) << iter->status().ToString();
+    ASSERT_TRUE(iter->Valid()) << i;
+    ASSERT_EQ(iter->key().ToString(), kv[i - 1].first);
+    iter->Prev();
+  }
+  ASSERT_OK(iter->status());
+
+  iter->SeekForPrev(kv[4 * kEntriesPerBlock - 1].first);
+  for (size_t i = 4 * kEntriesPerBlock; i > 2 * kEntriesPerBlock; --i) {
+    ASSERT_TRUE(iter->status().ok()) << iter->status().ToString();
+    ASSERT_TRUE(iter->Valid()) << i;
+    ASSERT_EQ(iter->key().ToString(), kv[i - 1].first);
+    iter->Prev();
+  }
+  ASSERT_OK(iter->status());
+}
+
 TEST_P(BlockBasedTableReaderMultiScanTest, MultiScanUnpinPreviousBlocks) {
   std::vector<std::pair<std::string, std::string>> kv =
       BlockBasedTableReaderBaseTest::GenerateKVMap(
