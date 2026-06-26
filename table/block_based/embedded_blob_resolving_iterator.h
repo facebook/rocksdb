@@ -326,7 +326,7 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
       return true;
     }
 
-    if (!resolved_key.empty()) {
+    if (!resolved_key.empty() && !key_resolved_) {
       resolved_internal_key_ = std::move(resolved_key);
       key_resolved_ = true;
     }
