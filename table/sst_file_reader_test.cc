@@ -389,6 +389,85 @@ TEST_F(SstFileReaderTest, EmbeddedBlobIteratorKeyTypeWithFirstKeyIndex) {
   check_current("k2", big2);
 }
 
+// Regression test for a use-after-free in EmbeddedBlobResolvingIterator:
+// calling key() followed by value() on the same entry must not invalidate the
+// Slice previously returned by key(). The bug was that MaterializeValue()
+// (triggered by value()) could overwrite resolved_internal_key_ via
+// move-assignment, freeing the buffer that the key() Slice pointed to.
+TEST_F(SstFileReaderTest, EmbeddedBlobKeyStableAcrossValueCall) {
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+  const std::string big_value(4096, 'v');
+
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_name_, embedded_blob_options));
+  ASSERT_OK(writer.Put("key1", big_value));
+  ASSERT_OK(writer.Put("key2", big_value));
+  ASSERT_OK(writer.Finish());
+
+  // Open a BlockBasedTable reader directly to get an InternalIterator,
+  // mimicking what CompactionIterator does.
+  ImmutableOptions ioptions(options_);
+  MutableCFOptions moptions(options_);
+  InternalKeyComparator icomp(options_.comparator);
+
+  uint64_t file_size = 0;
+  ASSERT_OK(env_->GetFileSize(sst_name_, &file_size));
+
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(sst_name_, FileOptions(),
+                                                       &file, nullptr));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file), sst_name_));
+
+  ReadOptions read_opts;
+  TableReaderOptions table_reader_options(
+      ioptions, moptions.prefix_extractor, moptions.compression_manager.get(),
+      soptions_, icomp, /*block_protection_bytes_per_key=*/0);
+  std::unique_ptr<TableReader> table_reader;
+  ASSERT_OK(options_.table_factory->NewTableReader(
+      read_opts, table_reader_options, std::move(file_reader), file_size,
+      &table_reader, /*prefetch_index_and_filter_in_cache=*/true));
+
+  // Use allow_unprepared_value=false so values are always materialized.
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+      read_opts, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kCompaction));
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+
+  // Mimic CompactionIterator: save key Slice, then call value().
+  Slice saved_key = iter->key();
+  // Copy the key data for comparison (before value() potentially invalidates).
+  std::string expected_key(saved_key.data(), saved_key.size());
+
+  // Calling value() triggers MaterializeValue(). Before the fix, this would
+  // free the buffer backing saved_key.
+  Slice val = iter->value();
+  ASSERT_EQ(val, big_value);
+
+  // Verify the key Slice is still valid (not pointing to freed memory).
+  // Under ASAN, this would catch a heap-use-after-free without the fix.
+  ParsedInternalKey parsed;
+  ASSERT_OK(ParseInternalKey(saved_key, &parsed, /*log_err_key=*/true));
+  EXPECT_EQ(parsed.user_key, "key1");
+  EXPECT_EQ(parsed.type, kTypeValue);
+
+  // Also verify the key data hasn't changed.
+  EXPECT_EQ(Slice(expected_key), saved_key);
+
+  // Advance and repeat for the second entry.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  saved_key = iter->key();
+  val = iter->value();
+  ASSERT_EQ(val, big_value);
+  ASSERT_OK(ParseInternalKey(saved_key, &parsed, /*log_err_key=*/true));
+  EXPECT_EQ(parsed.user_key, "key2");
+  EXPECT_EQ(parsed.type, kTypeValue);
+}
+
 TEST_F(SstFileReaderTest, EmbeddedBlobRequiresFormatVersion7) {
   Options options = options_;
   BlockBasedTableOptions table_options;
