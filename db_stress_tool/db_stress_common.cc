@@ -244,13 +244,21 @@ bool HasStuckWriteOperation(SharedState* shared, uint64_t now,
   for (uint32_t tid = 0; tid < shared->GetNumThreads(); ++tid) {
     const ThreadOperationSnapshot snapshot =
         shared->GetThreadOperationSnapshot(tid);
+    const uint64_t elapsed_micros = ElapsedMicros(now, snapshot.started_micros);
     if (snapshot.type == StressOperationType::kWrite &&
-        snapshot.started_micros != 0 &&
-        ElapsedMicros(now, snapshot.started_micros) >= timeout_micros) {
+        snapshot.started_micros != 0 && elapsed_micros >= timeout_micros) {
+      const uint64_t elapsed_seconds =
+          std::chrono::duration_cast<UIntSeconds>(UIntMicros(elapsed_micros))
+              .count();
+      const uint64_t timeout_seconds =
+          std::chrono::duration_cast<UIntSeconds>(UIntMicros(timeout_micros))
+              .count();
       fprintf(stderr,
               "Liveness watchdog detected a stuck write operation on thread "
-              "%" PRIu32 " for %" PRIu64 " seconds.\n",
-              tid, FLAGS_liveness_no_progress_timeout_sec);
+              "%" PRIu32 " for %" PRIu64
+              " seconds. active_op_elapsed_micros=%" PRIu64
+              " active_op_timeout_seconds=%" PRIu64 "\n",
+              tid, elapsed_seconds, elapsed_micros, timeout_seconds);
       return true;
     }
   }

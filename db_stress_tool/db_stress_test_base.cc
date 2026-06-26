@@ -72,15 +72,15 @@ class ScopedThreadOperation {
   }
 
   ~ScopedThreadOperation() {
-    thread_->CompletedOpForDiagnostics(type_);
-    switch (finish_action_) {
-      case FinishAction::kPop:
-        break;
-      case FinishAction::kFinishSingleOp:
-        thread_->FinishSingleOpWhileOperationActive();
-        break;
-    }
     if (pushed_) {
+      thread_->CompletedOpForDiagnostics(type_);
+      switch (finish_action_) {
+        case FinishAction::kPop:
+          break;
+        case FinishAction::kFinishSingleOp:
+          thread_->FinishSingleOpWhileOperationActive();
+          break;
+      }
       thread_->PopOperation(type_);
     }
   }
