@@ -288,9 +288,16 @@ endif
 endif
 
 ifeq (,$(shell $(CXX) -fsyntax-only -march=rv64gc_zbc -xc /dev/null 2>&1))
+RISCV_ZBC_SOURCE=1
 CXXFLAGS += -DHAVE_RISCV_ZBC -march=rv64gc_zbc
-CFLAGS +=  -DHAVE_RISCV_ZBC -march=rv64gc_zbc
-HAVE_RISCV_ZBC=1
+CFLAGS += -DHAVE_RISCV_ZBC -march=rv64gc_zbc
+# ZVBC path requires zbc + zvbc + zbb together; probe the combined march.
+ifeq (,$(shell $(CXX) -fsyntax-only -march=rv64gc_zbc_zvbc_zbb -xc /dev/null 2>&1))
+RISCV_ZVBC_SOURCE=1
+RISCV_ZBB_SOURCE=1
+CXXFLAGS += -DHAVE_RISCV_ZVBC -DHAVE_RISCV_ZBB -march=rv64gc_zbc_zvbc_zbb
+CFLAGS += -DHAVE_RISCV_ZVBC -DHAVE_RISCV_ZBB -march=rv64gc_zbc_zvbc_zbb
+endif
 endif
 
 export JAVAC_ARGS
@@ -537,9 +544,12 @@ LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
 endif
 
-ifeq ($(HAVE_RISCV_ZBC),1)
+ifeq ($(RISCV_ZBC_SOURCE),1)
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(RISCV_SOURCES_CC))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(RISCV_SOURCES_ASM))
+ifeq ($(RISCV_ZVBC_SOURCE)$(RISCV_ZBB_SOURCE),11)
+LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(RISCV_ZVBC_SOURCES_ASM))
+endif
 endif
 
 ifeq ($(USE_FOLLY_LITE),1)
@@ -2755,11 +2765,16 @@ $(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 
-ifeq ($(HAVE_RISCV_ZBC),1)
+ifeq ($(RISCV_ZBC_SOURCE),1)
 $(OBJ_DIR)/util/crc32c_riscv.o: util/crc32c_riscv.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(OBJ_DIR)/util/crc32c_riscv_asm.o: util/crc32c_riscv_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+endif
+
+ifeq ($(RISCV_ZVBC_SOURCE)$(RISCV_ZBB_SOURCE),11)
+$(OBJ_DIR)/util/crc32c_riscv_zvbc_asm.o: util/crc32c_riscv_zvbc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 
@@ -2820,10 +2835,17 @@ else
 depend: $(DEPFILES)
 endif
 
-ifeq ($(HAVE_RISCV_ZBC),1)
+ifeq ($(RISCV_ZBC_SOURCE),1)
 RISCV_DEPFILES_ASM = $(patsubst %.S, $(OBJ_DIR)/%.S.d, $(RISCV_SOURCES_ASM))
+ifeq ($(RISCV_ZVBC_SOURCE)$(RISCV_ZBB_SOURCE),11)
+RISCV_DEPFILES_ASM += $(patsubst %.S, $(OBJ_DIR)/%.S.d, $(RISCV_ZVBC_SOURCES_ASM))
+endif
 
 $(OBJ_DIR)/util/crc32c_riscv_asm.S.d: util/crc32c_riscv_asm.S
+	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.S=.o)' "$<" -o '$@'
+
+$(OBJ_DIR)/util/crc32c_riscv_zvbc_asm.S.d: util/crc32c_riscv_zvbc_asm.S
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.S=.o)' "$<" -o '$@'
 

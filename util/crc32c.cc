@@ -393,7 +393,15 @@ std::string IsFastCrc32Supported() {
   // RISC-V platform detection
   if (crc32c_riscv_zbc_runtime_check()) {
     has_fast_crc = true;
+#if defined(HAVE_RISCV_ZVBC) && defined(HAVE_RISCV_ZBB)
+    if (crc32c_riscv_zvbc_available() && crc32c_riscv_zbb_available()) {
+      arch = "RISC-V (Zbc+Zvbc)";
+    } else {
+      arch = "RISC-V (Zbc)";
+    }
+#else
     arch = "RISC-V (Zbc)";
+#endif
   } else {
     has_fast_crc = false;
     arch = "RISC-V";
