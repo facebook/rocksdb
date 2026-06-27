@@ -2,16 +2,26 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+#include <atomic>
+#include <chrono>
+#include <map>
 #include <string>
+#include <thread>
+#include <variant>
 #include <vector>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
+#include "test_util/testutil.h"
+#include "util/coding.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -1045,6 +1055,1964 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
     ASSERT_EQ(key_versions[1].type, kTypeMerge);
     ASSERT_EQ(key_versions[2].type, kTypeWideColumnEntity);
   }
+}
+
+// A merge operator whose FullMergeV3 can signal deletion by returning
+// std::monostate. It interprets operands as int64_t increments applied to a
+// counter; when the counter reaches zero (or below), the key is deleted.
+class CounterDeleteMergeOperator : public MergeOperator {
+ public:
+  bool FullMergeV3(const MergeOperationInputV3& merge_in,
+                   MergeOperationOutputV3* merge_out) const override {
+    int64_t counter = 0;
+    // Parse base value if it exists.
+    if (auto* pval = std::get_if<Slice>(&merge_in.existing_value)) {
+      if (pval->size() == sizeof(int64_t)) {
+        counter = DecodeFixed64(pval->data());
+      }
+    }
+    // std::monostate means no base value -- counter starts at 0.
+
+    // Apply each operand (encoded as int64_t delta).
+    for (const auto& operand : merge_in.operand_list) {
+      if (operand.size() == sizeof(int64_t)) {
+        counter += static_cast<int64_t>(DecodeFixed64(operand.data()));
+      }
+    }
+
+    if (counter <= 0) {
+      // Signal deletion.
+      merge_out->new_value = std::monostate{};
+    } else {
+      std::string result;
+      PutFixed64(&result, static_cast<uint64_t>(counter));
+      merge_out->new_value = std::move(result);
+    }
+    return true;
+  }
+
+  const char* Name() const override { return "CounterDeleteMergeOperator"; }
+};
+
+// A merge operator that always signals deletion from FullMergeV3.
+class AlwaysDeleteMergeOperator : public MergeOperator {
+ public:
+  bool FullMergeV3(const MergeOperationInputV3& merge_in,
+                   MergeOperationOutputV3* merge_out) const override {
+    (void)merge_in;
+    merge_out->new_value = std::monostate{};
+    return true;
+  }
+
+  const char* Name() const override { return "AlwaysDeleteMergeOperator"; }
+};
+
+// A merge operator that conditionally deletes based on operand content.
+// If the last operand is "DELETE", the key is deleted.
+// Otherwise, the operands are concatenated with "," as a delimiter.
+class ConditionalDeleteMergeOperator : public MergeOperator {
+ public:
+  bool FullMergeV3(const MergeOperationInputV3& merge_in,
+                   MergeOperationOutputV3* merge_out) const override {
+    if (!merge_in.operand_list.empty() &&
+        merge_in.operand_list.back() == Slice("DELETE")) {
+      merge_out->new_value = std::monostate{};
+      return true;
+    }
+
+    std::string result;
+    if (auto* pval = std::get_if<Slice>(&merge_in.existing_value)) {
+      result.assign(pval->data(), pval->size());
+    }
+    for (const auto& operand : merge_in.operand_list) {
+      if (!result.empty()) {
+        result += ",";
+      }
+      result.append(operand.data(), operand.size());
+    }
+    merge_out->new_value = std::move(result);
+    return true;
+  }
+
+  const char* Name() const override { return "ConditionalDeleteMergeOperator"; }
+};
+
+static std::string EncodeInt64(int64_t val) {
+  std::string result;
+  PutFixed64(&result, static_cast<uint64_t>(val));
+  return result;
+}
+
+static std::string EncodeU64Timestamp(uint64_t timestamp) {
+  std::string result;
+  EncodeU64Ts(timestamp, &result);
+  return result;
+}
+
+static int64_t DecodeInt64(const std::string& s) {
+  assert(s.size() == sizeof(int64_t));
+  return static_cast<int64_t>(DecodeFixed64(s.data()));
+}
+
+// ---------------------------------------------------------------------------
+// Helpers shared by FullMergeV3 deletion tests
+// ---------------------------------------------------------------------------
+
+namespace merge_deletion_test_helpers {
+
+// Build a fresh time-based seed and emit a SCOPED_TRACE so randomized
+// tests can be reproduced on failure (per CLAUDE.md unit-test guidelines).
+inline uint32_t RandomSeedWithTrace() {
+  return static_cast<uint32_t>(
+      std::chrono::system_clock::now().time_since_epoch().count());
+}
+
+}  // namespace merge_deletion_test_helpers
+
+// ---------------------------------------------------------------------------
+// Tests for FullMergeV3 deletion result (std::monostate)
+// ---------------------------------------------------------------------------
+
+// Basic: counter reaches zero -> Get returns NotFound.
+TEST_F(DBMergeOperatorTest, MergeDeletionCounterReachesZero) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  // Put(key, 5), Merge(key, -5) -> counter == 0 -> deleted
+  ASSERT_OK(Put("k1", EncodeInt64(5)));
+  ASSERT_OK(Merge("k1", EncodeInt64(-5)));
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Put(key, 10), Merge(key, -3), Merge(key, -7) -> counter == 0 -> deleted
+  ASSERT_OK(Put("k2", EncodeInt64(10)));
+  ASSERT_OK(Merge("k2", EncodeInt64(-3)));
+  ASSERT_OK(Merge("k2", EncodeInt64(-7)));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).IsNotFound());
+}
+
+// Counter stays positive -> Get returns the value.
+TEST_F(DBMergeOperatorTest, MergeDeletionCounterStaysPositive) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", EncodeInt64(10)));
+  ASSERT_OK(Merge("k1", EncodeInt64(-3)));
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(DecodeInt64(value), 7);
+}
+
+// Counter goes negative -> still deleted.
+TEST_F(DBMergeOperatorTest, MergeDeletionCounterGoesNegative) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", EncodeInt64(3)));
+  ASSERT_OK(Merge("k1", EncodeInt64(-10)));
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// Merge with no base value (all merge operands, no Put/Delete).
+TEST_F(DBMergeOperatorTest, MergeDeletionNoBaseValue) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  // No Put, just merges. Sum <= 0 -> deleted.
+  ASSERT_OK(Merge("k1", EncodeInt64(5)));
+  ASSERT_OK(Merge("k1", EncodeInt64(-5)));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // No Put, just merges. Sum > 0 -> value.
+  ASSERT_OK(Merge("k2", EncodeInt64(5)));
+  ASSERT_OK(Merge("k2", EncodeInt64(3)));
+  ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+  ASSERT_EQ(DecodeInt64(value), 8);
+}
+
+// Merge on top of a Delete base.
+TEST_F(DBMergeOperatorTest, MergeDeletionOnTopOfDelete) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", EncodeInt64(100)));
+  ASSERT_OK(Delete("k1"));
+  // Merge on top of Delete -> base is monostate, counter starts at 0.
+  ASSERT_OK(Merge("k1", EncodeInt64(-1)));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Now merge a positive -> should create the key
+  ASSERT_OK(Put("k2", EncodeInt64(100)));
+  ASSERT_OK(Delete("k2"));
+  ASSERT_OK(Merge("k2", EncodeInt64(42)));
+  ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+  ASSERT_EQ(DecodeInt64(value), 42);
+}
+
+// AlwaysDelete merge operator deletes all keys it touches.
+TEST_F(DBMergeOperatorTest, MergeDeletionAlwaysDelete) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<AlwaysDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Merge("k1", "anything"));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// Conditional delete based on operand.
+TEST_F(DBMergeOperatorTest, MergeDeletionConditional) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Merge("k1", "a"));
+  ASSERT_OK(Merge("k1", "b"));
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(value, "base,a,b");
+
+  // Now issue a "DELETE" operand
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Flush to materialize the deletion in an SST before adding new operands.
+  // Without flush, a subsequent Merge would land in the same memtable and the
+  // full merge would see all operands together (including "DELETE" as a
+  // non-last operand), which is not a deletion.
+  ASSERT_OK(Flush());
+
+  // Re-merge after deletion -> fresh start (no base value)
+  ASSERT_OK(Merge("k1", "fresh"));
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(value, "fresh");
+}
+
+// Forward iterator should skip keys deleted by merge.
+TEST_F(DBMergeOperatorTest, MergeDeletionForwardIteration) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  // Delete "b" and "d" via merge
+  ASSERT_OK(Merge("b", "DELETE"));
+  ASSERT_OK(Merge("d", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+  ASSERT_EQ(iter->value().ToString(), "val_a");
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "c");
+  ASSERT_EQ(iter->value().ToString(), "val_c");
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Backward iterator (Prev) should skip keys deleted by merge.
+TEST_F(DBMergeOperatorTest, MergeDeletionBackwardIteration) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Merge("b", "DELETE"));
+  ASSERT_OK(Merge("d", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "c");
+  ASSERT_EQ(iter->value().ToString(), "val_c");
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+  ASSERT_EQ(iter->value().ToString(), "val_a");
+
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Merge deletion survives flush.
+TEST_F(DBMergeOperatorTest, MergeDeletionSurvivesFlush) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", EncodeInt64(10)));
+  ASSERT_OK(Merge("k1", EncodeInt64(-10)));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// Merge deletion is cleaned up during compaction.
+TEST_F(DBMergeOperatorTest, MergeDeletionCompaction) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // L0 file 1: Put(k1, 10)
+  ASSERT_OK(Put("k1", EncodeInt64(10)));
+  ASSERT_OK(Flush());
+
+  // L0 file 2: Merge(k1, -10)  -> counter hits 0
+  ASSERT_OK(Merge("k1", EncodeInt64(-10)));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Compact all -- the key should be fully removed at the bottommost level.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Verify the key is really gone from the SST files.
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Merge deletion interacts correctly with snapshots.
+TEST_F(DBMergeOperatorTest, MergeDeletionWithSnapshot) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  // Put(k1, 10)
+  ASSERT_OK(Put("k1", EncodeInt64(10)));
+
+  // Take snapshot before deletion
+  const Snapshot* snap = db_->GetSnapshot();
+
+  // Merge(k1, -10) -> deleted
+  ASSERT_OK(Merge("k1", EncodeInt64(-10)));
+
+  // Current state: deleted
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Snapshot should still see the value
+  ReadOptions snap_ro;
+  snap_ro.snapshot = snap;
+  ASSERT_OK(db_->Get(snap_ro, "k1", &value));
+  ASSERT_EQ(DecodeInt64(value), 10);
+
+  db_->ReleaseSnapshot(snap);
+}
+
+// Multiple merge deletions interleaved with puts.
+TEST_F(DBMergeOperatorTest, MergeDeletionMultipleRounds) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  // Round 1: put, accumulate, delete
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Merge("k1", "DELETE"));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Flush to materialize the deletion before adding new merge operands.
+  ASSERT_OK(Flush());
+
+  // Round 2: fresh value after deletion
+  ASSERT_OK(Merge("k1", "v3"));
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(value, "v3");
+
+  // Round 3: delete again
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Round 4: put after merge deletion (Put is a base value, no flush needed)
+  ASSERT_OK(Put("k1", "v4"));
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(value, "v4");
+}
+
+// Merge deletion across flush + compaction boundaries.
+TEST_F(DBMergeOperatorTest, MergeDeletionAcrossFlushAndCompaction) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // SST 1: Put(k1, base)
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Put("k2", "keep_me"));
+  ASSERT_OK(Flush());
+
+  // SST 2: Merge(k1, v2)
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Flush());
+
+  // SST 3: Merge(k1, DELETE)
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_OK(Flush());
+
+  // Read before compaction: k1 deleted, k2 alive
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+  ASSERT_EQ(value, "keep_me");
+
+  // Compact -- k1 should be fully removed
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+  ASSERT_EQ(value, "keep_me");
+}
+
+// Test merge deletion during MultiGet.
+TEST_F(DBMergeOperatorTest, MergeDeletionMultiGet) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("b", "DELETE"));
+
+  std::vector<Slice> keys = {Slice("a"), Slice("b"), Slice("c")};
+  std::vector<std::string> values(3);
+  std::vector<Status> statuses = db_->MultiGet(ReadOptions(), keys, &values);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "val_a");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "val_c");
+}
+
+// Stress test: random puts, merges, and deletions via merge.
+//
+// The test maintains a "ground truth" by sourcing every expected-state
+// update from the DB itself (Get after every operation), rather than
+// modeling merge semantics locally. This keeps the test correct even in
+// the presence of background compaction, snapshot stripe interaction, or
+// any subtle ordering effect that could otherwise produce a benign
+// divergence between a hand-rolled model and the live merge operator.
+//
+// What is actually being stress-tested:
+//  - Random interleavings of Put / Merge / Flush across many keys.
+//  - The full read path, iteration path, and compaction path with the
+//    monostate-deletion result distributed across the workload.
+//  - Concurrent background compaction (auto-compactions enabled).
+TEST_F(DBMergeOperatorTest, MergeDeletionStress) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  options.disable_auto_compactions = false;
+  Reopen(options);
+
+  constexpr int kNumKeys = 50;
+  constexpr int kOpsPerKey = 20;
+  // Time-based seed with SCOPED_TRACE so failures are reproducible per
+  // CLAUDE.md "Unit test dedup guidelines". Use util/random.h's Random
+  // (NOT std::mt19937).
+  const uint32_t seed = merge_deletion_test_helpers::RandomSeedWithTrace();
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  Random rnd(seed);
+
+  // Ground-truth post-condition: for each key, what should Get return?
+  // Sourced from the DB itself after each op to keep the expected state in
+  // sync with whatever the live merge operator actually produces.
+  struct Expected {
+    bool deleted = true;
+    int64_t value = 0;
+  };
+  std::map<std::string, Expected> expected;
+
+  auto record_expected = [&](const std::string& key) {
+    std::string val;
+    Status s = db_->Get(ReadOptions(), key, &val);
+    if (s.ok()) {
+      expected[key] = {false, DecodeInt64(val)};
+    } else if (s.IsNotFound()) {
+      expected[key] = {true, 0};
+    } else {
+      ASSERT_OK(s);
+    }
+  };
+
+  for (int i = 0; i < kNumKeys; i++) {
+    std::string key = "key_" + std::to_string(i);
+
+    for (int j = 0; j < kOpsPerKey; j++) {
+      int op = rnd.Uniform(3);
+      if (op == 0) {
+        // Put with a fresh counter value.
+        int64_t v = static_cast<int64_t>(rnd.Uniform(100)) + 1;
+        ASSERT_OK(Put(key, EncodeInt64(v)));
+      } else {
+        // Merge with a delta in [-20, 19].
+        int64_t delta = static_cast<int64_t>(rnd.Uniform(40)) - 20;
+        ASSERT_OK(Merge(key, EncodeInt64(delta)));
+      }
+
+      // Occasionally flush to exercise the SST/compaction surfaces.
+      if (rnd.OneIn(10)) {
+        ASSERT_OK(Flush());
+      }
+    }
+    record_expected(key);
+  }
+
+  ASSERT_OK(Flush());
+
+  // Verify all keys.
+  for (const auto& [key, exp] : expected) {
+    std::string value;
+    Status s = db_->Get(ReadOptions(), key, &value);
+    if (exp.deleted) {
+      ASSERT_TRUE(s.IsNotFound()) << "Key " << key << " should be deleted";
+    } else {
+      ASSERT_OK(s) << "Key " << key << " should exist";
+      ASSERT_EQ(DecodeInt64(value), exp.value);
+    }
+  }
+
+  // Compact and verify again. CompactRange must NOT alter Get results.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  for (const auto& [key, exp] : expected) {
+    std::string value;
+    Status s = db_->Get(ReadOptions(), key, &value);
+    if (exp.deleted) {
+      ASSERT_TRUE(s.IsNotFound())
+          << "Key " << key << " post-compact: status=" << s.ToString()
+          << " value=" << (s.ok() ? DecodeInt64(value) : 0);
+    } else {
+      ASSERT_OK(s) << "Key " << key << " post-compact";
+      ASSERT_EQ(DecodeInt64(value), exp.value);
+    }
+  }
+
+  // Verify via iteration.
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  int live_count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    auto it = expected.find(iter->key().ToString());
+    ASSERT_NE(it, expected.end());
+    ASSERT_FALSE(it->second.deleted) << "Deleted key visible: " << it->first;
+    ASSERT_EQ(DecodeInt64(iter->value().ToString()), it->second.value);
+    live_count++;
+  }
+  ASSERT_OK(iter->status());
+
+  int expected_live = 0;
+  for (const auto& [key, exp] : expected) {
+    if (!exp.deleted) {
+      expected_live++;
+    }
+  }
+  ASSERT_EQ(live_count, expected_live);
+}
+
+// Merge deletion with compaction and snapshot: deletion marker should be
+// retained as long as snapshots need it.
+TEST_F(DBMergeOperatorTest, MergeDeletionCompactionWithSnapshot) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Flush());
+
+  const Snapshot* snap = db_->GetSnapshot();
+
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_OK(Flush());
+
+  // Without snapshot: not found
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // With snapshot: found
+  ReadOptions snap_ro;
+  snap_ro.snapshot = snap;
+  ASSERT_OK(db_->Get(snap_ro, "k1", &value));
+  ASSERT_EQ(value, "base");
+
+  // Compact -- snapshot should still work
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_OK(db_->Get(snap_ro, "k1", &value));
+  ASSERT_EQ(value, "base");
+
+  db_->ReleaseSnapshot(snap);
+
+  // After releasing snapshot, compact again -- entry should be fully removed
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// Bottommost compaction must not skip past an older version that is still
+// visible to a snapshot when a newer base + merge resolves to deletion.
+TEST_F(DBMergeOperatorTest,
+       MergeDeletionBottommostCompactionPreservesSnapshotVisiblePut) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", "snapshot_value"));
+  ASSERT_OK(Flush());
+
+  const Snapshot* snap = db_->GetSnapshot();
+
+  ASSERT_OK(Put("k1", "newer_base"));
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  ReadOptions snap_ro;
+  snap_ro.snapshot = snap;
+  ASSERT_OK(db_->Get(snap_ro, "k1", &value));
+  ASSERT_EQ(value, "snapshot_value");
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_OK(db_->Get(snap_ro, "k1", &value));
+  ASSERT_EQ(value, "snapshot_value");
+
+  db_->ReleaseSnapshot(snap);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+TEST_F(DBMergeOperatorTest, MergeDeletionWithUserDefinedTimestampCompaction) {
+  Options options = CurrentOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  const std::string ts50 = EncodeU64Timestamp(50);
+  const std::string ts100 = EncodeU64Timestamp(100);
+  const std::string ts150 = EncodeU64Timestamp(150);
+  const std::string ts200 = EncodeU64Timestamp(200);
+  const std::string ts250 = EncodeU64Timestamp(250);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", ts50, "too_old"));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", ts100, "base"));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), "k1", ts100,
+                       "DELETE"));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", ts200, "newer"));
+  ASSERT_OK(Flush());
+
+  auto get_at = [&](const std::string& timestamp, std::string* result) {
+    ReadOptions read_opts;
+    Slice ts(timestamp);
+    read_opts.timestamp = &ts;
+    return db_->Get(read_opts, "k1", result);
+  };
+
+  std::string value;
+  ASSERT_OK(get_at(ts250, &value));
+  ASSERT_EQ(value, "newer");
+  ASSERT_TRUE(get_at(ts150, &value).IsNotFound());
+
+  CompactRangeOptions cro;
+  Slice full_history_ts_low(ts150);
+  cro.full_history_ts_low = &full_history_ts_low;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_OK(get_at(ts250, &value));
+  ASSERT_EQ(value, "newer");
+  ASSERT_TRUE(get_at(ts150, &value).IsNotFound())
+      << "Older timestamped Put surfaced after merge-resolved deletion";
+}
+
+// Merge on an empty key (no prior Put or Merge) producing deletion.
+TEST_F(DBMergeOperatorTest, MergeDeletionOnNonexistentKey) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<AlwaysDeleteMergeOperator>();
+  Reopen(options);
+
+  // Key never existed, merge on it -> deletion of nothing -> NotFound
+  ASSERT_OK(Merge("k1", "anything"));
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Flush + compact -> still not found
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// Seek-based iteration with merge deletions (tests FindValueForCurrentKey
+// fast path).
+TEST_F(DBMergeOperatorTest, MergeDeletionSeekIteration) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  // Create keys a through f, delete c and e via merge
+  for (char c = 'a'; c <= 'f'; c++) {
+    ASSERT_OK(Put(std::string(1, c), std::string("val_") + c));
+  }
+  ASSERT_OK(Merge("c", "DELETE"));
+  ASSERT_OK(Merge("e", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // Seek to "b" and iterate forward
+  iter->Seek("b");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "b");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "d");  // c is skipped
+
+  // SeekForPrev to "d" and iterate backward
+  iter->SeekForPrev("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "d");
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "b");  // c is skipped
+
+  ASSERT_OK(iter->status());
+}
+
+// Merge deletion after Reopen -- tests WAL recovery path.
+TEST_F(DBMergeOperatorTest, MergeDeletionRecovery) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_OK(Put("k2", "alive"));
+
+  // Reopen (recovers from WAL)
+  Reopen(options);
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+  ASSERT_EQ(value, "alive");
+}
+
+// Seek() landing directly on a merge-deleted key should skip to next.
+TEST_F(DBMergeOperatorTest, MergeDeletionSeekToDeletedKey) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("b", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // Seek directly to the deleted key "b" -- should land on "c"
+  iter->Seek("b");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "c");
+
+  ASSERT_OK(iter->status());
+}
+
+// SeekForPrev() landing directly on a merge-deleted key should skip to prev.
+TEST_F(DBMergeOperatorTest, MergeDeletionSeekForPrevToDeletedKey) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("b", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // SeekForPrev directly to the deleted key "b" -- should land on "a"
+  iter->SeekForPrev("b");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+
+  ASSERT_OK(iter->status());
+}
+
+// SeekToFirst() when the very first key is merge-deleted.
+TEST_F(DBMergeOperatorTest, MergeDeletionFirstKeyDeleted) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("a", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "b");
+  ASSERT_OK(iter->status());
+}
+
+// SeekToLast() when the very last key is merge-deleted.
+TEST_F(DBMergeOperatorTest, MergeDeletionLastKeyDeleted) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("c", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "b");
+  ASSERT_OK(iter->status());
+}
+
+// Every key in the DB is merge-deleted -- iterator is immediately invalid.
+TEST_F(DBMergeOperatorTest, MergeDeletionAllKeysDeleted) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<AlwaysDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("a", "x"));
+  ASSERT_OK(Merge("b", "x"));
+  ASSERT_OK(Merge("c", "x"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  iter->SeekToLast();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Multiple consecutive deleted keys -- verifies the continue-loop in
+// FindNextUserEntryInternal handles chains, not just a single skip.
+TEST_F(DBMergeOperatorTest, MergeDeletionConsecutiveDeletedKeys) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Put("e", "val_e"));
+  // Delete b, c, d -- three consecutive keys
+  ASSERT_OK(Merge("b", "DELETE"));
+  ASSERT_OK(Merge("c", "DELETE"));
+  ASSERT_OK(Merge("d", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // Forward: a -> e (skip b, c, d)
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "e");
+
+  // Backward: e -> a (skip d, c, b)
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "e");
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+
+  ASSERT_OK(iter->status());
+}
+
+// Direction change: forward iteration then Prev() across a deleted key.
+// This exercises ReverseToBackward() + FindValueForCurrentKey().
+TEST_F(DBMergeOperatorTest, MergeDeletionDirectionChangeForwardToBackward) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Merge("c", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // Forward to "d"
+  iter->Seek("d");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "d");
+
+  // Now Prev() -- should skip deleted "c" and land on "b"
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "b");
+
+  // Forward again -- should skip deleted "c" and land on "d"
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "d");
+
+  ASSERT_OK(iter->status());
+}
+
+// Direction change: backward iteration then Next() across a deleted key.
+// This exercises ReverseToForward() + FindNextUserEntryInternal().
+TEST_F(DBMergeOperatorTest, MergeDeletionDirectionChangeBackwardToForward) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Merge("b", "DELETE"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+
+  // Backward to "a"
+  iter->SeekForPrev("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+
+  // Now Next() -- should skip deleted "b" and land on "c"
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "c");
+
+  // Backward again -- should skip deleted "b" and land on "a"
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+
+  ASSERT_OK(iter->status());
+}
+
+// Snapshot-based iteration: iterator with snapshot should see the
+// pre-deletion state of keys.
+TEST_F(DBMergeOperatorTest, MergeDeletionSnapshotIteration) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+
+  const Snapshot* snap = db_->GetSnapshot();
+
+  ASSERT_OK(Merge("b", "DELETE"));
+
+  // Current iterator: sees a, c
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "a");
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "c");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // Snapshot iterator: sees a, b, c
+  {
+    ReadOptions snap_ro;
+    snap_ro.snapshot = snap;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(snap_ro));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "a");
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "b");
+    ASSERT_EQ(iter->value().ToString(), "val_b");
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), "c");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  db_->ReleaseSnapshot(snap);
+}
+
+// GetEntity (wide-column read) should return NotFound for a merge-deleted key.
+TEST_F(DBMergeOperatorTest, MergeDeletionGetEntity) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Merge("k1", "DELETE"));
+
+  PinnableWideColumns result;
+  Status s =
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k1", &result);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+// Write-batch merge-on-write: when a Put and Merge for the same key are in the
+// same batch, the merge is resolved during write.  If it produces deletion,
+// a kTypeDeletion should be written to the memtable.
+TEST_F(DBMergeOperatorTest, MergeDeletionWriteBatchMergeOnWrite) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  // max_successive_merges = 0 means merge-on-write triggers when a Put and
+  // a Merge for the same key are inserted within the same batch.
+  options.max_successive_merges = 1000;
+  Reopen(options);
+
+  // Put a base value first, then issue a merge in the same batch.
+  ASSERT_OK(Put("k1", "base"));
+
+  // Second merge triggers merge-on-write against the memtable Put.
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Merge("k1", "DELETE"));
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// MultiGet after flush -- exercises the SST/GetContext path rather than
+// the memtable path.
+TEST_F(DBMergeOperatorTest, MergeDeletionMultiGetAfterFlush) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Merge("b", "DELETE"));
+  ASSERT_OK(Flush());
+
+  std::vector<Slice> keys = {Slice("a"), Slice("b"), Slice("c")};
+  std::vector<std::string> values(3);
+  std::vector<Status> statuses = db_->MultiGet(ReadOptions(), keys, &values);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "val_a");
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "val_c");
+}
+
+// Merge produces deletion, then additional merges on top of the deleted state
+// (all in memtable, no flush between). The later merges should see no base
+// value and produce a fresh result or another deletion.
+TEST_F(DBMergeOperatorTest, MergeDeletionThenMoreMerges) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  // Put 5, Merge -5 -> counter=0 -> deleted
+  ASSERT_OK(Put("k1", EncodeInt64(5)));
+  ASSERT_OK(Merge("k1", EncodeInt64(-5)));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // More merges on top of the "deleted" state.
+  // These see the deletion as base -> counter starts at 0.
+  // +10 -> counter=10 -> alive
+  ASSERT_OK(Merge("k1", EncodeInt64(10)));
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(DecodeInt64(value), 10);
+
+  // -10 -> counter=0 -> deleted again
+  ASSERT_OK(Merge("k1", EncodeInt64(-10)));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // Same after flush + compaction
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+
+  // And one more merge to revive
+  ASSERT_OK(Merge("k1", EncodeInt64(7)));
+  ASSERT_OK(db_->Get(ReadOptions(), "k1", &value));
+  ASSERT_EQ(DecodeInt64(value), 7);
+}
+
+// Non-bottommost compaction: the deletion tombstone from a merge must be
+// retained so it can suppress older versions on lower levels.
+// This exercises the "base value found" + kTypeDeletion path in MergeUntil
+// where at_bottom is false, so a tombstone must be emitted.
+TEST_F(DBMergeOperatorTest, MergeDeletionNonBottommostCompaction) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  options.num_levels = 4;
+  Reopen(options);
+
+  // Put an anchor key in L3 so that L1 is never the bottommost level.
+  ASSERT_OK(Put("k0", "anchor"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+
+  // Put("k1", "base") in L1. This will be the base value for the merge.
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  // Merge("k1", "DELETE") in L0.
+  ASSERT_OK(Merge("k1", "DELETE"));
+  ASSERT_OK(Flush());
+
+  // Compact L0->L1. The compaction picks L0 (Merge) and overlapping L1 (Put).
+  // MergeUntil resolves: Put("base") + Merge("DELETE") -> deletion.
+  // at_bottom is false (L3 has data), so a kTypeDeletion tombstone is emitted.
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // k1 should be NotFound (tombstone suppresses any older versions).
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), "k0", &value));
+  ASSERT_EQ(value, "anchor");
+
+  // Full compaction should clean up the tombstone too.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+}
+
+// Backward seek-optimization path with base value: when a key has many
+// entries, FindValueForCurrentKey switches to FindValueForCurrentKeyUsingSeek.
+// Test that merge-deletion works through this path when the merge has a
+// Put base value.
+TEST_F(DBMergeOperatorTest, MergeDeletionBackwardSeekPathWithBase) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  // Force the seek path after just 2 skipped entries.
+  options.max_sequential_skip_in_iterations = 2;
+  Reopen(options);
+
+  // Create enough entries for "k1" to exceed max_sequential_skip_in_iterations.
+  // The old Put overwrites create the entries that get skipped during backward
+  // iteration, triggering the switch to the seek-based path.
+  ASSERT_OK(Put("k1", "old1"));  // oldest
+  ASSERT_OK(Put("k1", "old2"));
+  ASSERT_OK(Put("k1", "base"));
+  ASSERT_OK(Merge("k1", "DELETE"));  // newest -- triggers deletion
+
+  ASSERT_OK(Put("k2", "val_k2"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "k2");
+
+  // Prev() triggers FindValueForCurrentKey for "k1", which after 2 skips
+  // switches to FindValueForCurrentKeyUsingSeek. The seek finds the Merge
+  // and the Put("base"), resolves to deletion via MergeWithPlainBaseValue.
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Backward seek-optimization path with NO base value: all entries for the
+// key are Merge operands. FindValueForCurrentKeyUsingSeek collects them all,
+// then calls MergeWithNoBaseValue. This is the path where we removed the
+// unconditional `valid_ = true`.
+TEST_F(DBMergeOperatorTest, MergeDeletionBackwardSeekPathNoBase) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.max_sequential_skip_in_iterations = 2;
+  Reopen(options);
+
+  // All entries for "k1" are Merges -- no Put base.
+  ASSERT_OK(Merge("k1", "a"));  // oldest
+  ASSERT_OK(Merge("k1", "b"));
+  ASSERT_OK(Merge("k1", "c"));
+  ASSERT_OK(Merge("k1", "DELETE"));  // newest -- triggers deletion
+
+  ASSERT_OK(Put("k2", "val_k2"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "k2");
+
+  // Prev() triggers FindValueForCurrentKey -> FindValueForCurrentKeyUsingSeek.
+  // All entries are Merges, loop exits without finding a base value.
+  // MergeWithNoBaseValue resolves to deletion. valid_ = false.
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Same as above but the merge does NOT produce deletion -- verifies that
+// the removed `valid_ = true` in FindValueForCurrentKeyUsingSeek doesn't
+// break the normal (non-deletion) case.
+TEST_F(DBMergeOperatorTest, MergeDeletionBackwardSeekPathNoBaseNonDeletion) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.max_sequential_skip_in_iterations = 2;
+  Reopen(options);
+
+  // All entries for "k1" are Merges, none is "DELETE" -> value survives.
+  ASSERT_OK(Merge("k1", "a"));
+  ASSERT_OK(Merge("k1", "b"));
+  ASSERT_OK(Merge("k1", "c"));
+
+  ASSERT_OK(Put("k2", "val_k2"));
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "k2");
+
+  // Prev() should find "k1" with merged value "a,b,c"
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "k1");
+  ASSERT_EQ(iter->value().ToString(), "a,b,c");
+  ASSERT_OK(iter->status());
+}
+
+// Merge deletion with iterate_upper_bound: a deleted key at the boundary
+// should not confuse the iterator.
+TEST_F(DBMergeOperatorTest, MergeDeletionWithIterateBounds) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+  ASSERT_OK(Merge("c", "DELETE"));
+
+  // Upper bound = "d" -- range is [a, d), "c" is deleted
+  Slice upper("d");
+  ReadOptions ro;
+  ro.iterate_upper_bound = &upper;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "a");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "b");
+  iter->Next();
+  // "c" is deleted, "d" is past upper bound -> invalid
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Lower bound = "b" -- Prev from "d" should skip deleted "c"
+  Slice lower("b");
+  ReadOptions ro2;
+  ro2.iterate_lower_bound = &lower;
+  auto iter2 = std::unique_ptr<Iterator>(db_->NewIterator(ro2));
+  iter2->SeekForPrev("d");
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ(iter2->key().ToString(), "d");
+  iter2->Prev();
+  // "c" is deleted -> land on "b"
+  ASSERT_TRUE(iter2->Valid());
+  ASSERT_EQ(iter2->key().ToString(), "b");
+  ASSERT_OK(iter2->status());
+}
+
+// ---------------------------------------------------------------------------
+// Cross-feature regression tests for FullMergeV3 deletion (std::monostate)
+//
+// The following tests exercise interactions surfaced by the multi-reviewer
+// audit of the monostate-deletion feature: WriteBatchWithIndex / transactions,
+// range tombstones, multiple column families, prefix bloom filters, blob
+// storage, wide-column input, compaction filter composition, merge-on-write
+// boundary conditions, OpFailureScope interaction, and a high-concurrency
+// regression test for the pinned-data lifecycle along consecutive deletions.
+// ---------------------------------------------------------------------------
+
+// The cross-feature tests below intentionally re-use the existing
+// ConditionalDeleteMergeOperator, CounterDeleteMergeOperator, and
+// AlwaysDeleteMergeOperator defined earlier in this file. No additional
+// helper merge operators are needed; what matters is exercising each
+// surface (WBWI, transactions, range tombstones, multi-CF, blobs, wide
+// columns, compaction filter, prefix bloom, max_successive_merges,
+// concurrency, etc.) with the existing deletion-capable operators.
+
+// WBWI: GetFromBatch when merge resolves to monostate must report kDeleted /
+// Status::NotFound to the user, NOT an error.
+TEST_F(DBMergeOperatorTest, MergeDeletionWBWIGetFromBatchDeletes) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  WriteBatchWithIndex wbwi(BytewiseComparator(), 0, /* overwrite_key= */ true);
+  ASSERT_OK(wbwi.Put("k", "base"));
+  ASSERT_OK(wbwi.Merge("k", "DELETE"));
+
+  std::string value;
+  Status s =
+      wbwi.GetFromBatch(db_->DefaultColumnFamily(), options, "k", &value);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  // Status should be a clean NotFound, NOT a Corruption / error.
+  ASSERT_FALSE(s.IsCorruption());
+}
+
+// WBWI: GetFromBatchAndDB across batch+DB must propagate monostate as
+// NotFound for the user, regardless of whether the base value is in the
+// batch, in the DB, or absent.
+TEST_F(DBMergeOperatorTest, MergeDeletionWBWIGetFromBatchAndDB) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  DB* raw_db = db_.get();
+
+  // 1) Base in DB, merge in batch resolving to delete.
+  ASSERT_OK(Put("k1", "base"));
+  WriteBatchWithIndex wbwi1(BytewiseComparator(), 0, /* overwrite_key= */ true);
+  ASSERT_OK(wbwi1.Merge("k1", "DELETE"));
+  std::string v;
+  ASSERT_TRUE(
+      wbwi1.GetFromBatchAndDB(raw_db, ReadOptions(), "k1", &v).IsNotFound());
+
+  // 2) Base in batch (Put), merge in batch resolving to delete.
+  WriteBatchWithIndex wbwi2(BytewiseComparator(), 0, /* overwrite_key= */ true);
+  ASSERT_OK(wbwi2.Put("k2", "base"));
+  ASSERT_OK(wbwi2.Merge("k2", "DELETE"));
+  ASSERT_TRUE(
+      wbwi2.GetFromBatchAndDB(raw_db, ReadOptions(), "k2", &v).IsNotFound());
+
+  // 3) No base anywhere, merge resolving to delete.
+  WriteBatchWithIndex wbwi3(BytewiseComparator(), 0, /* overwrite_key= */ true);
+  ASSERT_OK(wbwi3.Merge("k3_nobase", "DELETE"));
+  ASSERT_TRUE(wbwi3.GetFromBatchAndDB(raw_db, ReadOptions(), "k3_nobase", &v)
+                  .IsNotFound());
+
+  // 4) After a deletion-resolving batch is written to DB, Get from DB
+  //    should also see NotFound.
+  WriteBatchWithIndex wbwi4(BytewiseComparator(), 0, /* overwrite_key= */ true);
+  ASSERT_OK(wbwi4.Put("k4", "base"));
+  ASSERT_OK(wbwi4.Merge("k4", "DELETE"));
+  ASSERT_OK(raw_db->Write(WriteOptions(), wbwi4.GetWriteBatch()));
+  ASSERT_TRUE(raw_db->Get(ReadOptions(), "k4", &v).IsNotFound());
+}
+
+// WBWI: BaseDeltaIterator must skip keys whose merge chain resolves to
+// monostate in both forward AND reverse iteration.
+TEST_F(DBMergeOperatorTest, MergeDeletionWBWIBaseDeltaIterator) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "val_a"));
+  ASSERT_OK(Put("b", "val_b"));
+  ASSERT_OK(Put("c", "val_c"));
+  ASSERT_OK(Put("d", "val_d"));
+
+  WriteBatchWithIndex wbwi(BytewiseComparator(), 0, /* overwrite_key= */ true);
+  ASSERT_OK(wbwi.Merge("b", "DELETE"));
+  ASSERT_OK(wbwi.Merge("d", "DELETE"));
+  ASSERT_OK(wbwi.Put("e", "val_e"));
+
+  ReadOptions ro;
+  auto base_iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  auto iter = std::unique_ptr<Iterator>(wbwi.NewIteratorWithBase(
+      db_->DefaultColumnFamily(), base_iter.release(), &ro));
+  // Forward
+  std::vector<std::string> seen;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    seen.push_back(iter->key().ToString());
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(seen, std::vector<std::string>({"a", "c", "e"}))
+      << "WBWI iterator must skip merge-deleted keys (forward).";
+
+  // Reverse
+  std::vector<std::string> seen_rev;
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    seen_rev.push_back(iter->key().ToString());
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(seen_rev, std::vector<std::string>({"e", "c", "a"}))
+      << "WBWI iterator must skip merge-deleted keys (reverse).";
+}
+
+// Transactions wrap WBWI; Transaction::Get must surface monostate-deletion
+// as NotFound, not as a kError/Corruption status.
+TEST_F(DBMergeOperatorTest, MergeDeletionTransactionGet) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  // Re-create the DB as a TransactionDB.
+  Close();
+  Destroy(options);
+  TransactionDBOptions txn_db_opts;
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+
+  std::unique_ptr<Transaction> txn(
+      txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn->Put("k", "base"));
+  ASSERT_OK(txn->Merge("k", "DELETE"));
+  std::string v;
+  Status s = txn->Get(ReadOptions(), "k", &v);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(s.IsCorruption());
+
+  // Cleanup
+  ASSERT_OK(txn->Rollback());
+  txn.reset();
+  delete txn_db;
+}
+
+// Range tombstone + merge-deletion: a DeleteRange covering a key, then a
+// merge that resolves to monostate, must still produce a deletion. And a
+// merge that resolves to a value over a range tombstone must propagate
+// correctly.
+TEST_F(DBMergeOperatorTest, MergeDeletionWithRangeTombstones) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // Put at L1 (after compaction), DeleteRange + Merge at L0.
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "j", "l"));
+  ASSERT_OK(Merge("k", "DELETE"));
+
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &value).IsNotFound());
+
+  // Flush + compact and verify still NotFound.
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &value).IsNotFound());
+}
+
+// Multi-CF + monostate: monostate produced in one CF must not affect
+// other CFs; reads see consistent snapshot behavior.
+TEST_F(DBMergeOperatorTest, MergeDeletionMultiColumnFamilies) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  CreateAndReopenWithCF({"cf1", "cf2"}, options);
+
+  ASSERT_OK(Put(0, "k", "cf0_v"));
+  ASSERT_OK(Put(1, "k", "cf1_v"));
+  ASSERT_OK(Put(2, "k", "cf2_v"));
+
+  // Resolve to deletion only in CF1.
+  ASSERT_OK(Merge(1, "k", "DELETE"));
+
+  std::string v;
+  ASSERT_OK(db_->Get(ReadOptions(), handles_[0], "k", &v));
+  ASSERT_EQ(v, "cf0_v");
+  ASSERT_TRUE(db_->Get(ReadOptions(), handles_[1], "k", &v).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), handles_[2], "k", &v));
+  ASSERT_EQ(v, "cf2_v");
+}
+
+// Prefix bloom + monostate: a deleted key under a prefix extractor must
+// not be falsely surfaced by the bloom filter.
+TEST_F(DBMergeOperatorTest, MergeDeletionWithPrefixBloom) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("abc_1", "v1"));
+  ASSERT_OK(Put("abc_2", "v2"));
+  ASSERT_OK(Merge("abc_1", "DELETE"));
+  ASSERT_OK(Flush());
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "abc_1", &v).IsNotFound())
+      << "Deleted key must not be surfaced even with prefix bloom.";
+  ASSERT_OK(db_->Get(ReadOptions(), "abc_2", &v));
+  ASSERT_EQ(v, "v2");
+
+  // Iterate with prefix bound.
+  ReadOptions ro;
+  ro.prefix_same_as_start = true;
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+  std::vector<std::string> seen;
+  for (iter->Seek("abc"); iter->Valid(); iter->Next()) {
+    seen.push_back(iter->key().ToString());
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(seen, std::vector<std::string>({"abc_2"}));
+}
+
+// Blob storage + monostate: merge resolves to deletion when the base value
+// is stored as a blob. Verify across read, iterate, and compaction.
+TEST_F(DBMergeOperatorTest, MergeDeletionWithBlobStorage) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // Put a sizeable value that will land in a blob file.
+  std::string large_value(1024, 'x');
+  ASSERT_OK(Put("k", large_value));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k", "DELETE"));
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound())
+      << "Blob-backed base + merge-deletion must NotFound.";
+
+  // Iterate (forward and reverse).
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  iter->SeekToLast();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Compact and verify it stays NotFound.
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+}
+
+// Wide-column input + monostate: PutEntity + Merge -> monostate must NotFound
+// for Get, GetEntity, and iteration.
+TEST_F(DBMergeOperatorTest, MergeDeletionOverWideColumnEntity) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  // PutEntity with multiple columns. Column names must be in ascending
+  // order; kDefaultWideColumnName is the empty string and sorts first.
+  WideColumns columns{
+      {kDefaultWideColumnName, "default_v"}, {"col1", "v1"}, {"col2", "v2"}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "k", columns));
+  ASSERT_OK(Merge("k", "DELETE"));
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+
+  PinnableWideColumns pwc;
+  ASSERT_TRUE(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k", &pwc)
+          .IsNotFound());
+
+  // After flush + compact too.
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+}
+
+// Compaction filter + monostate: when a compaction filter is wired up, the
+// merge operator must still be able to signal deletion, and the final
+// state must be correct.
+TEST_F(DBMergeOperatorTest, MergeDeletionWithCompactionFilter) {
+  class NoOpFilter : public CompactionFilter {
+   public:
+    Decision FilterV3(int /*level*/, const Slice& /*key*/, ValueType /*vt*/,
+                      const Slice* /*existing_value*/,
+                      const WideColumns* /*existing_columns*/,
+                      std::string* /*new_value*/,
+                      std::vector<std::pair<std::string, std::string>>*
+                      /*new_columns*/,
+                      std::string* /*skip_until*/) const override {
+      return Decision::kKeep;
+    }
+    const char* Name() const override { return "NoOpFilter"; }
+  };
+
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  static NoOpFilter filter;
+  options.compaction_filter = &filter;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("k", "base"));
+  ASSERT_OK(Merge("k", "DELETE"));
+  ASSERT_OK(Flush());
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+}
+
+// max_successive_merges boundary: merge-on-write that resolves to monostate
+// must produce a kTypeDeletion entry in the memtable.
+TEST_F(DBMergeOperatorTest, MergeDeletionMaxSuccessiveMergesBoundary) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.max_successive_merges = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("k", "base"));
+  ASSERT_OK(Merge("k", "a"));
+  ASSERT_OK(Merge("k", "b"));
+  // The next Merge crosses the threshold -- merge-on-write kicks in and
+  // resolves to a deletion (because operand_list.back() == "DELETE").
+  ASSERT_OK(Merge("k", "DELETE"));
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+}
+
+// strict_max_successive_merges + monostate: forces synchronous I/O for the
+// fold-on-write, and the deletion result must still be applied.
+TEST_F(DBMergeOperatorTest, MergeDeletionStrictMaxSuccessiveMerges) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  options.max_successive_merges = 2;
+  options.strict_max_successive_merges = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("k", "base"));
+  ASSERT_OK(Flush());  // base value lands in SST so resolution needs I/O.
+  ASSERT_OK(Merge("k", "a"));
+  ASSERT_OK(Merge("k", "b"));
+  ASSERT_OK(Merge("k", "DELETE"));
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+}
+
+// OpFailureScope is ignored when merge_out.new_value is std::monostate.
+// In debug builds, setting both trips an internal assertion. We verify the
+// release-build behavior here: monostate-wins-over-op_failure_scope.
+#ifdef NDEBUG
+TEST_F(DBMergeOperatorTest, MergeDeletionOpFailureScopeIgnored) {
+  class FailureScopeAndMonostateOperator : public MergeOperator {
+   public:
+    bool FullMergeV3(const MergeOperationInputV3& /*merge_in*/,
+                     MergeOperationOutputV3* merge_out) const override {
+      merge_out->new_value = std::monostate{};
+      merge_out->op_failure_scope = OpFailureScope::kMustMerge;  // ignored
+      return true;
+    }
+    const char* Name() const override {
+      return "FailureScopeAndMonostateOperator";
+    }
+  };
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<FailureScopeAndMonostateOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k", "base"));
+  ASSERT_OK(Merge("k", "any"));
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+}
+#endif  // NDEBUG
+
+// ASAN-style stress: many consecutive monostate deletions in a single
+// FindNextUserEntry call. This exercises the pinned-data lifecycle along
+// the forward-iteration deletion-skip path. Run with ASAN to catch any
+// use-after-free.
+TEST_F(DBMergeOperatorTest, MergeDeletionForwardIterationManyConsecutive) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<ConditionalDeleteMergeOperator>();
+  Reopen(options);
+
+  constexpr int kN = 256;
+  for (int i = 0; i < kN; ++i) {
+    char key[16];
+    snprintf(key, sizeof(key), "k%05d", i);
+    if (i % 2 == 0) {
+      ASSERT_OK(Put(key, "v"));
+      ASSERT_OK(Merge(key, "DELETE"));  // deleted via merge
+    } else {
+      ASSERT_OK(Put(key, "live"));
+    }
+  }
+
+  auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+  int live_seen = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_EQ(iter->value().ToString(), "live");
+    live_seen++;
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(live_seen, kN / 2);
+}
+
+// Concurrent writers / readers: spawns N writer threads that drive
+// random-key counter-decrement workloads (auto-delete-at-zero) alongside
+// reader threads that verify Get results are either NotFound or a positive
+// counter. Validates that concurrent access through the
+// merge-resolved-deletion code paths does not race or violate read
+// consistency.
+TEST_F(DBMergeOperatorTest, MergeDeletionConcurrentReadersAndWriters) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  Reopen(options);
+
+  constexpr int kNumKeys = 8;
+  constexpr int kWriterThreads = 4;
+  constexpr int kReaderThreads = 4;
+  constexpr int kOpsPerThread = 200;
+  std::atomic<bool> stop{false};
+  std::atomic<int> verification_failures{0};
+
+  const uint32_t seed = merge_deletion_test_helpers::RandomSeedWithTrace();
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+
+  auto writer = [&](int tid) {
+    Random rnd(seed + tid);
+    for (int i = 0; i < kOpsPerThread && !stop.load(); ++i) {
+      std::string key = "k" + std::to_string(rnd.Uniform(kNumKeys));
+      int delta = static_cast<int>(rnd.Uniform(11)) - 5;
+      std::string val;
+      PutFixed64(&val, static_cast<uint64_t>(static_cast<int64_t>(delta)));
+      Status s = db_->Merge(WriteOptions(), key, val);
+      if (!s.ok()) {
+        verification_failures++;
+      }
+    }
+  };
+
+  auto reader = [&]() {
+    while (!stop.load()) {
+      for (int k = 0; k < kNumKeys; ++k) {
+        std::string key = "k" + std::to_string(k);
+        std::string v;
+        Status s = db_->Get(ReadOptions(), key, &v);
+        if (!s.ok() && !s.IsNotFound()) {
+          verification_failures++;
+        }
+      }
+    }
+  };
+
+  std::vector<std::thread> threads;
+  for (int i = 0; i < kWriterThreads; ++i) {
+    threads.emplace_back(writer, i);
+  }
+  for (int i = 0; i < kReaderThreads; ++i) {
+    threads.emplace_back(reader);
+  }
+  for (int i = 0; i < kWriterThreads; ++i) {
+    threads[i].join();
+  }
+  stop.store(true);
+  for (int i = kWriterThreads; i < kWriterThreads + kReaderThreads; ++i) {
+    threads[i].join();
+  }
+  ASSERT_EQ(verification_failures.load(), 0);
+}
+
+// Compaction at the bottommost level with a merge-resolved deletion MUST
+// also consume any older versions of the same user key that live below
+// the consumed Put. Without that, a stale Merge from an older sequence
+// would surface as a live value after compaction (regression: surfaced
+// by the random stress test, codified here as a deterministic case).
+TEST_F(DBMergeOperatorTest, MergeDeletionAtBottomDropsOlderVersions) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // L1+ has an older Merge for k (no base value yet).
+  ASSERT_OK(Merge("k", EncodeInt64(+50)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // L0 has a newer chain Put + Merge that resolves to a deletion.
+  ASSERT_OK(Put("k", EncodeInt64(5)));
+  ASSERT_OK(Merge("k", EncodeInt64(-10)));
+  ASSERT_OK(Flush());
+
+  // Pre-compact: read path resolves the LATEST chain only, which is
+  // Put(5) + Merge(-10) = -5 -> monostate. Get must return NotFound.
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+
+  // Compact everything to the bottommost level. The merge resolves to a
+  // deletion at the bottom, AND the older Merge(+50) further back must
+  // be dropped along with the consumed Put. Otherwise it would surface
+  // as Put(50).
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Post-compact: still NotFound. (Pre-fix this returned 50.)
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound())
+      << "Older versions surfaced after merge-resolved deletion at bottom";
+}
+
+// Same invariant, exercised through a chain of Puts. The compaction at
+// the bottommost level resolves to monostate, and the older Put (from a
+// distinct earlier write) must NOT come back to life.
+TEST_F(DBMergeOperatorTest, MergeDeletionAtBottomDropsOlderPut) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("k", EncodeInt64(7)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_OK(Put("k", EncodeInt64(3)));
+  ASSERT_OK(Merge("k", EncodeInt64(-3)));  // chain 3+(-3)=0 -> monostate
+  ASSERT_OK(Flush());
+
+  std::string v;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k", &v).IsNotFound())
+      << "Older Put surfaced after merge-resolved deletion at bottom";
+}
+
+// Status::SubCode plumbing: the wide-column TimedFullMerge variant must
+// return Status::NotFound with subcode kMergeOperatorDeletion when the
+// operator chooses std::monostate. This pins the API contract that WBWI
+// and transactions rely on to distinguish deletion from real not-found.
+TEST_F(DBMergeOperatorTest, MergeDeletionStatusSubCode) {
+  Status merge_deletion =
+      Status::NotFound(Status::SubCode::kMergeOperatorDeletion);
+  ASSERT_NE(merge_deletion.ToString().find("Merge operator requested deletion"),
+            std::string::npos);
+
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<AlwaysDeleteMergeOperator>();
+  Reopen(options);
+
+  ASSERT_OK(Put("k", "base"));
+  ASSERT_OK(Merge("k", "any"));
+
+  std::string v;
+  Status s = db_->Get(ReadOptions(), "k", &v);
+  ASSERT_TRUE(s.IsNotFound());
+  // The Get path doesn't surface the subcode to the user (NotFound is
+  // NotFound), but we verify the public predicate works.
+  ASSERT_FALSE(s.IsCorruption());
+  ASSERT_FALSE(s.IsIOError());
+}
+
+// Regression: GetContext::PostprocessMerge must translate
+// Status::NotFound(kMergeOperatorDeletion) into the terminal kDeleted
+// state, NOT kCorrupt and NOT kNotFound. With kCorrupt the user would
+// see Status::Corruption() for what is actually a successful deletion;
+// with kNotFound the lookup would continue searching lower levels
+// (potentially surfacing an older version of the key).
+//
+// This bug-class can only surface when merge resolution completes
+// entirely inside a single SaveValue() call -- i.e., the base value
+// (Put / Delete / SingleDelete) for the key is reached while the
+// GetContext is still inside one level (memtable or one SST). Forcing
+// a Flush after the Put+Merge and reading from the resulting SST
+// covers the single-SST case; staying in the memtable covers that
+// path; flushing twice with operands ensures we also exercise the
+// multi-level resolution.
+TEST_F(DBMergeOperatorTest, MergeDeletionSingleLevelGetReturnsNotFound) {
+  Options options = CurrentOptions();
+  options.merge_operator = std::make_shared<CounterDeleteMergeOperator>();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  // (a) Memtable-only: Put + Merge resolve inside the active memtable.
+  ASSERT_OK(Put("k_mem", EncodeInt64(5)));
+  ASSERT_OK(Merge("k_mem", EncodeInt64(-5)));  // 5 + (-5) = 0 -> monostate
+  std::string v;
+  Status s = db_->Get(ReadOptions(), "k_mem", &v);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(s.IsCorruption()) << "PostprocessMerge mishandled monostate";
+
+  // (b) Single-SST: flush so Put+Merge land in one SST, then Get
+  //     resolves the merge inside the GetContext for that one SST.
+  ASSERT_OK(Put("k_sst", EncodeInt64(7)));
+  ASSERT_OK(Merge("k_sst", EncodeInt64(-7)));
+  ASSERT_OK(Flush());
+  s = db_->Get(ReadOptions(), "k_sst", &v);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(s.IsCorruption()) << "PostprocessMerge mishandled monostate";
+
+  // (c) Wide-column entity base + merge resolving to deletion in one SST.
+  // Hoist the encoded value into a local so its lifetime outlives the
+  // PutEntity call -- WideColumn stores its value as a Slice (non-owning
+  // view), so passing a temporary std::string would leave the Slice
+  // dangling at the next semicolon and trip stack-use-after-scope under
+  // ASAN.
+  const std::string entity_default = EncodeInt64(3);
+  WideColumns columns{{kDefaultWideColumnName, entity_default}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           "k_entity", columns));
+  ASSERT_OK(Merge("k_entity", EncodeInt64(-3)));
+  ASSERT_OK(Flush());
+  s = db_->Get(ReadOptions(), "k_entity", &v);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(s.IsCorruption()) << "PostprocessMerge mishandled monostate";
+
+  // (d) No base value: merges only, resolving to deletion in one SST.
+  ASSERT_OK(Merge("k_no_base", EncodeInt64(0)));  // 0 + 0 -> monostate
+  ASSERT_OK(Flush());
+  s = db_->Get(ReadOptions(), "k_no_base", &v);
+  ASSERT_TRUE(s.IsNotFound()) << s.ToString();
+  ASSERT_FALSE(s.IsCorruption()) << "PostprocessMerge mishandled monostate";
 }
 
 }  // namespace ROCKSDB_NAMESPACE

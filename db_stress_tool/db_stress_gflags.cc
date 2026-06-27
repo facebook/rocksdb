@@ -1127,6 +1127,14 @@ DEFINE_uint32(use_put_entity_one_in, 0,
               "If greater than zero, PutEntity will be used once per every N "
               "write ops on average.");
 
+DEFINE_uint32(use_merge_deletion_one_in, 0,
+              "If greater than zero, the stress test merge operator will "
+              "produce a deletion (FullMergeV3 std::monostate) once per "
+              "every N FullMergeV3 calls on average. This exercises the "
+              "merge-resolved-deletion code path across all read/write/"
+              "iteration/compaction surfaces. Requires "
+              "--use_full_merge_v1=false (the default).");
+
 DEFINE_bool(use_attribute_group, false,
             "If set, use the attribute_group API to put/get entities");
 

@@ -19,6 +19,7 @@
 
 #include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
+#include "db_stress_tool/db_stress_wide_merge_operator.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -1918,10 +1919,20 @@ class NonBatchedOpsStressTest : public StressTest {
     bool initial_wal_write_may_succeed = true;
     bool commit_bypass_memtable = false;
 
+    const ExpectedValue expected_value =
+        shared->Get(rand_column_family, rand_key);
+    const uint32_t value_base = expected_value.NextValueBase();
+    const bool use_put_entity = FLAGS_use_put_entity_one_in > 0 &&
+                                (value_base % FLAGS_use_put_entity_one_in) == 0;
+    const bool use_timed_put = FLAGS_use_timed_put_one_in > 0 &&
+                               ((value_base + kLargePrimeForCommonFactorSkew) %
+                                FLAGS_use_timed_put_one_in) == 0;
+    const bool merge_would_delete = FLAGS_use_merge && !use_put_entity &&
+                                    !use_timed_put &&
+                                    DBStressMergeOperandWouldDelete(value_base);
     PendingExpectedValue pending_expected_value =
-        shared->PreparePut(rand_column_family, rand_key);
-
-    const uint32_t value_base = pending_expected_value.GetFinalValueBase();
+        merge_would_delete ? shared->PrepareDelete(rand_column_family, rand_key)
+                           : shared->PreparePut(rand_column_family, rand_key);
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
@@ -1934,8 +1945,7 @@ class NonBatchedOpsStressTest : public StressTest {
           initial_wal_write_may_succeed) {
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
       }
-      if (FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      if (use_put_entity) {
         if (!FLAGS_use_txn) {
           if (FLAGS_use_attribute_group) {
             s = db_->PutEntity(write_opts, k,
@@ -1949,9 +1959,7 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
           });
         }
-      } else if (FLAGS_use_timed_put_one_in > 0 &&
-                 ((value_base + kLargePrimeForCommonFactorSkew) %
-                  FLAGS_use_timed_put_one_in) == 0) {
+      } else if (use_timed_put) {
         WriteBatch wb;
         uint64_t write_unix_time = GetWriteUnixTime(thread);
         s = wb.TimedPut(cfh, k, v, write_unix_time);
@@ -3549,9 +3557,18 @@ class NonBatchedOpsStressTest : public StressTest {
           ExpectedValue put_value;
           put_value.SyncPut(static_cast<uint32_t>(thread->rand.Uniform(
               static_cast<int>(ExpectedValue::GetValueBaseMask()))));
-          new_expected_value = put_value;
 
           const uint32_t value_base = put_value.GetValueBase();
+          const bool merge_would_delete =
+              op == Op::Merge && FLAGS_use_merge &&
+              DBStressMergeOperandWouldDelete(value_base);
+          if (merge_would_delete) {
+            ExpectedValue delete_value;
+            delete_value.SyncDelete();
+            new_expected_value = delete_value;
+          } else {
+            new_expected_value = put_value;
+          }
 
           char value[100];
           const size_t sz = GenerateValue(value_base, value, sizeof(value));

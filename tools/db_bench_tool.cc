@@ -9006,6 +9006,12 @@ class Benchmark {
   // For example, use FLAGS_merge_operator="uint64add" and FLAGS_value_size=8
   // to simulate random additions over 64-bit integers using merge.
   //
+  // To benchmark the FullMergeV3 deletion path (std::monostate), use
+  // FLAGS_merge_operator="counter_delete" with FLAGS_value_size=8: signed
+  // int64 operands are summed, and the key is deleted whenever the running
+  // total drops to <= 0. This exercises the new merge-resolved-deletion
+  // code paths (read, iteration, compaction).
+  //
   // The number of merges on the same key can be controlled by adjusting
   // FLAGS_merge_keys.
   void MergeRandom(ThreadState* thread) {

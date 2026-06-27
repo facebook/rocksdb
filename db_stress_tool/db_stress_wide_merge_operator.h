@@ -24,4 +24,11 @@ class DBStressWideMergeOperator : public MergeOperator {
   const char* Name() const override { return "DBStressWideMergeOperator"; }
 };
 
+// Returns true if the stress merge operator will resolve a merge with the
+// given `value_base` to a deletion (FullMergeV3 std::monostate). Used by
+// the stress validation logic to keep the expected state consistent with
+// what the operator actually does. Returns false when
+// `FLAGS_use_merge_deletion_one_in == 0`.
+bool DBStressMergeOperandWouldDelete(uint32_t value_base);
+
 }  // namespace ROCKSDB_NAMESPACE

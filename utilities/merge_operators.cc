@@ -12,6 +12,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/counter_delete.h"
 #include "utilities/merge_operators/max_operator.h"
 #include "utilities/merge_operators/put_operator.h"
 #include "utilities/merge_operators/sortlist.h"
@@ -61,6 +62,14 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new UInt64AddOperator());
+        return guard->get();
+      });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(CounterDeleteOperator::kClassName())
+          .AnotherName(CounterDeleteOperator::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new CounterDeleteOperator());
         return guard->get();
       });
   library.AddFactory<MergeOperator>(

@@ -289,7 +289,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromBase() {
   columns_ = base_iterator_->columns();
 }
 
-void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
+bool BaseDeltaIterator::SetValueAndColumnsFromDelta() {
   assert(!current_at_base_);
   assert(DeltaValid());
   assert(value_.empty());
@@ -310,7 +310,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
       status_ = WideColumnSerialization::Deserialize(value_copy, columns_);
       if (!status_.ok()) {
         columns_.clear();
-        return;
+        return false;
       }
 
       if (WideColumnsHelper::HasDefaultColumn(columns_)) {
@@ -318,7 +318,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
       }
     }
 
-    return;
+    return true;
   }
 
   ValueType result_type = kTypeValue;
@@ -348,7 +348,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
 
         assert(!Valid());
         assert(!status().ok());
-        return;
+        return false;
       }
 
       if (WideColumnsHelper::HasDefaultColumnOnly(base_iterator_->columns())) {
@@ -372,7 +372,14 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
   }
 
   if (!status_.ok()) {
-    return;
+    return false;
+  }
+
+  if (result_type == kTypeDeletion) {
+    // The merge operator resolved this entry to a deletion (FullMergeV3
+    // returned std::monostate). The caller (UpdateCurrent) must skip
+    // past this key.
+    return false;
   }
 
   if (result_type == kTypeWideColumnEntity) {
@@ -381,20 +388,21 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
     status_ = WideColumnSerialization::Deserialize(entity, columns_);
     if (!status_.ok()) {
       columns_.clear();
-      return;
+      return false;
     }
 
     if (WideColumnsHelper::HasDefaultColumn(columns_)) {
       value_ = WideColumnsHelper::GetDefaultColumn(columns_);
     }
 
-    return;
+    return true;
   }
 
   assert(result_type == kTypeValue);
 
   value_ = merge_result_;
   columns_.emplace_back(kDefaultWideColumnName, value_);
+  return true;
 }
 
 void BaseDeltaIterator::UpdateCurrent() {
@@ -434,8 +442,15 @@ void BaseDeltaIterator::UpdateCurrent() {
         AdvanceDelta();
       } else {
         current_at_base_ = false;
-        SetValueAndColumnsFromDelta();
-        return;
+        if (SetValueAndColumnsFromDelta()) {
+          return;
+        }
+        // Merge resolved to a deletion. Skip this key.
+        if (!status_.ok()) {
+          return;
+        }
+        ResetValueAndColumns();
+        AdvanceDelta();
       }
     } else if (!DeltaValid()) {
       // Delta is done, base has value.
@@ -458,8 +473,20 @@ void BaseDeltaIterator::UpdateCurrent() {
             merge_context_.GetNumOperands() > 0) {
           // delta is visible
           current_at_base_ = false;
-          SetValueAndColumnsFromDelta();
-          return;
+          if (SetValueAndColumnsFromDelta()) {
+            return;
+          }
+          // Merge resolved to a deletion. Skip this key in both base and
+          // delta (if they share it) and continue the loop.
+          if (!status_.ok()) {
+            return;
+          }
+          ResetValueAndColumns();
+          AdvanceDelta();
+          if (equal_keys_) {
+            AdvanceBase();
+          }
+          continue;
         }
         // Delta is less advanced and is delete.
         AdvanceDelta();
@@ -864,13 +891,31 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatchImpl(
                                    MergeHelper::kWideBaseValue, entry.value,
                                    *context, output_value, output_entity);
       }
-    } else {
-      if (entry.type == kPutRecord) {
-        *s = Traits::SetPlainValue(entry.value, output);
-      } else {
-        assert(entry.type == kPutEntityRecord);
-        *s = Traits::SetWideColumnValue(entry.value, output);
+
+      if (!s->ok()) {
+        // Distinguish "merge operator chose to delete this key"
+        // (Status::NotFound with the kMergeOperatorDeletion subcode) from
+        // a real error. The former is a successful result that should be
+        // reported as kDeleted, not kError, so callers can return
+        // NotFound to the user instead of an IOError-style status.
+        if (s->IsNotFound() &&
+            s->subcode() == Status::SubCode::kMergeOperatorDeletion) {
+          Traits::ClearOutput(output);
+          *s = Status::OK();
+          return WBWIIteratorImpl::Result::kDeleted;
+        }
+        Traits::ClearOutput(output);
+        return WBWIIteratorImpl::Result::kError;
       }
+      return result;
+    }
+
+    // No merge operands; just emit the underlying Put / PutEntity.
+    if (entry.type == kPutRecord) {
+      *s = Traits::SetPlainValue(entry.value, output);
+    } else {
+      assert(entry.type == kPutEntityRecord);
+      *s = Traits::SetWideColumnValue(entry.value, output);
     }
 
     if (!s->ok()) {
@@ -889,6 +934,13 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatchImpl(
                                    output_entity);
       if (s->ok()) {
         result = WBWIIteratorImpl::Result::kFound;
+      } else if (s->IsNotFound() &&
+                 s->subcode() == Status::SubCode::kMergeOperatorDeletion) {
+        // Merge operator chose to delete the key. Propagate as kDeleted
+        // with a clean Status, NOT kError -- the deletion is intentional.
+        Traits::ClearOutput(output);
+        *s = Status::OK();
+        result = WBWIIteratorImpl::Result::kDeleted;
       } else {
         Traits::ClearOutput(output);
         result = WBWIIteratorImpl::Result::kError;

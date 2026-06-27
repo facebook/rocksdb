@@ -972,9 +972,17 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   for (auto cfh : column_families_) {
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
+      const ExpectedValue expected_value = shared->Get(cf_idx, k);
+      const uint32_t value_base = expected_value.NextValueBase();
+      const bool use_put_entity =
+          FLAGS_use_put_entity_one_in > 0 &&
+          (value_base % FLAGS_use_put_entity_one_in) == 0;
+      const bool merge_would_delete =
+          FLAGS_use_merge && !use_put_entity &&
+          DBStressMergeOperandWouldDelete(value_base);
       PendingExpectedValue pending_expected_value =
-          shared->PreparePut(cf_idx, k);
-      const uint32_t value_base = pending_expected_value.GetFinalValueBase();
+          merge_would_delete ? shared->PrepareDelete(cf_idx, k)
+                             : shared->PreparePut(cf_idx, k);
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
       const Slice v(value, sz);
@@ -984,8 +992,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         ts = GetNowNanos();
       }
 
-      if (FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      if (use_put_entity) {
         if (!FLAGS_use_txn) {
           if (FLAGS_use_attribute_group) {
             s = db_->PutEntity(write_opts, key,
@@ -3177,7 +3184,8 @@ void InitializeMergeOperator(Options& options) {
   if (FLAGS_use_full_merge_v1) {
     options.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
   } else {
-    if (FLAGS_use_put_entity_one_in > 0) {
+    if (FLAGS_use_put_entity_one_in > 0 ||
+        FLAGS_use_merge_deletion_one_in > 0) {
       options.merge_operator = std::make_shared<DBStressWideMergeOperator>();
     } else {
       options.merge_operator = MergeOperators::CreatePutOperator();

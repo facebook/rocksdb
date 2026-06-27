@@ -127,6 +127,15 @@ class Status {
     kPrefetchLimitReached = 17,
     kNotExpectedCodePath = 18,
     kCompactionAborted = 19,
+    // Signals that a merge operator's FullMergeV3() implementation requested
+    // that the key be deleted by setting `new_value` to `std::monostate`.
+    // Carried as a SubCode on `Status::NotFound(...)` returned from the
+    // wide-column variant of `MergeHelper::TimedFullMerge()`. This lets
+    // downstream consumers (e.g., WriteBatchWithIndex / transactions)
+    // distinguish "merge operator asked to delete the key" from a true
+    // "key absent from the database" error without overloading the meaning
+    // of a plain `NotFound`.
+    kMergeOperatorDeletion = 20,
     kMaxSubCode
   };
 

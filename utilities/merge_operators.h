@@ -18,6 +18,9 @@ class MergeOperators {
   static std::shared_ptr<MergeOperator> CreatePutOperator();
   static std::shared_ptr<MergeOperator> CreateDeprecatedPutOperator();
   static std::shared_ptr<MergeOperator> CreateUInt64AddOperator();
+  // Sums signed int64 operands on top of an int64 base value. If the total
+  // is <= 0, signals deletion via FullMergeV3 std::monostate.
+  static std::shared_ptr<MergeOperator> CreateCounterDeleteOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator(
       char delim_char);

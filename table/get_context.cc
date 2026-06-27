@@ -678,7 +678,25 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
 Status GetContext::PostprocessMerge(const Status& merge_status) {
   if (!merge_status.ok()) {
-    if (merge_status.subcode() == Status::SubCode::kMergeOperatorFailed) {
+    if (merge_status.IsNotFound() &&
+        merge_status.subcode() == Status::SubCode::kMergeOperatorDeletion) {
+      // Merge operator returned std::monostate from FullMergeV3 to signal
+      // deletion. Use the terminal kDeleted state (which translates to
+      // Status::NotFound() for the user in version_set.cc) rather than
+      // kNotFound (which would keep searching lower levels).
+      //
+      // We intentionally require the dedicated kMergeOperatorDeletion
+      // subcode here rather than treating any IsNotFound() as deletion --
+      // this prevents an unrelated NotFound from somewhere in the merge
+      // stack (e.g., a future blob fetch path) from being silently
+      // re-interpreted as a user-requested deletion.
+      state_ = kDeleted;
+      // Return OK after translating the dedicated status into kDeleted. Some
+      // table reader callers copy this return status before Version can map
+      // kDeleted to user-visible NotFound.
+      return Status::OK();
+    } else if (merge_status.subcode() ==
+               Status::SubCode::kMergeOperatorFailed) {
       state_ = kMergeOperatorFailed;
     } else {
       state_ = kCorrupt;
