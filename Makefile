@@ -2476,7 +2476,9 @@ BUILD_SIG_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
 BUILD_SIG_DO_BUILD := $(filter-out $(BUILD_SIG_NONBUILD_GOALS),$(BUILD_SIG_GOALS))
 BUILD_SIG_CLEANING := $(filter $(BUILD_SIG_CLEAN_GOALS),$(MAKECMDGOALS))
 # Dry runs (-n/--just-print) must not write the stamp, clean, or error; the
-# parse-time $(shell) below would otherwise run even under -n.
+# parse-time $(shell) below would otherwise run even under -n. Note that
+# actual options are canonicalized and shorted as possible such that all
+# short options are in the first word of MAKEFLAGS.
 BUILD_SIG_DRYRUN := $(findstring n,$(firstword -$(MAKEFLAGS)))
 
 # Only enforce at the top level. Sub-makes (e.g. `check` invokes
@@ -2495,6 +2497,9 @@ ifneq ($(BUILD_SIG_DO_BUILD),)
   ifeq ($(AUTO_CLEAN),1)
     $(info *** Build parameters changed since last build (OBJ_DIR=$(OBJ_DIR)); running 'make clean-rocks' because AUTO_CLEAN=1)
     BUILD_SIG_CLEAN_OUTPUT := $(shell $(MAKE) clean-rocks 1>&2)
+    ifneq ($(.SHELLSTATUS),0)
+      $(error AUTO_CLEAN: 'make clean-rocks' failed (exit $(.SHELLSTATUS)); not building against a partially-cleaned tree)
+    endif
   else
     $(error Build parameters changed since the last build (OBJ_DIR=$(OBJ_DIR)). Existing object files are stale and must be removed. Run 'make clean', or set AUTO_CLEAN=1 to clean automatically, or ALLOW_BUILD_PARAMETER_CHANGE=1 to build anyway)
   endif
