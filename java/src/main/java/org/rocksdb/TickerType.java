@@ -519,6 +519,46 @@ public enum TickerType {
     NUMBER_RATE_LIMITER_DRAINS((byte) 0x76),
 
     /**
+     * Bytes granted by the rate limiter for read requests.
+     */
+    RATE_LIMITER_BYTES_READ((byte) -0x71),
+
+    /**
+     * Bytes granted by the rate limiter for write requests.
+     */
+    RATE_LIMITER_BYTES_WRITE((byte) -0x72),
+
+    /**
+     * Number of read requests granted by the rate limiter.
+     */
+    RATE_LIMITER_REQUESTS_READ((byte) -0x73),
+
+    /**
+     * Number of write requests granted by the rate limiter.
+     */
+    RATE_LIMITER_REQUESTS_WRITE((byte) -0x74),
+
+    /**
+     * Number of read requests that waited for a future rate limiter refill.
+     */
+    RATE_LIMITER_DELAYED_REQUESTS_READ((byte) -0x75),
+
+    /**
+     * Number of write requests that waited for a future rate limiter refill.
+     */
+    RATE_LIMITER_DELAYED_REQUESTS_WRITE((byte) -0x76),
+
+    /**
+     * Total time read requests spent waiting for rate limiter refills.
+     */
+    RATE_LIMITER_TOTAL_WAIT_MICROS_READ((byte) -0x77),
+
+    /**
+     * Total time write requests spent waiting for rate limiter refills.
+     */
+    RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE((byte) -0x78),
+
+    /**
      * BlobDB specific stats
      * # of Put/PutTTL/PutUntil to BlobDB.
      */

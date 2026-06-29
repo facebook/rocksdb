@@ -5089,6 +5089,22 @@ class TickerTypeJni {
         return 0x75;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x76;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_READ:
+        return -0x71;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_WRITE:
+        return -0x72;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_READ:
+        return -0x73;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_WRITE:
+        return -0x74;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_READ:
+        return -0x75;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_WRITE:
+        return -0x76;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_READ:
+        return -0x77;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE:
+        return -0x78;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT:
         return 0x77;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE:
@@ -5597,6 +5613,22 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES;
       case 0x76:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS;
+      case -0x71:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_READ;
+      case -0x72:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_WRITE;
+      case -0x73:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_READ;
+      case -0x74:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_WRITE;
+      case -0x75:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_READ;
+      case -0x76:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_WRITE;
+      case -0x77:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_READ;
+      case -0x78:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE;
       case 0x77:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT;
       case 0x78:
@@ -6002,6 +6034,10 @@ class HistogramTypeJni {
         return 0x43;
       case ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_RUN_TIME:
         return 0x44;
+      case ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_READ:
+        return 0x45;
+      case ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_WRITE:
+        return 0x46;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6159,6 +6195,10 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_PREPARE_TIME;
       case 0x44:
         return ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_RUN_TIME;
+      case 0x45:
+        return ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_READ;
+      case 0x46:
+        return ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_WRITE;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.

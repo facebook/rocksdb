@@ -45,6 +45,8 @@ class GenericRateLimiter : public RateLimiter {
   using RateLimiter::Request;
   void Request(const int64_t bytes, const Env::IOPriority pri,
                Statistics* stats) override;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats, RateLimiter::OpType op_type) override;
 
   int64_t GetSingleBurstBytes() const override {
     int64_t raw_single_burst_bytes =
@@ -110,6 +112,8 @@ class GenericRateLimiter : public RateLimiter {
 
  private:
   static constexpr int kMicrosecondsPerSecond = 1000000;
+  void RequestImpl(int64_t bytes, Env::IOPriority pri, Statistics* stats,
+                   RateLimiter::OpType op_type);
   void RefillBytesAndGrantRequestsLocked();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
