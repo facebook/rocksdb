@@ -28,6 +28,71 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+bool FileSnapshotIsAsciiAlpha(char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+bool FileSnapshotIsAbsolutePath(const std::string& path) {
+  if (path.empty()) {
+    return false;
+  }
+  if (path[0] == '/' || path[0] == '\\') {
+    return true;
+  }
+  return path.size() >= 3 && FileSnapshotIsAsciiAlpha(path[0]) &&
+         path[1] == ':' && (path[2] == '/' || path[2] == '\\');
+}
+
+std::string FileSnapshotJoinPath(const std::string& dirname,
+                                 const std::string& relative_path) {
+  if (dirname.empty()) {
+    return relative_path;
+  }
+  if (relative_path.empty()) {
+    return dirname;
+  }
+  if (dirname.back() == '/') {
+    return dirname + relative_path;
+  }
+  return dirname + "/" + relative_path;
+}
+
+std::string FileSnapshotParentPath(const std::string& path) {
+  const size_t slash = path.find_last_of("/\\");
+  if (slash == std::string::npos) {
+    return std::string();
+  }
+  if (slash == 0) {
+    return path.substr(0, 1);
+  }
+  if (slash == 2 && path.size() >= 3 && FileSnapshotIsAsciiAlpha(path[0]) &&
+      path[1] == ':') {
+    return path.substr(0, 3);
+  }
+  return path.substr(0, slash);
+}
+
+std::string FileSnapshotBaseName(const std::string& path) {
+  const size_t slash = path.find_last_of("/\\");
+  if (slash == std::string::npos) {
+    return path;
+  }
+  return path.substr(slash + 1);
+}
+
+std::string FileSnapshotExternalLogFilePath(
+    const std::string& dbname, const ExternalLogFileMetadata& metadata) {
+  if (metadata.GetPathType() == ExternalLogFilePathType::kExternalPath &&
+      FileSnapshotIsAbsolutePath(metadata.GetName())) {
+    return metadata.GetName();
+  }
+  return FileSnapshotJoinPath(dbname, metadata.GetName());
+}
+
+}  // namespace
+
 Status DBImpl::FlushForGetLiveFiles(bool force_atomic_flush) {
   FlushOptions flush_opts;
   flush_opts.force_atomic_flush = force_atomic_flush;
@@ -50,7 +115,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
     }
   }
 
-  // Make a set of all of the live table and blob files
+  // Make a set of all of the live table, blob, and external log files
   std::vector<uint64_t> live_table_files;
   std::vector<uint64_t> live_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -62,6 +127,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   ret.clear();
   ret.reserve(live_table_files.size() + live_blob_files.size() +
+              versions_->GetExternalLogFileSet().GetFiles().size() +
               3);  // for CURRENT + MANIFEST + OPTIONS
 
   // create names of the live files. The names are not absolute
@@ -72,6 +138,17 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   for (const auto& blob_file_number : live_blob_files) {
     ret.emplace_back(BlobFileName("", blob_file_number));
+  }
+
+  for (const auto& external_log_file :
+       versions_->GetExternalLogFileSet().GetFiles()) {
+    const auto& metadata = external_log_file.second;
+    if (metadata.GetPathType() == ExternalLogFilePathType::kExternalPath) {
+      mutex_.Unlock();
+      return Status::NotSupported(
+          "GetLiveFiles cannot represent explicit external log file paths");
+    }
+    ret.emplace_back("/" + metadata.GetName());
   }
 
   ret.emplace_back(CurrentFileName(""));
@@ -337,6 +414,33 @@ Status DBImpl::GetLiveFilesStorageInfo(
       }
       // TODO?: info.temperature
     }
+  }
+
+  for (const auto& external_log_file :
+       versions_->GetExternalLogFileSet().GetFiles()) {
+    const auto& metadata = external_log_file.second;
+
+    results.emplace_back();
+    LiveFileStorageInfo& info = results.back();
+
+    if (metadata.GetPathType() == ExternalLogFilePathType::kExternalPath) {
+      const std::string path =
+          FileSnapshotExternalLogFilePath(GetName(), metadata);
+      info.relative_filename = FileSnapshotBaseName(path);
+      info.directory = FileSnapshotParentPath(path);
+    } else {
+      info.relative_filename = metadata.GetName();
+      info.directory = GetName();
+    }
+    info.file_number = external_log_file.first;
+    info.file_type = kExternalLogFile;
+    info.size = metadata.GetDurableSize();
+    info.trim_to_size = true;
+    if (opts.include_checksum_info) {
+      info.file_checksum_func_name = metadata.GetFileChecksumFuncName();
+      info.file_checksum = metadata.GetFileChecksum();
+    }
+    info.temperature = metadata.GetTemperature();
   }
 
   // Capture some final info before releasing mutex
