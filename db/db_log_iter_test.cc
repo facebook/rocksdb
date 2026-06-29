@@ -28,7 +28,6 @@ class DBTestXactLogIterator : public DBTestBase {
     std::unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
     EXPECT_OK(status);
-    EXPECT_TRUE(iter->Valid());
     return iter;
   }
 };
@@ -207,6 +206,72 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorStallAtLastRecord) {
     iter->Next();
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBTestXactLogIterator, TransactionLogIteratorPollNoWALFiles) {
+  do {
+    // read the WAL on an empty DB: no records
+    auto iter = OpenTransactionLogIter(0);
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+
+    // poll for WAL records when there is no WAL: used to crash now returns
+    // TryAgain
+    iter->Next();
+    ASSERT_EQ(Status::kTryAgain, iter->status().code());
+    ASSERT_FALSE(iter->Valid());
+    iter->Next();
+    ASSERT_EQ(Status::kTryAgain, iter->status().code());
+    ASSERT_FALSE(iter->Valid());
+
+    // put a record: iterator still returns TryAgain
+    ASSERT_OK(Put("key1", DummyString(1024)));
+    iter->Next();
+    ASSERT_EQ(Status::kTryAgain, iter->status().code());
+    ASSERT_FALSE(iter->Valid());
+
+    // open the iterator: positioned at batch with key1
+    iter = OpenTransactionLogIter(0);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    BatchResult batch = iter->GetBatch();
+    ASSERT_EQ(1, batch.sequence);
+    ASSERT_EQ(1, batch.writeBatchPtr->Count());
+
+    // flush the memtable and WaitForCompact to wait for the WAL to be removed
+    Status status = dbfull()->Flush(FlushOptions());
+    ASSERT_OK(status);
+    WaitForCompactOptions wait_options;
+    wait_options.wait_for_purge = true;
+    status = dbfull()->WaitForCompact(wait_options);
+    ASSERT_OK(status);
+
+    // open a new iterator: no WAL records
+    auto iter2 = OpenTransactionLogIter(0);
+    ASSERT_OK(iter2->status());
+    ASSERT_FALSE(iter2->Valid());
+
+    // put another key: creates a new WAL
+    ASSERT_OK(Put("key2", DummyString(1024)));
+
+    // iter2 was created with no WAL files: Next returns TryAgain
+    iter2->Next();
+    ASSERT_EQ(Status::kTryAgain, iter2->status().code());
+    ASSERT_FALSE(iter2->Valid());
+
+    // iter: Next also returns TryAgain because there are new wal files
+    iter->Next();
+    ASSERT_EQ(Status::kTryAgain, iter->status().code());
+    ASSERT_FALSE(iter->Valid());
+
+    // reopening the iterator returns the second write
+    iter = OpenTransactionLogIter(0);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    batch = iter->GetBatch();
+    ASSERT_EQ(2, batch.sequence);
+    ASSERT_EQ(1, batch.writeBatchPtr->Count());
   } while (ChangeCompactOptions());
 }
 

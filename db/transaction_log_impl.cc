@@ -173,10 +173,24 @@ void TransactionLogIteratorImpl::Next() {
   return NextImpl(false);
 }
 
+// Returns a Status with code TryAgain and a message to re-create the iterator.
+static Status TryAgainStatus() {
+  static const char* const msg = "Create a new iterator to fetch the new tail.";
+  return Status::TryAgain(msg);
+}
+
 void TransactionLogIteratorImpl::NextImpl(bool internal) {
   Slice record;
   is_valid_ = false;
   if (!internal && !started_) {
+    // if the iterator has no files and we are polling for WAL updates: we can't
+    // tell if the state has changed. Return TryAgain.
+    if (files_->empty()) {
+      current_status_ = TryAgainStatus();
+      assert(!Valid());
+      return;
+    }
+
     // Runs every time until we can seek to the start sequence
     SeekToStartSequence();
   }
@@ -217,8 +231,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       if (current_last_seq_ == versions_->LastSequence()) {
         current_status_ = Status::OK();
       } else {
-        const char* msg = "Create a new iterator to fetch the new tail.";
-        current_status_ = Status::TryAgain(msg);
+        current_status_ = TryAgainStatus();
       }
       return;
     }
