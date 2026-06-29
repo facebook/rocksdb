@@ -19,6 +19,33 @@ namespace ROCKSDB_NAMESPACE {
 
 class Comparator;
 
+// Options for SstFileWriter::OpenWithEmbeddedBlobs().
+//
+// Embedded blobs are large values stored in a leading segment of the same
+// block-based SST file. The table entry stores a same-file BlobIndex reference
+// instead of the value bytes. Readers that understand the embedded blob
+// metadata return the original value to callers.
+//
+// This mode is EXPERIMENTAL. It is intended for block-based table files with
+// format_version >= 7 only. Eligible blob records are written before Finish(),
+// so Put() and PutEntity() can surface write or checksum errors that would
+// normally be deferred until Finish().
+struct SstFileWriterEmbeddedBlobOptions {
+  // Minimum value size, in bytes, to store as an embedded blob.
+  //
+  // Put() values with size >= min_blob_size are embedded. For PutEntity(), each
+  // wide-column value is considered independently. Merge operands, deletions,
+  // and range deletions are not embedded. The default embeds eligible values
+  // of at least 2KB.
+  uint64_t min_blob_size = 2048;
+
+  // PLACEHOLDER: Not yet implemented (ignored).
+  CompressionType compression_type = kDisableCompressionOption;
+
+  // PLACEHOLDER: Not yet implemented (ignored).
+  CompressionOptions compression_options;
+};
+
 // ExternalSstFileInfo include information about sst files created
 // using SstFileWriter.
 struct ExternalSstFileInfo {
@@ -106,6 +133,20 @@ class SstFileWriter {
   // Prepare SstFileWriter to write into file located at "file_path".
   Status Open(const std::string& file_path,
               Temperature temp = Temperature::kUnknown);
+
+  // EXPERIMENTAL: opens an SST writer mode that stores eligible blob payloads
+  // inside the same block-based SST file and stores same-file BlobIndex
+  // references in table entries. This is a special-purpose mode that doesn't
+  // offer write-amp improvements under compaction like standard blob support
+  // does. Blob records are written inline (interleaved with data blocks) as
+  // eligible values are added.
+  //
+  // Requires the writer to use block-based table format_version >= 7. The
+  // resulting SST can be consumed by RocksDB >= 11.6.0.
+  Status OpenWithEmbeddedBlobs(
+      const std::string& file_path,
+      const SstFileWriterEmbeddedBlobOptions& embedded_blob_options,
+      Temperature temp = Temperature::kUnknown);
 
   // Add a Put key with value to currently opened file
   // REQUIRES: user_key is after any previously added point (Put/Merge/Delete)

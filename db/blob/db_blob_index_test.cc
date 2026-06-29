@@ -25,6 +25,9 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/perf_context.h"
+#include "rocksdb/sst_file_writer.h"
+#include "rocksdb/table.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -40,6 +43,18 @@ void CorruptPinnedBlobIndexOnCleanup(void* arg1, void* /*arg2*/) {
 }
 
 }  // namespace
+
+TEST(BlobIndexTest, SameFileBlobIndex) {
+  std::string encoded;
+  BlobIndex::EncodeBlob(&encoded, kCurrentFileBlobIndexFileNumber,
+                        /*offset=*/123, /*size=*/456, kNoCompression);
+
+  BlobIndex blob_index;
+  ASSERT_OK(blob_index.DecodeFrom(encoded));
+  EXPECT_TRUE(blob_index.IsSameFile());
+  EXPECT_EQ(blob_index.file_number(), kCurrentFileBlobIndexFileNumber);
+  EXPECT_NE(blob_index.DebugString(false).find("file:same"), std::string::npos);
+}
 
 // kTypeBlobIndex is a value type used by BlobDB only. The base rocksdb
 // should accept the value type on write, and report not supported value
@@ -328,6 +343,232 @@ TEST_F(DBBlobIndexTest, ReadOnlyGetImplReturnsBlobIndexWhenRequested) {
   bool is_blob_index = false;
   ASSERT_EQ(blob_index, GetImpl("blob_key", &is_blob_index));
   ASSERT_TRUE(is_blob_index);
+}
+
+// Regression test for a same-file (embedded) BlobIndex being exposed
+// unresolved through an iterator. With index_type=kBinarySearchWithFirstKey
+// and allow_unprepared_value (the default for DB iterators), the block-based
+// table iterator can sit in the is_at_first_key_from_index_ state and return
+// the raw kTypeBlobIndex internal key from the index, while value() resolves
+// the same-file blob to its plain payload. DBIter then reads the stale
+// kTypeBlobIndex type and routes the already-resolved plain value through the
+// blob-index path, corrupting/misreading it.
+//
+// Forcing one entry per data block makes every embedded blob the first key of
+// a block, reliably triggering the deferred-first-key state on both SeekToFirst
+// and forward block transitions.
+TEST_F(DBBlobIndexTest, EmbeddedBlobIteratorWithFirstKeyIndex) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  BlockBasedTableOptions bbto;
+  bbto.index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  // Soft limit of 1 byte starts a new data block after every entry.
+  bbto.block_size = 1;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Build an embedded-blob SST whose large values are stored as same-file blob
+  // records (table entries become same-file BlobIndex references).
+  const std::string sst_path = dbname_ + "/embedded_first_key.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+  const std::string big3(1024, 'z');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Put("k3", big3));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Point lookups resolve same-file blobs before exposing them, so Get works.
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  ASSERT_EQ(Get("k3"), big3);
+
+  // Iterator path: the bug manifests here.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k3");
+  EXPECT_EQ(iter->value(), big3);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Seek directly to a block whose first key is an embedded blob.
+  iter->Seek("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+}
+
+// When a blob cache is configured, same-file ("embedded") blob reads should go
+// through BlobSource: the first read misses + inserts + does a disk read, and
+// the second read of the same blob is served from the blob cache. This holds on
+// both the Get() and the iterator paths.
+TEST_F(DBBlobIndexTest, EmbeddedBlobBlobCacheHitMiss) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+
+  LRUCacheOptions co;
+  co.capacity = 8 << 20;
+  options.blob_cache = NewLRUCache(co);
+
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_cache.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  Statistics* const stats = options.statistics.get();
+
+  // First Get: blob cache miss -> disk read -> cache insert.
+  ASSERT_OK(stats->Reset());
+  get_perf_context()->Reset();
+  SetPerfLevel(kEnableCount);
+  ASSERT_EQ(Get("k1"), big1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_MISS), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_HIT), 0);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 1);
+  EXPECT_GT(stats->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ), 0);
+  EXPECT_EQ(get_perf_context()->blob_read_count, 1);
+
+  // Second Get of the same key: blob cache hit, no disk read, no insert.
+  ASSERT_OK(stats->Reset());
+  get_perf_context()->Reset();
+  ASSERT_EQ(Get("k1"), big1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_HIT), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_MISS), 0);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ), 0);
+  EXPECT_EQ(get_perf_context()->blob_read_count, 0);
+  EXPECT_EQ(get_perf_context()->blob_cache_hit_count, 1);
+
+  // Iterator path: first read of a fresh key misses + inserts.
+  ASSERT_OK(stats->Reset());
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek("k2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    EXPECT_EQ(iter->value(), big2);
+  }
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_MISS), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  // Iterator path: second read of the same key hits the blob cache.
+  ASSERT_OK(stats->Reset());
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek("k2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    EXPECT_EQ(iter->value(), big2);
+  }
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_HIT), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+
+  SetPerfLevel(kDisable);
+}
+
+// With the blob cache and block cache pointing at the same Cache, the SST-like
+// cache-key scheme (offset >> 2 on the SST's base key) keeps embedded blob
+// records disjoint from the SST's data blocks. Reading embedded blobs must not
+// alias or evict data blocks, and values must remain correct.
+TEST_F(DBBlobIndexTest, EmbeddedBlobSharedBlockAndBlobCache) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+
+  LRUCacheOptions co;
+  co.capacity = 16 << 20;
+  auto shared_cache = NewLRUCache(co);
+  options.blob_cache = shared_cache;
+
+  BlockBasedTableOptions bbto;
+  bbto.block_cache = shared_cache;
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_shared.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  Statistics* const stats = options.statistics.get();
+
+  // Values are correct with a shared cache, and re-reads hit both the block
+  // cache (data blocks) and the blob cache (embedded payloads) independently.
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  EXPECT_GT(stats->getTickerCount(BLOB_DB_CACHE_HIT), 0);
+  EXPECT_GT(stats->getTickerCount(BLOCK_CACHE_HIT), 0);
+
+  // Iterator yields correct values too.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 class PlainBlobValueFilterV3 : public CompactionFilter {

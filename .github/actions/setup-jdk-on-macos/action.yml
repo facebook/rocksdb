@@ -1,0 +1,17 @@
+name: setup-jdk-on-macos
+runs:
+  using: composite
+  steps:
+  - name: Set up JDK on macos
+    run: |-
+      set -euo pipefail
+
+      JAVA_HOME="$(/usr/libexec/java_home -v 21)"
+
+      echo "JAVA_HOME=${JAVA_HOME}" >> "$GITHUB_ENV"
+      echo "JAVAC_ARGS=--release 8" >> "$GITHUB_ENV"
+      echo "${JAVA_HOME}/bin" >> "$GITHUB_PATH"
+      echo "Using JDK at ${JAVA_HOME}"
+      "${JAVA_HOME}/bin/java" -version
+      "${JAVA_HOME}/bin/javac" -version
+    shell: bash

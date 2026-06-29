@@ -636,6 +636,7 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
              value_type == ValueType::kTypeDeletion ||
              value_type == ValueType::kTypeDeletionWithTimestamp ||
              value_type == ValueType::kTypeRangeDeletion ||
+             value_type == ValueType::kTypeBlobIndex ||
              value_type == ValueType::kTypeWideColumnEntity);
       assert(seqno == 0);
     }
@@ -699,6 +700,7 @@ void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
            value_type == ValueType::kTypeMerge ||
            value_type == ValueType::kTypeDeletion ||
            value_type == ValueType::kTypeRangeDeletion ||
+           value_type == ValueType::kTypeBlobIndex ||
            value_type == ValueType::kTypeWideColumnEntity);
 
     first_internal_key.UpdateInternalKey(global_seqno_state_->global_seqno,

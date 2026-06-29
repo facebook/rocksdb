@@ -11,6 +11,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// WARNING: This value is == kCurrentFileBlobIndexFileNumber.
+// Use this name only where file number zero means "no valid blob file" or
+// "current file" is not understood/supported.
 constexpr uint64_t kInvalidBlobFileNumber = 0;
+
+// WARNING: This value is == kInvalidBlobFileNumber.
+// Use this name only for BlobIndex references to the same physical file as what
+// is currently being read; generic blob-file metadata must treat zero as
+// invalid. (Using a distinct value like 1 was found to be more problematic,
+// e.g. because of legacy "stackable" blob implementation.)
+constexpr uint64_t kCurrentFileBlobIndexFileNumber = kInvalidBlobFileNumber;
+static_assert(kCurrentFileBlobIndexFileNumber == kInvalidBlobFileNumber);
 
 }  // namespace ROCKSDB_NAMESPACE

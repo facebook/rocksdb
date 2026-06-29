@@ -27,7 +27,6 @@
 #       -DLZ4                       if the LZ4 library is present
 #       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
-#       -DTBB                       if the TBB library is present
 #       -DMEMKIND                   if the memkind library is present
 #
 # Using gflags in rocksdb:
@@ -421,19 +420,6 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
-        fi
-    fi
-
-    if ! test $ROCKSDB_DISABLE_TBB; then
-        # Test whether tbb is available
-        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -ltbb 2>/dev/null  <<EOF
-          #include <tbb/tbb.h>
-          int main() {}
-EOF
-        if [ "$?" = 0 ]; then
-            COMMON_FLAGS="$COMMON_FLAGS -DTBB"
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltbb"
-            JAVA_LDFLAGS="$JAVA_LDFLAGS -ltbb"
         fi
     fi
 

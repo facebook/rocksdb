@@ -420,13 +420,6 @@ if(WITH_NUMA)
   list(APPEND THIRDPARTY_LIBS NUMA::NUMA)
 endif()
 
-option(WITH_TBB "build with Threading Building Blocks (TBB)" OFF)
-if(WITH_TBB)
-  find_package(TBB REQUIRED)
-  add_definitions(-DTBB)
-  list(APPEND THIRDPARTY_LIBS TBB::TBB)
-endif()
-
 # Stall notifications eat some performance from inserts
 option(DISABLE_STALL_NOTIF "Build with stall notifications" OFF)
 if(DISABLE_STALL_NOTIF)
@@ -775,6 +768,7 @@ set(SOURCES
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
         db/blob/blob_garbage_meter.cc
+        db/blob/blob_gen2_format.cc
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc

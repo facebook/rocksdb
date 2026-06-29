@@ -35,6 +35,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/blob/blob_file_partition_manager.cc",
         "db/blob/blob_file_reader.cc",
         "db/blob/blob_garbage_meter.cc",
+        "db/blob/blob_gen2_format.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",

@@ -221,6 +221,7 @@ default_params = {
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
     "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
+    "ingest_external_file_with_embedded_blobs": lambda: random.choice([0, 1]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
@@ -1503,6 +1504,13 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+    # Embedded blobs in ingested files require ingestion to be enabled and
+    # block-based table format_version >= 7.
+    if (
+        dest_params.get("ingest_external_file_one_in") == 0
+        or dest_params.get("format_version", 2) < 7
+    ):
+        dest_params["ingest_external_file_with_embedded_blobs"] = 0
     if (
         dest_params.get("use_txn", 0) == 1
         and dest_params.get("commit_bypass_memtable_one_in", 0) > 0

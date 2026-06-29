@@ -39,18 +39,6 @@ RangeLockManagerHandle* NewRangeLockManager(
 static const char SUFFIX_INFIMUM = 0x0;
 static const char SUFFIX_SUPREMUM = 0x1;
 
-struct RangeTreeCmpContext {
-  const Comparator* cmp;
-  bool is_reverse;
-};
-
-namespace {
-[[nodiscard]] bool IsReverseComparator(const Comparator* cmp) {
-  return cmp == ReverseBytewiseComparator() ||
-         cmp == ReverseBytewiseComparatorWithU64Ts();
-}
-}  // namespace
-
 // Convert Endpoint into an internal format used for storing it in locktree
 // (DBT structure is used for passing endpoints to locktree and getting back)
 void serialize_endpoint(const Endpoint& endp, std::string* buf) {
@@ -213,6 +201,20 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
   ((RangeTreeLockTracker*)range_tracker)->ReleaseLocks(this, txn, all_keys);
 }
 
+// Comparator for range-lock endpoints. This is intentionally
+// direction-AGNOSTIC: it orders the user-key bytes with the column family's own
+// comparator, then breaks ties on the endpoint-type suffix byte (infimum before
+// supremum), which is a positional marker independent of the CF's sort
+// direction.
+//
+// CALLER REQUIREMENT: it is the caller's responsibility to pass in a flipped
+// (swapped start/end, with negated infimum/supremum flags) range for RangeLock
+// to work on a REVERSE-ORDERED column family. The locktree requires every range
+// to satisfy left <= right, and this comparator does NOT compensate for reverse
+// ordering on the caller's behalf. MyRocks does this flip today in
+// ha_rocksdb::set_range_lock() (see its "RangeFlagsShouldBeFlippedForRevCF"
+// comment). Do not re-add reverse-awareness here (that double-corrects callers
+// like MyRocks that already flip).
 int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
                                               const DBT* b_key) {
   const char* a = (const char*)a_key->data;
@@ -225,28 +227,22 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
 
   // Compare the values. The first byte encodes the endpoint type, its value
   // is either SUFFIX_INFIMUM or SUFFIX_SUPREMUM.
-  const auto* ctx = static_cast<const RangeTreeCmpContext*>(arg);
-  const auto* cmp = ctx->cmp;
-  const bool is_reverse = ctx->is_reverse;
+  Comparator* cmp = (Comparator*)arg;
   int res = cmp->CompareWithoutTimestamp(
       Slice(a + 1, min_len - 1), /*a_has_ts=*/false, Slice(b + 1, min_len - 1),
       /*b_has_ts=*/false);
   if (!res) {
+    // The user keys compared equal above, so order by the endpoint-type suffix
+    // byte (a positional boundary marker: infimum before the key, supremum
+    // after) -- direction-independent; see the function-level comment.
     if (b_len > min_len) {
-      int r = a[0] == SUFFIX_INFIMUM ? -1 : 1;
-      return is_reverse ? -r : r;
+      // a's user key is a prefix of b's; a is shorter.
+      return a[0] == SUFFIX_INFIMUM ? -1 : 1;
     } else if (a_len > min_len) {
-      int r = b[0] == SUFFIX_INFIMUM ? 1 : -1;
-      return is_reverse ? -r : r;
+      // b's user key is a prefix of a's; b is shorter.
+      return b[0] == SUFFIX_INFIMUM ? 1 : -1;
     } else {
-      // Same user key, differing only in the endpoint-type suffix byte. The
-      // suffix (SUFFIX_INFIMUM vs SUFFIX_SUPREMUM) is a positional boundary
-      // marker for that key, not key content, so the infimum endpoint always
-      // sorts before the supremum endpoint regardless of the column family's
-      // sort direction. This must NOT be flipped for a reverse comparator:
-      // doing so makes m_cmp(infimum(K), supremum(K)) > 0 and trips the
-      // locktree's "left <= right" invariant for a [infimum(K), supremum(K)]
-      // point range (e.g. a MyRocks equality lookup on a reverse 'rev:' CF).
+      // Same user key: infimum sorts before supremum.
       if (a[0] < b[0]) {
         return -1;
       } else if (a[0] > b[0]) {
@@ -373,11 +369,10 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
 }
 
 std::shared_ptr<toku::locktree> RangeTreeLockManager::MakeLockTreePtr(
-    toku::locktree* lt, std::unique_ptr<RangeTreeCmpContext> ctx) {
+    toku::locktree* lt) {
   toku::locktree_manager* ltm = &ltm_;
   return std::shared_ptr<toku::locktree>(
-      lt,
-      [ltm, ctx = std::move(ctx)](toku::locktree* p) { ltm->release_lt(p); });
+      lt, [ltm](toku::locktree* p) { ltm->release_lt(p); });
 }
 
 void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
@@ -386,18 +381,15 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
   InstrumentedMutexLock l(&ltree_map_mutex_);
   if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
-    auto ctx = std::make_unique<RangeTreeCmpContext>(RangeTreeCmpContext{
-        cfh->GetComparator(), IsReverseComparator(cfh->GetComparator())});
     toku::comparator cmp;
-    cmp.create(CompareDbtEndpoints, ctx.get());
+    cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
     toku::locktree* ltree =
         ltm_.get_lt(dict_id, cmp,
                     /* on_create_extra*/ static_cast<void*>(this));
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
 
-    ltree_map_.insert(
-        {column_family_id, MakeLockTreePtr(ltree, std::move(ctx))});
+    ltree_map_.insert({column_family_id, MakeLockTreePtr(ltree)});
   }
 }
 

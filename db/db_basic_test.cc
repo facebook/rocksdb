@@ -5459,9 +5459,9 @@ class DBBasicTestMultiGet : public DBTestBase {
   std::vector<std::string> cf_names_;
 };
 
-class DBBasicTestWithParallelIO : public DBBasicTestMultiGet,
-                                  public testing::WithParamInterface<
-                                      std::tuple<bool, bool, bool, uint32_t>> {
+class DBBasicTestWithParallelIO : public testing::WithParamInterface<
+                                      std::tuple<bool, bool, bool, uint32_t>>,
+                                  public DBBasicTestMultiGet {
  public:
   DBBasicTestWithParallelIO()
       : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,

@@ -20,8 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 
 typedef DeadlockInfoBufferTempl<RangeDeadlockPath> RangeDeadlockInfoBuffer;
 
-struct RangeTreeCmpContext;
-
 // A Range Lock Manager that uses PerconaFT's locktree library
 class RangeTreeLockManager : public RangeLockManagerBase,
                              public RangeLockManagerHandle {
@@ -118,8 +116,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   RangeDeadlockInfoBuffer dlock_buffer_;
 
-  std::shared_ptr<toku::locktree> MakeLockTreePtr(
-      toku::locktree* lt, std::unique_ptr<RangeTreeCmpContext> ctx = nullptr);
+  std::shared_ptr<toku::locktree> MakeLockTreePtr(toku::locktree* lt);
   static int CompareDbtEndpoints(void* arg, const DBT* a_key, const DBT* b_key);
 
   // Callbacks
