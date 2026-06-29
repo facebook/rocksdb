@@ -288,7 +288,7 @@ endif
 endif
 
 export JAVAC_ARGS
-CLEAN_FILES += make_config.mk rocksdb.pc
+CLEAN_FILES += rocksdb.pc
 
 ifeq ($(V), 1)
 $(info $(shell uname -a))
@@ -1359,8 +1359,13 @@ rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
 clean: clean-ext-libraries-all clean-rocks clean-rocksjava
+# Removed here rather than in clean-rocks (via CLEAN_FILES) so the build-parameter
+# auto-clean, which runs clean-rocks, doesn't delete the make_config.mk already
+# included by the in-progress make.
+	@rm -f make_config.mk
 
 clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-rocksjava
+	@rm -f make_config.mk
 
 clean-rocks:
 # Not practical to exactly match all versions/variants in naming (e.g. debug or not)
@@ -1375,6 +1380,11 @@ clean-rocks:
 	else \
 		$(FIND) . -name "*.[oda]" -exec rm -f {} \; ; \
 	fi
+# Remove the build signature(s) LAST. Done after the object files are gone so
+# that a Ctrl+C partway through clean leaves the old signature in place: it
+# still matches the leftover objects, so a later build with different
+# parameters is still detected (signature usefulness is preserved).
+	@rm -f $(BUILD_SIG_FILE) jl/.build_signature jls/.build_signature
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -2407,6 +2417,101 @@ ifeq ($(PLATFORM), OS_OPENBSD)
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
 endif
 export SHA256_CMD
+
+# ----------------------------------------------------------------------------
+# Build parameter change detection
+# ----------------------------------------------------------------------------
+# RocksDB writes object files to the same $(OBJ_DIR) paths regardless of
+# DEBUG_LEVEL, sanitizers (ASAN/TSAN/UBSAN), ASSERT_STATUS_CHECKED, RTTI, LTO,
+# COERCE_CONTEXT_SWITCH, etc.  Most of those are applied in this Makefile after
+# `include make_config.mk` and are therefore NOT reflected in make_config.mk,
+# so switching them and rebuilding silently mixes incompatible object files.
+# To guard against that, we hash the fully-resolved compile/link parameters
+# (which already embed make_config.mk via PLATFORM_*) and compare against the
+# value recorded from the previous build.  On mismatch the build stops so the
+# user can `make clean`.  Knobs:
+#   AUTO_CLEAN=1
+#     run `make clean-rocks` automatically on mismatch
+#   ALLOW_BUILD_PARAMETER_CHANGE=1
+#     skip the check entirely (e.g. intentionally mixing DEBUG_LEVEL=1 and
+#     DEBUG_LEVEL=2)
+# The signature is stored per-$(OBJ_DIR), so Java (jl/jls) builds are tracked
+# independently from the default build.
+BUILD_SIG_FILE := $(OBJ_DIR)/.build_signature
+# NOTE: deliberately NOT added to CLEAN_FILES. The signature is removed as the
+# very last step of clean-rocks so that an interrupted clean keeps it (see
+# clean-rocks), preserving change detection across a Ctrl+C'd clean.
+
+# Goals that do not compile object files into the tree (pure utilities,
+# informational, source/config checks): the change check is irrelevant for them.
+BUILD_SIG_NONBUILD_GOALS := \
+	clean clean-rocks clean-not-downloaded clean-rocksjava \
+	clean-not-downloaded-rocksjava clean-ext-libraries-all \
+	clean-ext-libraries-bin \
+	format format-auto check-format check-buck-targets check-headers \
+	check-sources check-workflow-yaml check-progress clang-tidy \
+	tags tags0 package jclean checkout_folly \
+	watch-log dump-log suggest-slow-tests list_all_tests gen-pc \
+	gen_parallel_tests check-c-api-gen \
+	setup-hooks install-hooks uninstall-hooks uninstall db_crashtest_tests
+# Goals that clean before building (depend on or invoke `clean`): they manage
+# their own freshness, so the check must not block them (it would error before
+# their built-in clean runs).
+BUILD_SIG_NONBUILD_GOALS += \
+	release coverage build_size analyze analyze_incremental \
+	asan_check asan_crash_test asan_crash_test_with_atomic_flush \
+	asan_crash_test_with_txn asan_crash_test_with_best_efforts_recovery \
+	whitebox_asan_crash_test blackbox_asan_crash_test \
+	ubsan_check ubsan_crash_test ubsan_crash_test_with_atomic_flush \
+	ubsan_crash_test_with_txn ubsan_crash_test_with_best_efforts_recovery \
+	whitebox_ubsan_crash_test blackbox_ubsan_crash_test
+
+# Goals that explicitly clean; never trip the check when one is requested.
+BUILD_SIG_CLEAN_GOALS := \
+	clean clean-rocks clean-not-downloaded clean-rocksjava \
+	clean-not-downloaded-rocksjava clean-ext-libraries-all \
+	clean-ext-libraries-bin
+
+BUILD_SIG_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+BUILD_SIG_DO_BUILD := $(filter-out $(BUILD_SIG_NONBUILD_GOALS),$(BUILD_SIG_GOALS))
+BUILD_SIG_CLEANING := $(filter $(BUILD_SIG_CLEAN_GOALS),$(MAKECMDGOALS))
+# Dry runs (-n/--just-print) must not write the stamp, clean, or error; the
+# parse-time $(shell) below would otherwise run even under -n. Note that
+# actual options are canonicalized and shorted as possible such that all
+# short options are in the first word of MAKEFLAGS.
+BUILD_SIG_DRYRUN := $(findstring n,$(firstword -$(MAKEFLAGS)))
+
+# Only enforce at the top level. Sub-makes (e.g. `check` invokes
+# $(MAKE) gen_parallel_tests / check-c-api-gen / check_0) inherit the parent's
+# build flags, so the top-level check already covers them; re-checking inside a
+# sub-make only causes spurious failures.
+ifneq ($(ALLOW_BUILD_PARAMETER_CHANGE),1)
+ifeq ($(MAKELEVEL),0)
+ifeq ($(BUILD_SIG_DRYRUN),)
+ifeq ($(BUILD_SIG_CLEANING),)
+ifneq ($(BUILD_SIG_DO_BUILD),)
+  BUILD_SIG := $(shell printf '%s' '$(CC)|$(CXX)|$(CFLAGS)|$(CXXFLAGS)|$(LDFLAGS)|$(EXEC_LDFLAGS)' | $(SHA256_CMD) | cut -d ' ' -f 1)
+  BUILD_SIG_OLD := $(shell cat $(BUILD_SIG_FILE) 2>/dev/null)
+  ifneq ($(BUILD_SIG_OLD),)
+  ifneq ($(BUILD_SIG_OLD),$(BUILD_SIG))
+  ifeq ($(AUTO_CLEAN),1)
+    $(info *** Build parameters changed since last build (OBJ_DIR=$(OBJ_DIR)); running 'make clean-rocks' because AUTO_CLEAN=1)
+    BUILD_SIG_CLEAN_OUTPUT := $(shell $(MAKE) clean-rocks 1>&2)
+    ifneq ($(.SHELLSTATUS),0)
+      $(error AUTO_CLEAN: 'make clean-rocks' failed (exit $(.SHELLSTATUS)); not building against a partially-cleaned tree)
+    endif
+  else
+    $(error Build parameters changed since the last build (OBJ_DIR=$(OBJ_DIR)). Existing object files are stale and must be removed. Run 'make clean', or set AUTO_CLEAN=1 to clean automatically, or ALLOW_BUILD_PARAMETER_CHANGE=1 to build anyway)
+  endif
+  endif
+  endif
+  # Record the current signature for the next build.
+  BUILD_SIG_WRITE := $(shell mkdir -p $(OBJ_DIR) 2>/dev/null; printf '%s\n' '$(BUILD_SIG)' > $(BUILD_SIG_FILE))
+endif
+endif
+endif
+endif
+endif
 
 zlib-$(ZLIB_VER).tar.gz:
 	curl --fail --output zlib-$(ZLIB_VER).tar.gz --location ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
