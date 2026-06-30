@@ -424,6 +424,84 @@ TEST_F(DBBlobIndexTest, EmbeddedBlobIteratorWithFirstKeyIndex) {
   EXPECT_EQ(iter->value(), big2);
 }
 
+// Backward iteration (Prev / SeekForPrev) over an embedded-blob SST must work,
+// including for wide-column entities whose same-file blob columns are resolved
+// into an iterator-owned buffer. DBIter requires the underlying iterator's
+// value to be pinned for backward iteration; EmbeddedBlobResolvingIterator
+// therefore pins resolved values -- both whole-value blob payloads and rebuilt
+// wide-column values -- and hands their cleanup to the PinnedIteratorsManager
+// across repositioning. Before that, backward iteration over the wide-column
+// entity returned NotSupported (or tripped the IsValuePinned() assertion).
+TEST_F(DBBlobIndexTest, EmbeddedBlobBackwardIteration) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_backward.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  // Whole-value same-file blobs.
+  const std::string big1(1024, 'x');
+  const std::string big3(1024, 'z');
+  // Wide-column entity: a small (inline) default column plus a large
+  // (embedded, same-file blob) non-default column -- the mixed wide-column
+  // path whose resolved value lands in an iterator-owned buffer.
+  const std::string k2_default(2, 'd');
+  const std::string k2_big_col(1024, 'c');
+  const WideColumns k2_columns{{kDefaultWideColumnName, k2_default},
+                               {"big", k2_big_col}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.PutEntity("k2", k2_columns));
+  ASSERT_OK(writer.Put("k3", big3));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+  // Backward scan via SeekToLast + Prev.
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k3");
+  EXPECT_EQ(iter->value(), big3);
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), k2_default);
+  EXPECT_EQ(iter->columns(), k2_columns);
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // SeekForPrev directly onto the wide-column entity, then step back.
+  iter->SeekForPrev("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), k2_default);
+  EXPECT_EQ(iter->columns(), k2_columns);
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+}
+
 // When a blob cache is configured, same-file ("embedded") blob reads should go
 // through BlobSource: the first read misses + inserts + does a disk read, and
 // the second read of the same blob is served from the blob cache. This holds on
