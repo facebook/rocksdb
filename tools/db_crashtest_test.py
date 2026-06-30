@@ -327,6 +327,31 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual(1, finalized["index_mode"])
 
+    def test_finalize_sanitizes_index_mode_after_timestamp_disables_trie_factory(
+        self,
+    ):
+        db_crashtest = self.load_db_crashtest()
+
+        for index_mode in (2, 3, 4):
+            with self.subTest(index_mode=index_mode):
+                params = self.build_params(
+                    db_crashtest.default_params,
+                    {
+                        "use_trie_index": 1,
+                        "index_mode": index_mode,
+                        "index_block_search_type": 1,
+                        "user_timestamp_size": 8,
+                        "persist_user_defined_timestamps": 0,
+                        "test_best_efforts_recovery": 0,
+                    },
+                )
+
+                finalized = db_crashtest.finalize_and_sanitize(params)
+
+                self.assertEqual(0, finalized["use_trie_index"])
+                self.assertEqual(1, finalized["index_mode"])
+                self.assertEqual(0, finalized["index_block_search_type"])
+
     def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"
