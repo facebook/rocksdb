@@ -21,8 +21,7 @@ int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
                                     const std::string& /*arg*/) {
   library.AddFactory<IndexFactory>(
       TrieIndexFactory::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<IndexFactory>* guard,
+      [](const std::string& /*uri*/, std::unique_ptr<IndexFactory>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new TrieIndexFactory());
         return guard->get();

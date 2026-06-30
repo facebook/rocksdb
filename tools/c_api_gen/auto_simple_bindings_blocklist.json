@@ -40,9 +40,9 @@
           "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
         },
         {
-          "field": "table_index_factory",
+          "field": "read_index",
           "policy": "manual",
-          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+          "reason": "Uses experimental index-selection compatibility policy that needs explicit legacy C API mapping."
         },
         {
           "field": "request_id",
@@ -368,6 +368,11 @@
           "field": "user_defined_index_factory",
           "policy": "manual",
           "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
+        },
+        {
+          "field": "index_mode",
+          "policy": "manual",
+          "reason": "Uses experimental enum semantics plus legacy UDI boolean compatibility wrappers that need explicit mapping."
         }
       ]
     },
