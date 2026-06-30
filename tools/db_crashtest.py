@@ -930,6 +930,12 @@ multiops_txn_params = {
 }
 
 
+def sanitize_index_mode_without_trie_factory(dest_params):
+    # index_mode > kStandardDefault requires a UDI factory.
+    if dest_params.get("use_trie_index") != 1 and dest_params.get("index_mode", 0) > 1:
+        dest_params["index_mode"] = 1
+
+
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
     if is_release_mode():
@@ -1188,9 +1194,7 @@ def finalize_and_sanitize(src_params):
                 dest_params["open_write_fault_one_in"] = 0
                 dest_params["sync_fault_injection"] = 0
     else:
-        # index_mode > kStandardDefault requires use_trie_index.
-        if dest_params.get("index_mode", 0) > 1:
-            dest_params["index_mode"] = 1
+        sanitize_index_mode_without_trie_factory(dest_params)
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -1427,6 +1431,7 @@ def finalize_and_sanitize(src_params):
         dest_params["index_block_search_type"] = 0
         # TrieIndexFactory requires BytewiseComparator.
         dest_params["use_trie_index"] = 0
+        sanitize_index_mode_without_trie_factory(dest_params)
     if (
         dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1
