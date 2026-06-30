@@ -930,7 +930,12 @@ struct BlockBasedTableBuilder::Rep {
       case kTypeMerge:
         vt = IndexFactoryBuilder::ValueType::kMerge;
         break;
+      case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
+        vt = IndexFactoryBuilder::ValueType::kOther;
+        break;
       default:
+        assert(false);
         vt = IndexFactoryBuilder::ValueType::kOther;
     }
     // kTypeValuePreferredSeqno packs the user value with a preferred

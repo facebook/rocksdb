@@ -262,26 +262,20 @@ bool NeedsFaultInjection() {
          FLAGS_write_fault_one_in || FLAGS_sync_fault_injection;
 }
 
-int EffectiveIndexMode() {
+BlockBasedTableOptions::IndexMode EffectiveIndexMode() {
   if (FLAGS_index_mode >= 0) {
-    return FLAGS_index_mode;
+    return static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
   }
   return FLAGS_use_trie_index
-             ? static_cast<int>(
-                   BlockBasedTableOptions::IndexMode::kStandardDefault)
-             : static_cast<int>(
-                   BlockBasedTableOptions::IndexMode::kStandardOnly);
+             ? BlockBasedTableOptions::IndexMode::kStandardDefault
+             : BlockBasedTableOptions::IndexMode::kStandardOnly;
 }
 
 bool ShouldPreferCustomIndexForReads() {
-  const int index_mode = EffectiveIndexMode();
+  const auto index_mode = EffectiveIndexMode();
   return FLAGS_use_trie_index &&
-         (index_mode ==
-              static_cast<int>(
-                  BlockBasedTableOptions::IndexMode::kStandardDefault) ||
-          index_mode ==
-              static_cast<int>(
-                  BlockBasedTableOptions::IndexMode::kStandardRequired));
+         (index_mode == BlockBasedTableOptions::IndexMode::kStandardDefault ||
+          index_mode == BlockBasedTableOptions::IndexMode::kStandardRequired);
 }
 
 std::string GetFaultInjectionLogBaseDir() {
@@ -5441,16 +5435,15 @@ void InitializeOptionsFromFlags(
             FLAGS_index_mode);
     abort();
   }
-  const int index_mode = EffectiveIndexMode();
-  if (!udi_factory && index_mode > 1) {
+  const auto index_mode = EffectiveIndexMode();
+  if (!udi_factory && static_cast<int>(index_mode) > 1) {
     fprintf(stderr,
             "--index_mode=%d requires --use_trie_index=1; only "
             "kStandardOnly/kStandardDefault are valid without a UDI factory\n",
             FLAGS_index_mode);
     abort();
   }
-  block_based_options.index_mode =
-      static_cast<BlockBasedTableOptions::IndexMode>(index_mode);
+  block_based_options.index_mode = index_mode;
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
     // Disable compaction record count verification when write fault
@@ -5470,10 +5463,8 @@ void InitializeOptionsFromFlags(
     // Non-primary-UDI modes (kStandardOnly, kStandardDefault,
     // kStandardRequired) are not affected because reads can route through the
     // standard index, which is written as a main block (not a meta block).
-    if ((index_mode == static_cast<int>(
-                           BlockBasedTableOptions::IndexMode::kCustomDefault) ||
-         index_mode == static_cast<int>(
-                           BlockBasedTableOptions::IndexMode::kCustomOnly)) &&
+    if ((index_mode == BlockBasedTableOptions::IndexMode::kCustomDefault ||
+         index_mode == BlockBasedTableOptions::IndexMode::kCustomOnly) &&
         (FLAGS_write_fault_one_in > 0 ||
          FLAGS_metadata_write_fault_one_in > 0)) {
       options.compaction_verify_record_count = false;
