@@ -1239,6 +1239,10 @@ IOStatus WinFileSystem::Poll(std::vector<void*>& io_handles,
 }
 
 IOStatus WinFileSystem::AbortIO(std::vector<void*>& io_handles) {
+  // On error, returns early without firing callbacks for remaining handles.
+  // Matches the Posix io_uring AbortIO behavior; real errors here indicate a
+  // broken FS state where the caller will have larger problems than a hung
+  // prefetch.
   for (size_t i = 0; i < io_handles.size(); i++) {
     auto win_handle = static_cast<Win_IOHandle*>(io_handles[i]);
     if (win_handle->is_finished) {

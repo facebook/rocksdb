@@ -35,6 +35,37 @@ inline bool IsPowerOfTwo(const size_t alignment) {
 inline bool IsAligned(size_t alignment, const void* ptr) {
   return ((uintptr_t(ptr)) & (alignment - 1)) == 0;
 }
+
+// Owns a per-thread auto-reset event used by preadAsyncIo() so synchronous
+// reads on FILE_FLAG_OVERLAPPED handles do not pay a CreateEvent/CloseHandle
+// kernel round-trip on every call. Safe because preadAsyncIo() blocks until
+// the IO completes before returning, so a thread can have at most one
+// outstanding IO using this event at any time.
+class ThreadLocalSyncReadEvent {
+ public:
+  ThreadLocalSyncReadEvent() : handle_(NULL) {}
+  ~ThreadLocalSyncReadEvent() {
+    if (handle_ != NULL) {
+      CloseHandle(handle_);
+    }
+  }
+
+  ThreadLocalSyncReadEvent(const ThreadLocalSyncReadEvent&) = delete;
+  ThreadLocalSyncReadEvent& operator=(const ThreadLocalSyncReadEvent&) = delete;
+
+  // Returns NULL on failure; caller should fall back to per-call CreateEvent.
+  HANDLE Get() {
+    if (handle_ == NULL) {
+      // Auto-reset event: WaitForSingleObject / GetOverlappedResult clears
+      // the signaled state automatically, so no ResetEvent() between reuses.
+      handle_ = RX_CreateEvent(NULL, FALSE, FALSE, NULL);
+    }
+    return handle_;
+  }
+
+ private:
+  HANDLE handle_;
+};
 }  // namespace
 
 std::string GetWindowsErrSz(DWORD err) {
@@ -154,7 +185,12 @@ IOStatus preadAsyncIo(const WinFileData* file_data, char* src, size_t num_bytes,
 
   overlapped.Offset = offsetUnion.LowPart;
   overlapped.OffsetHigh = offsetUnion.HighPart;
-  overlapped.hEvent = RX_CreateEvent(NULL, TRUE, FALSE, NULL);
+  // Reuse a per-thread auto-reset event to avoid a CreateEvent/CloseHandle
+  // kernel round-trip on every synchronous read. This path always waits for
+  // the IO to complete before returning, so the event is never in use by
+  // more than one in-flight IO on the same thread.
+  static thread_local ThreadLocalSyncReadEvent tls_event;
+  overlapped.hEvent = tls_event.Get();
 
   if (NULL == overlapped.hEvent) {
     auto lastError = GetLastError();
@@ -189,8 +225,6 @@ IOStatus preadAsyncIo(const WinFileData* file_data, char* src, size_t num_bytes,
   } else {
     bytes_read = bytesRead;
   }
-
-  CloseHandle(overlapped.hEvent);
 
   return s;
 }
