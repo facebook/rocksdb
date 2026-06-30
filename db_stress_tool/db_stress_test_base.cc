@@ -260,6 +260,28 @@ bool NeedsFaultInjection() {
          FLAGS_write_fault_one_in || FLAGS_sync_fault_injection;
 }
 
+int EffectiveIndexMode() {
+  if (FLAGS_index_mode >= 0) {
+    return FLAGS_index_mode;
+  }
+  return FLAGS_use_trie_index
+             ? static_cast<int>(
+                   BlockBasedTableOptions::IndexMode::kStandardDefault)
+             : static_cast<int>(
+                   BlockBasedTableOptions::IndexMode::kStandardOnly);
+}
+
+bool ShouldPreferCustomIndexForReads() {
+  const int index_mode = EffectiveIndexMode();
+  return FLAGS_use_trie_index &&
+         (index_mode ==
+              static_cast<int>(
+                  BlockBasedTableOptions::IndexMode::kStandardDefault) ||
+          index_mode ==
+              static_cast<int>(
+                  BlockBasedTableOptions::IndexMode::kStandardRequired));
+}
+
 std::string GetFaultInjectionLogBaseDir() {
   if (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) {
     return "/tmp";
@@ -1339,12 +1361,10 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
   read_opts.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
-  if (FLAGS_use_trie_index && udi_factory_) {
-    if (FLAGS_index_mode == 1 || FLAGS_index_mode == 4) {
-      // kStandardDefault/kStandardRequired: custom index is secondary, select
-      // explicitly per-read.
-      read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
-    }
+  if (udi_factory_ && ShouldPreferCustomIndexForReads()) {
+    // kStandardDefault/kStandardRequired: custom index is secondary, select
+    // explicitly per-read.
+    read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
     // kCustomDefault/kCustomOnly: custom index is default, no override needed.
     // kStandardOnly: custom index not built, don't select it.
   }
@@ -1404,8 +1424,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       // Commenting this out as we don't want to reset stats on each open.
       // thread->stats.Start();
-      if (FLAGS_use_trie_index &&
-          (FLAGS_index_mode == 1 || FLAGS_index_mode == 4) && udi_factory_) {
+      if (udi_factory_ && ShouldPreferCustomIndexForReads()) {
         read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
       }
     }
@@ -5127,12 +5146,13 @@ void InitializeOptionsFromFlags(
       fLU64::FLAGS_super_block_alignment_size;
   block_based_options.super_block_alignment_space_overhead_ratio =
       fLU64::FLAGS_super_block_alignment_space_overhead_ratio;
-  if (FLAGS_index_mode < 0 || FLAGS_index_mode > 4) {
-    fprintf(stderr, "Invalid --index_mode=%d (must be 0-4)\n",
+  if (FLAGS_index_mode < -1 || FLAGS_index_mode > 4) {
+    fprintf(stderr, "Invalid --index_mode=%d (must be -1..4)\n",
             FLAGS_index_mode);
     abort();
   }
-  if (!udi_factory && FLAGS_index_mode > 1) {
+  const int index_mode = EffectiveIndexMode();
+  if (!udi_factory && index_mode > 1) {
     fprintf(stderr,
             "--index_mode=%d requires --use_trie_index=1; only "
             "kStandardOnly/kStandardDefault are valid without a UDI factory\n",
@@ -5140,7 +5160,7 @@ void InitializeOptionsFromFlags(
     abort();
   }
   block_based_options.index_mode =
-      static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
+      static_cast<BlockBasedTableOptions::IndexMode>(index_mode);
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
     // Disable compaction record count verification when write fault
@@ -5160,7 +5180,10 @@ void InitializeOptionsFromFlags(
     // Non-primary-UDI modes (kStandardOnly, kStandardDefault,
     // kStandardRequired) are not affected because reads can route through the
     // standard index, which is written as a main block (not a meta block).
-    if ((FLAGS_index_mode == 2 || FLAGS_index_mode == 3) &&
+    if ((index_mode == static_cast<int>(
+                           BlockBasedTableOptions::IndexMode::kCustomDefault) ||
+         index_mode == static_cast<int>(
+                           BlockBasedTableOptions::IndexMode::kCustomOnly)) &&
         (FLAGS_write_fault_one_in > 0 ||
          FLAGS_metadata_write_fault_one_in > 0)) {
       options.compaction_verify_record_count = false;

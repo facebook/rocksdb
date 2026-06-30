@@ -2421,16 +2421,6 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
-  // Legacy compatibility guard for callers that select a specific custom index
-  // factory for a read. When set, RocksDB routes the read through the custom
-  // index only if the SST's custom index name matches this factory's Name();
-  // otherwise iterator creation fails with InvalidArgument instead of silently
-  // using a different custom index. New code can leave this null and use
-  // read_index directly.
-  const IndexFactory* table_index_factory = nullptr;
-
-  // EXPERIMENTAL
-  //
   // Per-read index selection. Overrides the default read routing determined
   // by BlockBasedTableOptions::index_mode.
   //
@@ -2462,6 +2452,16 @@ struct ReadOptions {
     kPreferCustom = 2,
   };
   ReadIndex read_index = ReadIndex::kDefault;
+
+  // EXPERIMENTAL
+  //
+  // Legacy compatibility guard for callers that select a specific custom index
+  // factory for a read. When set, RocksDB routes the read through the custom
+  // index only if the SST's custom index name matches this factory's Name();
+  // otherwise iterator creation fails with InvalidArgument instead of silently
+  // using a different custom index. New code can leave this null and use
+  // read_index directly.
+  const IndexFactory* table_index_factory = nullptr;
 
   // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by
   // scans using this ReadOptions. Applications that set it are attempting

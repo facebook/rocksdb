@@ -333,15 +333,6 @@ class IndexFactoryIterator {
   virtual IndexFactoryBuilder::BlockHandle value() = 0;
 };
 
-// NOTE: The IndexFactory API is intentionally asymmetric between build
-// and read. Built-in and custom indexes share the factory abstraction
-// for SST construction, but built-in index reads continue to use the
-// internal BlockBasedTable::IndexReader path. That internal reader
-// contract carries table-local behaviors such as cache/prefetch/pinning
-// and iterator reuse that are not part of this public SPI. Custom
-// IndexFactoryReader implementations are adapted to the internal reader
-// contract via IndexFactoryReaderWrapper.
-
 // ---------------------------------------------------------------------------
 // IndexFactoryReader: reads a custom index from a serialized SST block.
 // ---------------------------------------------------------------------------
