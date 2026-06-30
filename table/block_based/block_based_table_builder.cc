@@ -86,7 +86,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
-    PartitionCoordinator* const partition_coordinator, size_t ts_sz,
+    IndexFactoryBuilder* const index_builder, size_t ts_sz,
     const bool persist_user_defined_timestamps) {
   const BlockBasedTableOptions& table_opt = context.table_options;
   assert(table_opt.filter_policy);  // precondition
@@ -97,7 +97,19 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     return nullptr;
   } else {
     if (table_opt.partition_filters) {
+      PartitionCoordinator* const partition_coordinator =
+          index_builder != nullptr ? index_builder->GetPartitionCoordinator()
+                                   : nullptr;
       assert(partition_coordinator != nullptr);
+      PartitionedIndexBuilder* partitioned_index_builder = nullptr;
+      if (index_builder != nullptr &&
+          table_opt.index_type ==
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        auto* builtin_index_builder =
+            static_cast<BuiltinIndexFactoryBuilder*>(index_builder);
+        partitioned_index_builder = static_cast<PartitionedIndexBuilder*>(
+            builtin_index_builder->GetInternalBuilder());
+      }
       // Since after partition cut request from filter builder it takes time
       // until index builder actully cuts the partition, until the end of a
       // data block potentially with many keys, we take the lower bound as
@@ -113,7 +125,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
           use_delta_encoding_for_index_values, partition_coordinator,
-          partition_size, ts_sz, persist_user_defined_timestamps,
+          partitioned_index_builder, partition_size, ts_sz,
+          persist_user_defined_timestamps,
           table_opt.decouple_partitioned_filters);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
@@ -1552,9 +1565,8 @@ struct BlockBasedTableBuilder::Rep {
     } else {
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, tbo.moptions, filter_context,
-          use_delta_encoding_for_index_values,
-          index_builder ? index_builder->GetPartitionCoordinator() : nullptr,
-          ts_sz, persist_user_defined_timestamps));
+          use_delta_encoding_for_index_values, index_builder.get(), ts_sz,
+          persist_user_defined_timestamps));
     }
 
     assert(tbo.internal_tbl_prop_coll_factories);

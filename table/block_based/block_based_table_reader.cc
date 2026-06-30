@@ -1842,18 +1842,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
 
-    // A zero-size UDI block means no user-defined index for this SST.
-    // kStandardDefault tolerates it (the standard index serves reads).
-    // kStandardRequired preserves fail_if_no_udi_on_open=true semantics, and
-    // kCustomDefault/kCustomOnly require the UDI block to read data, so a
-    // zero-size handle is corruption.
+    // A zero-size UDI block means no user-defined index for this SST. Older UDI
+    // builds treated this as "effectively no UDI" even with
+    // fail_if_no_udi_on_open=true or use_udi_as_primary_index=true, so keep
+    // opening these files through the standard index when one is populated.
+    // kCustomOnly has only a footer-satisfying standard-index stub, so it must
+    // still fail loudly instead of exposing an OK empty scan.
     if (s.ok() && udi_block_handle.size() == 0 &&
-        (table_options.index_mode ==
-             BlockBasedTableOptions::IndexMode::kStandardRequired ||
-         table_options.index_mode ==
-             BlockBasedTableOptions::IndexMode::kCustomDefault ||
-         table_options.index_mode ==
-             BlockBasedTableOptions::IndexMode::kCustomOnly)) {
+        table_options.index_mode ==
+            BlockBasedTableOptions::IndexMode::kCustomOnly) {
       RecordTick(rep_->ioptions.statistics.get(),
                  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
       ROCKS_LOG_ERROR(rep_->ioptions.logger,

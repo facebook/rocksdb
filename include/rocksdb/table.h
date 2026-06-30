@@ -623,17 +623,20 @@ struct BlockBasedTableOptions {
   //   kStandardRequired:
   //     Same read routing as kStandardDefault, but opening an SST that
   //     lacks the custom index block is a hard error when a factory is
-  //     configured. This preserves the legacy fail_if_no_udi_on_open=true
-  //     behavior without changing default reads to the custom index. If no
-  //     factory is configured, this behaves like kStandardDefault/no factory
-  //     so OPTIONS files from older binaries remain readable when the
-  //     non-serialized factory pointer is not restored.
+  //     configured. For compatibility with legacy UDI SSTs, a present zero-size
+  //     custom index block is treated as "no UDI" and read through the
+  //     populated standard index. This preserves the legacy
+  //     fail_if_no_udi_on_open=true behavior without changing default reads to
+  //     the custom index. If no factory is configured, this behaves like
+  //     kStandardDefault/no factory so OPTIONS files from older binaries remain
+  //     readable when the non-serialized factory pointer is not restored.
   //
   //   kCustomDefault:
   //     Both indexes are built. All reads (including internal operations
   //     like compaction and VerifyChecksum) route through the custom
   //     index. The standard index serves as a safety fallback for
-  //     backup/restore and rollback.
+  //     backup/restore and rollback. A present zero-size legacy custom index
+  //     block also falls back to the standard index for upgrade compatibility.
   //
   //   kCustomOnly:
   //     Only the custom index is built. The standard index is not
