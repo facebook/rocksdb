@@ -67,7 +67,8 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
                                       ValueType value_type) {
   // Helper: update oldest_blob_file_number from a single BlobIndex.
   auto update_oldest_blob = [&](const BlobIndex& blob_index) -> Status {
-    if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
+    if (!blob_index.IsInlined() && !blob_index.HasTTL() &&
+        !blob_index.IsSameFile()) {
       if (blob_index.file_number() == kInvalidBlobFileNumber) {
         return Status::Corruption("Invalid blob file number");
       }

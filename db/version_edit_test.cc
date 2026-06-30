@@ -10,6 +10,7 @@
 #include "db/version_edit.h"
 
 #include "db/blob/blob_index.h"
+#include "db/wide/wide_column_serialization.h"
 #include "rocksdb/advanced_options.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
@@ -777,7 +778,10 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
     ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 
-  // Invalid blob file number
+  // Same-file blob reference (file_number == kCurrentFileBlobIndexFileNumber
+  // == kInvalidBlobFileNumber == 0): this is a valid embedded blob reference,
+  // not an error. It should not affect oldest_blob_file_number since it does
+  // not reference an external blob file.
   {
     constexpr uint64_t offset = 10000;
     constexpr uint64_t size = 1000;
@@ -788,9 +792,96 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
 
     constexpr SequenceNumber seq = 206;
 
-    ASSERT_TRUE(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex)
-                    .IsCorruption());
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
     ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+}
+
+TEST(FileMetaDataTest, UpdateBoundariesV2EntityWithSameFileBlobRef) {
+  // Regression test for T277566778 / T277481823: V2 wide-column entities with
+  // same-file blob references (file_number == kCurrentFileBlobIndexFileNumber
+  // == 0) must NOT trigger "Invalid blob file number" corruption in
+  // UpdateBoundaries. Same-file blobs are embedded in the SST data block and
+  // are not external blob file references.
+  FileMetaData meta;
+
+  constexpr uint64_t file_number = 10;
+  constexpr uint32_t path_id = 0;
+  meta.fd = FileDescriptor(file_number, path_id, 1024);
+
+  const std::string key = "test_key";
+
+  // Create a V2 entity with a same-file blob reference (file_number = 0)
+  {
+    std::vector<std::pair<std::string, std::string>> columns = {
+        {"col_a", "inline_value"}, {"col_b", "blob_value"}};
+
+    // Same-file blob: file_number = kCurrentFileBlobIndexFileNumber (== 0)
+    BlobIndex same_file_blob;
+    std::string encoded_blob;
+    BlobIndex::EncodeBlob(&encoded_blob, kCurrentFileBlobIndexFileNumber,
+                          /*offset=*/100, /*size=*/200, kNoCompression);
+
+    Slice encoded_slice(encoded_blob);
+    ASSERT_OK(same_file_blob.DecodeFrom(encoded_slice));
+    ASSERT_TRUE(same_file_blob.IsSameFile());
+
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns = {
+        {1, same_file_blob}};
+
+    std::string serialized_entity;
+    ASSERT_OK(WideColumnSerialization::SerializeV2(columns, blob_columns,
+                                                   serialized_entity));
+
+    constexpr SequenceNumber seq = 300;
+
+    // This must NOT return Corruption
+    ASSERT_OK(meta.UpdateBoundaries(key, serialized_entity, seq,
+                                    kTypeWideColumnEntity));
+    // Same-file blob should not affect oldest_blob_file_number
+    ASSERT_EQ(meta.oldest_blob_file_number, kInvalidBlobFileNumber);
+  }
+
+  // V2 entity with a real external blob reference should still work
+  {
+    std::vector<std::pair<std::string, std::string>> columns = {
+        {"col_a", "inline_value"}, {"col_b", "blob_value"}};
+
+    constexpr uint64_t blob_file_num = 42;
+    BlobIndex external_blob;
+    std::string encoded_blob;
+    BlobIndex::EncodeBlob(&encoded_blob, blob_file_num,
+                          /*offset=*/100, /*size=*/200, kNoCompression);
+
+    Slice encoded_slice(encoded_blob);
+    ASSERT_OK(external_blob.DecodeFrom(encoded_slice));
+    ASSERT_FALSE(external_blob.IsSameFile());
+
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns = {
+        {1, external_blob}};
+
+    std::string serialized_entity;
+    ASSERT_OK(WideColumnSerialization::SerializeV2(columns, blob_columns,
+                                                   serialized_entity));
+
+    constexpr SequenceNumber seq = 301;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, serialized_entity, seq,
+                                    kTypeWideColumnEntity));
+    ASSERT_EQ(meta.oldest_blob_file_number, blob_file_num);
+  }
+
+  // kTypeBlobIndex with same-file blob should also be OK (not Corruption)
+  {
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, kCurrentFileBlobIndexFileNumber,
+                          /*offset=*/50, /*size=*/100, kNoCompression);
+
+    constexpr SequenceNumber seq = 302;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    // oldest_blob_file_number should still be 42 from previous test
+    ASSERT_EQ(meta.oldest_blob_file_number, 42u);
   }
 }
 
