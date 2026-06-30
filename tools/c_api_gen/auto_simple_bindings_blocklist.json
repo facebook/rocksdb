@@ -45,6 +45,11 @@
           "reason": "Uses experimental index-selection compatibility policy that needs explicit legacy C API mapping."
         },
         {
+          "field": "table_index_factory",
+          "policy": "manual",
+          "reason": "Non-owning pointer paired with the legacy C read-options factory shim; the C wrapper owns a shared_ptr and stores this borrowed pointer."
+        },
+        {
           "field": "request_id",
           "policy": "manual",
           "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."

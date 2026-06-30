@@ -687,8 +687,8 @@ DEFINE_bool(use_trie_index, false,
 DEFINE_int32(index_mode, 0,
              "Controls how the custom IndexFactory interacts with the "
              "built-in index. 0=kStandardOnly, 1=kStandardDefault, "
-             "2=kCustomDefault, 3=kCustomOnly. Requires use_trie_index "
-             "for modes >= 1.");
+             "2=kCustomDefault, 3=kCustomOnly, 4=kStandardRequired. "
+             "Requires use_trie_index for modes >= 2.");
 
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests.");

@@ -165,18 +165,21 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
   IndexFactoryReaderWrapper(
       const std::string& name,
       std::unique_ptr<BlockBasedTable::IndexReader>&& reader,
-      std::unique_ptr<IndexFactoryReader>&& udi_reader, bool udi_is_primary)
+      std::unique_ptr<IndexFactoryReader>&& udi_reader, bool udi_is_primary,
+      bool standard_index_is_stub)
       : name_(name),
         reader_(std::move(reader)),
         udi_reader_(std::move(udi_reader)),
-        udi_is_primary_(udi_is_primary) {}
+        udi_is_primary_(udi_is_primary),
+        standard_index_is_stub_(standard_index_is_stub) {}
 
   InternalIteratorBase<IndexValue>* NewIterator(
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
-    // kDefault       -> follow udi_is_primary_
-    // kBuiltin       -> standard index
+    // kDefault       -> follow udi_is_primary_, unless a legacy specific
+    //                   factory was requested.
+    // kBuiltin       -> standard index.
     // kPreferCustom  -> custom index. The "prefer" fallback runs at SST
     //                   open: SSTs lacking a UDI block don't get this
     //                   wrapper, so they reach the standard reader
@@ -196,6 +199,17 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
         use_udi = udi_is_primary_;
         break;
     }
+    if (read_options.read_index != ReadOptions::ReadIndex::kBuiltin &&
+        read_options.table_index_factory != nullptr) {
+      const char* requested_name = read_options.table_index_factory->Name();
+      if (name_ == requested_name) {
+        use_udi = true;
+      } else {
+        return NewErrorInternalIterator<IndexValue>(Status::InvalidArgument(
+            "Bad index name: " + std::string(requested_name) +
+            ". Only supported UDI is " + name_));
+      }
+    }
 
     if (use_udi) {
       std::unique_ptr<IndexFactoryIterator> udi_iter =
@@ -206,6 +220,11 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
       return NewErrorInternalIterator<IndexValue>(
           Status::Corruption("Could not create UDI iterator"));
     }
+    if (standard_index_is_stub_) {
+      return NewErrorInternalIterator<IndexValue>(Status::InvalidArgument(
+          "Cannot read via the standard index because this SST was written "
+          "with only a custom index"));
+    }
 
     return reader_->NewIterator(read_options, disable_prefix_seek, iter,
                                 get_context, lookup_context);
@@ -213,8 +232,9 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
 
   Status CacheDependencies(const ReadOptions& ro, bool pin,
                            FilePrefetchBuffer* tail_prefetch_buffer) override {
-    // The standard index is fully populated in kStandardDefault and
-    // kCustomDefault modes. In kCustomOnly, it is an empty stub.
+    // The standard index is fully populated in kStandardDefault,
+    // kStandardRequired, and kCustomDefault modes. In kCustomOnly, it is an
+    // empty stub.
     return reader_->CacheDependencies(ro, pin, tail_prefetch_buffer);
   }
 
@@ -234,6 +254,7 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
   std::unique_ptr<BlockBasedTable::IndexReader> reader_;
   std::unique_ptr<IndexFactoryReader> udi_reader_;
   const bool udi_is_primary_;
+  const bool standard_index_is_stub_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

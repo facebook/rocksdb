@@ -462,10 +462,10 @@ struct rocksdb_block_based_table_options_t {
   void SyncIndexModeFromLegacyUdiOptions() {
     if (use_udi_as_primary_index) {
       rep.index_mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
-    } else if (fail_if_no_udi_on_open || rep.user_defined_index_factory) {
-      rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    } else if (fail_if_no_udi_on_open) {
+      rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardRequired;
     } else {
-      rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardOnly;
+      rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
     }
   }
 };
@@ -5719,6 +5719,7 @@ void rocksdb_readoptions_set_table_index_factory_from_string(
     rocksdb_readoptions_t* opt, const char* value, size_t value_len,
     char** errptr) {
   opt->table_index_factory.reset();
+  opt->rep.table_index_factory = nullptr;
   opt->rep.read_index = ReadOptions::ReadIndex::kDefault;
   if (value == nullptr) {
     return;
@@ -5730,11 +5731,13 @@ void rocksdb_readoptions_set_table_index_factory_from_string(
     return;
   }
   opt->table_index_factory = std::move(factory);
+  opt->rep.table_index_factory = opt->table_index_factory.get();
   opt->rep.read_index = ReadOptions::ReadIndex::kPreferCustom;
 }
 
 void rocksdb_readoptions_clear_table_index_factory(rocksdb_readoptions_t* opt) {
   opt->table_index_factory.reset();
+  opt->rep.table_index_factory = nullptr;
   opt->rep.read_index = ReadOptions::ReadIndex::kDefault;
 }
 

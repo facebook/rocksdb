@@ -46,10 +46,11 @@ inline constexpr const char* kIndexFactoryMetaPrefix =
 // BlockBasedTableOptions::index_mode:
 //   - kStandardOnly: only the standard index is built; any factory pointer
 //     is ignored.
-//   - kStandardDefault / kCustomDefault: both indexes are built. Reads
-//     default to the standard index in kStandardDefault and to the custom
-//     index in kCustomDefault. ReadOptions::read_index can override
-//     per-read.
+//   - kStandardDefault / kStandardRequired / kCustomDefault: both indexes are
+//     built. Reads default to the standard index in the kStandard* modes and
+//     to the custom index in kCustomDefault. ReadOptions::read_index can
+//     override per-read. kStandardRequired is the strict-open variant of
+//     kStandardDefault.
 //   - kCustomOnly: only the custom index is built. A minimal empty stub
 //     replaces the standard index block to satisfy the SST footer format.
 //

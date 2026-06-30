@@ -234,6 +234,8 @@ static const std::unordered_map<std::string, BlockBasedTableOptions::IndexMode>
         {"kStandardOnly", BlockBasedTableOptions::IndexMode::kStandardOnly},
         {"kStandardDefault",
          BlockBasedTableOptions::IndexMode::kStandardDefault},
+        {"kStandardRequired",
+         BlockBasedTableOptions::IndexMode::kStandardRequired},
         {"kCustomDefault", BlockBasedTableOptions::IndexMode::kCustomDefault},
         {"kCustomOnly", BlockBasedTableOptions::IndexMode::kCustomOnly}};
 
@@ -443,10 +445,10 @@ static struct BlockBasedTableTypeInfo {
                            &block_base_table_index_mode_string_map)},
         // Aliases that translate legacy UDI booleans in OPTIONS files into
         // the corresponding `index_mode` value at parse time. The
-        // translation is monotonic (upgrade-only) so an explicit
-        // `index_mode=` in the same OPTIONS file is not overridden by a
-        // legacy boolean parsed afterward.
-        //   fail_if_no_udi_on_open=true   -> at least kStandardDefault
+        // translation is upgrade-only so an explicit stronger `index_mode=`
+        // in the same OPTIONS file is not overridden by a weaker legacy
+        // boolean parsed afterward.
+        //   fail_if_no_udi_on_open=true   -> at least kStandardRequired
         //   use_udi_as_primary_index=true -> at least kCustomDefault
         //   skip_standard_index=true      -> kCustomOnly
         // The offset points at `index_mode` so the parse function mutates
@@ -462,9 +464,9 @@ static struct BlockBasedTableTypeInfo {
                auto* mode =
                    static_cast<BlockBasedTableOptions::IndexMode*>(addr);
                if (ParseBoolean("fail_if_no_udi_on_open", value) &&
-                   *mode <
-                       BlockBasedTableOptions::IndexMode::kStandardDefault) {
-                 *mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+                   *mode != BlockBasedTableOptions::IndexMode::kCustomDefault &&
+                   *mode != BlockBasedTableOptions::IndexMode::kCustomOnly) {
+                 *mode = BlockBasedTableOptions::IndexMode::kStandardRequired;
                }
                return Status::OK();
              })},
@@ -479,7 +481,7 @@ static struct BlockBasedTableTypeInfo {
                auto* mode =
                    static_cast<BlockBasedTableOptions::IndexMode*>(addr);
                if (ParseBoolean("use_udi_as_primary_index", value) &&
-                   *mode < BlockBasedTableOptions::IndexMode::kCustomDefault) {
+                   *mode != BlockBasedTableOptions::IndexMode::kCustomOnly) {
                  *mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
                }
                return Status::OK();
@@ -494,8 +496,7 @@ static struct BlockBasedTableTypeInfo {
                               const std::string& value, void* addr) -> Status {
                auto* mode =
                    static_cast<BlockBasedTableOptions::IndexMode*>(addr);
-               if (ParseBoolean("skip_standard_index", value) &&
-                   *mode < BlockBasedTableOptions::IndexMode::kCustomOnly) {
+               if (ParseBoolean("skip_standard_index", value)) {
                  *mode = BlockBasedTableOptions::IndexMode::kCustomOnly;
                }
                return Status::OK();
@@ -831,11 +832,16 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.index_mode >=
-      BlockBasedTableOptions::IndexMode::kStandardDefault) {
+  if (table_options_.index_mode ==
+          BlockBasedTableOptions::IndexMode::kStandardRequired ||
+      table_options_.index_mode ==
+          BlockBasedTableOptions::IndexMode::kCustomDefault ||
+      table_options_.index_mode ==
+          BlockBasedTableOptions::IndexMode::kCustomOnly) {
     if (!table_options_.user_defined_index_factory) {
       return Status::InvalidArgument(
-          "index_mode >= kStandardDefault requires user_defined_index_factory");
+          "index_mode kStandardRequired/kCustomDefault/kCustomOnly requires "
+          "user_defined_index_factory");
     }
     // Whether parallel compression is usable with a particular UDI is a
     // per-implementation property
@@ -844,19 +850,24 @@ Status BlockBasedTableFactory::ValidateOptions(
     // BlockBasedTableBuilder::Rep::Rep) and silently falls back to
     // single-threaded when any builder doesn't support the parallel
     // protocol. We don't reject the configuration here.
-    if (table_options_.index_mode >=
-        BlockBasedTableOptions::IndexMode::kCustomDefault) {
-      if (table_options_.index_type ==
-          BlockBasedTableOptions::kTwoLevelIndexSearch) {
-        return Status::InvalidArgument(
-            "index_mode kCustomDefault/kCustomOnly is incompatible with "
-            "partitioned index (kTwoLevelIndexSearch).");
-      }
-      if (table_options_.partition_filters) {
-        return Status::InvalidArgument(
-            "index_mode kCustomDefault/kCustomOnly is incompatible with "
-            "partitioned filters.");
-      }
+    if ((table_options_.index_mode ==
+             BlockBasedTableOptions::IndexMode::kCustomDefault ||
+         table_options_.index_mode ==
+             BlockBasedTableOptions::IndexMode::kCustomOnly) &&
+        table_options_.index_type ==
+            BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      return Status::InvalidArgument(
+          "index_mode kCustomDefault/kCustomOnly is incompatible with "
+          "partitioned index (kTwoLevelIndexSearch).");
+    }
+    if ((table_options_.index_mode ==
+             BlockBasedTableOptions::IndexMode::kCustomDefault ||
+         table_options_.index_mode ==
+             BlockBasedTableOptions::IndexMode::kCustomOnly) &&
+        table_options_.partition_filters) {
+      return Status::InvalidArgument(
+          "index_mode kCustomDefault/kCustomOnly is incompatible with "
+          "partitioned filters.");
     }
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {

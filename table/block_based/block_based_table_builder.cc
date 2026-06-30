@@ -1442,25 +1442,34 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
-    if (table_options.index_mode >=
-            BlockBasedTableOptions::IndexMode::kStandardDefault &&
+    const bool is_custom_default =
+        table_options.index_mode ==
+        BlockBasedTableOptions::IndexMode::kCustomDefault;
+    const bool is_custom_only = table_options.index_mode ==
+                                BlockBasedTableOptions::IndexMode::kCustomOnly;
+    const bool is_standard_required =
+        table_options.index_mode ==
+        BlockBasedTableOptions::IndexMode::kStandardRequired;
+    const bool builds_custom_index =
+        table_options.index_mode !=
+        BlockBasedTableOptions::IndexMode::kStandardOnly;
+
+    if ((is_standard_required || is_custom_default || is_custom_only) &&
         table_options.user_defined_index_factory == nullptr) {
       SetStatus(
-          Status::InvalidArgument("index_mode >= kStandardDefault requires "
+          Status::InvalidArgument("index_mode kStandardRequired/"
+                                  "kCustomDefault/kCustomOnly requires "
                                   "user_defined_index_factory to be set"));
     }
-    if (table_options.index_mode >=
-            BlockBasedTableOptions::IndexMode::kStandardDefault &&
+    if (builds_custom_index &&
         table_options.user_defined_index_factory != nullptr) {
-      if (table_options.index_mode >=
-              BlockBasedTableOptions::IndexMode::kCustomDefault &&
+      if ((is_custom_default || is_custom_only) &&
           table_options.index_type ==
               BlockBasedTableOptions::kTwoLevelIndexSearch) {
         SetStatus(Status::InvalidArgument(
             "index_mode kCustomDefault/kCustomOnly is incompatible with "
             "partitioned index (kTwoLevelIndexSearch)"));
-      } else if (table_options.index_mode >=
-                     BlockBasedTableOptions::IndexMode::kCustomDefault &&
+      } else if ((is_custom_default || is_custom_only) &&
                  table_options.partition_filters) {
         SetStatus(Status::InvalidArgument(
             "index_mode kCustomDefault/kCustomOnly is incompatible with "
@@ -1496,8 +1505,7 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    if (table_options.index_mode >=
-            BlockBasedTableOptions::IndexMode::kStandardDefault &&
+    if (builds_custom_index &&
         table_options.user_defined_index_factory != nullptr) {
       IndexFactoryOptions custom_opts;
       custom_opts.comparator = internal_comparator.user_comparator();
@@ -3073,8 +3081,10 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       }
       rep_->props.index_key_is_user_key =
           !rep_->index_builder->separator_is_key_plus_seq();
-      if (rep_->table_options.index_mode >=
-              BlockBasedTableOptions::IndexMode::kCustomDefault &&
+      if ((rep_->table_options.index_mode ==
+               BlockBasedTableOptions::IndexMode::kCustomDefault ||
+           rep_->table_options.index_mode ==
+               BlockBasedTableOptions::IndexMode::kCustomOnly) &&
           rep_->table_options.user_defined_index_factory != nullptr) {
         rep_->props.udi_is_primary_index = 1;
       }
@@ -3087,6 +3097,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       // WriteIndexBlock (it needs the just-written block handle).
       rep_->props.index_key_is_user_key = 1;
       rep_->props.udi_is_primary_index = 1;
+      rep_->props.standard_index_is_stub = 1;
     }
     if (rep_->sampled_input_data_bytes.LoadRelaxed() > 0) {
       rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(

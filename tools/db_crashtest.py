@@ -295,8 +295,9 @@ default_params = {
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
     # index_mode must be the same across invocations (like use_trie_index)
     # so that SSTs written in primary mode can be read on reopen.
-    # 0=kStandardOnly, 1=kStandardDefault, 2=kCustomDefault, 3=kCustomOnly
-    "index_mode": random.choice([0, 0, 1, 2, 3]),
+    # 0=kStandardOnly, 1=kStandardDefault, 2=kCustomDefault,
+    # 3=kCustomOnly, 4=kStandardRequired
+    "index_mode": random.choice([0, 0, 1, 2, 3, 4]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -1151,15 +1152,15 @@ def finalize_and_sanitize(src_params):
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
         index_mode = dest_params.get("index_mode", 0)
-        if index_mode >= 1:
+        if index_mode in (2, 3, 4):
             # These reopen paths lose the user_defined_index_factory
-            # shared_ptr while preserving index_mode in serialized OPTIONS.
-            # Validation requires the factory for every mode
-            # >= kStandardDefault.
+            # shared_ptr while preserving index_mode in serialized OPTIONS,
+            # so they cannot exercise strict-secondary or custom-default
+            # read routing correctly.
             dest_params["backup_one_in"] = 0
             dest_params["test_secondary"] = 0
             dest_params["remote_compaction_worker_threads"] = 0
-        if index_mode >= 2:
+        if index_mode in (2, 3):
             # kCustomDefault/kCustomOnly: the standard index is still fully
             # populated (except kCustomOnly), but partitioned index
             # (kTwoLevelIndexSearch) and partitioned filters are not
@@ -1171,7 +1172,7 @@ def finalize_and_sanitize(src_params):
             # write-fault injection on the UDI meta block can corrupt
             # reads:
             #   - kCustomOnly: no standard-index fallback, so a corrupted
-            #     UDI block silently drops keys.
+            #     UDI block can fail reads outright.
             #   - kCustomDefault: reads route through the UDI block first;
             #     a corruption in one CF's UDI but not the other still
             #     diverges the per-CF read view.
@@ -1187,8 +1188,9 @@ def finalize_and_sanitize(src_params):
                 dest_params["open_write_fault_one_in"] = 0
                 dest_params["sync_fault_injection"] = 0
     else:
-        # index_mode >= kStandardDefault requires use_trie_index
-        dest_params["index_mode"] = 0
+        # index_mode > kStandardDefault requires use_trie_index.
+        if dest_params.get("index_mode", 0) > 1:
+            dest_params["index_mode"] = 1
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.

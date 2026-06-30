@@ -703,12 +703,14 @@ DEFINE_int32(
     index_mode, -1,
     "BlockBasedTableOptions::IndexMode. Controls how the custom index (e.g. "
     "trie when --use_trie_index=1) interacts with the standard index: "
-    "-1=auto (default: kStandardOnly without --use_trie_index, "
-    "kStandardDefault with --use_trie_index=1), 0=kStandardOnly (no UDI), "
+    "-1=auto (default: kStandardDefault), 0=kStandardOnly (no UDI), "
     "1=kStandardDefault (UDI built, standard is read default), "
     "2=kCustomDefault (UDI built, UDI is read default), 3=kCustomOnly "
-    "(only UDI built, standard is a minimal stub). Without --use_trie_index, "
-    "this flag is only valid as -1 or kStandardOnly because there is no "
+    "(only UDI built, standard is a minimal stub), 4=kStandardRequired "
+    "(like kStandardDefault, but missing UDI is an error). Without "
+    "--use_trie_index, "
+    "this flag is only valid as -1, kStandardOnly, or kStandardDefault because "
+    "there is no "
     "custom factory to wire up.");
 
 DEFINE_int32(
@@ -3315,15 +3317,16 @@ class Benchmark {
       fprintf(stderr, "compression_ratio should be between 0 and 1\n");
       return false;
     }
-    if (FLAGS_index_mode < -1 || FLAGS_index_mode > 3) {
-      fprintf(stderr, "--index_mode=%d out of range [-1..3]\n",
+    if (FLAGS_index_mode < -1 || FLAGS_index_mode > 4) {
+      fprintf(stderr, "--index_mode=%d out of range [-1..4]\n",
               FLAGS_index_mode);
       return false;
     }
-    if (!FLAGS_use_trie_index && FLAGS_index_mode > 0) {
+    if (!FLAGS_use_trie_index && FLAGS_index_mode > 1) {
       fprintf(stderr,
               "--index_mode=%d requires --use_trie_index=1; only auto (-1) "
-              "or kStandardOnly (0) is valid without a UDI factory\n",
+              "kStandardOnly (0), or kStandardDefault (1) is valid without a "
+              "UDI factory\n",
               FLAGS_index_mode);
       return false;
     }
