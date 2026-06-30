@@ -30,6 +30,7 @@ class VersionEditHandlerBase {
   const Status& status() const { return status_; }
 
   AtomicGroupReadBuffer& GetReadBuffer() { return read_buffer_; }
+  const AtomicGroupReadBuffer& GetReadBuffer() const { return read_buffer_; }
 
   uint64_t GetLastValidRecordEnd() const { return last_valid_record_end_; }
 
@@ -227,8 +228,14 @@ class VersionEditHandler : public VersionEditHandlerBase {
                             bool prefetch_index_and_filter_in_cache,
                             bool is_initial_load);
 
+  virtual Status MaybeHandleLoadTablesStatus(Status s) const;
+
   virtual bool MustOpenAllColumnFamilies() const {
     return !version_set_->unchanging();
+  }
+
+  void CopyDoNotOpenColumnFamiliesFrom(const VersionEditHandler& handler) {
+    do_not_open_column_families_ = handler.do_not_open_column_families_;
   }
 
   const bool read_only_;
@@ -282,9 +289,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
 // Building a point in time version when end version is not available can
 // be useful for best efforts recovery (options.best_efforts_recovery), which
 // uses this class and sets `allow_incomplete_valid_version` to true.
-// It's also useful for secondary instances/follower instances for which end
-// version could be transiently unavailable. These two cases use subclass
-// `ManifestTailer` and sets `allow_incomplete_valid_version` to false.
+// It's also used by subclass `ManifestTailer` for secondary instances/follower
+// instances that tail MANIFEST updates, with `allow_incomplete_valid_version`
+// set to false.
 //
 // Not thread-safe, external synchronization is necessary if an object of
 // VersionEditHandlerPointInTime is shared by multiple threads.
@@ -378,6 +385,9 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
     initialized_ = false;
     ClearReadBuffer();
   }
+
+  Status PrepareForCatchUpAfterRecover(
+      const VersionEditHandler& recovered_handler);
 
   std::unordered_set<ColumnFamilyData*>& GetUpdatedColumnFamilies() {
     return cfds_changed_;
