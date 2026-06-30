@@ -439,6 +439,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       PERF_COUNTER_ADD(block_cache_index_hit_count, 1);
       PERF_COUNTER_ADD(block_cache_index_read_byte, usage);
 
@@ -495,6 +496,7 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_miss;
       } else {
@@ -570,6 +572,7 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_add;
         if (redundant) {
@@ -2434,6 +2437,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:
+            case BlockType::kUserDefinedIndex:
               ++get_context->get_context_stats_.num_index_read;
               break;
             case BlockType::kFilter:
@@ -2648,6 +2652,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     if (get_context) {
       switch (TBlocklike::kBlockType) {
         case BlockType::kIndex:
+        case BlockType::kUserDefinedIndex:
           ++(get_context->get_context_stats_.num_index_read);
           break;
         case BlockType::kFilter:

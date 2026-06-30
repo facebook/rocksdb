@@ -203,6 +203,78 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(2, finalized["index_type"])
         self.assertEqual(1, finalized["partition_filters"])
 
+    def test_finalize_sanitizes_udi_custom_default_cf_consistency_faults(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "use_trie_index": 1,
+                "index_mode": 2,
+                "test_cf_consistency": 1,
+                "metadata_write_fault_one_in": 1000,
+                "write_fault_one_in": 1000,
+                "open_metadata_write_fault_one_in": 8,
+                "open_write_fault_one_in": 8,
+                "sync_fault_injection": 1,
+                "index_type": 2,
+                "partition_filters": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(2, finalized["index_mode"])
+        self.assertIn(finalized["index_type"], [0, 3])
+        self.assertEqual(0, finalized["partition_filters"])
+        self.assertEqual(0, finalized["metadata_write_fault_one_in"])
+        self.assertEqual(0, finalized["write_fault_one_in"])
+        self.assertEqual(0, finalized["open_metadata_write_fault_one_in"])
+        self.assertEqual(0, finalized["open_write_fault_one_in"])
+        self.assertEqual(0, finalized["sync_fault_injection"])
+
+    def test_finalize_sanitizes_udi_custom_only_cf_consistency_faults(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "use_trie_index": 1,
+                "index_mode": 3,
+                "test_cf_consistency": 1,
+                "metadata_write_fault_one_in": 1000,
+                "write_fault_one_in": 1000,
+                "open_metadata_write_fault_one_in": 8,
+                "open_write_fault_one_in": 8,
+                "sync_fault_injection": 1,
+                "index_type": 2,
+                "partition_filters": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(3, finalized["index_mode"])
+        self.assertIn(finalized["index_type"], [0, 3])
+        self.assertEqual(0, finalized["partition_filters"])
+        self.assertEqual(0, finalized["metadata_write_fault_one_in"])
+        self.assertEqual(0, finalized["write_fault_one_in"])
+        self.assertEqual(0, finalized["open_metadata_write_fault_one_in"])
+        self.assertEqual(0, finalized["open_write_fault_one_in"])
+        self.assertEqual(0, finalized["sync_fault_injection"])
+
+    def test_finalize_sanitizes_index_mode_without_trie_factory(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "use_trie_index": 0,
+                "index_mode": 3,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(0, finalized["index_mode"])
+
     def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"

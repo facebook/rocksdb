@@ -1509,6 +1509,10 @@ struct BlockBasedTableBuilder::Rep {
         SetStatus(s);
       } else if (ci.builder != nullptr) {
         custom_indexes.push_back(std::move(ci));
+      } else {
+        SetStatus(Status::InvalidArgument(
+            "IndexFactory::NewBuilder returned OK with null builder for " +
+            ci.name));
       }
     }
 

@@ -640,10 +640,12 @@ struct BlockBasedTableOptions {
   //   From kCustomOnly: switch to kCustomDefault and compact to rewrite
   //     all SSTs with both indexes before downgrading further.
   //
-  // Backup/restore: user_defined_index_factory (shared_ptr) does not
-  //   survive Options serialization. In kStandardDefault/kCustomDefault,
-  //   the restored DB falls back to the standard index. In kCustomOnly,
-  //   the factory must be explicitly set after restore.
+  // Backup/restore and other Options-serialization reopen paths:
+  //   user_defined_index_factory (shared_ptr) does not survive Options
+  //   serialization. If persisted OPTIONS still contain
+  //   index_mode >= kStandardDefault, callers must explicitly reattach the
+  //   same factory before opening the DB, or change index_mode to
+  //   kStandardOnly for a standard-index-only restore.
   //
   // Incompatible with:
   //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly

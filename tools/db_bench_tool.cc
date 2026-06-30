@@ -695,26 +695,29 @@ DEFINE_bool(index_with_first_key, false, "Include first key in the index");
 DEFINE_bool(use_trie_index, false,
             "Use trie-based user-defined index (UDI) for block-based tables. "
             "Builds a LOUDS-encoded succinct trie from separator keys, "
-            "providing space reduction compared to the default binary search "
-            "index. Requires BytewiseComparator.");
+            "providing space reduction compared to the standard index. "
+            "Requires BytewiseComparator.");
 
 DEFINE_int32(
-    index_mode, 0,
+    index_mode, -1,
     "BlockBasedTableOptions::IndexMode. Controls how the custom index (e.g. "
     "trie when --use_trie_index=1) interacts with the standard index: "
-    "0=kStandardOnly (no UDI, default), 1=kStandardDefault (UDI built, "
-    "standard is read default), 2=kCustomDefault (UDI built, UDI is read "
-    "default), 3=kCustomOnly (only UDI built, standard is a minimal stub). "
-    "If --use_trie_index=1 this flag overrides the default of "
-    "kStandardDefault. Without --use_trie_index, this flag is only valid as "
-    "kStandardOnly because there is no custom factory to wire up.");
+    "-1=auto (default: kStandardOnly without --use_trie_index, "
+    "kStandardDefault with --use_trie_index=1), 0=kStandardOnly (no UDI), "
+    "1=kStandardDefault (UDI built, standard is read default), "
+    "2=kCustomDefault (UDI built, UDI is read default), 3=kCustomOnly "
+    "(only UDI built, standard is a minimal stub). Without --use_trie_index, "
+    "this flag is only valid as -1 or kStandardOnly because there is no "
+    "custom factory to wire up.");
 
 DEFINE_int32(
-    read_index, 0,
+    read_index, -1,
     "Per-read ReadOptions::ReadIndex override (only meaningful with "
-    "--use_trie_index=1). 0=kDefault (use whatever index_mode says), "
-    "1=kBuiltin (force the standard index), 2=kPreferCustom (use the UDI "
-    "when this SST has one, fall back to standard otherwise).");
+    "--use_trie_index=1). -1=auto (default: kDefault unless "
+    "--use_trie_index=1, then kPreferCustom), 0=kDefault (use whatever "
+    "index_mode says), 1=kBuiltin (force the standard index), "
+    "2=kPreferCustom (use the UDI when this SST has one, fall back to "
+    "standard otherwise).");
 
 DEFINE_bool(
     optimize_filters_for_memory,
@@ -3266,6 +3269,23 @@ class Benchmark {
       fprintf(stderr, "compression_ratio should be between 0 and 1\n");
       return false;
     }
+    if (FLAGS_index_mode < -1 || FLAGS_index_mode > 3) {
+      fprintf(stderr, "--index_mode=%d out of range [-1..3]\n",
+              FLAGS_index_mode);
+      return false;
+    }
+    if (!FLAGS_use_trie_index && FLAGS_index_mode > 0) {
+      fprintf(stderr,
+              "--index_mode=%d requires --use_trie_index=1; only auto (-1) "
+              "or kStandardOnly (0) is valid without a UDI factory\n",
+              FLAGS_index_mode);
+      return false;
+    }
+    if (FLAGS_read_index < -1 || FLAGS_read_index > 2) {
+      fprintf(stderr, "--read_index=%d out of range [-1..2]\n",
+              FLAGS_read_index);
+      return false;
+    }
     return true;
   }
 
@@ -3982,14 +4002,9 @@ class Benchmark {
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
-      if (FLAGS_use_trie_index && udi_factory_) {
-        // Default --read_index to kPreferCustom when --use_trie_index=1
-        // unless the user explicitly overrode it.
-        read_options_.read_index =
-            FLAGS_read_index == 0
-                ? ReadOptions::ReadIndex::kPreferCustom
-                : static_cast<ReadOptions::ReadIndex>(FLAGS_read_index);
-      } else if (FLAGS_read_index != 0) {
+      if (FLAGS_use_trie_index && udi_factory_ && FLAGS_read_index == -1) {
+        read_options_.read_index = ReadOptions::ReadIndex::kPreferCustom;
+      } else if (FLAGS_read_index >= 0) {
         read_options_.read_index =
             static_cast<ReadOptions::ReadIndex>(FLAGS_read_index);
       }
@@ -5365,25 +5380,10 @@ class Benchmark {
         // Default to kStandardDefault when --use_trie_index=1 unless the
         // user explicitly picked a different mode via --index_mode.
         block_based_options.index_mode =
-            FLAGS_index_mode == 0
+            FLAGS_index_mode == -1
                 ? BlockBasedTableOptions::IndexMode::kStandardDefault
                 : static_cast<BlockBasedTableOptions::IndexMode>(
                       FLAGS_index_mode);
-      } else if (FLAGS_index_mode != 0) {
-        fprintf(stderr,
-                "--index_mode=%d ignored: no user_defined_index_factory "
-                "configured. Pass --use_trie_index=1 to enable UDI.\n",
-                FLAGS_index_mode);
-      }
-      if (FLAGS_index_mode < 0 || FLAGS_index_mode > 3) {
-        fprintf(stderr, "--index_mode=%d out of range [0..3]\n",
-                FLAGS_index_mode);
-        db_bench_exit(1);
-      }
-      if (FLAGS_read_index < 0 || FLAGS_read_index > 2) {
-        fprintf(stderr, "--read_index=%d out of range [0..2]\n",
-                FLAGS_read_index);
-        db_bench_exit(1);
       }
 
       options.table_factory.reset(
