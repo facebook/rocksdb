@@ -8946,6 +8946,45 @@ TEST_P(UserDefinedIndexTest, CustomIndexFinishAndWriteWritesAuxMetaBlocks) {
             FinishAndWriteTestFactory::kAuxiliaryContentsSize);
 }
 
+TEST_P(UserDefinedIndexTest, NewBuilderOkWithNullBuilderFailsSstBuild) {
+  class NullBuilderFactory : public IndexFactory {
+   public:
+    const char* Name() const override { return "null_builder_test_index"; }
+
+    Status NewBuilder(
+        const IndexFactoryOptions&,
+        std::unique_ptr<IndexFactoryBuilder>& builder) const override {
+      builder.reset();
+      return Status::OK();
+    }
+
+    Status NewReader(
+        const IndexFactoryOptions&, Slice&,
+        std::unique_ptr<IndexFactoryReader>& reader) const override {
+      reader.reset();
+      return Status::OK();
+    }
+  };
+
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory =
+      std::make_shared<NullBuilderFactory>();
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::string dbname = test::PerThreadDBPath("udi_null_builder_test");
+  std::string ingest_file = dbname + ".sst";
+  SstFileWriter writer(EnvOptions(), options_);
+  ASSERT_OK(writer.Open(ingest_file));
+  ASSERT_OK(writer.Put("key", "value"));
+
+  Status s = writer.Finish();
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("null_builder_test_index"), std::string::npos)
+      << s.ToString();
+}
+
 // On-disk format regression test: the meta block written for a user-defined
 // index must be keyed by the literal prefix "rocksdb.user_defined_index."
 // followed by the factory name. This exact string is used by SSTs written

@@ -5415,13 +5415,20 @@ void InitializeOptionsFromFlags(
       fLU64::FLAGS_super_block_alignment_size;
   block_based_options.super_block_alignment_space_overhead_ratio =
       fLU64::FLAGS_super_block_alignment_space_overhead_ratio;
+  if (FLAGS_index_mode < 0 || FLAGS_index_mode > 3) {
+    fprintf(stderr, "Invalid --index_mode=%d (must be 0-3)\n",
+            FLAGS_index_mode);
+    abort();
+  }
+  if (!udi_factory && FLAGS_index_mode != 0) {
+    fprintf(stderr,
+            "--index_mode=%d requires --use_trie_index=1; only "
+            "kStandardOnly is valid without a UDI factory\n",
+            FLAGS_index_mode);
+    abort();
+  }
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
-    if (FLAGS_index_mode < 0 || FLAGS_index_mode > 3) {
-      fprintf(stderr, "Invalid --index_mode=%d (must be 0-3)\n",
-              FLAGS_index_mode);
-      abort();
-    }
     block_based_options.index_mode =
         static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
     // Disable compaction record count verification when write fault

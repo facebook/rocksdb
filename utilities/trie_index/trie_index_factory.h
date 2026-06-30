@@ -13,7 +13,7 @@
 //  interface, building a Fast Succinct Trie (FST) index from the separator keys
 //  generated during SST file construction. Based on the SuRF paper results, the
 //  trie is expected to achieve significant space reduction compared to the
-//  default binary search index while providing comparable Seek() performance.
+//  standard index while providing comparable Seek() performance.
 //
 //  Usage:
 //    auto trie_factory = std::make_shared<TrieIndexFactory>();

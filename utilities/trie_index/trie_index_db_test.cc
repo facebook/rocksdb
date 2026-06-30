@@ -651,8 +651,8 @@ class TrieIndexDBTest
 
 TEST_P(TrieIndexDBTest, FlushWithAllOperationTypes) {
   // Write every supported operation type via the DB API, flush, and verify
-  // reads return correct results through both the standard binary search index
-  // and the trie UDI. This exercises the full path from memtable through
+  // reads return correct results through both the standard index and the trie
+  // UDI. This exercises the full path from memtable through
   // CompactionIterator, BlockBasedTableBuilder, and the UDI builder wrapper's
   // MapToUDIValueType for each internal ValueType.
   options_.merge_operator = MergeOperators::CreateStringAppendOperator();
@@ -705,7 +705,7 @@ TEST_P(TrieIndexDBTest, TimedPutFlush) {
   // preclude_last_level_data_seconds > 0. The UDI wrapper strips the packed
   // preferred seqno suffix via ParsePackedValueForValue() before forwarding
   // to the plugin builder. This test verifies that path end-to-end through
-  // both the standard binary search index and the trie UDI.
+  // both the standard index and the trie UDI.
   options_.merge_operator = MergeOperators::CreateStringAppendOperator();
   options_.compaction_style = kCompactionStyleUniversal;
   // Required for kTypeValuePreferredSeqno to survive the flush path: the
