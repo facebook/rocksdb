@@ -19,10 +19,10 @@ namespace trie_index {
 
 int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
                                     const std::string& /*arg*/) {
-  library.AddFactory<UserDefinedIndexFactory>(
+  library.AddFactory<IndexFactory>(
       TrieIndexFactory::kClassName(),
       [](const std::string& /*uri*/,
-         std::unique_ptr<UserDefinedIndexFactory>* guard,
+         std::unique_ptr<IndexFactory>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new TrieIndexFactory());
         return guard->get();
