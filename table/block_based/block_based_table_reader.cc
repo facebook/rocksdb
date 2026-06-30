@@ -996,14 +996,12 @@ Status BlockBasedTable::Open(
     return s;
   }
   if ((table_options.index_mode ==
-           BlockBasedTableOptions::IndexMode::kStandardRequired ||
-       table_options.index_mode ==
            BlockBasedTableOptions::IndexMode::kCustomDefault ||
        table_options.index_mode ==
            BlockBasedTableOptions::IndexMode::kCustomOnly) &&
       table_options.user_defined_index_factory == nullptr) {
     return Status::InvalidArgument(
-        "index_mode kStandardRequired/kCustomDefault/kCustomOnly requires "
+        "index_mode kCustomDefault/kCustomOnly requires "
         "user_defined_index_factory");
   }
   if (rep->table_properties->standard_index_is_stub != 0 &&

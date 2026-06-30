@@ -4943,9 +4943,9 @@ TEST_P(TrieIndexDBTest, PrefetchWithCustomIndexWrapper) {
 
   // Verify SST properties. In kCustomDefault mode, index_key_is_user_key=1
   // because the standard builder sees no same-user-key boundaries (all keys
-  // unique). In kCustomOnly mode, index_key_is_user_key=0 because the standard
-  // index is a stub and we force this property to match the UDI wrapper's
-  // internal key format.
+  // unique). In kCustomOnly mode, the standard index is a stub; this test only
+  // needs the custom-default assertion because primary mode is covered below by
+  // the reopen-time prefetch checks.
   TablePropertiesCollection props;
   ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
   ASSERT_FALSE(props.empty());

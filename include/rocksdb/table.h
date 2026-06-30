@@ -603,8 +603,9 @@ struct BlockBasedTableOptions {
   //
   // Controls how the custom IndexFactory interacts with the standard
   // index (the index selected by index_type -- binary search by default,
-  // hash search, or partitioned). kStandardRequired, kCustomDefault, and
-  // kCustomOnly require user_defined_index_factory to be set.
+  // hash search, or partitioned). kCustomDefault and kCustomOnly require
+  // user_defined_index_factory to be set because reads route through the
+  // custom index by default or exclusively.
   //
   //   kStandardOnly:
   //     Only the standard index is used.
@@ -623,7 +624,10 @@ struct BlockBasedTableOptions {
   //     Same read routing as kStandardDefault, but opening an SST that
   //     lacks the custom index block is a hard error when a factory is
   //     configured. This preserves the legacy fail_if_no_udi_on_open=true
-  //     behavior without changing default reads to the custom index.
+  //     behavior without changing default reads to the custom index. If no
+  //     factory is configured, this behaves like kStandardDefault/no factory
+  //     so OPTIONS files from older binaries remain readable when the
+  //     non-serialized factory pointer is not restored.
   //
   //   kCustomDefault:
   //     Both indexes are built. All reads (including internal operations
@@ -657,8 +661,8 @@ struct BlockBasedTableOptions {
   // Backup/restore and other Options-serialization reopen paths:
   //   user_defined_index_factory (shared_ptr) does not survive Options
   //   serialization unless reconstructed through the object registry. If a
-  //   factory is lost in kStandardDefault, RocksDB opens through the standard
-  //   index. For kStandardRequired/kCustomDefault/kCustomOnly, callers must
+  //   factory is lost in kStandardDefault or kStandardRequired, RocksDB opens
+  //   through the standard index. For kCustomDefault/kCustomOnly, callers must
   //   explicitly reattach the same factory before opening the DB, or change
   //   index_mode to kStandardOnly for a standard-index-only restore.
   //

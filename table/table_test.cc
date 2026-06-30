@@ -8891,16 +8891,6 @@ TEST_P(UserDefinedIndexTest, NewBuilderOkWithNullBuilderFailsSstBuild) {
       << s.ToString();
 }
 
-// On-disk format regression test: the meta block written for a user-defined
-// index must be keyed by the literal prefix "rocksdb.user_defined_index."
-// followed by the factory name. This exact string is used by SSTs written
-// by previous RocksDB versions; changing it would silently break readability
-// of those existing files.
-//
-// This test deliberately uses a hardcoded string literal rather than the
-// kIndexFactoryMetaPrefix / kUserDefinedIndexPrefix constants -- that way an
-// accidental edit to the constant's value is caught here, not in production
-// after data is already lost.
 // Verifies that kStandardOnly truly ignores user_defined_index_factory:
 // even if a factory pointer is set in the table options, the reader must
 // not probe for a UDI block. This matches the kStandardOnly contract
@@ -9098,6 +9088,17 @@ TEST_P(UserDefinedIndexTest, MetaBlockPrefixOnDiskBackwardCompat) {
   ASSERT_OK(iter->status());
 }
 
+// On-disk format regression test: the meta block written for a user-defined
+// index must be keyed by the literal prefix "rocksdb.user_defined_index."
+// followed by the factory name. This exact string is used by SSTs written
+// by previous RocksDB versions; changing it would silently break readability
+// of those existing files.
+//
+// This test deliberately uses a hardcoded string literal rather than the
+// kIndexFactoryMetaPrefix / kUserDefinedIndexPrefix constants -- that way an
+// accidental edit to the constant's value is caught here, not in production
+// after data is already lost.
+//
 // Verifies that the two on-disk SST shapes a DB can have are readable
 // under every supported open-time read configuration:
 //   - sst_secondary : full standard index + UDI (kStandardDefault /
@@ -9348,9 +9349,15 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
       NewBlockBasedTableFactory(strict_opts));
   std::unique_ptr<SstFileReader> strict_no_factory_reader(
       new SstFileReader(strict_no_factory_options));
-  Status strict_no_factory_s = strict_no_factory_reader->Open(strict_sst);
-  ASSERT_TRUE(strict_no_factory_s.IsInvalidArgument())
-      << strict_no_factory_s.ToString();
+  ASSERT_OK(strict_no_factory_reader->Open(strict_sst));
+  ASSERT_OK(strict_no_factory_reader->VerifyChecksum(ReadOptions()));
+  std::unique_ptr<Iterator> strict_no_factory_iter(
+      strict_no_factory_reader->NewIterator(ReadOptions()));
+  strict_no_factory_iter->Seek("key00");
+  ASSERT_TRUE(strict_no_factory_iter->Valid());
+  ASSERT_EQ(strict_no_factory_iter->key(), "key00");
+  ASSERT_EQ(strict_no_factory_iter->value(), "value00");
+  ASSERT_OK(strict_no_factory_iter->status());
 
   strict_opts.user_defined_index_factory = std::make_shared<TestIndexFactory>();
   Options strict_read_options = options_;

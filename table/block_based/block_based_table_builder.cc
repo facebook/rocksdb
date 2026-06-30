@@ -1447,18 +1447,15 @@ struct BlockBasedTableBuilder::Rep {
         BlockBasedTableOptions::IndexMode::kCustomDefault;
     const bool is_custom_only = table_options.index_mode ==
                                 BlockBasedTableOptions::IndexMode::kCustomOnly;
-    const bool is_standard_required =
-        table_options.index_mode ==
-        BlockBasedTableOptions::IndexMode::kStandardRequired;
     const bool builds_custom_index =
         table_options.index_mode !=
         BlockBasedTableOptions::IndexMode::kStandardOnly;
 
-    if ((is_standard_required || is_custom_default || is_custom_only) &&
+    if ((is_custom_default || is_custom_only) &&
         table_options.user_defined_index_factory == nullptr) {
       SetStatus(
-          Status::InvalidArgument("index_mode kStandardRequired/"
-                                  "kCustomDefault/kCustomOnly requires "
+          Status::InvalidArgument("index_mode kCustomDefault/kCustomOnly "
+                                  "requires "
                                   "user_defined_index_factory to be set"));
     }
     if (builds_custom_index &&

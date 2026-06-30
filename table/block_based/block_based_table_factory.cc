@@ -833,14 +833,12 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
   if (table_options_.index_mode ==
-          BlockBasedTableOptions::IndexMode::kStandardRequired ||
-      table_options_.index_mode ==
           BlockBasedTableOptions::IndexMode::kCustomDefault ||
       table_options_.index_mode ==
           BlockBasedTableOptions::IndexMode::kCustomOnly) {
     if (!table_options_.user_defined_index_factory) {
       return Status::InvalidArgument(
-          "index_mode kStandardRequired/kCustomDefault/kCustomOnly requires "
+          "index_mode kCustomDefault/kCustomOnly requires "
           "user_defined_index_factory");
     }
     // Whether parallel compression is usable with a particular UDI is a
