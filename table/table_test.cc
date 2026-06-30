@@ -8952,6 +8952,98 @@ TEST_P(UserDefinedIndexTest, StandardOnlyIgnoresUdiFactory) {
   ASSERT_OK(iter->status());
 }
 
+// Backward-compatibility regression: before index_mode existed, setting only
+// user_defined_index_factory built a secondary UDI while reads still used the
+// standard index by default. That source still compiles, so it must not
+// silently stop writing UDI blocks.
+TEST_P(UserDefinedIndexTest, FactoryOnlyDefaultBuildsSecondaryUdi) {
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("udi_factory_only_default_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  auto factory = std::make_shared<TestIndexFactory>();
+  table_options.user_defined_index_factory = factory;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  ASSERT_EQ(table_options.index_mode,
+            BlockBasedTableOptions::IndexMode::kStandardDefault);
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options_));
+  ASSERT_OK(writer->Open(ingest_file));
+  auto kvs = generateKVs(/*key_count=*/30);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(writer->Put(kv.first, kv.second));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options_));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  // Default reads use the standard index and should not see UDI errors.
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ReadOptions()));
+  iter->Seek("key09");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Explicitly selecting the custom index must route through the UDI that was
+  // built by the factory-only default path.
+  factory->seek_error_count_ = 1;
+  ReadOptions ro;
+  ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
+  iter.reset(reader->NewIterator(ro));
+  iter->Seek("key09");
+  ASSERT_NOK(iter->status());
+}
+
+TEST_P(UserDefinedIndexTest, LegacyReadOptionFactoryNameMismatchFails) {
+  class OtherNameTestIndexFactory : public TestIndexFactory {
+   public:
+    const char* Name() const override { return "other_test_index"; }
+  };
+
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("udi_read_factory_name_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  auto factory = std::make_shared<TestIndexFactory>();
+  table_options.user_defined_index_factory = factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options_));
+  ASSERT_OK(writer->Open(ingest_file));
+  auto kvs = generateKVs(/*key_count=*/30);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(writer->Put(kv.first, kv.second));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options_));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  OtherNameTestIndexFactory other_factory;
+  ReadOptions ro;
+  ro.table_index_factory = &other_factory;
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+  iter->Seek("key09");
+  ASSERT_TRUE(iter->status().IsInvalidArgument()) << iter->status().ToString();
+
+  ro.table_index_factory = factory.get();
+  iter.reset(reader->NewIterator(ro));
+  iter->Seek("key09");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
 TEST_P(UserDefinedIndexTest, MetaBlockPrefixOnDiskBackwardCompat) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("udi_meta_prefix_test");
@@ -9064,9 +9156,9 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   assert_has_legacy_prefix(sst_primary);
 
   // Each (open_mode, sst_shape, read_index) combination below must return
-  // all 50 KVs. Combinations that route through a non-existent index
-  // (e.g. standard-route to a kCustomOnly SST) are omitted; those
-  // correctly return 0 rows and are covered by other tests.
+  // all 50 KVs. Combinations that route through a kCustomOnly SST's
+  // footer-satisfying standard-index stub must fail loudly rather than
+  // returning an OK empty scan.
   auto verify_full_scan = [&](BlockBasedTableOptions::IndexMode open_mode,
                               bool factory_set, const std::string& path,
                               ReadOptions::ReadIndex rprobe,
@@ -9092,14 +9184,48 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
     ASSERT_OK(iter->status());
     ASSERT_EQ(count, 50);
   };
+  auto verify_iter_invalid = [&](BlockBasedTableOptions::IndexMode open_mode,
+                                 const std::string& path,
+                                 ReadOptions::ReadIndex rprobe,
+                                 const std::string& label) {
+    SCOPED_TRACE(label + " probe=" + std::to_string(static_cast<int>(rprobe)));
+    BlockBasedTableOptions ro_opts;
+    ro_opts.index_mode = open_mode;
+    ro_opts.user_defined_index_factory = std::make_shared<TestIndexFactory>();
+    Options read_options = options_;
+    read_options.table_factory.reset(NewBlockBasedTableFactory(ro_opts));
+
+    std::unique_ptr<SstFileReader> reader(new SstFileReader(read_options));
+    ASSERT_OK(reader->Open(path));
+    ReadOptions ro;
+    ro.read_index = rprobe;
+    std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->status().IsInvalidArgument())
+        << iter->status().ToString();
+  };
+  auto verify_open_invalid = [&](BlockBasedTableOptions::IndexMode open_mode,
+                                 const std::string& path,
+                                 const std::string& label) {
+    SCOPED_TRACE(label);
+    BlockBasedTableOptions ro_opts;
+    ro_opts.index_mode = open_mode;
+    Options read_options = options_;
+    read_options.table_factory.reset(NewBlockBasedTableFactory(ro_opts));
+
+    std::unique_ptr<SstFileReader> reader(new SstFileReader(read_options));
+    Status s = reader->Open(path);
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  };
 
   // sst_secondary has both indexes; every (mode, probe) returns all rows.
   for (auto mode : {BlockBasedTableOptions::IndexMode::kStandardOnly,
                     BlockBasedTableOptions::IndexMode::kStandardDefault,
+                    BlockBasedTableOptions::IndexMode::kStandardRequired,
                     BlockBasedTableOptions::IndexMode::kCustomDefault,
                     BlockBasedTableOptions::IndexMode::kCustomOnly}) {
     bool factory_needed =
-        mode >= BlockBasedTableOptions::IndexMode::kStandardDefault;
+        mode != BlockBasedTableOptions::IndexMode::kStandardOnly;
     for (auto probe :
          {ReadOptions::ReadIndex::kDefault, ReadOptions::ReadIndex::kBuiltin,
           ReadOptions::ReadIndex::kPreferCustom}) {
@@ -9114,6 +9240,9 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   verify_full_scan(BlockBasedTableOptions::IndexMode::kStandardDefault, true,
                    sst_primary, ReadOptions::ReadIndex::kPreferCustom,
                    "sst_primary kStandardDefault");
+  verify_full_scan(BlockBasedTableOptions::IndexMode::kStandardRequired, true,
+                   sst_primary, ReadOptions::ReadIndex::kPreferCustom,
+                   "sst_primary kStandardRequired");
   verify_full_scan(BlockBasedTableOptions::IndexMode::kCustomDefault, true,
                    sst_primary, ReadOptions::ReadIndex::kDefault,
                    "sst_primary kCustomDefault");
@@ -9126,6 +9255,24 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   verify_full_scan(BlockBasedTableOptions::IndexMode::kCustomOnly, true,
                    sst_primary, ReadOptions::ReadIndex::kPreferCustom,
                    "sst_primary kCustomOnly");
+
+  verify_iter_invalid(BlockBasedTableOptions::IndexMode::kStandardDefault,
+                      sst_primary, ReadOptions::ReadIndex::kDefault,
+                      "sst_primary kStandardDefault default");
+  verify_iter_invalid(BlockBasedTableOptions::IndexMode::kStandardDefault,
+                      sst_primary, ReadOptions::ReadIndex::kBuiltin,
+                      "sst_primary kStandardDefault builtin");
+  verify_iter_invalid(BlockBasedTableOptions::IndexMode::kCustomDefault,
+                      sst_primary, ReadOptions::ReadIndex::kBuiltin,
+                      "sst_primary kCustomDefault builtin");
+  verify_iter_invalid(BlockBasedTableOptions::IndexMode::kCustomOnly,
+                      sst_primary, ReadOptions::ReadIndex::kBuiltin,
+                      "sst_primary kCustomOnly builtin");
+  verify_open_invalid(BlockBasedTableOptions::IndexMode::kStandardOnly,
+                      sst_primary, "sst_primary kStandardOnly without factory");
+  verify_open_invalid(BlockBasedTableOptions::IndexMode::kStandardDefault,
+                      sst_primary,
+                      "sst_primary kStandardDefault without factory");
 }
 
 // Verifies that the deprecated UDI boolean aliases
@@ -9146,15 +9293,17 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
     EXPECT_EQ(static_cast<int>(out.index_mode), static_cast<int>(expected));
   };
 
-  // All booleans false leaves the default kStandardOnly.
+  // All booleans false leaves the default kStandardDefault, which preserves the
+  // old factory-only secondary-UDI behavior while acting like standard-only
+  // when no factory is configured.
   translates_to(
       "fail_if_no_udi_on_open=false;use_udi_as_primary_index=false;skip_"
       "standard_index=false",
-      BlockBasedTableOptions::IndexMode::kStandardOnly);
+      BlockBasedTableOptions::IndexMode::kStandardDefault);
 
   // Each boolean upgrades to its mapped mode.
   translates_to("fail_if_no_udi_on_open=true",
-                BlockBasedTableOptions::IndexMode::kStandardDefault);
+                BlockBasedTableOptions::IndexMode::kStandardRequired);
   translates_to("use_udi_as_primary_index=true",
                 BlockBasedTableOptions::IndexMode::kCustomDefault);
   translates_to("skip_standard_index=true",
@@ -9173,6 +9322,44 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   // A higher explicit index_mode is not downgraded by a lower boolean.
   translates_to("index_mode=kCustomOnly;fail_if_no_udi_on_open=true",
                 BlockBasedTableOptions::IndexMode::kCustomOnly);
+
+  // Strict secondary mode must preserve the old fail_if_no_udi_on_open=true
+  // behavior without switching default reads to the custom index.
+  std::string strict_dbname = test::PerThreadDBPath("udi_strict_compat");
+  std::string strict_sst = strict_dbname + "missing_udi.sst";
+  {
+    Options write_options = options_;
+    write_options.table_factory.reset(
+        NewBlockBasedTableFactory(BlockBasedTableOptions()));
+    std::unique_ptr<SstFileWriter> w(
+        new SstFileWriter(EnvOptions(), write_options));
+    ASSERT_OK(w->Open(strict_sst));
+    ASSERT_OK(w->Put("key00", "value00"));
+    ASSERT_OK(w->Finish());
+  }
+  BlockBasedTableOptions strict_opts;
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(cfg, BlockBasedTableOptions(),
+                                                "fail_if_no_udi_on_open=true",
+                                                &strict_opts));
+  ASSERT_EQ(strict_opts.index_mode,
+            BlockBasedTableOptions::IndexMode::kStandardRequired);
+  Options strict_no_factory_options = options_;
+  strict_no_factory_options.table_factory.reset(
+      NewBlockBasedTableFactory(strict_opts));
+  std::unique_ptr<SstFileReader> strict_no_factory_reader(
+      new SstFileReader(strict_no_factory_options));
+  Status strict_no_factory_s = strict_no_factory_reader->Open(strict_sst);
+  ASSERT_TRUE(strict_no_factory_s.IsInvalidArgument())
+      << strict_no_factory_s.ToString();
+
+  strict_opts.user_defined_index_factory = std::make_shared<TestIndexFactory>();
+  Options strict_read_options = options_;
+  strict_read_options.table_factory.reset(
+      NewBlockBasedTableFactory(strict_opts));
+  std::unique_ptr<SstFileReader> strict_reader(
+      new SstFileReader(strict_read_options));
+  Status strict_s = strict_reader->Open(strict_sst);
+  ASSERT_TRUE(strict_s.IsCorruption()) << strict_s.ToString();
 
   // End-to-end check: an OPTIONS string containing only
   // `use_udi_as_primary_index=true` must produce a config that reads a

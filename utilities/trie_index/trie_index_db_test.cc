@@ -152,7 +152,8 @@ class TrieIndexDBTest
     : public testing::TestWithParam<BlockBasedTableOptions::IndexMode> {
  protected:
   bool IsPrimaryMode() const {
-    return GetParam() >= BlockBasedTableOptions::IndexMode::kCustomDefault;
+    return GetParam() == BlockBasedTableOptions::IndexMode::kCustomDefault ||
+           GetParam() == BlockBasedTableOptions::IndexMode::kCustomOnly;
   }
   BlockBasedTableOptions::IndexMode GetIndexMode() const { return GetParam(); }
 
@@ -237,7 +238,7 @@ class TrieIndexDBTest
 
   // Collects all visible keys via forward scan using the default index for
   // the current mode: standard index for kStandardDefault/kCustomDefault, trie
-  // index for kCustomOnly (where the standard index is an empty stub).
+  // index for kCustomOnly (where standard-index reads fail loudly).
   std::vector<std::string> ScanAllKeys() {
     if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
       return ScanAllKeys(TrieIndexReadOptions());
@@ -261,8 +262,8 @@ class TrieIndexDBTest
   // Verifies that forward scan via SeekToFirst+Next AND reverse scan via
   // SeekToLast+Prev both produce the expected key set through both the
   // standard index and the trie index.
-  // In kCustomOnly mode, the standard index is an empty stub, so we skip
-  // the standard index comparison.
+  // In kCustomOnly mode, standard-index reads fail loudly because only a
+  // footer-satisfying stub exists, so we skip the standard index comparison.
   void VerifyScanBothIndexes(const std::vector<std::string>& expected_keys) {
     if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
       SCOPED_TRACE("standard index forward");
@@ -315,7 +316,8 @@ class TrieIndexDBTest
   }
 
   // Returns the list of ReadOptions to test through both indexes, skipping the
-  // standard index in kCustomOnly mode (where it's an empty stub).
+  // standard index in kCustomOnly mode, where only a footer-satisfying stub
+  // exists and standard-index reads fail loudly.
   std::vector<ReadOptions> BothIndexReadOptions() const {
     if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
       return {TrieIndexReadOptions()};
@@ -3878,8 +3880,8 @@ TEST_P(TrieIndexDBTest, MultiLevelDeleteRangeRandomized) {
   };
 
   // Core correctness check: forward scan via both indexes must match.
-  // In kCustomOnly mode, the standard index is an empty stub, so we just
-  // verify that the trie scan succeeds (no crash, valid iteration).
+  // In kCustomOnly mode, standard-index reads fail loudly because only a
+  // footer-satisfying stub exists, so we verify the trie scan succeeds.
   auto verify_scan_consistency = [&]() {
     auto trie_kvs = ScanAllKeyValues(TrieIndexReadOptions());
     if (GetIndexMode() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
@@ -4393,8 +4395,9 @@ TEST_P(TrieIndexDBTest, MigrationFullPath) {
   // Tests the complete recommended migration path:
   // Step 1: No UDI -> Step 2: UDI secondary -> Step 3: Compact all SSTs ->
   // Step 4: UDI primary
-  // In kCustomOnly mode, the standard index is an empty stub, so the
-  // mixed-mode migration path is not applicable.
+  // In kCustomOnly mode, standard-index reads fail loudly because only a
+  // footer-satisfying stub exists, so the mixed-mode migration path is not
+  // applicable.
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ROCKSDB_GTEST_SKIP("Not applicable in kCustomOnly mode");
     return;
@@ -4545,8 +4548,8 @@ TEST_P(TrieIndexDBTest, RollbackFromPrimaryWithoutCompactSucceeds) {
   // Verifies that removing UDI from primary-mode SSTs WITHOUT compacting
   // first still works. The standard index is always fully populated (even
   // in primary mode), so reads fall back to the standard index correctly.
-  // In kCustomOnly mode, the standard index is an empty stub, so this
-  // rollback path is not applicable.
+  // In kCustomOnly mode, standard-index reads fail loudly because only a
+  // footer-satisfying stub exists, so this rollback path is not applicable.
   if (GetIndexMode() == BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ROCKSDB_GTEST_SKIP("Not applicable in kCustomOnly mode");
     return;
@@ -5025,9 +5028,8 @@ TEST_P(TrieIndexDBTest, ParallelCompressionWithTrieIndex) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // Standard index path: only meaningful when the standard index is
-  // populated (kStandardDefault and kCustomDefault). In kCustomOnly the
-  // standard index is an empty stub by design -- reads via kBuiltin would
-  // return zero keys, which is expected, not a regression.
+  // populated (kStandardDefault and kCustomDefault). In kCustomOnly only a
+  // footer-satisfying stub is present, so reads via kBuiltin fail loudly.
   if (GetParam() != BlockBasedTableOptions::IndexMode::kCustomOnly) {
     ReadOptions ro = StandardIndexReadOptions();
     auto keys = ScanAllKeys(ro);
@@ -5145,7 +5147,7 @@ TEST_F(TrieIndexDBTest, ParallelCompressionWithHashStandardIndexAndTrieUdi) {
 // Run all parameterized tests in all three custom UDI modes:
 // - kStandardDefault: UDI is secondary, reads require read_index
 // - kCustomDefault: UDI is primary, all reads use the trie by default
-// - kCustomOnly: UDI is primary, standard index is an empty stub
+// - kCustomOnly: UDI is primary, standard-index reads fail loudly
 INSTANTIATE_TEST_CASE_P(
     AllIndexModes, TrieIndexDBTest,
     ::testing::Values(BlockBasedTableOptions::IndexMode::kStandardDefault,

@@ -1340,12 +1340,13 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
   if (FLAGS_use_trie_index && udi_factory_) {
-    if (FLAGS_index_mode == 1) {
-      // kStandardDefault: custom index is secondary, select explicitly per-read
+    if (FLAGS_index_mode == 1 || FLAGS_index_mode == 4) {
+      // kStandardDefault/kStandardRequired: custom index is secondary, select
+      // explicitly per-read.
       read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
     }
-    // kCustomDefault/kCustomOnly: custom index is default, no override needed
-    // kStandardOnly: custom index not built, don't select it
+    // kCustomDefault/kCustomOnly: custom index is default, no override needed.
+    // kStandardOnly: custom index not built, don't select it.
   }
   std::unique_ptr<StressReadScopedBlockBufferProvider>
       read_scoped_block_buffer_provider;
@@ -1403,7 +1404,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       // Commenting this out as we don't want to reset stats on each open.
       // thread->stats.Start();
-      if (FLAGS_use_trie_index && FLAGS_index_mode == 1 && udi_factory_) {
+      if (FLAGS_use_trie_index &&
+          (FLAGS_index_mode == 1 || FLAGS_index_mode == 4) && udi_factory_) {
         read_opts.read_index = ReadOptions::ReadIndex::kPreferCustom;
       }
     }
@@ -5125,22 +5127,22 @@ void InitializeOptionsFromFlags(
       fLU64::FLAGS_super_block_alignment_size;
   block_based_options.super_block_alignment_space_overhead_ratio =
       fLU64::FLAGS_super_block_alignment_space_overhead_ratio;
-  if (FLAGS_index_mode < 0 || FLAGS_index_mode > 3) {
-    fprintf(stderr, "Invalid --index_mode=%d (must be 0-3)\n",
+  if (FLAGS_index_mode < 0 || FLAGS_index_mode > 4) {
+    fprintf(stderr, "Invalid --index_mode=%d (must be 0-4)\n",
             FLAGS_index_mode);
     abort();
   }
-  if (!udi_factory && FLAGS_index_mode != 0) {
+  if (!udi_factory && FLAGS_index_mode > 1) {
     fprintf(stderr,
             "--index_mode=%d requires --use_trie_index=1; only "
-            "kStandardOnly is valid without a UDI factory\n",
+            "kStandardOnly/kStandardDefault are valid without a UDI factory\n",
             FLAGS_index_mode);
     abort();
   }
+  block_based_options.index_mode =
+      static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
-    block_based_options.index_mode =
-        static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
     // Disable compaction record count verification when write fault
     // injection is active in custom index modes (kCustomDefault/kCustomOnly).
     //
@@ -5155,11 +5157,12 @@ void InitializeOptionsFromFlags(
     // Without fault injection, all modes (including kCustomOnly) pass
     // the compaction record count check correctly.
     //
-    // Non-UDI modes (kStandardOnly, kStandardDefault) are not affected
-    // because the standard index is written as a main block (not a
-    // meta block), so write faults do not corrupt it.
-    if (FLAGS_index_mode >= 2 && (FLAGS_write_fault_one_in > 0 ||
-                                  FLAGS_metadata_write_fault_one_in > 0)) {
+    // Non-primary-UDI modes (kStandardOnly, kStandardDefault,
+    // kStandardRequired) are not affected because reads can route through the
+    // standard index, which is written as a main block (not a meta block).
+    if ((FLAGS_index_mode == 2 || FLAGS_index_mode == 3) &&
+        (FLAGS_write_fault_one_in > 0 ||
+         FLAGS_metadata_write_fault_one_in > 0)) {
       options.compaction_verify_record_count = false;
     }
   }

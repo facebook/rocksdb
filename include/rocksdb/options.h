@@ -58,6 +58,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+class IndexFactory;
 
 class IODispatcher;
 
@@ -2420,17 +2421,29 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
+  // Legacy compatibility guard for callers that select a specific custom index
+  // factory for a read. When set, RocksDB routes the read through the custom
+  // index only if the SST's custom index name matches this factory's Name();
+  // otherwise iterator creation fails with InvalidArgument instead of silently
+  // using a different custom index. New code can leave this null and use
+  // read_index directly.
+  const IndexFactory* table_index_factory = nullptr;
+
+  // EXPERIMENTAL
+  //
   // Per-read index selection. Overrides the default read routing determined
   // by BlockBasedTableOptions::index_mode.
   //
   //   kDefault: use whatever index_mode says.
-  //     kStandardOnly/kStandardDefault -> standard index.
-  //     kCustomDefault/kCustomOnly     -> custom IndexFactory index.
+  //     kStandardOnly/kStandardDefault/kStandardRequired -> standard index.
+  //     kCustomDefault/kCustomOnly                       -> custom
+  //                                                        IndexFactory index.
   //
   //   kBuiltin: force the standard index for this read.
   //     Useful for debugging, comparing results between indexes, or
   //     temporary fallback. In kCustomOnly mode, the standard index
-  //     is a minimal stub -- reads will return no useful results.
+  //     is a minimal stub -- reads fail loudly instead of returning an
+  //     OK empty result.
   //
   //   kPreferCustom: select the custom IndexFactory index when the SST has
   //     one; fall back to the standard index for SSTs that don't (e.g.,

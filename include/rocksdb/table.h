@@ -603,12 +603,14 @@ struct BlockBasedTableOptions {
   //
   // Controls how the custom IndexFactory interacts with the standard
   // index (the index selected by index_type -- binary search by default,
-  // hash search, or partitioned). Requires user_defined_index_factory to
-  // be set for any mode other than kStandardOnly.
+  // hash search, or partitioned). kStandardRequired, kCustomDefault, and
+  // kCustomOnly require user_defined_index_factory to be set.
   //
-  //   kStandardOnly (default):
+  //   kStandardOnly:
   //     Only the standard index is used.
-  //     user_defined_index_factory is ignored if set.
+  //     user_defined_index_factory is ignored if set. Use this mode to
+  //     explicitly suppress UDI building while leaving a factory pointer
+  //     configured.
   //
   //   kStandardDefault:
   //     Both indexes are built. Reads use the standard index by default.
@@ -616,6 +618,12 @@ struct BlockBasedTableOptions {
   //     for per-read override. When opening SSTs that lack the custom
   //     index block, falls back to the standard index with a warning
   //     (not a hard error).
+  //
+  //   kStandardRequired:
+  //     Same read routing as kStandardDefault, but opening an SST that
+  //     lacks the custom index block is a hard error when a factory is
+  //     configured. This preserves the legacy fail_if_no_udi_on_open=true
+  //     behavior without changing default reads to the custom index.
   //
   //   kCustomDefault:
   //     Both indexes are built. All reads (including internal operations
@@ -629,8 +637,14 @@ struct BlockBasedTableOptions {
   //     Maximum efficiency but no fallback -- rollback requires
   //     compacting with a mode that builds the standard index.
   //
+  // Default: kStandardDefault. With no user_defined_index_factory, this
+  // behaves exactly like kStandardOnly. With a factory, it preserves the
+  // legacy behavior where setting only user_defined_index_factory builds a
+  // secondary UDI while reads continue to use the standard index by default.
+  //
   // Recommended migration path (each step yields SSTs readable by the
-  // next): kStandardOnly -> kStandardDefault -> kCustomDefault -> kCustomOnly
+  // next): kStandardDefault -> kStandardRequired -> kCustomDefault ->
+  // kCustomOnly
   //
   // Rollback:
   //   From kCustomDefault: switch to kStandardDefault or kStandardOnly.
@@ -642,10 +656,11 @@ struct BlockBasedTableOptions {
   //
   // Backup/restore and other Options-serialization reopen paths:
   //   user_defined_index_factory (shared_ptr) does not survive Options
-  //   serialization. If persisted OPTIONS still contain
-  //   index_mode >= kStandardDefault, callers must explicitly reattach the
-  //   same factory before opening the DB, or change index_mode to
-  //   kStandardOnly for a standard-index-only restore.
+  //   serialization unless reconstructed through the object registry. If a
+  //   factory is lost in kStandardDefault, RocksDB opens through the standard
+  //   index. For kStandardRequired/kCustomDefault/kCustomOnly, callers must
+  //   explicitly reattach the same factory before opening the DB, or change
+  //   index_mode to kStandardOnly for a standard-index-only restore.
   //
   // Incompatible with:
   //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
@@ -661,8 +676,11 @@ struct BlockBasedTableOptions {
     kStandardDefault = 1,
     kCustomDefault = 2,
     kCustomOnly = 3,
+    // Keep the original numeric values for kCustomDefault/kCustomOnly so
+    // existing numeric flags and old binaries do not silently change meaning.
+    kStandardRequired = 4,
   };
-  IndexMode index_mode = IndexMode::kStandardOnly;
+  IndexMode index_mode = IndexMode::kStandardDefault;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
