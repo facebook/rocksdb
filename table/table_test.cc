@@ -8885,9 +8885,7 @@ TEST_P(UserDefinedIndexTest, NewBuilderOkWithNullBuilderFailsSstBuild) {
   std::string ingest_file = dbname + ".sst";
   SstFileWriter writer(EnvOptions(), options_);
   ASSERT_OK(writer.Open(ingest_file));
-  ASSERT_OK(writer.Put("key", "value"));
-
-  Status s = writer.Finish();
+  Status s = writer.Put("key", "value");
   ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
   ASSERT_NE(s.ToString().find("null_builder_test_index"), std::string::npos)
       << s.ToString();
