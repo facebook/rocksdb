@@ -2763,7 +2763,7 @@ class NonBatchedOpsStressTest : public StressTest {
     };
 
     ReadOptions standard_ro = ro;
-    standard_ro.read_index = ReadOptions::ReadIndex::kDefault;
+    standard_ro.read_index = ReadOptions::ReadIndex::kBuiltin;
     dump_debug_iter("Debug standard direct", standard_ro,
                     /*use_multi_cf_iter=*/false,
                     /*replay_from_mid=*/false);
