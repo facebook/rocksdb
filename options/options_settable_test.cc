@@ -46,6 +46,19 @@ static_assert(offsetof(ReadOptions, read_index) >=
                       offsetof(ReadOptions, table_index_factory),
               "Keep read_index in padding before table_index_factory so "
               "legacy ReadOptions field offsets stay unchanged");
+static_assert(static_cast<int>(ReadOptions::ReadIndex::kDefault) == 0);
+static_assert(static_cast<int>(ReadOptions::ReadIndex::kBuiltin) == 1);
+static_assert(static_cast<int>(ReadOptions::ReadIndex::kPreferCustom) == 2);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kStandardOnly) == 0);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kStandardDefault) == 1);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kCustomDefault) == 2);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kCustomOnly) == 3);
+static_assert(static_cast<int>(
+                  BlockBasedTableOptions::IndexMode::kStandardRequired) == 4);
 
 // Verify options are settable from options strings.
 // We take the approach that depends on compiler behavior that copy constructor
