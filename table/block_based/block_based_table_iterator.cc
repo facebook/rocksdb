@@ -205,7 +205,12 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 }
 
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
-  ResetMultiScan();
+  const bool reverse_multi_scan = multi_scan_read_set_ &&
+                                  multi_scan_index_iter_ &&
+                                  multi_scan_index_iter_->scan_opts()->reverse;
+  if (!reverse_multi_scan) {
+    ResetMultiScan();
+  }
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
   is_out_of_bound_ = false;
@@ -243,7 +248,11 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   // first block, rather than the second. However, we don't have the information
   // to distinguish the two unless we read the second block. In this case, we'll
   // end up with reading two blocks.
-  index_iter_->Seek(target);
+  if (reverse_multi_scan) {
+    index_iter_->SeekForPrev(target);
+  } else {
+    index_iter_->Seek(target);
+  }
   is_index_at_curr_block_ = true;
 
   if (!index_iter_->Valid()) {
@@ -280,7 +289,12 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 }
 
 void BlockBasedTableIterator::SeekToLast() {
-  ResetMultiScan();
+  const bool reverse_multi_scan = multi_scan_read_set_ &&
+                                  multi_scan_index_iter_ &&
+                                  multi_scan_index_iter_->scan_opts()->reverse;
+  if (!reverse_multi_scan) {
+    ResetMultiScan();
+  }
   direction_ = IterDirection::kBackward;
   ResetBlockCacheLookupVar();
   is_out_of_bound_ = false;
@@ -327,7 +341,11 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
 }
 
 void BlockBasedTableIterator::Prev() {
-  if ((readahead_cache_lookup_ && !IsIndexAtCurr()) || multi_scan_read_set_) {
+  const bool reverse_multi_scan = multi_scan_read_set_ &&
+                                  multi_scan_index_iter_ &&
+                                  multi_scan_index_iter_->scan_opts()->reverse;
+  if ((readahead_cache_lookup_ && !IsIndexAtCurr()) ||
+      (multi_scan_read_set_ && !reverse_multi_scan)) {
     ResetMultiScan();
     // In case of readahead_cache_lookup_, index_iter_ has moved forward. So we
     // need to reseek the index_iter_ to point to current block by using
@@ -382,7 +400,7 @@ void BlockBasedTableIterator::InitDataBlock() {
         ResetDataIter();
       }
       size_t rs_idx = multi_scan_index_iter_->current_read_set_index();
-      if (rs_idx >= prefetch_max_idx_) {
+      if (rs_idx >= multi_scan_index_iter_->GetPrefetchBlockCount()) {
         if (multi_scan_index_iter_->GetMaxPrefetchSize() == 0) {
           // max_prefetch_size is not set, treat as end of file
           return;
@@ -1000,9 +1018,10 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // multiscan with regular iterator usage.
 // - scan ranges should be non-overlapping, and have increasing start keys.
 // If a scan range's limit is not set, then there should only be one scan range.
-// - After Prepare(), the iterator expects Seek to be called on the start key
-// of each ScanOption in order. If any other Seek is done, an error status is
-// returned
+// - After Prepare(), a forward scan expects Seek to be called on the start key
+// of each ScanOption in order. A reverse scan expects SeekForPrev to be called
+// on the limit key of each ScanOption in reverse order. If any other Seek is
+// done, an error status is returned.
 // - Whenever all blocks of a scan opt are exhausted, the iterator will become
 // invalid and UpperBoundCheckResult() will return kOutOfBound. So that the
 // upper layer (LevelIterator) will stop scanning instead thinking EOF is
@@ -1048,24 +1067,37 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     return;
   }
 
-  // Calculate prefetch_max_idx (enforces max_prefetch_size)
+  // Calculate prefetch range (enforces max_prefetch_size)
+  size_t prefetch_start_idx = 0;
   size_t prefetch_max_idx = scan_block_handles.size();
   if (multiscan_opts->max_prefetch_size > 0) {
     uint64_t total_size = 0;
-    for (size_t i = 0; i < scan_block_handles.size(); ++i) {
-      total_size +=
-          BlockBasedTable::BlockSizeWithTrailer(scan_block_handles[i]);
-      if (total_size > multiscan_opts->max_prefetch_size) {
-        prefetch_max_idx = i;
-        break;
+    if (multiscan_opts->reverse) {
+      for (size_t i = scan_block_handles.size(); i > 0; --i) {
+        const size_t block_idx = i - 1;
+        total_size += BlockBasedTable::BlockSizeWithTrailer(
+            scan_block_handles[block_idx]);
+        if (total_size > multiscan_opts->max_prefetch_size) {
+          prefetch_start_idx = block_idx + 1;
+          break;
+        }
+      }
+    } else {
+      for (size_t i = 0; i < scan_block_handles.size(); ++i) {
+        total_size +=
+            BlockBasedTable::BlockSizeWithTrailer(scan_block_handles[i]);
+        if (total_size > multiscan_opts->max_prefetch_size) {
+          prefetch_max_idx = i;
+          break;
+        }
       }
     }
   }
 
-  // Create block handles vector for IODispatcher (limited to prefetch_max_idx)
+  // Create block handles vector for IODispatcher (limited to prefetch range)
   std::vector<BlockHandle> blocks_to_prefetch;
-  if (prefetch_max_idx > 0) {
-    blocks_to_prefetch.assign(scan_block_handles.begin(),
+  if (prefetch_start_idx < prefetch_max_idx) {
+    blocks_to_prefetch.assign(scan_block_handles.begin() + prefetch_start_idx,
                               scan_block_handles.begin() + prefetch_max_idx);
   }
 
@@ -1099,11 +1131,11 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   // the index iterator. The original index_iter_ is saved for restoration
   // on backward operations.
   // Note: data_block_separators keeps full size for seek logic, even though
-  // only blocks up to prefetch_max_idx are actually prefetched.
+  // only blocks in [prefetch_start_idx, prefetch_max_idx) are prefetched.
   auto multi_scan_idx_iter = std::make_unique<MultiScanIndexIterator>(
       std::move(scan_block_handles), std::move(data_block_separators),
       std::move(block_index_ranges_per_scan), multiscan_opts, read_set,
-      prefetch_max_idx, icomp_, table_->GetStatistics());
+      prefetch_start_idx, prefetch_max_idx, icomp_, table_->GetStatistics());
   assert(multi_scan_idx_iter->status().ok());
 
   multi_scan_read_set_ = std::move(read_set);
