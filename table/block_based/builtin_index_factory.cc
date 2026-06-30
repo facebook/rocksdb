@@ -372,11 +372,8 @@ HashIndexFactory::HashIndexFactory(const BuiltinIndexFactoryConfig& config)
 const char* HashIndexFactory::Name() const { return kHashIndexName; }
 const char* HashIndexFactory::kClassName() { return kHashIndexName; }
 
-// NOTE: OnKeyAdded is not forwarded to the internal HashIndexBuilder, so
-// hash prefix metadata is not built through the public OnKeyAdded path.
-// However, the FinishAndWrite protocol correctly writes and registers
-// hash prefix meta blocks (prefix block and prefix metadata block) via
-// the IndexBlockWriter callback.
+// FinishAndWrite writes and registers hash prefix meta blocks (prefix block and
+// prefix metadata block) through the IndexBlockWriter callback.
 Status HashIndexFactory::NewBuilder(
     const IndexFactoryOptions& options,
     std::unique_ptr<IndexFactoryBuilder>& builder) const {

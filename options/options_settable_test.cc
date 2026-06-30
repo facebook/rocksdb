@@ -26,10 +26,26 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 namespace ROCKSDB_NAMESPACE {
 
-static_assert(offsetof(ReadOptions, table_index_factory) <
-                  offsetof(ReadOptions, read_index),
-              "Keep table_index_factory at its legacy ReadOptions offset; "
-              "add newer fields after it to avoid silent ABI changes");
+constexpr size_t kReadOptionsAfterAutoRefresh =
+    offsetof(ReadOptions, auto_refresh_iterator_with_snapshot) + sizeof(bool);
+constexpr size_t kReadOptionsIndexFactoryPtrAlign =
+    alignof(const IndexFactory*);
+constexpr size_t kExpectedTableIndexFactoryOffset =
+    ((kReadOptionsAfterAutoRefresh + kReadOptionsIndexFactoryPtrAlign - 1) /
+     kReadOptionsIndexFactoryPtrAlign) *
+    kReadOptionsIndexFactoryPtrAlign;
+static_assert(
+    offsetof(ReadOptions, table_index_factory) ==
+        kExpectedTableIndexFactoryOffset,
+    "Keep table_index_factory at the first aligned pointer slot after "
+    "auto_refresh_iterator_with_snapshot");
+static_assert(offsetof(ReadOptions, read_index) >=
+                      kReadOptionsAfterAutoRefresh &&
+                  offsetof(ReadOptions, read_index) +
+                          sizeof(ReadOptions::ReadIndex) <=
+                      offsetof(ReadOptions, table_index_factory),
+              "Keep read_index in padding before table_index_factory so "
+              "legacy ReadOptions field offsets stay unchanged");
 
 // Verify options are settable from options strings.
 // We take the approach that depends on compiler behavior that copy constructor

@@ -684,9 +684,10 @@ DEFINE_bool(use_trie_index, false,
             "and all iteration directions (forward and reverse). "
             "Combined with index_mode to control the UDI role.");
 
-DEFINE_int32(index_mode, 0,
+DEFINE_int32(index_mode, -1,
              "Controls how the custom IndexFactory interacts with the "
-             "built-in index. 0=kStandardOnly, 1=kStandardDefault, "
+             "built-in index. -1=auto (kStandardOnly unless use_trie_index=1, "
+             "then kStandardDefault), 0=kStandardOnly, 1=kStandardDefault, "
              "2=kCustomDefault, 3=kCustomOnly, 4=kStandardRequired. "
              "Requires use_trie_index for modes >= 2.");
 
