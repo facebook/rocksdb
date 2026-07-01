@@ -326,6 +326,14 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.flush.reason.write_buffer_manager"},
     {FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS,
      "rocksdb.flush.reason.memtable_max_range_deletions"},
+    {ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL,
+     "rocksdb.atomic_flush.request.reason.write_buffer_full"},
+    {ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER,
+     "rocksdb.atomic_flush.request.reason.write_buffer_manager"},
+    {ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS,
+     "rocksdb.atomic_flush.request.reason.memtable_max_range_deletions"},
+    {ATOMIC_FLUSH_REQUEST_REASON_OTHER,
+     "rocksdb.atomic_flush.request.reason.other"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

@@ -636,6 +636,18 @@ enum Tickers : uint32_t {
   // Number of flushes triggered because the memtable reached
   // memtable_max_range_deletions.
   FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS,
+  // Number of atomic flush requests triggered because a memtable reached
+  // write_buffer_size.
+  ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL,
+  // Number of atomic flush requests triggered by WriteBufferManager memory
+  // pressure.
+  ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER,
+  // Number of atomic flush requests triggered because a memtable reached
+  // memtable_max_range_deletions.
+  ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS,
+  // Number of atomic flush requests triggered for reasons that do not have a
+  // dedicated atomic flush request reason ticker.
+  ATOMIC_FLUSH_REQUEST_REASON_OTHER,
 
   TICKER_ENUM_MAX
 };

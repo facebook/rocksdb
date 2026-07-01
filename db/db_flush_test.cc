@@ -2802,6 +2802,8 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.atomic_flush = GetParam();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
   options.write_buffer_size = (static_cast<size_t>(64) << 20);
   auto flush_listener = std::make_shared<FlushCounterListener>();
   flush_listener->expected_flush_reason = FlushReason::kManualFlush;
@@ -2827,6 +2829,16 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
     cf_ids.emplace_back(static_cast<int>(i));
   }
   ASSERT_OK(Flush(cf_ids));
+
+  EXPECT_EQ(options.atomic_flush ? 1 : 0,
+            TestGetTickerCount(options, ATOMIC_FLUSH_REQUEST_REASON_OTHER));
+  EXPECT_EQ(0, TestGetTickerCount(
+                   options, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL));
+  EXPECT_EQ(0, TestGetTickerCount(
+                   options, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER));
+  EXPECT_EQ(0, TestGetTickerCount(
+                   options,
+                   ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS));
 
   for (size_t i = 0; i != num_cfs; ++i) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);

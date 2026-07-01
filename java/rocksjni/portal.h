@@ -5346,6 +5346,17 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::
           FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS:
         return -0x7B;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL:
+        return -0x7C;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER:
+        return -0x7D;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS:
+        return -0x7E;
+      case ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER:
+        return -0x7F;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5882,6 +5893,17 @@ class TickerTypeJni {
       case -0x7B:
         return ROCKSDB_NAMESPACE::Tickers::
             FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
+      case -0x7C:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL;
+      case -0x7D:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER;
+      case -0x7E:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
+      case -0x7F:
+        return ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

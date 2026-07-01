@@ -3585,6 +3585,10 @@ TEST_F(DBRangeDelTest, FlushReasonStatsMemtableMaxRangeDeletions) {
   ASSERT_GT(range_delete_flushes, 0);
   EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_FULL));
   EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_MANAGER));
+  EXPECT_EQ(0, TestGetTickerCount(
+                   options,
+                   ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS));
+  EXPECT_EQ(0, TestGetTickerCount(options, ATOMIC_FLUSH_REQUEST_REASON_OTHER));
   EXPECT_EQ(range_delete_flushes,
             static_cast<uint64_t>(flush_listener->count.load()));
 }
@@ -3615,7 +3619,15 @@ TEST_F(DBRangeDelTest, AtomicFlushReasonStatsMemtableMaxRangeDeletions) {
   const uint64_t range_delete_flushes =
       TestGetTickerCount(options, FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
   ASSERT_GE(range_delete_flushes, 2);
+  EXPECT_EQ(1, TestGetTickerCount(
+                   options,
+                   ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS));
   EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_FULL));
+  EXPECT_EQ(0, TestGetTickerCount(
+                   options, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL));
+  EXPECT_EQ(0, TestGetTickerCount(
+                   options, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER));
+  EXPECT_EQ(0, TestGetTickerCount(options, ATOMIC_FLUSH_REQUEST_REASON_OTHER));
   EXPECT_EQ(range_delete_flushes,
             static_cast<uint64_t>(flush_listener->count.load()));
 }

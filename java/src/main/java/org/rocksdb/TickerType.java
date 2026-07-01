@@ -1053,6 +1053,30 @@ public enum TickerType {
      */
     FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS((byte) -0x7B),
 
+    /**
+     * # of atomic flush requests triggered because a memtable reached
+     * write_buffer_size.
+     */
+    ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL((byte) -0x7C),
+
+    /**
+     * # of atomic flush requests triggered by WriteBufferManager memory
+     * pressure.
+     */
+    ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER((byte) -0x7D),
+
+    /**
+     * # of atomic flush requests triggered because a memtable reached
+     * memtable_max_range_deletions.
+     */
+    ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS((byte) -0x7E),
+
+    /**
+     * # of atomic flush requests triggered for reasons that do not have a
+     * dedicated atomic flush request reason ticker.
+     */
+    ATOMIC_FLUSH_REQUEST_REASON_OTHER((byte) -0x7F),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;
