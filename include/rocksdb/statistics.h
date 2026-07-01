@@ -629,6 +629,12 @@ enum Tickers : uint32_t {
   // # of times MANIFEST content validation detected corruption on DB close
   MANIFEST_VALIDATION_FAILURE_COUNT,
 
+  // Number of flushes reported as write-buffer-full. This currently also
+  // includes flushes triggered by memtable_max_range_deletions.
+  FLUSH_REASON_WRITE_BUFFER_FULL,
+  // Number of flushes triggered by WriteBufferManager memory pressure.
+  FLUSH_REASON_WRITE_BUFFER_MANAGER,
+
   TICKER_ENUM_MAX
 };
 
@@ -795,6 +801,17 @@ enum Histograms : uint32_t {
   RATE_LIMITER_WAIT_MICROS_READ,
   // Time write requests spent waiting for rate limiter refills.
   RATE_LIMITER_WAIT_MICROS_WRITE,
+
+  // Distribution of total memtable memory usage at flush start.
+  FLUSH_MEMTABLE_MEMORY_BYTES,
+  // Distribution of total memtable data size at flush start.
+  FLUSH_MEMTABLE_TOTAL_DATA_SIZE,
+  // Distribution of total memtable memory usage for flushes reported as
+  // write-buffer-full. This currently also includes flushes triggered by
+  // memtable_max_range_deletions.
+  FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES,
+  // Distribution of total memtable memory usage for WBM-triggered flushes.
+  FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES,
 
   HISTOGRAM_ENUM_MAX
 };

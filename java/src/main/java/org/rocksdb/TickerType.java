@@ -1037,6 +1037,17 @@ public enum TickerType {
      */
     MANIFEST_VALIDATION_FAILURE_COUNT((byte) -0x6B),
 
+    /**
+     * # of flushes reported as write-buffer-full. This currently also includes
+     * flushes triggered by memtable_max_range_deletions.
+     */
+    FLUSH_REASON_WRITE_BUFFER_FULL((byte) -0x79),
+
+    /**
+     * # of flushes triggered by WriteBufferManager memory pressure.
+     */
+    FLUSH_REASON_WRITE_BUFFER_MANAGER((byte) -0x7A),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

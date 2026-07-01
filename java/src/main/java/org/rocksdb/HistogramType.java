@@ -251,6 +251,27 @@ public enum HistogramType {
    */
   RATE_LIMITER_WAIT_MICROS_WRITE((byte) 0x46),
 
+  /**
+   * Total memtable memory usage at flush start.
+   */
+  FLUSH_MEMTABLE_MEMORY_BYTES((byte) 0x47),
+
+  /**
+   * Total memtable data size at flush start.
+   */
+  FLUSH_MEMTABLE_TOTAL_DATA_SIZE((byte) 0x48),
+
+  /**
+   * Total memtable memory usage for flushes reported as write-buffer-full. This
+   * currently also includes flushes triggered by memtable_max_range_deletions.
+   */
+  FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES((byte) 0x49),
+
+  /**
+   * Total memtable memory usage for WBM-triggered flushes.
+   */
+  FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES((byte) 0x4A),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

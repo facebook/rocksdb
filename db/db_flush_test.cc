@@ -473,6 +473,61 @@ TEST_F(DBFlushTest, StatisticsGarbageBasic) {
   Close();
 }
 
+TEST_F(DBFlushTest, FlushReasonStatsWriteBufferFull) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_shutdown = true;
+  options.write_buffer_size = 16 * 1024;
+  options.max_write_buffer_number = 8;
+
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kWriteBufferFull;
+  options.listeners.push_back(flush_listener);
+
+  ASSERT_OK(TryReopen(options));
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  for (int i = 0; i < 20; ++i) {
+    ASSERT_OK(Put(Key(i), DummyString(10 * 1024), write_options));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  const uint64_t write_buffer_full_flushes =
+      TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_FULL);
+  ASSERT_GT(write_buffer_full_flushes, 0);
+  EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_MANAGER));
+
+  HistogramData all_memtable_memory;
+  options.statistics->histogramData(FLUSH_MEMTABLE_MEMORY_BYTES,
+                                    &all_memtable_memory);
+  EXPECT_GE(all_memtable_memory.count, write_buffer_full_flushes);
+  EXPECT_GT(all_memtable_memory.sum, 0);
+
+  HistogramData all_memtable_data_size;
+  options.statistics->histogramData(FLUSH_MEMTABLE_TOTAL_DATA_SIZE,
+                                    &all_memtable_data_size);
+  EXPECT_GE(all_memtable_data_size.count, write_buffer_full_flushes);
+  EXPECT_GT(all_memtable_data_size.sum, 0);
+
+  HistogramData write_buffer_full_memtable_memory;
+  options.statistics->histogramData(
+      FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES,
+      &write_buffer_full_memtable_memory);
+  EXPECT_EQ(write_buffer_full_flushes, write_buffer_full_memtable_memory.count);
+  EXPECT_GT(write_buffer_full_memtable_memory.sum, 0);
+
+  HistogramData wbm_memtable_memory;
+  options.statistics->histogramData(
+      FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES, &wbm_memtable_memory);
+  EXPECT_EQ(0, wbm_memtable_memory.count);
+}
+
 TEST_F(DBFlushTest, StatisticsGarbageInsertAndDeletes) {
   Options options = CurrentOptions();
   options.statistics = CreateDBStatistics();

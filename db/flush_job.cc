@@ -33,6 +33,7 @@
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics_impl.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -957,6 +958,19 @@ Status FlushJob::WriteLevel0Table() {
       total_data_size += m->GetDataSize();
       total_memory_usage += m->ApproximateMemoryUsage();
       total_num_range_deletes += m->NumRangeDeletion();
+    }
+
+    RecordInHistogram(stats_, FLUSH_MEMTABLE_MEMORY_BYTES, total_memory_usage);
+    RecordInHistogram(stats_, FLUSH_MEMTABLE_TOTAL_DATA_SIZE, total_data_size);
+    if (flush_reason_ == FlushReason::kWriteBufferFull) {
+      RecordTick(stats_, FLUSH_REASON_WRITE_BUFFER_FULL);
+      RecordInHistogram(stats_, FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES,
+                        total_memory_usage);
+    } else if (flush_reason_ == FlushReason::kWriteBufferManager) {
+      RecordTick(stats_, FLUSH_REASON_WRITE_BUFFER_MANAGER);
+      RecordInHistogram(stats_,
+                        FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES,
+                        total_memory_usage);
     }
 
     // TODO(cbi): when memtable is flushed due to number of range deletions

@@ -330,6 +330,8 @@ class DBTestSharedWriteBufferAcrossCFs
 
 TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
   options.arena_block_size = 4096;
   auto flush_listener = std::make_shared<FlushCounterListener>();
   options.listeners.push_back(flush_listener);
@@ -497,6 +499,29 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_.get(), "nikitich"),
               static_cast<uint64_t>(2));
   }
+  const uint64_t wbm_flushes =
+      TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_MANAGER);
+  ASSERT_GT(wbm_flushes, 0);
+  EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_FULL));
+
+  HistogramData all_memtable_memory;
+  options.statistics->histogramData(FLUSH_MEMTABLE_MEMORY_BYTES,
+                                    &all_memtable_memory);
+  EXPECT_GE(all_memtable_memory.count, wbm_flushes);
+  EXPECT_GT(all_memtable_memory.sum, 0);
+
+  HistogramData all_memtable_data_size;
+  options.statistics->histogramData(FLUSH_MEMTABLE_TOTAL_DATA_SIZE,
+                                    &all_memtable_data_size);
+  EXPECT_GE(all_memtable_data_size.count, wbm_flushes);
+  EXPECT_GT(all_memtable_data_size.sum, 0);
+
+  HistogramData wbm_memtable_memory;
+  options.statistics->histogramData(
+      FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES, &wbm_memtable_memory);
+  EXPECT_EQ(wbm_flushes, wbm_memtable_memory.count);
+  EXPECT_GT(wbm_memtable_memory.sum, 0);
+
   if (cost_cache_) {
     ASSERT_GE(cache->GetUsage(), 256 * 1024);
     Close();
