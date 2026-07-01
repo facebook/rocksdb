@@ -83,6 +83,8 @@ const char* GetFlushReasonString(FlushReason flush_reason) {
       return "WAL Full";
     case FlushReason::kCatchUpAfterErrorRecovery:
       return "Catch Up After Error Recovery";
+    case FlushReason::kMemtableMaxRangeDeletions:
+      return "Memtable Max Range Deletions";
     default:
       return "Invalid";
   }
@@ -971,11 +973,10 @@ Status FlushJob::WriteLevel0Table() {
       RecordInHistogram(stats_,
                         FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES,
                         total_memory_usage);
+    } else if (flush_reason_ == FlushReason::kMemtableMaxRangeDeletions) {
+      RecordTick(stats_, FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
     }
 
-    // TODO(cbi): when memtable is flushed due to number of range deletions
-    //  hitting limit memtable_max_range_deletions, flush_reason_ is still
-    //  "Write Buffer Full", should make update flush_reason_ accordingly.
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started" << "num_memtables" << mems_.size()
                          << "total_num_input_entries" << total_num_input_entries

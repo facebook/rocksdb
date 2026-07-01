@@ -3559,6 +3559,67 @@ TEST_F(DBRangeDelTest, MemtableMaxRangeDeletions) {
   ASSERT_EQ(3, NumTableFilesAtLevel(0));
 }
 
+TEST_F(DBRangeDelTest, FlushReasonStatsMemtableMaxRangeDeletions) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.disable_auto_compactions = true;
+  options.memtable_max_range_deletions = 1;
+
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason =
+      FlushReason::kMemtableMaxRangeDeletions;
+  options.listeners.push_back(flush_listener);
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(10)));
+  // The next write observes the pending flush request.
+  ASSERT_OK(Put(Key(0), "value"));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  const uint64_t range_delete_flushes =
+      TestGetTickerCount(options, FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
+  ASSERT_GT(range_delete_flushes, 0);
+  EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_FULL));
+  EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_MANAGER));
+  EXPECT_EQ(range_delete_flushes,
+            static_cast<uint64_t>(flush_listener->count.load()));
+}
+
+TEST_F(DBRangeDelTest, AtomicFlushReasonStatsMemtableMaxRangeDeletions) {
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  options.memtable_max_range_deletions = 1;
+
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason =
+      FlushReason::kMemtableMaxRangeDeletions;
+  options.listeners.push_back(flush_listener);
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, Key(0), "value"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(10)));
+  // The next write observes the pending flush request.
+  ASSERT_OK(Put(Key(0), "value"));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  const uint64_t range_delete_flushes =
+      TestGetTickerCount(options, FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
+  ASSERT_GE(range_delete_flushes, 2);
+  EXPECT_EQ(0, TestGetTickerCount(options, FLUSH_REASON_WRITE_BUFFER_FULL));
+  EXPECT_EQ(range_delete_flushes,
+            static_cast<uint64_t>(flush_listener->count.load()));
+}
+
 TEST_F(DBRangeDelTest, RangeDelReseekAfterFileReadError) {
   // This is to test a bug that is fixed in
   // https://github.com/facebook/rocksdb/pull/11786.

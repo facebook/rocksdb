@@ -5343,6 +5343,9 @@ class TickerTypeJni {
         return -0x79;
       case ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_MANAGER:
         return -0x7A;
+      case ROCKSDB_NAMESPACE::Tickers::
+          FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS:
+        return -0x7B;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5876,6 +5879,9 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_FULL;
       case -0x7A:
         return ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_MANAGER;
+      case -0x7B:
+        return ROCKSDB_NAMESPACE::Tickers::
+            FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

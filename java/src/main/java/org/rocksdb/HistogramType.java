@@ -262,8 +262,7 @@ public enum HistogramType {
   FLUSH_MEMTABLE_TOTAL_DATA_SIZE((byte) 0x48),
 
   /**
-   * Total memtable memory usage for flushes reported as write-buffer-full. This
-   * currently also includes flushes triggered by memtable_max_range_deletions.
+   * Total memtable memory usage for write-buffer-full flushes.
    */
   FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES((byte) 0x49),
 
