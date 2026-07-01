@@ -390,6 +390,15 @@ bool MemTable::ShouldFlushNow() {
   return arena_.AllocatedAndUnused() < kArenaBlockSize / 4;
 }
 
+FlushReason MemTable::GetFlushReason() const {
+  if (memtable_max_range_deletions_ > 0 &&
+      num_range_deletes_.LoadRelaxed() >=
+          static_cast<uint64_t>(memtable_max_range_deletions_)) {
+    return FlushReason::kMemtableMaxRangeDeletions;
+  }
+  return FlushReason::kWriteBufferFull;
+}
+
 void MemTable::UpdateFlushState() {
   auto state = flush_state_.load(std::memory_order_relaxed);
   if (state == FLUSH_NOT_REQUESTED && ShouldFlushNow()) {

@@ -3029,12 +3029,23 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
+  FlushReason atomic_flush_reason = FlushReason::kWriteBufferFull;
   if (immutable_db_options_.atomic_flush) {
+    // Atomic flush has one request-level reason. Derive it only from CFs that
+    // scheduled the flush, not from every CF selected into the atomic cut.
+    ColumnFamilyData* trigger_cfd;
+    while ((trigger_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+      if (!trigger_cfd->mem()->IsEmpty() &&
+          trigger_cfd->mem()->GetFlushReason() ==
+              FlushReason::kMemtableMaxRangeDeletions) {
+        atomic_flush_reason = FlushReason::kMemtableMaxRangeDeletions;
+      }
+      trigger_cfd->UnrefAndTryDelete();
+    }
     SelectColumnFamiliesForAtomicFlush(&cfds);
     for (auto cfd : cfds) {
       cfd->Ref();
     }
-    flush_scheduler_.Clear();
   } else {
     ColumnFamilyData* tmp_cfd;
     while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
@@ -3050,10 +3061,15 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
 
   TEST_SYNC_POINT_CALLBACK("DBImpl::ScheduleFlushes:PreSwitchMemtable",
                            nullptr);
+  autovector<FlushReason> flush_reasons;
+  flush_reasons.reserve(cfds.size());
   for (auto& cfd : cfds) {
+    FlushReason flush_reason = FlushReason::kWriteBufferFull;
     if (status.ok() && !cfd->mem()->IsEmpty()) {
+      flush_reason = cfd->mem()->GetFlushReason();
       status = SwitchMemtable(cfd, context);
     }
+    flush_reasons.push_back(flush_reason);
     if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
     }
@@ -3068,12 +3084,13 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       AssignAtomicFlushSeq(cfds);
       FlushRequest flush_req;
       flush_req.atomic_flush = true;
-      GenerateFlushRequest(cfds, FlushReason::kWriteBufferFull, &flush_req);
+      GenerateFlushRequest(cfds, atomic_flush_reason, &flush_req);
       EnqueuePendingFlush(flush_req);
     } else {
-      for (auto* cfd : cfds) {
+      assert(flush_reasons.size() == cfds.size());
+      for (size_t i = 0; i < cfds.size(); ++i) {
         FlushRequest flush_req;
-        GenerateFlushRequest({cfd}, FlushReason::kWriteBufferFull, &flush_req);
+        GenerateFlushRequest({cfds[i]}, flush_reasons[i], &flush_req);
         EnqueuePendingFlush(flush_req);
       }
     }

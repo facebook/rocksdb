@@ -33,6 +33,7 @@
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics_impl.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -82,6 +83,8 @@ const char* GetFlushReasonString(FlushReason flush_reason) {
       return "WAL Full";
     case FlushReason::kCatchUpAfterErrorRecovery:
       return "Catch Up After Error Recovery";
+    case FlushReason::kMemtableMaxRangeDeletions:
+      return "Memtable Max Range Deletions";
     default:
       return "Invalid";
   }
@@ -959,9 +962,21 @@ Status FlushJob::WriteLevel0Table() {
       total_num_range_deletes += m->NumRangeDeletion();
     }
 
-    // TODO(cbi): when memtable is flushed due to number of range deletions
-    //  hitting limit memtable_max_range_deletions, flush_reason_ is still
-    //  "Write Buffer Full", should make update flush_reason_ accordingly.
+    RecordInHistogram(stats_, FLUSH_MEMTABLE_MEMORY_BYTES, total_memory_usage);
+    RecordInHistogram(stats_, FLUSH_MEMTABLE_TOTAL_DATA_SIZE, total_data_size);
+    if (flush_reason_ == FlushReason::kWriteBufferFull) {
+      RecordTick(stats_, FLUSH_REASON_WRITE_BUFFER_FULL);
+      RecordInHistogram(stats_, FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES,
+                        total_memory_usage);
+    } else if (flush_reason_ == FlushReason::kWriteBufferManager) {
+      RecordTick(stats_, FLUSH_REASON_WRITE_BUFFER_MANAGER);
+      RecordInHistogram(stats_,
+                        FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES,
+                        total_memory_usage);
+    } else if (flush_reason_ == FlushReason::kMemtableMaxRangeDeletions) {
+      RecordTick(stats_, FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
+    }
+
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started" << "num_memtables" << mems_.size()
                          << "total_num_input_entries" << total_num_input_entries

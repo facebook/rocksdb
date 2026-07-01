@@ -321,6 +321,19 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {FILE_OPEN_METADATA_PASSED, "rocksdb.file.open.metadata.passed"},
     {MANIFEST_VALIDATION_FAILURE_COUNT,
      "rocksdb.manifest.validation.failure.count"},
+    {FLUSH_REASON_WRITE_BUFFER_FULL, "rocksdb.flush.reason.write_buffer_full"},
+    {FLUSH_REASON_WRITE_BUFFER_MANAGER,
+     "rocksdb.flush.reason.write_buffer_manager"},
+    {FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS,
+     "rocksdb.flush.reason.memtable_max_range_deletions"},
+    {ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL,
+     "rocksdb.atomic_flush.request.reason.write_buffer_full"},
+    {ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER,
+     "rocksdb.atomic_flush.request.reason.write_buffer_manager"},
+    {ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS,
+     "rocksdb.atomic_flush.request.reason.memtable_max_range_deletions"},
+    {ATOMIC_FLUSH_REQUEST_REASON_OTHER,
+     "rocksdb.atomic_flush.request.reason.other"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -403,6 +416,13 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {INGEST_EXTERNAL_FILE_RUN_TIME, "rocksdb.ingest.external.file.run.micros"},
     {RATE_LIMITER_WAIT_MICROS_READ, "rocksdb.rate.limiter.wait.micros.read"},
     {RATE_LIMITER_WAIT_MICROS_WRITE, "rocksdb.rate.limiter.wait.micros.write"},
+    {FLUSH_MEMTABLE_MEMORY_BYTES, "rocksdb.flush.memtable.memory.bytes"},
+    {FLUSH_MEMTABLE_TOTAL_DATA_SIZE,
+     "rocksdb.flush.memtable.total.data.size.bytes"},
+    {FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES,
+     "rocksdb.flush.write_buffer_full.memtable.memory.bytes"},
+    {FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES,
+     "rocksdb.flush.write_buffer_manager.memtable.memory.bytes"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

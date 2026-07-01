@@ -35,6 +35,32 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+void RecordAtomicFlushRequestReason(Statistics* stats,
+                                    FlushReason flush_reason) {
+  // Keep this aligned with the existing rocksdb.flush.reason.* counters: they
+  // cover automatic flush triggers used for write-stall debugging. Other
+  // FlushReason values are counted by the catch-all other ticker.
+  switch (flush_reason) {
+    case FlushReason::kWriteBufferFull:
+      RecordTick(stats, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL);
+      break;
+    case FlushReason::kWriteBufferManager:
+      RecordTick(stats, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER);
+      break;
+    case FlushReason::kMemtableMaxRangeDeletions:
+      RecordTick(stats,
+                 ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
+      break;
+    default:
+      RecordTick(stats, ATOMIC_FLUSH_REQUEST_REASON_OTHER);
+      break;
+  }
+}
+
+}  // namespace
+
 bool DBImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
     bool* sfm_reserved_compact_space, LogBuffer* log_buffer) {
@@ -3553,6 +3579,7 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
     }
     ++unscheduled_flushes_;
     flush_queue_.push_back(flush_req);
+    RecordAtomicFlushRequestReason(stats_, flush_req.flush_reason);
     enqueued = true;
   }
   return enqueued;
