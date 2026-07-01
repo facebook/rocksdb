@@ -130,6 +130,14 @@ DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
 
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
+DEFINE_string(
+    verify_cpu_corruption_dir, "",
+    "When non-empty, activates a slow, meticulous verification mode intended "
+    "only for use with a CPU fault injector; on the first corruption found it "
+    "writes a result file here and fails the run. See "
+    "StressTest::MaybeVerifyCpuCorruption for the full behavior and "
+    "output-file contract. Empty (default) = off.");
+
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
 DEFINE_bool(destroy_db_initially, true,

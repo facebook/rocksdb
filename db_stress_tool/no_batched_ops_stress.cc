@@ -2021,7 +2021,22 @@ class NonBatchedOpsStressTest : public StressTest {
       if (IsErrorInjectedAndRetryable(s)) {
         assert(!initial_wal_write_may_succeed);
         return s;
-      } else if (FLAGS_inject_error_severity == 2) {
+      }
+    } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          raw_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestPut");
+      pending_expected_value.Commit();
+      thread->stats.AddBytesForWrites(1, sz);
+      PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
+                    sz);
+    }
+    // Single write verification point (no_batched owns it): on success a
+    // read-back after Commit; on failure the op status before the fail-fast.
+    // No-op unless CPU-corruption verification is on.
+    MaybeVerifyCpuCorruption(thread, "put", s);
+    if (!s.ok()) {
+      if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
@@ -2033,14 +2048,6 @@ class NonBatchedOpsStressTest : public StressTest {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();
       }
-    } else {
-      PrintWriteRecoveryWaitTimeIfNeeded(
-          raw_env, initial_write_s, initial_wal_write_may_succeed,
-          wait_for_recover_start_time, "TestPut");
-      pending_expected_value.Commit();
-      thread->stats.AddBytesForWrites(1, sz);
-      PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
-                    sz);
     }
     return s;
   }
@@ -2126,7 +2133,17 @@ class NonBatchedOpsStressTest : public StressTest {
         if (IsErrorInjectedAndRetryable(s)) {
           assert(!initial_wal_write_may_succeed);
           return s;
-        } else if (FLAGS_inject_error_severity == 2) {
+        }
+      } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            raw_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
+        pending_expected_value.Commit();
+        thread->stats.AddDeletes(1);
+      }
+      MaybeVerifyCpuCorruption(thread, "delete", s);
+      if (!s.ok()) {
+        if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -2139,12 +2156,6 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
-      } else {
-        PrintWriteRecoveryWaitTimeIfNeeded(
-            raw_env, initial_write_s, initial_wal_write_may_succeed,
-            wait_for_recover_start_time, "TestDelete");
-        pending_expected_value.Commit();
-        thread->stats.AddDeletes(1);
       }
     } else {
       PendingExpectedValue pending_expected_value =
@@ -2198,7 +2209,17 @@ class NonBatchedOpsStressTest : public StressTest {
         if (IsErrorInjectedAndRetryable(s)) {
           assert(!initial_wal_write_may_succeed);
           return s;
-        } else if (FLAGS_inject_error_severity == 2) {
+        }
+      } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            raw_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
+        pending_expected_value.Commit();
+        thread->stats.AddSingleDeletes(1);
+      }
+      MaybeVerifyCpuCorruption(thread, "singledelete", s);
+      if (!s.ok()) {
+        if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -2211,12 +2232,6 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
-      } else {
-        PrintWriteRecoveryWaitTimeIfNeeded(
-            raw_env, initial_write_s, initial_wal_write_may_succeed,
-            wait_for_recover_start_time, "TestDelete");
-        pending_expected_value.Commit();
-        thread->stats.AddSingleDeletes(1);
       }
     }
     return s;
@@ -2292,17 +2307,6 @@ class NonBatchedOpsStressTest : public StressTest {
       if (IsErrorInjectedAndRetryable(s)) {
         assert(!initial_wal_write_may_succeed);
         return s;
-      } else if (FLAGS_inject_error_severity == 2) {
-        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
-          is_db_stopped_ = true;
-        } else if (!is_db_stopped_ ||
-                   s.severity() < Status::Severity::kFatalError) {
-          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-          thread->shared->SafeTerminate();
-        }
-      } else {
-        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-        thread->shared->SafeTerminate();
       }
     } else {
       PrintWriteRecoveryWaitTimeIfNeeded(
@@ -2314,6 +2318,24 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       thread->stats.AddRangeDeletions(1);
       thread->stats.AddCoveredByRangeDeletions(covered);
+    }
+    // Single write verification point (no_batched owns it): on success a
+    // read-back after Commit; on failure the op status before the fail-fast.
+    // No-op unless CPU-corruption verification is on.
+    MaybeVerifyCpuCorruption(thread, "deleterange", s);
+    if (!s.ok()) {
+      if (FLAGS_inject_error_severity == 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+          thread->shared->SafeTerminate();
+        }
+      } else {
+        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      }
     }
     return s;
   }
