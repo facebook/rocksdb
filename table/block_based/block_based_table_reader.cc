@@ -1452,6 +1452,21 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
     return Status::OK();
   }
 
+#ifndef NDEBUG
+  // Test-only hook: inject a resolution failure (simulating a blob-region read
+  // fault) so tests can verify that the error is surfaced rather than masked by
+  // exposing the raw same-file value downstream. Compiled out in release.
+  {
+    Status injected_status;
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+        &injected_status);
+    if (!injected_status.ok()) {
+      return injected_status;
+    }
+  }
+#endif  // NDEBUG
+
   ParsedInternalKey parsed_key;
   // FIXME: de-dup ParseInternalKey() work from callers
   Status s =
@@ -2776,8 +2791,12 @@ InternalIterator* BlockBasedTable::NewIterator(
     if (!resolve_embedded_values) {
       return iter;
     }
-    return new EmbeddedBlobResolvingIterator(this, read_options, iter,
-                                             /*arena_mode=*/false);
+    if (allow_unprepared_value) {
+      return new LazyEmbeddedBlobResolvingIterator(this, read_options, iter,
+                                                   /*arena_mode=*/false);
+    }
+    return new EagerEmbeddedBlobResolvingIterator(this, read_options, iter,
+                                                  /*arena_mode=*/false);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     auto* iter = new (mem) BlockBasedTableIterator(
@@ -2787,9 +2806,15 @@ InternalIterator* BlockBasedTable::NewIterator(
     if (!resolve_embedded_values) {
       return iter;
     }
+    if (allow_unprepared_value) {
+      auto* wrap_mem =
+          arena->AllocateAligned(sizeof(LazyEmbeddedBlobResolvingIterator));
+      return new (wrap_mem) LazyEmbeddedBlobResolvingIterator(
+          this, read_options, iter, /*arena_mode=*/true);
+    }
     auto* wrap_mem =
-        arena->AllocateAligned(sizeof(EmbeddedBlobResolvingIterator));
-    return new (wrap_mem) EmbeddedBlobResolvingIterator(
+        arena->AllocateAligned(sizeof(EagerEmbeddedBlobResolvingIterator));
+    return new (wrap_mem) EagerEmbeddedBlobResolvingIterator(
         this, read_options, iter, /*arena_mode=*/true);
   }
 }
