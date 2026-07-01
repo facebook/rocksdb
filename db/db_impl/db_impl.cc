@@ -3761,6 +3761,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   }
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  key_context.reserve(num_keys);
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
