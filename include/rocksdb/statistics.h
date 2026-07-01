@@ -649,6 +649,10 @@ enum Tickers : uint32_t {
   // dedicated atomic flush request reason ticker.
   ATOMIC_FLUSH_REQUEST_REASON_OTHER,
 
+  // # of times compaction observed an IOStatsContext CPU counter below the
+  // value captured at compaction start
+  COMPACTION_IOSTATS_CPU_NANOS_COUNTER_UNDERFLOW,
+
   TICKER_ENUM_MAX
 };
 

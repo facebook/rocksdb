@@ -63,6 +63,21 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+uint64_t SaturatingSub(uint64_t minuend, uint64_t subtrahend) {
+  return minuend >= subtrahend ? minuend - subtrahend : 0;
+}
+
+uint64_t SaturatingSubWithUnderflowTicker(uint64_t minuend, uint64_t subtrahend,
+                                          Statistics* stats) {
+  if (minuend >= subtrahend) {
+    return minuend - subtrahend;
+  }
+  RecordTick(stats, COMPACTION_IOSTATS_CPU_NANOS_COUNTER_UNDERFLOW);
+  return 0;
+}
+}  // namespace
+
 const char* GetCompactionReasonString(CompactionReason compaction_reason) {
   switch (compaction_reason) {
     case CompactionReason::kUnknown:
@@ -1431,6 +1446,7 @@ CompactionJob::CompactionIOStatsSnapshot CompactionJob::InitializeIOStats() {
   if (measure_io_stats_) {
     io_stats.prev_perf_level = GetPerfLevel();
     SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+    TEST_SYNC_POINT("CompactionJob::InitializeIOStats:BeforeReadIOStats");
     io_stats.prev_write_nanos = IOSTATS(write_nanos);
     io_stats.prev_fsync_nanos = IOSTATS(fsync_nanos);
     io_stats.prev_range_sync_nanos = IOSTATS(range_sync_nanos);
@@ -1831,6 +1847,8 @@ void CompactionJob::FinalizeSubcompactionJobStats(
       cur_cpu_micros - start_cpu_micros + sub_compact->GetWorkerCPUMicros();
 
   if (measure_io_stats_) {
+    TEST_SYNC_POINT(
+        "CompactionJob::FinalizeSubcompactionJobStats:BeforeReadIOStats");
     sub_compact->compaction_job_stats.file_write_nanos +=
         IOSTATS(write_nanos) - io_stats.prev_write_nanos;
     sub_compact->compaction_job_stats.file_fsync_nanos +=
@@ -1839,10 +1857,18 @@ void CompactionJob::FinalizeSubcompactionJobStats(
         IOSTATS(range_sync_nanos) - io_stats.prev_range_sync_nanos;
     sub_compact->compaction_job_stats.file_prepare_write_nanos +=
         IOSTATS(prepare_write_nanos) - io_stats.prev_prepare_write_nanos;
-    sub_compact->compaction_job_stats.cpu_micros -=
-        (IOSTATS(cpu_write_nanos) - io_stats.prev_cpu_write_nanos +
-         IOSTATS(cpu_read_nanos) - io_stats.prev_cpu_read_nanos) /
-        1000;
+    const uint64_t file_cpu_write_nanos = SaturatingSubWithUnderflowTicker(
+        IOSTATS(cpu_write_nanos), io_stats.prev_cpu_write_nanos, stats_);
+    const uint64_t file_cpu_read_nanos = SaturatingSubWithUnderflowTicker(
+        IOSTATS(cpu_read_nanos), io_stats.prev_cpu_read_nanos, stats_);
+    uint64_t file_cpu_micros =
+        (file_cpu_write_nanos + file_cpu_read_nanos) / 1000;
+    TEST_SYNC_POINT_CALLBACK(
+        "CompactionJob::FinalizeSubcompactionJobStats:"
+        "BeforeSubtractFileCpuMicros",
+        &file_cpu_micros);
+    sub_compact->compaction_job_stats.cpu_micros = SaturatingSub(
+        sub_compact->compaction_job_stats.cpu_micros, file_cpu_micros);
     if (io_stats.prev_perf_level !=
         PerfLevel::kEnableTimeAndCPUTimeExceptForMutex) {
       SetPerfLevel(io_stats.prev_perf_level);

@@ -1077,6 +1077,12 @@ public enum TickerType {
      */
     ATOMIC_FLUSH_REQUEST_REASON_OTHER((byte) -0x7F),
 
+    /**
+     * # of times compaction observed an IOStatsContext CPU counter below the
+     * value captured at compaction start
+     */
+    COMPACTION_IOSTATS_CPU_NANOS_COUNTER_UNDERFLOW((byte) -0x80),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;
