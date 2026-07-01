@@ -130,12 +130,11 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   Slice value() const override {
     assert(Valid());
     if (MaterializeValue() && value_resolved_) {
-      if (value_is_pinned_) {
-        // Whole-value blob payload pinned in the blob cache (or an owned
-        // buffer); returned without a copy.
-        return Slice(resolved_pinned_value_);
-      }
-      return Slice(resolved_value_);
+      // The resolved value -- a whole-value blob payload (pinned in the blob
+      // cache or an owned buffer) or a rebuilt wide-column value (an owned
+      // buffer) -- lives in resolved_pinned_value_ and is returned without a
+      // copy.
+      return Slice(resolved_pinned_value_);
     }
     // MaterializeValue() may have set an error (corruption or blob-region I/O).
     // Fall back to the raw value; the error is surfaced via status()/Valid().
@@ -169,13 +168,13 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   }
   bool IsValuePinned() const override {
     if (value_resolved_) {
-      // A resolved whole-value blob payload is pinned in the blob cache (or an
-      // owned buffer). The IsValuePinned() contract requires the value to stay
-      // valid until the iterator is deleted / ReleasePinnedData is called, so
-      // only advertise it as pinned when a PinnedIteratorsManager is active to
-      // take over the pin's cleanup across repositioning (see ResetState). A
-      // built (wide-column) value lives in `resolved_value_` and is never
-      // pinned.
+      // The resolved value -- a whole-value blob payload (pinned in the blob
+      // cache or an owned buffer) or a rebuilt wide-column value (an owned
+      // buffer) -- lives in resolved_pinned_value_. The IsValuePinned()
+      // contract requires the value to stay valid until the iterator is deleted
+      // / ReleasePinnedData is called, so only advertise it as pinned when a
+      // PinnedIteratorsManager is active to take over the pin's cleanup across
+      // repositioning (see ResetState).
       return value_is_pinned_ && pinned_iters_mgr_ != nullptr &&
              pinned_iters_mgr_->PinningEnabled();
     }
@@ -215,6 +214,12 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   }
 
  private:
+  // Cleanup for a heap-allocated std::string holding a rebuilt (wide-column)
+  // value pinned into resolved_pinned_value_.
+  static void ReleaseResolvedValueBuffer(void* arg1, void* /*arg2*/) {
+    delete static_cast<std::string*>(arg1);
+  }
+
   void ResetState() {
     status_.PermitUncheckedError();
     status_ = Status::OK();
@@ -223,12 +228,11 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
     key_resolved_ = false;
     value_resolved_ = false;
     resolved_internal_key_.clear();
-    resolved_value_.clear();
     if (value_is_pinned_) {
       // If a PinnedIteratorsManager is active it has been told (via
-      // IsValuePinned) that the previous entry's pinned blob stays valid until
-      // ReleasePinnedData; hand the cache pin's cleanup to it so the slice
-      // outlives this reposition. Otherwise just release the pin now.
+      // IsValuePinned) that the previous entry's pinned value stays valid until
+      // ReleasePinnedData; hand the pin's cleanup to it so the slice outlives
+      // this reposition. Otherwise just release the pin now.
       if (pinned_iters_mgr_ != nullptr && pinned_iters_mgr_->PinningEnabled()) {
         resolved_pinned_value_.DelegateCleanupsTo(pinned_iters_mgr_);
       }
@@ -330,13 +334,20 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
       resolved_internal_key_ = std::move(resolved_key);
       key_resolved_ = true;
     }
-    if (value_pinned) {
-      // Whole-value blob: payload pinned into resolved_pinned_value_ (no copy).
-      value_is_pinned_ = true;
-    } else {
-      // Built (wide-column) value: owned by this wrapper.
-      resolved_value_ = std::move(resolved_value);
+    if (!value_pinned) {
+      // Built (wide-column) value: move it into a heap buffer and pin it into
+      // resolved_pinned_value_ so the value is pinnable like a whole-value
+      // blob. DBIter requires a pinned value to back up over an entry
+      // (Prev/SeekForPrev); the buffer's cleanup is handed to the
+      // PinnedIteratorsManager across repositioning (see ResetState).
+      auto* owned_value = new std::string(std::move(resolved_value));
+      resolved_pinned_value_.PinSlice(Slice(*owned_value),
+                                      &ReleaseResolvedValueBuffer, owned_value,
+                                      nullptr);
     }
+    // Either way the resolved value now lives, pinned, in
+    // resolved_pinned_value_.
+    value_is_pinned_ = true;
     value_resolved_ = true;
     return true;
   }
@@ -352,10 +363,10 @@ class EmbeddedBlobResolvingIterator : public InternalIterator {
   // accessors.
   mutable Status status_;
   mutable std::string resolved_internal_key_;
-  mutable std::string resolved_value_;
-  // Holds a whole-value same-file blob payload pinned in the blob cache (or an
-  // owned buffer when no cache is configured), avoiding a copy. Used only when
-  // value_is_pinned_ is true; wide-column values use resolved_value_ instead.
+  // Holds the resolved value for the current entry without a copy: a
+  // whole-value same-file blob payload (pinned in the blob cache, or an owned
+  // buffer when no cache is configured) or a rebuilt wide-column value (an
+  // owned heap buffer). Populated whenever value_is_pinned_ is true.
   mutable PinnableSlice resolved_pinned_value_;
   mutable bool key_prepared_ = false;
   mutable bool value_prepared_ = false;

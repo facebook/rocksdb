@@ -527,20 +527,6 @@ int db_stress_tool(int argc, char** argv) {
         "all be 0 when using compaction filter or inplace update support\n");
     exit(1);
   }
-  if (FLAGS_ingest_external_file_with_embedded_blobs &&
-      FLAGS_test_backward_scan) {
-    // Embedded blob SSTs are read through EmbeddedBlobResolvingIterator, which
-    // resolves same-file blob references (and wide-column entities with same-
-    // file blob columns) into an iterator-owned buffer. Such resolved values
-    // are not pinnable, but DBIter requires pinned values for backward
-    // iteration (Prev/SeekForPrev) and otherwise returns NotSupported (or hits
-    // the IsValuePinned() assertion in FindValueForCurrentKeyUsingSeek).
-    // Disable backward scan automatically.
-    fprintf(stdout,
-            "Disabling test_backward_scan because "
-            "ingest_external_file_with_embedded_blobs is set\n");
-    FLAGS_test_backward_scan = false;
-  }
   if (FLAGS_test_multi_ops_txns) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
   }
