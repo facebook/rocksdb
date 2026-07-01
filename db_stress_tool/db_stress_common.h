@@ -353,6 +353,7 @@ DECLARE_int32(prepopulate_blob_cache);
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
+DECLARE_string(verify_cpu_corruption_dir);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint32(memtable_protection_bytes_per_key);
