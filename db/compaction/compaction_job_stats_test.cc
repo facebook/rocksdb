@@ -8,8 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <atomic>
 #include <cinttypes>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <set>
@@ -34,6 +37,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
@@ -508,6 +512,23 @@ class CompactionJobDeletionStatsChecker : public CompactionJobStatsChecker {
   }
 };
 
+class CompactionJobCpuStatsChecker : public EventListener {
+ public:
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
+    observed_.store(true);
+    observed_cpu_micros_.store(ci.stats.cpu_micros);
+    ASSERT_EQ(0, ci.stats.cpu_micros);
+  }
+
+  bool observed() const { return observed_.load(); }
+
+  uint64_t observed_cpu_micros() const { return observed_cpu_micros_.load(); }
+
+ private:
+  std::atomic<bool> observed_{false};
+  std::atomic<uint64_t> observed_cpu_micros_{0};
+};
+
 namespace {
 
 uint64_t EstimatedFileSize(uint64_t num_records, size_t key_size,
@@ -793,6 +814,86 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
+}
+
+TEST_P(CompactionJobStatsTest, CompactionCpuMicrosDoesNotUnderflow) {
+  auto stats_checker = std::make_shared<CompactionJobCpuStatsChecker>();
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_subcompactions = max_subcompactions_;
+  options.num_levels = 3;
+  options.report_bg_io_stats = true;
+  options.listeners.emplace_back(stats_checker);
+
+  DestroyAndReopen(options);
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(Put("a", "begin"));
+    ASSERT_OK(Put("z", "end"));
+    ASSERT_OK(Flush());
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinalizeSubcompactionJobStats:"
+      "BeforeSubtractFileCpuMicros",
+      [](void* arg) {
+        *static_cast<uint64_t*>(arg) = std::numeric_limits<uint64_t>::max();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr,
+                                        nullptr /* column_family */,
+                                        true /* disallow_trivial_move */));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(stats_checker->observed());
+  ASSERT_EQ(0, stats_checker->observed_cpu_micros());
+}
+
+TEST_P(CompactionJobStatsTest, CompactionIOStatsCpuNanosUnderflowIsRecorded) {
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_subcompactions = 1;
+  options.num_levels = 3;
+  options.report_bg_io_stats = true;
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(Put("a", "begin"));
+    ASSERT_OK(Put("z", "end"));
+    ASSERT_OK(Flush());
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::InitializeIOStats:BeforeReadIOStats", [](void* /*arg*/) {
+        IOStatsContext* iostats = get_iostats_context();
+        iostats->cpu_write_nanos = 2000;
+        iostats->cpu_read_nanos = 3000;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinalizeSubcompactionJobStats:BeforeReadIOStats",
+      [](void* /*arg*/) {
+        IOStatsContext* iostats = get_iostats_context();
+        iostats->cpu_write_nanos = 0;
+        iostats->cpu_read_nanos = 0;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr,
+                                        nullptr /* column_family */,
+                                        true /* disallow_trivial_move */));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(2, options.statistics->getTickerCount(
+                   COMPACTION_IOSTATS_CPU_NANOS_COUNTER_UNDERFLOW));
 }
 
 TEST_P(CompactionJobStatsTest, DeletionStatsTest) {

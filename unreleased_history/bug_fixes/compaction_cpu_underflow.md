@@ -1,0 +1,1 @@
+Fixed a compaction stats reporting bug where `CompMergeCPU(sec)` could underflow to a huge value when `report_bg_io_stats` was enabled. Added `rocksdb.compaction.iostats.cpu.nanos.counter.underflow` to count compaction I/O CPU counter underflows.
