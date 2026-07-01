@@ -502,6 +502,132 @@ TEST_F(DBBlobIndexTest, EmbeddedBlobBackwardIteration) {
   EXPECT_EQ(iter->value(), big1);
 }
 
+// Regression test for T277566778. If resolving a same-file ("embedded") blob
+// fails during compaction (e.g. a blob-region read fault), the error must be
+// surfaced as-is. It must NOT be masked by feeding the raw, unresolved
+// same-file BlobIndex downstream, where FileMetaData::UpdateBoundaries would
+// (correctly) reject file number 0 and report a misleading "Invalid blob file
+// number" corruption. The EmbeddedBlobResolvingIterator must not expose an
+// unresolved same-file value on error: for eager (compaction) callers it
+// resolves during positioning so the error is visible via status()/Valid()
+// before value().
+TEST_F(DBBlobIndexTest, EmbeddedBlobResolveErrorDuringCompactionNotMasked) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_resolve_err.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  // Wide-column entity with a large (embedded, same-file blob) column: the
+  // mixed path whose resolution reads the blob region during compaction.
+  const std::string big_col(1024, 'c');
+  const WideColumns columns{{kDefaultWideColumnName, "d"}, {"big", big_col}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k2", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Add keys straddling the entity so a real compaction (not a trivial move)
+  // reads and resolves the embedded entity.
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Put("k3", "v3"));
+  ASSERT_OK(Flush());
+
+  // Inject a resolution failure only during the compaction below, simulating a
+  // blob-region read fault.
+  const Status kInjected = Status::IOError("injected embedded blob read error");
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+      [&](void* arg) { *static_cast<Status*>(arg) = kInjected; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The compaction must fail with the injected read error, NOT a masked
+  // "Invalid blob file number" corruption.
+  ASSERT_NOK(s);
+  EXPECT_TRUE(s.IsIOError()) << s.ToString();
+  EXPECT_EQ(s.ToString().find("Invalid blob file number"), std::string::npos)
+      << s.ToString();
+}
+
+// Regression test for T277310719, the whole-value (kTypeBlobIndex) sibling of
+// the wide-column-entity case above (T277566778). Both share one root cause: on
+// a blob-region resolution error during compaction, the
+// EmbeddedBlobResolvingIterator must not fall back to exposing the raw,
+// unresolved same-file value.
+//
+// The whole-value variant is more dangerous than the entity variant because it
+// escapes the FileMetaData::UpdateBoundaries tripwire: ResolveKeyType()
+// rewrites the key type kTypeBlobIndex -> kTypeValue (no I/O, always succeeds),
+// so on a masked resolution error the emitted entry is {kTypeValue, raw
+// BlobIndex bytes}. UpdateBoundaries only scans kTypeBlobIndex/entity types, so
+// unlike the entity variant it does NOT reject it -- the masked error slips
+// through, a corrupt {kTypeValue, BlobIndex} record is written to the
+// compaction output, and a later point lookup reads those raw BlobIndex bytes
+// back as the value (in db_stress this surfaced as the
+// ExpectedValue::IsValueBaseValid assertion, not "Invalid blob file number").
+// The eager (compaction) resolver must surface the error via status()/Valid()
+// before value() is consumed.
+TEST_F(DBBlobIndexTest,
+       EmbeddedBlobResolveErrorWholeValueDuringCompactionNotMasked) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_resolve_err_wholevalue.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  // A large whole value is stored as a same-file blob, so the table entry
+  // becomes a same-file (file number 0) BlobIndex (kTypeBlobIndex) -- the
+  // whole-value path whose resolution reads the blob region during compaction.
+  const std::string big_val(1024, 'b');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k2", big_val));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Add keys straddling the embedded blob so a real compaction (not a trivial
+  // move) reads and resolves it.
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Put("k3", "v3"));
+  ASSERT_OK(Flush());
+
+  // Inject a resolution failure only during the compaction below, simulating a
+  // blob-region read fault.
+  const Status kInjected = Status::IOError("injected embedded blob read error");
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+      [&](void* arg) { *static_cast<Status*>(arg) = kInjected; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The compaction must fail with the injected read error. Before the fix it
+  // instead succeeded (masking the error) and persisted a {kTypeValue, raw
+  // BlobIndex} record; it must not do that, and it must not report a misleading
+  // "Invalid blob file number" corruption either.
+  ASSERT_NOK(s);
+  EXPECT_TRUE(s.IsIOError()) << s.ToString();
+  EXPECT_EQ(s.ToString().find("Invalid blob file number"), std::string::npos)
+      << s.ToString();
+}
+
 // When a blob cache is configured, same-file ("embedded") blob reads should go
 // through BlobSource: the first read misses + inserts + does a disk read, and
 // the second read of the same blob is served from the blob cache. This holds on

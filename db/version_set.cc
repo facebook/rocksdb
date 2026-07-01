@@ -2813,6 +2813,12 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
   if (!blob_file_meta) {
+    // INTEGRITY CHECK -- do not weaken. The blob index must reference a known
+    // external blob file. No metadata (including file_number 0, the
+    // kInvalidBlobFileNumber / same-file "embedded" sentinel) means a corrupt
+    // index, or a same-file reference that should have been resolved by
+    // EmbeddedBlobResolvingIterator before reaching the integrated-BlobDB read
+    // path. See FileMetaData::UpdateBoundaries for the write-side tripwire.
     return Status::Corruption("Invalid blob file number");
   }
 
@@ -2854,6 +2860,9 @@ void Version::MultiGetBlob(
       }
 
       if (!blob_file_meta) {
+        // INTEGRITY CHECK -- do not weaken; see Version::GetBlob and
+        // FileMetaData::UpdateBoundaries. A same-file/embedded reference must
+        // be resolved before reaching the integrated-BlobDB read path.
         *key_context->s = Status::Corruption("Invalid blob file number");
         continue;
       }

@@ -21,6 +21,13 @@ constexpr uint64_t kInvalidBlobFileNumber = 0;
 // is currently being read; generic blob-file metadata must treat zero as
 // invalid. (Using a distinct value like 1 was found to be more problematic,
 // e.g. because of legacy "stackable" blob implementation.)
+//
+// This "zero is invalid unless you are the embedded reader/writer" contract is
+// enforced by integrity checks that reject file number zero on generic paths;
+// see FileMetaData::UpdateBoundaries (write/output path) and Version::GetBlob /
+// Version::MultiGetBlob (read path). Same-file references must be resolved (by
+// EmbeddedBlobResolvingIterator) before they reach those paths. Do not weaken
+// those checks -- they catch leaks/corruption closer to the root cause.
 constexpr uint64_t kCurrentFileBlobIndexFileNumber = kInvalidBlobFileNumber;
 static_assert(kCurrentFileBlobIndexFileNumber == kInvalidBlobFileNumber);
 
