@@ -55,13 +55,53 @@ class RandomAccessFileReaderTest : public testing::Test {
     }
   }
 
- private:
+ protected:
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
+
+namespace {
+// Wraps an FSRandomAccessFile to observe the FSReadRequest that
+// RandomAccessFileReader::ReadAsync forwards to the FileSystem layer. It
+// records whether a request with a non-empty length but a null scratch buffer
+// was submitted. A null scratch means no backing buffer was provided for the
+// read; in production this surfaces as an EFAULT from io_uring (a null iovec
+// base), reported as "Req failed: Unknown error -14".
+class ScratchObservingRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ScratchObservingRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& target,
+                                   bool* saw_null_scratch)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)),
+        saw_null_scratch_(saw_null_scratch) {}
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** /*io_handle*/,
+                     IOHandleDeleter* /*del_fn*/,
+                     IODebugContext* dbg) override {
+    if (req.len > 0 && req.scratch == nullptr) {
+      *saw_null_scratch_ = true;
+      // A real direct-IO read with a null scratch would fault; synthesize an
+      // error completion instead so the test can observe the submission.
+      req.result = Slice();
+      req.status = IOStatus::IOError("null scratch buffer submitted");
+    } else {
+      // Complete synchronously so the test does not depend on io_uring runtime
+      // availability. Mirrors FSRandomAccessFile::ReadAsync's default fallback.
+      req.status =
+          Read(req.offset, req.len, opts, &req.result, req.scratch, dbg);
+    }
+    cb(req, cb_arg);
+    return IOStatus::OK();
+  }
+
+ private:
+  bool* saw_null_scratch_;
+};
+}  // namespace
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
 
@@ -442,6 +482,79 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOUsesExternalBuffer) {
     ASSERT_GE(req.result.data(), storage_begin);
     ASSERT_LE(req.result.data() + req.result.size(), storage_end);
   }
+}
+
+// Regression test for a direct-IO async-read buffer bug. When a caller submits
+// an already-aligned FSReadRequest with a null scratch and provides an
+// `aligned_buf` out-parameter for the reader to allocate the backing buffer
+// into (exactly how IODispatcher submits MultiScan async reads for plain direct
+// IO), RandomAccessFileReader::ReadAsync must NOT take its "already aligned"
+// fast path and forward the null scratch to the FileSystem. Doing so hands
+// io_uring a null iovec base, which fails with EFAULT ("Req failed: Unknown
+// error -14").
+TEST_F(RandomAccessFileReaderTest, ReadAsyncDirectIOAlignedNullScratch) {
+  std::string fname = "read-async-direct-io-aligned-null-scratch";
+  Random rand(0);
+  std::string content = rand.RandomString(kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::string fpath = Path(fname);
+  std::unique_ptr<FSRandomAccessFile> f;
+  ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
+
+  bool saw_null_scratch = false;
+  std::unique_ptr<FSRandomAccessFile> wrapped(
+      new ScratchObservingRandomAccessFile(std::move(f), &saw_null_scratch));
+  std::unique_ptr<RandomAccessFileReader> r(new RandomAccessFileReader(
+      std::move(wrapped), fpath, env_->GetSystemClock().get()));
+  ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+
+  // Offset and length are both alignment-aligned, so the reader would take its
+  // "already aligned" fast path. scratch is null and an aligned_buf is
+  // provided, so the reader is expected to allocate the backing buffer itself.
+  FSReadRequest req;
+  req.offset = 0;
+  req.len = page_size;
+  req.scratch = nullptr;
+
+  AlignedBuf aligned_buf;
+  bool completed = false;
+  IOStatus completed_status;
+  Slice completed_result;
+  auto cb = [&](FSReadRequest& done, void* /*arg*/) {
+    completed = true;
+    completed_status = done.status;
+    completed_result = done.result;
+  };
+
+  void* io_handle = nullptr;
+  IOHandleDeleter del_fn = nullptr;
+  ASSERT_OK(r->ReadAsync(req, IOOptions(), cb, /*cb_arg=*/nullptr, &io_handle,
+                         &del_fn, &aligned_buf, /*dbg=*/nullptr,
+                         /*direct_io_buffer_context=*/nullptr));
+  // The read result is delivered via the callback (checked below); the reader
+  // works on an internal copy and leaves this request's status untouched.
+  req.status.PermitUncheckedError();
+
+  if (io_handle != nullptr && del_fn != nullptr) {
+    std::vector<void*> handles{io_handle};
+    ASSERT_OK(fs_->Poll(handles, handles.size()));
+    del_fn(io_handle);
+  }
+
+  ASSERT_TRUE(completed);
+  // Core assertion: the reader must allocate a backing buffer for the aligned
+  // direct-IO async read rather than forwarding a null scratch to the FS.
+  EXPECT_FALSE(saw_null_scratch)
+      << "ReadAsync forwarded a null scratch on the aligned direct-IO fast "
+         "path; io_uring would fail this read with EFAULT";
+  ASSERT_OK(completed_status);
+  ASSERT_EQ(completed_result.size(), req.len);
+  ASSERT_EQ(completed_result.ToString(), content.substr(0, req.len));
 }
 
 TEST(FSReadRequest, Align) {

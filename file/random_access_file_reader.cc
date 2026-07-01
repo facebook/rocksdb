@@ -584,7 +584,17 @@ IOStatus RandomAccessFileReader::ReadAsync(
   }
 
   size_t alignment = file_->GetRequiredBufferAlignment();
-  bool is_aligned = direct_io_buffer == nullptr &&
+  // The "already aligned" fast path forwards the caller's request (including
+  // its scratch pointer) straight to the FileSystem. It is only safe when the
+  // caller actually supplied a scratch buffer to read into. A null scratch
+  // combined with an `aligned_buf` out-parameter means the caller expects this
+  // reader to allocate the backing buffer (returned via `aligned_buf`), so we
+  // must take the allocating path below. Otherwise a null buffer would be
+  // submitted to the async read (e.g. a null iovec base to io_uring, which
+  // fails with EFAULT).
+  const bool caller_needs_allocation =
+      req.scratch == nullptr && aligned_buf != nullptr;
+  bool is_aligned = direct_io_buffer == nullptr && !caller_needs_allocation &&
                     (req.offset & (alignment - 1)) == 0 &&
                     (req.len & (alignment - 1)) == 0 &&
                     (uintptr_t(req.scratch) & (alignment - 1)) == 0;
