@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstddef>
 #include <cstring>
 
 #include "options/cf_options.h"
@@ -24,6 +25,40 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
 namespace ROCKSDB_NAMESPACE {
+
+constexpr size_t kReadOptionsAfterAutoRefresh =
+    offsetof(ReadOptions, auto_refresh_iterator_with_snapshot) + sizeof(bool);
+constexpr size_t kReadOptionsIndexFactoryPtrAlign =
+    alignof(const IndexFactory*);
+constexpr size_t kExpectedTableIndexFactoryOffset =
+    ((kReadOptionsAfterAutoRefresh + kReadOptionsIndexFactoryPtrAlign - 1) /
+     kReadOptionsIndexFactoryPtrAlign) *
+    kReadOptionsIndexFactoryPtrAlign;
+static_assert(
+    offsetof(ReadOptions, table_index_factory) ==
+        kExpectedTableIndexFactoryOffset,
+    "Keep table_index_factory at the first aligned pointer slot after "
+    "auto_refresh_iterator_with_snapshot");
+static_assert(offsetof(ReadOptions, read_index) >=
+                      kReadOptionsAfterAutoRefresh &&
+                  offsetof(ReadOptions, read_index) +
+                          sizeof(ReadOptions::ReadIndex) <=
+                      offsetof(ReadOptions, table_index_factory),
+              "Keep read_index in padding before table_index_factory so "
+              "legacy ReadOptions field offsets stay unchanged");
+static_assert(static_cast<int>(ReadOptions::ReadIndex::kDefault) == 0);
+static_assert(static_cast<int>(ReadOptions::ReadIndex::kBuiltin) == 1);
+static_assert(static_cast<int>(ReadOptions::ReadIndex::kPreferCustom) == 2);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kStandardOnly) == 0);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kStandardDefault) == 1);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kCustomDefault) == 2);
+static_assert(
+    static_cast<int>(BlockBasedTableOptions::IndexMode::kCustomOnly) == 3);
+static_assert(static_cast<int>(
+                  BlockBasedTableOptions::IndexMode::kStandardRequired) == 4);
 
 // Verify options are settable from options strings.
 // We take the approach that depends on compiler behavior that copy constructor
@@ -130,7 +165,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       {offsetof(struct BlockBasedTableOptions, filter_policy),
        sizeof(std::shared_ptr<const FilterPolicy>)},
       {offsetof(struct BlockBasedTableOptions, user_defined_index_factory),
-       sizeof(std::shared_ptr<UserDefinedIndexFactory>)},
+       sizeof(std::shared_ptr<IndexFactory>)},
   };
 
   // In this test, we catch a new option of BlockBasedTableOptions that is not
@@ -207,8 +242,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "prepopulate_block_cache=kDisable;"
       "initial_auto_readahead_size=0;"
       "num_file_reads_for_auto_readahead=0;"
-      "fail_if_no_udi_on_open=true;"
-      "use_udi_as_primary_index=true;"
+      "index_mode=kCustomDefault;"
       "separate_key_value_in_data_block=true;"
       "uniform_cv_threshold=0.2",
       new_bbto));
@@ -300,7 +334,7 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
       "18;data_block_restart_interval=16;index_block_restart_interval=1;"
       "separate_key_value_in_data_block=0;num_uniform_blocks=0;"
-      "udi_is_primary_index=0;",
+      "udi_is_primary_index=0;standard_index_is_stub=0;",
       new_tp));
 
   // All bytes are set from the parse

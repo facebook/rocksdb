@@ -19,10 +19,9 @@ namespace trie_index {
 
 int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
                                     const std::string& /*arg*/) {
-  library.AddFactory<UserDefinedIndexFactory>(
+  library.AddFactory<IndexFactory>(
       TrieIndexFactory::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<UserDefinedIndexFactory>* guard,
+      [](const std::string& /*uri*/, std::unique_ptr<IndexFactory>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new TrieIndexFactory());
         return guard->get();
@@ -145,7 +144,10 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   // handles the last block correctly. The overhead is 8 bytes per leaf.
   must_use_separator_with_seq_ = true;
   entry.handle = handle;
-  total_separator_bytes_ += entry.separator_key.size();
+  const size_t sep_bytes = entry.separator_key.size();
+  total_separator_bytes_ += sep_bytes;
+  total_separator_bytes_atomic_.fetch_add(sep_bytes, std::memory_order_relaxed);
+  num_buffered_entries_atomic_.fetch_add(1, std::memory_order_relaxed);
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -250,7 +252,108 @@ uint64_t TrieIndexBuilder::EstimatedSize() const {
   // uses ~2.5 bits per node plus the label data, rank/select tables, and block
   // handle arrays. For a rough estimate:
   // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
-  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+  //
+  // Use atomic mirrors of total_separator_bytes_ and buffered_entries_.size()
+  // so this method is safe to call from the emit thread while FinishAddEntry
+  // mutates them on the BG worker thread (parallel compression).
+  const uint64_t sep_bytes =
+      total_separator_bytes_atomic_.load(std::memory_order_relaxed);
+  const uint64_t entries =
+      num_buffered_entries_atomic_.load(std::memory_order_relaxed);
+  return sep_bytes * 3 + entries * 16;
+}
+
+// ---------------------------------------------------------------------------
+// Parallel compression protocol
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>
+TrieIndexBuilder::CreatePreparedAddEntry() {
+  return std::make_unique<PreparedTrieEntry>();
+}
+
+void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
+                                       const Slice* first_key_in_next_block,
+                                       const IndexEntryContext& context,
+                                       PreparedAddEntry* out) {
+  auto* p = static_cast<PreparedTrieEntry*>(out);
+  p->valid = false;
+  p->same_user_key_initial = false;
+  p->has_next_block = (first_key_in_next_block != nullptr);
+  p->last_key_tag = context.last_key_tag;
+
+  if (first_key_in_next_block != nullptr) {
+    // Same-user-key boundary detection from inputs alone. The buffer-
+    // state-dependent half of the check runs in FinishAddEntry, where
+    // back() is the immediately preceding committed entry.
+    p->same_user_key_initial =
+        comparator_->Compare(last_key_in_current_block,
+                             *first_key_in_next_block) == 0;
+
+    p->separator_key = last_key_in_current_block.ToString();
+    comparator_->FindShortestSeparator(&p->separator_key,
+                                       *first_key_in_next_block);
+  } else {
+    // Last block: store the last key itself (no shortening).
+    p->separator_key = last_key_in_current_block.ToString();
+  }
+
+  p->valid = true;
+}
+
+void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
+                                      PreparedAddEntry* entry,
+                                      std::string* /*separator_scratch*/,
+                                      bool /*skip_delta_encoding*/) {
+  auto* p = static_cast<PreparedTrieEntry*>(entry);
+  if (!p->valid) {
+    // PrepareAddEntry didn't populate this slot (e.g., due to an upstream
+    // ParseInternalKey failure). Skip.
+    return;
+  }
+
+  // Recheck the buffer-state-dependent branch of the same-user-key
+  // detection. Now that we run on the BG writer thread in commit order,
+  // buffered_entries_.back() is the immediately preceding block's entry.
+  bool same_user_key = p->same_user_key_initial;
+  if (!same_user_key && !buffered_entries_.empty() &&
+      buffered_entries_.back().separator_key == p->separator_key) {
+    same_user_key = true;
+  }
+  if (!p->has_next_block && !buffered_entries_.empty() &&
+      comparator_->Compare(buffered_entries_.back().separator_key,
+                           p->separator_key) == 0) {
+    same_user_key = true;
+  }
+
+  BufferedEntry be;
+  be.separator_key = std::move(p->separator_key);
+  if (same_user_key) {
+    // Same-user-key run: real tag distinguishes blocks within the run.
+    be.tag = p->last_key_tag;
+  } else if (!p->has_next_block) {
+    // Last block: real tag covers any post-seek correction by seqno.
+    be.tag = p->last_key_tag;
+  } else {
+    // Distinct-user-key separator: 0 sentinel -- no seqno correction
+    // needed because the separator already disambiguates blocks.
+    be.tag = 0;
+  }
+  be.handle.offset = block_handle.offset;
+  be.handle.size = block_handle.size;
+
+  // Always emit the seqno side-table so Finish()'s post-seek correction
+  // can disambiguate the last block (and any same-user-key runs).
+  must_use_separator_with_seq_ = true;
+  const size_t sep_bytes = be.separator_key.size();
+  total_separator_bytes_ += sep_bytes;
+  total_separator_bytes_atomic_.fetch_add(sep_bytes, std::memory_order_relaxed);
+  num_buffered_entries_atomic_.fetch_add(1, std::memory_order_relaxed);
+  buffered_entries_.push_back(std::move(be));
+
+  // Reset valid so the same prepared slot can be reused (the table
+  // builder rotates BlockReps in a ring buffer).
+  p->valid = false;
 }
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
@@ -493,17 +596,17 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   return Status::OK();
 }
 
-UserDefinedIndexBuilder::BlockHandle TrieIndexIterator::value() {
+IndexFactoryBuilder::BlockHandle TrieIndexIterator::value() {
   if (overflow_run_index_ == 0) {
     // Primary block -- use the trie leaf's handle.
     auto handle = iter_.Value();
-    return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
+    return IndexFactoryBuilder::BlockHandle{handle.offset, handle.size};
   }
   // Overflow block -- use the side-table handle.
   // overflow_run_index_ is 1-based, overflow array is 0-based.
   uint32_t overflow_idx = overflow_base_idx_ + overflow_run_index_ - 1;
   auto handle = trie_->GetOverflowHandle(overflow_idx);
-  return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
+  return IndexFactoryBuilder::BlockHandle{handle.offset, handle.size};
 }
 
 IterBoundCheck TrieIndexIterator::CheckBounds(
@@ -553,7 +656,7 @@ Status TrieIndexReader::InitFromSlice(const Slice& data) {
   return trie_.InitFromData(data);
 }
 
-std::unique_ptr<UserDefinedIndexIterator> TrieIndexReader::NewIterator(
+std::unique_ptr<IndexFactoryIterator> TrieIndexReader::NewIterator(
     const ReadOptions& /*read_options*/) {
   return std::make_unique<TrieIndexIterator>(&trie_, comparator_,
                                              trie_.HasSeqnoEncoding());
@@ -573,8 +676,8 @@ size_t TrieIndexReader::ApproximateMemoryUsage() const {
 // ============================================================================
 
 Status TrieIndexFactory::NewBuilder(
-    const UserDefinedIndexOption& option,
-    std::unique_ptr<UserDefinedIndexBuilder>& builder) const {
+    const IndexFactoryOptions& option,
+    std::unique_ptr<IndexFactoryBuilder>& builder) const {
   // The trie traverses keys byte-by-byte in lexicographic order, so it
   // requires a bytewise comparator. Non-bytewise comparators (e.g.,
   // ReverseBytewiseComparator or custom comparators) would produce separator
@@ -596,8 +699,8 @@ Status TrieIndexFactory::NewBuilder(
 }
 
 Status TrieIndexFactory::NewReader(
-    const UserDefinedIndexOption& option, Slice& index_block,
-    std::unique_ptr<UserDefinedIndexReader>& reader) const {
+    const IndexFactoryOptions& option, Slice& index_block,
+    std::unique_ptr<IndexFactoryReader>& reader) const {
   const Comparator* cmp =
       option.comparator ? option.comparator : BytewiseComparator();
   if (cmp != BytewiseComparator()) {

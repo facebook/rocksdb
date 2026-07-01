@@ -127,6 +127,9 @@ std::string TableProperties::ToString(const std::string& prop_delim,
                  kv_delim);
   AppendProperty(result, "(estimated) table size",
                  data_size + index_size + filter_size, prop_delim, kv_delim);
+  AppendProperty(result, "standard index is stub",
+                 static_cast<int>(standard_index_is_stub), prop_delim,
+                 kv_delim);
 
   AppendProperty(
       result, "filter policy name",
@@ -229,6 +232,7 @@ void TableProperties::Add(const TableProperties& tp) {
   top_level_index_size += tp.top_level_index_size;
   index_key_is_user_key += tp.index_key_is_user_key;
   index_value_is_delta_encoded += tp.index_value_is_delta_encoded;
+  standard_index_is_stub += tp.standard_index_is_stub;
   filter_size += tp.filter_size;
   raw_key_size += tp.raw_key_size;
   raw_value_size += tp.raw_value_size;
@@ -257,6 +261,7 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   rv["index_size"] = index_size;
   rv["index_partitions"] = index_partitions;
   rv["top_level_index_size"] = top_level_index_size;
+  rv["standard_index_is_stub"] = standard_index_is_stub;
   rv["filter_size"] = filter_size;
   rv["raw_key_size"] = raw_key_size;
   rv["raw_value_size"] = raw_value_size;
@@ -327,6 +332,8 @@ const std::string TablePropertiesNames::kIndexValueIsDeltaEncoded =
     "rocksdb.index.value.is.delta.encoded";
 const std::string TablePropertiesNames::kUDIIsPrimaryIndex =
     "rocksdb.udi.is.primary.index";
+const std::string TablePropertiesNames::kStandardIndexIsStub =
+    "rocksdb.standard.index.is.stub";
 const std::string TablePropertiesNames::kFilterSize = "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize = "rocksdb.raw.key.size";
 const std::string TablePropertiesNames::kRawValueSize =
@@ -428,6 +435,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"udi_is_primary_index",
          {offsetof(struct TableProperties, udi_is_primary_index),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"standard_index_is_stub",
+         {offsetof(struct TableProperties, standard_index_is_stub),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"filter_size",

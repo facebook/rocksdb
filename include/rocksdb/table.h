@@ -45,7 +45,7 @@ class TableReader;
 class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
-class UserDefinedIndexFactory;
+class IndexFactory;
 
 // Hook for providing read-scoped storage for data blocks read from SST files.
 // This is configured through C++ options rather than OPTIONS files.
@@ -591,71 +591,103 @@ struct BlockBasedTableOptions {
 
   // EXPERIMENTAL
   //
-  // If non-nullptr, use the specified factory to build user-defined index.
-  // This allows users to define their own index format and build the index
-  // during table building.
-  //
-  // NOTE: UserDefinedIndexFactory currently disables parallel compression
-  // (CompressionOptions::parallel_threads sanitized to 1).
-  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
+  // If non-nullptr, build a custom index using this factory in addition to
+  // (or instead of) the standard index, controlled by index_mode below.
+  // Parallel compression is supported per-builder: see
+  // IndexFactoryBuilder::SupportsParallelAddEntry. If any configured
+  // builder doesn't opt in, the table builder falls back to single-
+  // threaded compression for the SST.
+  std::shared_ptr<IndexFactory> user_defined_index_factory = nullptr;
 
   // EXPERIMENTAL
   //
-  // When true and user_defined_index_factory is set, the UDI becomes the
-  // primary index for reads. All reads (including internal operations like
-  // compaction and VerifyChecksum) automatically route through the UDI
-  // without needing ReadOptions::table_index_factory.
+  // Controls how the custom IndexFactory interacts with the standard
+  // index (the index selected by index_type -- binary search by default,
+  // hash search, or partitioned). kCustomDefault and kCustomOnly require
+  // user_defined_index_factory to be set because reads route through the
+  // custom index by default or exclusively.
   //
-  // Both the standard binary search index and the UDI are always fully
-  // built. The standard index serves as a safety fallback (e.g., for
-  // backup/restore or rollback to a non-UDI configuration). A future
-  // refactor will extract the index abstraction to allow skipping the
-  // standard index build when the UDI is primary.
+  //   kStandardOnly:
+  //     Only the standard index is used.
+  //     user_defined_index_factory is ignored if set. Use this mode to
+  //     explicitly suppress UDI building while leaving a factory pointer
+  //     configured.
   //
-  // When the UDI is primary:
-  // - All reads automatically use the UDI (ReadOptions::table_index_factory
-  //   does not need to be set)
-  // - Partitioned index (kTwoLevelIndexSearch) and partitioned filters are
-  //   incompatible with this option
-  // - fail_if_no_udi_on_open is automatically enforced to prevent silent
-  //   data loss if these SSTs are opened without UDI support
+  //   kStandardDefault:
+  //     Both indexes are built. Reads use the standard index by default.
+  //     The custom index is accessible via ReadOptions::read_index
+  //     for per-read override. When opening SSTs that lack the custom
+  //     index block, falls back to the standard index with a warning
+  //     (not a hard error).
   //
-  // Recommended migration path:
+  //   kStandardRequired:
+  //     Same read routing as kStandardDefault, but opening an SST that
+  //     lacks the custom index block is a hard error when a factory is
+  //     configured. For compatibility with legacy UDI SSTs, a present zero-size
+  //     custom index block is treated as "no UDI" and read through the
+  //     populated standard index. This preserves the legacy
+  //     fail_if_no_udi_on_open=true behavior without changing default reads to
+  //     the custom index. If no factory is configured, this behaves like
+  //     kStandardDefault/no factory so OPTIONS files from older binaries remain
+  //     readable when the non-serialized factory pointer is not restored.
   //
-  // 1. Deploy with user_defined_index_factory set but
-  //    use_udi_as_primary_index=false (secondary mode). New SSTs are written
-  //    with both indexes. Reads use the standard index by default.
+  //   kCustomDefault:
+  //     Both indexes are built. All reads (including internal operations
+  //     like compaction and VerifyChecksum) route through the custom
+  //     index. The standard index serves as a safety fallback for
+  //     backup/restore and rollback. A present zero-size legacy custom index
+  //     block also falls back to the standard index for upgrade compatibility.
   //
-  // 2. Validate reads through the UDI by setting
-  //    ReadOptions::table_index_factory on a subset of reads.
+  //   kCustomOnly:
+  //     Only the custom index is built. The standard index is not
+  //     populated (a minimal stub satisfies the SST footer format).
+  //     Maximum efficiency but no fallback -- rollback requires
+  //     compacting with a mode that builds the standard index.
   //
-  // 3. Compact the entire DB to rewrite all pre-existing SSTs with both
-  //    indexes. All SSTs must have a UDI block before proceeding.
+  // Default: kStandardDefault. With no user_defined_index_factory, this
+  // behaves exactly like kStandardOnly. With a factory, it preserves the
+  // legacy behavior where setting only user_defined_index_factory builds a
+  // secondary UDI while reads continue to use the standard index by default.
   //
-  // 4. Enable use_udi_as_primary_index=true. All reads use the UDI.
+  // Recommended migration path (each step yields SSTs readable by the
+  // next): kStandardDefault -> kStandardRequired -> kCustomDefault ->
+  // kCustomOnly
   //
-  // Rollback: set use_udi_as_primary_index=false. Since the standard index
-  // is always fully populated, SSTs are immediately readable through the
-  // standard index. No compaction is required. All reads immediately
-  // revert to the standard index path.
+  // Rollback:
+  //   From kCustomDefault: switch to kStandardDefault or kStandardOnly.
+  //     The standard index is fully populated, so SSTs are immediately
+  //     readable. kStandardOnly silently ignores any factory pointer that
+  //     remains set in the config.
+  //   From kCustomOnly: switch to kCustomDefault and compact to rewrite
+  //     all SSTs with both indexes before downgrading further.
   //
-  // Backup/restore: the user_defined_index_factory is a shared_ptr that
-  // cannot survive Options serialization (e.g., GetStringFromDBOptions).
-  // Since the standard index is always fully populated, a restored DB can
-  // be opened and read without the factory (reads fall back to the standard
-  // index). Set the factory when opening the restored DB to resume using
-  // the UDI.
+  // Backup/restore and other Options-serialization reopen paths:
+  //   user_defined_index_factory (shared_ptr) does not survive Options
+  //   serialization unless reconstructed through the object registry. If a
+  //   factory is lost in kStandardDefault or kStandardRequired, RocksDB opens
+  //   through the standard index. For kCustomDefault/kCustomOnly, callers must
+  //   explicitly reattach the same factory before opening the DB, or change
+  //   index_mode to kStandardOnly for a standard-index-only restore.
   //
-  // Default: false (UDI is built alongside the standard index as a secondary)
-  bool use_udi_as_primary_index = false;
-
-  // EXPERIMENTAL
+  // Incompatible with:
+  //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
+  //   - Partitioned filters in kCustomDefault/kCustomOnly
   //
-  // Return an error Status if a user_defined_index_factory is configured,
-  // but there's no corresponding UDI block in the SST file being opened.
-  // When use_udi_as_primary_index is true, this check is automatically
-  // enforced (a missing UDI block is always an error in primary mode).
-  bool fail_if_no_udi_on_open = false;
+  // OPTIONS file compatibility: the legacy boolean names
+  // use_udi_as_primary_index, skip_standard_index, and
+  // fail_if_no_udi_on_open are accepted as parse aliases. Each one
+  // monotonically upgrades index_mode to the equivalent enum value at
+  // parse time.
+  enum class IndexMode {
+    kStandardOnly = 0,
+    kStandardDefault = 1,
+    kCustomDefault = 2,
+    kCustomOnly = 3,
+    // Keep the original numeric values for kCustomDefault/kCustomOnly so
+    // existing numeric flags and old binaries do not silently change meaning.
+    kStandardRequired = 4,
+  };
+  IndexMode index_mode = IndexMode::kStandardDefault;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
