@@ -12,6 +12,12 @@ import random
 from dataclasses import dataclass, field
 from typing import Optional
 
+from runner_randomize_stress_flags import (
+    CLOSURE,
+    randomize_stress_flags,
+    REMOTE_COMPACTION_CLOSURE,
+)
+
 
 @dataclass(frozen=True)
 class InjectionSite:
@@ -43,6 +49,16 @@ INJECTION_SITES: dict[str, InjectionSite] = {
         ],
     ),
 }
+
+# When a compaction run randomly injects into REMOTE compaction, the work runs on the
+# compaction service's worker thread, so the injector must break here instead of the local
+# CompactionJob::Run entry_fn (see build_runs).
+REMOTE_COMPACTION_ENTRY_FN = "rocksdb::CompactionServiceCompactionJob::Run"
+
+# Small SDC-safe domain for the randomized max_key. db_crashtest's own range is far too
+# large -- a single injected flip in a huge keyspace rarely lands on a multi-version key,
+# washing out the SDC signal. Every choice here still produces a multi-version layout.
+MAX_KEY_CHOICES: list[int] = [10, 100, 1000, 10000]
 
 
 # The complete db_stress config every run uses (the groups below merged). Together they
@@ -84,11 +100,6 @@ _SERIALIZED: dict[str, object] = {
     "num_dbs": 1,
     "disable_auto_compactions": 1,  # no surprise background compaction
     "write_buffer_size": 1 << 30,  # memtable never auto-flushes
-    # Compaction runs locally, not on the simulated remote compaction service's worker
-    # thread (db_stress default remote_compaction_worker_threads=2). Remote runs the work
-    # in CompactionServiceCompactionJob::Run, where the injector's CompactionJob::Run
-    # entry_fn is off-stack, so the op is never reached. Injecting into remote compaction
-    # is a planned follow-up (a second entry_fn, pinned to one worker).
     "remote_compaction_worker_threads": 0,
     "subcompactions": 1,  # one compaction thread, no parallel subcompactions
 }
@@ -180,6 +191,7 @@ def build_runs(
     run_count: int,
     report_dir: str,
     base_seed: int,
+    randomize: bool = False,
 ) -> list[Run]:
     site = INJECTION_SITES[op]
     # op_index picks which op instance the injector targets. Warmup single-steps that
@@ -197,16 +209,32 @@ def build_runs(
         run_dir = os.path.join(report_dir, f"run_{index:05d}")
         os.makedirs(run_dir, exist_ok=True)
         per_run_stress_flags = _per_run_stress_flags(run_dir, seed)
+        # Randomize per run for coverage -- e.g. max_key (below) exercises a different
+        # key space, others vary LSM shape and version -- and a compaction run may flip
+        # to remote compaction, a distinct code path from local with its own potential
+        # CPU-corruption vulnerabilities.
+        entry_fn = site.entry_fn
+        if randomize:
+            preset = dict(DB_STRESS_PRESET)
+            closure = CLOSURE
+            preset["max_key"] = rng.choice(MAX_KEY_CHOICES)
+            if op == "compaction" and rng.choice([0, 1]):
+                preset["remote_compaction_worker_threads"] = 1
+                closure = {**CLOSURE, **REMOTE_COMPACTION_CLOSURE}
+                entry_fn = REMOTE_COMPACTION_ENTRY_FN
+            stress_flags = randomize_stress_flags(per_run_stress_flags, preset, closure)
+        else:
+            stress_flags = _fixed_stress_flags(per_run_stress_flags)
         runs.append(
             Run(
                 index=index,
                 op=op,
                 op_index=op_index,
-                entry_fn=site.entry_fn,
+                entry_fn=entry_fn,
                 target_fn=target_fn,
                 seed=seed,
                 dir=run_dir,
-                stress_flags=_fixed_stress_flags(per_run_stress_flags),
+                stress_flags=stress_flags,
             )
         )
     return runs
