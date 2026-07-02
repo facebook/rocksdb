@@ -13,7 +13,6 @@
 * Fixed a bug in `RandomAccessFileReader::ReadAsync` where an already-aligned direct-IO read request with a null `scratch` and a caller-provided `aligned_buf` would take the "already aligned" fast path and submit the null buffer to the underlying async read (e.g. a null iovec base to io_uring, failing with EFAULT). This could surface as spurious iterator failures during async prefetch (MultiScan with async IO) on direct-IO databases. The async path now allocates a backing buffer in this case, matching the synchronous `Read` path.
 * Fixed a bug where closing a read-only DB instance could delete live SST files created by a concurrent read-write DB sharing the same directory.
 
-
 ## 11.5.0 (06/16/2026)
 ### New Features
 * External table readers that open files through `ExternalTableOptions::fs` now update RocksDB SST/file-read statistics and file IO listener callbacks, making external file IO activity visible in existing read metrics.
