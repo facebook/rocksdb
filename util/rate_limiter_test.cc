@@ -410,6 +410,10 @@ TEST_F(RateLimiterTest, Rate) {
       true;
 #elif defined(OS_MACOSX)
       getenv("CIRCLECI") || getenv("GITHUB_ACTIONS");
+#elif defined(__aarch64__) || defined(__arm__)
+      // Unlike x86_64, the small/loaded ARM CI runners can't reliably sustain
+      // the target rate, so also exempt GitHub Actions here.
+      getenv("SANDCASTLE") || getenv("GITHUB_ACTIONS");
 #else
       getenv("SANDCASTLE");
 #endif

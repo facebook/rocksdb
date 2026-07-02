@@ -787,7 +787,7 @@ class LDBTestCase(unittest.TestCase):
             # the appearance of an "00xxx.sst" pattern.
             sstLines = re.findall(r".*\d+.sst.*", data)
             for line in sstLines:
-                sstFilename = re.findall(r"\d+.sst", line)[0]
+                sstFilename = re.findall(r"\d+\.sst", line)[0]
                 sstLevel = re.findall(r"(?<=level )\d+", line)[0]
                 cf = re.findall(r"(?<=column family \')\w+(?=\')", line)[0]
                 testMap[sstFilename] = [sstLevel, cf]
