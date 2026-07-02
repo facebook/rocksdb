@@ -3,19 +3,25 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/version_builder.h"
+
 #include <cstring>
 #include <iomanip>
 #include <memory>
 #include <sstream>
 #include <string>
 
+#include "db/db_test_util.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/sst_file_writer.h"
 #include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -152,6 +158,123 @@ class VersionBuilderTest : public testing::Test {
 
   void UpdateVersionStorageInfo() { UpdateVersionStorageInfo(&vstorage_); }
 };
+
+class VersionBuilderDBTest : public DBTestBase {
+ public:
+  VersionBuilderDBTest()
+      : DBTestBase("version_builder_db_test", /*env_do_fsync=*/false) {}
+};
+
+// Regression test: when LogAndApply fails after VersionBuilder pinned a
+// table reader for a newly-added file (via LoadTableHandlers), the table
+// cache entry must be evicted by VersionBuilder::UnrefFile when the
+// FileMetaData is destroyed.
+//
+// This test faithfully reproduces the crash-test failure mode
+// ("File N is not live nor quarantined" from TEST_VerifyNoObsoleteFilesCached
+// inside Close on ASAN):
+//
+//   1. IngestExternalFile submits an AddFile edit through LogAndApply.
+//   2. LoadTableHandlers inside ProcessManifestWrites pins a table reader
+//      for the new file, creating a table cache entry.
+//   3. SyncManifest fails (fault injected). The error handler adds the
+//      ingested file to its quarantine list.
+//   4. A subsequent successful LogAndApply (via manual Resume() and then
+//      Flush) clears the quarantine (version_set.cc:
+//      `ClearFilesToQuarantine`).
+//   5. Metadata read fault injection prevents FindObsoleteFiles from
+//      scanning the directory, so the on-disk orphan is not discovered.
+//   6. On DB Close, TEST_VerifyNoObsoleteFilesCached iterates the table
+//      cache and finds an entry for a file that is neither live nor
+//      quarantined -> assertion fires (without the fix).
+//
+// The IngestExternalFile path issues a few no-op manifest writes before
+// the actual AddFile edit; we arm the injection only after
+// LoadTableHandlers has actually pinned a reader for the ingested file.
+TEST_F(VersionBuilderDBTest,
+       IngestExternalFileEvictsTableCacheOnLogAndApplyFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.disable_auto_compactions = true;
+  // Disable auto-recovery so recovery runs synchronously via our explicit
+  // Resume() call -- no background thread to race with test teardown.
+  options.max_bgerror_resume_count = 0;
+  options.paranoid_file_checks = true;
+  DestroyAndReopen(options);
+  // RAII: ensure the DB is closed before fault_env goes out of scope,
+  // even if an ASSERT_* below early-returns.
+  Defer closer([this]() { Close(); });
+
+  // Seed the memtable with data so a subsequent Flush actually produces a
+  // successful LogAndApply (and thus clears the quarantine).
+  ASSERT_OK(Put("k1", "v1"));
+
+  // Build an external SST through the public SstFileWriter API.
+  const std::string ext_file = dbname_ + "/ingest_me.sst";
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(ext_file));
+  ASSERT_OK(writer.Put("k2", "v2"));
+  ExternalSstFileInfo file_info;
+  ASSERT_OK(writer.Finish(&file_info));
+
+  // Arm the injection only once we have observed VersionBuilder actually
+  // pin a table reader for the ingested file (i.e. after FindTable runs).
+  std::atomic<bool> injection_armed{false};
+  std::atomic<bool> injected_once{false};
+  SyncPoint::GetInstance()->SetCallBack("TableCache::FindTable:0",
+                                        [&](void*) { injection_armed = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        if (!injection_armed.load()) {
+          return;
+        }
+        if (injected_once.exchange(true)) {
+          return;
+        }
+        auto* ptr = static_cast<IOStatus*>(arg);
+        assert(ptr);
+        *ptr = IOStatus::IOError("injected");
+        // Retryable IOError -> soft error, recoverable via Resume().
+        ptr->SetRetryable(true);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  IngestExternalFileOptions ifo;
+  Status s = db_->IngestExternalFile({ext_file}, ifo);
+  ASSERT_NOK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Manual synchronous recovery: clear the soft bg error, then do a
+  // successful LogAndApply (via Flush) which triggers
+  // ClearFilesToQuarantine (version_set.cc line ~6591). This puts the
+  // ingested file into the "not live nor quarantined" state.
+  ASSERT_OK(dbfull()->Resume());
+  ASSERT_OK(Flush());
+
+  // Prevent the FindObsoleteFiles full-directory scan from finding the
+  // orphan on disk. Mirrors the crash test's open_metadata_read_fault_one_in.
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+  Defer disable_fault([&] {
+    fault_fs->DisableThreadLocalErrorInjection(
+        FaultInjectionIOType::kMetadataRead);
+  });
+
+  // The RAII Defer above will run Close() on scope exit. Close's
+  // TEST_VerifyNoObsoleteFilesCached (active on ASAN) iterates the table
+  // cache. Without the D99759696 fix, an entry for the ingested file
+  // remains -- a file that is neither live nor quarantined -- and the
+  // assertion fires. With the fix, VersionBuilder::UnrefFile evicts the
+  // entry when the discarded FileMetaData is destroyed.
+}
 
 void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
   for (int i = 0; i < new_vstorage->num_levels(); i++) {
