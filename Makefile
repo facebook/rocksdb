@@ -2450,7 +2450,7 @@ BUILD_SIG_NONBUILD_GOALS := \
 	clean-ext-libraries-bin \
 	format format-auto check-format check-buck-targets check-headers \
 	check-sources check-workflow-yaml check-progress clang-tidy \
-	tags tags0 package jclean checkout_folly \
+	tags tags0 package jclean checkout_folly build_folly \
 	watch-log dump-log suggest-slow-tests list_all_tests gen-pc \
 	gen_parallel_tests check-c-api-gen \
 	setup-hooks install-hooks uninstall-hooks uninstall db_crashtest_tests
