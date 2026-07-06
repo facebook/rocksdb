@@ -12,6 +12,7 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "monitoring/file_read_sample.h"
 #include "test_util/sync_point.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 // MergingIterator uses a min/max heap to combine data from point iterators.
@@ -610,8 +611,7 @@ class MergingIterator : public InternalIterator {
   // HeapItem for all child point iterators.
   // Invariant(children_): children_[i] is in minHeap_ iff
   // children_[i].iter.Valid(), and at most one children_[i] is in minHeap_.
-  // TODO: We could use an autovector with a larger reserved size.
-  std::vector<HeapItem> children_;
+  autovector<HeapItem> children_;
   // HeapItem for range tombstone start and end keys.
   // pinned_heap_item_[i] corresponds to range_tombstone_iters_[i].
   // Invariant(phi): If range_tombstone_iters_[i]->Valid(),
