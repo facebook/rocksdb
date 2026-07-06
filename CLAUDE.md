@@ -243,6 +243,11 @@ from an implementation detail instead of an explicit option.
 * Don't manually edit BUCK file, after updating src.mk, run
     /usr/local/bin/python3 buckifier/buckify_rocksdb.py to update it
 * For -j in make command, use the number of CPU cores to decide it.
+* When searching for references to something (a symbol, library, etc.), do not
+  restrict or truncate your search based on presumed relevance or scope. It is
+  important and time-saving to keep the repo reasonably consistent across
+  different build systems, programming languages, and even between
+  documentation and implementation.
 
 ### Avoiding mixed build modes with Make (use `AUTO_CLEAN=1`)
 
