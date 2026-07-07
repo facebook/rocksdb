@@ -275,7 +275,7 @@ class VersionBuilder::Rep {
   const std::shared_ptr<const NewestFirstByEpochNumber>
       level_zero_cmp_by_epochno_;
   const std::shared_ptr<const NewestFirstBySeqNo> level_zero_cmp_by_seqno_;
-  const std::shared_ptr<const BySmallestKey> level_nonzero_cmp_;
+  const BySmallestKey level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
   // version edits.
@@ -343,8 +343,7 @@ class VersionBuilder::Rep {
         level_zero_cmp_by_epochno_(
             std::make_shared<NewestFirstByEpochNumber>()),
         level_zero_cmp_by_seqno_(std::make_shared<NewestFirstBySeqNo>()),
-        level_nonzero_cmp_(std::make_shared<BySmallestKey>(
-            base_vstorage_->InternalComparator())),
+        level_nonzero_cmp_(base_vstorage_->InternalComparator()),
         file_metadata_cache_res_mgr_(file_metadata_cache_res_mgr),
         cfd_(cfd),
         version_edit_handler_(version_edit_handler),
@@ -606,7 +605,7 @@ class VersionBuilder::Rep {
           assert(lhs);
           assert(rhs);
 
-          if (!level_nonzero_cmp_->operator()(lhs, rhs)) {
+          if (!level_nonzero_cmp_(lhs, rhs)) {
             std::ostringstream oss;
             oss << 'L' << level << " files are not sorted properly: files #"
                 << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
@@ -1506,7 +1505,7 @@ class VersionBuilder::Rep {
     }
 
     for (int level = 1; level < num_levels_; ++level) {
-      SaveSSTFilesTo(vstorage, level, *level_nonzero_cmp_);
+      SaveSSTFilesTo(vstorage, level, level_nonzero_cmp_);
     }
   }
 
