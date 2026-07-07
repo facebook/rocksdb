@@ -321,6 +321,7 @@ class DBCrashTestTest(unittest.TestCase):
                 "use_trie_index": 1,
                 "index_mode": 3,
                 "format_version": 5,
+                "compression_manager": "none",
             },
         )
 
