@@ -5377,16 +5377,14 @@ class Benchmark {
         fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
       }
 
+      block_based_options.index_mode =
+          FLAGS_index_mode == -1
+              ? BlockBasedTableOptions::IndexMode::kStandardDefault
+              : static_cast<BlockBasedTableOptions::IndexMode>(
+                    FLAGS_index_mode);
       if (FLAGS_use_trie_index) {
         udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
         block_based_options.user_defined_index_factory = udi_factory_;
-        // Default to kStandardDefault when --use_trie_index=1 unless the
-        // user explicitly picked a different mode via --index_mode.
-        block_based_options.index_mode =
-            FLAGS_index_mode == -1
-                ? BlockBasedTableOptions::IndexMode::kStandardDefault
-                : static_cast<BlockBasedTableOptions::IndexMode>(
-                      FLAGS_index_mode);
       }
 
       options.table_factory.reset(

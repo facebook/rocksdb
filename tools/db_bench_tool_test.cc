@@ -145,7 +145,39 @@ class DBBenchTest : public testing::Test {
   Random rnd_;
 };
 
+class CapturingIndexModeHooks : public DefaultHooks {
+ public:
+  Status Open(const Options& options, const std::string& name,
+              std::unique_ptr<DB>* dbptr) override {
+    const auto* table_options =
+        options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (table_options == nullptr) {
+      return Status::InvalidArgument("expected block-based table options");
+    }
+    open_called = true;
+    index_mode = table_options->index_mode;
+    return DefaultHooks::Open(options, name, dbptr);
+  }
+
+  bool open_called = false;
+  BlockBasedTableOptions::IndexMode index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+};
+
 namespace {}  // namespace
+
+TEST_F(DBBenchTest, ExplicitStandardOnlyIndexModeWithoutTrie) {
+  ResetArgs();
+  AppendArgs({"./db_bench", "--benchmarks=fillseq", "--use_existing_db=0",
+              "--num=10", "--compression_type=none",
+              "--options_file=", "--db=" + db_path_, "--wal_dir=" + wal_path_,
+              "--use_trie_index=false", "--index_mode=0", "--read_index=-1"});
+
+  CapturingIndexModeHooks hooks;
+  ASSERT_EQ(0, db_bench_tool(argc(), argv(), hooks));
+  ASSERT_TRUE(hooks.open_called);
+  EXPECT_EQ(BlockBasedTableOptions::IndexMode::kStandardOnly, hooks.index_mode);
+}
 
 TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
