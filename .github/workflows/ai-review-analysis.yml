@@ -5,14 +5,11 @@
 # lives in one place.
 #
 # Security note for Codex:
-#   Codex runs in non-interactive CI, so the Codex CLI steps below pass
-#   `--dangerously-bypass-approvals-and-sandbox`. That disables Codex's
-#   approval prompts and sandbox protections, so treat those steps as
-#   arbitrary command execution on the runner. This file therefore keeps Codex
-#   in the read-only analysis workflow, restricts the pull_request_target path
-#   to same-repo PRs, and leaves write-scoped PR commenting in a separate
-#   workflow. Re-evaluate that trust boundary before expanding Codex auto
-#   review to broader trigger sources.
+#   Codex runs in non-interactive CI with --ask-for-approval never and
+#   --sandbox read-only. This lets fork PRs receive reviews while keeping
+#   model-driven shell commands read-only and preventing provider/GitHub secrets
+#   from being inherited by those shell commands. Re-evaluate that trust boundary
+#   before expanding Codex auto review to broader trigger sources.
 
 name: AI Review Analysis
 
@@ -558,10 +555,11 @@ jobs:
           fi
           mkdir -p "${CODEX_HOME}"
           set +e
-          codex exec \
+          codex --ask-for-approval never --sandbox read-only exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="medium" \
-            --dangerously-bypass-approvals-and-sandbox \
+            -c 'shell_environment_policy.inherit="core"' \
+            -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
             --output-last-message codex-complexity-output.txt \
             - < /tmp/complexity_prompt.txt > codex-complexity.log 2>&1
           exit_code=$?
@@ -622,7 +620,7 @@ jobs:
           model: ${{ inputs.default_model }}
           max_turns: "300"
           timeout_minutes: "60"
-          allowed_tools: "View,GlobTool,GrepTool,Write,Task"
+          allowed_tools: "View,GlobTool,GrepTool"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Recover partial review on turn limit (Claude)
@@ -723,12 +721,13 @@ jobs:
           fi
           mkdir -p "${CODEX_HOME}"
           set +e
-          codex exec review \
+          codex --ask-for-approval never --sandbox read-only exec review \
             --base "${BASE_SHA}" \
             --title "${PR_TITLE}" \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
-            --dangerously-bypass-approvals-and-sandbox \
+            -c 'shell_environment_policy.inherit="core"' \
+            -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
             --output-last-message codex-review-output.md \
             - < /tmp/prompt.txt > codex-review-execution.log 2>&1
           exit_code=$?
@@ -751,10 +750,11 @@ jobs:
           CODEX_REASONING_EFFORT: ${{ steps.budget_codex.outputs.effort }}
         run: |
           set +e
-          codex exec \
+          codex --ask-for-approval never --sandbox read-only exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
-            --dangerously-bypass-approvals-and-sandbox \
+            -c 'shell_environment_policy.inherit="core"' \
+            -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
             --output-last-message codex-review-recovery.md \
             - < claude_md/ci_recovery_prompt.md > codex-review-recovery.log 2>&1
           exit_code=$?
@@ -1174,10 +1174,11 @@ jobs:
           fi
           mkdir -p "${CODEX_HOME}"
           set +e
-          codex exec \
+          codex --ask-for-approval never --sandbox read-only exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="medium" \
-            --dangerously-bypass-approvals-and-sandbox \
+            -c 'shell_environment_policy.inherit="core"' \
+            -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
             --output-last-message codex-complexity-output.txt \
             - < /tmp/complexity_prompt.txt > codex-complexity.log 2>&1
           exit_code=$?
@@ -1252,7 +1253,7 @@ jobs:
           model: ${{ inputs.selected_model != '' && inputs.selected_model || inputs.default_model }}
           max_turns: "300"
           timeout_minutes: "60"
-          allowed_tools: "View,GlobTool,GrepTool,Write,Task"
+          allowed_tools: "View,GlobTool,GrepTool"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Recover partial review on turn limit (Claude)
@@ -1347,19 +1348,21 @@ jobs:
           mkdir -p "${CODEX_HOME}"
           set +e
           if [ "${COMMAND_TYPE}" = "query" ]; then
-            codex exec \
+            codex --ask-for-approval never --sandbox read-only exec \
               -m "${CODEX_MODEL}" \
               -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
-              --dangerously-bypass-approvals-and-sandbox \
+              -c 'shell_environment_policy.inherit="core"' \
+              -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
               --output-last-message codex-review-output.md \
               - < /tmp/prompt.txt > codex-review-execution.log 2>&1
           else
-            codex exec review \
+            codex --ask-for-approval never --sandbox read-only exec review \
               --base "${BASE_SHA}" \
               --title "${PR_TITLE}" \
               -m "${CODEX_MODEL}" \
               -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
-              --dangerously-bypass-approvals-and-sandbox \
+              -c 'shell_environment_policy.inherit="core"' \
+              -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
               --output-last-message codex-review-output.md \
               - < /tmp/prompt.txt > codex-review-execution.log 2>&1
           fi
@@ -1383,10 +1386,11 @@ jobs:
           CODEX_REASONING_EFFORT: ${{ steps.manual_budget_codex.outputs.effort }}
         run: |
           set +e
-          codex exec \
+          codex --ask-for-approval never --sandbox read-only exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
-            --dangerously-bypass-approvals-and-sandbox \
+            -c 'shell_environment_policy.inherit="core"' \
+            -c 'shell_environment_policy.exclude=["OPENAI_API_KEY","ANTHROPIC_API_KEY","GITHUB_TOKEN"]' \
             --output-last-message codex-review-recovery.md \
             - < claude_md/ci_recovery_prompt.md > codex-review-recovery.log 2>&1
           exit_code=$?
