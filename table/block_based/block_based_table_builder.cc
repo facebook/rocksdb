@@ -1476,6 +1476,11 @@ struct BlockBasedTableBuilder::Rep {
                                   "requires "
                                   "user_defined_index_factory to be set"));
     }
+    if (is_custom_only && table_options.format_version < 6) {
+      SetStatus(Status::InvalidArgument(
+          "index_mode kCustomOnly requires format_version >= 6; got " +
+          std::to_string(table_options.format_version)));
+    }
     if (builds_custom_index &&
         table_options.user_defined_index_factory != nullptr) {
       if ((is_custom_default || is_custom_only) &&
@@ -2909,13 +2914,13 @@ void BlockBasedTableBuilder::WriteFilterBlock(
   }
 }
 
-// Adapter that bridges IndexFactoryBuilder::IndexBlockWriter callbacks
-// (invoked from FinishAndWrite) to BlockBasedTableBuilder's private
+// Adapter that bridges built-in index writer callbacks to
+// BlockBasedTableBuilder's private
 // block-write helpers and the meta-index builder. Defined out-of-line as
 // a private nested class so it can access BlockBasedTableBuilder's private
 // WriteBlock / WriteMaybeCompressedBlock methods.
 class BlockBasedTableBuilder::IndexBlockWriterImpl
-    : public IndexFactoryBuilder::IndexBlockWriter {
+    : public BuiltinIndexBlockWriter {
  public:
   IndexBlockWriterImpl(BlockBasedTableBuilder* builder,
                        MetaIndexBuilder* meta_builder, bool compress,
@@ -2974,8 +2979,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   // - Multi-partition writes for partitioned indexes
   // - Auxiliary meta blocks (e.g., hash index prefix blocks)
   // - Single-block writes for simple indexes
-  // The IndexBlockWriter callback adapts between the public
-  // IndexFactoryBuilder::BlockHandle and the internal BlockHandle.
+  // The writer callback adapts between IndexFactoryBuilder::BlockHandle and
+  // the internal BlockHandle.
   bool compress = rep_->table_options.enable_index_compression;
 
   if (rep_->index_builder) {
@@ -2984,7 +2989,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
                                 BlockType::kIndex);
     IndexFactoryBuilder::BlockHandle final_handle{0, 0};
     Status s =
-        rep_->index_builder->FinishAndWrite(&writer, &final_handle, compress);
+        static_cast<BuiltinIndexFactoryBuilder*>(rep_->index_builder.get())
+            ->FinishAndWrite(&writer, &final_handle, compress);
     if (!s.ok()) {
       rep_->SetStatus(s);
       return;
@@ -3024,25 +3030,22 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     meta_index_builder->Add(kIndexBlockName, *index_block_handle);
   }
 
-  // Finish and write custom index blocks (e.g., trie index). Drive the full
-  // FinishAndWrite protocol so custom builders can emit auxiliary meta blocks.
-  // The top-level handle is registered as kIndexFactoryMetaPrefix + name.
+  // Custom indexes serialize into one self-contained block. Multi-block
+  // writing remains internal to built-in indexes because the public custom
+  // reader API receives only this top-level block.
   for (auto& ci : rep_->custom_indexes) {
     if (UNLIKELY(!ok())) {
       break;
     }
-    IndexBlockWriterImpl writer(this, meta_index_builder, /*compress=*/false,
-                                BlockType::kUserDefinedIndex);
-    IndexFactoryBuilder::BlockHandle final_handle{0, 0};
-    Status cs = ci.builder->FinishAndWrite(&writer, &final_handle,
-                                           /*compress=*/false);
+    Slice contents;
+    Status cs = ci.builder->Finish(&contents);
     if (!cs.ok()) {
       rep_->SetStatus(cs);
       break;
     }
     BlockHandle custom_handle;
-    custom_handle.set_offset(final_handle.offset);
-    custom_handle.set_size(final_handle.size);
+    WriteMaybeCompressedBlock(contents, kNoCompression, &custom_handle,
+                              BlockType::kUserDefinedIndex);
     if (LIKELY(ok())) {
       meta_index_builder->Add(std::string(kIndexFactoryMetaPrefix) + ci.name,
                               custom_handle);
@@ -3228,10 +3231,18 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   assert(LIKELY(ok()));
   Rep* r = rep_.get();
   FooterBuilder footer;
-  Status s = footer.Build(kBlockBasedTableMagicNumber,
-                          r->table_options.format_version, r->get_offset(),
-                          r->table_options.checksum, metaindex_block_handle,
-                          index_block_handle, r->base_context_checksum);
+  uint64_t incompatible_features =
+      r->table_options.index_mode ==
+              BlockBasedTableOptions::IndexMode::kCustomOnly
+          ? kFooterFeatureRequireUserDefinedIndex
+          : 0;
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::WriteFooter:IncompatibleFeatures",
+      &incompatible_features);
+  Status s = footer.Build(
+      kBlockBasedTableMagicNumber, r->table_options.format_version,
+      r->get_offset(), r->table_options.checksum, metaindex_block_handle,
+      index_block_handle, r->base_context_checksum, incompatible_features);
   if (!s.ok()) {
     r->SetStatus(s);
     return;
@@ -3554,7 +3565,9 @@ uint64_t BlockBasedTableBuilder::EstimatedTailSize() const {
 
   // 1. Estimate index size (built-in + custom indexes)
   if (rep_->index_builder) {
-    estimated_tail_size += rep_->index_builder->EstimatedSize();
+    estimated_tail_size +=
+        static_cast<BuiltinIndexFactoryBuilder*>(rep_->index_builder.get())
+            ->CurrentIndexSizeEstimate();
   }
   for (const auto& ci : rep_->custom_indexes) {
     estimated_tail_size += ci.builder->EstimatedSize();

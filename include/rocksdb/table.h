@@ -641,6 +641,9 @@ struct BlockBasedTableOptions {
   //   kCustomOnly:
   //     Only the custom index is built. The standard index is not
   //     populated (a minimal stub satisfies the SST footer format).
+  //     Requires format_version >= 6 so the footer can mark the SST as
+  //     requiring a custom index. Older readers reject that marker rather
+  //     than treating the standard-index stub as an empty table.
   //     Maximum efficiency but no fallback -- rollback requires
   //     compacting with a mode that builds the standard index.
   //
@@ -675,9 +678,8 @@ struct BlockBasedTableOptions {
   //
   // OPTIONS file compatibility: the legacy boolean names
   // use_udi_as_primary_index, skip_standard_index, and
-  // fail_if_no_udi_on_open are accepted as parse aliases. Each one
-  // monotonically upgrades index_mode to the equivalent enum value at
-  // parse time.
+  // fail_if_no_udi_on_open are accepted as parse aliases when index_mode is
+  // absent. An explicit index_mode wins regardless of parse order.
   enum class IndexMode {
     kStandardOnly = 0,
     kStandardDefault = 1,
