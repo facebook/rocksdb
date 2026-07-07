@@ -131,24 +131,20 @@ Status WalManager::GetUpdatesSince(
 }
 
 Status WalManager::PrepareNextWalForTail(uint64_t last_wal_number,
-                                         uint64_t current_wal_number,
+                                         uint64_t next_wal_number,
                                          std::unique_ptr<WalFile>* next_wal,
                                          SequenceNumber* first_seq) {
-  // Sanity check: the current WAL must be past the iterator's last file.
-  if (current_wal_number <= last_wal_number) {
+  // Sanity check: the next WAL must be past the iterator's last file.
+  if (next_wal_number <= last_wal_number) {
     return Status::TryAgain("No WAL rotation detected");
   }
 
-  // Attempt to open the current live WAL. The sequence continuity check
-  // in the caller (first_seq == current_last_seq_ + 1) is the ultimate
-  // correctness guard: if intermediate WALs existed with data, the
-  // current WAL's first sequence will not match and TryAgain is returned.
-  Status s = GetLiveWalFile(current_wal_number, next_wal);
+  Status s = GetLiveWalFile(next_wal_number, next_wal);
   if (!s.ok()) {
     return Status::TryAgain("Could not open next WAL file");
   }
 
-  s = ReadFirstRecord(kAliveLogFile, current_wal_number, first_seq);
+  s = ReadFirstRecord(kAliveLogFile, next_wal_number, first_seq);
   if (!s.ok() || *first_seq == 0) {
     // first_seq == 0 means the WAL is empty (no user records yet)
     next_wal->reset();

@@ -365,9 +365,65 @@ TEST_F(DBTestXactLogIterator, FastRotation_SingleRotation_Continues) {
 }
 
 TEST_F(DBTestXactLogIterator,
-       FastRotation_MultipleRotations_FallsBackToTryAgain) {
+       FastRotation_MultipleRotations_ContinuesOnFastPath) {
   Options options = OptionsForLogIterTest();
   options.wal_iterator_fast_rotation = true;
+  DestroyAndReopen(options);
+  // Create a second column family so that flushing one CF rotates the WAL
+  // without making old WALs obsolete (the other CF still references them).
+  CreateAndReopenWithCF({"secondary"}, options);
+
+  // Write to both CFs so both reference the initial WAL
+  ASSERT_OK(Put(0, "key1", DummyString(128)));
+  ASSERT_OK(Put(1, "anchor1", DummyString(128)));
+
+  auto iter = OpenTransactionLogIter(0);
+  // Drain all current records (key1 + anchor1 are in one batch or two)
+  while (iter->Valid()) {
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+
+  // Flush default CF -> rotates WAL. Old WAL stays alive because CF1 refs it.
+  ASSERT_OK(Flush(0));
+  // Write to new WAL (W2)
+  ASSERT_OK(Put(0, "key2", DummyString(128)));
+  ASSERT_OK(Put(1, "anchor2", DummyString(128)));
+
+  // Flush default CF again -> rotates WAL again. W2 stays alive (CF1 refs it).
+  ASSERT_OK(Flush(0));
+  // Write to newest WAL (W3)
+  ASSERT_OK(Put(0, "key3", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Iterator is at EOF on W1. Two rotations happened (W2, W3 both alive).
+  // The fast path should walk W2 first (immediate successor), deliver its
+  // records, then on the next EOF walk W3.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  ASSERT_OK(iter->status());
+
+  // Keep draining -- should eventually get key3 from W3 too
+  int records_seen = 1;
+  while (true) {
+    iter->Next();
+    if (!iter->Valid()) break;
+    ASSERT_OK(iter->status());
+    records_seen++;
+  }
+  ASSERT_OK(iter->status());
+  // We wrote key2, anchor2, key3 across W2 and W3 (3 puts = 3 batches with
+  // default write options). All should be delivered via the fast path.
+  ASSERT_GE(records_seen, 3);
+}
+
+TEST_F(DBTestXactLogIterator,
+       FastRotation_PurgedSuccessor_FallsBackToTryAgain) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_fast_rotation = true;
+  // Allow WAL purge to happen aggressively
+  options.WAL_ttl_seconds = 0;
+  options.WAL_size_limit_MB = 0;
   DestroyAndReopen(options);
 
   // Write one record, open iterator, drain to tail
@@ -378,14 +434,22 @@ TEST_F(DBTestXactLogIterator,
   ASSERT_TRUE(!iter->Valid());
   ASSERT_OK(iter->status());
 
-  // Cause two WAL rotations after the iterator was constructed
+  // Rotate WAL and write to new one
   ASSERT_OK(dbfull()->Flush(FlushOptions()));
   ASSERT_OK(Put("key2", DummyString(128)));
   ASSERT_OK(dbfull()->Flush(FlushOptions()));
   ASSERT_OK(Put("key3", DummyString(128)));
   ASSERT_OK(db_->FlushWAL(false));
 
-  // Multiple rotations: current_wal != last_wal + 1 -> TryAgain
+  // Force purge of obsolete WAL files so the immediate successor of the
+  // iterator's last WAL is no longer alive. PurgeObsoleteFiles removes
+  // WALs that are below the flushed min_log_number.
+  // After the two flushes above, the first successor WAL is obsolete.
+  dbfull()->TEST_DeleteObsoleteFiles();
+
+  // The immediate successor WAL is purged; alive_wal_files_ no longer has it.
+  // The fast path finds the next alive WAL but its first_seq won't be
+  // contiguous with current_last_seq_, so it returns TryAgain.
   iter->Next();
   ASSERT_TRUE(!iter->Valid());
   ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
