@@ -167,6 +167,7 @@ class CapturingIndexModeHooks : public DefaultHooks {
 namespace {}  // namespace
 
 TEST_F(DBBenchTest, ExplicitStandardOnlyIndexModeWithoutTrie) {
+  GFLAGS_NAMESPACE::FlagSaver flag_saver;
   ResetArgs();
   AppendArgs({"./db_bench", "--benchmarks=fillseq", "--use_existing_db=0",
               "--num=10", "--compression_type=none",
