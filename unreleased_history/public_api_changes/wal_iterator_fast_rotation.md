@@ -1,0 +1,1 @@
+Add new DBOptions::wal_iterator_fast_rotation (default false). When enabled, the TransactionLogIterator attempts to seamlessly continue across a single WAL rotation instead of returning TryAgain; falls back to TryAgain on validation failure.

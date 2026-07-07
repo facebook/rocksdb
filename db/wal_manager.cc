@@ -103,7 +103,7 @@ Status WalManager::GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos,
 Status WalManager::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options,
-    VersionSet* version_set) {
+    VersionSet* version_set, NextLiveWalFn next_live_wal_fn) {
   if (seq_per_batch_) {
     return Status::NotSupported();
   }
@@ -125,8 +125,37 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       wal_dir_, &db_options_, read_options, file_options_, seq,
-      std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_,
+      std::move(next_live_wal_fn)));
   return (*iter)->status();
+}
+
+Status WalManager::PrepareNextWalForTail(uint64_t last_wal_number,
+                                         uint64_t current_wal_number,
+                                         std::unique_ptr<WalFile>* next_wal,
+                                         SequenceNumber* first_seq) {
+  // Sanity check: the current WAL must be past the iterator's last file.
+  if (current_wal_number <= last_wal_number) {
+    return Status::TryAgain("No WAL rotation detected");
+  }
+
+  // Attempt to open the current live WAL. The sequence continuity check
+  // in the caller (first_seq == current_last_seq_ + 1) is the ultimate
+  // correctness guard: if intermediate WALs existed with data, the
+  // current WAL's first sequence will not match and TryAgain is returned.
+  Status s = GetLiveWalFile(current_wal_number, next_wal);
+  if (!s.ok()) {
+    return Status::TryAgain("Could not open next WAL file");
+  }
+
+  s = ReadFirstRecord(kAliveLogFile, current_wal_number, first_seq);
+  if (!s.ok() || *first_seq == 0) {
+    // first_seq == 0 means the WAL is empty (no user records yet)
+    next_wal->reset();
+    return Status::TryAgain("Next WAL is empty or unreadable");
+  }
+
+  return Status::OK();
 }
 
 // 1. Go through all archived files and
@@ -434,6 +463,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
     MutexLock l(&read_first_record_cache_mutex_);
     read_first_record_cache_.insert({number, *sequence});
   }
+  TEST_SYNC_POINT_CALLBACK("WalManager::ReadFirstRecord:After", sequence);
   return s;
 }
 

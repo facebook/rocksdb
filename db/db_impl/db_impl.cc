@@ -5869,7 +5869,22 @@ Status DBImpl::GetUpdatesSince(
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }
-  return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get());
+  NextLiveWalFn next_live_wal_fn = nullptr;
+  if (immutable_db_options_.wal_iterator_fast_rotation) {
+    next_live_wal_fn = [this](uint64_t last_wal_number,
+                              std::unique_ptr<WalFile>* out,
+                              SequenceNumber* first_seq) {
+      uint64_t cur;
+      {
+        InstrumentedMutexLock l(&mutex_);
+        cur = cur_wal_number_;
+      }
+      return wal_manager_.PrepareNextWalForTail(last_wal_number, cur, out,
+                                                first_seq);
+    };
+  }
+  return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get(),
+                                      std::move(next_live_wal_fn));
 }
 
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,

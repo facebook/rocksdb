@@ -86,6 +86,7 @@ struct ImmutableDBOptions {
   bool manual_wal_flush;
   CompressionType wal_compression;
   bool background_close_inactive_wals;
+  bool wal_iterator_fast_rotation;
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
   bool prefix_seek_opt_in_only;

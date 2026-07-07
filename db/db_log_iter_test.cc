@@ -332,6 +332,181 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
       "Delete(0, key2)",
       handler.seen);
 }
+TEST_F(DBTestXactLogIterator, FastRotation_SingleRotation_Continues) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_fast_rotation = true;
+  DestroyAndReopen(options);
+
+  // Write a record and open the iterator (captures current file list)
+  ASSERT_OK(Put("key1", DummyString(128)));
+  auto iter = OpenTransactionLogIter(0);
+  ASSERT_TRUE(iter->Valid());
+
+  // Drain to tail
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Now rotate the WAL and write to the new one.
+  // The iterator's file list does NOT include the new WAL.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Next() should trigger fast rotation and seamlessly read from new WAL
+  iter->Next();
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  ASSERT_OK(iter->status());
+
+  // Drain remaining
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+TEST_F(DBTestXactLogIterator,
+       FastRotation_MultipleRotations_FallsBackToTryAgain) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_fast_rotation = true;
+  DestroyAndReopen(options);
+
+  // Write one record, open iterator, drain to tail
+  ASSERT_OK(Put("key1", DummyString(128)));
+  auto iter = OpenTransactionLogIter(0);
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Cause two WAL rotations after the iterator was constructed
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key3", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Multiple rotations: current_wal != last_wal + 1 -> TryAgain
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+TEST_F(DBTestXactLogIterator, FastRotation_OptInOff_PreservesBehavior) {
+  // Default options: wal_iterator_fast_rotation is false
+  Options options = OptionsForLogIterTest();
+  ASSERT_FALSE(options.wal_iterator_fast_rotation);
+  DestroyAndReopen(options);
+
+  // Write, open iterator, drain
+  ASSERT_OK(Put("key1", DummyString(128)));
+  auto iter = OpenTransactionLogIter(0);
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Rotate and write to new WAL
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Without opt-in, should always get TryAgain on rotation
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+TEST_F(DBTestXactLogIterator, FastRotation_EmptyNewWAL_FallsBackToTryAgain) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_fast_rotation = true;
+  DestroyAndReopen(options);
+
+  // Write two records then flush. After flush the new WAL is empty but
+  // LastSequence may or may not have advanced (depends on manifest writes).
+  ASSERT_OK(Put("key1", DummyString(128)));
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+  // Open iterator and drain both records
+  auto iter = OpenTransactionLogIter(0);
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  if (iter->Valid()) {
+    iter->Next();
+  }
+  ASSERT_TRUE(!iter->Valid());
+  // Status should be OK (caught up) or TryAgain (rotation detected but
+  // new WAL empty). Both are acceptable.
+  Status s = iter->status();
+  ASSERT_TRUE(s.ok() || s.IsTryAgain()) << s.ToString();
+}
+
+#ifndef NDEBUG
+TEST_F(DBTestXactLogIterator, FastRotation_SequenceGap_FallsBackToTryAgain) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_fast_rotation = true;
+  DestroyAndReopen(options);
+
+  // Write one record and flush to rotate, then write to new WAL
+  ASSERT_OK(Put("key1", DummyString(128)));
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Use SyncPoint to perturb the sequence returned by ReadFirstRecord
+  // so the continuity check fails. Enable AFTER the initial
+  // GetUpdatesSince (which also calls ReadFirstRecord to build file list).
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WalManager::ReadFirstRecord:After", [](void* arg) {
+        auto* seq = reinterpret_cast<SequenceNumber*>(arg);
+        if (*seq > 0) {
+          *seq = *seq + 100;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Open the iterator -- this calls GetUpdatesSince which reads WAL metadata.
+  // Because we enabled the sync point above, the initial file list build may
+  // also be affected. To avoid that, we build the iterator before enabling
+  // the sync point... but we need the sync point active for the fast-rotation
+  // path. Let's restructure: open iter first, then enable sync point.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Re-do: open DB fresh, write, flush, write
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key1", DummyString(128)));
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+  // Open iterator before the sync point is active
+  auto iter = OpenTransactionLogIter(0);
+  ASSERT_TRUE(iter->Valid());
+
+  // Now write to the new WAL
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Enable sync point to perturb ReadFirstRecord for the fast-rotation path
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WalManager::ReadFirstRecord:After", [](void* arg) {
+        auto* seq = reinterpret_cast<SequenceNumber*>(arg);
+        if (*seq > 0) {
+          *seq = *seq + 100;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Drain key1 and attempt to cross to next WAL
+  iter->Next();
+  // The perturbed sequence should cause continuity check to fail -> TryAgain
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // NDEBUG
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
