@@ -155,8 +155,10 @@ class IndexFactoryBuilder {
   virtual void OnKeyAdded(const Slice& /*key*/, ValueType /*type*/,
                           const Slice& /*value*/) {}
 
-  // Serialize the index into a byte buffer. The memory backing the
-  // returned Slice must remain valid until this builder is destroyed.
+  // Serialize the complete index into one byte buffer. Custom readers receive
+  // only this block, so all reader-required state must be self-contained. The
+  // memory backing the returned Slice must remain valid until this builder is
+  // destroyed.
   virtual Status Finish(Slice* index_contents) = 0;
 
   // Returns the estimated size in bytes of the index built so far.
@@ -165,42 +167,6 @@ class IndexFactoryBuilder {
   // SupportsParallelAddEntry) must keep this safe under concurrent
   // FinishAddEntry calls on the BG writer thread.
   virtual uint64_t EstimatedSize() const = 0;
-
-  // =========================================================================
-  // Optional protocols. Default implementations are provided.
-  // Built-in index factories override these for full functionality.
-  // Custom index implementations typically do NOT need to override these.
-  // =========================================================================
-
-  // --- Write protocol: IndexBlockWriter callback for Finish ---
-  //
-  // Some indexes (e.g., partitioned) need to write multiple blocks during
-  // Finish. The IndexBlockWriter callback allows the builder to drive the
-  // write loop internally.
-  class IndexBlockWriter {
-   public:
-    virtual ~IndexBlockWriter() = default;
-    // Write a block to the SST file. The handle is populated on success.
-    // @param compress  If true, the block may be compressed per SST options.
-    virtual Status WriteBlock(const Slice& contents, BlockHandle* handle,
-                              bool compress) = 0;
-    // Register a meta block by name and handle with the meta index builder.
-    // Called during FinishAndWrite for indexes that produce auxiliary meta
-    // blocks (e.g., hash index prefix blocks).
-    virtual void AddMetaBlock(const std::string& name,
-                              const BlockHandle& handle) = 0;
-  };
-
-  // Finish the index and write all blocks via the writer callback.
-  // The final_handle receives the handle of the top-level index block.
-  // Default: calls Finish(Slice*) and writes a single block.
-  virtual Status FinishAndWrite(IndexBlockWriter* writer,
-                                BlockHandle* final_handle, bool compress) {
-    Slice contents;
-    Status s = Finish(&contents);
-    if (!s.ok()) return s;
-    return writer->WriteBlock(contents, final_handle, compress);
-  }
 
   // --- Parallel compression protocol ---
   //

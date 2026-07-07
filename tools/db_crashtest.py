@@ -1158,6 +1158,10 @@ def finalize_and_sanitize(src_params):
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
         index_mode = dest_params.get("index_mode", 0)
+        if index_mode == 3 and dest_params.get("format_version", 2) < 6:
+            # kCustomOnly marks the footer as requiring the custom index.
+            # Incompatible footer feature flags are available from v6.
+            dest_params["format_version"] = 6
         if index_mode in (2, 3, 4):
             # These reopen paths lose the user_defined_index_factory
             # shared_ptr while preserving index_mode in serialized OPTIONS,

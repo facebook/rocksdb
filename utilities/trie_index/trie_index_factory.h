@@ -32,7 +32,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -90,9 +89,9 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   // Finalize the trie and return the serialized index data.
   Status Finish(Slice* index_contents) override;
 
-  // Returns an estimate of the current serialized index size.
-  // Thread safety: callable from the emit thread concurrently with
-  // FinishAddEntry() running on the BG worker; uses atomic counters.
+  // Returns an estimate of the current serialized index size. Estimate
+  // counters are owned by the emit thread, so this remains race-free while
+  // FinishAddEntry() commits entries on the BG writer thread.
   uint64_t EstimatedSize() const override;
 
   // --- Parallel compression protocol ---
@@ -141,12 +140,11 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   // single-threaded, parallel path mutates only on the serialized BG
   // writer thread inside FinishAddEntry().
   uint64_t total_separator_bytes_ = 0;
-  // Mirror of total_separator_bytes_ readable from any thread. Updated
-  // alongside total_separator_bytes_ so EstimatedSize() can be called
-  // safely from the emit thread while FinishAddEntry() runs on the BG
-  // worker (parallel compression).
-  std::atomic<uint64_t> total_separator_bytes_atomic_{0};
-  std::atomic<uint64_t> num_buffered_entries_atomic_{0};
+  // File-size estimation runs on the emit thread. In parallel mode these
+  // counters are updated when an entry is prepared, before the BG writer
+  // commits it, which is conservative for output-size limits.
+  uint64_t estimated_separator_bytes_ = 0;
+  uint64_t estimated_entry_count_ = 0;
 
   // Staged data for the parallel AddIndexEntry protocol. Populated by
   // PrepareAddEntry on the emit thread, consumed by FinishAddEntry on

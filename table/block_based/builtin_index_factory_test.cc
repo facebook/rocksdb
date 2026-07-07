@@ -305,6 +305,9 @@ TEST_F(BinarySearchIndexFactoryTest, InternalKeyReconstruction) {
   opts.comparator = BytewiseComparator();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
+  ASSERT_EQ(
+      static_cast<BuiltinIndexFactoryBuilder*>(builder.get())->GetComparator(),
+      &icmp);
 
   // Add entries with known user keys and tags via the public interface.
   IndexFactoryBuilder::BlockHandle h1{0, kBlockSize};
@@ -398,12 +401,11 @@ TEST_F(PartitionedIndexFactoryTest, GetPartitionCoordinator) {
 }
 
 // ============================================================================
-// FinishAndWrite default implementation test: the default FinishAndWrite
-// calls Finish() then WriteBlock() once. We verify with a mock writer.
+// Built-in FinishAndWrite writes a single binary-search index block through
+// the internal writer callback.
 // ============================================================================
 
-// Mock IndexBlockWriter for testing the FinishAndWrite protocol.
-class MockIndexBlockWriter : public IndexFactoryBuilder::IndexBlockWriter {
+class MockIndexBlockWriter : public BuiltinIndexBlockWriter {
  public:
   Status WriteBlock(const Slice& contents,
                     IndexFactoryBuilder::BlockHandle* handle,
@@ -425,8 +427,7 @@ class MockIndexBlockWriter : public IndexFactoryBuilder::IndexBlockWriter {
   uint64_t next_offset = 0;
 };
 
-TEST_F(BinarySearchIndexFactoryTest, FinishAndWriteDefaultImpl) {
-  // The default FinishAndWrite calls Finish() then WriteBlock() once.
+TEST_F(BinarySearchIndexFactoryTest, FinishAndWriteSingleBlock) {
   auto factory = BinarySearchIndexFactory(/*with_first_key=*/false);
   IndexFactoryOptions opts;
   opts.comparator = BytewiseComparator();
@@ -436,10 +437,10 @@ TEST_F(BinarySearchIndexFactoryTest, FinishAndWriteDefaultImpl) {
   // Add some entries.
   AddSampleEntries(builder.get());
 
-  // FinishAndWrite through the default impl.
   MockIndexBlockWriter writer;
   IndexFactoryBuilder::BlockHandle final_handle{0, 0};
-  ASSERT_OK(builder->FinishAndWrite(&writer, &final_handle, /*compress=*/true));
+  ASSERT_OK(static_cast<BuiltinIndexFactoryBuilder*>(builder.get())
+                ->FinishAndWrite(&writer, &final_handle, /*compress=*/true));
 
   // Should have written exactly one block.
   ASSERT_EQ(writer.blocks_written.size(), static_cast<size_t>(1));

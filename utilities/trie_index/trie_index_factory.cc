@@ -146,8 +146,8 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
   entry.handle = handle;
   const size_t sep_bytes = entry.separator_key.size();
   total_separator_bytes_ += sep_bytes;
-  total_separator_bytes_atomic_.fetch_add(sep_bytes, std::memory_order_relaxed);
-  num_buffered_entries_atomic_.fetch_add(1, std::memory_order_relaxed);
+  estimated_separator_bytes_ += sep_bytes;
+  ++estimated_entry_count_;
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -253,14 +253,7 @@ uint64_t TrieIndexBuilder::EstimatedSize() const {
   // handle arrays. For a rough estimate:
   // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
   //
-  // Use atomic mirrors of total_separator_bytes_ and buffered_entries_.size()
-  // so this method is safe to call from the emit thread while FinishAddEntry
-  // mutates them on the BG worker thread (parallel compression).
-  const uint64_t sep_bytes =
-      total_separator_bytes_atomic_.load(std::memory_order_relaxed);
-  const uint64_t entries =
-      num_buffered_entries_atomic_.load(std::memory_order_relaxed);
-  return sep_bytes * 3 + entries * 16;
+  return estimated_separator_bytes_ * 3 + estimated_entry_count_ * 16;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +292,8 @@ void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
   }
 
   p->valid = true;
+  estimated_separator_bytes_ += p->separator_key.size();
+  ++estimated_entry_count_;
 }
 
 void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
@@ -347,8 +342,6 @@ void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
   must_use_separator_with_seq_ = true;
   const size_t sep_bytes = be.separator_key.size();
   total_separator_bytes_ += sep_bytes;
-  total_separator_bytes_atomic_.fetch_add(sep_bytes, std::memory_order_relaxed);
-  num_buffered_entries_atomic_.fetch_add(1, std::memory_order_relaxed);
   buffered_entries_.push_back(std::move(be));
 
   // Reset valid so the same prepared slot can be reused (the table

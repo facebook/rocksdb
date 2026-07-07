@@ -144,8 +144,21 @@ Status NewBuiltinIndexFactoryBuilder(
 // per-block-boundary hot path.
 class BlockHandle;  // Internal BlockHandle from table/format.h
 
+class BuiltinIndexBlockWriter {
+ public:
+  virtual ~BuiltinIndexBlockWriter() = default;
+
+  virtual Status WriteBlock(const Slice& contents,
+                            IndexFactoryBuilder::BlockHandle* handle,
+                            bool compress) = 0;
+  virtual void AddMetaBlock(const std::string& name,
+                            const IndexFactoryBuilder::BlockHandle& handle) = 0;
+};
+
 class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
  public:
+  BuiltinIndexFactoryBuilder(const InternalKeyComparator* icmp,
+                             const BlockBasedTableOptions* table_opts);
   BuiltinIndexFactoryBuilder(std::unique_ptr<InternalKeyComparator> icmp,
                              const BlockBasedTableOptions* table_opts);
   ~BuiltinIndexFactoryBuilder() override;
@@ -175,9 +188,10 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
 
   Status Finish(Slice* index_contents) override;
   uint64_t EstimatedSize() const override;
+  uint64_t CurrentIndexSizeEstimate() const;
 
-  Status FinishAndWrite(IndexBlockWriter* writer, BlockHandle* final_handle,
-                        bool compress) override;
+  Status FinishAndWrite(BuiltinIndexBlockWriter* writer,
+                        BlockHandle* final_handle, bool compress);
 
   bool SupportsParallelAddEntry() const override;
   std::unique_ptr<PreparedAddEntry> CreatePreparedAddEntry() override;
@@ -221,7 +235,8 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
                              PreparedAddEntry* out);
 
  private:
-  std::unique_ptr<InternalKeyComparator> icmp_;
+  std::unique_ptr<InternalKeyComparator> owned_icmp_;
+  const InternalKeyComparator* icmp_;
   const BlockBasedTableOptions* table_opts_;
   std::unique_ptr<IndexBuilder> internal_builder_;
   std::string last_internal_key_;

@@ -313,6 +313,22 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(0, finalized["open_write_fault_one_in"])
         self.assertEqual(0, finalized["sync_fault_injection"])
 
+    def test_finalize_custom_only_uses_checked_footer_features(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "use_trie_index": 1,
+                "index_mode": 3,
+                "format_version": 5,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(3, finalized["index_mode"])
+        self.assertEqual(6, finalized["format_version"])
+
     def test_finalize_sanitizes_index_mode_without_trie_factory(self):
         db_crashtest = self.load_db_crashtest()
         params = self.build_params(

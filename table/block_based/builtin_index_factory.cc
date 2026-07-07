@@ -29,9 +29,19 @@ struct BuiltinPreparedAddEntry : public IndexFactoryBuilder::PreparedAddEntry {
 };
 
 BuiltinIndexFactoryBuilder::BuiltinIndexFactoryBuilder(
+    const InternalKeyComparator* icmp, const BlockBasedTableOptions* table_opts)
+    : icmp_(icmp), table_opts_(table_opts) {
+  assert(icmp_ != nullptr);
+}
+
+BuiltinIndexFactoryBuilder::BuiltinIndexFactoryBuilder(
     std::unique_ptr<InternalKeyComparator> icmp,
     const BlockBasedTableOptions* table_opts)
-    : icmp_(std::move(icmp)), table_opts_(table_opts) {}
+    : owned_icmp_(std::move(icmp)),
+      icmp_(owned_icmp_.get()),
+      table_opts_(table_opts) {
+  assert(icmp_ != nullptr);
+}
 
 BuiltinIndexFactoryBuilder::~BuiltinIndexFactoryBuilder() = default;
 
@@ -41,7 +51,7 @@ void BuiltinIndexFactoryBuilder::SetInternalBuilder(
 }
 
 const InternalKeyComparator* BuiltinIndexFactoryBuilder::GetComparator() const {
-  return icmp_.get();
+  return icmp_;
 }
 
 const BlockBasedTableOptions& BuiltinIndexFactoryBuilder::GetTableOptions()
@@ -111,12 +121,15 @@ Status BuiltinIndexFactoryBuilder::Finish(Slice* index_contents) {
 }
 
 uint64_t BuiltinIndexFactoryBuilder::EstimatedSize() const {
+  return CurrentIndexSizeEstimate();
+}
+
+uint64_t BuiltinIndexFactoryBuilder::CurrentIndexSizeEstimate() const {
   return internal_builder_->CurrentIndexSizeEstimate();
 }
 
-Status BuiltinIndexFactoryBuilder::FinishAndWrite(IndexBlockWriter* writer,
-                                                  BlockHandle* final_handle,
-                                                  bool compress) {
+Status BuiltinIndexFactoryBuilder::FinishAndWrite(
+    BuiltinIndexBlockWriter* writer, BlockHandle* final_handle, bool compress) {
   IndexBuilder::IndexBlocks index_blocks;
   Status s = internal_builder_->Finish(&index_blocks);
   if (!s.ok() && !s.IsIncomplete()) {
@@ -316,13 +329,11 @@ Status BinarySearchIndexFactory::NewBuilder(
     // Full construction path used by the table builder. config_ holds
     // the per-SST configuration; the table_options pointer remains
     // valid for the builder's lifetime (Rep owns it).
-    auto icmp = std::make_unique<InternalKeyComparator>(
-        config_.internal_comparator->user_comparator());
     auto index_type = with_first_key_
                           ? BlockBasedTableOptions::kBinarySearchWithFirstKey
                           : BlockBasedTableOptions::kBinarySearch;
     auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-        std::move(icmp), config_.table_options);
+        config_.internal_comparator, config_.table_options);
     std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
         index_type, wrapper->GetComparator(), config_.internal_prefix_transform,
         config_.use_delta_encoding_for_index_values, wrapper->GetTableOptions(),
@@ -373,7 +384,7 @@ const char* HashIndexFactory::Name() const { return kHashIndexName; }
 const char* HashIndexFactory::kClassName() { return kHashIndexName; }
 
 // FinishAndWrite writes and registers hash prefix meta blocks (prefix block and
-// prefix metadata block) through the IndexBlockWriter callback.
+// prefix metadata block) through the internal writer callback.
 Status HashIndexFactory::NewBuilder(
     const IndexFactoryOptions& options,
     std::unique_ptr<IndexFactoryBuilder>& builder) const {
@@ -383,10 +394,8 @@ Status HashIndexFactory::NewBuilder(
   }
 
   if (has_config_) {
-    auto icmp = std::make_unique<InternalKeyComparator>(
-        config_.internal_comparator->user_comparator());
     auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-        std::move(icmp), config_.table_options);
+        config_.internal_comparator, config_.table_options);
     std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
         BlockBasedTableOptions::kHashSearch, wrapper->GetComparator(),
         config_.internal_prefix_transform,
@@ -438,8 +447,8 @@ const char* PartitionedIndexFactory::kClassName() {
 // The partitioned index uses a multi-call Finish protocol internally
 // (returning Status::Incomplete() for each partition). The single-call
 // Finish(Slice*) only returns the first partition block. For full
-// partitioned index construction, use FinishAndWrite() which drives
-// the multi-call protocol through the IndexBlockWriter callback.
+// partitioned index construction, the table builder uses FinishAndWrite() to
+// drive the multi-call protocol through its internal writer callback.
 Status PartitionedIndexFactory::NewBuilder(
     const IndexFactoryOptions& options,
     std::unique_ptr<IndexFactoryBuilder>& builder) const {
@@ -449,10 +458,8 @@ Status PartitionedIndexFactory::NewBuilder(
   }
 
   if (has_config_) {
-    auto icmp = std::make_unique<InternalKeyComparator>(
-        config_.internal_comparator->user_comparator());
     auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-        std::move(icmp), config_.table_options);
+        config_.internal_comparator, config_.table_options);
     std::unique_ptr<IndexBuilder> internal(
         PartitionedIndexBuilder::CreateIndexBuilder(
             wrapper->GetComparator(),

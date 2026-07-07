@@ -5180,6 +5180,64 @@ TEST(TableTest, FooterTests) {
   }
 }
 
+TEST(TableTest, FooterIncompatibleFeatures) {
+  constexpr uint64_t kFooterOffset = 4096;
+  constexpr uint32_t kBaseContextChecksum = 123456789;
+  BlockHandle metaindex(
+      1024, kFooterOffset - BlockBasedTable::kBlockTrailerSize - 1024);
+  FooterBuilder footer;
+
+  ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, /*format_version=*/7,
+                         kFooterOffset, kCRC32c, metaindex,
+                         BlockHandle::NullBlockHandle(), kBaseContextChecksum,
+                         kFooterFeatureRequireUserDefinedIndex));
+
+  Footer decoded;
+  ASSERT_OK(decoded.DecodeFrom(footer.GetSlice(), kFooterOffset));
+  ASSERT_EQ(decoded.incompatible_features(),
+            kFooterFeatureRequireUserDefinedIndex);
+  ASSERT_TRUE(
+      decoded.HasIncompatibleFeature(kFooterFeatureRequireUserDefinedIndex));
+
+  std::string corrupted = footer.GetSlice().ToString();
+  const size_t feature_offset = corrupted.size() - kMagicNumberLengthByte -
+                                sizeof(uint32_t) - sizeof(uint64_t);
+  corrupted[feature_offset] ^= 1;
+  Footer corrupted_footer;
+  ASSERT_TRUE(
+      corrupted_footer.DecodeFrom(corrupted, kFooterOffset).IsCorruption());
+
+  std::string unknown_feature = footer.GetSlice().ToString();
+  EncodeFixed64(&unknown_feature[feature_offset], uint64_t{1} << 63);
+  constexpr size_t kFooterChecksumOffset = 1 + sizeof(uint32_t);
+  EncodeFixed32(&unknown_feature[kFooterChecksumOffset], 0);
+  uint32_t checksum =
+      ComputeBuiltinChecksum(kCRC32c, unknown_feature.data(),
+                             unknown_feature.size()) +
+      ChecksumModifierForContext(kBaseContextChecksum, kFooterOffset);
+  EncodeFixed32(&unknown_feature[kFooterChecksumOffset], checksum);
+  Footer unknown_feature_footer;
+  ASSERT_TRUE(unknown_feature_footer.DecodeFrom(unknown_feature, kFooterOffset)
+                  .IsNotSupported());
+
+  FooterBuilder old_format_footer;
+  ASSERT_TRUE(old_format_footer
+                  .Build(kBlockBasedTableMagicNumber, /*format_version=*/5,
+                         kFooterOffset, kCRC32c, metaindex,
+                         BlockHandle::NullBlockHandle(),
+                         /*base_context_checksum=*/0,
+                         kFooterFeatureRequireUserDefinedIndex)
+                  .IsInvalidArgument());
+
+  FooterBuilder unknown_feature_builder;
+  ASSERT_TRUE(unknown_feature_builder
+                  .Build(kBlockBasedTableMagicNumber, /*format_version=*/7,
+                         kFooterOffset, kCRC32c, metaindex,
+                         BlockHandle::NullBlockHandle(), kBaseContextChecksum,
+                         uint64_t{1} << 63)
+                  .IsInvalidArgument());
+}
+
 // Test that legacy SST formats (format_version < 2) are properly rejected
 TEST(TableTest, LegacyFormatRejectionTests) {
   // Temporarily disable unsupported format version allowance for this test
@@ -8412,15 +8470,13 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
     };
   };
 
-  class FinishAndWriteTestFactory : public IndexFactory {
+  class FinishOnlyTestFactory : public IndexFactory {
    public:
     mutable std::atomic<int> finish_calls{0};
-    mutable std::atomic<int> finish_and_write_calls{0};
 
-    static constexpr size_t kTopLevelContentsSize = 15;
-    static constexpr size_t kAuxiliaryContentsSize = 15;
+    static constexpr size_t kContentsSize = 18;
 
-    const char* Name() const override { return "finish_and_write_test_index"; }
+    const char* Name() const override { return "finish_only_test_index"; }
 
     Status NewBuilder(
         const IndexFactoryOptions& /*opts*/,
@@ -8448,7 +8504,7 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
 
     class Builder : public IndexFactoryBuilder {
      public:
-      explicit Builder(const FinishAndWriteTestFactory* factory)
+      explicit Builder(const FinishOnlyTestFactory* factory)
           : factory_(factory) {}
 
       Slice AddIndexEntry(const Slice& last_key, const Slice* /*next_key*/,
@@ -8462,33 +8518,14 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
 
       Status Finish(Slice* out) override {
         factory_->finish_calls.fetch_add(1, std::memory_order_relaxed);
-        *out = Slice("finish_fallback");
+        *out = Slice("single_index_block");
         return Status::OK();
-      }
-
-      Status FinishAndWrite(IndexBlockWriter* writer, BlockHandle* final_handle,
-                            bool compress) override {
-        EXPECT_FALSE(compress);
-        factory_->finish_and_write_calls.fetch_add(1,
-                                                   std::memory_order_relaxed);
-
-        BlockHandle aux_handle{0, 0};
-        Status s = writer->WriteBlock(Slice("auxiliary_index"), &aux_handle,
-                                      /*compress=*/true);
-        if (!s.ok()) {
-          return s;
-        }
-        writer->AddMetaBlock(
-            std::string(kIndexFactoryMetaPrefix) + factory_->Name() + ".aux",
-            aux_handle);
-        return writer->WriteBlock(Slice("top_level_index"), final_handle,
-                                  /*compress=*/true);
       }
 
       uint64_t EstimatedSize() const override { return 0; }
 
      private:
-      const FinishAndWriteTestFactory* factory_;
+      const FinishOnlyTestFactory* factory_;
     };
   };
 
@@ -8893,9 +8930,9 @@ TEST_P(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
   BasicTest(/*use_partitioned_index=*/false);
 }
 
-TEST_P(UserDefinedIndexTest, CustomIndexFinishAndWriteWritesAuxMetaBlocks) {
+TEST_P(UserDefinedIndexTest, CustomIndexFinishWritesSingleBlock) {
   BlockBasedTableOptions table_options;
-  auto factory = std::make_shared<FinishAndWriteTestFactory>();
+  auto factory = std::make_shared<FinishOnlyTestFactory>();
   table_options.user_defined_index_factory = factory;
   table_options.index_mode =
       BlockBasedTableOptions::IndexMode::kStandardDefault;
@@ -8914,15 +8951,12 @@ TEST_P(UserDefinedIndexTest, CustomIndexFinishAndWriteWritesAuxMetaBlocks) {
     ASSERT_OK(writer.Finish());
   }
 
-  EXPECT_EQ(factory->finish_and_write_calls.load(), 1);
-  EXPECT_EQ(factory->finish_calls.load(), 0);
+  EXPECT_EQ(factory->finish_calls.load(), 1);
 
   ImmutableOptions ioptions(options_);
   EnvOptions eoptions(options_);
-  std::string top_level_meta_block =
+  std::string index_meta_block =
       std::string(kIndexFactoryMetaPrefix) + factory->Name();
-  std::string auxiliary_meta_block =
-      std::string(kIndexFactoryMetaPrefix) + factory->Name() + ".aux";
   uint64_t file_size = 0;
   std::unique_ptr<FSRandomAccessFile> file;
   std::unique_ptr<RandomAccessFileReader> file_reader;
@@ -8931,19 +8965,24 @@ TEST_P(UserDefinedIndexTest, CustomIndexFinishAndWriteWritesAuxMetaBlocks) {
   ASSERT_OK(fs->NewRandomAccessFile(ingest_file, eoptions, &file, nullptr));
   file_reader.reset(new RandomAccessFileReader(std::move(file), ingest_file));
 
-  BlockHandle top_level_handle;
+  BlockHandle index_handle;
   ASSERT_OK(FindMetaBlockInFile(
       file_reader.get(), file_size, kBlockBasedTableMagicNumber, ioptions,
-      ReadOptions(), top_level_meta_block, &top_level_handle));
-  EXPECT_EQ(top_level_handle.size(),
-            FinishAndWriteTestFactory::kTopLevelContentsSize);
+      ReadOptions(), index_meta_block, &index_handle));
+  EXPECT_EQ(index_handle.size(), FinishOnlyTestFactory::kContentsSize);
+}
 
-  BlockHandle auxiliary_handle;
-  ASSERT_OK(FindMetaBlockInFile(
-      file_reader.get(), file_size, kBlockBasedTableMagicNumber, ioptions,
-      ReadOptions(), auxiliary_meta_block, &auxiliary_handle));
-  EXPECT_EQ(auxiliary_handle.size(),
-            FinishAndWriteTestFactory::kAuxiliaryContentsSize);
+TEST_P(UserDefinedIndexTest, CustomOnlyRequiresCheckedFooterFormat) {
+  BlockBasedTableOptions table_options;
+  table_options.user_defined_index_factory =
+      std::make_shared<TestIndexFactory>();
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kCustomOnly;
+  table_options.format_version = 5;
+
+  BlockBasedTableFactory factory(table_options);
+  Status s = factory.ValidateOptions(DBOptions(), ColumnFamilyOptions());
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("format_version >= 6"), std::string::npos);
 }
 
 TEST_P(UserDefinedIndexTest, NewBuilderOkWithNullBuilderFailsSstBuild) {
@@ -9248,6 +9287,27 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   assert_has_legacy_prefix(sst_secondary);
   assert_has_legacy_prefix(sst_primary);
 
+  auto assert_custom_index_required = [&](const std::string& path,
+                                          bool expected) {
+    EnvOptions eoptions(options_);
+    uint64_t file_size = 0;
+    std::unique_ptr<FSRandomAccessFile> file;
+    std::unique_ptr<RandomAccessFileReader> file_reader;
+    const auto& fs = options_.env->GetFileSystem();
+    ASSERT_OK(fs->GetFileSize(path, IOOptions(), &file_size, nullptr));
+    ASSERT_OK(fs->NewRandomAccessFile(path, eoptions, &file, nullptr));
+    file_reader.reset(new RandomAccessFileReader(std::move(file), path));
+    Footer footer;
+    ASSERT_OK(ReadFooterFromFile(IOOptions(), file_reader.get(), *fs,
+                                 nullptr /* prefetch_buffer */, file_size,
+                                 &footer));
+    ASSERT_EQ(
+        footer.HasIncompatibleFeature(kFooterFeatureRequireUserDefinedIndex),
+        expected);
+  };
+  assert_custom_index_required(sst_secondary, false);
+  assert_custom_index_required(sst_primary, true);
+
   // Each (open_mode, sst_shape, read_index) combination below must return
   // all 50 KVs. Combinations that route through a kCustomOnly SST's
   // footer-satisfying standard-index stub must fail loudly rather than
@@ -9366,6 +9426,106 @@ TEST_P(UserDefinedIndexTest, OldFormatUdiSstReadableInAllModes) {
   verify_open_invalid(BlockBasedTableOptions::IndexMode::kStandardDefault,
                       sst_primary,
                       "sst_primary kStandardDefault without factory");
+
+  class OtherNameTestIndexFactory : public TestIndexFactory {
+   public:
+    const char* Name() const override { return "other_test_index"; }
+  };
+  {
+    BlockBasedTableOptions ro_opts;
+    ro_opts.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    ro_opts.user_defined_index_factory =
+        std::make_shared<OtherNameTestIndexFactory>();
+    Options read_options = options_;
+    read_options.table_factory.reset(NewBlockBasedTableFactory(ro_opts));
+    std::unique_ptr<SstFileReader> reader(new SstFileReader(read_options));
+    Status s = reader->Open(sst_primary);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  }
+
+  class NullReaderTestIndexFactory : public TestIndexFactory {
+   public:
+    Status NewReader(
+        const IndexFactoryOptions&, Slice&,
+        std::unique_ptr<IndexFactoryReader>& reader) const override {
+      reader.reset();
+      return Status::OK();
+    }
+  };
+  {
+    BlockBasedTableOptions ro_opts;
+    ro_opts.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    ro_opts.user_defined_index_factory =
+        std::make_shared<NullReaderTestIndexFactory>();
+    Options read_options = options_;
+    read_options.table_factory.reset(NewBlockBasedTableFactory(ro_opts));
+    std::unique_ptr<SstFileReader> reader(new SstFileReader(read_options));
+    Status s = reader->Open(sst_primary);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  }
+}
+
+TEST_P(UserDefinedIndexTest, LegacyUnmarkedCustomOnlySstFailsClosed) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WriteFooter:IncompatibleFeatures",
+      [](void* arg) { *static_cast<uint64_t*>(arg) = 0; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  BlockBasedTableOptions write_opts;
+  write_opts.user_defined_index_factory = std::make_shared<TestIndexFactory>();
+  write_opts.index_mode = BlockBasedTableOptions::IndexMode::kCustomOnly;
+  write_opts.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+  Options write_options = options_;
+  write_options.table_factory.reset(NewBlockBasedTableFactory(write_opts));
+
+  std::string path =
+      test::PerThreadDBPath("udi_legacy_unmarked_custom_only.sst");
+  {
+    SstFileWriter writer(EnvOptions(), write_options);
+    ASSERT_OK(writer.Open(path));
+    for (const auto& kv : generateKVs(/*key_count=*/30)) {
+      ASSERT_OK(writer.Put(kv.first, kv.second));
+    }
+    ASSERT_OK(writer.Finish());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  BlockBasedTableOptions matching_read_opts;
+  matching_read_opts.index_mode =
+      BlockBasedTableOptions::IndexMode::kCustomDefault;
+  matching_read_opts.user_defined_index_factory =
+      std::make_shared<TestIndexFactory>();
+  Options matching_read_options = options_;
+  matching_read_options.table_factory.reset(
+      NewBlockBasedTableFactory(matching_read_opts));
+  SstFileReader matching_reader(matching_read_options);
+  ASSERT_OK(matching_reader.Open(path));
+  std::unique_ptr<Iterator> matching_iter(
+      matching_reader.NewIterator(ReadOptions()));
+  int count = 0;
+  for (matching_iter->SeekToFirst(); matching_iter->Valid();
+       matching_iter->Next()) {
+    ++count;
+  }
+  ASSERT_OK(matching_iter->status());
+  ASSERT_EQ(count, 30);
+
+  class OtherNameTestIndexFactory : public TestIndexFactory {
+   public:
+    const char* Name() const override { return "other_test_index"; }
+  };
+  BlockBasedTableOptions read_opts;
+  read_opts.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+  read_opts.user_defined_index_factory =
+      std::make_shared<OtherNameTestIndexFactory>();
+  Options read_options = options_;
+  read_options.table_factory.reset(NewBlockBasedTableFactory(read_opts));
+  SstFileReader reader(read_options);
+  Status s = reader.Open(path);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
 // Verifies that the deprecated UDI boolean aliases
@@ -9415,6 +9575,35 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   // A higher explicit index_mode is not downgraded by a lower boolean.
   translates_to("index_mode=kCustomOnly;fail_if_no_udi_on_open=true",
                 BlockBasedTableOptions::IndexMode::kCustomOnly);
+
+  // The canonical option wins regardless of textual order. Deprecated aliases
+  // are used only when index_mode is absent.
+  for (const auto& assignments :
+       {"index_mode=kStandardOnly;skip_standard_index=true",
+        "skip_standard_index=true;index_mode=kStandardOnly"}) {
+    translates_to(assignments,
+                  BlockBasedTableOptions::IndexMode::kStandardOnly);
+  }
+  for (const auto& assignments :
+       {"index_mode=kStandardDefault;use_udi_as_primary_index=true",
+        "use_udi_as_primary_index=true;index_mode=kStandardDefault"}) {
+    translates_to(assignments,
+                  BlockBasedTableOptions::IndexMode::kStandardDefault);
+  }
+  for (const auto& assignments :
+       {"index_mode=kStandardOnly;fail_if_no_udi_on_open=true",
+        "fail_if_no_udi_on_open=true;index_mode=kStandardOnly"}) {
+    translates_to(assignments,
+                  BlockBasedTableOptions::IndexMode::kStandardOnly);
+  }
+  BlockBasedTableOptions invalid_out;
+  Status invalid_alias = GetBlockBasedTableOptionsFromString(
+      cfg, BlockBasedTableOptions(),
+      "index_mode=kStandardOnly;skip_standard_index=invalid", &invalid_out);
+  ASSERT_TRUE(invalid_alias.IsInvalidArgument()) << invalid_alias.ToString();
+  ASSERT_NE(invalid_alias.ToString().find("skip_standard_index"),
+            std::string::npos);
+  ASSERT_NE(invalid_alias.ToString().find("invalid"), std::string::npos);
 
   // Strict secondary mode must preserve the old fail_if_no_udi_on_open=true
   // behavior without switching default reads to the custom index.

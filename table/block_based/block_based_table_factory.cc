@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -443,11 +444,9 @@ static struct BlockBasedTableTypeInfo {
         {"index_mode", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexMode>(
                            offsetof(struct BlockBasedTableOptions, index_mode),
                            &block_base_table_index_mode_string_map)},
-        // Aliases that translate legacy UDI booleans in OPTIONS files into
-        // the corresponding `index_mode` value at parse time. The
-        // translation is upgrade-only so an explicit stronger `index_mode=`
-        // in the same OPTIONS file is not overridden by a weaker legacy
-        // boolean parsed afterward.
+        // Aliases for direct ConfigureOption calls. ConfigureOptions
+        // canonicalizes map/string input first so an explicit index_mode wins
+        // regardless of iteration or textual order.
         //   fail_if_no_udi_on_open=true   -> at least kStandardRequired
         //   use_udi_as_primary_index=true -> at least kCustomDefault
         //   skip_standard_index=true      -> kCustomOnly
@@ -841,6 +840,13 @@ Status BlockBasedTableFactory::ValidateOptions(
           "index_mode kCustomDefault/kCustomOnly requires "
           "user_defined_index_factory");
     }
+    if (table_options_.index_mode ==
+            BlockBasedTableOptions::IndexMode::kCustomOnly &&
+        table_options_.format_version < 6) {
+      return Status::InvalidArgument(
+          "index_mode kCustomOnly requires format_version >= 6; got " +
+          std::to_string(table_options_.format_version));
+    }
     // Whether parallel compression is usable with a particular UDI is a
     // per-implementation property
     // (IndexFactoryBuilder::SupportsParallelAddEntry). The table builder makes
@@ -1161,6 +1167,60 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
     }
   }
   return status;
+}
+
+Status BlockBasedTableFactory::ConfigureOptions(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    std::unordered_map<std::string, std::string>* unused) {
+  std::unordered_map<std::string, std::string> normalized = opts_map;
+  constexpr const char* kFailIfMissing = "fail_if_no_udi_on_open";
+  constexpr const char* kUseAsPrimary = "use_udi_as_primary_index";
+  constexpr const char* kSkipStandard = "skip_standard_index";
+
+  auto parse_legacy_bool = [&](const char* name, bool* value) -> Status {
+    auto it = normalized.find(name);
+    if (it == normalized.end()) {
+      *value = false;
+      return Status::OK();
+    }
+    try {
+      *value = ParseBoolean(name, it->second);
+      return Status::OK();
+    } catch (const std::invalid_argument&) {
+      return Status::InvalidArgument("Invalid value for " + std::string(name) +
+                                     ": " + it->second +
+                                     "; expected true or false");
+    }
+  };
+
+  bool fail_if_missing = false;
+  bool use_as_primary = false;
+  bool skip_standard = false;
+  Status s = parse_legacy_bool(kFailIfMissing, &fail_if_missing);
+  if (s.ok()) {
+    s = parse_legacy_bool(kUseAsPrimary, &use_as_primary);
+  }
+  if (s.ok()) {
+    s = parse_legacy_bool(kSkipStandard, &skip_standard);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (normalized.find("index_mode") == normalized.end()) {
+    if (skip_standard) {
+      normalized["index_mode"] = "kCustomOnly";
+    } else if (use_as_primary) {
+      normalized["index_mode"] = "kCustomDefault";
+    } else if (fail_if_missing) {
+      normalized["index_mode"] = "kStandardRequired";
+    }
+  }
+  normalized.erase(kFailIfMissing);
+  normalized.erase(kUseAsPrimary);
+  normalized.erase(kSkipStandard);
+  return TableFactory::ConfigureOptions(config_options, normalized, unused);
 }
 
 Status GetBlockBasedTableOptionsFromString(

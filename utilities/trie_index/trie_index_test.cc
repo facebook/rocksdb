@@ -5846,11 +5846,9 @@ TEST_F(TrieIndexFactoryTest, ParallelMatchesSerialOutput) {
   EXPECT_EQ(iter->value().offset, 420u);
 }
 
-TEST_F(TrieIndexFactoryTest, ParallelEstimatedSizeStaysMonotonic) {
-  // EstimatedSize() must remain monotonic under concurrent updates from
-  // FinishAddEntry on the BG worker thread. We don't actually spin a
-  // worker here; we just confirm the atomic counters are wired correctly
-  // by reading EstimatedSize between Finish calls and asserting it grows.
+TEST_F(TrieIndexFactoryTest, ParallelEstimatedSizeTracksPreparedEntries) {
+  // EstimatedSize() is emit-thread-owned and grows when entries are prepared,
+  // before the BG writer commits them.
   IndexFactoryOptions option;
   option.comparator = BytewiseComparator();
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -5868,15 +5866,17 @@ TEST_F(TrieIndexFactoryTest, ParallelEstimatedSizeStaysMonotonic) {
     auto p = builder->CreatePreparedAddEntry();
     Slice next(next_key);
     builder->PrepareAddEntry(Slice(key), &next, EntryCtx(100, 90), p.get());
+    const uint64_t prepared_size = builder->EstimatedSize();
+    EXPECT_GT(prepared_size, last_size)
+        << "EstimatedSize should grow after PrepareAddEntry";
 
     IndexFactoryBuilder::BlockHandle h{static_cast<uint64_t>(i * 105), 100};
     std::string scratch;
     builder->FinishAddEntry(h, p.get(), &scratch,
                             /*skip_delta_encoding=*/false);
 
-    const uint64_t cur_size = builder->EstimatedSize();
-    EXPECT_GT(cur_size, last_size) << "EstimatedSize should grow after Finish";
-    last_size = cur_size;
+    EXPECT_EQ(builder->EstimatedSize(), prepared_size);
+    last_size = prepared_size;
   }
 }
 
