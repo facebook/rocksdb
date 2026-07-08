@@ -1725,7 +1725,8 @@ DEFINE_bool(use_multiscan, false,
 
 DEFINE_bool(multiscan_reverse, false,
             "If set with use_multiscan, scan each MultiScan range in reverse "
-            "using SeekForPrev and Prev.");
+            "using SeekForPrev and Prev. This does not require "
+            "test_backward_scan.");
 
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");

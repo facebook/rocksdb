@@ -95,7 +95,11 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
 
   // Returns true if there are more scan ranges after the current one.
   bool HasMoreScanRanges() const {
-    assert(!scan_opts_->reverse);
+    // Reverse MultiScan advances ranges through SeekForPrev(), not this
+    // forward-only range transition path.
+    if (scan_opts_->reverse) {
+      return false;
+    }
     return next_scan_idx_ < block_index_ranges_per_scan_.size();
   }
 
