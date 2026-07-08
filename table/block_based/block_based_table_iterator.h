@@ -315,6 +315,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   bool IsIndexAtCurr() const { return is_index_at_curr_block_; }
 
+  inline bool IsReverseMultiScan() const {
+    return multi_scan_read_set_ && multi_scan_index_iter_ &&
+           multi_scan_index_iter_->scan_opts()->reverse;
+  }
+
   const BlockBasedTable* table_;
   const ReadOptions& read_options_;
   const InternalKeyComparator& icomp_;

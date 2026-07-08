@@ -71,11 +71,15 @@ class Scan {
  public:
   class ScanIterator;
 
-  explicit Scan(Iterator* db_iter) : db_iter_(db_iter) {}
+  explicit Scan(Iterator* db_iter, bool reverse = false)
+      : db_iter_(db_iter), reverse_(reverse) {}
 
-  void Reset(Iterator* db_iter) { db_iter_ = db_iter; }
+  void Reset(Iterator* db_iter, bool reverse) {
+    db_iter_ = db_iter;
+    reverse_ = reverse;
+  }
 
-  ScanIterator begin() { return ScanIterator(db_iter_); }
+  ScanIterator begin() { return ScanIterator(db_iter_, reverse_); }
 
   std::nullptr_t end() { return nullptr; }
 
@@ -88,7 +92,8 @@ class Scan {
     using difference_type = int;
     using iterator_category = std::input_iterator_tag;
 
-    explicit ScanIterator(Iterator* db_iter) : db_iter_(db_iter) {
+    explicit ScanIterator(Iterator* db_iter, bool reverse = false)
+        : db_iter_(db_iter), reverse_(reverse) {
       valid_ = db_iter_->Valid();
       if (valid_) {
         result_ = value_type(db_iter_->key(), db_iter_->value());
@@ -109,7 +114,11 @@ class Scan {
       if (!valid_) {
         throw std::logic_error("Trying to advance invalid iterator");
       } else {
-        db_iter_->Next();
+        if (reverse_) {
+          db_iter_->Prev();
+        } else {
+          db_iter_->Next();
+        }
         status_ = db_iter_->status();
         if (!status_.ok()) {
           throw MultiScanException(status_);
@@ -142,6 +151,7 @@ class Scan {
 
    private:
     Iterator* db_iter_;
+    bool reverse_{};
     bool valid_;
     Status status_;
     value_type result_;
@@ -149,6 +159,7 @@ class Scan {
 
  private:
   Iterator* db_iter_;
+  bool reverse_;
 };
 
 // A container object encapsulating the scan ranges for a multi scan.
@@ -179,15 +190,19 @@ class MultiScan {
 
     MultiScanIterator(const std::vector<ScanOptions>& scan_opts, DB* db,
                       ColumnFamilyHandle* cfh, ReadOptions& read_options,
-                      Slice* upper_bound, std::unique_ptr<Iterator>& db_iter)
+                      Slice* lower_bound, Slice* upper_bound,
+                      std::unique_ptr<Iterator>& db_iter, bool reverse)
         : scan_opts_(scan_opts),
           db_(db),
           cfh_(cfh),
           read_options_(read_options),
+          lower_bound_(lower_bound),
           upper_bound_(upper_bound),
           idx_(0),
+          reverse_(reverse),
+          valid_(true),
           db_iter_(db_iter),
-          scan_(db_iter_.get()) {
+          scan_(db_iter_.get(), reverse_) {
       if (scan_opts_.empty()) {
         throw std::logic_error("Zero scans in multi-scan");
       }
@@ -195,7 +210,7 @@ class MultiScan {
       if (!status_.ok()) {
         throw MultiScanException(status_);
       }
-      db_iter_->Seek(*scan_opts_[idx_].range.start);
+      SeekCurrentRange();
       status_ = db_iter_->status();
       if (!status_.ok()) {
         throw MultiScanException(status_);
@@ -206,13 +221,9 @@ class MultiScan {
 
     MultiScanIterator& operator++();
 
-    bool operator==(std::nullptr_t /*other*/) const {
-      return idx_ >= scan_opts_.size();
-    }
+    bool operator==(std::nullptr_t /*other*/) const { return !valid_; }
 
-    bool operator!=(std::nullptr_t /*other*/) const {
-      return idx_ < scan_opts_.size();
-    }
+    bool operator!=(std::nullptr_t /*other*/) const { return valid_; }
 
     reference operator*() { return scan_; }
     reference operator->() { return scan_; }
@@ -222,16 +233,22 @@ class MultiScan {
     DB* db_;
     ColumnFamilyHandle* cfh_;
     ReadOptions& read_options_;
+    Slice* lower_bound_;
     Slice* upper_bound_;
     size_t idx_;
+    bool reverse_;
+    bool valid_;
     std::unique_ptr<Iterator>& db_iter_;
     Status status_;
     Scan scan_;
+
+    void SeekCurrentRange();
   };
 
   MultiScanIterator begin() {
     return MultiScanIterator(scan_opts_.GetScanRanges(), db_, cfh_,
-                             read_options_, &upper_bound_, db_iter_);
+                             read_options_, &lower_bound_, &upper_bound_,
+                             db_iter_, scan_opts_.reverse);
   }
 
   std::nullptr_t end() { return nullptr; }
@@ -240,7 +257,8 @@ class MultiScan {
   ReadOptions read_options_;
   const MultiScanArgs scan_opts_;
   DB* db_;
-  ColumnFamilyHandle* cfh_;
+  ColumnFamilyHandle* cfh_{};
+  Slice lower_bound_;
   Slice upper_bound_;
   std::unique_ptr<Iterator> db_iter_;
 };
