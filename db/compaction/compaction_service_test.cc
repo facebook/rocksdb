@@ -1679,7 +1679,7 @@ TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
 TEST_F(CompactionServiceTest, CompatCheckCountsWidthTolerance) {
   // Number of per-CompactionReason counts this binary serializes and expects.
   constexpr size_t kExpected =
-      static_cast<size_t>(CompactionReason::kNumOfReasons) - 1;
+      static_cast<size_t>(CompactionReason::kNumOfReasons);
   constexpr size_t kLastIndex = kExpected - 1;
   constexpr int kFirstCount = 3;
   constexpr int kLastCount = 5;

@@ -902,24 +902,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct InternalStats::CompactionStats, count),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        // The remote worker may serialize a different number of
-        // CompactionReason counts than this primary expects (RocksDB versions
-        // can disagree on kNumOfReasons). Deserialization tolerates the
-        // mismatch: extra trailing elements are dropped, missing ones are
-        // zero-filled.
-        //
-        // The serialized width is intentionally kept at kNumOfReasons - 1 (the
-        // reduced width) so this change does NOT alter what is written -- only
-        // the read path becomes tolerant. Widening the serialized width to the
-        // full kNumOfReasons is a separate, later change that must not land
-        // until this tolerant read has been deployed to every primary,
-        // including rollback targets.
-        {"counts",
-         SizeTolerantDeserializeArray<
-             int, static_cast<int>(CompactionReason::kNumOfReasons) - 1>(
-             offsetof(struct InternalStats::CompactionStats, counts),
-             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
-             {0, OptionType::kInt})},
+        {"counts", SizeTolerantDeserializeArray<
+                       int, static_cast<int>(CompactionReason::kNumOfReasons)>(
+                       offsetof(struct InternalStats::CompactionStats, counts),
+                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+                       {0, OptionType::kInt})},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
