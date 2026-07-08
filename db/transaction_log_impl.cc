@@ -214,6 +214,15 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
         current_status_ = s;
         return;
       }
+      // Release the file we just finished. Trim everything before the new
+      // current entry so files_ never accumulates stale WalFile objects across
+      // the iterator's lifetime. After erasure, current_file_index_ resets to
+      // 0. Note: UpdateCurrentWriteBatch's seek-back path decrements
+      // current_file_index_ when a sequence gap is detected; the guard
+      // `if (current_file_index_ != 0)` there prevents underflow, so
+      // trimming here is safe for the normal (gap-free) case.
+      files_->erase(files_->begin(), files_->begin() + current_file_index_);
+      current_file_index_ = 0;
     } else {
       if (current_last_seq_ == versions_->LastSequence()) {
         is_valid_ = false;
@@ -232,6 +241,11 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
           ++current_file_index_;
           Status open_s = OpenLogReader(files_->back().get());
           if (open_s.ok()) {
+            // Release the just-finished WAL before continuing. The continuity
+            // check above guarantees no gap, so seek-back is not needed.
+            files_->erase(files_->begin(),
+                          files_->begin() + current_file_index_);
+            current_file_index_ = 0;
             continue;  // Re-enter the read loop on the new WAL
           }
         }
