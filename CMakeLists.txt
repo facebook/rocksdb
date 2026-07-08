@@ -698,10 +698,19 @@ if(USE_FOLLY)
 
     include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
 
-    # Fix gflags library name for debug builds
+    # Fix gflags library name for debug builds. The getdeps gflags shared
+    # library is versioned (e.g. libgflags_debug.so.2.3), so resolve the
+    # actual file by glob rather than hard-coding a version.
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      file(GLOB GFLAGS_DEBUG_SHARED_LIBS
+        "${GFLAGS_INST_PATH}/lib/libgflags_debug.so.*")
+      if(NOT GFLAGS_DEBUG_SHARED_LIBS)
+        message(FATAL_ERROR
+          "Could not find getdeps libgflags_debug.so under ${GFLAGS_INST_PATH}/lib")
+      endif()
+      list(GET GFLAGS_DEBUG_SHARED_LIBS 0 GFLAGS_DEBUG_SHARED_LIB)
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath=${GFLAGS_INST_PATH}/lib")
-      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_INST_PATH}/lib/libgflags_debug.so.2.2")
+      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_DEBUG_SHARED_LIB}")
     endif()
   endif()
 
