@@ -5,6 +5,8 @@
 
 #include "table/block_based/multi_scan_index_iterator.h"
 
+#include <algorithm>
+
 #include "monitoring/statistics_impl.h"
 #include "rocksdb/options.h"
 
@@ -15,14 +17,19 @@ MultiScanIndexIterator::MultiScanIndexIterator(
     std::vector<std::string>&& data_block_separators,
     std::vector<std::tuple<size_t, size_t>>&& block_index_ranges_per_scan,
     const MultiScanArgs* scan_opts, std::shared_ptr<ReadSet> read_set,
-    size_t prefetch_max_idx, const InternalKeyComparator& icomp,
-    Statistics* statistics)
+    size_t prefetch_start_idx, size_t prefetch_max_idx,
+    const InternalKeyComparator& icomp, Statistics* statistics)
     : block_handles_(std::move(block_handles)),
       data_block_separators_(std::move(data_block_separators)),
       block_index_ranges_per_scan_(std::move(block_index_ranges_per_scan)),
       scan_opts_(scan_opts),
       read_set_(std::move(read_set)),
+      prefetch_start_idx_(prefetch_start_idx),
       prefetch_max_idx_(prefetch_max_idx),
+      first_unreleased_prefetch_idx_(prefetch_start_idx),
+      one_past_last_unreleased_prefetch_idx_(prefetch_max_idx),
+      released_prefetch_blocks_(prefetch_max_idx - prefetch_start_idx, false),
+      unreleased_prefetch_blocks_(prefetch_max_idx - prefetch_start_idx),
       icomp_(icomp),
       user_comparator_(icomp.user_comparator()),
       statistics_(statistics) {}
@@ -34,23 +41,85 @@ MultiScanIndexIterator::~MultiScanIndexIterator() {
   }
   // Release any remaining pinned blocks
   if (read_set_) {
-    for (size_t i = cur_idx_; i < block_handles_.size(); ++i) {
-      read_set_->ReleaseBlock(i);
+    for (size_t i = first_unreleased_prefetch_idx_;
+         i < one_past_last_unreleased_prefetch_idx_ &&
+         unreleased_prefetch_blocks_ > 0;
+         ++i) {
+      ReleasePrefetchedBlock(i);
     }
   }
 }
 
+bool MultiScanIndexIterator::IsPrefetchedBlock(size_t block_idx) const {
+  return block_idx >= prefetch_start_idx_ && block_idx < prefetch_max_idx_;
+}
+
+size_t MultiScanIndexIterator::current_read_set_index() const {
+  if (!IsPrefetchedBlock(cur_idx_)) {
+    return prefetch_max_idx_ - prefetch_start_idx_;
+  }
+  return cur_idx_ - prefetch_start_idx_;
+}
+
+void MultiScanIndexIterator::ReleaseBlock(size_t block_idx) {
+  ReleasePrefetchedBlock(block_idx);
+}
+
+bool MultiScanIndexIterator::ReleasePrefetchedBlock(size_t block_idx) {
+  if (!IsPrefetchedBlock(block_idx) || unreleased_prefetch_blocks_ == 0) {
+    return false;
+  }
+
+  const size_t read_set_idx = block_idx - prefetch_start_idx_;
+  if (released_prefetch_blocks_[read_set_idx]) {
+    return false;
+  }
+
+  assert(read_set_);
+  read_set_->ReleaseBlock(read_set_idx);
+  released_prefetch_blocks_[read_set_idx] = true;
+  --unreleased_prefetch_blocks_;
+  ShrinkUnreleasedPrefetchBounds();
+  return true;
+}
+
+void MultiScanIndexIterator::ShrinkUnreleasedPrefetchBounds() {
+  while (first_unreleased_prefetch_idx_ <
+             one_past_last_unreleased_prefetch_idx_ &&
+         released_prefetch_blocks_[first_unreleased_prefetch_idx_ -
+                                   prefetch_start_idx_]) {
+    ++first_unreleased_prefetch_idx_;
+  }
+  while (first_unreleased_prefetch_idx_ <
+             one_past_last_unreleased_prefetch_idx_ &&
+         released_prefetch_blocks_[one_past_last_unreleased_prefetch_idx_ - 1 -
+                                   prefetch_start_idx_]) {
+    --one_past_last_unreleased_prefetch_idx_;
+  }
+}
+
 void MultiScanIndexIterator::ReleaseBlocks(size_t from_idx, size_t to_idx) {
-  for (size_t i = from_idx; i < to_idx; ++i) {
-    if (i < prefetch_max_idx_) {
+  const size_t release_from = std::max(from_idx, prefetch_start_idx_);
+  const size_t release_to = std::min(to_idx, prefetch_max_idx_);
+  if (release_from >= release_to || unreleased_prefetch_blocks_ == 0) {
+    return;
+  }
+
+  for (size_t i = release_from; i < release_to; ++i) {
+    if (ReleasePrefetchedBlock(i)) {
       wasted_blocks_count_++;
     }
-    read_set_->ReleaseBlock(i);
   }
 }
 
 void MultiScanIndexIterator::Seek(const Slice& target) {
   if (!status_.ok()) {
+    return;
+  }
+  if (scan_opts_->reverse) {
+    status_ = Status::InvalidArgument("Seek called on reverse MultiScan");
+    RecordTick(statistics_, MULTISCAN_SEEK_ERRORS);
+    valid_ = false;
     return;
   }
 
@@ -186,10 +255,10 @@ void MultiScanIndexIterator::SeekToBlock(const Slice* user_seek_target) {
              *user_seek_target, /*a_has_ts=*/true,
              data_block_separators_[block_idx],
              /*b_has_ts=*/false) > 0) {
-    if (block_idx < prefetch_max_idx_) {
+    if (IsPrefetchedBlock(block_idx)) {
       wasted_blocks_count_++;
     }
-    read_set_->ReleaseBlock(block_idx);
+    ReleaseBlock(block_idx);
     block_idx++;
   }
 
@@ -218,6 +287,22 @@ void MultiScanIndexIterator::SeekToBlockIdx(size_t block_idx) {
   valid_ = true;
 }
 
+void MultiScanIndexIterator::SeekToBlockIdxReverse(size_t block_idx) {
+  if (cur_idx_ > block_idx && cur_idx_ < block_handles_.size()) {
+    ReleaseBlocks(block_idx + 1, cur_idx_ + 1);
+  }
+
+  cur_idx_ = block_idx;
+  if (!IsPrefetchedBlock(cur_idx_)) {
+    valid_ = false;
+    if (scan_opts_->max_prefetch_size > 0) {
+      status_ = Status::PrefetchLimitReached();
+    }
+    return;
+  }
+  valid_ = true;
+}
+
 void MultiScanIndexIterator::SetExhausted() {
   scan_range_exhausted_ = true;
   if (next_scan_idx_ < block_index_ranges_per_scan_.size()) {
@@ -243,7 +328,7 @@ void MultiScanIndexIterator::Next() {
   assert(valid_);
 
   // Release current block
-  read_set_->ReleaseBlock(cur_idx_);
+  ReleaseBlock(cur_idx_);
   ++cur_idx_;
 
   // Check if we've crossed a scan range boundary
@@ -258,7 +343,7 @@ void MultiScanIndexIterator::Next() {
   }
 
   // Check prefetch limit
-  if (cur_idx_ >= prefetch_max_idx_) {
+  if (!IsPrefetchedBlock(cur_idx_)) {
     valid_ = false;
     if (scan_opts_->max_prefetch_size > 0) {
       status_ = Status::PrefetchLimitReached();
@@ -292,13 +377,109 @@ void MultiScanIndexIterator::SeekToFirst() {
   valid_ = true;
 }
 
-void MultiScanIndexIterator::SeekForPrev(const Slice& /*target*/) {
+void MultiScanIndexIterator::SeekForPrev(const Slice& target) {
+  if (!scan_opts_->reverse || !status_.ok()) {
+    valid_ = false;
+    return;
+  }
+
+  scan_range_exhausted_ = false;
+  if (scan_opts_->size() == 0) {
+    valid_ = false;
+    return;
+  }
+
+  const auto& scan_ranges = scan_opts_->GetScanRanges();
+  Slice user_seek_target = ExtractUserKey(target);
+  size_t scan_idx = scan_ranges.size();
+  for (size_t i = scan_ranges.size(); i > 0; --i) {
+    const size_t candidate = i - 1;
+    const auto& range = scan_ranges[candidate].range;
+    if (!range.start.has_value() || !range.limit.has_value()) {
+      continue;
+    }
+    const int cmp_start = user_comparator_.CompareWithoutTimestamp(
+        user_seek_target, /*a_has_ts=*/true, range.start.value(),
+        /*b_has_ts=*/false);
+    if (cmp_start >= 0) {
+      scan_idx = candidate;
+      break;
+    }
+  }
+
+  if (scan_idx == scan_ranges.size()) {
+    status_ = Status::InvalidArgument(
+        "SeekForPrev target is outside prepared ranges");
+    RecordTick(statistics_, MULTISCAN_SEEK_ERRORS);
+    valid_ = false;
+    return;
+  }
+
+  cur_scan_idx_ = scan_idx;
+  auto [cur_scan_start_idx, cur_scan_end_idx] =
+      block_index_ranges_per_scan_[cur_scan_idx_];
+  if (cur_scan_start_idx >= cur_scan_end_idx) {
+    valid_ = false;
+    return;
+  }
+
+  size_t block_idx = cur_scan_start_idx;
+  while (block_idx + 1 < cur_scan_end_idx &&
+         user_comparator_.CompareWithoutTimestamp(
+             user_seek_target, /*a_has_ts=*/true,
+             data_block_separators_[block_idx], /*b_has_ts=*/false) > 0) {
+    ++block_idx;
+  }
+
+  SeekToBlockIdxReverse(block_idx);
+}
+
+void MultiScanIndexIterator::SeekToLast() {
+  if (!scan_opts_->reverse) {
+    valid_ = false;
+    return;
+  }
+  for (size_t i = block_index_ranges_per_scan_.size(); i > 0; --i) {
+    const size_t scan_idx = i - 1;
+    auto [start, end] = block_index_ranges_per_scan_[scan_idx];
+    if (start < end) {
+      cur_scan_idx_ = scan_idx;
+      SeekToBlockIdxReverse(end - 1);
+      return;
+    }
+  }
   valid_ = false;
 }
 
-void MultiScanIndexIterator::SeekToLast() { valid_ = false; }
+void MultiScanIndexIterator::Prev() {
+  assert(valid_);
+  if (!scan_opts_->reverse) {
+    valid_ = false;
+    return;
+  }
 
-void MultiScanIndexIterator::Prev() { valid_ = false; }
+  ReleaseBlock(cur_idx_);
+  auto [cur_scan_start_idx, cur_scan_end_idx] =
+      block_index_ranges_per_scan_[cur_scan_idx_];
+  (void)cur_scan_end_idx;
+  if (cur_idx_ <= cur_scan_start_idx) {
+    // Reverse scan range transitions are driven by DBIter's lower bound and
+    // the next SeekForPrev(), so this path does not need the forward
+    // out-of-bound signal from SetExhausted().
+    valid_ = false;
+    return;
+  }
+
+  --cur_idx_;
+  if (!IsPrefetchedBlock(cur_idx_)) {
+    valid_ = false;
+    if (scan_opts_->max_prefetch_size > 0) {
+      status_ = Status::PrefetchLimitReached();
+    }
+    return;
+  }
+  valid_ = true;
+}
 
 Slice MultiScanIndexIterator::key() const {
   assert(valid_);

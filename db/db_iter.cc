@@ -1921,6 +1921,9 @@ Status DBIter::ValidateScanOptions(const MultiScanArgs& multiscan_opts) const {
 
   const std::vector<ScanOptions>& scan_opts = multiscan_opts.GetScanRanges();
   const bool has_limit = scan_opts.front().range.limit.has_value();
+  if (multiscan_opts.reverse && !has_limit) {
+    return Status::InvalidArgument("Reverse MultiScan requires limit");
+  }
   if (!has_limit && scan_opts.size() > 1) {
     return Status::InvalidArgument("Scan has no upper bound");
   }
@@ -2004,6 +2007,12 @@ void DBIter::Seek(const Slice& target) {
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
   if (scan_opts_.has_value()) {
+    if (scan_opts_->reverse) {
+      status_ = Status::InvalidArgument("Seek called on reverse MultiScan");
+      valid_ = false;
+      return;
+    }
+
     // Validate the seek target is as expected in the previously prepared range
     auto const& scan_ranges = scan_opts_.value().GetScanRanges();
     if (scan_index_ >= scan_ranges.size()) {
@@ -2109,6 +2118,61 @@ void DBIter::SeekForPrev(const Slice& target) {
   PERF_COUNTER_ADD(iter_seek_count, 1);
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
+
+  if (scan_opts_.has_value()) {
+    if (!scan_opts_->reverse) {
+      status_ =
+          Status::InvalidArgument("SeekForPrev called on forward MultiScan");
+      valid_ = false;
+      return;
+    }
+
+    auto const& scan_ranges = scan_opts_.value().GetScanRanges();
+    if (scan_index_ >= scan_ranges.size()) {
+      status_ = Status::InvalidArgument(
+          "SeekForPrev called after exhausting all of the scan ranges");
+      valid_ = false;
+      return;
+    }
+
+    auto const& range = scan_ranges[scan_index_];
+    auto const& limit = range.range.limit;
+    assert(limit.has_value());
+    if (!limit.has_value() ||
+        user_comparator_.CompareWithoutTimestamp(target, *limit) != 0) {
+      status_ = Status::InvalidArgument(
+          "SeekForPrev target does not match the limit of the next prepared "
+          "range at index " +
+          std::to_string(scan_index_));
+      valid_ = false;
+      return;
+    }
+
+    auto const& start = range.range.start;
+    assert(start.has_value());
+    if (iterate_lower_bound_ == nullptr ||
+        user_comparator_.CompareWithoutTimestamp(start.value(),
+                                                 *iterate_lower_bound_) != 0) {
+      status_ = Status::InvalidArgument(
+          "Lower bound is not set to the same start value of the next "
+          "prepared range at index " +
+          std::to_string(scan_index_));
+      valid_ = false;
+      return;
+    }
+    if (iterate_upper_bound_ == nullptr ||
+        user_comparator_.CompareWithoutTimestamp(limit.value(),
+                                                 *iterate_upper_bound_) != 0) {
+      status_ = Status::InvalidArgument(
+          "Upper bound is not set to the same limit value of the next "
+          "prepared range at index " +
+          std::to_string(scan_index_));
+      valid_ = false;
+      return;
+    }
+
+    scan_index_++;
+  }
 
   if (has_trace_state_) {
     // TODO: What do we do if this returns an error?

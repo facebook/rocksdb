@@ -8256,9 +8256,52 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
           return Status::OK();
         }
 
+        Status SeekToLastAndGetResult(IterateResult* result) override {
+          if (index_.empty()) {
+            result->bound_check_result = IterBoundCheck::kUnknown;
+            result->key = Slice();
+            return Status::OK();
+          }
+
+          iter_ = index_.end();
+          --iter_;
+          SetPreviousValidResult(result);
+          return Status::OK();
+        }
+
+        Status PrevAndGetResult(IterateResult* result) override {
+          if (iter_ == index_.end() || iter_ == index_.begin()) {
+            iter_ = index_.end();
+            result->bound_check_result = IterBoundCheck::kUnknown;
+            result->key = Slice();
+            return Status::OK();
+          }
+
+          --iter_;
+          SetPreviousValidResult(result);
+          return Status::OK();
+        }
+
         void AdvanceToNextIndexEntry() {
           while (iter_ != index_.end() && iter_->second.second == 0) {
             iter_++;
+          }
+        }
+
+        void SetPreviousValidResult(IterateResult* result) {
+          while (iter_ != index_.end() && iter_->second.second == 0) {
+            if (iter_ == index_.begin()) {
+              iter_ = index_.end();
+              break;
+            }
+            --iter_;
+          }
+          if (iter_ != index_.end()) {
+            result->bound_check_result = IterBoundCheck::kInbound;
+            result->key = Slice(iter_->first);
+          } else {
+            result->bound_check_result = IterBoundCheck::kUnknown;
+            result->key = Slice();
           }
         }
 
@@ -9768,14 +9811,16 @@ struct UserDefinedIndexStressTestParam {
   const Comparator* comparator;
   bool enable_udi;
   bool enable_compaction_with_sst_partitioner;
+  bool reverse_scan;
 
   using UserDefinedIndexStressTestTuple =
-      std::tuple<const Comparator*, bool, bool>;
+      std::tuple<const Comparator*, bool, bool, bool>;
 
   UserDefinedIndexStressTestParam(const UserDefinedIndexStressTestTuple& tuple)
       : comparator(std::get<0>(tuple)),
         enable_udi(std::get<1>(tuple)),
-        enable_compaction_with_sst_partitioner(std::get<2>(tuple)) {}
+        enable_compaction_with_sst_partitioner(std::get<2>(tuple)),
+        reverse_scan(std::get<3>(tuple)) {}
 };
 
 std::ostream& operator<<(std::ostream& os,
@@ -9784,7 +9829,8 @@ std::ostream& operator<<(std::ostream& os,
             << (param.comparator ? param.comparator->Name() : "nullptr")
             << ", enable_udi=" << param.enable_udi
             << ", enable_compaction_with_sst_partitioner="
-            << param.enable_compaction_with_sst_partitioner << "}";
+            << param.enable_compaction_with_sst_partitioner
+            << ", reverse_scan=" << param.reverse_scan << "}";
 }
 
 struct DataRange {
@@ -9826,6 +9872,7 @@ class UserDefinedIndexStressTest
     enable_udi_ = param.enable_udi;
     enable_compaction_with_sst_partitioner_ =
         param.enable_compaction_with_sst_partitioner;
+    reverse_scan_ = param.reverse_scan;
     options_.comparator = comparator_;
     is_reverse_comparator_ = comparator_ == ReverseBytewiseComparator();
     options_.compaction_style = kCompactionStyleUniversal;
@@ -9849,6 +9896,7 @@ class UserDefinedIndexStressTest
   static constexpr auto kKeyRange = 100;
   bool enable_udi_{};
   bool enable_compaction_with_sst_partitioner_{};
+  bool reverse_scan_{};
   uint32_t rand_seed_{};
   std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory_;
   BlockBasedTableOptions table_options_;
@@ -9985,7 +10033,8 @@ class UserDefinedIndexStressTest
   }
 
   void RangeScan(std::unique_ptr<Iterator>& iter,
-                 const std::vector<DataRange>& ranges, Slice& upper_bound,
+                 const std::vector<DataRange>& ranges, Slice& lower_bound,
+                 Slice& upper_bound,
                  std::vector<std::pair<std::string, std::string>>& result,
                  bool use_multi_scan) {
     ASSERT_NE(iter, nullptr);
@@ -9993,6 +10042,7 @@ class UserDefinedIndexStressTest
     ASSERT_TRUE(!ranges.empty());
 
     MultiScanArgs scan_opts(options_.comparator);
+    scan_opts.reverse = reverse_scan_;
     std::unordered_map<std::string, std::string> property_bag;
     if (use_multi_scan) {
       for (auto const& range : ranges) {
@@ -10016,19 +10066,36 @@ class UserDefinedIndexStressTest
         continue;
       }
       size_t scan_key_count = 0;
-      if (kVerbose) {
-        std::cout << "seek key " << range.start_key << std::endl;
-      }
+      lower_bound = range.start_key;
       upper_bound = range.end_key;
-      for (iter->Seek(range.start_key);
-           iter->Valid() && scan_key_count < range.scan_key_count_limit;
-           iter->Next()) {
+      if (reverse_scan_) {
         if (kVerbose) {
-          std::cout << "key " << iter->key().ToString() << " value "
-                    << iter->value().ToString() << std::endl;
+          std::cout << "seek for prev key " << range.end_key << std::endl;
         }
-        result.emplace_back(iter->key().ToString(), iter->value().ToString());
-        scan_key_count++;
+        for (iter->SeekForPrev(range.end_key);
+             iter->Valid() && scan_key_count < range.scan_key_count_limit;
+             iter->Prev()) {
+          if (kVerbose) {
+            std::cout << "key " << iter->key().ToString() << " value "
+                      << iter->value().ToString() << std::endl;
+          }
+          result.emplace_back(iter->key().ToString(), iter->value().ToString());
+          scan_key_count++;
+        }
+      } else {
+        if (kVerbose) {
+          std::cout << "seek key " << range.start_key << std::endl;
+        }
+        for (iter->Seek(range.start_key);
+             iter->Valid() && scan_key_count < range.scan_key_count_limit;
+             iter->Next()) {
+          if (kVerbose) {
+            std::cout << "key " << iter->key().ToString() << " value "
+                      << iter->value().ToString() << std::endl;
+          }
+          result.emplace_back(iter->key().ToString(), iter->value().ToString());
+          scan_key_count++;
+        }
       }
       ASSERT_OK(iter->status());
     }
@@ -10066,36 +10133,53 @@ class UserDefinedIndexStressTest
 
       // Query regular CF
       std::vector<std::pair<std::string, std::string>> expected_result;
+      Slice lower_bound("");
       Slice upper_bound("");
       ReadOptions ro;
+      if (reverse_scan_) {
+        ro.iterate_lower_bound = &lower_bound;
+      }
       ro.iterate_upper_bound = &upper_bound;
 
       std::unique_ptr<Iterator> iter(db_->NewIterator(ro, regular_cfh_));
-      ASSERT_NO_FATAL_FAILURE(
-          RangeScan(iter, ranges, upper_bound, expected_result, false));
+      ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, lower_bound, upper_bound,
+                                        expected_result, false));
       ASSERT_OK(iter->status());
 
       // Query ingest CF
       iter.reset(db_->NewIterator(ro, ingest_cfh_));
       std::vector<std::pair<std::string, std::string>> ingest_cf_result;
-      ASSERT_NO_FATAL_FAILURE(
-          RangeScan(iter, ranges, upper_bound, ingest_cf_result, false));
+      ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, lower_bound, upper_bound,
+                                        ingest_cf_result, false));
 
       ASSERT_EQ(expected_result, ingest_cf_result);
       ASSERT_OK(iter->status());
 
-      // Query ingest CF with UDI if it is enabled
-      if (enable_udi_) {
+      // Query ingest CF with UDI if it is enabled.
+      if (enable_udi_ && reverse_scan_) {
         ro.table_index_factory = user_defined_index_factory_.get();
+        iter.reset(db_->NewIterator(ro, ingest_cfh_));
+        std::vector<std::pair<std::string, std::string>> ingest_cf_udi_result;
+        ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, lower_bound,
+                                          upper_bound, ingest_cf_udi_result,
+                                          false));
+        ASSERT_EQ(expected_result, ingest_cf_udi_result);
+        ASSERT_OK(iter->status());
       }
 
-      iter.reset(db_->NewIterator(ro, ingest_cfh_));
-      std::vector<std::pair<std::string, std::string>>
-          ingest_cf_multi_scan_result;
-      ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, upper_bound,
-                                        ingest_cf_multi_scan_result, true));
-      ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
-      ASSERT_OK(iter->status());
+      if (!reverse_scan_) {
+        if (enable_udi_) {
+          ro.table_index_factory = user_defined_index_factory_.get();
+        }
+        iter.reset(db_->NewIterator(ro, ingest_cfh_));
+        std::vector<std::pair<std::string, std::string>>
+            ingest_cf_multi_scan_result;
+        ASSERT_NO_FATAL_FAILURE(RangeScan(iter, ranges, lower_bound,
+                                          upper_bound,
+                                          ingest_cf_multi_scan_result, true));
+        ASSERT_EQ(expected_result, ingest_cf_multi_scan_result);
+        ASSERT_OK(iter->status());
+      }
     }
   }
 
@@ -10403,7 +10487,7 @@ INSTANTIATE_TEST_CASE_P(
     UserDefinedIndexStressTest, UserDefinedIndexStressTest,
     testing::Combine(testing::Values(BytewiseComparator(),
                                      ReverseBytewiseComparator()),
-                     testing::Bool(), testing::Bool()));
+                     testing::Bool(), testing::Bool(), testing::Bool()));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
