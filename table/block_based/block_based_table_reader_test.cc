@@ -1215,8 +1215,16 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     }
     ASSERT_OK(iter->status());
   };
+  const bool run_reverse =
+      compression_type_ == kNoCompression && !use_direct_reads_ &&
+      param.index_type == BlockBasedTableOptions::IndexType::kBinarySearch &&
+      param.compression_parallel_threads == 1 &&
+      param.compression_dict_bytes == 0;
 
   for (const bool reverse : {false, true}) {
+    if (reverse && !run_reverse) {
+      continue;
+    }
     SCOPED_TRACE(reverse ? "reverse" : "forward");
     options_.statistics = CreateDBStatistics();
     std::string table_name = "BlockBasedTableReaderTest_NewIterator" +
@@ -2401,12 +2409,10 @@ INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderMultiScanAsyncIOTest,
     ::testing::ValuesIn(
         BlockBasedTableReaderTestParamBuilder()
-            .WithCompressionTypes({kNoCompression})
-            .WithUseDirectReadFlags({false})
-            .WithIndexTypes({BlockBasedTableOptions::IndexType::kBinarySearch})
-            .WithParallelCompressionThreadCounts({1})
-            .WithCompressionDictByteCounts({0})
-            .WithComparators({BytewiseComparator()})
+            .WithIndexTypes(
+                {BlockBasedTableOptions::IndexType::kBinarySearch,
+                 BlockBasedTableOptions::IndexType::kHashSearch,
+                 BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch})
             .WithFillCacheFlags(Bool())
             .WithUseAsyncIoFlags(IOUringFlags())
             .build()));

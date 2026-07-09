@@ -2237,8 +2237,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   std::vector<std::string> end_key_strs;
   // TODO support reverse BytewiseComparator in the stress test
   MultiScanArgs scan_opts(options_.comparator);
-  const bool reverse_multiscan =
-      FLAGS_multiscan_reverse && FLAGS_test_backward_scan;
+  const bool reverse_multiscan = FLAGS_multiscan_reverse;
   scan_opts.reverse = reverse_multiscan;
   scan_opts.use_async_io =
       FLAGS_multiscan_use_async_io &&

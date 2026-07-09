@@ -74,7 +74,7 @@ class Scan {
   explicit Scan(Iterator* db_iter, bool reverse = false)
       : db_iter_(db_iter), reverse_(reverse) {}
 
-  void Reset(Iterator* db_iter, bool reverse) {
+  void Reset(Iterator* db_iter, bool reverse = false) {
     db_iter_ = db_iter;
     reverse_ = reverse;
   }
