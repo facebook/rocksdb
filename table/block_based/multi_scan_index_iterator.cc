@@ -35,6 +35,7 @@ MultiScanIndexIterator::MultiScanIndexIterator(
       statistics_(statistics) {}
 
 MultiScanIndexIterator::~MultiScanIndexIterator() {
+  CountUnreleasedPrefetchedBlocksAsWasted();
   if (statistics_ && wasted_blocks_count_ > 0) {
     RecordTick(statistics_, MULTISCAN_PREFETCH_BLOCKS_WASTED,
                wasted_blocks_count_);
@@ -47,6 +48,24 @@ MultiScanIndexIterator::~MultiScanIndexIterator() {
          ++i) {
       ReleasePrefetchedBlock(i);
     }
+  }
+}
+
+void MultiScanIndexIterator::CountUnreleasedPrefetchedBlocksAsWasted() {
+  if (unreleased_prefetch_blocks_ == 0) {
+    return;
+  }
+
+  for (size_t i = first_unreleased_prefetch_idx_;
+       i < one_past_last_unreleased_prefetch_idx_; ++i) {
+    if (!IsPrefetchedBlock(i) ||
+        released_prefetch_blocks_[i - prefetch_start_idx_]) {
+      continue;
+    }
+    if (valid_ && !scan_range_exhausted_ && i == cur_idx_) {
+      continue;
+    }
+    ++wasted_blocks_count_;
   }
 }
 

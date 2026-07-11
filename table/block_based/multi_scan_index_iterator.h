@@ -111,6 +111,7 @@ class MultiScanIndexIterator : public InternalIteratorBase<IndexValue> {
   bool ReleasePrefetchedBlock(size_t block_idx);
   void ShrinkUnreleasedPrefetchBounds();
   bool IsPrefetchedBlock(size_t block_idx) const;
+  void CountUnreleasedPrefetchedBlocksAsWasted();
 
   // Find the correct scan range and block for an unexpected seek target
   // (target doesn't match expected scan range start).
