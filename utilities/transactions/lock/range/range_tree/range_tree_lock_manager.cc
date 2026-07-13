@@ -87,9 +87,16 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
               exclusive ? toku::lock_request::WRITE : toku::lock_request::READ,
               false /* not a big txn */, &wait_key);
 
-  // This is for "periodically wake up and check if the wait is killed" feature
-  // which we are not using.
+  // Poll for kill only when an embedder installed a kill-check callback;
+  // otherwise IsKilledThunk can never fire and the 100ms wakeups are pure
+  // overhead.
+  constexpr uint64_t kKillPollMs = 100;
   uint64_t killed_time_msec = 0;
+  int (*killed_thunk)(void*) = nullptr;
+  if (killed_callback_) {
+    killed_time_msec = kKillPollMs;
+    killed_thunk = &IsKilledThunk;
+  }
   uint64_t wait_time_msec = txn->GetLockTimeout();
 
   if (wait_time_msec == static_cast<uint64_t>(-1)) {
@@ -116,9 +123,8 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 
   request.start();
 
-  const int r = request.wait(wait_time_msec, killed_time_msec,
-                             nullptr,  // killed_callback
-                             wait_callback_for_locktree, nullptr);
+  const int r = request.wait(wait_time_msec, killed_time_msec, killed_thunk,
+                             this, wait_callback_for_locktree, nullptr);
 
   // Inform the txn that we are no longer waiting:
   txn->ClearWaitingTxn();
@@ -129,6 +135,8 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
       break;  // fall through
     case DB_LOCK_NOTGRANTED:
       return Status::TimedOut(Status::SubCode::kLockTimeout);
+    case DB_LOCK_INTERRUPTED:
+      return Status::Aborted();
     case TOKUDB_OUT_OF_LOCKS:
       return Status::LockLimit();
     case DB_LOCK_DEADLOCK: {
@@ -143,6 +151,10 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   }
 
   return Status::OK();
+}
+
+int RangeTreeLockManager::IsKilledThunk(void* extra) {
+  return static_cast<RangeTreeLockManager*>(extra)->killed_callback_() ? 1 : 0;
 }
 
 // Wait callback that locktree library will call to inform us about

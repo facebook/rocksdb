@@ -201,8 +201,6 @@ class locktree_manager {
   // Add time t to the escalator's wait time statistics
   void add_escalator_wait_time(uint64_t t);
 
-  void kill_waiter(void *extra);
-
  private:
   static const uint64_t DEFAULT_MAX_LOCK_MEMORY = 64L * 1024 * 1024;
 
