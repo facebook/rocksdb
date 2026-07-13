@@ -15,6 +15,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -36,11 +37,46 @@
 #include "port/port.h"
 #include "table/table_reader.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
+#include "util/hash_containers.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class VersionBuilder::Rep {
+// Scalar/flag state that a VersionEdit can mutate while being applied. Factored
+// into a small struct so the single-edit undo (VersionBuilder::Rep::EditUndo)
+// can snapshot and restore all of it with a single copy/swap, and so the field
+// list is defined once rather than duplicated between the live state and its
+// undo record. VersionBuilder::Rep inherits this (as does EditUndo) so the
+// scalar state can be snapshotted/restored via up_cast<MutableScalars> with a
+// single copy/swap; Rep is a file-local implementation class, so exposing the
+// base is inconsequential.
+struct MutableScalars {
+  // Whether there are invalid new files or invalid deletions on levels larger
+  // than num_levels_.
+  bool has_invalid_levels_ = false;
+
+  // The fields below are only meaningful when track_found_and_missing_files_ is
+  // enabled.
+
+  // The highest file number among all missing blob files, or
+  // kInvalidBlobFileNumber if none are missing. Useful to check whether a
+  // complete Version is available.
+  uint64_t missing_blob_files_high_ = kInvalidBlobFileNumber;
+  // Cached result of the last validity check: true if all the files making up
+  // the Version can be found. Or, when allow_incomplete_valid_version_ is true
+  // and the version was never edited in an atomic group, true if only a suffix
+  // of L0 SST files and their associated blob files are missing.
+  bool valid_version_available_ = false;
+  // True if the version was ever edited in an atomic group.
+  bool edited_in_atomic_group_ = false;
+  // True if the Version was updated since the last validity check, so the
+  // cached `valid_version_available_` must be recomputed on the next check
+  // rather than reused.
+  bool version_updated_since_last_check_ = false;
+};
+
+class VersionBuilder::Rep : public MutableScalars {
   class NewestFirstBySeqNo {
    public:
     bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
@@ -265,16 +301,12 @@ class VersionBuilder::Rep {
   // on invalid levels. The version is not consistent if in the end the files
   // on invalid levels don't cancel out.
   std::unordered_map<int, size_t> invalid_level_sizes_;
-  // Whether there are invalid new files or invalid deletion on levels larger
-  // than num_levels_.
-  bool has_invalid_levels_;
   // Current levels of table files affected by additions/deletions.
   std::unordered_map<uint64_t, int> table_file_levels_;
   // Current compact cursors that should be changed after the last compaction
   std::unordered_map<int, InternalKey> updated_compact_cursors_;
-  const std::shared_ptr<const NewestFirstByEpochNumber>
-      level_zero_cmp_by_epochno_;
-  const std::shared_ptr<const NewestFirstBySeqNo> level_zero_cmp_by_seqno_;
+  const NewestFirstByEpochNumber level_zero_cmp_by_epochno_;
+  const NewestFirstBySeqNo level_zero_cmp_by_seqno_;
   const BySmallestKey level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
@@ -302,29 +334,87 @@ class VersionBuilder::Rep {
   std::unordered_set<uint64_t> non_l0_missing_files_;
   // Intermediate SST files (blob files not included yet)
   std::vector<std::string> intermediate_files_;
-  // The highest file number for all the missing blob files, useful to check
-  // if a complete Version is available.
-  uint64_t missing_blob_files_high_ = kInvalidBlobFileNumber;
   // Missing blob files, useful to check if only the missing L0 files'
   // associated blob files are missing.
   std::unordered_set<uint64_t> missing_blob_files_;
-  // True if all files consisting the Version can be found. Or if
-  // `allow_incomplete_valid_version_` is true and the version history is not
-  // ever edited in an atomic group, this will be true if only a
-  // suffix of L0 SST files and their associated blob files are missing.
-  bool valid_version_available_;
-  // True if version is ever edited in an atomic group.
-  bool edited_in_atomic_group_;
 
-  // Flag to indicate if the Version is updated since last validity check. If no
-  // `Apply` call is made between a `Rep`'s construction and a
-  // `ValidVersionAvailable` check or between two `ValidVersionAvailable` calls.
-  // This flag will be true to indicate the cached validity value can be
-  // directly used without a recheck.
-  bool version_updated_since_last_check_;
+  // Note: additional scalar/flag state mutated while applying edits
+  // (has_invalid_levels_, missing_blob_files_high_, valid_version_available_,
+  // edited_in_atomic_group_, version_updated_since_last_check_) lives in the
+  // MutableScalars base so the single-edit undo can snapshot/restore it in one
+  // copy/swap.
 
   // End of fields that are only tracked when `track_found_and_missing_files_`
   // is enabled.
+
+  // Records how to undo (and redo) the most recent `Apply()` so that
+  // VersionEditHandlerPointInTime can build a `Version` reflecting the state
+  // *before* an edit (on a valid->invalid negative edge) without copying the
+  // whole `Rep` on every edit. Only populated when
+  // `track_found_and_missing_files_` is true.
+  //
+  // Each recorded map/set entry stores the "other side" value (the value not
+  // currently live). Applying `ToggleUndo()` swaps every recorded slot with the
+  // live state, so it is self-inverse: one call rolls back to the pre-edit
+  // state, a second call redoes to the post-edit state. Objects momentarily
+  // removed from the live state (e.g. blob metadata) are held inside these
+  // records via value/shared_ptr, so nothing referenced by the pre-edit state
+  // is destroyed during the tentative window. `FileMetaData` removed from
+  // `added_files` by a deletion is instead kept alive via `deferred_unref` and
+  // only released by `CommitLastApply()`.
+  struct EditUndo : MutableScalars {
+    // True while the live state has been rolled back to the pre-edit state
+    // (i.e. `ToggleUndo()` has run an odd number of times).
+    bool rolled_back = false;
+
+    // Each map below records, for the keys the edit touches, the value on the
+    // "other side" (the value not currently live): before the edit while in the
+    // forward/post-edit state, and after the edit once rolled back. `nullopt`
+    // means the key is absent on that side. `ToggleUndo()` swaps each recorded
+    // entry with the corresponding live container, so it is self-inverse.
+
+    // levels_[level].added_files entries, keyed by (level, file number). Holds
+    // the FileMetaData* on the non-live side (the map only owns the pointer,
+    // not the object; see `deferred_unref` for lifetime of deleted files).
+    std::map<std::pair<int, uint64_t>, std::optional<FileMetaData*>>
+        added_files;
+    // levels_[level].deleted_files membership, keyed by (level, file number);
+    // value is whether the file number is present on the non-live side.
+    std::map<std::pair<int, uint64_t>, bool> deleted_files;
+    // table_file_levels_ entries, keyed by file number (level, or absent).
+    UnorderedMap<uint64_t, std::optional<int>> table_file_levels;
+    // invalid_level_sizes_ entries, keyed by level (count, or absent).
+    UnorderedMap<int, std::optional<size_t>> invalid_level_sizes;
+    // updated_compact_cursors_ entries, keyed by level (cursor key, or absent).
+    UnorderedMap<int, std::optional<InternalKey>> compact_cursors;
+    // mutable_blob_file_metas_ entries, keyed by blob file number. Holds the
+    // MutableBlobFileMetaData by value on the non-live side; because it owns a
+    // shared_ptr to the SharedBlobFileMetaData, a rolled-back blob addition is
+    // kept alive here rather than destroyed (which would spuriously mark the
+    // blob obsolete).
+    UnorderedMap<uint64_t, std::optional<MutableBlobFileMetaData>> blob_metas;
+    // Membership on the non-live side for each tracking set, keyed by file
+    // number (blob file number for `missing_blob_files`).
+    UnorderedMap<uint64_t, bool> found_files;
+    UnorderedMap<uint64_t, bool> l0_missing_files;
+    UnorderedMap<uint64_t, bool> non_l0_missing_files;
+    UnorderedMap<uint64_t, bool> missing_blob_files;
+
+    // `intermediate_files_` is append-only within an `Apply()`. Restore by
+    // truncating to `intermediate_files_size` (rollback) / re-appending
+    // `intermediate_tail` (redo).
+    size_t intermediate_files_size = 0;
+    std::vector<std::string> intermediate_tail;
+
+    // (Scalar/flag state on the non-live side is held in the MutableScalars
+    // base subobject.)
+
+    // `FileMetaData` removed from `added_files` by a deletion in this edit. The
+    // ref is held here (not dropped) until `CommitLastApply()`, so a rollback
+    // can reinstall the file.
+    std::vector<FileMetaData*> deferred_unref;
+  };
+  std::unique_ptr<EditUndo> undo_;
 
  public:
   Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
@@ -339,10 +429,8 @@ class VersionBuilder::Rep {
         base_vstorage_(base_vstorage),
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
-        has_invalid_levels_(false),
-        level_zero_cmp_by_epochno_(
-            std::make_shared<NewestFirstByEpochNumber>()),
-        level_zero_cmp_by_seqno_(std::make_shared<NewestFirstBySeqNo>()),
+        level_zero_cmp_by_epochno_(),
+        level_zero_cmp_by_seqno_(),
         level_nonzero_cmp_(base_vstorage_->InternalComparator()),
         file_metadata_cache_res_mgr_(file_metadata_cache_res_mgr),
         cfd_(cfd),
@@ -366,52 +454,17 @@ class VersionBuilder::Rep {
     }
   }
 
-  Rep(const Rep& other)
-      : file_options_(other.file_options_),
-        ioptions_(other.ioptions_),
-        table_cache_(other.table_cache_),
-        base_vstorage_(other.base_vstorage_),
-        version_set_(other.version_set_),
-        num_levels_(other.num_levels_),
-        invalid_level_sizes_(other.invalid_level_sizes_),
-        has_invalid_levels_(other.has_invalid_levels_),
-        table_file_levels_(other.table_file_levels_),
-        updated_compact_cursors_(other.updated_compact_cursors_),
-        level_zero_cmp_by_epochno_(other.level_zero_cmp_by_epochno_),
-        level_zero_cmp_by_seqno_(other.level_zero_cmp_by_seqno_),
-        level_nonzero_cmp_(other.level_nonzero_cmp_),
-        mutable_blob_file_metas_(other.mutable_blob_file_metas_),
-        file_metadata_cache_res_mgr_(other.file_metadata_cache_res_mgr_),
-        cfd_(other.cfd_),
-        version_edit_handler_(other.version_edit_handler_),
-        track_found_and_missing_files_(other.track_found_and_missing_files_),
-        allow_incomplete_valid_version_(other.allow_incomplete_valid_version_),
-        found_files_(other.found_files_),
-        l0_missing_files_(other.l0_missing_files_),
-        non_l0_missing_files_(other.non_l0_missing_files_),
-        intermediate_files_(other.intermediate_files_),
-        missing_blob_files_high_(other.missing_blob_files_high_),
-        missing_blob_files_(other.missing_blob_files_),
-        valid_version_available_(other.valid_version_available_),
-        edited_in_atomic_group_(other.edited_in_atomic_group_),
-        version_updated_since_last_check_(
-            other.version_updated_since_last_check_) {
-    assert(ioptions_);
-    levels_ = new LevelState[num_levels_];
-    for (int level = 0; level < num_levels_; level++) {
-      levels_[level] = other.levels_[level];
-      const auto& added = levels_[level].added_files;
-      for (auto& pair : added) {
-        RefFile(pair.second);
-      }
-    }
-    if (track_found_and_missing_files_) {
-      assert(cfd_);
-      assert(version_edit_handler_);
-    }
-  }
+  // Rep is only ever held via std::unique_ptr and is not copied. (The previous
+  // save-point mechanism deep-copied Rep on every edit, which was quadratic;
+  // it has been replaced by single-edit undo, see EditUndo above.)
+  Rep(const Rep&) = delete;
+  Rep& operator=(const Rep&) = delete;
 
   ~Rep() {
+    // Release any FileMetaData whose deletion was deferred by an uncommitted
+    // Apply(), and ensure the live state is in the forward (post-edit) position
+    // so the loop below unrefs exactly the files still owned by added_files.
+    CommitLastApply();
     for (int level = 0; level < num_levels_; level++) {
       const auto& added = levels_[level].added_files;
       for (auto& pair : added) {
@@ -420,12 +473,6 @@ class VersionBuilder::Rep {
     }
 
     delete[] levels_;
-  }
-
-  void RefFile(FileMetaData* f) {
-    assert(f);
-    assert(f->refs > 0);
-    f->refs++;
   }
 
   void UnrefFile(FileMetaData* f) {
@@ -454,6 +501,253 @@ class VersionBuilder::Rep {
       }
       delete f;
     }
+  }
+
+  //========= Single-edit undo support (track_found_and_missing_files_)
+  //=======//
+  // See the EditUndo declaration above for the overall model.
+
+  // Records the pre-edit value of `map[key]` into `saved` (first-touch only, so
+  // repeated touches of the same key within one edit keep the true pre-edit
+  // value). The stored value is the "other side" for ToggleMap().
+  template <typename Map, typename Saved, typename K>
+  static void RecordMapEntry(const Map& map, Saved& saved, const K& key) {
+    if (saved.find(key) != saved.end()) {
+      return;
+    }
+    auto it = map.find(key);
+    saved.emplace(key,
+                  it != map.end()
+                      ? std::optional<typename Map::mapped_type>(it->second)
+                      : std::nullopt);
+  }
+
+  // Swaps every recorded entry between `map` and `saved` (self-inverse).
+  template <typename Map, typename Saved>
+  static void ToggleMapEntries(Map& map, Saved& saved) {
+    for (auto& elem : saved) {
+      const auto& key = elem.first;
+      auto& other = elem.second;
+      auto it = map.find(key);
+      std::optional<typename Map::mapped_type> live =
+          it != map.end() ? std::optional<typename Map::mapped_type>(it->second)
+                          : std::nullopt;
+      if (other.has_value()) {
+        // insert_or_assign avoids requiring a default-constructible mapped_type
+        // (e.g. MutableBlobFileMetaData has no default constructor).
+        map.insert_or_assign(key, std::move(*other));
+      } else if (it != map.end()) {
+        map.erase(it);
+      }
+      other = std::move(live);
+    }
+  }
+
+  template <typename Set, typename Saved, typename K>
+  static void RecordSetMembership(const Set& set, Saved& saved, const K& key) {
+    if (saved.find(key) != saved.end()) {
+      return;
+    }
+    saved.emplace(key, set.find(key) != set.end());
+  }
+
+  template <typename Set, typename Saved>
+  static void ToggleSetMembership(Set& set, Saved& saved) {
+    for (auto& elem : saved) {
+      const auto& key = elem.first;
+      bool& other_present = elem.second;
+      bool live_present = set.find(key) != set.end();
+      if (other_present) {
+        set.insert(key);
+      } else {
+        set.erase(key);
+      }
+      other_present = live_present;
+    }
+  }
+
+  void RecordAddedFileEntry(int level, uint64_t fn) {
+    assert(undo_);
+    assert(level < num_levels_);
+    auto key = std::make_pair(level, fn);
+    if (undo_->added_files.find(key) != undo_->added_files.end()) {
+      return;
+    }
+    const auto& map = levels_[level].added_files;
+    auto it = map.find(fn);
+    undo_->added_files.emplace(
+        key, it != map.end() ? std::optional<FileMetaData*>(it->second)
+                             : std::nullopt);
+  }
+
+  void RecordDeletedFileEntry(int level, uint64_t fn) {
+    assert(undo_);
+    assert(level < num_levels_);
+    auto key = std::make_pair(level, fn);
+    if (undo_->deleted_files.find(key) != undo_->deleted_files.end()) {
+      return;
+    }
+    const auto& set = levels_[level].deleted_files;
+    undo_->deleted_files.emplace(key, set.find(fn) != set.end());
+  }
+
+  // Snapshots the pre-edit value of every piece of state that `edit` will
+  // mutate, so the edit can later be rolled back / redone. Must be called
+  // before the edit is applied and only in tracking mode.
+  void CaptureUndo(const VersionEdit* edit) {
+    assert(track_found_and_missing_files_);
+    assert(!undo_);
+    undo_ = std::make_unique<EditUndo>();
+    undo_->intermediate_files_size = intermediate_files_.size();
+    // Snapshot the pre-edit scalars (the MutableScalars base subobject).
+    up_cast<MutableScalars>(*undo_) = up_cast<MutableScalars>(*this);
+
+    auto touch_table_file = [&](int level, uint64_t fn) {
+      RecordMapEntry(table_file_levels_, undo_->table_file_levels, fn);
+      RecordSetMembership(found_files_, undo_->found_files, fn);
+      RecordSetMembership(l0_missing_files_, undo_->l0_missing_files, fn);
+      RecordSetMembership(non_l0_missing_files_, undo_->non_l0_missing_files,
+                          fn);
+      if (level >= 0 && level < num_levels_) {
+        RecordAddedFileEntry(level, fn);
+        RecordDeletedFileEntry(level, fn);
+      } else if (level >= num_levels_) {
+        RecordMapEntry(invalid_level_sizes_, undo_->invalid_level_sizes, level);
+      }
+    };
+    auto touch_blob_file = [&](uint64_t blob_file_number) {
+      if (blob_file_number == kInvalidBlobFileNumber) {
+        return;
+      }
+      RecordMapEntry(mutable_blob_file_metas_, undo_->blob_metas,
+                     blob_file_number);
+      RecordSetMembership(missing_blob_files_, undo_->missing_blob_files,
+                          blob_file_number);
+    };
+
+    for (const auto& ba : edit->GetBlobFileAdditions()) {
+      touch_blob_file(ba.GetBlobFileNumber());
+    }
+    for (const auto& bg : edit->GetBlobFileGarbages()) {
+      touch_blob_file(bg.GetBlobFileNumber());
+    }
+    for (const auto& deleted_file : edit->GetDeletedFiles()) {
+      const int level = deleted_file.first;
+      const uint64_t fn = deleted_file.second;
+      touch_table_file(level, fn);
+      // Only reachable blob metadata is touched (mirrors ApplyFileDeletion).
+      if (level >= 0 && level < num_levels_ &&
+          GetCurrentLevelForTableFile(fn) == level) {
+        touch_blob_file(GetOldestBlobFileNumberForTableFile(level, fn));
+      }
+    }
+    for (const auto& new_file : edit->GetNewFiles()) {
+      const int level = new_file.first;
+      const FileMetaData& meta = new_file.second;
+      touch_table_file(level, meta.fd.GetNumber());
+      touch_blob_file(meta.oldest_blob_file_number);
+    }
+    for (const auto& cursor : edit->GetCompactCursors()) {
+      const int level = cursor.first;
+      if (level >= 0 && level < num_levels_) {
+        RecordMapEntry(updated_compact_cursors_, undo_->compact_cursors, level);
+      }
+    }
+  }
+
+  // Swaps the live state with the recorded "other side", moving between the
+  // post-edit and pre-edit states. Self-inverse.
+  void ToggleUndo() {
+    assert(undo_);
+    for (auto& elem : undo_->added_files) {
+      const int level = elem.first.first;
+      const uint64_t fn = elem.first.second;
+      auto& other = elem.second;
+      auto& map = levels_[level].added_files;
+      auto it = map.find(fn);
+      std::optional<FileMetaData*> live =
+          it != map.end() ? std::optional<FileMetaData*>(it->second)
+                          : std::nullopt;
+      if (other.has_value()) {
+        map[fn] = *other;
+      } else if (it != map.end()) {
+        // Note: erasing the map entry does not delete the FileMetaData; its
+        // lifetime is managed via `deferred_unref` / the built Version's ref.
+        map.erase(it);
+      }
+      other = live;
+    }
+    for (auto& elem : undo_->deleted_files) {
+      const int level = elem.first.first;
+      const uint64_t fn = elem.first.second;
+      bool& other_present = elem.second;
+      auto& set = levels_[level].deleted_files;
+      bool live_present = set.find(fn) != set.end();
+      if (other_present) {
+        set.insert(fn);
+      } else {
+        set.erase(fn);
+      }
+      other_present = live_present;
+    }
+    ToggleMapEntries(table_file_levels_, undo_->table_file_levels);
+    ToggleMapEntries(invalid_level_sizes_, undo_->invalid_level_sizes);
+    ToggleMapEntries(updated_compact_cursors_, undo_->compact_cursors);
+    ToggleMapEntries(mutable_blob_file_metas_, undo_->blob_metas);
+    ToggleSetMembership(found_files_, undo_->found_files);
+    ToggleSetMembership(l0_missing_files_, undo_->l0_missing_files);
+    ToggleSetMembership(non_l0_missing_files_, undo_->non_l0_missing_files);
+    ToggleSetMembership(missing_blob_files_, undo_->missing_blob_files);
+
+    if (!undo_->rolled_back) {
+      // Forward -> pre-edit: peel off the entries appended by this edit.
+      for (size_t i = undo_->intermediate_files_size;
+           i < intermediate_files_.size(); ++i) {
+        undo_->intermediate_tail.push_back(std::move(intermediate_files_[i]));
+      }
+      intermediate_files_.resize(undo_->intermediate_files_size);
+    } else {
+      // Pre-edit -> forward: re-append.
+      for (auto& s : undo_->intermediate_tail) {
+        intermediate_files_.push_back(std::move(s));
+      }
+      undo_->intermediate_tail.clear();
+    }
+
+    // Swap the scalar/flag state (the MutableScalars base subobject).
+    std::swap(up_cast<MutableScalars>(*this), up_cast<MutableScalars>(*undo_));
+
+    undo_->rolled_back = !undo_->rolled_back;
+  }
+
+  // Reverts the most recent Apply() to the pre-edit state.
+  void RollbackLastApply() {
+    assert(undo_);
+    assert(!undo_->rolled_back);
+    ToggleUndo();
+  }
+
+  // Re-applies the most recent Apply() after a RollbackLastApply().
+  void RedoLastApply() {
+    assert(undo_);
+    assert(undo_->rolled_back);
+    ToggleUndo();
+  }
+
+  // Finalizes the most recent Apply(): frees FileMetaData whose deletion was
+  // deferred and drops the undo record. Safe to call with no pending edit.
+  void CommitLastApply() {
+    if (!undo_) {
+      return;
+    }
+    if (undo_->rolled_back) {
+      // Always finalize in the forward (post-edit) state.
+      ToggleUndo();
+    }
+    for (FileMetaData* f : undo_->deferred_unref) {
+      UnrefFile(f);
+    }
+    undo_.reset();
   }
 
   // Mapping used for checking the consistency of links between SST files and
@@ -544,7 +838,7 @@ class VersionBuilder::Rep {
 
           if (epoch_number_requirement ==
               EpochNumberRequirement::kMightMissing) {
-            if (!level_zero_cmp_by_seqno_->operator()(lhs, rhs)) {
+            if (!level_zero_cmp_by_seqno_(lhs, rhs)) {
               std::ostringstream oss;
               oss << "L0 files are not sorted properly: files #"
                   << lhs->fd.GetNumber() << " with seqnos (largest, smallest) "
@@ -576,7 +870,7 @@ class VersionBuilder::Rep {
               }
             }
 
-            if (!level_zero_cmp_by_epochno_->operator()(lhs, rhs)) {
+            if (!level_zero_cmp_by_epochno_(lhs, rhs)) {
               std::ostringstream oss;
               oss << "L0 files are not sorted properly: files #"
                   << lhs->fd.GetNumber() << " with epoch number "
@@ -903,7 +1197,12 @@ class VersionBuilder::Rep {
     auto& add_files = level_state.added_files;
     auto add_it = add_files.find(file_number);
     if (add_it != add_files.end()) {
-      UnrefFile(add_it->second);
+      if (undo_) {
+        // Defer freeing so a rollback of this edit can reinstall the file.
+        undo_->deferred_unref.push_back(add_it->second);
+      } else {
+        UnrefFile(add_it->second);
+      }
       add_files.erase(add_it);
     }
 
@@ -984,7 +1283,7 @@ class VersionBuilder::Rep {
         delete f;
         s = Status::MemoryLimit(
             "Can't allocate " +
-            kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+            kCacheEntryRoleToCamelString[lossless_cast<std::uint32_t>(
                 CacheEntryRole::kFileMetadata)] +
             " due to exceeding the memory limit "
             "based on "
@@ -1060,6 +1359,14 @@ class VersionBuilder::Rep {
       if (!s.ok()) {
         return s;
       }
+    }
+
+    // In tracking mode, snapshot how to undo this edit before mutating, so
+    // VersionEditHandlerPointInTime can build a Version from the pre-edit state
+    // (on a valid->invalid negative edge) via RollbackLastApply() instead of
+    // copying the whole Rep on every edit.
+    if (track_found_and_missing_files_) {
+      CaptureUndo(edit);
     }
 
     // Note: we process the blob file related changes first because the
@@ -1499,9 +1806,9 @@ class VersionBuilder::Rep {
     }
 
     if (epoch_number_requirement == EpochNumberRequirement::kMightMissing) {
-      SaveSSTFilesTo(vstorage, /* level */ 0, *level_zero_cmp_by_seqno_);
+      SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_by_seqno_);
     } else {
-      SaveSSTFilesTo(vstorage, /* level */ 0, *level_zero_cmp_by_epochno_);
+      SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_by_epochno_);
     }
 
     for (int level = 1; level < num_levels_; ++level) {
@@ -1559,13 +1866,13 @@ class VersionBuilder::Rep {
 
     if (epoch_number_requirement == EpochNumberRequirement::kMightMissing) {
       MergeUnorderdAddedFilesWithBase(
-          base_files, unordered_added_files, *level_zero_cmp_by_seqno_,
+          base_files, unordered_added_files, level_zero_cmp_by_seqno_,
           [&](FileMetaData* file) {
             expected_sorted_l0_files.push_back(file);
           });
     } else {
       MergeUnorderdAddedFilesWithBase(
-          base_files, unordered_added_files, *level_zero_cmp_by_epochno_,
+          base_files, unordered_added_files, level_zero_cmp_by_epochno_,
           [&](FileMetaData* file) {
             expected_sorted_l0_files.push_back(file);
           });
@@ -1755,11 +2062,11 @@ Status VersionBuilder::LoadTableHandlers(
                                  max_file_size_for_l0_meta_pin, read_options);
 }
 
-void VersionBuilder::CreateOrReplaceSavePoint() {
-  assert(rep_);
-  savepoint_ = std::move(rep_);
-  rep_ = std::make_unique<Rep>(*savepoint_);
-}
+void VersionBuilder::RollbackLastApply() { rep_->RollbackLastApply(); }
+
+void VersionBuilder::RedoLastApply() { rep_->RedoLastApply(); }
+
+void VersionBuilder::CommitLastApply() { rep_->CommitLastApply(); }
 
 bool VersionBuilder::ValidVersionAvailable() {
   return rep_->ValidVersionAvailable();
@@ -1772,29 +2079,6 @@ std::vector<std::string>& VersionBuilder::GetAndClearIntermediateFiles() {
 }
 
 void VersionBuilder::ClearFoundFiles() { return rep_->ClearFoundFiles(); }
-
-Status VersionBuilder::SaveSavePointTo(VersionStorageInfo* vstorage) const {
-  if (!savepoint_ || !savepoint_->ValidVersionAvailable()) {
-    return Status::InvalidArgument();
-  }
-  return savepoint_->SaveTo(vstorage);
-}
-
-Status VersionBuilder::LoadSavePointTableHandlers(
-    InternalStats* internal_stats, int max_threads,
-    bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-    const MutableCFOptions& mutable_cf_options,
-    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
-  if (!savepoint_ || !savepoint_->ValidVersionAvailable()) {
-    return Status::InvalidArgument();
-  }
-  return savepoint_->LoadTableHandlers(
-      internal_stats, max_threads, prefetch_index_and_filter_in_cache,
-      is_initial_load, mutable_cf_options, max_file_size_for_l0_meta_pin,
-      read_options);
-}
-
-void VersionBuilder::ClearSavePoint() { savepoint_.reset(nullptr); }
 
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler,
