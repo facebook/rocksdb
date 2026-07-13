@@ -578,7 +578,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             first_biter.Invalidate(Status::OK());
             NewDataBlockIterator<DataBlockIter>(
                 read_options, results[idx_in_batch].As<Block>(), &first_biter,
-                statuses[idx_in_batch]);
+                statuses[idx_in_batch], get_context);
             reusing_prev_block = false;
           } else {
             // If handle is null and result is empty, then the status is never

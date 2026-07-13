@@ -122,10 +122,19 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   // 1. block cache handle is set to be released in cleanup function, or
   // 2. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
-  //    Otherwise, the block is pinned iff the source is immortal.
+  //    Otherwise, the block is pinned iff the source is immortal, OR the
+  //    caller is not a point lookup (get_context == nullptr).
+  //
+  //    Get()/MultiGet() (get_context != nullptr) do not keep a SuperVersion
+  //    alive once the call returns, so an mmap'd, uncompressed block that
+  //    doesn't own its bytes must still be copied out. Iterators and
+  //    compaction (get_context == nullptr) hold a SuperVersion for their
+  //    full lifetime, which keeps the backing file's mmap region valid, so
+  //    it is safe to pin directly into it. See #14895.
   const bool block_contents_pinned =
       block.IsCached() ||
-      (!block.GetValue()->own_bytes() && rep_->immortal_table);
+      (!block.GetValue()->own_bytes() &&
+       (rep_->immortal_table || get_context == nullptr));
   iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), block_type, iter,
                                        block_contents_pinned);
 
@@ -166,7 +175,8 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
                                                   CachableEntry<Block>& block,
                                                   TBlockIter* input_iter,
-                                                  Status s) const {
+                                                  Status s,
+                                                  GetContext* get_context) const {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -184,10 +194,14 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   // 1. block cache handle is set to be released in cleanup function, or
   // 2. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
-  //    Otherwise, the block is pinned iff the source is immortal.
+  //    Otherwise, the block is pinned iff the source is immortal, OR the
+  //    caller is not a point lookup (get_context == nullptr). See the
+  //    longer explanation in the other NewDataBlockIterator() overload
+  //    above, and #14895.
   const bool block_contents_pinned =
       block.IsCached() ||
-      (!block.GetValue()->own_bytes() && rep_->immortal_table);
+      (!block.GetValue()->own_bytes() &&
+       (rep_->immortal_table || get_context == nullptr));
   iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), BlockType::kData,
                                        iter, block_contents_pinned);
 

@@ -463,10 +463,17 @@ class BlockBasedTable : public TableReader {
       Status& s, bool use_block_cache_for_lookup) const;
 
   // input_iter: if it is not null, update this one and return it as Iterator
+  // get_context: non-null iff this is a point lookup (Get()/MultiGet()),
+  //   which does not hold a SuperVersion beyond this call and therefore
+  //   cannot safely pin mmap'd, not-block-cache-owned block contents.
+  //   Pass nullptr when building an iterator that will outlive this call
+  //   (regular DB iterators, compaction), where the caller does hold a
+  //   SuperVersion for the mmap'd file. See #14895.
   template <typename TBlockIter>
   TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
                                    CachableEntry<Block>& block,
-                                   TBlockIter* input_iter, Status s) const;
+                                   TBlockIter* input_iter, Status s,
+                                   GetContext* get_context) const;
 
   class PartitionedIndexIteratorState;
 

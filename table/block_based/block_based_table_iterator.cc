@@ -407,8 +407,9 @@ void BlockBasedTableIterator::InitDataBlock() {
       if (!multi_scan_status_.ok()) {
         return;
       }
-      table_->NewDataBlockIterator<DataBlockIter>(read_options_, block_entry,
-                                                  &block_iter_, Status::OK());
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, block_entry, &block_iter_, Status::OK(),
+          /*get_context=*/nullptr);
       block_iter_points_to_real_block_ = true;
       prev_block_offset_ = data_block_handle.offset();
       CheckDataBlockWithinUpperBound();
@@ -446,7 +447,7 @@ void BlockBasedTableIterator::InitDataBlock() {
       block_iter_.Invalidate(Status::OK());
       table_->NewDataBlockIterator<DataBlockIter>(
           read_options_, (block_handles_->front().cachable_entry_).As<Block>(),
-          &block_iter_, s);
+          &block_iter_, s, /*get_context=*/nullptr);
     } else {
       auto* rep = table_->get_rep();
 
@@ -562,7 +563,7 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       block_iter_.Invalidate(Status::OK());
       table_->NewDataBlockIterator<DataBlockIter>(
           read_options_, (block_handles_->front().cachable_entry_).As<Block>(),
-          &block_iter_, s);
+          &block_iter_, s, /*get_context=*/nullptr);
     } else {
       table_->NewDataBlockIterator<DataBlockIter>(
           read_options_, data_block_handle, &block_iter_, BlockType::kData,
