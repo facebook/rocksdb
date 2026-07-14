@@ -608,13 +608,18 @@ Status WriteUnpreparedTxn::CommitInternal() {
       for (const auto& seq : unprep_seqs_) {
         wpt_db_->RemovePrepared(seq.first, seq.second);
       }
-    }
-    if (UNLIKELY(!do_one_write)) {
+      unprep_seqs_.clear();
+      flushed_save_points_.reset(nullptr);
+      unflushed_save_points_.reset(nullptr);
+    } else if (UNLIKELY(!do_one_write)) {
+      // The commit write failed after add_prepared_callback may have added a
+      // prepared entry for commit_batch_seq. Since commit_batch_seq is never
+      // stored in unprep_seqs_ on this path, a follow-up Rollback() cannot
+      // remove it, so clean it up here. unprep_seqs_ is otherwise preserved so
+      // the transaction can still be rolled back after the caller recovers
+      // from the write error.
       wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
     }
-    unprep_seqs_.clear();
-    flushed_save_points_.reset(nullptr);
-    unflushed_save_points_.reset(nullptr);
     return s;
   }  // else do the 2nd write to publish seq
 
