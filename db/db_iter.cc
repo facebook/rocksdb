@@ -368,7 +368,8 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   }
   if (LIKELY(!has_blob_columns)) {
     WideColumns& wide_columns = state.wide_columns();
-    const Status s = WideColumnSerialization::Deserialize(slice, wide_columns);
+    const Status s =
+        WideColumnSerialization::DeserializeSimple(slice, wide_columns);
 
     if (!s.ok()) {
       status_ = s;
@@ -390,9 +391,9 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
   state.SaveEntitySliceIfNeeded(slice);
 
   {
-    Slice input_copy = state.PrepareForLazyEntityDeserialize();
-    const Status s = WideColumnSerialization::DeserializeV2(
-        input_copy, state.lazy_entity_columns(), state.lazy_blob_columns());
+    const Slice entity = state.PrepareForLazyEntityDeserialize();
+    const Status s = WideColumnSerialization::Deserialize(
+        entity, state.lazy_entity_columns(), &state.lazy_blob_columns());
 
     if (!s.ok()) {
       status_ = s;

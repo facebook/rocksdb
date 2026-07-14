@@ -101,6 +101,20 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
   return Status::OK();
 }
 
+size_t WideColumnSerialization::SerializedSizeV1(const WideColumns& columns) {
+  size_t size = VarintLength(kVersion1) +
+                VarintLength(static_cast<uint32_t>(columns.size()));
+
+  for (const auto& column : columns) {
+    const size_t name_size = column.name().size();
+    const size_t value_size = column.value().size();
+    size += VarintLength(name_size) + name_size + VarintLength(value_size) +
+            value_size;
+  }
+
+  return size;
+}
+
 template <typename GetName, typename GetValue>
 Status WideColumnSerialization::SerializeV2Impl(
     size_t num_columns,
@@ -319,6 +333,14 @@ Status WideColumnSerialization::DeserializeV1(
     pos += value_size;
   }
 
+  // Reject any trailing bytes after the last value: a serialized entity must be
+  // exactly the whole input (V2 already enforces this via its section-size
+  // check; this keeps V1 consistent).
+  if (pos != data.size()) {
+    return Status::Corruption(
+        "Unexpected trailing data after wide column entity");
+  }
+
   return Status::OK();
 }
 
@@ -413,7 +435,9 @@ Status WideColumnSerialization::DeserializeV2Impl(
     value_pos += vs;
   }
 
-  // Validate that the consumed bytes match the declared section sizes
+  // Validate that the consumed bytes match the declared section sizes. Because
+  // a V2 entity's values section is defined to extend to the end of `input`,
+  // this also rejects any trailing bytes after the entity.
   const size_t total_values_bytes = static_cast<size_t>(input_end - s7);
   if (s4 != s4_limit || s5 != s5_limit || name_pos != names_bytes ||
       value_pos != total_values_bytes) {
@@ -423,10 +447,13 @@ Status WideColumnSerialization::DeserializeV2Impl(
   return Status::OK();
 }
 
-Status WideColumnSerialization::Deserialize(Slice& input,
-                                            WideColumns& columns) {
+Status WideColumnSerialization::Deserialize(
+    const Slice& entity, WideColumns& columns,
+    std::vector<std::pair<size_t, BlobIndex>>* blob_columns) {
   assert(columns.empty());
+  assert(!blob_columns || blob_columns->empty());
 
+  Slice input = entity;
   uint32_t version = 0;
   if (!GetVarint32(&input, &version)) {
     return Status::Corruption("Error decoding wide column version");
@@ -449,74 +476,36 @@ Status WideColumnSerialization::Deserialize(Slice& input,
     return DeserializeV1(input, num_columns, columns);
   }
 
-  // V2: need to check for blob columns
+  // V2 layout: parse columns and extract any blob column info.
   std::vector<ValueType> column_types;
   if (Status s = DeserializeV2Impl(input, num_columns, columns, column_types);
       !s.ok()) {
     return s;
   }
+  assert(column_types.size() == num_columns);
+  assert(columns.size() == num_columns);
 
   for (uint32_t i = 0; i < num_columns; ++i) {
-    if (column_types[i] == kTypeBlobIndex) {
-      return Status::NotSupported(
-          "Wide column contains blob references. Use DeserializeV2.");
+    if (column_types[i] != kTypeBlobIndex) {
+      continue;
     }
-  }
 
-  return Status::OK();
-}
-
-Status WideColumnSerialization::DeserializeV2(
-    Slice& input, std::vector<WideColumn>& columns,
-    std::vector<std::pair<size_t, BlobIndex>>& blob_columns) {
-  assert(columns.empty());
-  assert(blob_columns.empty());
-
-  uint32_t version = 0;
-  if (!GetVarint32(&input, &version)) {
-    return Status::Corruption("Error decoding wide column version");
-  }
-
-  if (version > kVersion2) {
-    return Status::NotSupported("Unsupported wide column version");
-  }
-
-  uint32_t num_columns = 0;
-  if (!GetVarint32(&input, &num_columns)) {
-    return Status::Corruption("Error decoding number of wide columns");
-  }
-
-  if (!num_columns) {
-    return Status::OK();
-  }
-
-  if (version >= kVersion2) {
-    // V2 layout: parse columns and extract blob column info
-    std::vector<ValueType> column_types;
-
-    if (Status s = DeserializeV2Impl(input, num_columns, columns, column_types);
-        !s.ok()) {
-      return s;
+    if (!blob_columns) {
+      // The caller promised a fully resolved entity; a blob reference here is
+      // unexpected and may indicate corruption (or a logic error)
+      return Status::Corruption(
+          "Wide column blob reference in a context where it is not expected.");
     }
-    assert(column_types.size() == num_columns);
-    assert(columns.size() == num_columns);
 
-    // Decode blob indices from value data
-    for (uint32_t i = 0; i < num_columns; ++i) {
-      if (column_types[i] == kTypeBlobIndex) {
-        BlobIndex blob_idx;
-        Slice blob_slice = columns[i].value();
-        if (blob_slice.empty()) {
-          return Status::Corruption("Empty blob index in wide column");
-        }
-        if (Status bs = blob_idx.DecodeFrom(blob_slice); !bs.ok()) {
-          return Status::Corruption("Error decoding blob index in wide column");
-        }
-        blob_columns.emplace_back(i, blob_idx);
-      }
+    BlobIndex blob_idx;
+    Slice blob_slice = columns[i].value();
+    if (blob_slice.empty()) {
+      return Status::Corruption("Empty blob index in wide column");
     }
-  } else {
-    return DeserializeV1(input, num_columns, columns);
+    if (Status bs = blob_idx.DecodeFrom(blob_slice); !bs.ok()) {
+      return Status::Corruption("Error decoding blob index in wide column");
+    }
+    blob_columns->emplace_back(i, blob_idx);
   }
 
   return Status::OK();
@@ -692,7 +681,7 @@ Status WideColumnSerialization::GetVersion(const Slice& input,
   return Status::OK();
 }
 
-Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
+Status WideColumnSerialization::GetValueOfDefaultColumn(const Slice& input,
                                                         Slice& value) {
   Slice input_ref = input;
 
@@ -740,7 +729,8 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
     // Check if default column (index 0) is a blob reference
     if (static_cast<uint8_t>(input_ref[0]) == kTypeBlobIndex) {
       return Status::NotSupported(
-          "Wide column contains blob references. Use DeserializeV2.");
+          "Wide column default value is a blob reference. Use "
+          "GetValueOfDefaultColumnResolvingBlobs().");
     }
     input_ref.remove_prefix(num_columns);
 
@@ -790,7 +780,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
   // V1 fallback: full deserialization
   WideColumns columns;
 
-  if (Status s = Deserialize(input, columns); !s.ok()) {
+  if (Status s = DeserializeSimple(input, columns); !s.ok()) {
     return s;
   }
 
@@ -809,6 +799,25 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
     const BlobFetcher* blob_fetcher, PrefetchBufferCollection* prefetch_buffers,
     std::string& resolved_entity, bool& resolved, uint64_t* total_bytes_read,
     uint64_t* num_blobs_resolved) {
+  // Resolve into zero-copy columns backed by fetched blob buffers, then
+  // serialize that result as a V1 (all-inline) entity.
+  WideColumns resolved_columns;
+  std::forward_list<PinnableSlice> extra_buffers;
+  Status s = ResolveEntityBlobColumnsMultiBuffer(
+      entity_value, user_key, blob_fetcher, prefetch_buffers, resolved_columns,
+      extra_buffers, resolved, total_bytes_read, num_blobs_resolved);
+  if (s.ok() && resolved) {
+    s = Serialize(resolved_columns, resolved_entity);
+  }
+  return s;
+}
+
+Status WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
+    const Slice& entity_value, const Slice& user_key,
+    const BlobFetcher* blob_fetcher, PrefetchBufferCollection* prefetch_buffers,
+    WideColumns& resolved_columns,
+    std::forward_list<PinnableSlice>& extra_buffers, bool& resolved,
+    uint64_t* total_bytes_read, uint64_t* num_blobs_resolved) {
   assert(blob_fetcher);
 
   resolved = false;
@@ -816,8 +825,7 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
-  Slice input_copy = entity_value;
-  if (Status s = DeserializeV2(input_copy, columns, blob_columns); !s.ok()) {
+  if (Status s = Deserialize(entity_value, columns, &blob_columns); !s.ok()) {
     return s;
   }
 
@@ -827,16 +835,14 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
 
   resolved = true;
 
-  // Fetch each blob value
-  std::vector<std::string> resolved_blob_values;
-  resolved_blob_values.reserve(blob_columns.size());
-
   for (const auto& blob_col : blob_columns) {
+    const size_t column_idx = blob_col.first;
     const BlobIndex& blob_idx = blob_col.second;
 
     if (blob_idx.IsInlined()) {
-      resolved_blob_values.emplace_back(blob_idx.value().data(),
-                                        blob_idx.value().size());
+      // The inlined value bytes live in `entity_value`; point the column value
+      // at them directly (zero copy). The caller keeps `entity_value` alive.
+      columns[column_idx].value() = blob_idx.value();
       continue;
     }
 
@@ -847,14 +853,17 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
 
     uint64_t bytes_read = 0;
 
-    PinnableSlice blob_value;
+    // Fetch the blob value into a fresh, address-stable backing node.
+    extra_buffers.emplace_front();
+    PinnableSlice& blob_value = extra_buffers.front();
     const Status fetch_s = blob_fetcher->FetchBlob(
         user_key, blob_idx, prefetch_buffer, &blob_value, &bytes_read);
     if (!fetch_s.ok()) {
       return fetch_s;
     }
 
-    resolved_blob_values.emplace_back(blob_value.data(), blob_value.size());
+    // Zero-copy Slice into the node we just added.
+    columns[column_idx].value() = blob_value;
 
     if (total_bytes_read) {
       *total_bytes_read += bytes_read;
@@ -865,8 +874,9 @@ Status WideColumnSerialization::ResolveEntityBlobColumns(
     *num_blobs_resolved += blob_columns.size();
   }
 
-  return SerializeResolvedEntity(columns, blob_columns, resolved_blob_values,
-                                 resolved_entity);
+  resolved_columns = std::move(columns);
+
+  return Status::OK();
 }
 
 Status WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
@@ -879,8 +889,7 @@ Status WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
 
-  Slice input_copy = entity_value;
-  if (Status s = DeserializeV2(input_copy, columns, blob_columns); !s.ok()) {
+  if (Status s = Deserialize(entity_value, columns, &blob_columns); !s.ok()) {
     return s;
   }
 
@@ -924,6 +933,7 @@ Status WideColumnSerialization::ResolveEntityForMerge(
     if (!has_blob_columns) {
       effective_entity = entity_value;
     } else if (!blob_fetcher) {
+      // FIXME: this is a violated coding precondition, not a corruption
       status = Status::Corruption(
           "Cannot resolve blob columns in entity without a blob fetcher");
     } else {
@@ -938,42 +948,6 @@ Status WideColumnSerialization::ResolveEntityForMerge(
     }
   }
   return status;
-}
-
-Status WideColumnSerialization::SerializeResolvedEntity(
-    const std::vector<WideColumn>& columns,
-    const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
-    const std::vector<std::string>& resolved_blob_values, std::string& output) {
-  assert(blob_columns.size() == resolved_blob_values.size());
-#ifndef NDEBUG
-  for (size_t i = 1; i < blob_columns.size(); ++i) {
-    assert(blob_columns[i].first > blob_columns[i - 1].first);
-  }
-#endif
-
-  // blob_columns is sorted by column index and typically small, so use a
-  // linear scan with a cursor instead of an unordered_map.
-  size_t blob_cursor = 0;
-
-  // Build result columns with resolved blob values
-  WideColumns result_columns;
-  result_columns.reserve(columns.size());
-
-  for (size_t i = 0; i < columns.size(); ++i) {
-    if (blob_cursor < blob_columns.size() &&
-        blob_columns[blob_cursor].first == i) {
-      // This is a blob column - use the resolved value
-      result_columns.emplace_back(columns[i].name(),
-                                  Slice(resolved_blob_values[blob_cursor]));
-      ++blob_cursor;
-    } else {
-      // This is an inline column - use the original value
-      result_columns.emplace_back(columns[i].name(), columns[i].value());
-    }
-  }
-
-  // Serialize using V1 format (all values inline)
-  return Serialize(result_columns, output);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

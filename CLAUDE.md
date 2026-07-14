@@ -339,6 +339,9 @@ rather than relying on libstdc++ transitive includes.
 * For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
     `--gtest_repeat`, or normal coerce-mode runs, inspect
     `tools/gtest_parallel_repro.py --help`.
+* Each unit test file has overheads, so avoid creating new unit test files
+  for random minor features. Consider adding to slice_test, db_etc3_test, or
+  others.
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object

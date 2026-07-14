@@ -16,6 +16,7 @@
 #include <cinttypes>
 #include <cstdio>
 #include <deque>
+#include <forward_list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -60,6 +61,7 @@
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "env/unique_id_gen.h"
@@ -2904,19 +2906,20 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
   WideColumns resolved_columns;
   resolved_columns.reserve(unresolved_columns.size());
 
-  // `unresolved_blob_column_indices_` stores sorted column positions whose
-  // values still hold encoded blob indexes. Keep resolved blob payloads alive
-  // in a side array until the rebuilt entity is serialized back into `columns`.
-  std::vector<PinnableSlice> resolved_blob_values(
-      columns->unresolved_blob_column_indices_.size());
+  // These sorted column positions still hold encoded blob indexes. Fetched blob
+  // payloads are held in address-stable backing nodes so the resolved column
+  // Slices can point directly at them -- no re-serialization of the entity is
+  // needed.
+  const std::vector<size_t>& unresolved_blob_column_indices =
+      PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns);
+  std::forward_list<PinnableSlice> extra_buffers;
   size_t unresolved_blob_idx = 0;
 
   for (size_t column_idx = 0; column_idx < unresolved_columns.size();
        ++column_idx) {
     const bool is_unresolved_blob =
-        unresolved_blob_idx < columns->unresolved_blob_column_indices_.size() &&
-        columns->unresolved_blob_column_indices_[unresolved_blob_idx] ==
-            column_idx;
+        unresolved_blob_idx < unresolved_blob_column_indices.size() &&
+        unresolved_blob_column_indices[unresolved_blob_idx] == column_idx;
     if (!is_unresolved_blob) {
       resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
                                     unresolved_columns[column_idx].value());
@@ -2933,18 +2936,19 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     Slice resolved_value;
     if (blob_idx.IsInlined()) {
       // V2 entities can still encode inline blob indexes. In that case the
-      // bytes are already present in the entity, so no blob file read is
-      // needed.
+      // bytes are already present in the entity buffer, so no blob file read is
+      // needed and the resolved value points straight at the entity.
       resolved_value = blob_idx.value();
     } else {
+      extra_buffers.emplace_front();
+      PinnableSlice& blob_value = extra_buffers.front();
       s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
           read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          nullptr /* prefetch_buffer */,
-          &resolved_blob_values[unresolved_blob_idx], nullptr /* bytes_read */);
+          nullptr /* prefetch_buffer */, &blob_value, nullptr /* bytes_read */);
       if (!s.ok()) {
         return s;
       }
-      resolved_value = Slice(resolved_blob_values[unresolved_blob_idx]);
+      resolved_value = blob_value;
     }
 
     resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
@@ -2952,17 +2956,13 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     ++unresolved_blob_idx;
   }
 
-  if (unresolved_blob_idx != columns->unresolved_blob_column_indices_.size()) {
+  if (unresolved_blob_idx != unresolved_blob_column_indices.size()) {
     return Status::Corruption("Wide column blob metadata out of sync");
   }
 
-  std::string resolved_entity;
-  Status status =
-      WideColumnSerialization::Serialize(resolved_columns, resolved_entity);
-  if (status.ok()) {
-    status = columns->SetWideColumnValue(std::move(resolved_entity));
-  }
-  return status;
+  PinnableWideColumnsHelper::ResolveColumns(
+      *columns, std::move(resolved_columns), std::move(extra_buffers));
+  return Status::OK();
 }
 
 bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
@@ -2992,7 +2992,9 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
   const bool needs_plain_value_resolution =
       is_blob_index != nullptr && *is_blob_index;
   const bool needs_wide_column_resolution =
-      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+      columns != nullptr &&
+      !PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns)
+           .empty();
   if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
     return false;
   }
@@ -3053,16 +3055,22 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
 
   assert(columns != nullptr);
 
-  std::string resolved_entity;
+  // Resolve blob columns into address-stable backing buffers and splice them
+  // into `columns` without re-serializing the entity. Inline columns keep
+  // zero-copy Slices into the original entity buffer (still held in `columns`).
+  WideColumns resolved_columns;
+  std::forward_list<PinnableSlice> extra_buffers;
   bool resolved = false;
-  *s = WideColumnSerialization::ResolveEntityBlobColumns(
-      columns->value_, key, blob_fetcher, nullptr /* prefetch_buffers */,
-      resolved_entity, resolved, nullptr /* total_bytes_read */,
+  *s = WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
+      PinnableWideColumnsHelper::GetSerializedEntity(*columns), key,
+      blob_fetcher, nullptr /* prefetch_buffers */, resolved_columns,
+      extra_buffers, resolved, nullptr /* total_bytes_read */,
       nullptr /* num_blobs_resolved */);
   if (s->ok()) {
     assert(resolved);
     if (resolved) {
-      *s = columns->SetWideColumnValue(std::move(resolved_entity));
+      PinnableWideColumnsHelper::ResolveColumns(
+          *columns, std::move(resolved_columns), std::move(extra_buffers));
     }
   }
   if (!s->ok()) {
@@ -3090,6 +3098,7 @@ void DBImpl::PostprocessMemtableValueRead(
     if (!value_resolved && value != nullptr && s->ok()) {
       value->PinSelf();
     }
+    // FIXME: swallowed non-OK status
     return;
   }
 
@@ -3119,7 +3128,9 @@ bool DBImpl::MaybeResolveDirectWriteValue(
   const bool needs_plain_value_resolution =
       is_blob_index != nullptr && *is_blob_index;
   const bool needs_wide_column_resolution =
-      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+      columns != nullptr &&
+      !PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns)
+           .empty();
   if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
     return false;
   }
@@ -3440,7 +3451,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         if (get_impl_options.value) {
           size = get_impl_options.value->size();
         } else if (get_impl_options.columns) {
-          size = get_impl_options.columns->serialized_size();
+          size = get_impl_options.columns->payload_size();
         }
       } else {
         // Return all merge operands for get_impl_options.key
@@ -4203,7 +4214,7 @@ Status DBImpl::MultiGetImpl(
         bytes_read += key->value->size();
       } else {
         assert(key->columns);
-        bytes_read += key->columns->serialized_size();
+        bytes_read += key->columns->payload_size();
       }
 
       num_found++;

@@ -54,7 +54,8 @@ class HandleTimestampSizeDifferenceTest : public testing::Test {
                        const Slice& entity) override {
       Slice entity_copy = entity;
       WideColumns columns;
-      Status s = WideColumnSerialization::Deserialize(entity_copy, columns);
+      Status s =
+          WideColumnSerialization::DeserializeSimple(entity_copy, columns);
       if (!s.ok()) {
         return s;
       }

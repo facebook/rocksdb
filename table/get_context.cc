@@ -5,6 +5,7 @@
 
 #include "table/get_context.h"
 
+#include <forward_list>
 #include <vector>
 
 #include "db/blob/blob_fetcher.h"
@@ -117,9 +118,8 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
   // entities with inline default column without full deserialization. It
   // returns NotSupported only when the default column is a blob reference.
   Slice value_of_default;
-  Slice entity_ref = entity;
   Status status = WideColumnSerialization::GetValueOfDefaultColumn(
-      entity_ref, value_of_default);
+      entity, value_of_default);
   if (status.ok()) {
     if (LIKELY(value_pinner != nullptr)) {
       pinnable_val_->PinSlice(value_of_default, value_pinner);
@@ -144,77 +144,46 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
                                                  Cleanable* value_pinner) {
   assert(columns_ != nullptr);
 
-  bool has_blob_columns = false;
-  Status status =
-      WideColumnSerialization::HasBlobColumns(entity, has_blob_columns);
+  // Pin (or copy) the serialized entity as the base backing buffer; this also
+  // parses it and records any blob-valued columns that still need resolving.
+  Status status = columns_->SetWideColumnValue(entity, value_pinner);
   if (!status.ok()) {
     return status;
   }
-  if (!has_blob_columns) {
-    return columns_->SetWideColumnValue(entity, value_pinner);
+
+  if (PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns_)
+          .empty()) {
+    return status;
   }
-  std::vector<WideColumn> entity_columns;
-  std::vector<std::pair<size_t, BlobIndex>> blob_cols;
-  Slice entity_ref = entity;
-  status = WideColumnSerialization::DeserializeV2(entity_ref, entity_columns,
-                                                  blob_cols);
+
+  if (blob_fetcher_ == nullptr) {
+    columns_->Reset();
+    return Status::Corruption(
+        "Cannot resolve blob-backed wide-column entity without a blob fetcher");
+  }
+
+  // TODO: Add lazy resolution support for GetEntity point lookups. This
+  // requires SuperVersion pinning on PinnableWideColumns to keep the Version*
+  // alive after GetImpl returns. Currently, lazy_column_resolution only takes
+  // effect for iterators (DBIter path).
+  //
+  // Eager path: resolve blob columns into their own address-stable backing
+  // buffers and splice them in, so inline columns keep zero-copy Slices into
+  // the pinned entity and no re-serialization is needed.
+  WideColumns resolved_columns;
+  std::forward_list<PinnableSlice> extra_buffers;
+  bool resolved = false;
+  status = WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
+      PinnableWideColumnsHelper::GetSerializedEntity(*columns_), user_key,
+      blob_fetcher_, nullptr /* prefetch_buffers */, resolved_columns,
+      extra_buffers, resolved, nullptr /* total_bytes_read */,
+      nullptr /* num_blobs_resolved */);
   if (status.ok()) {
-    // HasBlobColumns() and DeserializeV2() must agree on whether this entity
-    // contains blob-valued columns.
-    assert(!blob_cols.empty());
-    if (blob_fetcher_ == nullptr) {
-      return Status::Corruption(
-          "Cannot resolve blob-backed wide-column entity without a blob "
-          "fetcher");
-    }
-
-    // TODO: Add lazy resolution support for GetEntity point lookups. This
-    // requires SuperVersion pinning on PinnableWideColumns to keep the
-    // Version* alive after GetImpl returns. Currently, lazy_column_resolution
-    // only takes effect for iterators (DBIter path).
-    //
-    // Eager path: resolve blob columns inline to avoid intermediate
-    // std::string copies per blob value. Keep fetched blob values as
-    // PinnableSlice.
-    std::vector<PinnableSlice> resolved_blob_values(blob_cols.size());
-    for (size_t bi = 0; bi < blob_cols.size() && status.ok(); ++bi) {
-      const BlobIndex& blob_idx = blob_cols[bi].second;
-      if (blob_idx.IsInlined()) {
-        resolved_blob_values[bi].PinSelf(blob_idx.value());
-        continue;
-      }
-
-      status = blob_fetcher_->FetchBlob(
-          user_key, blob_idx, nullptr /* prefetch_buffer */,
-          &resolved_blob_values[bi], nullptr /* bytes_read */);
-    }
-
-    if (status.ok()) {
-      WideColumns result_columns;
-      result_columns.reserve(entity_columns.size());
-      size_t blob_cursor = 0;
-      for (size_t ci = 0; ci < entity_columns.size(); ++ci) {
-        if (blob_cursor < blob_cols.size() &&
-            blob_cols[blob_cursor].first == ci) {
-          result_columns.emplace_back(entity_columns[ci].name(),
-                                      Slice(resolved_blob_values[blob_cursor]));
-          ++blob_cursor;
-        } else {
-          result_columns.emplace_back(entity_columns[ci].name(),
-                                      entity_columns[ci].value());
-        }
-      }
-
-      std::string resolved_entity;
-      status =
-          WideColumnSerialization::Serialize(result_columns, resolved_entity);
-      if (status.ok()) {
-        // TODO: A combined SerializeAndBuildIndex method could avoid the
-        // serialize + deserialize round trip inside
-        // SetWideColumnValue -> CreateIndexForWideColumns.
-        return columns_->SetWideColumnValue(std::move(resolved_entity));
-      }
-    }
+    assert(resolved);
+    PinnableWideColumnsHelper::ResolveColumns(
+        *columns_, std::move(resolved_columns), std::move(extra_buffers));
+  } else {
+    columns_->Reset();
   }
   return status;
 }
@@ -223,9 +192,8 @@ Status GetContext::PushWideColumnEntityDefaultOperand(const Slice& user_key,
                                                       const Slice& entity,
                                                       Cleanable* value_pinner) {
   Slice value_of_default;
-  Slice entity_ref = entity;
   Status status = WideColumnSerialization::GetValueOfDefaultColumn(
-      entity_ref, value_of_default);
+      entity, value_of_default);
   if (status.ok()) {
     push_operand(value_of_default, value_pinner);
     return status;

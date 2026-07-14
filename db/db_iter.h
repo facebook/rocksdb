@@ -399,7 +399,7 @@ class DBIter final : public Iterator {
     }
 
     // Clears the previous lazy entity metadata and returns the saved entity
-    // buffer as input for DeserializeV2().
+    // buffer as input for Deserialize().
     Slice PrepareForLazyEntityDeserialize() {
       ClearLazyEntity();
       return Slice(saved_value_);

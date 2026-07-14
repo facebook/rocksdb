@@ -215,11 +215,10 @@ Status BlobWriteBatchTransformer::PutEntityCF(uint32_t column_family_id,
         output_batch_, column_family_id, key, entity);
   }
 
-  Slice entity_ref = entity;
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> existing_blob_columns;
-  Status status = WideColumnSerialization::DeserializeV2(entity_ref, columns,
-                                                         existing_blob_columns);
+  Status status = WideColumnSerialization::Deserialize(entity, columns,
+                                                       &existing_blob_columns);
   if (status.ok()) {
     // Reject pre-serialized entities that already contain blob references.
     // Passing them through would preserve references to blob files outside this

@@ -911,7 +911,7 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       Slice entity_copy = entity;
       WideColumns columns;
       const Status s =
-          WideColumnSerialization::Deserialize(entity_copy, columns);
+          WideColumnSerialization::DeserializeSimple(entity_copy, columns);
       if (!s.ok()) {
         return s;
       }

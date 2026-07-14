@@ -307,7 +307,8 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
     } else if (delta_entry.type == kPutEntityRecord) {
       Slice value_copy(delta_entry.value);
 
-      status_ = WideColumnSerialization::Deserialize(value_copy, columns_);
+      status_ =
+          WideColumnSerialization::DeserializeSimple(value_copy, columns_);
       if (!status_.ok()) {
         columns_.clear();
         return;
@@ -378,7 +379,7 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
   if (result_type == kTypeWideColumnEntity) {
     Slice entity(merge_result_);
 
-    status_ = WideColumnSerialization::Deserialize(entity, columns_);
+    status_ = WideColumnSerialization::DeserializeSimple(entity, columns_);
     if (!status_.ok()) {
       columns_.clear();
       return;
