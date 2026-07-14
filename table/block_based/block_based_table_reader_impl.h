@@ -172,11 +172,9 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 // If input_iter is null, new a iterator
 // If input_iter is not null, update this iter and return it
 template <typename TBlockIter>
-TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
-                                                  CachableEntry<Block>& block,
-                                                  TBlockIter* input_iter,
-                                                  Status s,
-                                                  GetContext* get_context) const {
+TBlockIter* BlockBasedTable::NewDataBlockIterator(
+    const ReadOptions& ro, CachableEntry<Block>& block, TBlockIter* input_iter,
+    Status s, bool caller_guarantees_source_liveness) const {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -195,13 +193,13 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   // 2. it's pointing to immortal source. If own_bytes is true then we are
   //    not reading data from the original source, whether immortal or not.
   //    Otherwise, the block is pinned iff the source is immortal, OR the
-  //    caller is not a point lookup (get_context == nullptr). See the
-  //    longer explanation in the other NewDataBlockIterator() overload
-  //    above, and #14895.
+  //    caller separately guarantees the source stays alive. See the longer
+  //    explanation in the other NewDataBlockIterator() overload above, and
+  //    #14895.
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() &&
-       (rep_->immortal_table || get_context == nullptr));
+       (rep_->immortal_table || caller_guarantees_source_liveness));
   iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), BlockType::kData,
                                        iter, block_contents_pinned);
 
