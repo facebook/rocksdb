@@ -510,35 +510,6 @@ TEST_F(DBTestXactLogIterator, FastRotation_SequenceGap_FallsBackToTryAgain) {
   Options options = OptionsForLogIterTest();
   options.wal_iterator_fast_rotation = true;
   DestroyAndReopen(options);
-
-  // Write one record and flush to rotate, then write to new WAL
-  ASSERT_OK(Put("key1", DummyString(128)));
-  ASSERT_OK(dbfull()->Flush(FlushOptions()));
-  ASSERT_OK(Put("key2", DummyString(128)));
-  ASSERT_OK(db_->FlushWAL(false));
-
-  // Use SyncPoint to perturb the sequence returned by ReadFirstRecord
-  // so the continuity check fails. Enable AFTER the initial
-  // GetUpdatesSince (which also calls ReadFirstRecord to build file list).
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "WalManager::ReadFirstRecord:After", [](void* arg) {
-        auto* seq = reinterpret_cast<SequenceNumber*>(arg);
-        if (*seq > 0) {
-          *seq = *seq + 100;
-        }
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-  // Open the iterator -- this calls GetUpdatesSince which reads WAL metadata.
-  // Because we enabled the sync point above, the initial file list build may
-  // also be affected. To avoid that, we build the iterator before enabling
-  // the sync point... but we need the sync point active for the fast-rotation
-  // path. Let's restructure: open iter first, then enable sync point.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  // Re-do: open DB fresh, write, flush, write
-  DestroyAndReopen(options);
   ASSERT_OK(Put("key1", DummyString(128)));
   ASSERT_OK(dbfull()->Flush(FlushOptions()));
 

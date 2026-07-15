@@ -145,8 +145,13 @@ Status WalManager::PrepareNextWalForTail(uint64_t last_wal_number,
   }
 
   s = ReadFirstRecord(kAliveLogFile, next_wal_number, first_seq);
-  if (!s.ok() || *first_seq == 0) {
-    // first_seq == 0 means the WAL is empty (no user records yet)
+  if (!s.ok() || *first_seq == 0 ||
+      (*first_seq == 1 &&
+       db_options_.wal_compression != kNoCompression)) {
+    // first_seq == 0: WAL is empty (no user records yet).
+    // first_seq == 1 with wal_compression: WAL contains only the
+    // kSetCompressionType header record (sentinel from ReadFirstLine),
+    // not a real user batch -- treat as empty.
     next_wal->reset();
     return Status::TryAgain("Next WAL is empty or unreadable");
   }
