@@ -239,6 +239,10 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
             current_file_index_ = 0;
             continue;  // Re-enter the read loop on the new WAL
           }
+          // Propagate real I/O errors rather than masking them as TryAgain.
+          is_valid_ = false;
+          current_status_ = open_s;
+          return;
         }
       }
       is_valid_ = false;
