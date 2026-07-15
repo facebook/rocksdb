@@ -1828,16 +1828,17 @@ class DB {
   // state, though while the WAL is locked, flushes as part of CreateCheckpoint
   // and simiar are skipped. Other operations allowed on a "read only" DB should
   // work while frozen. Each LockWAL() call that returns OK must eventually be
-  // followed by a corresponding call to UnlockWAL(). Where supported, non-OK
-  // status is generally only possible with some kind of corruption or I/O
-  // error.
+  // followed by a corresponding call to UnlockWAL(). It is also expected that
+  // UnlockWAL() is called on the same thread that called LockWAL(). Where
+  // supported, non-OK status is generally only possible with some kind of
+  // corruption or I/O error.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");
   }
 
-  // Unfreeze the DB state from a successful LockWAL().
-  // The write stop on the database will be cleared when UnlockWAL() have been
-  // called for each successful LockWAL().
+  // Unfreeze the DB state from a successful LockWAL(). The write stop on the
+  // database will be cleared when UnlockWAL() have been called for each
+  // successful LockWAL(). Must be called from the same thread as LockWAL().
   virtual Status UnlockWAL() {
     return Status::NotSupported("UnlockWAL not implemented");
   }

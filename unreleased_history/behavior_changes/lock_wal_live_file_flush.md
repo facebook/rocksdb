@@ -1,0 +1,1 @@
+When using `LockWAL()`, live-file capture APIs such as checkpoint and backup now flush WAL-disabled unpersisted data; they can block until `UnlockWAL()` or return `Aborted` when called from the same thread that holds `LockWAL()` to avoid deadlock. `UnlockWAL()` must now also be called from the same thread that called `LockWAL()`.
