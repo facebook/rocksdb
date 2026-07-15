@@ -1017,6 +1017,58 @@ TEST_P(WriteUnpreparedTransactionTest, RangeTombstoneOwnDeletionsAndRollback) {
   }
 }
 
+TEST_P(WriteUnpreparedTransactionTest,
+       RollbackPreparedAfterCommitWriteFailure) {
+  // Verify that a WriteUnprepared transaction can be rolled back after a
+  // commit write failure. Previously, CommitInternal() would clear
+  // unprep_seqs_ even on failure, making subsequent Rollback() hit
+  // assertion `unprep_seqs.size() > 0`.
+  options.max_bgerror_resume_count = 0;
+  ASSERT_OK(ReOpen());
+
+  // Use fault injection to cause commit write to fail.
+  fault_fs->SetFileTypesExcludedFromFaultInjection({FileType::kInfoLogFile});
+
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  // Set a low flush threshold to trigger unprepared batches being written to
+  // DB, populating unprep_seqs_.
+  txn_options.write_batch_flush_threshold = 1;
+  std::unique_ptr<Transaction> txn(db->BeginTransaction(woptions, txn_options));
+  ASSERT_NE(nullptr, txn);
+  ASSERT_OK(txn->SetName("wup_commit_fail_rollback"));
+  ASSERT_OK(txn->Put(Slice("key1"), Slice("value1")));
+  // The flush threshold of 1 should cause the batch to be flushed as
+  // unprepared, populating unprep_seqs_.
+  ASSERT_OK(txn->Put(Slice("key2"), Slice("value2")));
+  ASSERT_OK(txn->Prepare());
+
+  // Inject a write error so that Commit() fails.
+  fault_fs->SetThreadLocalErrorContext(FaultInjectionIOType::kWrite,
+                                       /*seed=*/0, /*one_in=*/1,
+                                       /*retryable=*/true,
+                                       /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  const Status commit_s = txn->Commit();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  ASSERT_NOK(commit_s);
+  ASSERT_TRUE(FaultInjectionTestFS::IsInjectedError(commit_s))
+      << commit_s.ToString();
+  fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+      FaultInjectionIOType::kWrite);
+
+  // Resume the DB to clear the error state.
+  ASSERT_OK(db->Resume());
+
+  // Rollback should succeed without hitting the assertion failure.
+  ASSERT_OK(txn->Rollback());
+  txn.reset();
+
+  // Verify the DB is usable after rollback.
+  ASSERT_OK(ReOpenNoDelete());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
