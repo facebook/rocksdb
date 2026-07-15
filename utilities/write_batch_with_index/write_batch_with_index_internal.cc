@@ -930,10 +930,17 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
     static Status SetWideColumnValue(const Slice& entity, OutputType* output) {
       assert(output);
 
-      Slice entity_copy = entity;
       Slice value_of_default;
-      const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
-          entity_copy, value_of_default);
+      bool is_blob_reference = false;
+      Status s = WideColumnSerialization::GetValueOfDefaultColumn(
+          entity, value_of_default, is_blob_reference);
+      if (s.ok() && is_blob_reference) {
+        // WriteBatchWithIndex entities are written via PutEntity (V1, no blob
+        // references); a blob-backed default column is unexpected here and this
+        // in-memory path cannot resolve it.
+        s = Status::NotSupported(
+            "Blob-backed default column not supported in WriteBatchWithIndex");
+      }
       if (!s.ok()) {
         ClearOutput(output);
         return s;

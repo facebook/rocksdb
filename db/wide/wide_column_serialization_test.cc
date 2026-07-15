@@ -172,7 +172,9 @@ TEST_F(WideColumnSerializationTest, DeserializeVersionError) {
 }
 
 TEST_F(WideColumnSerializationTest, DeserializeUnsupportedVersion) {
-  // Unsupported version
+  // A version newer than kVersion2 is reported as Corruption (an unrecognized
+  // serialized version is treated as bad data, consistent with the rest of the
+  // codebase's format parsers).
   constexpr uint32_t future_version = 1000;
 
   std::string buf;
@@ -182,8 +184,37 @@ TEST_F(WideColumnSerializationTest, DeserializeUnsupportedVersion) {
   WideColumns columns;
 
   const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
-  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
+}
+
+TEST_F(WideColumnSerializationTest, FutureVersionRejectedConsistently) {
+  // Every entry point must reject a future/unknown version as Corruption, so a
+  // corrupt version byte cannot be misclassified (e.g. as a blob reference) by
+  // any read path.
+  constexpr uint32_t future_version = 1000;
+
+  std::string buf;
+  PutVarint32(&buf, future_version);
+  Slice input(buf);
+
+  WideColumns columns;
+  ASSERT_TRUE(WideColumnSerialization::DeserializeSimple(input, columns)
+                  .IsCorruption());
+
+  Slice value;
+  bool is_blob_reference = false;
+  ASSERT_TRUE(WideColumnSerialization::GetValueOfDefaultColumn(
+                  input, value, is_blob_reference)
+                  .IsCorruption());
+
+  bool has_blob_columns = false;
+  ASSERT_TRUE(WideColumnSerialization::HasBlobColumns(input, has_blob_columns)
+                  .IsCorruption());
+
+  ASSERT_TRUE(WideColumnSerialization::ForEachBlobFileNumber(
+                  input, [](const BlobIndex&) { return Status::OK(); })
+                  .IsCorruption());
 }
 
 TEST_F(WideColumnSerializationTest, DeserializeNumberOfColumnsError) {
@@ -474,7 +505,10 @@ static void VerifyGetDefaultColumn(
 
   Slice input(serialized);
   Slice value;
-  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(input, value));
+  bool is_blob_reference = false;
+  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(
+      input, value, is_blob_reference));
+  ASSERT_FALSE(is_blob_reference);
   ASSERT_EQ(value, expected_value);
 }
 
@@ -495,7 +529,10 @@ TEST_F(WideColumnSerializationTest, V2GetValueOfDefaultColumn) {
 
     Slice input(serialized);
     Slice value;
-    ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(input, value));
+    bool is_blob_reference = false;
+    ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(
+        input, value, is_blob_reference));
+    ASSERT_FALSE(is_blob_reference);
     ASSERT_EQ(value, "v1_default");
   }
 }
@@ -543,8 +580,9 @@ TEST_F(WideColumnSerializationTest, PinnableWideColumnsFallbacksToV2) {
 }
 
 TEST_F(WideColumnSerializationTest, V2GetValueOfDefaultColumnBlobRef) {
-  // When default column (index 0) is a blob reference,
-  // GetValueOfDefaultColumn should return NotSupported.
+  // When the default column (index 0) is a blob reference,
+  // GetValueOfDefaultColumn succeeds and flags it via is_blob_reference,
+  // returning the raw serialized BlobIndex bytes (no fetch).
   std::vector<std::pair<std::string, std::string>> columns = {
       {"", "placeholder"}, {"col1", "value1"}};
   std::vector<std::pair<size_t, BlobIndex>> blob_columns = {
@@ -556,8 +594,17 @@ TEST_F(WideColumnSerializationTest, V2GetValueOfDefaultColumnBlobRef) {
 
   Slice input(serialized);
   Slice value;
-  ASSERT_TRUE(WideColumnSerialization::GetValueOfDefaultColumn(input, value)
-                  .IsNotSupported());
+  bool is_blob_reference = false;
+  ASSERT_OK(WideColumnSerialization::GetValueOfDefaultColumn(
+      input, value, is_blob_reference));
+  ASSERT_TRUE(is_blob_reference);
+  ASSERT_FALSE(value.empty());
+
+  // Resolving a non-inlined reference without a blob fetcher is Corruption.
+  PinnableSlice resolved;
+  ASSERT_TRUE(WideColumnSerialization::ResolveDefaultColumnBlobReference(
+                  value, "user_key", /*blob_fetcher=*/nullptr, resolved)
+                  .IsCorruption());
 }
 
 TEST_F(WideColumnSerializationTest, SerializeV2Errors) {
@@ -871,6 +918,20 @@ TEST_F(WideColumnSerializationTest, DeserializeRejectsTrailingData) {
     std::string serialized;
     ASSERT_OK(WideColumnSerialization::SerializeV2(
         columns, {} /* blob_columns */, serialized));
+    check(serialized);
+  }
+
+  // Empty (zero-column) entities must reject trailing data too.
+  const WideColumns empty_columns;
+  {
+    std::string serialized;
+    ASSERT_OK(WideColumnSerialization::Serialize(empty_columns, serialized));
+    check(serialized);
+  }
+  {
+    std::string serialized;
+    ASSERT_OK(WideColumnSerialization::SerializeV2(
+        empty_columns, {} /* blob_columns */, serialized));
     check(serialized);
   }
 }

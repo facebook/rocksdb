@@ -3076,26 +3076,29 @@ class DBImpl : public DB {
   // Resolves memtable read results that still carry blob references through
   // either a raw blob-index payload in `value` or unresolved blob columns in
   // `columns`. Unlike the direct-write helper above, this path only depends on
-  // a BlobFetcher and therefore works for read-only/secondary DBs.
-  static bool MaybeResolveMemtableBlobValue(const Slice& key,
-                                            const BlobFetcher* blob_fetcher,
-                                            PinnableSlice* value,
-                                            PinnableWideColumns* columns,
-                                            Status* s, bool* is_blob_index,
-                                            bool* value_found = nullptr);
-  // Completes read-only/secondary memtable Get()/GetEntity() hits by resolving
-  // blob-backed payloads when `resolve_blob_backed_memtable_value` is true,
-  // pinning plain values on success, and clearing outputs on error. When the
-  // caller explicitly requested raw blob indices via
-  // `GetImplOptions::is_blob_index`, this helper leaves that payload
-  // untouched. `memtable_blob_fetcher` may be null when blob support is
-  // disabled for the column family.
-  static void PostprocessMemtableValueRead(
+  // a BlobFetcher and therefore works for read-only/secondary DBs. Sets
+  // *did_resolve to true iff there was a reference to resolve -- in which case
+  // this function has finalized `value`/`columns` (populated on success,
+  // cleared on error) -- and false iff there was nothing to resolve (the caller
+  // finalizes the plain value). Only call with an OK incoming status.
+  static Status MaybeResolveMemtableBlobValue(
+      const Slice& key, const BlobFetcher* blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, bool* did_resolve, bool* is_blob_index,
+      bool* value_found = nullptr);
+  // Completes read-only/secondary memtable Get()/GetEntity() hits. Given the
+  // status from the memtable read, resolves blob-backed payloads when
+  // `resolve_blob_backed_memtable_value` is true, self-pins a plain value on
+  // success, and clears outputs on any error (never leaving a half-populated
+  // result). When the caller explicitly requested raw blob indices via
+  // `GetImplOptions::is_blob_index`, this helper leaves that payload untouched.
+  // `memtable_blob_fetcher` may be null when blob support is disabled for the
+  // column family. Returns the finalized status.
+  static Status PostprocessMemtableValueRead(
       const Slice& key, const std::string* timestamp,
       bool resolve_blob_backed_memtable_value,
       const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
-      PinnableWideColumns* columns, Status* s, bool* is_blob_index,
-      bool* value_found = nullptr);
+      PinnableWideColumns* columns, Status memtable_read_status,
+      bool* is_blob_index, bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>

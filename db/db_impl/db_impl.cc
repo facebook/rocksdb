@@ -2976,14 +2976,15 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
   return Status::OK();
 }
 
-bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
-                                           const BlobFetcher* blob_fetcher,
-                                           PinnableSlice* value,
-                                           PinnableWideColumns* columns,
-                                           Status* s, bool* is_blob_index,
-                                           bool* value_found) {
-  if (!s->ok() || (!value && !columns)) {
-    return false;
+Status DBImpl::MaybeResolveMemtableBlobValue(
+    const Slice& key, const BlobFetcher* blob_fetcher, PinnableSlice* value,
+    PinnableWideColumns* columns, bool* did_resolve, bool* is_blob_index,
+    bool* value_found) {
+  assert(did_resolve != nullptr);
+  *did_resolve = false;
+
+  if (!value && !columns) {
+    return Status::OK();
   }
 
   auto reset_outputs = [&]() {
@@ -3007,18 +3008,27 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
       !PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns)
            .empty();
   if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
-    return false;
+    return Status::OK();
   }
 
-  if (blob_fetcher == nullptr) {
-    reset_outputs();
-    *s = Status::NotSupported(
-        "Encountered blob-backed memtable value without blob fetcher.");
-    clear_blob_state();
-    return true;
-  }
+  // There is a blob reference to resolve, so this function now owns finalizing
+  // `value`/`columns`: populated on success, cleared on error.
+  *did_resolve = true;
 
   if (needs_plain_value_resolution) {
+    if (blob_fetcher == nullptr) {
+      reset_outputs();
+      clear_blob_state();
+      // We treat the memtable much like persisted data: prefer detecting and
+      // reporting something potentially caused by corruption rather than
+      // asserting/crashing, though in practice this is most likely to happen
+      // from a programming mistake. (The wide-column entity path below
+      // delegates this same check to ResolveEntityBlobColumnsMultiBuffer; the
+      // plain-value path open-codes the fetch, so it checks here.)
+      return Status::Corruption(
+          "Encountered blob-backed memtable value without blob fetcher.");
+    }
+
     Slice blob_index_slice;
     std::string blob_index_storage;
     if (value != nullptr) {
@@ -3048,20 +3058,20 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
       value->Reset();
     }
 
-    *s = blob_fetcher->FetchBlob(key, blob_index_slice,
-                                 nullptr /* prefetch_buffer */, target,
-                                 nullptr /* bytes_read */);
-    if (s->ok() && columns != nullptr) {
+    Status s = blob_fetcher->FetchBlob(key, blob_index_slice,
+                                       nullptr /* prefetch_buffer */, target,
+                                       nullptr /* bytes_read */);
+    if (s.ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
-    } else if (!s->ok()) {
+    } else if (!s.ok()) {
       reset_outputs();
-      if (s->IsIncomplete() && value_found != nullptr) {
+      if (s.IsIncomplete() && value_found != nullptr) {
         *value_found = false;
       }
     }
 
     clear_blob_state();
-    return true;
+    return s;
   }
 
   assert(columns != nullptr);
@@ -3071,60 +3081,67 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
   // zero-copy Slices into the original entity buffer (still held in `columns`).
   WideColumns resolved_columns;
   std::forward_list<PinnableSlice> extra_buffers;
-  bool resolved = false;
-  *s = WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
+  bool entity_resolved = false;
+  Status s = WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
       PinnableWideColumnsHelper::GetSerializedEntity(*columns), key,
       blob_fetcher, nullptr /* prefetch_buffers */, resolved_columns,
-      extra_buffers, resolved, nullptr /* total_bytes_read */,
+      extra_buffers, entity_resolved, nullptr /* total_bytes_read */,
       nullptr /* num_blobs_resolved */);
-  if (s->ok()) {
-    assert(resolved);
-    if (resolved) {
+  if (s.ok()) {
+    assert(entity_resolved);
+    if (entity_resolved) {
       PinnableWideColumnsHelper::ResolveColumns(
           *columns, std::move(resolved_columns), std::move(extra_buffers));
     }
-  }
-  if (!s->ok()) {
+  } else {
     reset_outputs();
-    if (s->IsIncomplete() && value_found != nullptr) {
+    if (s.IsIncomplete() && value_found != nullptr) {
       *value_found = false;
     }
   }
 
   clear_blob_state();
-  return true;
+  return s;
 }
 
-void DBImpl::PostprocessMemtableValueRead(
+Status DBImpl::PostprocessMemtableValueRead(
     const Slice& key, const std::string* timestamp,
     bool resolve_blob_backed_memtable_value,
     const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
-    PinnableWideColumns* columns, Status* s, bool* is_blob_index,
-    bool* value_found) {
-  if (resolve_blob_backed_memtable_value) {
+    PinnableWideColumns* columns, Status memtable_read_status,
+    bool* is_blob_index, bool* value_found) {
+  Status status = std::move(memtable_read_status);
+
+  bool outputs_finalized = false;
+  if (status.ok() && resolve_blob_backed_memtable_value) {
     std::string blob_lookup_key_storage;
-    const bool value_resolved = MaybeResolveMemtableBlobValue(
+    bool did_resolve = false;
+    status = MaybeResolveMemtableBlobValue(
         GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-        memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
-    if (!value_resolved && value != nullptr && s->ok()) {
-      value->PinSelf();
-    }
-    // FIXME: swallowed non-OK status
-    return;
+        memtable_blob_fetcher, value, columns, &did_resolve, is_blob_index,
+        value_found);
+    // When there was a blob reference, MaybeResolveMemtableBlobValue has
+    // already finalized the outputs (populated on success, cleared on error).
+    outputs_finalized = did_resolve;
   }
 
-  if (s->ok()) {
-    if (value != nullptr) {
-      value->PinSelf();
-    }
-  } else {
-    if (value != nullptr) {
-      value->Reset();
-    }
-    if (columns != nullptr) {
-      columns->Reset();
+  if (!outputs_finalized) {
+    if (status.ok()) {
+      if (value != nullptr) {
+        value->PinSelf();
+      }
+    } else {
+      // Never leave a half-populated result behind a non-OK status.
+      if (value != nullptr) {
+        value->Reset();
+      }
+      if (columns != nullptr) {
+        columns->Reset();
+      }
     }
   }
+
+  return status;
 }
 
 bool DBImpl::MaybeResolveDirectWriteValue(

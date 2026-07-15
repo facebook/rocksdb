@@ -114,29 +114,27 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
                                                   Cleanable* value_pinner) {
   assert(pinnable_val_ != nullptr);
 
-  // Try the fast path first: GetValueOfDefaultColumn handles both V1 and V2
-  // entities with inline default column without full deserialization. It
-  // returns NotSupported only when the default column is a blob reference.
+  // Fast path: extract the default column without full deserialization. An
+  // inline default value is pinned zero-copy; only a blob-referenced default
+  // needs a fetch (ResolveDefaultColumnBlobReference owns the null-fetcher
+  // handling).
   Slice value_of_default;
+  bool is_blob_reference = false;
   Status status = WideColumnSerialization::GetValueOfDefaultColumn(
-      entity, value_of_default);
-  if (status.ok()) {
+      entity, value_of_default, is_blob_reference);
+  if (!status.ok()) {
+    return status;
+  }
+  if (!is_blob_reference) {
     if (LIKELY(value_pinner != nullptr)) {
       pinnable_val_->PinSlice(value_of_default, value_pinner);
     } else {
       pinnable_val_->PinSelf(value_of_default);
     }
-  } else if (status.IsNotSupported()) {
-    if (blob_fetcher_ == nullptr) {
-      return Status::Corruption(
-          "Cannot resolve blob-backed default column without a blob fetcher");
-    }
-    // Default column is a blob reference, so resolve it into the output value.
-    bool resolved = false;
-    status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
-        entity, user_key, blob_fetcher_, *pinnable_val_, resolved);
+    return Status::OK();
   }
-  return status;
+  return WideColumnSerialization::ResolveDefaultColumnBlobReference(
+      value_of_default, user_key, blob_fetcher_, *pinnable_val_);
 }
 
 Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
@@ -156,12 +154,6 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
     return status;
   }
 
-  if (blob_fetcher_ == nullptr) {
-    columns_->Reset();
-    return Status::Corruption(
-        "Cannot resolve blob-backed wide-column entity without a blob fetcher");
-  }
-
   // TODO: Add lazy resolution support for GetEntity point lookups. This
   // requires SuperVersion pinning on PinnableWideColumns to keep the Version*
   // alive after GetImpl returns. Currently, lazy_column_resolution only takes
@@ -169,7 +161,8 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   //
   // Eager path: resolve blob columns into their own address-stable backing
   // buffers and splice them in, so inline columns keep zero-copy Slices into
-  // the pinned entity and no re-serialization is needed.
+  // the pinned entity and no re-serialization is needed. A null blob_fetcher_
+  // with blob columns present is reported as Corruption inside the resolver.
   WideColumns resolved_columns;
   std::forward_list<PinnableSlice> extra_buffers;
   bool resolved = false;
@@ -192,27 +185,23 @@ Status GetContext::PushWideColumnEntityDefaultOperand(const Slice& user_key,
                                                       const Slice& entity,
                                                       Cleanable* value_pinner) {
   Slice value_of_default;
+  bool is_blob_reference = false;
   Status status = WideColumnSerialization::GetValueOfDefaultColumn(
-      entity, value_of_default);
-  if (status.ok()) {
+      entity, value_of_default, is_blob_reference);
+  if (!status.ok()) {
+    return status;
+  }
+  if (!is_blob_reference) {
     push_operand(value_of_default, value_pinner);
     return status;
   }
-  if (!status.IsNotSupported()) {
-    return status;
-  }
-  if (blob_fetcher_ == nullptr) {
-    return Status::Corruption(
-        "Cannot resolve blob-backed default column without a blob fetcher");
-  }
 
   PinnableSlice resolved_default;
-  bool resolved = false;
-  status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
-      entity, user_key, blob_fetcher_, resolved_default, resolved);
+  status = WideColumnSerialization::ResolveDefaultColumnBlobReference(
+      value_of_default, user_key, blob_fetcher_, resolved_default);
   if (status.ok()) {
-    // Resolved blob values are backed by this stack-local PinnableSlice, so
-    // copy them into MergeContext instead of pinning their storage.
+    // Resolved value is backed by this stack-local PinnableSlice, so copy it
+    // into MergeContext instead of pinning its storage.
     push_operand(Slice(resolved_default), nullptr);
   }
   return status;

@@ -439,10 +439,10 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             false /* immutable_memtable */, &read_cb, is_blob_ptr,
             /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
       done = true;
-      DBImpl::PostprocessMemtableValueRead(
+      s = DBImpl::PostprocessMemtableValueRead(
           key, ts, resolve_blob_backed_memtable_value,
           memtable_blob_fetcher_ptr, get_impl_options.value,
-          get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.columns, std::move(s), &is_blob_index,
           get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -454,10 +454,10 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                    &max_covering_tombstone_seq, read_options, &read_cb,
                    is_blob_ptr, memtable_blob_fetcher_ptr)) {
       done = true;
-      DBImpl::PostprocessMemtableValueRead(
+      s = DBImpl::PostprocessMemtableValueRead(
           key, ts, resolve_blob_backed_memtable_value,
           memtable_blob_fetcher_ptr, get_impl_options.value,
-          get_impl_options.columns, &s, &is_blob_index,
+          get_impl_options.columns, std::move(s), &is_blob_index,
           get_impl_options.value_found);
       RecordTick(stats_, MEMTABLE_HIT);
     }
@@ -503,22 +503,27 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     ReturnAndCleanupSuperVersion(cfd, super_version);
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
-    if (get_impl_options.value) {
-      size = get_impl_options.value->size();
-    } else if (get_impl_options.columns) {
-      size = get_impl_options.columns->payload_size();
-    } else if (get_impl_options.merge_operands) {
-      *get_impl_options.number_of_operands =
-          static_cast<int>(merge_context.GetNumOperands());
-      for (const Slice& sl : merge_context.GetOperands()) {
-        size += sl.size();
-        get_impl_options.merge_operands->PinSelf(sl);
-        get_impl_options.merge_operands++;
+    // Mirror DBImpl::GetImpl: only produce merge-operand output and count bytes
+    // read on success. A non-OK status leaves outputs cleared (see
+    // PostprocessMemtableValueRead) and records no read throughput.
+    if (s.ok()) {
+      if (get_impl_options.value) {
+        size = get_impl_options.value->size();
+      } else if (get_impl_options.columns) {
+        size = get_impl_options.columns->payload_size();
+      } else if (get_impl_options.merge_operands) {
+        *get_impl_options.number_of_operands =
+            static_cast<int>(merge_context.GetNumOperands());
+        for (const Slice& sl : merge_context.GetOperands()) {
+          size += sl.size();
+          get_impl_options.merge_operands->PinSelf(sl);
+          get_impl_options.merge_operands++;
+        }
       }
+      RecordTick(stats_, BYTES_READ, size);
+      RecordTimeToHistogram(stats_, BYTES_PER_READ, size);
+      PERF_COUNTER_ADD(get_read_bytes, size);
     }
-    RecordTick(stats_, BYTES_READ, size);
-    RecordTimeToHistogram(stats_, BYTES_PER_READ, size);
-    PERF_COUNTER_ADD(get_read_bytes, size);
   }
   return s;
 }
