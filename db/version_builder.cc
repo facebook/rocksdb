@@ -503,8 +503,7 @@ class VersionBuilder::Rep : public MutableScalars {
     }
   }
 
-  //========= Single-edit undo support (track_found_and_missing_files_)
-  //=======//
+  //======== Single-edit undo support (track_found_and_missing_files_) =======//
   // See the EditUndo declaration above for the overall model.
 
   // Records the pre-edit value of `map[key]` into `saved` (first-touch only, so
