@@ -1941,10 +1941,8 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
         const uint64_t new_min_log = max_wal_number + 1;
         VersionEdit wal_deletion;
         bool emit_wal_deletion = false;
-        if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-          // Determining whether DeleteWalsBefore actually shrinks WalSet
-          // membership requires WalSet state outside this site, so emit
-          // unconditionally (pre-existing behavior).
+        if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+            new_min_log > versions_->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.DeleteWalsBefore(new_min_log);
           emit_wal_deletion = true;
         }
