@@ -119,6 +119,14 @@ class RangeLockManagerHandle : public LockManagerHandle {
   // Set the user-provided barrier check function
   virtual void SetEscalationBarrierFunc(EscalationBarrierFunc func) = 0;
 
+  // Predicate returning true if the thread waiting for a lock has been killed.
+  // A range lock wait polls this and returns promptly (DB_LOCK_INTERRUPTED ->
+  // Status::Aborted()) when it fires.
+  using IsKilledCallback = std::function<bool()>;
+
+  // Set the user-provided kill-check function
+  virtual void SetIsKilledCallback(IsKilledCallback func) = 0;
+
   virtual RangeLockStatus GetRangeLockStatusData() = 0;
 
   class Counters {
