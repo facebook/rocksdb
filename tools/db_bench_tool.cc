@@ -55,6 +55,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -1412,6 +1413,16 @@ DEFINE_uint32(min_tombstones_for_range_conversion,
 DEFINE_bool(verify_compression, false,
             "See BlockBasedTableOptions::verify_compression");
 
+DEFINE_bool(
+    tolerate_io_errors_for_remote_dbs, false,
+    "If true, a non-data-loss IO error surfaced by a benchmark "
+    "operation ends the run gracefully with an INVALID result instead "
+    "of aborting the process. Only takes effect when a remote backend "
+    "(--env_uri / --fs_uri) is in use, so IO errors on local DBs are never "
+    "masked. Intended for remote storage backends that can return transient "
+    "infrastructure IO errors, where a crashed process is worse than an "
+    "invalidated run. Data-loss errors are never tolerated.");
+
 ROCKSDB_NAMESPACE::ToolHooks* hooks_ = nullptr;
 // db_bench_exit() ultimately calls exit() (directly or via ToolHooks::Exit),
 // which runs atexit handlers and C++ static/global destructors. That is only
@@ -2084,6 +2095,21 @@ static Status CreateMemTableRepFactory(
     }
   }
   return s;
+}
+
+// Returns true when `s` is an IO error that db_bench has been asked to tolerate
+// via --tolerate_io_errors_for_remote_dbs, but only when a remote backend
+// (--env_uri /
+// --fs_uri) is in use. Gating on a remote backend guarantees IO errors on local
+// DBs are never masked. Data-loss errors are never tolerated because they
+// indicate corruption rather than a transient infrastructure failure. Lets the
+// benchmark end gracefully with an invalid result against remote storage that
+// can return transient IO errors, instead of crashing the whole process.
+static bool IsTolerableIOError(const Status& s) {
+  assert(!s.ok());
+  return FLAGS_tolerate_io_errors_for_remote_dbs &&
+         (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) && s.IsIOError() &&
+         !status_to_io_status(Status(s)).GetDataLoss();
 }
 
 }  // namespace
@@ -3104,6 +3130,26 @@ struct SharedState {
 
 // Convenience alias so call sites can keep referring to `Duration`.
 using Duration = SharedState::Duration;
+
+// Handles an IO error surfaced by a benchmark op running on a worker thread.
+// `context` is logged and reused as the fatal message prefix.
+//
+// With --tolerate_io_errors_for_remote_dbs a non-data-loss IO error is recorded
+// as fatal so the run unwinds and shuts down gracefully, reporting the
+// benchmark result as INVALID instead of aborting the process; the caller
+// should then `return` out of its op. Without the flag (the default) it aborts,
+// which yields a core dump for local debugging. Data-loss errors are never
+// tolerated. Intended for remote storage backends that can return transient
+// infrastructure IO errors, where a crashed process is worse than an
+// invalidated run.
+static void HandleBenchmarkIOError(SharedState* shared, const Status& s,
+                                   const char* context) {
+  fprintf(stderr, "%s: %s\n", context, s.ToString().c_str());
+  if (!IsTolerableIOError(s)) {
+    abort();
+  }
+  shared->SetFatal(s, std::string(context) + "; benchmark result is INVALID");
+}
 
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
@@ -6986,8 +7032,8 @@ class Benchmark {
         found++;
         bytes += key.size() + pinnable_val.size();
       } else if (!s.IsNotFound()) {
-        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
-        abort();
+        HandleBenchmarkIOError(thread->shared, s, "Get returned an error");
+        return;
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
@@ -7074,9 +7120,9 @@ class Benchmark {
         if (status.ok()) {
           ++found;
         } else if (!status.IsNotFound()) {
-          fprintf(stderr, "Get returned an error: %s\n",
-                  status.ToString().c_str());
-          abort();
+          HandleBenchmarkIOError(thread->shared, status,
+                                 "Get returned an error");
+          return;
         }
         if (key_rand >= FLAGS_num) {
           ++nonexist;
@@ -7215,8 +7261,8 @@ class Benchmark {
           pinnable_vals[i].Reset();
         }
       } else if (!s.IsNotFound()) {
-        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
-        abort();
+        HandleBenchmarkIOError(thread->shared, s, "Get returned an error");
+        return;
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
@@ -7294,9 +7340,9 @@ class Benchmark {
             bytes += keys[i].size() + values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!statuses[i].IsNotFound()) {
-            fprintf(stderr, "MultiGet returned an error: %s\n",
-                    statuses[i].ToString().c_str());
-            abort();
+            HandleBenchmarkIOError(thread->shared, statuses[i],
+                                   "MultiGet returned an error");
+            return;
           }
         }
       } else {
@@ -7311,9 +7357,9 @@ class Benchmark {
                 keys[i].size() + pin_values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!stat_list[i].IsNotFound()) {
-            fprintf(stderr, "MultiGet returned an error: %s\n",
-                    stat_list[i].ToString().c_str());
-            abort();
+            HandleBenchmarkIOError(thread->shared, stat_list[i],
+                                   "MultiGet returned an error");
+            return;
           }
           stat_list[i] = Status::OK();
           pin_values[i].Reset();
@@ -8018,8 +8064,8 @@ class Benchmark {
           get_found++;
           bytes += key.size() + pinnable_val.size();
         } else if (!s.IsNotFound()) {
-          fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
-          abort();
+          HandleBenchmarkIOError(thread->shared, s, "Get returned an error");
+          return;
         }
 
         if (thread->shared->read_rate_limiter && (gets + seek) % 100 == 0) {
@@ -8547,7 +8593,14 @@ class Benchmark {
       } else if (!iter->status().ok()) {
         fprintf(stderr, "Iterator error: %s\n",
                 iter->status().ToString().c_str());
-        abort();
+        if (!IsTolerableIOError(iter->status())) {
+          abort();
+        }
+        // Tolerated IO error: record it as fatal (result INVALID) and stop
+        // scanning so the iterator below is deleted and RunBenchmark shuts
+        // down gracefully.
+        thread->shared->SetFatal(iter->status(), "BGScan iterator error");
+        break;
       } else {
         iter->Next();
         num_next++;
@@ -8858,9 +8911,8 @@ class Benchmark {
         ++found;
         bytes += key.size() + value.size() + user_timestamp_size_;
       } else if (!status.IsNotFound()) {
-        fprintf(stderr, "Get returned an error: %s\n",
-                status.ToString().c_str());
-        abort();
+        HandleBenchmarkIOError(thread->shared, status, "Get returned an error");
+        return;
       }
 
       if (thread->shared->write_rate_limiter) {
@@ -8993,9 +9045,8 @@ class Benchmark {
         ++found;
         bytes += key.size() + value.size() + user_timestamp_size_;
       } else if (!status.IsNotFound()) {
-        fprintf(stderr, "Get returned an error: %s\n",
-                status.ToString().c_str());
-        abort();
+        HandleBenchmarkIOError(thread->shared, status, "Get returned an error");
+        return;
       } else {
         // If not existing, then just assume an empty string of data
         value.clear();
