@@ -454,6 +454,9 @@ StressTest::StressTest(int db_index, const std::string& db_path,
 }
 
 void StressTest::CleanUp() {
+  // Prevent any new VerifyPkSkFast entries from background threads before
+  // we close and destroy the DB.
+  db_aptr_.store(nullptr, std::memory_order_release);
   CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
