@@ -222,8 +222,10 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
         return;
       }
       // A WAL rotation happened (LastSequence advanced past our last read).
-      // Attempt fast rotation if the callback is available.
-      if (next_live_wal_fn_) {
+      // Attempt fast rotation if the callback is available and we have
+      // already found our start sequence (started_). Without started_, we
+      // haven't delivered any records yet and should not follow rotations.
+      if (started_ && next_live_wal_fn_) {
         std::unique_ptr<WalFile> next_wal;
         SequenceNumber first_seq = 0;
         Status s = next_live_wal_fn_(files_->back()->LogNumber(), &next_wal,
