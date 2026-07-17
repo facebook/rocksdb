@@ -471,7 +471,6 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
     MutexLock l(&read_first_record_cache_mutex_);
     read_first_record_cache_.insert({number, *sequence});
   }
-  TEST_SYNC_POINT_CALLBACK("WalManager::ReadFirstRecord:After", sequence);
   return s;
 }
 
