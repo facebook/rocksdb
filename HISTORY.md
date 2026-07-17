@@ -1,6 +1,18 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.7.0 (07/16/2026)
+### Public API Changes
+* Added `RangeLockManagerHandle::SetIsKilledCallback()`, a `std::function<bool()>` predicate polled during range-lock waits. When it returns true, a blocked `GetRangeLock()` wait returns promptly with `Status::Aborted()` instead of waiting for the lock timeout. Range-lock users that install no callback keep the original wait-until-grant-or-timeout behavior.
+* Added `MultiScanArgs::reverse` to support reverse MultiScan reads over bounded scan ranges.
+
+### Behavior Changes
+* When using `LockWAL()`, live-file capture APIs such as checkpoint and backup now flush WAL-disabled unpersisted data; they can block until `UnlockWAL()` or return `Aborted` when called from the same thread that holds `LockWAL()` to avoid deadlock. `UnlockWAL()` must now also be called from the same thread that called `LockWAL()`.
+
+### Performance Improvements
+* Fixed slow DB open with `best_efforts_recovery`, and slow catch-up of secondary and follower (read-only) instances, in which time and memory grew quadratically with the number of files in the DB (so the slowdown was worst for large DBs with long history).
+
+
 ## 11.6.0 (07/02/2026)
 ### New Features
 * Added EXPERIMENTAL embedded blob SST support through `SstFileWriter::OpenWithEmbeddedBlobs()`, storing eligible large values as same-file blob records in block-based SST files and resolving them transparently for reads. This niche feature currently supports uncompressed embedded blobs only; compression options are placeholders and compression support is deferred to follow-up work.
