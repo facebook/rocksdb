@@ -524,7 +524,7 @@ TEST_F(DBTestXactLogIterator, FastRotation_SequenceGap_FallsBackToTryAgain) {
 
   // Enable sync point to perturb ReadFirstRecord for the fast-rotation path
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "WalManager::ReadFirstRecord:After", [](void* arg) {
+      "WalManager::PrepareNextWalForTail:AfterReadFirst", [](void* arg) {
         auto* seq = reinterpret_cast<SequenceNumber*>(arg);
         if (*seq > 0) {
           *seq = *seq + 100;

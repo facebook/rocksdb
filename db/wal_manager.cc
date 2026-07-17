@@ -144,16 +144,23 @@ Status WalManager::PrepareNextWalForTail(uint64_t last_wal_number,
     return Status::TryAgain("Could not open next WAL file");
   }
 
-  s = ReadFirstRecord(kAliveLogFile, next_wal_number, first_seq);
-  if (!s.ok() || *first_seq == 0 ||
-      (*first_seq == 1 &&
-       db_options_.wal_compression != kNoCompression)) {
-    // first_seq == 0: WAL is empty (no user records yet).
-    // first_seq == 1 with wal_compression: WAL contains only the
-    // kSetCompressionType header record (sentinel from ReadFirstLine),
-    // not a real user batch -- treat as empty.
+  // Read the first sequence directly from disk (bypassing
+  // read_first_record_cache_). The cache uses insert-not-overwrite semantics,
+  // so if the WAL was probed while still empty (e.g. with wal_compression
+  // returning the sentinel value 1), the stale entry would permanently block
+  // the fast path for this WAL number. Reading fresh avoids that.
+  *first_seq = 0;
+  std::string fname = LogFileName(wal_dir_, next_wal_number);
+  s = ReadFirstLine(fname, next_wal_number, first_seq);
+  TEST_SYNC_POINT_CALLBACK("WalManager::PrepareNextWalForTail:AfterReadFirst",
+                           first_seq);
+  if (!s.ok() && env_->FileExists(fname).ok()) {
     next_wal->reset();
-    return Status::TryAgain("Next WAL is empty or unreadable");
+    return Status::TryAgain("Next WAL unreadable");
+  }
+  if (*first_seq == 0) {
+    next_wal->reset();
+    return Status::TryAgain("Next WAL is empty");
   }
 
   return Status::OK();
