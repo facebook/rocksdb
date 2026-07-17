@@ -1707,7 +1707,21 @@ if(WITH_TESTS)
       )
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)
+          # Discover tests at ctest time instead of during the parallel build.
+          # POST_BUILD discovery (the default) runs each freshly-built test
+          # binary while the -j build is still compiling; on resource-constrained
+          # CI (notably the arm64 macOS runners) that discovery run can yield
+          # empty output, and CMake's JSON parser then aborts the whole build
+          # with "Syntax error: value, object or array expected". PRE_TEST moves
+          # discovery out of the build phase so a slow/empty enumeration no
+          # longer fails the build.
+          gtest_discover_tests(${exename}
+                               DISCOVERY_TIMEOUT 120
+                               DISCOVERY_MODE PRE_TEST)
+        else()
+          gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
+        endif()
         add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
