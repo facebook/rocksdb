@@ -29,7 +29,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       versions_(versions),
       seq_per_batch_(seq_per_batch),
       io_tracer_(io_tracer),
-      next_live_wal_fn_(std::move(next_live_wal_fn)),
+      next_live_wal_fn_(
+          std::move(next_live_wal_fn)),  // each iterator owns exclusively
       started_(false),
       is_valid_(false),
       current_file_index_(0),

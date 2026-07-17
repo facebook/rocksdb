@@ -3492,6 +3492,13 @@ class DBImpl : public DB {
 
   WalManager wal_manager_;
 
+  // Finds the immediate successor WAL in alive_wal_files_ and prepares it for
+  // the fast-rotation path. Used as the NextLiveWalFn callback when
+  // wal_iterator_tail_rotations is enabled.
+  Status FindNextLiveWalForTail(uint64_t last_wal_number,
+                                std::unique_ptr<WalFile>* out,
+                                SequenceNumber* first_seq);
+
   // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_ = 0;
 

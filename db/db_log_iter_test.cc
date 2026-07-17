@@ -332,9 +332,10 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
       "Delete(0, key2)",
       handler.seen);
 }
+
 TEST_F(DBTestXactLogIterator, FastRotation_SingleRotation_Continues) {
   Options options = OptionsForLogIterTest();
-  options.wal_iterator_fast_rotation = true;
+  options.wal_iterator_tail_rotations = true;
   DestroyAndReopen(options);
 
   // Write a record and open the iterator (captures current file list)
@@ -367,7 +368,7 @@ TEST_F(DBTestXactLogIterator, FastRotation_SingleRotation_Continues) {
 TEST_F(DBTestXactLogIterator,
        FastRotation_MultipleRotations_ContinuesOnFastPath) {
   Options options = OptionsForLogIterTest();
-  options.wal_iterator_fast_rotation = true;
+  options.wal_iterator_tail_rotations = true;
   DestroyAndReopen(options);
   // Create a second column family so that flushing one CF rotates the WAL
   // without making old WALs obsolete (the other CF still references them).
@@ -420,7 +421,7 @@ TEST_F(DBTestXactLogIterator,
 TEST_F(DBTestXactLogIterator,
        FastRotation_PurgedSuccessor_FallsBackToTryAgain) {
   Options options = OptionsForLogIterTest();
-  options.wal_iterator_fast_rotation = true;
+  options.wal_iterator_tail_rotations = true;
   // Allow WAL purge to happen aggressively
   options.WAL_ttl_seconds = 0;
   options.WAL_size_limit_MB = 0;
@@ -456,9 +457,9 @@ TEST_F(DBTestXactLogIterator,
 }
 
 TEST_F(DBTestXactLogIterator, FastRotation_OptInOff_PreservesBehavior) {
-  // Default options: wal_iterator_fast_rotation is false
+  // Default options: wal_iterator_tail_rotations is false
   Options options = OptionsForLogIterTest();
-  ASSERT_FALSE(options.wal_iterator_fast_rotation);
+  ASSERT_FALSE(options.wal_iterator_tail_rotations);
   DestroyAndReopen(options);
 
   // Write, open iterator, drain
@@ -482,7 +483,7 @@ TEST_F(DBTestXactLogIterator, FastRotation_OptInOff_PreservesBehavior) {
 
 TEST_F(DBTestXactLogIterator, FastRotation_EmptyNewWAL_FallsBackToTryAgain) {
   Options options = OptionsForLogIterTest();
-  options.wal_iterator_fast_rotation = true;
+  options.wal_iterator_tail_rotations = true;
   DestroyAndReopen(options);
 
   // Write two records then flush. After flush the new WAL is empty but
@@ -505,10 +506,10 @@ TEST_F(DBTestXactLogIterator, FastRotation_EmptyNewWAL_FallsBackToTryAgain) {
   ASSERT_TRUE(s.ok() || s.IsTryAgain()) << s.ToString();
 }
 
-#ifndef NDEBUG
+#ifndef NDEBUG  // SyncPoint callbacks are only functional in debug builds
 TEST_F(DBTestXactLogIterator, FastRotation_SequenceGap_FallsBackToTryAgain) {
   Options options = OptionsForLogIterTest();
-  options.wal_iterator_fast_rotation = true;
+  options.wal_iterator_tail_rotations = true;
   DestroyAndReopen(options);
   ASSERT_OK(Put("key1", DummyString(128)));
   ASSERT_OK(dbfull()->Flush(FlushOptions()));

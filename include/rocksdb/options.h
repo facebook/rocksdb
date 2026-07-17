@@ -1585,7 +1585,7 @@ struct DBOptions {
   // falls back to a fresh GetUpdatesSince(seq) call.
   //
   // Default: false (existing behavior preserved -- TryAgain on every rotation).
-  bool wal_iterator_fast_rotation = false;
+  bool wal_iterator_tail_rotations = false;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not
