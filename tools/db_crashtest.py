@@ -206,6 +206,7 @@ default_params = {
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
+    "tolerate_non_injected_io_errors_for_remote_dbs": 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -975,6 +976,11 @@ def finalize_and_sanitize(src_params):
     # remote --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
+    
+    # Not to accidentally ignore errors on local dbs
+    # (e.g. errors on IO Uring would be categorized as IO error)
+    if not is_remote_db:
+        dest_params["tolerate_non_injected_io_errors_for_remote_dbs"] = 0
 
     if dest_params.get("enable_blob_direct_write", 0) == 1:
         # Keep blob direct write in its reduced-scope crash-test profile.

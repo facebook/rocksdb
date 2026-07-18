@@ -379,6 +379,17 @@ void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
 
 }  // namespace
 
+bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
+  assert(!error_s.ok());
+  const IOStatus io_s = status_to_io_status(Status(error_s));
+  return !io_s.GetDataLoss() &&
+         ((error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s)) ||
+          (FLAGS_tolerate_non_injected_io_errors_for_remote_dbs &&
+           (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) &&
+           error_s.IsIOError()));
+}
+
 const std::string& StressTest::GetDbLabel() const { return db_label_; }
 
 const std::string& StressTest::GetDbPath() const { return db_path_; }
