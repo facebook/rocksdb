@@ -2827,9 +2827,9 @@ TEST_F(TrieIndexFactoryTest, RejectsNonBytewiseComparator) {
   ASSERT_NE(builder, nullptr);
 }
 
-TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
-  // Verify that ApproximateMemoryUsage() accounts for auxiliary heap
-  // allocations (child position lookup tables), not just serialized data.
+TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageReportsOnlyAuxData) {
+  // The reader reports its auxiliary heap allocations. The serialized block
+  // is accounted separately by the table reader or block cache.
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
@@ -2865,13 +2865,8 @@ TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
   ASSERT_OK(factory_->NewReader(option, index_contents, reader));
 
   size_t mem_usage = reader->ApproximateMemoryUsage();
-  // Memory usage should be at least the serialized data size.
-  ASSERT_GE(mem_usage, serialized_size);
-
-  fprintf(stderr,
-          "ApproximateMemoryUsage: serialized=%zu, reported=%zu, "
-          "aux_overhead=%zu bytes\n",
-          serialized_size, mem_usage, mem_usage - serialized_size);
+  ASSERT_GT(mem_usage, 0U);
+  ASSERT_LT(mem_usage, serialized_size);
 }
 
 TEST_F(TrieIndexFactoryTest, EmptyTrieIterator) {
@@ -2998,15 +2993,16 @@ TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
   ASSERT_OK(factory_->NewBuilder(option, builder));
 
   // Call OnKeyAdded with all ValueType variants -- all should be no-ops.
-  builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::kValue,
+  builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::ValueType::kValue,
                       Slice("value1"));
-  builder->OnKeyAdded(Slice("key2"), UserDefinedIndexBuilder::kDelete,
-                      Slice(""));
-  builder->OnKeyAdded(Slice("key3"), UserDefinedIndexBuilder::kMerge,
+  builder->OnKeyAdded(Slice("key2"),
+                      UserDefinedIndexBuilder::ValueType::kDelete, Slice(""));
+  builder->OnKeyAdded(Slice("key3"), UserDefinedIndexBuilder::ValueType::kMerge,
                       Slice("merge_operand"));
-  builder->OnKeyAdded(Slice("key4"), UserDefinedIndexBuilder::kOther,
+  builder->OnKeyAdded(Slice("key4"), UserDefinedIndexBuilder::ValueType::kOther,
                       Slice("blob_ref"));
-  builder->OnKeyAdded(Slice(""), UserDefinedIndexBuilder::kValue, Slice(""));
+  builder->OnKeyAdded(Slice(""), UserDefinedIndexBuilder::ValueType::kValue,
+                      Slice(""));
 
   // Building should still succeed (OnKeyAdded should not affect state).
   UserDefinedIndexBuilder::BlockHandle handle{0, 500};
