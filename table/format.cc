@@ -210,10 +210,10 @@ inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
 //      base_context_checksum (uint32LE, 4 bytes)
 //      metaindex block size (uint32LE, 4 bytes)
 //        - Assumed to be immediately before footer, < 4GB
-//      <zero padding> (24 bytes, reserved for future use)
+//      <zero padding> (16 bytes, reserved for future use)
+//      incompatible feature flags (uint64LE, 8 bytes)
 //        - Brings part2 size also to 40 bytes
-//        - Checked that last eight bytes == 0, so reserved for a future
-//          incompatible feature (but under format_version=6)
+//        - Unknown non-zero bits are rejected by readers
 // * Part3
 //   -> format_version == 0 (inferred from legacy magic number)
 //      legacy magic number (8 bytes)
@@ -228,10 +228,20 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
                             uint64_t footer_offset, ChecksumType checksum_type,
                             const BlockHandle& metaindex_handle,
                             const BlockHandle& index_handle,
-                            uint32_t base_context_checksum) {
+                            uint32_t base_context_checksum,
+                            uint64_t incompatible_features) {
   assert(magic_number != Footer::kNullTableMagicNumber);
   assert(IsSupportedFormatVersionForWrite(magic_number, format_version) ||
          TEST_AllowUnsupportedFormatVersion());
+  if (format_version < 6 && incompatible_features != 0) {
+    return Status::InvalidArgument(
+        "incompatible footer features require format_version >= 6");
+  }
+  if ((incompatible_features & ~kKnownFooterFeatures) != 0) {
+    return Status::InvalidArgument(
+        "unsupported incompatible footer features: " +
+        std::to_string(incompatible_features & ~kKnownFooterFeatures));
+  }
 
   char* part2;
   char* part3;
@@ -301,9 +311,13 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     EncodeFixed32(cur, metaindex_size);
     cur += 4;
 
-    // Zero pad remainder (for future use)
-    std::fill_n(cur, 24U, char{0});
-    assert(cur + 24 == part3);
+    // Zero pad reserved bytes, then write incompatible feature flags. Older
+    // readers reject any non-zero flags.
+    std::fill_n(cur, 16U, char{0});
+    cur += 16;
+    EncodeFixed64(cur, incompatible_features);
+    cur += sizeof(uint64_t);
+    assert(cur == part3);
 
     // Compute checksum, add context
     uint32_t checksum = ComputeBuiltinChecksum(
@@ -447,14 +461,14 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
     // 16 bytes of unchecked reserved padding
     input.remove_prefix(16U);
 
-    // 8 bytes of checked reserved padding (expected to be zero unless using a
-    // future feature).
-    uint64_t reserved = 0;
-    success = GetFixed64(&input, &reserved);
+    success = GetFixed64(&input, &incompatible_features_);
     assert(success);
-    if (UNLIKELY(reserved != 0)) {
+    const uint64_t unknown_features =
+        incompatible_features_ & ~kKnownFooterFeatures;
+    if (UNLIKELY(unknown_features != 0)) {
       return Status::NotSupported(
-          "File uses a future feature not supported in this version");
+          "File uses unsupported incompatible footer features: " +
+          std::to_string(unknown_features));
     }
     // End of part 2
     assert(input.data() == part3_ptr);
@@ -486,6 +500,10 @@ std::string Footer::ToString() const {
                 "\n  ");
   if (!IsLegacyFooterFormat(table_magic_number_)) {
     result.append("format version: " + std::to_string(format_version_) + "\n");
+    if (incompatible_features_ != 0) {
+      result.append("  incompatible features: " +
+                    std::to_string(incompatible_features_) + "\n");
+    }
   }
   return result;
 }

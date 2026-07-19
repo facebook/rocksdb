@@ -2430,37 +2430,46 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
-  // Names which block-based-table index a read should use. This is a
-  // preparatory API for replacing direct table_index_factory selection in a
-  // follow-up change. Until that wiring lands, table_index_factory keeps its
-  // existing behavior and read_index is not consulted by table reading.
+  // Per-read index selection. Overrides the default read routing determined
+  // by BlockBasedTableOptions::index_mode.
+  //
+  //   kDefault: use whatever index_mode says.
+  //     kStandardOnly/kStandardDefault/kStandardRequired -> standard index.
+  //     kCustomDefault/kCustomOnly                       -> custom
+  //                                                        IndexFactory index.
+  //
+  //   kBuiltin: force the standard index for this read.
+  //     Useful for debugging, comparing results between indexes, or
+  //     temporary fallback. In kCustomOnly mode, the standard index
+  //     is a minimal stub -- reads fail loudly instead of returning an
+  //     OK empty result.
+  //
+  //   kPreferCustom: select the custom IndexFactory index when the SST has
+  //     one; fall back to the standard index for SSTs that don't (e.g.,
+  //     pre-UDI files still on disk during migration). Once the custom
+  //     reader is loaded for an SST the per-read selection is strict --
+  //     iterator-creation failures surface as Status::Corruption rather
+  //     than silently falling back.
+  //
+  // ReadIndex is a two-way selector because BlockBasedTable supports
+  // exactly two index read targets per SST: the standard index (selected
+  // by BlockBasedTableOptions::index_type) and at most one custom index
+  // from user_defined_index_factory.
   enum class ReadIndex : uint8_t {
-    // Use the column family's default index routing.
     kDefault = 0,
-    // Use the standard block-based-table index.
     kBuiltin = 1,
-    // Prefer the configured custom index when present.
     kPreferCustom = 2,
   };
   ReadIndex read_index = ReadIndex::kDefault;
 
   // EXPERIMENTAL
   //
-  // Specify an alternate index to use in the SST files instead of the native
-  // block based table index. The table_factory used for the column family
-  // must support building/reading this index.
-  //
-  // The UDI framework supports all iterator operations: forward scans
-  // (SeekToFirst, Seek, Next), reverse scans (SeekToLast, SeekForPrev, Prev),
-  // and point lookups (Get). Concrete UDI implementations may impose their
-  // own restrictions -- check the specific implementation's documentation.
-  //
-  // When BlockBasedTableOptions::use_udi_as_primary_index is true, this field
-  // does not need to be set -- all reads automatically use the UDI. If set
-  // while use_udi_as_primary_index is true, the UDI from
-  // BlockBasedTableOptions takes precedence. This field is only needed when
-  // the UDI is a secondary index and you want to explicitly select it for
-  // reads.
+  // Legacy compatibility guard for callers that select a specific custom index
+  // factory for a read. When set, RocksDB routes the read through the custom
+  // index only if the SST's custom index name matches this factory's Name();
+  // otherwise iterator creation fails with InvalidArgument instead of silently
+  // using a different custom index. New code can leave this null and use
+  // read_index directly.
   const IndexFactory* table_index_factory = nullptr;
 
   // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by

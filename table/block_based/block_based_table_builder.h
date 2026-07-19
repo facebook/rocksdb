@@ -208,6 +208,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
+  // Adapter that bridges built-in index writer callbacks to
+  // BlockBasedTableBuilder's private write helpers.
+  class IndexBlockWriterImpl;
   std::unique_ptr<Rep> rep_;
   struct WorkingAreaPair;
   struct ParallelCompressionRep;

@@ -3423,6 +3423,22 @@ int main(int argc, char** argv) {
             bbo, &factory_name_len);
     CheckCondition(factory_name == NULL);
     CheckCondition(factory_name_len == 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_use_udi_as_primary_index(bbo) == 0);
+    rocksdb_block_based_options_set_use_udi_as_primary_index(bbo, 1);
+    CheckCondition(
+        rocksdb_block_based_options_get_use_udi_as_primary_index(bbo) == 1);
+    rocksdb_block_based_options_set_use_udi_as_primary_index(bbo, 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_use_udi_as_primary_index(bbo) == 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_fail_if_no_udi_on_open(bbo) == 0);
+    rocksdb_block_based_options_set_fail_if_no_udi_on_open(bbo, 1);
+    CheckCondition(
+        rocksdb_block_based_options_get_fail_if_no_udi_on_open(bbo) == 1);
+    rocksdb_block_based_options_set_fail_if_no_udi_on_open(bbo, 0);
+    CheckCondition(
+        rocksdb_block_based_options_get_fail_if_no_udi_on_open(bbo) == 0);
 
     rocksdb_block_based_options_destroy(bbo);
   }

@@ -5057,7 +5057,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   ReadOptions ro;
   auto udi_iter = reader->NewIterator(ro);
   // Wrap the UDI iterator in the adapter that converts to InternalIterator.
-  UserDefinedIndexIteratorWrapper wrapper(std::move(udi_iter));
+  IndexFactoryIteratorWrapper wrapper(std::move(udi_iter));
 
   // Seek to "a" -- constructs an internal key from user key "a".
   InternalKey seek_ikey;

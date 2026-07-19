@@ -83,12 +83,6 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   rocksdb_block_based_options_set_enable_index_compression(obj, 0);
   CheckCondition(
       rocksdb_block_based_options_get_enable_index_compression(obj) == 0);
-  rocksdb_block_based_options_set_fail_if_no_udi_on_open(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) ==
-                 1);
-  rocksdb_block_based_options_set_fail_if_no_udi_on_open(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) ==
-                 0);
   rocksdb_block_based_options_set_format_version(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_format_version(obj) == 1);
   rocksdb_block_based_options_set_format_version(obj, 0);
@@ -213,12 +207,6 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   CheckCondition(rocksdb_block_based_options_get_use_delta_encoding(obj) == 1);
   rocksdb_block_based_options_set_use_delta_encoding(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_use_delta_encoding(obj) == 0);
-  rocksdb_block_based_options_set_use_udi_as_primary_index(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 1);
-  rocksdb_block_based_options_set_use_udi_as_primary_index(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 0);
   rocksdb_block_based_options_set_verify_compression(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_verify_compression(obj) == 1);
   rocksdb_block_based_options_set_verify_compression(obj, 0);
