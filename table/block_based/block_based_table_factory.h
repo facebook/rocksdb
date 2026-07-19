@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "cache/cache_reservation_manager.h"
 #include "port/port.h"
@@ -88,6 +89,10 @@ class BlockBasedTableFactory : public TableFactory {
   }
 
  protected:
+  Status ConfigureOptions(
+      const ConfigOptions& config_options,
+      const std::unordered_map<std::string, std::string>& opts_map,
+      std::unordered_map<std::string, std::string>* unused) override;
   const void* GetOptionsPtr(const std::string& name) const override;
   Status ParseOption(const ConfigOptions& config_options,
                      const OptionTypeInfo& opt_info,

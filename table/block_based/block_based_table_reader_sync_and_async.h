@@ -172,6 +172,7 @@ DEFINE_SYNC_AND_ASYNC(BlocklikeStatus<TBlocklike>,
         if (get_context) {
           switch (TBlocklike::kBlockType) {
             case BlockType::kIndex:
+            case BlockType::kUserDefinedIndex:
               ++get_context->get_context_stats_.num_index_read;
               break;
             case BlockType::kFilter:
@@ -293,6 +294,7 @@ DEFINE_SYNC_AND_ASYNC(BlocklikeStatus<TBlocklike>,
     if (get_context) {
       switch (TBlocklike::kBlockType) {
         case BlockType::kIndex:
+        case BlockType::kUserDefinedIndex:
           ++(get_context->get_context_stats_.num_index_read);
           break;
         case BlockType::kFilter:
