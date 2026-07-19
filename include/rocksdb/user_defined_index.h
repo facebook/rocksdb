@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <string>
 
 #include "rocksdb/advanced_iterator.h"
@@ -116,20 +118,59 @@ class UserDefinedIndexBuilder {
   // snapshots are active). UDI builders that use OnKeyAdded() should be
   // prepared for this.
   //
-  // Thread safety: For a given builder instance, OnKeyAdded() and
-  // AddIndexEntry() are always called from a single thread. Builders do
-  // not need internal synchronization.
+  // Thread safety: Builders that use AddIndexEntry() are called from one
+  // thread. Builders that opt into parallel AddEntry receive OnKeyAdded() and
+  // PrepareAddEntry() on the emit thread and ordered FinishAddEntry() calls on
+  // the background writer thread. Emit-thread calls may overlap
+  // FinishAddEntry(), so implementations must synchronize shared state or keep
+  // the state touched by those callbacks disjoint. Finish() is called only
+  // after all FinishAddEntry() calls complete.
   virtual void OnKeyAdded(const Slice& /*key*/, ValueType /*type*/,
                           const Slice& /*value*/) {}
 
-  // Finish building the index.
-  // Returns a Status and the serialized index contents.
+  // Finish building the complete index into one self-contained byte buffer.
   // The memory backing the contents should not be freed until this builder
   // object is destructed.
   virtual Status Finish(Slice* index_contents) = 0;
 
   // Returns an estimate of the current serialized index size in bytes.
   virtual uint64_t EstimatedSize() const = 0;
+
+  // Optional two-phase protocol for builders that can participate in parallel
+  // compression. Builders that do not opt in keep the existing synchronous
+  // AddIndexEntry() path. Builders that return true from
+  // SupportsParallelAddEntry() must provide non-null prepared entries from
+  // CreatePreparedAddEntry(), fill them in PrepareAddEntry(), and commit the
+  // corresponding index entry in FinishAddEntry().
+  struct PreparedAddEntry {
+    virtual ~PreparedAddEntry() = default;
+  };
+
+  virtual bool SupportsParallelAddEntry() const { return false; }
+
+  virtual std::unique_ptr<PreparedAddEntry> CreatePreparedAddEntry() {
+    return nullptr;
+  }
+
+  virtual void PrepareAddEntry(const Slice& /*last_key_in_current_block*/,
+                               const Slice* /*first_key_in_next_block*/,
+                               const IndexEntryContext& /*context*/,
+                               PreparedAddEntry* /*out*/) {}
+
+  virtual void FinishAddEntry(const BlockHandle& /*block_handle*/,
+                              PreparedAddEntry* /*entry*/,
+                              std::string* /*separator_scratch*/,
+                              bool /*skip_delta_encoding*/) {}
+
+  virtual bool separator_is_key_plus_seq() const { return true; }
+
+  virtual uint64_t NumUniformIndexBlocks() const { return 0; }
+
+  virtual size_t IndexSize() const { return 0; }
+
+  virtual size_t NumPartitions() const { return 0; }
+
+  virtual size_t TopLevelIndexSize(uint64_t /*offset*/) const { return 0; }
 };
 
 // The interface for iterating the user defined index. This will be
