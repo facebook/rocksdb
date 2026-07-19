@@ -273,47 +273,31 @@ class TrieIndexReader : public UserDefinedIndexReader {
  private:
   const Comparator* comparator_;
   LoudsTrie trie_;
-  size_t data_size_;  // Size of the raw serialized data.
 };
 
 // ============================================================================
-// TrieIndexFactory: Implements UserDefinedIndexFactory.
+// TrieIndexFactory: Implements IndexFactory.
 //
 // Factory for creating TrieIndexBuilder (during SST file writes) and
 // TrieIndexReader (during SST file reads). Registered as a Customizable
 // with name "trie_index".
 // ============================================================================
-class TrieIndexFactory : public UserDefinedIndexFactory {
+class TrieIndexFactory : public IndexFactory {
  public:
   TrieIndexFactory() = default;
   ~TrieIndexFactory() override = default;
 
   static const char* kClassName() { return "trie_index"; }
   const char* Name() const override { return kClassName(); }
+  using IndexFactory::NewBuilder;
+  using IndexFactory::NewReader;
 
-  // Deprecated API (required by base class). Use the overloads that accept
-  // UserDefinedIndexOption instead. These must never be called; the new
-  // overloads with UserDefinedIndexOption are always used by the block-based
-  // table builder/reader. Abort unconditionally (in both debug and release
-  // builds) to surface programming errors immediately.
-  UserDefinedIndexBuilder* NewBuilder() const override {
-    abort();
-    return nullptr;
-  }
-  std::unique_ptr<UserDefinedIndexReader> NewReader(
-      Slice& /*index_block*/) const override {
-    abort();
-    return nullptr;
-  }
-
-  // New API with comparator.
   Status NewBuilder(
-      const UserDefinedIndexOption& option,
-      std::unique_ptr<UserDefinedIndexBuilder>& builder) const override;
+      const IndexFactoryOptions& option,
+      std::unique_ptr<IndexFactoryBuilder>& builder) const override;
 
-  Status NewReader(
-      const UserDefinedIndexOption& option, Slice& index_block,
-      std::unique_ptr<UserDefinedIndexReader>& reader) const override;
+  Status NewReader(const IndexFactoryOptions& option, Slice& index_block,
+                   std::unique_ptr<IndexFactoryReader>& reader) const override;
 };
 
 }  // namespace trie_index

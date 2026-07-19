@@ -45,7 +45,7 @@ class TableReader;
 class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
-class UserDefinedIndexFactory;
+class IndexFactory;
 
 // Hook for providing read-scoped storage for data blocks read from SST files.
 // This is configured through C++ options rather than OPTIONS files.
@@ -595,9 +595,9 @@ struct BlockBasedTableOptions {
   // This allows users to define their own index format and build the index
   // during table building.
   //
-  // NOTE: UserDefinedIndexFactory currently disables parallel compression
+  // NOTE: IndexFactory currently disables parallel compression
   // (CompressionOptions::parallel_threads sanitized to 1).
-  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
+  std::shared_ptr<IndexFactory> user_defined_index_factory = nullptr;
 
   // EXPERIMENTAL
   //
