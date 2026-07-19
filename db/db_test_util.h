@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <set>
@@ -1439,6 +1441,7 @@ class DBTestBase : public testing::Test {
     tp->num_deletions = 0;
     tp->num_merge_operands = 0;
     tp->num_range_deletions = 0;
+    tp->standard_index_is_stub = 0;
   }
 
   void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
@@ -1467,6 +1470,15 @@ class DBTestBase : public testing::Test {
         &tp->uncompressed_data_size, &tp->index_key_is_user_key,
         &tp->index_value_is_delta_encoded, &tp->index_size, &tp->filter_size);
     ASSERT_EQ(count, 18);
+
+    const char* standard_index_is_stub =
+        std::strstr(tp_string.c_str(), "standard index is stub ");
+    if (standard_index_is_stub != nullptr) {
+      ASSERT_EQ(
+          std::sscanf(standard_index_is_stub, "standard index is stub %" SCNu64,
+                      &tp->standard_index_is_stub),
+          1);
+    }
   }
 
  private:  // Prone to error on direct use
