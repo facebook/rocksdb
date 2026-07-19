@@ -306,7 +306,8 @@ Status BinarySearchIndexFactory::NewBuilder(
       index_type, config_.internal_comparator,
       config_.internal_prefix_transform,
       config_.use_delta_encoding_for_index_values, *config_.table_options,
-      config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats));
+      config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats,
+      config_.use_common_prefix, config_.use_common_prefix));
   std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
       std::make_unique<BuiltinIndexFactoryBuilder>(
           index_type, std::move(internal), /*partitioned_builder=*/nullptr);
@@ -356,7 +357,8 @@ Status HashIndexFactory::NewBuilder(
       BlockBasedTableOptions::kHashSearch, config_.internal_comparator,
       config_.internal_prefix_transform,
       config_.use_delta_encoding_for_index_values, *config_.table_options,
-      config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats));
+      config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats,
+      config_.use_common_prefix, config_.use_common_prefix));
   std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
       std::make_unique<BuiltinIndexFactoryBuilder>(
           BlockBasedTableOptions::kHashSearch, std::move(internal),
@@ -407,7 +409,8 @@ Status PartitionedIndexFactory::NewBuilder(
           config_.internal_comparator,
           config_.use_delta_encoding_for_index_values, *config_.table_options,
           config_.ts_sz, config_.persist_user_defined_timestamps,
-          config_.stats);
+          config_.stats, config_.use_common_prefix,
+          config_.use_common_prefix);
   std::unique_ptr<IndexBuilder> owned_internal(internal);
   std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
       std::make_unique<BuiltinIndexFactoryBuilder>(

@@ -39,6 +39,7 @@ struct BuiltinIndexFactoryConfig {
   size_t ts_sz = 0;
   bool persist_user_defined_timestamps = true;
   Statistics* stats = nullptr;
+  bool use_common_prefix = false;
 };
 
 // BinarySearchIndexFactory: the default BlockBasedTable index. Wraps

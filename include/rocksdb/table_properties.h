@@ -48,6 +48,7 @@ struct TablePropertiesNames {
   static const std::string kIndexKeyIsUserKey;
   static const std::string kIndexValueIsDeltaEncoded;
   static const std::string kUDIIsPrimaryIndex;
+  static const std::string kStandardIndexIsStub;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
@@ -243,8 +244,12 @@ struct TableProperties {
   // Whether delta encoding is used to encode the index values.
   uint64_t index_value_is_delta_encoded = 0;
   // Whether the UDI is the primary index for reads. The standard index is
-  // still fully populated alongside the UDI.
+  // fully populated alongside the UDI except in kCustomOnly mode, where it is
+  // a minimal stub.
   uint64_t udi_is_primary_index = 0;
+  // Whether the standard index is only a footer-satisfying stub and cannot
+  // serve reads. This is set for kCustomOnly SSTs.
+  uint64_t standard_index_is_stub = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw (uncompressed, undelineated) key size

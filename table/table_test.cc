@@ -148,6 +148,51 @@ TEST(IndexFactoryCompatibilityTest, NewNamesPreserveOldSubclassShape) {
   ASSERT_STREQ(kIndexFactoryMetaPrefix, kUserDefinedIndexPrefix);
 }
 
+TEST(IndexFactoryCompatibilityTest, LegacyBlockBasedTableOptionsFields) {
+  BlockBasedTableOptions table_options;
+  table_options.use_udi_as_primary_index = true;
+  BlockBasedTableFactory primary_factory(table_options);
+  ASSERT_NE(primary_factory.GetPrintableOptions().find("index_mode: 2"),
+            std::string::npos);
+
+  table_options.use_udi_as_primary_index = false;
+  table_options.fail_if_no_udi_on_open = true;
+  BlockBasedTableFactory required_factory(table_options);
+  ASSERT_NE(required_factory.GetPrintableOptions().find("index_mode: 4"),
+            std::string::npos);
+}
+
+// An index_mode the caller set explicitly must survive a deprecated bool they
+// forgot to clear, otherwise the documented rollback (drop index_mode back to
+// kStandardOnly) is silently escalated back to the custom index.
+TEST(IndexFactoryCompatibilityTest, ExplicitIndexModeBeatsLegacyBools) {
+  auto expect_mode = [](const BlockBasedTableOptions& opts,
+                        const std::string& expected) {
+    SCOPED_TRACE(expected);
+    BlockBasedTableFactory factory(opts);
+    EXPECT_NE(factory.GetPrintableOptions().find(expected), std::string::npos);
+  };
+
+  BlockBasedTableOptions table_options;
+  table_options.use_udi_as_primary_index = true;
+  table_options.fail_if_no_udi_on_open = true;
+
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kStandardOnly;
+  expect_mode(table_options, "index_mode: 0");
+
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardRequired;
+  expect_mode(table_options, "index_mode: 4");
+
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kCustomOnly;
+  expect_mode(table_options, "index_mode: 3");
+
+  // Left at the default, the bools still apply for old callers.
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  expect_mode(table_options, "index_mode: 2");
+}
+
 const std::string kDummyValue(10000, 'o');
 constexpr auto kVerbose = false;
 
@@ -9437,6 +9482,7 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
     using IndexFactory::NewReader;
 
     const char* Name() const override { return "test_index"; }
+
     Status NewBuilder(
         const UserDefinedIndexOption& /*option*/,
         std::unique_ptr<UserDefinedIndexBuilder>& builder) const override {
@@ -10096,7 +10142,7 @@ TEST_P(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
   BasicTest(/*use_partitioned_index=*/false);
 }
 
-TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
+TEST_P(UserDefinedIndexTest, ParallelCompressionFallsBackWithCustomIndex) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
   std::string ingest_file = dbname + "test.sst";
@@ -10117,10 +10163,10 @@ TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
   writer.reset(new SstFileWriter(EnvOptions(), options_));
   ASSERT_OK(writer->Open(ingest_file));
 
-  std::string key = "foo";
+  std::string key = "key00";
   std::string value = "bar";
-  ASSERT_EQ(writer->Put(key, value), Status::InvalidArgument());
-  ASSERT_EQ(writer->Finish(), Status::InvalidArgument());
+  ASSERT_OK(writer->Put(key, value));
+  ASSERT_OK(writer->Finish());
   writer.reset();
 }
 
@@ -10607,7 +10653,7 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
 
 // Verify that external file ingestion fails if we try to ingest an SST file
 // without the UDI and a UDI factory is configured in BlockBasedTableOptions
-// and fail_if_no_udi_on_open is true in BlockBasedTableOptions.
+// and the configured index mode requires a custom index block.
 TEST_P(UserDefinedIndexTest, IngestFailTest) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
@@ -10634,7 +10680,7 @@ TEST_P(UserDefinedIndexTest, IngestFailTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.fail_if_no_udi_on_open = true;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -10650,7 +10696,7 @@ TEST_P(UserDefinedIndexTest, IngestFailTest) {
   ASSERT_NOK(s);
 
   ASSERT_OK(db->SetOptions(
-      cfh, {{"block_based_table_factory", "{fail_if_no_udi_on_open=false;}"}}));
+      cfh, {{"block_based_table_factory", "{index_mode=kStandardOnly;}"}}));
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_OK(s);
 
@@ -10691,7 +10737,8 @@ TEST_P(UserDefinedIndexTest, IngestEmptyUDI) {
   ASSERT_OK(writer->Finish());
   writer.reset();
 
-  table_options.fail_if_no_udi_on_open = true;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardRequired;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
