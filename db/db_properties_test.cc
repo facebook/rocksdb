@@ -625,6 +625,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
       sum_tp.num_deletions += level_tps[level].num_deletions;
       sum_tp.num_merge_operands += level_tps[level].num_merge_operands;
       sum_tp.num_range_deletions += level_tps[level].num_range_deletions;
+      sum_tp.standard_index_is_stub += level_tps[level].standard_index_is_stub;
     }
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &tp_string);
     ParseTablePropertiesString(tp_string, &tp);
@@ -640,6 +641,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_EQ(sum_tp.num_deletions, tp.num_deletions);
     ASSERT_EQ(sum_tp.num_merge_operands, tp.num_merge_operands);
     ASSERT_EQ(sum_tp.num_range_deletions, tp.num_range_deletions);
+    ASSERT_EQ(sum_tp.standard_index_is_stub, tp.standard_index_is_stub);
     if (table > 3) {
       GetExpectedTableProperties(
           &expected_tp, kKeySize, kValueSize, kPutsPerTable, kDeletionsPerTable,
