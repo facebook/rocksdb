@@ -4600,6 +4600,12 @@ cpp_unittest_wrapper(name="bloom_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="builtin_index_factory_test",
+            srcs=["table/block_based/builtin_index_factory_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="cache_reservation_manager_test",
             srcs=["cache/cache_reservation_manager_test.cc"],
             deps=[":rocksdb_test_lib"],
