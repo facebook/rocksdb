@@ -9,22 +9,26 @@
 //
 //  Trie-based User Defined Index (UDI) for RocksDB's block-based tables.
 //
-//  This provides a TrieIndexFactory that implements the UserDefinedIndexFactory
+//  This provides a TrieIndexFactory that implements the IndexFactory
 //  interface, building a Fast Succinct Trie (FST) index from the separator keys
 //  generated during SST file construction. Based on the SuRF paper results, the
 //  trie is expected to achieve significant space reduction compared to the
-//  default binary search index while providing comparable Seek() performance.
+//  standard index while providing comparable Seek() performance.
 //
 //  Usage:
 //    auto trie_factory = std::make_shared<TrieIndexFactory>();
 //    BlockBasedTableOptions table_options;
 //    table_options.user_defined_index_factory = trie_factory;
+//    table_options.index_mode =
+//    BlockBasedTableOptions::IndexMode::kStandardDefault;
 //
-//  At read time, set ReadOptions::table_index_factory to the same factory
-//  to use the trie for iteration:
+//  In kStandardDefault mode, reads use the standard index by default.
+//  Set ReadOptions::read_index to kPreferCustom to use the trie:
 //    ReadOptions ro;
-//    ro.table_index_factory = trie_factory.get();
+//    ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
 //    auto iter = db->NewIterator(ro);
+//
+//  In kCustomDefault/kCustomOnly mode, all reads use the trie automatically.
 
 #pragma once
 
@@ -34,8 +38,8 @@
 #include <vector>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/types.h"
-#include "rocksdb/user_defined_index.h"
 #include "utilities/trie_index/louds_trie.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -48,7 +52,7 @@ int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
                                     const std::string& arg);
 
 // ============================================================================
-// TrieIndexBuilder: Implements UserDefinedIndexBuilder using LoudsTrieBuilder.
+// TrieIndexBuilder: Implements IndexFactoryBuilder using LoudsTrieBuilder.
 //
 // During SST file construction, RocksDB calls:
 //   1. OnKeyAdded() for each key-value pair.
@@ -58,7 +62,7 @@ int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
 // The trie builder collects the separator keys from AddIndexEntry() and
 // builds a LOUDS-encoded trie during Finish().
 // ============================================================================
-class TrieIndexBuilder final : public UserDefinedIndexBuilder {
+class TrieIndexBuilder final : public IndexFactoryBuilder {
  public:
   explicit TrieIndexBuilder(const Comparator* comparator);
   ~TrieIndexBuilder() override = default;
@@ -85,29 +89,38 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   // Finalize the trie and return the serialized index data.
   Status Finish(Slice* index_contents) override;
 
-  // Returns an estimate of the current serialized index size.
+  // Returns an estimate of the current serialized index size. The estimate is
+  // updated only by emit-thread callbacks, so concurrent FinishAddEntry calls
+  // do not require synchronization.
   uint64_t EstimatedSize() const override;
+
+  // --- Parallel compression protocol ---
+  //
+  // The trie builder participates in the parallel pipeline by splitting
+  // AddIndexEntry into Prepare (emit thread, computes the separator) and
+  // Finish (write thread, attaches the now-known block handle and appends
+  // to buffered_entries_). Because FinishAddEntry runs serially on the BG
+  // worker thread (the table builder commits blocks in order), the entry
+  // buffer mutation needs no locking.
+  bool SupportsParallelAddEntry() const override { return true; }
+  std::unique_ptr<PreparedAddEntry> CreatePreparedAddEntry() override;
+  void PrepareAddEntry(const Slice& last_key_in_current_block,
+                       const Slice* first_key_in_next_block,
+                       const IndexEntryContext& context,
+                       PreparedAddEntry* out) override;
+  void FinishAddEntry(const BlockHandle& block_handle, PreparedAddEntry* entry,
+                      std::string* separator_scratch,
+                      bool skip_delta_encoding) override;
 
  private:
   const Comparator* comparator_;
   LoudsTrieBuilder trie_builder_;
   bool finished_;
 
-  // --- Sequence number handling ---
-  //
-  // Seqno encoding is always enabled: AddIndexEntry() unconditionally sets
-  // must_use_separator_with_seq_ to true (the unconditional set at the end of
-  // AddIndexEntry()). This means the 8-byte-per-leaf seqno side-table overhead
-  // is always incurred. The flag exists so that Finish() can check it to decide
-  // whether to serialize the seqno side-table (true path) or emit a plain
-  // trie without seqno data (false/else path, only reachable for an empty
-  // trie with zero entries).
-  //
-  // We buffer all separator entries during building, then at Finish() feed
-  // them to the trie with seqno side-table metadata.
-  //
-  // Always set to true in AddIndexEntry() -- seqno encoding is
-  // unconditionally enabled. The 8-byte per-leaf overhead is always incurred.
+  // Always set to true when an entry is staged so Finish() emits the
+  // seqno side-table needed by the post-seek correction. The 8-byte per-
+  // leaf overhead is unconditional. The false path in Finish() is only
+  // reachable for an empty trie (no entries at all).
   bool must_use_separator_with_seq_;
 
   // Buffered separator entries: (separator_key, tag, handle).
@@ -122,18 +135,41 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;
-  // Running total of separator key bytes for O(1) EstimatedSize().
-  uint64_t total_separator_bytes_ = 0;
+  // EstimatedSize() is called on the emit thread. Keep its state disjoint from
+  // buffered_entries_, which the BG writer mutates during parallel builds.
+  uint64_t estimated_separator_bytes_ = 0;
+  uint64_t estimated_num_entries_ = 0;
+
+  // Staged data for the parallel AddIndexEntry protocol. Populated by
+  // PrepareAddEntry on the emit thread, consumed by FinishAddEntry on
+  // the BG worker thread. The block handle is unknown when Prepare
+  // runs and is filled in by Finish.
+  struct PreparedTrieEntry : public IndexFactoryBuilder::PreparedAddEntry {
+    std::string separator_key;
+    // Real tag of last_key_in_current_block. Used as entry.tag for last
+    // blocks and for same-user-key runs.
+    uint64_t last_key_tag = 0;
+    // True if first_key_in_next_block was non-null at Prepare time.
+    bool has_next_block = false;
+    // True if last_key and first_key_in_next_block share the same user
+    // key (computed from inputs alone). Finish may upgrade this to true
+    // if FindShortestSeparator failed to shorten and the result matches
+    // the previous buffered entry's separator (a check that depends on
+    // buffer state and so must run during Finish).
+    bool same_user_key_initial = false;
+    // Set by PrepareAddEntry; FinishAddEntry skips on false.
+    bool valid = false;
+  };
 };
 
 // ============================================================================
-// TrieIndexIterator: Implements UserDefinedIndexIterator using
+// TrieIndexIterator: Implements IndexFactoryIterator using
 // LoudsTrieIterator.
 //
 // Wraps LoudsTrieIterator and adapts it to the UDI iterator interface,
 // handling bounds checking against ScanOptions.
 // ============================================================================
-class TrieIndexIterator final : public UserDefinedIndexIterator {
+class TrieIndexIterator final : public IndexFactoryIterator {
  public:
   // @param has_seqno_encoding: true if the trie was built with a seqno
   //   side-table (enabling post-seek correction for same-user-key boundaries).
@@ -170,7 +206,7 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
   // Return the BlockHandle of the current block. When positioned on an
   // overflow block, returns the overflow block's handle instead of the
   // trie leaf's handle.
-  UserDefinedIndexBuilder::BlockHandle value() override;
+  IndexFactoryBuilder::BlockHandle value() override;
 
  private:
   // Check if the current block is within the active scan bounds.
@@ -249,12 +285,12 @@ class TrieIndexIterator final : public UserDefinedIndexIterator {
 };
 
 // ============================================================================
-// TrieIndexReader: Implements UserDefinedIndexReader.
+// TrieIndexReader: Implements IndexFactoryReader.
 //
 // Owns (or references) the deserialized LoudsTrie and creates iterators
 // for read operations.
 // ============================================================================
-class TrieIndexReader : public UserDefinedIndexReader {
+class TrieIndexReader : public IndexFactoryReader {
  public:
   explicit TrieIndexReader(const Comparator* comparator);
   ~TrieIndexReader() override = default;
@@ -264,7 +300,7 @@ class TrieIndexReader : public UserDefinedIndexReader {
   Status InitFromSlice(const Slice& data);
 
   // Create a new iterator for scanning.
-  std::unique_ptr<UserDefinedIndexIterator> NewIterator(
+  std::unique_ptr<IndexFactoryIterator> NewIterator(
       const ReadOptions& read_options) override;
 
   // Approximate memory usage of the deserialized trie.
