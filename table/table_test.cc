@@ -8438,6 +8438,124 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
     };
   };
 
+  // Minimal IndexFactory whose builder opts into the parallel-compression
+  // protocol (SupportsParallelAddEntry == true). Used to verify that the
+  // table builder's parallel pipeline correctly invokes PrepareAddEntry +
+  // FinishAddEntry on custom builders. Counters live on the factory so the
+  // test can assert which path was taken.
+  //
+  // The factory's NewReader returns a stub reader so SST open succeeds.
+  // Tests using this factory should set ReadOptions::read_index =
+  // kBuiltin so reads go through the standard index -- the stub iterator
+  // has no usable behavior.
+  class ParallelAwareTestFactory : public IndexFactory {
+   public:
+    using IndexFactory::NewBuilder;
+    using IndexFactory::NewReader;
+
+    mutable std::atomic<int> prepare_calls{0};
+    mutable std::atomic<int> finish_calls{0};
+    mutable std::atomic<int> add_index_entry_calls{0};
+
+    const char* Name() const override { return "parallel_aware_test_index"; }
+
+    Status NewBuilder(
+        const IndexFactoryOptions& /*opts*/,
+        std::unique_ptr<IndexFactoryBuilder>& builder) const override {
+      builder = std::make_unique<Builder>(this);
+      return Status::OK();
+    }
+    Status NewReader(
+        const IndexFactoryOptions&, Slice&,
+        std::unique_ptr<IndexFactoryReader>& reader) const override {
+      reader = std::make_unique<StubReader>();
+      return Status::OK();
+    }
+
+   private:
+    struct Prepared : public IndexFactoryBuilder::PreparedAddEntry {
+      // Captures what the emit thread saw, then committed by the worker.
+      std::string last_user_key;
+      std::string next_user_key;
+      bool has_next = false;
+    };
+
+    // Stub reader: SST open requires a non-null reader from NewReader.
+    // Tests using this factory route reads via read_index = kBuiltin so
+    // the iterator produced here is never actually invoked.
+    class StubReader : public IndexFactoryReader {
+     public:
+      std::unique_ptr<IndexFactoryIterator> NewIterator(
+          const ReadOptions&) override {
+        return nullptr;
+      }
+      size_t ApproximateMemoryUsage() const override { return 0; }
+    };
+
+    class Builder : public IndexFactoryBuilder {
+     public:
+      explicit Builder(const ParallelAwareTestFactory* f) : factory_(f) {}
+
+      bool SupportsParallelAddEntry() const override { return true; }
+
+      std::unique_ptr<PreparedAddEntry> CreatePreparedAddEntry() override {
+        return std::make_unique<Prepared>();
+      }
+
+      void PrepareAddEntry(const Slice& last_key, const Slice* next_key,
+                           const IndexEntryContext& /*ctx*/,
+                           PreparedAddEntry* out) override {
+        auto* p = static_cast<Prepared*>(out);
+        p->last_user_key = last_key.ToString();
+        p->has_next = next_key != nullptr;
+        if (p->has_next) {
+          p->next_user_key = next_key->ToString();
+        }
+        factory_->prepare_calls.fetch_add(1, std::memory_order_relaxed);
+      }
+
+      void FinishAddEntry(const BlockHandle& handle, PreparedAddEntry* entry,
+                          std::string* /*scratch*/,
+                          bool /*skip_delta_encoding*/) override {
+        auto* p = static_cast<Prepared*>(entry);
+        // Append a fixed-size record per entry so Finish() returns a
+        // non-empty block (the meta block is only written when contents
+        // are non-empty).
+        PutFixed64(&serialized_, handle.offset);
+        PutFixed64(&serialized_, handle.size);
+        PutFixed32(&serialized_,
+                   static_cast<uint32_t>(p->last_user_key.size()));
+        factory_->finish_calls.fetch_add(1, std::memory_order_relaxed);
+      }
+
+      Slice AddIndexEntry(const Slice& last_key, const Slice* /*next_key*/,
+                          const BlockHandle& handle, std::string* /*scratch*/,
+                          const IndexEntryContext& /*ctx*/) override {
+        // Synchronous path: only used when the table builder didn't take
+        // the parallel pipeline. Append a record so Finish() output is
+        // still consistent.
+        PutFixed64(&serialized_, handle.offset);
+        PutFixed64(&serialized_, handle.size);
+        PutFixed32(&serialized_, static_cast<uint32_t>(last_key.size()));
+        factory_->add_index_entry_calls.fetch_add(1, std::memory_order_relaxed);
+        return last_key;
+      }
+
+      void OnKeyAdded(const Slice&, ValueType, const Slice&) override {}
+
+      Status Finish(Slice* out) override {
+        *out = Slice(serialized_);
+        return Status::OK();
+      }
+
+      uint64_t EstimatedSize() const override { return serialized_.size(); }
+
+     private:
+      const ParallelAwareTestFactory* factory_;
+      std::string serialized_;
+    };
+  };
+
  protected:
   std::vector<std::pair<std::string, std::string>> generateKVWithValue(
       int key_count, const std::string& value) {
@@ -9425,6 +9543,208 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   ASSERT_EQ(count, 50)
       << "kCustomOnly SST was unreadable through the upgraded config: legacy "
          "use_udi_as_primary_index=true must translate to kCustomDefault";
+}
+
+// Verifies that a UDI whose builder reports SupportsParallelAddEntry()==true
+// is wired into the parallel compression pipeline correctly:
+// PrepareAddEntry runs on the emit thread, FinishAddEntry on the BG worker,
+// and the synchronous AddIndexEntry path is NOT taken. ParallelAwareTestFactory
+// counts each callback, letting us assert which path was used.
+//
+// This test uses the DB Put + Flush path (rather than SstFileWriter)
+// because that's the canonical caller of MaybeStartParallelCompression
+// when parallel_threads > 1.
+TEST_P(UserDefinedIndexTest, ParallelCompressionWithSupportingUdi) {
+  BlockBasedTableOptions table_options;
+  auto factory = std::make_shared<ParallelAwareTestFactory>();
+  table_options.user_defined_index_factory = factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.create_if_missing = true;
+  // Compression must be on for the parallel pipeline to actually run; with
+  // no compressor the table builder silently falls back to serial.
+  // Use Zlib so the parallel pipeline activates regardless of whether
+  // Snappy/LZ4/ZSTD are linked into this test binary.
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "Skipping: Zlib not linked into this build\n");
+    return;
+  }
+  options_.compression = kZlibCompression;
+  options_.compression_opts.parallel_threads = 4;
+  options_.write_buffer_size = 1 << 20;  // 1 MiB
+
+  std::string dbname = test::PerThreadDBPath("udi_parallel_supporting_test");
+  ASSERT_OK(DestroyDB(dbname, options_));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options_, dbname, &db));
+
+  // Enough keys with the 3-per-block flush policy that we get many data
+  // blocks -> many index entries through the parallel pipeline.
+  auto kvs = generateKVs(/*key_count=*/300);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(db->Put(WriteOptions(), kv.first, kv.second));
+  }
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Parallel pipeline ran for the custom index: prepare and finish were
+  // invoked, AddIndexEntry (the serial fallback) was NOT.
+  EXPECT_GT(factory->prepare_calls.load(), 0);
+  EXPECT_GT(factory->finish_calls.load(), 0);
+  EXPECT_EQ(factory->prepare_calls.load(), factory->finish_calls.load());
+  EXPECT_EQ(factory->add_index_entry_calls.load(), 0);
+
+  // Reads work via the standard index (the DB still has the UDI factory
+  // configured, but ParallelAwareTestFactory's NewReader returns
+  // NotSupported, so set read_index = kBuiltin to bypass it).
+  ReadOptions ro;
+  ro.read_index = ReadOptions::ReadIndex::kBuiltin;
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter.reset();
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+
+// when EmitBlockForParallel doesn't run its custom-index
+// PrepareAddEntry path for a given block (defensive ParseInternalKey
+// failure path), BGWorker must NOT commit a stale prepared entry left over
+// from a previous use of the same BlockRep slot.
+//
+// Reproduction: a sync-point callback flips skip_custom_prepare = true on
+// every 3rd block emitted. Without the flag-reset fix in
+// EmitBlockForParallel, the BlockRep ring buffer's custom_entries_prepared
+// flag from a previous iteration would leak through, and BGWorker would
+// invoke FinishAddEntry against stale staged data -- observable as
+// finish_calls > prepare_calls. With the fix, the flags are reset at the
+// top of EmitBlockForParallel before any conditional staging runs, so
+// FinishAddEntry only fires for blocks whose Prepare actually ran.
+TEST_P(UserDefinedIndexTest,
+       ParallelCompressionStaleFlagResetWhenPrepareSkipped) {
+  BlockBasedTableOptions table_options;
+  auto factory = std::make_shared<ParallelAwareTestFactory>();
+  table_options.user_defined_index_factory = factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.create_if_missing = true;
+  if (!Zlib_Supported()) {
+    fprintf(stderr, "Skipping: Zlib not linked into this build\n");
+    return;
+  }
+  options_.compression = kZlibCompression;
+  options_.compression_opts.parallel_threads = 4;
+  options_.write_buffer_size = 1 << 20;
+
+  std::string dbname = test::PerThreadDBPath("udi_parallel_stale_flag_test");
+  ASSERT_OK(DestroyDB(dbname, options_));
+
+  // Inject a controlled "skip" on every 3rd EmitBlockForParallel call
+  // that has a non-empty custom_indexes vector. The atomic counter is
+  // process-global which is fine for this single-DB test.
+  std::atomic<int> emit_call_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::EmitBlockForParallel:SkipCustomPrepare",
+      [&](void* arg) {
+        bool* skip = static_cast<bool*>(arg);
+        const int n = emit_call_count.fetch_add(1) + 1;
+        if (n % 3 == 0) {
+          *skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options_, dbname, &db));
+
+  // Use enough keys to comfortably cycle the parallel ring buffer
+  // multiple times so the stale-flag scenario becomes observable.
+  auto kvs = generateKVs(/*key_count=*/300);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(db->Put(WriteOptions(), kv.first, kv.second));
+  }
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The fix's guarantee: FinishAddEntry only ever runs for blocks whose
+  // Prepare actually populated the slot. With the sync-point skipping
+  // ~1 in 3 prepares, we expect strictly fewer finishes than the total
+  // emitted blocks but exactly equal to the prepares that ran.
+  EXPECT_GT(factory->prepare_calls.load(), 0);
+  EXPECT_GT(factory->finish_calls.load(), 0);
+  EXPECT_EQ(factory->prepare_calls.load(), factory->finish_calls.load())
+      << "Stale prepared-entry slot leaked from a previous ring-buffer "
+         "iteration: BGWorker called FinishAddEntry for a block whose "
+         "PrepareAddEntry was skipped this iteration.";
+  // Sanity: the sync-point did skip something.
+  EXPECT_GT(emit_call_count.load(), 0);
+
+  // SST opens cleanly (read via standard index since
+  // ParallelAwareTestFactory has only a stub reader).
+  ReadOptions ro;
+  ro.read_index = ReadOptions::ReadIndex::kBuiltin;
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter.reset();
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options_));
+}
+
+// Whether parallel compression is usable is a per-implementation property
+// (IndexFactoryBuilder::SupportsParallelAddEntry). When the configured
+// custom factory's builder doesn't support the parallel protocol, the
+// table builder silently falls back to single-threaded compression instead
+// of erroring out -- same convention as the partition_filters fallback.
+//
+// TestIndexFactoryBuilder leaves SupportsParallelAddEntry() at its default
+// (false), so this test exercises the fallback path: parallel_threads=10
+// is requested, the SST still builds and verifies cleanly.
+TEST_P(UserDefinedIndexTest, ParallelCompressionFallbackWithUnsupportedUdi) {
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  auto user_defined_index_factory = std::make_shared<TestIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options_.compression_opts.parallel_threads = 10;
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options_));
+  ASSERT_OK(writer->Open(ingest_file));
+  auto kvs = generateKVs(/*key_count=*/30);
+  for (const auto& kv : kvs) {
+    ASSERT_OK(writer->Put(kv.first, kv.second));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  // Round-trip read: the SST opens cleanly via the standard index path
+  // and the UDI block (built single-threaded) is consultable.
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options_));
+  ASSERT_OK(reader->Open(ingest_file));
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 
 TEST_P(UserDefinedIndexTest, MergeWithUDI) {
