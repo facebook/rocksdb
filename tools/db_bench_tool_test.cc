@@ -376,6 +376,8 @@ int main(int argc, char** argv) {
 #else
 
 int main(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
   printf("Skip db_bench_tool_test as the required library GFLAG is missing.");
 }
 #endif  // #ifdef GFLAGS
