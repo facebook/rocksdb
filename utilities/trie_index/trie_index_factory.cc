@@ -12,6 +12,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -35,9 +36,7 @@ int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
 // ============================================================================
 
 TrieIndexBuilder::TrieIndexBuilder(const Comparator* comparator)
-    : comparator_(comparator),
-      finished_(false),
-      must_use_separator_with_seq_(false) {}
+    : comparator_(comparator), finished_(false) {}
 
 Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
                                       const Slice* first_key_in_next_block,
@@ -66,11 +65,10 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
                                        *first_key_in_next_block);
     separator = Slice(*separator_scratch);
 
-    // Detect same-user-key block boundary: if the two user keys are identical,
-    // FindShortestSeparator returns the same key for both sides, making it
-    // impossible to distinguish the two blocks. Set the sticky flag so that
-    // at Finish() time, ALL separators will include encoded seqnos.
-    // This mirrors ShortenedIndexBuilder::must_use_separator_with_seq_.
+    // Detect same-user-key block boundary: if the two user keys are
+    // identical, FindShortestSeparator returns the same key for both sides,
+    // making it impossible to distinguish the two blocks. Such an entry
+    // carries a real tag rather than the 0 sentinel.
 
     // Edge case: FindShortestSeparator may fail to shorten the key even when
     // the user keys are different. Example: FindShortestSeparator("abc","abd")
@@ -140,11 +138,9 @@ Slice TrieIndexBuilder::AddIndexEntry(const Slice& last_key_in_current_block,
     entry.tag = 0;
   }
 
-  // Seqno encoding must always be enabled so the post-seek correction
-  // handles the last block correctly. The overhead is 8 bytes per leaf.
-  must_use_separator_with_seq_ = true;
   entry.handle = handle;
-  total_separator_bytes_ += entry.separator_key.size();
+  estimated_separator_bytes_ += entry.separator_key.size();
+  ++estimated_num_entries_;
   buffered_entries_.push_back(std::move(entry));
 
   return separator;
@@ -162,11 +158,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
   }
   finished_ = true;
 
-  // Seqno encoding is unconditionally enabled: must_use_separator_with_seq_
-  // is always set to true at the end of AddIndexEntry(), so use_seqno
-  // is always true when at least one entry was added. The else branch below
-  // is only reachable for an empty trie (zero entries).
-  bool use_seqno = must_use_separator_with_seq_;
+  // Every staged entry needs the seqno side-table so the post-seek
+  // correction can disambiguate the last block and any same-user-key run,
+  // so this is on whenever the trie is non-empty. It costs 8 bytes per leaf.
+  bool use_seqno = !buffered_entries_.empty();
   trie_builder_.SetHasSeqnoEncoding(use_seqno);
 
   if (use_seqno) {
@@ -219,12 +214,6 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 
       i = run_end;
     }
-  } else {
-    // Only reachable when no entries were added (empty trie).
-    // must_use_separator_with_seq_ is unconditionally set to true in
-    // AddIndexEntry(), so this branch cannot be reached when there is at
-    // least one entry.
-    assert(buffered_entries_.empty());
   }
 
   // Release buffered entries -- no longer needed after feeding to the trie.
@@ -249,7 +238,95 @@ uint64_t TrieIndexBuilder::EstimatedSize() const {
   // uses ~2.5 bits per node plus the label data, rank/select tables, and block
   // handle arrays. For a rough estimate:
   // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
-  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+  return estimated_separator_bytes_ * 3 + estimated_num_entries_ * 16;
+}
+
+// ---------------------------------------------------------------------------
+// Parallel compression protocol
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry>
+TrieIndexBuilder::CreatePreparedAddEntry() {
+  return std::make_unique<PreparedTrieEntry>();
+}
+
+void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
+                                       const Slice* first_key_in_next_block,
+                                       const IndexEntryContext& context,
+                                       PreparedAddEntry* out) {
+  auto* p = static_cast_with_check<PreparedTrieEntry>(out);
+  p->valid = false;
+  p->same_user_key_initial = false;
+  p->has_next_block = (first_key_in_next_block != nullptr);
+  p->last_key_tag = context.last_key_tag;
+
+  if (first_key_in_next_block != nullptr) {
+    // Same-user-key boundary detection from inputs alone. The buffer-
+    // state-dependent half of the check runs in FinishAddEntry, where
+    // back() is the immediately preceding committed entry.
+    p->same_user_key_initial =
+        comparator_->Compare(last_key_in_current_block,
+                             *first_key_in_next_block) == 0;
+
+    p->separator_key = last_key_in_current_block.ToString();
+    comparator_->FindShortestSeparator(&p->separator_key,
+                                       *first_key_in_next_block);
+  } else {
+    // Last block: store the last key itself (no shortening).
+    p->separator_key = last_key_in_current_block.ToString();
+  }
+
+  p->valid = true;
+  estimated_separator_bytes_ += p->separator_key.size();
+  ++estimated_num_entries_;
+}
+
+void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
+                                      PreparedAddEntry* entry,
+                                      std::string* /*separator_scratch*/,
+                                      bool /*skip_delta_encoding*/) {
+  auto* p = static_cast_with_check<PreparedTrieEntry>(entry);
+  if (!p->valid) {
+    // PrepareAddEntry didn't populate this slot (e.g., due to an upstream
+    // ParseInternalKey failure). Skip.
+    return;
+  }
+
+  // Recheck the buffer-state-dependent branch of the same-user-key
+  // detection. Now that we run on the BG writer thread in commit order,
+  // buffered_entries_.back() is the immediately preceding block's entry.
+  bool same_user_key = p->same_user_key_initial;
+  if (!same_user_key && !buffered_entries_.empty() &&
+      buffered_entries_.back().separator_key == p->separator_key) {
+    same_user_key = true;
+  }
+  if (!p->has_next_block && !buffered_entries_.empty() &&
+      comparator_->Compare(buffered_entries_.back().separator_key,
+                           p->separator_key) == 0) {
+    same_user_key = true;
+  }
+
+  BufferedEntry be;
+  be.separator_key = std::move(p->separator_key);
+  if (same_user_key) {
+    // Same-user-key run: real tag distinguishes blocks within the run.
+    be.tag = p->last_key_tag;
+  } else if (!p->has_next_block) {
+    // Last block: real tag covers any post-seek correction by seqno.
+    be.tag = p->last_key_tag;
+  } else {
+    // Distinct-user-key separator: 0 sentinel -- no seqno correction
+    // needed because the separator already disambiguates blocks.
+    be.tag = 0;
+  }
+  be.handle.offset = block_handle.offset;
+  be.handle.size = block_handle.size;
+
+  buffered_entries_.push_back(std::move(be));
+
+  // Reset valid so the same prepared slot can be reused (the table
+  // builder rotates BlockReps in a ring buffer).
+  p->valid = false;
 }
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
@@ -493,17 +570,17 @@ Status TrieIndexIterator::NextAndGetResult(IterateResult* result) {
   return Status::OK();
 }
 
-UserDefinedIndexBuilder::BlockHandle TrieIndexIterator::value() {
+IndexFactoryBuilder::BlockHandle TrieIndexIterator::value() {
   if (overflow_run_index_ == 0) {
     // Primary block -- use the trie leaf's handle.
     auto handle = iter_.Value();
-    return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
+    return IndexFactoryBuilder::BlockHandle{handle.offset, handle.size};
   }
   // Overflow block -- use the side-table handle.
   // overflow_run_index_ is 1-based, overflow array is 0-based.
   uint32_t overflow_idx = overflow_base_idx_ + overflow_run_index_ - 1;
   auto handle = trie_->GetOverflowHandle(overflow_idx);
-  return UserDefinedIndexBuilder::BlockHandle{handle.offset, handle.size};
+  return IndexFactoryBuilder::BlockHandle{handle.offset, handle.size};
 }
 
 IterBoundCheck TrieIndexIterator::CheckBounds(
@@ -552,7 +629,7 @@ Status TrieIndexReader::InitFromSlice(const Slice& data) {
   return trie_.InitFromData(data);
 }
 
-std::unique_ptr<UserDefinedIndexIterator> TrieIndexReader::NewIterator(
+std::unique_ptr<IndexFactoryIterator> TrieIndexReader::NewIterator(
     const ReadOptions& /*read_options*/) {
   return std::make_unique<TrieIndexIterator>(&trie_, comparator_,
                                              trie_.HasSeqnoEncoding());
@@ -569,8 +646,8 @@ size_t TrieIndexReader::ApproximateMemoryUsage() const {
 // ============================================================================
 
 Status TrieIndexFactory::NewBuilder(
-    const UserDefinedIndexOption& option,
-    std::unique_ptr<UserDefinedIndexBuilder>& builder) const {
+    const IndexFactoryOptions& option,
+    std::unique_ptr<IndexFactoryBuilder>& builder) const {
   // The trie traverses keys byte-by-byte in lexicographic order, so it
   // requires a bytewise comparator. Non-bytewise comparators (e.g.,
   // ReverseBytewiseComparator or custom comparators) would produce separator
@@ -592,8 +669,8 @@ Status TrieIndexFactory::NewBuilder(
 }
 
 Status TrieIndexFactory::NewReader(
-    const UserDefinedIndexOption& option, Slice& index_block,
-    std::unique_ptr<UserDefinedIndexReader>& reader) const {
+    const IndexFactoryOptions& option, Slice& index_block,
+    std::unique_ptr<IndexFactoryReader>& reader) const {
   const Comparator* cmp =
       option.comparator ? option.comparator : BytewiseComparator();
   if (cmp != BytewiseComparator()) {
