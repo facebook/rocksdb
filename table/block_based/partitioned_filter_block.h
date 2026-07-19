@@ -31,7 +31,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
       const bool use_value_delta_encoding, uint32_t format_version,
-      PartitionedIndexBuilder* const p_index_builder,
+      PartitionedIndexBuilder* const partitioned_index_builder,
       const uint32_t partition_size, size_t ts_sz,
       const bool persist_user_defined_timestamps,
       bool decouple_from_index_partitions);
@@ -78,17 +78,20 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  private:  // fns
   // Whether to cut a filter block before the next key
   bool DecideCutAFilterBlock();
+  void RequestPartitionCut();
+  bool ShouldCutFilterBlock();
+  const std::string& GetPartitionKey();
+  bool IndexSeparatorIsKeyPlusSeq();
   void CutAFilterBlock(const Slice* next_key, const Slice* next_prefix,
                        const Slice& prev_key);
 
   void AddImpl(const Slice& key_without_ts, const Slice& prev_key_without_ts);
 
  private:  // data
-  // Currently we keep the same number of partitions for filters and indexes.
-  // This would allow for some potentioal optimizations in future. If such
-  // optimizations did not realize we can use different number of partitions and
-  // eliminate p_index_builder_
-  PartitionedIndexBuilder* const p_index_builder_;
+  // Filters and indexes currently use the same partition boundaries, so the
+  // filter builder asks the index builder when to cut. Never null: a
+  // partitioned filter is only created alongside a partitioned index.
+  PartitionedIndexBuilder* const partitioned_index_builder_;
   const size_t ts_sz_;
   const bool decouple_from_index_partitions_;
 

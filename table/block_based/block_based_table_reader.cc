@@ -44,6 +44,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
@@ -52,7 +53,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
-#include "rocksdb/user_defined_index.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -364,6 +364,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       PERF_COUNTER_ADD(block_cache_index_hit_count, 1);
       PERF_COUNTER_ADD(block_cache_index_read_byte, usage);
 
@@ -420,6 +421,7 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_miss;
       } else {
@@ -495,6 +497,7 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_add;
         if (redundant) {
@@ -916,6 +919,26 @@ Status BlockBasedTable::Open(
                                      metaindex_iter.get(), largest_seqno);
   if (!s.ok()) {
     return s;
+  }
+  if ((table_options.index_mode ==
+           BlockBasedTableOptions::IndexMode::kCustomDefault ||
+       table_options.index_mode ==
+           BlockBasedTableOptions::IndexMode::kCustomOnly) &&
+      table_options.user_defined_index_factory == nullptr) {
+    return Status::InvalidArgument(
+        "index_mode kCustomDefault/kCustomOnly requires "
+        "user_defined_index_factory");
+  }
+  const bool requires_custom_reader =
+      footer.HasIncompatibleFeature(kFooterFeatureRequireUserDefinedIndex) ||
+      rep->table_properties->standard_index_is_stub != 0;
+  if (requires_custom_reader &&
+      (table_options.index_mode ==
+           BlockBasedTableOptions::IndexMode::kStandardOnly ||
+       table_options.user_defined_index_factory == nullptr)) {
+    return Status::InvalidArgument(
+        "SST has only a stub standard index; configure the matching "
+        "user_defined_index_factory to read it");
   }
 
   // Read compression metadata and configure decompressor
@@ -1796,6 +1819,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // WART: this might be redundant (unnecessary cache hit) if !pin_index,
   // depending on prepopulate_block_cache option
   const bool prefetch_index = prefetch_all || pin_index;
+  const bool requires_custom_reader =
+      rep_->footer.HasIncompatibleFeature(
+          kFooterFeatureRequireUserDefinedIndex) ||
+      rep_->table_properties->standard_index_is_stub != 0;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1804,20 +1831,41 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   if (!s.ok()) {
     return s;
   }
-  if (table_options.user_defined_index_factory != nullptr) {
+  // kStandardOnly behaves exactly like "no factory configured" by contract,
+  // so we skip UDI block probing entirely in that mode even if a factory
+  // pointer happens to be set in the table options. This avoids spurious
+  // disk reads, log spam, and statistics noise.
+  bool custom_reader_installed = false;
+  if (table_options.index_mode !=
+          BlockBasedTableOptions::IndexMode::kStandardOnly &&
+      table_options.user_defined_index_factory != nullptr) {
     std::string udi_name(table_options.user_defined_index_factory->Name());
     BlockHandle udi_block_handle;
 
+    // kStandardDefault is the only mode left here that treats the custom index
+    // as optional. kStandardRequired promises it is present, kCustomDefault and
+    // kCustomOnly route reads through it, and a file written in kCustomOnly has
+    // no usable standard index to fall back to. kStandardOnly never gets here,
+    // which is what lets this compare against kStandardDefault alone.
+    assert(table_options.index_mode !=
+           BlockBasedTableOptions::IndexMode::kStandardOnly);
+    const bool custom_index_required =
+        table_options.index_mode !=
+            BlockBasedTableOptions::IndexMode::kStandardDefault ||
+        requires_custom_reader;
+
     // Use FindMetaBlock (not FindOptionalMetaBlock) so we get a non-OK status
-    // when the block is missing, allowing the fail_if_no_udi_on_open logic
-    // below to decide whether to error or warn.
-    s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
+    // when the block is missing, allowing the index_mode logic below to
+    // decide whether to error or warn.
+    s = FindMetaBlock(meta_iter, kIndexFactoryMetaPrefix + udi_name,
                       &udi_block_handle);
     if (!s.ok()) {
       RecordTick(rep_->ioptions.statistics.get(),
                  SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
-      if (table_options.fail_if_no_udi_on_open ||
-          table_options.use_udi_as_primary_index) {
+      if (custom_index_required) {
+        // kStandardRequired preserves the legacy fail_if_no_udi_on_open=true
+        // behavior. kCustomDefault and kCustomOnly route all reads through the
+        // UDI, so a missing UDI block is also a hard error.
         ROCKS_LOG_ERROR(rep_->ioptions.logger,
                         "Failed to find the UDI block %s in file %s; %s",
                         udi_name.c_str(), rep_->file->file_name().c_str(),
@@ -1826,7 +1874,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         s = Status::Corruption(s.ToString(), rep_->file->file_name());
         return s;
       } else {
-        // Emit a warning, but ignore the error status
+        // kStandardDefault: the custom index is optional. Fall back to
+        // the standard index for this SST and log a warning so operators
+        // can identify SSTs missing the custom block (e.g., still pending
+        // compaction after enabling the factory).
         ROCKS_LOG_WARN(rep_->ioptions.logger,
                        "Failed to find the UDI block %s in file %s; %s",
                        udi_name.c_str(), rep_->file->file_name().c_str(),
@@ -1835,12 +1886,29 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
 
-    // If the UDI block size is 0, that means there's effectively no user
-    // defined index. In that case, skip setting up the reader.
+    // A zero-size UDI block means no user-defined index for this SST. Older UDI
+    // builds treated this as "effectively no UDI" even with
+    // fail_if_no_udi_on_open=true or use_udi_as_primary_index=true, so keep
+    // opening these files through the standard index when one is populated.
+    // kCustomOnly has only a footer-satisfying standard-index stub, so it must
+    // still fail loudly instead of exposing an OK empty scan.
+    if (s.ok() && udi_block_handle.size() == 0 && requires_custom_reader) {
+      RecordTick(rep_->ioptions.statistics.get(),
+                 SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
+      ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                      "UDI block %s in file %s has size 0; cannot serve "
+                      "reads in the configured index_mode",
+                      udi_name.c_str(), rep_->file->file_name().c_str());
+      return Status::Corruption(
+          "UDI block " + udi_name + " has size 0 in " +
+          rep_->file->file_name() +
+          " -- cannot serve reads in the configured index_mode");
+    }
     if (udi_block_handle.size() > 0) {
       // Read the block, and allocate on heap or pin in cache. The UDI block is
       // not compressed. RetrieveBlock will verify the checksum.
       if (s.ok()) {
+        PERF_TIMER_GUARD(read_index_block_nanos);
         s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
                           rep_->decompressor.get(), &rep_->udi_block,
                           /*get_context=*/nullptr, lookup_context,
@@ -1850,9 +1918,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
       if (s.ok()) {
         assert(!rep_->udi_block.IsEmpty());
+        // Release-build guard: a null value here would SIGSEGV on .data.
+        if (UNLIKELY(rep_->udi_block.GetValue() == nullptr)) {
+          return Status::Corruption(
+              "UDI block read returned null contents for " + udi_name + " in " +
+              rep_->file->file_name());
+        }
 
-        std::unique_ptr<UserDefinedIndexReader> udi_reader;
-        UserDefinedIndexOption udi_option;
+        std::unique_ptr<IndexFactoryReader> udi_reader;
+        IndexFactoryOptions udi_option;
         udi_option.comparator = rep_->internal_comparator.user_comparator();
         s = table_options.user_defined_index_factory->NewReader(
             udi_option, rep_->udi_block.GetValue()->data, udi_reader);
@@ -1861,12 +1935,19 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             // Primary UDI mode is purely config-driven. The
             // udi_is_primary_index table property is informational only
             // (for diagnostics / sst_dump) and does not affect routing.
-            // This keeps rollback simple: setting
-            // use_udi_as_primary_index=false immediately reverts all SSTs
-            // to standard-index reads without needing compaction.
-            index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
+            // This keeps rollback simple: lowering index_mode sends reads
+            // back to the standard index without waiting for compaction.
+            // SSTs written in kCustomOnly are the exception -- they have no
+            // standard index, so the wrapper keeps routing them to the
+            // custom index (see standard_index_is_stub in NewIterator).
+            index_reader = std::make_unique<IndexFactoryReaderWrapper>(
                 udi_name, std::move(index_reader), std::move(udi_reader),
-                table_options.use_udi_as_primary_index);
+                table_options.index_mode ==
+                        BlockBasedTableOptions::IndexMode::kCustomDefault ||
+                    table_options.index_mode ==
+                        BlockBasedTableOptions::IndexMode::kCustomOnly,
+                requires_custom_reader);
+            custom_reader_installed = true;
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
                                    udi_name + " in file " +
@@ -1875,6 +1956,38 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         }
       }
     }
+
+    // A custom index block the factory cannot use gets the same treatment as a
+    // missing one: in kStandardDefault the file is still fully indexed by the
+    // standard index, so keep it readable instead of taking it offline. Only
+    // statuses that mean "these bytes are unusable" qualify. An IOError or a
+    // block cache limit is transient or environmental, so it propagates instead
+    // of permanently downgrading this reader to the standard index.
+    //
+    // The ERROR log is the actionable signal here. The ticker is shared with
+    // the missing-block case above, which is expected and noisy while a factory
+    // is being rolled out, so it cannot single this case out on its own.
+    if (!s.ok() && !custom_index_required &&
+        (s.IsCorruption() || s.IsNotSupported() || s.IsInvalidArgument())) {
+      RecordTick(rep_->ioptions.statistics.get(),
+                 SST_USER_DEFINED_INDEX_LOAD_FAIL_COUNT);
+      ROCKS_LOG_ERROR(rep_->ioptions.logger,
+                      "Failed to load the UDI block %s in file %s, falling "
+                      "back to the standard index; %s",
+                      udi_name.c_str(), rep_->file->file_name().c_str(),
+                      s.ToString().c_str());
+      rep_->udi_block.Reset();
+      s = Status::OK();
+    }
+  }
+
+  if (requires_custom_reader && !custom_reader_installed) {
+    if (!s.ok()) {
+      return s;
+    }
+    return Status::Corruption(
+        "SST requires a matching user_defined_index_factory reader: " +
+        rep_->file->file_name());
   }
 
   rep_->index_reader = std::move(index_reader);
@@ -1966,6 +2079,12 @@ size_t BlockBasedTable::ApproximateMemoryUsage() const {
   }
   if (rep_->table_properties) {
     usage += rep_->table_properties->ApproximateMemoryUsage();
+  }
+  // Cached block memory is charged to the block cache. Count the retained raw
+  // custom-index block here only when the table reader owns it directly.
+  if (rep_->udi_block.GetOwnValue()) {
+    assert(rep_->udi_block.GetValue() != nullptr);
+    usage += rep_->udi_block.GetValue()->ApproximateMemoryUsage();
   }
   return usage;
 }
@@ -2946,8 +3065,8 @@ Status BlockBasedTable::Prefetch(const ReadOptions& read_options,
     const bool is_user_key = !rep_->index_key_includes_seq;
     if (end &&
         ((!is_user_key && comparator.Compare(iiter->key(), *end) >= 0) ||
-         (is_user_key &&
-          user_comparator.Compare(iiter->key(), ExtractUserKey(*end)) >= 0))) {
+         (is_user_key && user_comparator.Compare(iiter->user_key(),
+                                                 ExtractUserKey(*end)) >= 0))) {
       if (prefetching_boundary_page) {
         break;
       }
@@ -3090,7 +3209,7 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     return BlockType::kIndex;
   }
 
-  if (meta_block_name.starts_with(kUserDefinedIndexPrefix)) {
+  if (meta_block_name.starts_with(kIndexFactoryMetaPrefix)) {
     return BlockType::kUserDefinedIndex;
   }
 
