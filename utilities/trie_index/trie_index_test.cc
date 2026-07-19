@@ -2440,8 +2440,71 @@ class TrieIndexFactoryTest : public testing::Test {
     ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
   }
 
+  void AssertSerializedSizeBound(const std::vector<std::string>& keys,
+                                 bool parallel) {
+    std::unique_ptr<IndexFactoryBuilder> builder;
+    ASSERT_OK(factory_->NewBuilder(IndexFactoryOptions(), builder));
+    if (parallel && !builder->SupportsParallelAddEntry()) {
+      return;
+    }
+    for (size_t i = 0; i < keys.size(); ++i) {
+      const Slice key(keys[i]);
+      const Slice next = i + 1 < keys.size() ? Slice(keys[i + 1]) : Slice();
+      const Slice* next_key = i + 1 < keys.size() ? &next : nullptr;
+      const IndexFactoryBuilder::BlockHandle handle{i * 100, 100};
+      const IndexFactoryBuilder::IndexEntryContext context =
+          EntryCtx(keys.size() - i, keys.size() - i - 1);
+      std::string scratch;
+      if (parallel) {
+        auto prepared = builder->CreatePreparedAddEntry();
+        builder->PrepareAddEntry(key, next_key, context, prepared.get());
+        builder->FinishAddEntry(handle, prepared.get(), &scratch,
+                                /*skip_delta_encoding=*/false);
+      } else {
+        builder->AddIndexEntry(key, next_key, handle, &scratch, context);
+      }
+    }
+    const uint64_t estimate = builder->EstimatedSize();
+    Slice contents;
+    ASSERT_OK(builder->Finish(&contents));
+    EXPECT_GE(estimate, contents.size());
+  }
+
   std::shared_ptr<TrieIndexFactory> factory_;
 };
+
+TEST_F(TrieIndexFactoryTest, EstimatedSizeBoundsSerializedTrie) {
+  struct KeySet {
+    const char* name;
+    std::vector<std::string> keys;
+  };
+  std::vector<KeySet> cases = {
+      {"empty", {}},
+      {"single", {"a"}},
+      {"long", {std::string(1024, 'a')}},
+      {"prefixes", {"a", "ab", "abc", "abcd", "b"}},
+      {"overflow", std::vector<std::string>(64, "same")},
+      {"dense", {}},
+      {"shared_prefix", {}},
+      {"sparse", {}},
+  };
+  for (int i = 1; i < 256; ++i) {
+    cases[5].keys.emplace_back(1, static_cast<char>(i));
+    cases[6].keys.push_back(std::string(64, 'p') + std::to_string(i));
+  }
+  for (int i = 1; i <= 64; ++i) {
+    cases[7].keys.emplace_back(32 + i, static_cast<char>(i));
+  }
+
+  for (auto& key_set : cases) {
+    SCOPED_TRACE(key_set.name);
+    std::sort(key_set.keys.begin(), key_set.keys.end());
+    for (bool parallel : {false, true}) {
+      SCOPED_TRACE(parallel);
+      AssertSerializedSizeBound(key_set.keys, parallel);
+    }
+  }
+}
 
 TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
   // Build a trie index using the factory interface.
@@ -5066,7 +5129,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   ReadOptions ro;
   auto udi_iter = reader->NewIterator(ro);
   // Wrap the UDI iterator in the adapter that converts to InternalIterator.
-  UserDefinedIndexIteratorWrapper wrapper(std::move(udi_iter));
+  IndexFactoryIteratorWrapper wrapper(std::move(udi_iter));
 
   // Seek to "a" -- constructs an internal key from user key "a".
   InternalKey seek_ikey;

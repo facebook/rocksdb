@@ -245,11 +245,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 // ============================================================================
 
 uint64_t TrieIndexBuilder::EstimatedSize() const {
-  // Estimate the serialized trie size from the running counters. A LOUDS trie
-  // uses ~2.5 bits per node plus the label data, rank/select tables, and block
-  // handle arrays. For a rough estimate:
-  // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
-  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+  // Dense/sparse labels, bitvectors, child positions, and capped chain metadata
+  // use at most 12 bytes per separator byte. Each handle and seqno record needs
+  // at most 20 bytes. Reserve 1 KiB for headers and alignment.
+  return 1024 + total_separator_bytes_ * 12 + buffered_entries_.size() * 20;
 }
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
