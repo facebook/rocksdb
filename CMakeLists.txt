@@ -1049,6 +1049,7 @@ set(SOURCES
         utilities/memory/memory_util.cc
         utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
+        utilities/merge_operators/counter_delete.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
         utilities/merge_operators/sortlist.cc

@@ -125,6 +125,11 @@ Status MergeWithWideColumnEntityBaseValue(
 
   // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
   // since a failure must be propagated regardless of its value.
+  // Note: if the merge operator returns std::monostate (deletion),
+  // TimedFullMerge returns Status::NotFound() with subcode
+  // kMergeOperatorDeletion, which is the correct result for point lookups
+  // (user sees NotFound; subcode lets WBWI/transactions distinguish
+  // "merge deleted" from "key absent").
   return MergeHelper::TimedFullMerge(
       merge_operator, user_key, MergeHelper::kWideBaseValue, effective_entity,
       merge_context->GetOperands(), logger, statistics, clock,

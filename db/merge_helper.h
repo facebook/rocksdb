@@ -186,13 +186,19 @@ class MergeHelper {
   // These are valid until the next MergeUntil call
   // If the merging was successful:
   //   - keys() contains a single element with the latest sequence number of
-  //     the merges. The type will be Put or Merge. See IMPORTANT 1 note, below.
+  //     the merges. The type will be Put, Merge, or Delete.
+  //     See IMPORTANT 1 note, below.
   //   - values() contains a single element with the result of merging all the
   //     operands together
+  //   - If the merge produced a deletion and at_bottom is true, keys() and
+  //     values() will be empty, meaning the key should be dropped.
+  //   - If the merge produced a deletion and at_bottom is false, keys()
+  //     contains a single element with type kTypeDeletion to tombstone
+  //     older versions on lower levels.
   //
   //   IMPORTANT 1: the key type could change after the MergeUntil call.
-  //        Put/Delete + Merge + ... + Merge => Put
-  //        Merge + ... + Merge => Merge
+  //        Put/Delete + Merge + ... + Merge => Put (or empty if deletion)
+  //        Merge + ... + Merge => Merge (or empty if deletion at bottom)
   //
   // If the merge operator is not associative, and if a Put/Delete is not found
   // then the merging will be unsuccessful. In this case:
@@ -247,6 +253,7 @@ class MergeHelper {
 
   // Keeps track of the sequence of keys seen
   std::deque<std::string> keys_;
+  std::string user_key_to_skip_;
   // Parallel with keys_; stores the operands
   mutable MergeContext merge_context_;
 
@@ -272,7 +279,10 @@ class MergeHelper {
       MergeOperator::OpFailureScope* op_failure_scope, Visitor&& visitor);
 
   // Variant that exposes the merge result directly (in serialized form for wide
-  // columns) as well as its value type. Used by iterator and compaction.
+  // columns) as well as its value type. Used by iterator and compaction. If
+  // FullMergeV3 signals deletion with std::monostate, this overload returns OK
+  // and sets *result_type to kTypeDeletion so callers can decide whether to
+  // emit a tombstone, skip an iterator entry, or drop the key at bottom.
   static Status TimedFullMergeImpl(
       const MergeOperator* merge_operator, const Slice& key,
       MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,
@@ -284,7 +294,10 @@ class MergeHelper {
   // Variant that exposes the merge result translated into the form requested by
   // the client. (For example, if the result is a wide-column structure but the
   // client requested the results in plain-value form, the value of the default
-  // column is returned.) Used by point lookups.
+  // column is returned.) Used by point lookups. If FullMergeV3 signals deletion
+  // with std::monostate, this overload returns
+  // Status::NotFound(kMergeOperatorDeletion) because there is no ValueType
+  // output channel for the deletion result.
   static Status TimedFullMergeImpl(
       const MergeOperator* merge_operator, const Slice& key,
       MergeOperator::MergeOperationInputV3::ExistingValue&& existing_value,

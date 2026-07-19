@@ -25,6 +25,20 @@ bool DBStressWideMergeOperator::FullMergeV3(
 
   const uint32_t value_base = GetValueBase(latest);
 
+  // Exercise the FullMergeV3 deletion path (`std::monostate`) once per
+  // every `use_merge_deletion_one_in` calls on average. The value_base is
+  // already deterministically derived from the operand, so the expected
+  // state in the stress test can predict whether the key was deleted by
+  // applying the same modular test in `ExpectedState`-aware code paths.
+  // The deletion check is done BEFORE the put-entity check so that a
+  // chosen deletion takes precedence even when it would otherwise be
+  // converted into a wide-column write.
+  if (FLAGS_use_merge_deletion_one_in > 0 &&
+      (value_base % FLAGS_use_merge_deletion_one_in) == 0) {
+    merge_out->new_value = std::monostate{};
+    return true;
+  }
+
   if (FLAGS_use_put_entity_one_in == 0 ||
       (value_base % FLAGS_use_put_entity_one_in) != 0) {
     merge_out->new_value = latest;
@@ -44,6 +58,15 @@ bool DBStressWideMergeOperator::FullMergeV3(
   }
 
   return true;
+}
+
+// Shared predicate used by the stress validation logic to determine whether
+// a particular merge operand would cause the wide-column merge operator to
+// resolve to a deletion. Defined here (next to the operator) so both stay
+// in sync.
+bool DBStressMergeOperandWouldDelete(uint32_t value_base) {
+  return FLAGS_use_merge_deletion_one_in > 0 &&
+         (value_base % FLAGS_use_merge_deletion_one_in) == 0;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

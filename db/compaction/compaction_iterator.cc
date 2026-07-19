@@ -1336,9 +1336,21 @@ void CompactionIterator::NextFromInput() {
         ikey_.user_key = current_key_.GetUserKey();
         validity_info_.SetValid(ValidContext::kMerge2);
       } else {
-        // all merge operands were filtered out. reset the user key, since the
-        // batch consumed by the merge operator should not shadow any keys
-        // coming after the merges
+        // The merge produced no output. Two ways this can happen:
+        //   1. The compaction filter signaled kRemoveAndSkipUntil and the
+        //      merge_helper consumed all operands.
+        //   2. FullMergeV3 returned std::monostate (deletion) at the
+        //      bottommost level, so MergeUntil dropped the merge chain
+        //      without emitting a tombstone. It also consumed any older
+        //      versions hidden by the resolved deletion, stopping at snapshot
+        //      and timestamp-GC boundaries. (See the at_bottom branch in
+        //      MergeHelper::MergeUntil for details.)
+        //
+        // In both cases, resetting has_current_user_key_ is safe: the
+        // merge_helper has already advanced `input_` past entries hidden by
+        // this resolved deletion. If it stopped at an older snapshot-visible
+        // version of the same user key, resetting has_current_user_key_ lets
+        // that older version be processed as its own visible history stripe.
         has_current_user_key_ = false;
         pinned_iters_mgr_.ReleasePinnedData();
 
