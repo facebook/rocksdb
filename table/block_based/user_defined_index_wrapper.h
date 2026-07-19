@@ -213,22 +213,22 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
     switch (t) {
       case kTypeValue:
       case kTypeValuePreferredSeqno:
-        return UserDefinedIndexBuilder::kValue;
+        return UserDefinedIndexBuilder::ValueType::kValue;
       case kTypeDeletion:
       case kTypeSingleDeletion:
       case kTypeDeletionWithTimestamp:
-        return UserDefinedIndexBuilder::kDelete;
+        return UserDefinedIndexBuilder::ValueType::kDelete;
       case kTypeMerge:
-        return UserDefinedIndexBuilder::kMerge;
+        return UserDefinedIndexBuilder::ValueType::kMerge;
       case kTypeBlobIndex:
       case kTypeWideColumnEntity:
-        return UserDefinedIndexBuilder::kOther;
+        return UserDefinedIndexBuilder::ValueType::kOther;
       default:
         // Any new type that reaches OnKeyAdded() should be explicitly mapped
         // above. Falling through to kOther is a safe default but indicates a
         // missing case that should be added.
         assert(false);
-        return UserDefinedIndexBuilder::kOther;
+        return UserDefinedIndexBuilder::ValueType::kOther;
     }
   }
 

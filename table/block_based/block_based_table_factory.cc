@@ -1143,7 +1143,7 @@ TableFactory* NewBlockBasedTableFactory(
   return new BlockBasedTableFactory(_table_options);
 }
 
-Status UserDefinedIndexFactory::CreateFromString(
+Status IndexFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
   static std::once_flag once;

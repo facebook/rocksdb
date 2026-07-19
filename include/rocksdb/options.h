@@ -58,7 +58,8 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
-class UserDefinedIndexFactory;
+class IndexFactory;
+using UserDefinedIndexFactory = IndexFactory;
 class IODispatcher;
 
 struct Options;
@@ -2460,7 +2461,7 @@ struct ReadOptions {
   // BlockBasedTableOptions takes precedence. This field is only needed when
   // the UDI is a secondary index and you want to explicitly select it for
   // reads.
-  const UserDefinedIndexFactory* table_index_factory = nullptr;
+  const IndexFactory* table_index_factory = nullptr;
 
   // EXPERIMENTAL: Optional non-owning provider for data-block storage pinned by
   // scans using this ReadOptions. Applications that set it are attempting
