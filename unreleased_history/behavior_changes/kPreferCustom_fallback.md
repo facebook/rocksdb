@@ -1,0 +1,1 @@
+`ReadOptions::read_index = kPreferCustom` is best-effort: SSTs with no custom index block fall back to the standard index instead of returning an error, so reads keep working during a migration. Reads of SSTs that do have one remain strict.
