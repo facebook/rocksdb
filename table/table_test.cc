@@ -9005,6 +9005,56 @@ TEST_P(UserDefinedIndexTest, FooterRequirementForcesCustomReader) {
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
+TEST_P(UserDefinedIndexTest, RawIndexMemoryIsChargedExactlyOnce) {
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 1 << 20;
+  cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto block_cache = cache_options.MakeSharedCache();
+  auto factory = std::make_shared<TestIndexFactory>();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = block_cache;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.user_defined_index_factory = factory;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardDefault;
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  Options options = options_;
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator internal_comparator(options.comparator);
+
+  TableConstructor table(options.comparator,
+                         true /* convert_to_internal_key */);
+  for (const auto& [key, value] : generateKVs(/*key_count=*/30)) {
+    table.Add(key, value);
+  }
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  table.Finish(options, ioptions, moptions, table_options, internal_comparator,
+               &keys, &kvmap);
+  const size_t owned_memory = table.GetTableReader()->ApproximateMemoryUsage();
+  ASSERT_EQ(block_cache->GetUsage(), 0);
+
+  table.ResetTableReader();
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions cached_ioptions(options);
+  MutableCFOptions cached_moptions(options);
+  const size_t cache_usage_before = block_cache->GetUsage();
+  ASSERT_OK(table.Reopen(cached_ioptions, cached_moptions));
+  const size_t cached_memory = table.GetTableReader()->ApproximateMemoryUsage();
+  const size_t index_cache_charge =
+      block_cache->GetUsage() - cache_usage_before;
+
+  ASSERT_GT(index_cache_charge, 0);
+  EXPECT_EQ(owned_memory, cached_memory + index_cache_charge);
+}
+
 // Verifies that kStandardOnly truly ignores user_defined_index_factory:
 // even if a factory pointer is set in the table options, the reader must
 // not probe for a UDI block. This matches the kStandardOnly contract
