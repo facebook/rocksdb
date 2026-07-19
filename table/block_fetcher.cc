@@ -47,6 +47,7 @@ inline void RecordBlockReadBytePerfCounter(BlockType block_type,
                        block_size_with_trailer);
       break;
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       PERF_COUNTER_ADD(index_block_read_byte, block_size_with_trailer);
       break;
     default:
@@ -382,6 +383,7 @@ void BlockFetcher::ReadBlock(bool retry) {
       break;
 
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       PERF_COUNTER_ADD(index_block_read_count, 1);
       break;
 

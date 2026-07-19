@@ -84,6 +84,7 @@ const std::array<const Cache::CacheItemHelper*,
         nullptr,  // kHashIndexMetadata
         nullptr,  // kMetaIndex (not yet stored in block cache)
         BlockCacheInterface<Block_kIndex>::GetFullHelper(),
+        BlockCacheInterface<Block_kUserDefinedIndex>::GetFullHelper(),
         nullptr,  // kInvalid
     }};
 
@@ -101,6 +102,7 @@ const std::array<const Cache::CacheItemHelper*,
         nullptr,  // kHashIndexMetadata
         nullptr,  // kMetaIndex (not yet stored in block cache)
         BlockCacheInterface<Block_kIndex>::GetBasicHelper(),
+        BlockCacheInterface<Block_kUserDefinedIndex>::GetBasicHelper(),
         nullptr,  // kInvalid
     }};
 }  // namespace
