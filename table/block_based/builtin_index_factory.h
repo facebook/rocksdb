@@ -57,26 +57,15 @@ class BinarySearchIndexFactory : public IndexFactory {
   const char* Name() const override;
   static const char* kClassName();
   static const char* kClassNameWithFirstKey();
+  using IndexFactory::NewBuilder;
+  using IndexFactory::NewReader;
 
   Status NewBuilder(
       const IndexFactoryOptions& options,
       std::unique_ptr<IndexFactoryBuilder>& builder) const override;
 
-  IndexFactoryBuilder* NewBuilder() const override {
-    std::unique_ptr<IndexFactoryBuilder> builder;
-    Status s = NewBuilder(IndexFactoryOptions(), builder);
-    return s.ok() ? builder.release() : nullptr;
-  }
-
   Status NewReader(const IndexFactoryOptions& options, Slice& index_contents,
                    std::unique_ptr<IndexFactoryReader>& reader) const override;
-
-  std::unique_ptr<IndexFactoryReader> NewReader(
-      Slice& index_contents) const override {
-    std::unique_ptr<IndexFactoryReader> reader;
-    Status s = NewReader(IndexFactoryOptions(), index_contents, reader);
-    return s.ok() ? std::move(reader) : nullptr;
-  }
 
  private:
   bool with_first_key_;
@@ -93,26 +82,15 @@ class HashIndexFactory : public IndexFactory {
 
   const char* Name() const override;
   static const char* kClassName();
+  using IndexFactory::NewBuilder;
+  using IndexFactory::NewReader;
 
   Status NewBuilder(
       const IndexFactoryOptions& options,
       std::unique_ptr<IndexFactoryBuilder>& builder) const override;
 
-  IndexFactoryBuilder* NewBuilder() const override {
-    std::unique_ptr<IndexFactoryBuilder> builder;
-    Status s = NewBuilder(IndexFactoryOptions(), builder);
-    return s.ok() ? builder.release() : nullptr;
-  }
-
   Status NewReader(const IndexFactoryOptions& options, Slice& index_contents,
                    std::unique_ptr<IndexFactoryReader>& reader) const override;
-
-  std::unique_ptr<IndexFactoryReader> NewReader(
-      Slice& index_contents) const override {
-    std::unique_ptr<IndexFactoryReader> reader;
-    Status s = NewReader(IndexFactoryOptions(), index_contents, reader);
-    return s.ok() ? std::move(reader) : nullptr;
-  }
 
  private:
   BuiltinIndexFactoryConfig config_;
@@ -130,26 +108,15 @@ class PartitionedIndexFactory : public IndexFactory {
 
   const char* Name() const override;
   static const char* kClassName();
+  using IndexFactory::NewBuilder;
+  using IndexFactory::NewReader;
 
   Status NewBuilder(
       const IndexFactoryOptions& options,
       std::unique_ptr<IndexFactoryBuilder>& builder) const override;
 
-  IndexFactoryBuilder* NewBuilder() const override {
-    std::unique_ptr<IndexFactoryBuilder> builder;
-    Status s = NewBuilder(IndexFactoryOptions(), builder);
-    return s.ok() ? builder.release() : nullptr;
-  }
-
   Status NewReader(const IndexFactoryOptions& options, Slice& index_contents,
                    std::unique_ptr<IndexFactoryReader>& reader) const override;
-
-  std::unique_ptr<IndexFactoryReader> NewReader(
-      Slice& index_contents) const override {
-    std::unique_ptr<IndexFactoryReader> reader;
-    Status s = NewReader(IndexFactoryOptions(), index_contents, reader);
-    return s.ok() ? std::move(reader) : nullptr;
-  }
 
  private:
   BuiltinIndexFactoryConfig config_;
