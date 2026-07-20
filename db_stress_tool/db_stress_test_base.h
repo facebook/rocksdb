@@ -465,6 +465,13 @@ class StressTest {
 
   void Reopen(ThreadState* thread);
 
+  // Periodically opens a read-only DB instance on the primary's live directory
+  // while the primary keeps writing, then closes it. Exercises the concurrent
+  // primary + read-only-DB-on-the-same-directory topology to guard against a
+  // read-only DB's close deleting the primary's live SST files. Detection
+  // relies on db_stress's existing missing-file/corruption checks.
+  void MaybeOpenReadOnlyOnPrimary(ThreadState* thread);
+
   virtual void RegisterAdditionalListeners() {}
 
   virtual void PrepareTxnDbOptions(SharedState* /*shared*/,

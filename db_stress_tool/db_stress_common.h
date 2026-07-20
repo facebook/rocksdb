@@ -192,6 +192,7 @@ DECLARE_bool(test_backward_scan);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
+DECLARE_int32(open_read_only_one_in);
 DECLARE_string(expected_values_dir);
 DECLARE_int32(num_dbs);
 DECLARE_bool(expected_state_trace_debug);
