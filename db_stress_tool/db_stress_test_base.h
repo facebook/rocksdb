@@ -29,12 +29,18 @@ using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
-  static bool IsErrorInjectedAndRetryable(const Status& error_s) {
-    assert(!error_s.ok());
-    return error_s.getState() &&
-           FaultInjectionTestFS::IsInjectedError(error_s) &&
-           !status_to_io_status(Status(error_s)).GetDataLoss();
-  }
+  // Returns true if `error_s` should be treated as retryable rather than a real
+  // failure. Covers injected fault-injection errors, and -- despite the name --
+  // also non-injected IO errors, but only when a remote backend (--env_uri /
+  // --fs_uri) is in use and --tolerate_non_injected_io_errors_for_remote_dbs is
+  // set (infrastructure behind a remote backend can return transient IO
+  // errors). Gating on a remote backend guarantees non-injected IO errors on
+  // local DBs are never masked. Data-loss errors are never retryable.
+  //
+  // Defined out-of-line in db_stress_test_base.cc: it reads FLAGS_env_uri /
+  // FLAGS_fs_uri, which db_stress_common.h declares only after it includes this
+  // header, so they are not visible here.
+  static bool IsErrorInjectedAndRetryable(const Status& error_s);
 
   static bool IsTolerableCompactionFailure(const Status& s) {
     // TOOD (hx235): allow an exact list of tolerable failures under stress

@@ -22,4 +22,3 @@ jobs:
       provider: claude
       result_artifact_name: claude-review-result
       comment_file: claude-review-comment.md
-    secrets: inherit

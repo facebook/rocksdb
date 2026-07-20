@@ -2649,6 +2649,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
   }
+  if (flush_options.wait) {
+    InstrumentedMutexLock lock(&mutex_);
+    if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+      return Status::Aborted(
+          "Likely deadlock as the same thread called LockWAL()");
+    }
+  }
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2806,6 +2813,13 @@ Status DBImpl::AtomicFlushMemTables(
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
+  }
+  if (flush_options.wait) {
+    InstrumentedMutexLock lock(&mutex_);
+    if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+      return Status::Aborted(
+          "Likely deadlock as the same thread called LockWAL()");
+    }
   }
   Status s;
   autovector<ColumnFamilyData*> candidate_cfds;

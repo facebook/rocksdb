@@ -2541,7 +2541,7 @@ class DBImpl : public DB {
     }
 
     // Wait for any LockWAL to clear
-    while (lock_wal_count_ > 0) {
+    while (!lock_wal_owner_thread_id_counts_.empty()) {
       bg_cv_.Wait();
     }
   }
@@ -3600,12 +3600,13 @@ class DBImpl : public DB {
 
   // Stop write token that is acquired when first LockWAL() is called.
   // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.
-  // See lock_wal_count_
+  // See lock_wal_owner_thread_id_counts_
   std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
 
-  // The number of LockWAL called without matching UnlockWAL call.
-  // See also lock_wal_write_token_
-  uint32_t lock_wal_count_ = 0;
+  // Thread IDs of valid LockWAL() owners and their recursive lock counts. Each
+  // owning thread must call UnlockWAL() the same number of times before writes
+  // can resume.
+  std::unordered_map<uint64_t, uint32_t> lock_wal_owner_thread_id_counts_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

@@ -22,4 +22,3 @@ jobs:
       provider: codex
       result_artifact_name: codex-review-result
       comment_file: codex-review-comment.md
-    secrets: inherit

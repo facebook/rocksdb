@@ -7,14 +7,9 @@
 name: Codex Code Review
 
 on:
-  workflow_run:
-    workflows: ["facebook/rocksdb/pr-jobs"]
-    types: [completed]
-
-  # The early pull_request_target path is limited to same-repo PRs by the job
-  # condition below. Fork PRs skip this path and rely on workflow_run instead.
-  pull_request_target:
-    types: [opened, reopened, synchronize]
+  # Automatic PR reviews are temporarily disabled while Codex authentication is
+  # repaired. Manual review requests remain available through issue comments
+  # and workflow_dispatch.
 
   issue_comment:
     types: [created]

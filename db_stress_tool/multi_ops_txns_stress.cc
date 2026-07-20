@@ -1269,6 +1269,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
 // which can be called before TransactionDB::Open() returns to caller.
 // Therefore, at that time, db_ and txn_db_  may still be nullptr.
 // Caller has to make sure that the race condition does not happen.
+// We use the atomically loaded `db` pointer throughout this function to avoid
+// racing with destruction of the underlying DB.
 void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
                                             int job_id) {
   DB* const db = db_aptr_.load(std::memory_order_acquire);
@@ -1276,19 +1278,16 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
     return;
   }
 
-  assert(db_ == db);
-  assert(db_ != nullptr);
-
   ThreadStatus::OperationType cur_op_type =
       ThreadStatusUtil::GetThreadOperation();
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
-  const Snapshot* const snapshot = db_->GetSnapshot();
+  const Snapshot* const snapshot = db->GetSnapshot();
   ThreadStatusUtil::SetThreadOperation(cur_op_type);
   assert(snapshot);
-  ManagedSnapshot snapshot_guard(db_, snapshot);
+  ManagedSnapshot snapshot_guard(db, snapshot);
 
   std::ostringstream oss;
-  auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  auto* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
   assert(dbimpl);
 
   oss << "Job " << job_id << ": [" << snapshot->GetSequenceNumber() << ","
@@ -1307,7 +1306,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
   ropts.total_order_seek = true;
   ropts.io_activity = read_options.io_activity;
 
-  std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+  std::unique_ptr<Iterator> it(db->NewIterator(ropts));
   for (it->Seek(start_key); it->Valid(); it->Next()) {
     Record record;
     Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
@@ -1324,7 +1323,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
     // Form a primary key and search in the primary index.
     std::string pk = Record::EncodePrimaryKey(record.a_value());
     std::string value;
-    s = db_->Get(ropts, pk, &value);
+    s = db->Get(ropts, pk, &value);
     if (!s.ok()) {
       oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
           << s.ToString() << ". sk " << it->key().ToString(true);

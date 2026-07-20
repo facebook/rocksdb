@@ -1092,6 +1092,13 @@ DEFINE_string(fs_uri, "",
               " with --env_uri."
               " Creates a default environment with the specified filesystem.");
 
+DEFINE_bool(
+    tolerate_non_injected_io_errors_for_remote_dbs, false,
+    "Treat non-injected, non-data-loss IO errors as retryable. Intended "
+    "only for remote DBs (--env_uri / --fs_uri) where infrastructure "
+    "can return transient IO errors; db_crashtest.py forces it off for "
+    "local DBs so real local IO errors are not masked.");
+
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
 static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);

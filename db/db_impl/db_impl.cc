@@ -2171,11 +2171,12 @@ Status DBImpl::ApplyWALToManifest(const ReadOptions& read_options,
 }
 
 Status DBImpl::LockWAL() {
+  const uint64_t thread_id = env_->GetThreadID();
   {
     InstrumentedMutexLock lock(&mutex_);
-    if (lock_wal_count_ > 0) {
+    if (!lock_wal_owner_thread_id_counts_.empty()) {
       assert(lock_wal_write_token_);
-      ++lock_wal_count_;
+      ++lock_wal_owner_thread_id_counts_[thread_id];
     } else {
       // NOTE: this will "unnecessarily" wait for other non-LockWAL() write
       // stalls to clear before LockWAL returns, however fixing that would
@@ -2193,12 +2194,13 @@ Status DBImpl::LockWAL() {
       }
 
       // NOTE: releasing mutex in EnterUnbatched might mean we are actually
-      // now lock_wal_count > 0
-      if (lock_wal_count_ == 0) {
+      // now locked by another thread.
+      if (lock_wal_owner_thread_id_counts_.empty()) {
         assert(!lock_wal_write_token_);
         lock_wal_write_token_ = write_controller_.GetStopToken();
       }
-      ++lock_wal_count_;
+      assert(lock_wal_write_token_);
+      ++lock_wal_owner_thread_id_counts_[thread_id];
 
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
@@ -2209,23 +2211,27 @@ Status DBImpl::LockWAL() {
   // NOTE: avoid I/O holding DB mutex
   Status s = FlushWAL(/*sync=*/false);
   if (!s.ok()) {
-    // Non-OK return should not be in locked state
+    // Undo this LockWAL().
     UnlockWAL().PermitUncheckedError();
   }
   return s;
 }
 
 Status DBImpl::UnlockWAL() {
+  const uint64_t thread_id = env_->GetThreadID();
   bool signal = false;
   uint64_t maybe_stall_begun_count = 0;
   uint64_t nonmem_maybe_stall_begun_count = 0;
   {
     InstrumentedMutexLock lock(&mutex_);
-    if (lock_wal_count_ == 0) {
-      return Status::Aborted("No LockWAL() in effect");
+    const auto owner = lock_wal_owner_thread_id_counts_.find(thread_id);
+    if (owner == lock_wal_owner_thread_id_counts_.end()) {
+      return Status::Aborted("No LockWAL() held by current thread");
     }
-    --lock_wal_count_;
-    if (lock_wal_count_ == 0) {
+    if (--owner->second == 0) {
+      lock_wal_owner_thread_id_counts_.erase(owner);
+    }
+    if (lock_wal_owner_thread_id_counts_.empty()) {
       lock_wal_write_token_.reset();
       signal = true;
       // For the last UnlockWAL, we don't want to return from UnlockWAL()

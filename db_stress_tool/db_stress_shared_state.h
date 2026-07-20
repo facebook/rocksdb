@@ -44,6 +44,7 @@ DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
 DECLARE_int32(inject_error_severity);
+DECLARE_bool(tolerate_non_injected_io_errors_for_remote_dbs);
 DECLARE_bool(disable_auto_compactions);
 DECLARE_bool(enable_compaction_filter);
 

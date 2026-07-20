@@ -40,6 +40,7 @@ jobs:
           name: ${{ inputs.result_artifact_name }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: _artifact
         continue-on-error: true
 
       - name: Post or update PR comment
@@ -52,8 +53,18 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            if (!fs.existsSync(process.env.COMMENT_FILE) ||
-                !fs.existsSync('pr_number.txt')) {
+            const path = require('path');
+            const artifactDir = '_artifact';
+            const commentFile = path.join(
+              artifactDir,
+              process.env.COMMENT_FILE
+            );
+            const prNumberFile = path.join(artifactDir, 'pr_number.txt');
+            const triggerTypeFile = path.join(artifactDir, 'trigger_type.txt');
+            const headShaFile = path.join(artifactDir, 'head_sha.txt');
+
+            if (!fs.existsSync(commentFile) ||
+                !fs.existsSync(prNumberFile)) {
               core.info('No review results found; skipping.');
               return;
             }
@@ -61,16 +72,16 @@ jobs:
             const post = require('./.github/scripts/post-pr-comment.js');
             const provider = process.env.PROVIDER;
             const providerTitle = provider === 'codex' ? 'Codex' : 'Claude';
-            const body = fs.readFileSync(process.env.COMMENT_FILE, 'utf8');
+            const body = fs.readFileSync(commentFile, 'utf8');
             const prNumber = parseInt(
-              fs.readFileSync('pr_number.txt', 'utf8').trim(),
+              fs.readFileSync(prNumberFile, 'utf8').trim(),
               10
             );
-            const trigger = fs.existsSync('trigger_type.txt') ?
-              fs.readFileSync('trigger_type.txt', 'utf8').trim() :
+            const trigger = fs.existsSync(triggerTypeFile) ?
+              fs.readFileSync(triggerTypeFile, 'utf8').trim() :
               'auto';
-            const headSha = fs.existsSync('head_sha.txt') ?
-              fs.readFileSync('head_sha.txt', 'utf8').trim() :
+            const headSha = fs.existsSync(headShaFile) ?
+              fs.readFileSync(headShaFile, 'utf8').trim() :
               '';
             const shortSha = headSha ? headSha.substring(0, 7) : '';
             const runId = process.env.RUN_ID;
@@ -119,12 +130,16 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            if (!fs.existsSync('trigger_type.txt')) return;
-            const trigger = fs.readFileSync('trigger_type.txt', 'utf8').trim();
+            const path = require('path');
+            const artifactDir = '_artifact';
+            const triggerTypeFile = path.join(artifactDir, 'trigger_type.txt');
+            const commentIdFile = path.join(artifactDir, 'comment_id.txt');
+            if (!fs.existsSync(triggerTypeFile)) return;
+            const trigger = fs.readFileSync(triggerTypeFile, 'utf8').trim();
             if (trigger !== 'manual') return;
-            if (!fs.existsSync('comment_id.txt')) return;
+            if (!fs.existsSync(commentIdFile)) return;
             const commentId = parseInt(
-              fs.readFileSync('comment_id.txt', 'utf8').trim(),
+              fs.readFileSync(commentIdFile, 'utf8').trim(),
               10
             );
             if (!commentId) return;
@@ -147,6 +162,7 @@ jobs:
           name: ${{ inputs.result_artifact_name }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: _artifact
         continue-on-error: true
 
       - name: React with failure
@@ -155,9 +171,11 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            if (!fs.existsSync('comment_id.txt')) return;
+            const path = require('path');
+            const commentIdFile = path.join('_artifact', 'comment_id.txt');
+            if (!fs.existsSync(commentIdFile)) return;
             const commentId = parseInt(
-              fs.readFileSync('comment_id.txt', 'utf8').trim(),
+              fs.readFileSync(commentIdFile, 'utf8').trim(),
               10
             );
             if (!commentId) return;

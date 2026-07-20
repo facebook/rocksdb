@@ -207,8 +207,9 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsPerCFWhenLogAdvances) {
   ASSERT_EQ("v", Get("k"));
 }
 
-// With track_and_verify_wals_in_manifest=true, the wal_deletion edit
-// must STILL be emitted (the DeleteWalsBefore record is required).
+// With track_and_verify_wals_in_manifest=true and a clean close, the
+// close-time code already advances WalSet markers. Recovery's
+// DeleteWalsBefore is redundant and should be skipped.
 TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -224,7 +225,7 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
   Reopen(options);
   counters.Uninstall();
 
-  ASSERT_EQ(0, counters.wal_deletion.load());
+  ASSERT_EQ(1, counters.wal_deletion.load());
 }
 
 // best_efforts_recovery requires a fresh MANIFEST + CURRENT to be
@@ -497,8 +498,57 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsWalDeletionWhenTracking) {
   counters.Uninstall();
 
   ASSERT_GT(counters.per_cf.load(), 0);
-  ASSERT_EQ(1, records.load());
+  ASSERT_EQ(0, records.load());
   ASSERT_GT(dbfull()->GetVersionSet()->GetWalSet().GetMinWalNumberToKeep(), 0u);
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Zero MANIFEST growth on clean reopen with optimize_manifest_for_recovery=1,
+// reuse_manifest_on_open=1, and track_and_verify_wals_in_manifest=1.
+// Regression test for the stress test failure where a redundant
+// DeleteWalsBefore edit was written during recovery.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryZeroGrowthOnCleanReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.reuse_manifest_on_open = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.avoid_flush_during_recovery = true;
+  options.write_dbid_to_manifest = false;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Get MANIFEST size after close
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  uint64_t manifest_size_before = 0;
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      ASSERT_OK(env_->GetFileSize(dbname_ + "/" + f, &manifest_size_before));
+      break;
+    }
+  }
+  ASSERT_GT(manifest_size_before, 0u);
+
+  // Reopen - should not grow MANIFEST at all
+  Reopen(options);
+
+  // Get MANIFEST size after reopen
+  files.clear();
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  uint64_t manifest_size_after = 0;
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      ASSERT_OK(env_->GetFileSize(dbname_ + "/" + f, &manifest_size_after));
+      break;
+    }
+  }
+
+  ASSERT_EQ(manifest_size_before, manifest_size_after)
+      << "MANIFEST grew by " << (manifest_size_after - manifest_size_before)
+      << " bytes on clean reopen; expected zero growth";
   ASSERT_EQ("v", Get("k"));
 }
 

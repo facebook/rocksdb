@@ -782,19 +782,30 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
     ASSERT_OK(db_->GetLiveFilesStorageInfo({lf_opts}, &files));
   }
 
-  port::Thread parallel_lock_wal{[&]() {
-    ASSERT_OK(db_->LockWAL());  // 2 -> 3 or 1 -> 2
-  }};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBWriteTest::LockWALConcurrentRecursive:ParallelLockAcquired",
+        "DBWriteTest::LockWALConcurrentRecursive:MainUnlocks"},
+       {"DBWriteTest::LockWALConcurrentRecursive:MainAllowsParallelUnlock",
+        "DBWriteTest::LockWALConcurrentRecursive:ParallelUnlocks"}});
+  SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1 or 3 -> 2
+  port::Thread parallel_lock_wal{[&]() {
+    ASSERT_OK(db_->LockWAL());  // 2 -> 3
+    TEST_SYNC_POINT(
+        "DBWriteTest::LockWALConcurrentRecursive:ParallelLockAcquired");
+    TEST_SYNC_POINT("DBWriteTest::LockWALConcurrentRecursive:ParallelUnlocks");
+    ASSERT_OK(db_->UnlockWAL());
+  }};
+  TEST_SYNC_POINT("DBWriteTest::LockWALConcurrentRecursive:MainUnlocks");
+
+  ASSERT_OK(db_->UnlockWAL());  // 3 -> 2
   // Give parallel_put an extra chance to jump in case of bug
   std::this_thread::yield();
-  parallel_lock_wal.join();
   ASSERT_FALSE(parallel_put_completed.Load());
   ASSERT_FALSE(parallel_ingest_completed.Load());
   ASSERT_FALSE(flush_completed.Load());
 
-  // Should now have 2 outstanding LockWAL
+  // Should still have 2 outstanding LockWAL().
   ASSERT_EQ(Get("k1"), "k1_orig");
 
   ASSERT_OK(db_->UnlockWAL());  // 2 -> 1
@@ -807,26 +818,11 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
   ASSERT_EQ(Get("k2"), "NOT_FOUND");
   ASSERT_EQ(frozen_seqno, db_->GetLatestSequenceNumber());
 
-  // Ensure final Unlock is concurrency safe and extra Unlock is safe but
-  // non-OK
-  std::atomic<int> unlock_ok{0};
-  port::Thread parallel_stuff{[&]() {
-    if (db_->UnlockWAL().ok()) {
-      unlock_ok++;
-    }
-    ASSERT_OK(db_->LockWAL());
-    if (db_->UnlockWAL().ok()) {
-      unlock_ok++;
-    }
-  }};
-
-  if (db_->UnlockWAL().ok()) {
-    unlock_ok++;
-  }
-  parallel_stuff.join();
-
-  // There was one extra unlock, so just one non-ok
-  ASSERT_EQ(unlock_ok.load(), 2);
+  TEST_SYNC_POINT(
+      "DBWriteTest::LockWALConcurrentRecursive:MainAllowsParallelUnlock");
+  parallel_lock_wal.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({});
 
   // Write can proceed
   parallel_put.join();

@@ -38,6 +38,25 @@ inline std::shared_ptr<DestClass> static_cast_with_check(
   return ret;
 }
 
+// A safe, compile-time-checked upcast of a reference to a base class. Unlike a
+// raw static_cast, this cannot silently perform a downcast or an unrelated
+// conversion, and it reads as an explicit "treat this as its base" (e.g. to
+// copy or swap just the base subobject). `Base` must be a public base of
+// `Derived`; a free function cannot access a private/protected base.
+template <class Base, class Derived>
+inline Base& up_cast(Derived& ref) {
+  static_assert(std::is_base_of_v<Base, Derived>,
+                "up_cast requires Base to be a base class of Derived");
+  return ref;
+}
+
+template <class Base, class Derived>
+inline const Base& up_cast(const Derived& ref) {
+  static_assert(std::is_base_of_v<Base, Derived>,
+                "up_cast requires Base to be a base class of Derived");
+  return ref;
+}
+
 // A wrapper around static_cast for lossless conversion between integral
 // types, including enum types, and pointers to such types. For example, this
 // can be used for converting between signed/unsigned or enum type and
