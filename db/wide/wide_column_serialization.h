@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <forward_list>
 #include <functional>
 #include <limits>
 #include <string>
@@ -129,6 +130,10 @@ class WideColumnSerialization {
   // Serialize columns using version 1 format (no blob support)
   static Status Serialize(const WideColumns& columns, std::string& output);
 
+  // Returns the exact number of bytes Serialize() would produce for `columns`
+  // (the version 1 serialized size), computed without allocating.
+  static size_t SerializedSizeV1(const WideColumns& columns);
+
   // Serialize columns with some columns replaced by blob indices (version 2)
   // columns: vector of (column_name, column_value) pairs
   // blob_columns: vector of (column_index, blob_index) pairs indicating which
@@ -145,24 +150,34 @@ class WideColumnSerialization {
       const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
       std::string& output);
 
-  // Deserialize columns (version 1 format only)
-  static Status Deserialize(Slice& input, WideColumns& columns);
-
-  // Deserialize a V2 entity.
+  // Deserialize a wide-column entity (version 1, or version 2 with or without
+  // blob references). `input` must be exactly one serialized entity; trailing
+  // bytes are reported as Corruption (the deserializers are not prefix-parsers
+  // -- an entity value is always the whole stored value).
+  //
   // columns: receives the full sorted column set. For blob-backed columns,
   // value() is initially the serialized BlobIndex bytes from the entity.
-  // blob_columns: receives (column_index, blob_index) pairs identifying which
-  // entries in `columns` are blob references and their decoded BlobIndex data.
-  // For valid input, this must agree with HasBlobColumns() about whether blob
-  // column references are present.
-  static Status DeserializeV2(
-      Slice& input, std::vector<WideColumn>& columns,
-      std::vector<std::pair<size_t, BlobIndex>>& blob_columns);
+  //
+  // blob_columns: if non-null, receives (column_index, blob_index) pairs
+  // identifying which entries in `columns` are blob references, and their
+  // decoded BlobIndex data. If null, the caller is promising the entity is
+  // fully resolved (no blob references); encountering one returns NotSupported.
+  // When non-null, this agrees with HasBlobColumns() about whether blob column
+  // references are present.
+  static Status Deserialize(
+      const Slice& input, WideColumns& columns,
+      std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
+
+  // Convenience wrapper of Deserialize() for callers that own a fully resolved
+  // entity with no blob references (returns NotSupported if one is present).
+  static Status DeserializeSimple(const Slice& input, WideColumns& columns) {
+    return Deserialize(input, columns, nullptr /* blob_columns */);
+  }
 
   // Check if the serialized entity has any blob column references.
   // Sets *has_blob_columns to true if version >= 2 and at least one column
   // has blob type; false otherwise.
-  // For valid input, this must agree with DeserializeV2() about whether blob
+  // For valid input, this must agree with Deserialize() about whether blob
   // column references are present.
   // Returns Status::Corruption on decode errors.
   static Status HasBlobColumns(const Slice& input, bool& has_blob_columns);
@@ -175,7 +190,7 @@ class WideColumnSerialization {
       const Slice& input,
       const std::function<Status(const BlobIndex&)>& callback);
 
-  static Status GetValueOfDefaultColumn(Slice& input, Slice& value);
+  static Status GetValueOfDefaultColumn(const Slice& input, Slice& value);
 
   // Resolves all blob column references in a V2 wide-column entity,
   // fetches the blob values, and re-serializes as a V1 entity (all inline).
@@ -199,6 +214,27 @@ class WideColumnSerialization {
       const BlobFetcher* blob_fetcher,
       PrefetchBufferCollection* prefetch_buffers, std::string& resolved_entity,
       bool& resolved, uint64_t* total_bytes_read, uint64_t* num_blobs_resolved);
+
+  // Multi-buffer counterpart to ResolveEntityBlobColumns that avoids
+  // re-serialization. Whereas ResolveEntityBlobColumns produces a single
+  // re-serialized V1 entity string, this deserializes the V2 entity and, for
+  // each blob column, fetches the blob value into a freshly appended node of
+  // `extra_buffers` (whose address is stable). On success, `resolved_columns`
+  // holds the full column set: inline columns keep zero-copy Slices into
+  // `entity_value`, and blob columns get zero-copy Slices into the
+  // corresponding `extra_buffers` node. The caller must keep both
+  // `entity_value` and `extra_buffers` alive while using `resolved_columns`
+  // (e.g. via PinnableWideColumnsHelper::ResolveColumns, which splices
+  // `extra_buffers` in alongside the original entity buffer).
+  //
+  // Sets `resolved` to false and leaves the outputs empty when no blob columns
+  // are present.
+  static Status ResolveEntityBlobColumnsMultiBuffer(
+      const Slice& entity_value, const Slice& user_key,
+      const BlobFetcher* blob_fetcher,
+      PrefetchBufferCollection* prefetch_buffers, WideColumns& resolved_columns,
+      std::forward_list<PinnableSlice>& extra_buffers, bool& resolved,
+      uint64_t* total_bytes_read, uint64_t* num_blobs_resolved);
 
   // Extracts the default column value from a V2 entity, resolving its
   // blob reference if needed. The default column (empty name) is always
@@ -230,14 +266,6 @@ class WideColumnSerialization {
   // Sets *version to the version number.
   // Returns Status::Corruption on decode errors.
   static Status GetVersion(const Slice& input, uint32_t& version);
-
-  // Merges deserialized columns with resolved blob values and serializes
-  // the result using version 1 format (all values inline).
-  static Status SerializeResolvedEntity(
-      const std::vector<WideColumn>& columns,
-      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
-      const std::vector<std::string>& resolved_blob_values,
-      std::string& output);
 
   // Returns InvalidArgument with the given message if size exceeds uint32_t.
   static Status ValidateWideColumnLimit(size_t size, const char* msg) {
@@ -272,14 +300,12 @@ class WideColumnSerialization {
       std::vector<const BlobIndex*>& blob_index_map);
 
   // Parses V1 layout (interleaved name/value_size pairs followed by values)
-  // into columns. Used by both Deserialize and DeserializeV2 to avoid
-  // code duplication.
+  // into columns. Used by Deserialize() for version 1 entities.
   static Status DeserializeV1(Slice& input, uint32_t num_columns,
                               std::vector<WideColumn>& columns);
 
   // Parses V2 layout sections 2-7 (skip info through values) into columns and
-  // column types. Used by both Deserialize and DeserializeV2 to avoid
-  // code duplication.
+  // column types. Used by Deserialize() for version 2 entities.
   static Status DeserializeV2Impl(Slice& input, uint32_t num_columns,
                                   std::vector<WideColumn>& columns,
                                   std::vector<ValueType>& column_types);

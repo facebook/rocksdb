@@ -2904,7 +2904,7 @@ void Version::MultiGetBlob(
         } else {
           assert(key_context->columns);
           key_context->columns->SetPlainValue(std::move(blob.result));
-          range.AddValueSize(key_context->columns->serialized_size());
+          range.AddValueSize(key_context->columns->payload_size());
         }
         // MultiGetBlob() has already materialized the blob reference into the
         // user-visible value, so clear this flag before later MultiGet
@@ -3368,7 +3368,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         range->AddValueSize(iter->value->size());
       } else {
         assert(iter->columns);
-        range->AddValueSize(iter->columns->serialized_size());
+        range->AddValueSize(iter->columns->payload_size());
       }
 
       range->MarkKeyDone(iter);

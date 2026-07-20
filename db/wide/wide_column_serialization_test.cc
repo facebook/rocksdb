@@ -6,6 +6,7 @@
 #include "db/wide/wide_column_serialization.h"
 
 #include <chrono>
+#include <forward_list>
 #include <limits>
 
 #include "db/blob/blob_index.h"
@@ -22,15 +23,6 @@ class WideColumnSerializationTest : public testing::Test {
   // Wrappers for private methods accessible via friend declaration.
   static Status GetVersion(const Slice& input, uint32_t& version) {
     return WideColumnSerialization::GetVersion(input, version);
-  }
-
-  static Status SerializeResolvedEntity(
-      const std::vector<WideColumn>& columns,
-      const std::vector<std::pair<size_t, BlobIndex>>& blob_columns,
-      const std::vector<std::string>& resolved_blob_values,
-      std::string& output) {
-    return WideColumnSerialization::SerializeResolvedEntity(
-        columns, blob_columns, resolved_blob_values, output);
   }
 };
 
@@ -119,7 +111,8 @@ TEST_F(WideColumnSerializationTest, SerializeDeserialize) {
   Slice input(output);
   WideColumns deserialized_columns;
 
-  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_columns));
+  ASSERT_OK(
+      WideColumnSerialization::DeserializeSimple(input, deserialized_columns));
   ASSERT_EQ(columns, deserialized_columns);
 
   {
@@ -173,7 +166,7 @@ TEST_F(WideColumnSerializationTest, DeserializeVersionError) {
   Slice input(buf);
   WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, columns);
+  const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
 }
@@ -188,7 +181,7 @@ TEST_F(WideColumnSerializationTest, DeserializeUnsupportedVersion) {
   Slice input(buf);
   WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, columns);
+  const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
   ASSERT_TRUE(s.IsNotSupported());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
 }
@@ -202,7 +195,7 @@ TEST_F(WideColumnSerializationTest, DeserializeNumberOfColumnsError) {
   Slice input(buf);
   WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, columns);
+  const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "number"));
 }
@@ -220,7 +213,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "name"));
   }
@@ -233,7 +226,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "value size"));
   }
@@ -246,7 +239,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "name"));
   }
@@ -259,7 +252,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "value size"));
   }
@@ -272,7 +265,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "payload"));
   }
@@ -284,7 +277,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "payload"));
   }
@@ -296,7 +289,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2Error) {
     Slice input(buf);
     WideColumns columns;
 
-    ASSERT_OK(WideColumnSerialization::Deserialize(input, columns));
+    ASSERT_OK(WideColumnSerialization::DeserializeSimple(input, columns));
   }
 }
 
@@ -320,7 +313,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2OutOfOrder) {
   Slice input(buf);
   WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, columns);
+  const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "order"));
 }
@@ -359,13 +352,13 @@ TEST_F(WideColumnSerializationTest, DeserializeV2RejectsRecursiveType) {
   // Section 7: VALUES (8 bytes of placeholder data)
   buf.append(8, 'x');
 
-  // DeserializeV2 should reject with Corruption
+  // Deserialize should reject with Corruption
   {
     Slice input(buf);
     std::vector<WideColumn> columns;
     std::vector<std::pair<size_t, BlobIndex>> blob_columns;
     const Status s =
-        WideColumnSerialization::DeserializeV2(input, columns, blob_columns);
+        WideColumnSerialization::Deserialize(input, columns, &blob_columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "Unsupported wide column ValueType"));
   }
@@ -374,7 +367,7 @@ TEST_F(WideColumnSerializationTest, DeserializeV2RejectsRecursiveType) {
   {
     Slice input(buf);
     WideColumns columns;
-    const Status s = WideColumnSerialization::Deserialize(input, columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(input, columns);
     ASSERT_TRUE(s.IsCorruption());
   }
 }
@@ -391,7 +384,7 @@ static BlobIndex MakeBlobIndex(uint64_t file_number, uint64_t offset,
   return bi;
 }
 
-// Helper: V2 serialize -> DeserializeV2 round-trip, returning
+// Helper: V2 serialize -> Deserialize round-trip, returning
 // deserialized columns and blob column info.
 static void V2SerializeAndDeserialize(
     const std::vector<std::pair<std::string, std::string>>& columns,
@@ -403,8 +396,8 @@ static void V2SerializeAndDeserialize(
                                                  *serialized_out));
 
   Slice input(*serialized_out);
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(input, *deserialized,
-                                                   *blob_columns_out));
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, *deserialized,
+                                                 blob_columns_out));
   ASSERT_EQ(deserialized->size(), columns.size());
   for (size_t i = 0; i < columns.size(); ++i) {
     ASSERT_EQ((*deserialized)[i].name(), columns[i].first);
@@ -430,7 +423,7 @@ static void VerifyDeserialize(
     const std::vector<std::string>& expected_values) {
   Slice input(serialized);
   WideColumns deserialized;
-  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized));
+  ASSERT_OK(WideColumnSerialization::DeserializeSimple(input, deserialized));
   ASSERT_EQ(deserialized.size(), expected.size());
   for (size_t i = 0; i < expected.size(); ++i) {
     ASSERT_EQ(deserialized[i].name(), expected[i].first);
@@ -485,54 +478,6 @@ static void VerifyGetDefaultColumn(
   ASSERT_EQ(value, expected_value);
 }
 
-TEST_F(WideColumnSerializationTest, SerializeResolvedEntity) {
-  // Test resolve with mixed, all-blob, and no-blob configurations
-  struct TestCase {
-    std::vector<std::pair<std::string, std::string>> columns;
-    std::vector<std::pair<size_t, BlobIndex>> blob_cols;
-    std::vector<std::string> resolved_values;
-    std::vector<std::string> expected_values;
-  };
-
-  std::vector<TestCase> cases = {
-      // Mixed inline and blob
-      {.columns = {{"a", "inline_a"}, {"b", "ph"}, {"c", "inline_c"}},
-       .blob_cols = {{1, MakeBlobIndex(50, 500, 100)}},
-       .resolved_values = {"resolved_b"},
-       .expected_values = {"inline_a", "resolved_b", "inline_c"}},
-      // All blob columns
-      {.columns = {{"x", "ph1"}, {"y", "ph2"}, {"z", "ph3"}},
-       .blob_cols = {{0, MakeBlobIndex(10, 100, 50)},
-                     {1, MakeBlobIndex(20, 200, 60)},
-                     {2, MakeBlobIndex(30, 300, 70)}},
-       .resolved_values = {"val_x", "val_y", "val_z"},
-       .expected_values = {"val_x", "val_y", "val_z"}},
-      // No blob columns
-      {.columns = {{"alpha", "val_alpha"}, {"beta", "val_beta"}},
-       .blob_cols = {},
-       .resolved_values = {},
-       .expected_values = {"val_alpha", "val_beta"}},
-  };
-
-  for (const auto& tc : cases) {
-    std::string serialized;
-    std::vector<WideColumn> deserialized;
-    std::vector<std::pair<size_t, BlobIndex>> blob_out;
-    V2SerializeAndDeserialize(tc.columns, tc.blob_cols, &deserialized,
-                              &blob_out, &serialized);
-
-    std::string resolved_output;
-    ASSERT_OK(WideColumnSerializationTest::SerializeResolvedEntity(
-        deserialized, blob_out, tc.resolved_values, resolved_output));
-
-    uint32_t v = 0;
-    ASSERT_OK(GetVersion(Slice(resolved_output), v));
-    ASSERT_EQ(v, WideColumnSerialization::kVersion1);
-
-    VerifyDeserialize(resolved_output, tc.columns, tc.expected_values);
-  }
-}
-
 TEST_F(WideColumnSerializationTest, V2GetValueOfDefaultColumn) {
   // V2 with default column present
   VerifyGetDefaultColumn({{"", "default_value"}, {"col1", "value1"}},
@@ -567,8 +512,8 @@ TEST_F(WideColumnSerializationTest, V2BlobColumnRejectsDeserialize) {
 
   Slice input(serialized);
   WideColumns deserialized;
-  ASSERT_TRUE(WideColumnSerialization::Deserialize(input, deserialized)
-                  .IsNotSupported());
+  ASSERT_TRUE(WideColumnSerialization::DeserializeSimple(input, deserialized)
+                  .IsCorruption());
 }
 
 TEST_F(WideColumnSerializationTest, PinnableWideColumnsFallbacksToV2) {
@@ -584,8 +529,8 @@ TEST_F(WideColumnSerializationTest, PinnableWideColumnsFallbacksToV2) {
   std::vector<WideColumn> expected_columns;
   std::vector<std::pair<size_t, BlobIndex>> expected_blob_columns;
   Slice input(serialized);
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(input, expected_columns,
-                                                   expected_blob_columns));
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, expected_columns,
+                                                 &expected_blob_columns));
 
   PinnableWideColumns result;
   ASSERT_OK(result.SetWideColumnValue(serialized));
@@ -798,7 +743,7 @@ TEST_F(WideColumnSerializationTest, RandomizedSerializeDeserializeRoundTrip) {
       }
     }
 
-    // V2 serialize -> DeserializeV2 round-trip
+    // V2 serialize -> Deserialize round-trip
     std::string serialized;
     std::vector<WideColumn> deserialized;
     std::vector<std::pair<size_t, BlobIndex>> blob_out;
@@ -893,6 +838,231 @@ TEST_F(WideColumnSerializationTest, ResolveEntityForMergeNullBlobFetcher) {
       Slice(serialized), "user_key", nullptr /* blob_fetcher */,
       nullptr /* prefetch_buffers */, resolved_entity, effective_entity);
   ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(WideColumnSerializationTest, DeserializeRejectsTrailingData) {
+  const WideColumns columns{{kDefaultWideColumnName, "d"}, {"attr", "val"}};
+
+  auto check = [](const std::string& serialized) {
+    std::vector<WideColumn> out;
+    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+    ASSERT_OK(WideColumnSerialization::Deserialize(Slice(serialized), out,
+                                                   &blob_columns));
+
+    // A trailing byte must be rejected as Corruption.
+    const std::string with_trailing = serialized + "x";
+    out.clear();
+    blob_columns.clear();
+    ASSERT_TRUE(WideColumnSerialization::Deserialize(Slice(with_trailing), out,
+                                                     &blob_columns)
+                    .IsCorruption());
+  };
+
+  // V1 layout (the underlying DeserializeV1 must reject trailing data, matching
+  // the V2 layout below).
+  {
+    std::string serialized;
+    ASSERT_OK(WideColumnSerialization::Serialize(columns, serialized));
+    check(serialized);
+  }
+
+  // V2 layout with no blob columns.
+  {
+    std::string serialized;
+    ASSERT_OK(WideColumnSerialization::SerializeV2(
+        columns, {} /* blob_columns */, serialized));
+    check(serialized);
+  }
+}
+
+namespace {
+
+size_t ExpectedPayloadSize(const WideColumns& columns) {
+  size_t total = 0;
+  for (const auto& column : columns) {
+    total += column.name().size() + column.value().size();
+  }
+  return total;
+}
+
+}  // namespace
+
+TEST(PinnableWideColumnsTest, SetPlainValue) {
+  PinnableWideColumns columns;
+  columns.SetPlainValue(Slice("hello"));
+
+  ASSERT_EQ(columns.columns().size(), 1);
+  EXPECT_EQ(columns.columns()[0].name(), kDefaultWideColumnName);
+  EXPECT_EQ(columns.columns()[0].value(), Slice("hello"));
+
+  // For a plain value, payload_size() equals the raw value size.
+  EXPECT_EQ(columns.payload_size(), 5);
+}
+
+TEST(PinnableWideColumnsTest, SetWideColumnValueAndPayloadSize) {
+  // Columns must be sorted (default/empty name first).
+  const WideColumns entity_columns{
+      {kDefaultWideColumnName, "default"}, {"a", "bb"}, {"ccc", "dddd"}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::Serialize(entity_columns, serialized));
+
+  PinnableWideColumns columns;
+  ASSERT_OK(columns.SetWideColumnValue(std::move(serialized)));
+
+  ASSERT_EQ(columns.columns(), entity_columns);
+  EXPECT_EQ(columns.payload_size(), ExpectedPayloadSize(entity_columns));
+}
+
+TEST(PinnableWideColumnsTest, SerializedSizeMatchesSerializedSizeV1) {
+  {
+    // Plain value: default column with the raw value.
+    PinnableWideColumns columns;
+    columns.SetPlainValue(Slice("plain-value"));
+
+    EXPECT_EQ(columns.serialized_size(),
+              WideColumnSerialization::SerializedSizeV1(columns.columns()));
+  }
+
+  {
+    // V1 entity: serialized_size() equals the length of the exact bytes that
+    // Serialize() produced.
+    const WideColumns entity_columns{
+        {kDefaultWideColumnName, "default"}, {"attr1", "val1"}, {"attr2", ""}};
+
+    std::string serialized;
+    ASSERT_OK(WideColumnSerialization::Serialize(entity_columns, serialized));
+    const size_t serialized_len = serialized.size();
+
+    PinnableWideColumns columns;
+    ASSERT_OK(columns.SetWideColumnValue(std::move(serialized)));
+
+    EXPECT_EQ(columns.serialized_size(),
+              WideColumnSerialization::SerializedSizeV1(columns.columns()));
+    EXPECT_EQ(columns.serialized_size(), serialized_len);
+  }
+}
+
+TEST(PinnableWideColumnsTest, Reset) {
+  PinnableWideColumns columns;
+  columns.SetPlainValue(Slice("something"));
+  ASSERT_FALSE(columns.columns().empty());
+
+  columns.Reset();
+  EXPECT_TRUE(columns.columns().empty());
+  EXPECT_EQ(columns.payload_size(), 0);
+
+  // Reusable after Reset.
+  columns.SetPlainValue(Slice("again"));
+  ASSERT_EQ(columns.columns().size(), 1);
+  EXPECT_EQ(columns.columns()[0].value(), Slice("again"));
+}
+
+TEST(PinnableWideColumnsTest, MovePlainValueSelfPinnedStable) {
+  // A short (SSO) plain value is self-pinned inside a backing node. The node
+  // must not relocate on move, so the column Slice stays valid and its data
+  // pointer is preserved -- the guarantee that lets us drop the old
+  // re-derivation-on-move logic.
+  PinnableWideColumns columns;
+  columns.SetPlainValue(std::string("tiny"));
+
+  const char* const value_data = columns.columns()[0].value().data();
+
+  PinnableWideColumns moved(std::move(columns));
+  ASSERT_EQ(moved.columns().size(), 1);
+  EXPECT_EQ(moved.columns()[0].name(), kDefaultWideColumnName);
+  EXPECT_EQ(moved.columns()[0].value(), Slice("tiny"));
+  EXPECT_EQ(moved.columns()[0].value().data(), value_data);
+}
+
+TEST(PinnableWideColumnsTest, ResolveColumnsZeroCopy) {
+  // Original entity with two inline columns.
+  const WideColumns entity_columns{{kDefaultWideColumnName, "default-value"},
+                                   {"blob_col", "encoded-blob-index"}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::Serialize(entity_columns, serialized));
+
+  PinnableWideColumns columns;
+  ASSERT_OK(columns.SetWideColumnValue(std::move(serialized)));
+
+  // Inline (default) column keeps its Slice into the original entity buffer.
+  const Slice inline_name = columns.columns()[0].name();
+  const Slice inline_value = columns.columns()[0].value();
+  const char* const inline_value_data = inline_value.data();
+
+  // Resolve "blob_col" into its own backing buffer.
+  std::forward_list<PinnableSlice> extra_buffers;
+  extra_buffers.emplace_front();
+  extra_buffers.front().PinSelf(Slice("resolved-blob-payload"));
+  const char* const resolved_data = extra_buffers.front().data();
+
+  WideColumns resolved_columns;
+  resolved_columns.emplace_back(inline_name, inline_value);
+  resolved_columns.emplace_back(columns.columns()[1].name(),
+                                Slice(extra_buffers.front()));
+
+  PinnableWideColumnsHelper::ResolveColumns(
+      columns, std::move(resolved_columns), std::move(extra_buffers));
+
+  ASSERT_EQ(columns.columns().size(), 2);
+
+  // Inline column still points into the original entity buffer (no copy, no
+  // re-serialization).
+  EXPECT_EQ(columns.columns()[0].value(), Slice("default-value"));
+  EXPECT_EQ(columns.columns()[0].value().data(), inline_value_data);
+
+  // Resolved blob column points directly into the spliced-in backing buffer,
+  // not into a re-serialized entity.
+  EXPECT_EQ(columns.columns()[1].name(), Slice("blob_col"));
+  EXPECT_EQ(columns.columns()[1].value(), Slice("resolved-blob-payload"));
+  EXPECT_EQ(columns.columns()[1].value().data(), resolved_data);
+}
+
+TEST(PinnableWideColumnsTest, MultiBufferMovePreservesPointers) {
+  const WideColumns entity_columns{{kDefaultWideColumnName, "default-value"},
+                                   {"blob_col", "encoded-blob-index"}};
+
+  std::string serialized;
+  ASSERT_OK(WideColumnSerialization::Serialize(entity_columns, serialized));
+
+  PinnableWideColumns columns;
+  ASSERT_OK(columns.SetWideColumnValue(std::move(serialized)));
+
+  std::forward_list<PinnableSlice> extra_buffers;
+  extra_buffers.emplace_front();
+  extra_buffers.front().PinSelf(Slice("a-fairly-long-resolved-blob-payload"));
+
+  WideColumns resolved_columns;
+  resolved_columns.emplace_back(columns.columns()[0].name(),
+                                columns.columns()[0].value());
+  resolved_columns.emplace_back(columns.columns()[1].name(),
+                                Slice(extra_buffers.front()));
+
+  PinnableWideColumnsHelper::ResolveColumns(
+      columns, std::move(resolved_columns), std::move(extra_buffers));
+
+  const char* const inline_data = columns.columns()[0].value().data();
+  const char* const resolved_data = columns.columns()[1].value().data();
+
+  // Move construction: nodes are stolen, not relocated -- data pointers stable.
+  PinnableWideColumns moved(std::move(columns));
+  ASSERT_EQ(moved.columns().size(), 2);
+  EXPECT_EQ(moved.columns()[0].value(), Slice("default-value"));
+  EXPECT_EQ(moved.columns()[1].value(),
+            Slice("a-fairly-long-resolved-blob-payload"));
+  EXPECT_EQ(moved.columns()[0].value().data(), inline_data);
+  EXPECT_EQ(moved.columns()[1].value().data(), resolved_data);
+
+  // Move assignment: same guarantee.
+  PinnableWideColumns move_assigned;
+  move_assigned = std::move(moved);
+  ASSERT_EQ(move_assigned.columns().size(), 2);
+  EXPECT_EQ(move_assigned.columns()[0].value(), Slice("default-value"));
+  EXPECT_EQ(move_assigned.columns()[1].value(),
+            Slice("a-fairly-long-resolved-blob-payload"));
+  EXPECT_EQ(move_assigned.columns()[0].value().data(), inline_data);
+  EXPECT_EQ(move_assigned.columns()[1].value().data(), resolved_data);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -576,7 +576,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     Slice entity_copy = entity;
     WideColumns columns;
-    if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
+    if (!WideColumnSerialization::DeserializeSimple(entity_copy, columns)
+             .ok()) {
       return Status::Corruption("Unable to deserialize entity",
                                 entity.ToString(/* hex */ true));
     }

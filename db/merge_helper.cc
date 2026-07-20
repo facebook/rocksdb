@@ -254,9 +254,13 @@ Status MergeHelper::TimedFullMergeImpl(
       statistics, clock, update_num_ops_stats, op_failure_scope,
       std::move(visitor));
   if (s.ok()) {
-    // Check merge result fits in uint32_t (a BlockBuilder assumption)
-    size_t result_size =
-        result_value ? result_value->size() : result_entity->serialized_size();
+    // Check merge result fits in uint32_t (a BlockBuilder assumption). For an
+    // entity result this is the V1-serialized size that will actually be
+    // stored, so use SerializedSizeV1() rather than payload_size().
+    size_t result_size = result_value
+                             ? result_value->size()
+                             : WideColumnSerialization::SerializedSizeV1(
+                                   result_entity->columns());
     if (UNLIKELY(result_size > std::numeric_limits<uint32_t>::max())) {
       return Status::Corruption("Merge result exceeds 4GB");
     }

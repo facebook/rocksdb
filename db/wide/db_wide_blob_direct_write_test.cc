@@ -1703,6 +1703,98 @@ TEST_F(DBWideBlobDirectWriteTest,
   }
 }
 
+TEST_F(DBWideBlobDirectWriteTest,
+       DirectWriteGetEntityReturnsZeroCopyBlobBuffersAcrossMove) {
+  // Protects the zero-copy blob resolution optimization for direct-write wide
+  // entities read pre-flush: each resolved blob-backed column Slice must point
+  // directly at the buffer fetched during resolution (no copy), and must stay
+  // valid and identical after the PinnableWideColumns result is moved (the
+  // backing store uses address-stable forward_list nodes). A sync point
+  // captures the fetched buffer pointers so we can compare them against
+  // columns() before and after moving, for both GetEntity and MultiGetEntity.
+  Options options = GetDirectWriteOptions();
+  options.min_blob_size = 64;
+
+  Reopen(options);
+
+  const std::string key = "zero_copy_entity";
+  const std::string inline_value = "inline";  // < min_blob_size: stays inline
+  const std::string large1(128, 'a');         // >= min_blob_size: blob column
+  const std::string large2(160, 'b');         // >= min_blob_size: blob column
+  const WideColumns columns{{kDefaultWideColumnName, inline_value},
+                            {"big1", large1},
+                            {"big2", large2}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  // Intentionally do not flush: the entity (and its direct-write blob
+  // references) stays in the memtable so reads resolve through
+  // DBImpl::ResolveDirectWriteWideColumns().
+
+  std::vector<const char*> fetched_ptrs;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ResolveDirectWriteWideColumns:BlobFetched", [&](void* arg) {
+        fetched_ptrs.push_back(static_cast<PinnableSlice*>(arg)->data());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // GetEntity: two blob columns are fetched, each resolved column Slice points
+  // straight at its fetched buffer, and the pointers survive move-construction
+  // and move-assignment.
+  {
+    fetched_ptrs.clear();
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+    ASSERT_EQ(fetched_ptrs.size(), 2U);
+
+    // columns() is sorted by name -> [default(""), big1, big2]; blob fetches
+    // happen in that order, so fetched_ptrs[0]=big1, fetched_ptrs[1]=big2.
+    const char* big1_ptr = result.columns()[1].value().data();
+    const char* big2_ptr = result.columns()[2].value().data();
+    ASSERT_EQ(big1_ptr, fetched_ptrs[0]);
+    ASSERT_EQ(big2_ptr, fetched_ptrs[1]);
+
+    PinnableWideColumns moved(std::move(result));
+    ASSERT_EQ(moved.columns(), columns);
+    ASSERT_EQ(moved.columns()[1].value().data(), big1_ptr);
+    ASSERT_EQ(moved.columns()[2].value().data(), big2_ptr);
+
+    PinnableWideColumns move_assigned;
+    move_assigned = std::move(moved);
+    ASSERT_EQ(move_assigned.columns(), columns);
+    ASSERT_EQ(move_assigned.columns()[1].value().data(), big1_ptr);
+    ASSERT_EQ(move_assigned.columns()[2].value().data(), big2_ptr);
+  }
+
+  // MultiGetEntity: same zero-copy guarantee, including across a move.
+  {
+    fetched_ptrs.clear();
+    const std::array<Slice, 1> keys{Slice(key)};
+    std::array<PinnableWideColumns, 1> results;
+    std::array<Status, 1> statuses;
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                        keys.data(), results.data(), statuses.data());
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns);
+    ASSERT_EQ(fetched_ptrs.size(), 2U);
+
+    const char* big1_ptr = results[0].columns()[1].value().data();
+    const char* big2_ptr = results[0].columns()[2].value().data();
+    ASSERT_EQ(big1_ptr, fetched_ptrs[0]);
+    ASSERT_EQ(big2_ptr, fetched_ptrs[1]);
+
+    PinnableWideColumns moved(std::move(results[0]));
+    ASSERT_EQ(moved.columns(), columns);
+    ASSERT_EQ(moved.columns()[1].value().data(), big1_ptr);
+    ASSERT_EQ(moved.columns()[2].value().data(), big2_ptr);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

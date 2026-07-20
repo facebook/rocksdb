@@ -2444,7 +2444,7 @@ Status BlockBasedTableBuilder::BuildEmbeddedWideColumnEntity(const Slice& value,
 
   WideColumns columns;
   Slice input = value;
-  Status s = WideColumnSerialization::Deserialize(input, columns);
+  Status s = WideColumnSerialization::DeserializeSimple(input, columns);
   if (!s.ok()) {
     return s;
   }

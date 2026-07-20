@@ -100,8 +100,8 @@ class MergeHelper {
     Slice entity_copy(entity);
     WideColumns existing_columns;
 
-    const Status s =
-        WideColumnSerialization::Deserialize(entity_copy, existing_columns);
+    const Status s = WideColumnSerialization::DeserializeSimple(
+        entity_copy, existing_columns);
     if (!s.ok()) {
       return s;
     }

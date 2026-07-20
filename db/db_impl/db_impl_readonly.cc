@@ -154,7 +154,7 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
     if (get_impl_options.value) {
       size = get_impl_options.value->size();
     } else if (get_impl_options.columns) {
-      size = get_impl_options.columns->serialized_size();
+      size = get_impl_options.columns->payload_size();
     } else if (get_impl_options.merge_operands) {
       *get_impl_options.number_of_operands =
           static_cast<int>(merge_context.GetNumOperands());

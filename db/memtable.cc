@@ -58,7 +58,7 @@ Status GetDefaultColumnBlobIndexSlice(Slice entity, Slice* blob_index_slice) {
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
   Status status =
-      WideColumnSerialization::DeserializeV2(entity, columns, blob_columns);
+      WideColumnSerialization::Deserialize(entity, columns, &blob_columns);
   if (status.ok()) {
     if (columns.empty() || columns.front().name() != kDefaultWideColumnName ||
         blob_columns.empty() || blob_columns.front().first != 0) {
@@ -1525,6 +1525,12 @@ static bool SaveValue(void* arg, const char* entry) {
             }
           }
         } else if (s->columns) {
+          // NOTE/TODO: copying all of the wide columns that are inlined in the
+          // memtable. (Blob-indirect columns avoid the copy in
+          // MaybeResolveMemtableBlobValue()). We could consider avoiding the
+          // copy, perhaps conditional on size, by pinning the SuperVersion with
+          // the result, but there's no precedent for that, even without wide
+          // columns (plain memtable values are copied too).
           *(s->status) = s->columns->SetWideColumnValue(v);
         }
 
@@ -1858,7 +1864,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           range->AddValueSize(iter->value->size());
         } else {
           assert(iter->columns);
-          range->AddValueSize(iter->columns->serialized_size());
+          range->AddValueSize(iter->columns->payload_size());
         }
 
         range->MarkKeyDone(iter);
@@ -1916,7 +1922,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           range->AddValueSize(iter->value->size());
         } else {
           assert(iter->columns);
-          range->AddValueSize(iter->columns->serialized_size());
+          range->AddValueSize(iter->columns->payload_size());
         }
 
         range->MarkKeyDone(iter);

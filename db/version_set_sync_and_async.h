@@ -133,7 +133,7 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
             file_range.AddValueSize(iter->value->size());
           } else {
             assert(iter->columns);
-            file_range.AddValueSize(iter->columns->serialized_size());
+            file_range.AddValueSize(iter->columns->payload_size());
           }
 
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {

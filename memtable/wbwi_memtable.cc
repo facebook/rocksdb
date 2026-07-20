@@ -183,7 +183,7 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
           range->AddValueSize(iter->value->size());
         } else {
           assert(iter->columns);
-          range->AddValueSize(iter->columns->serialized_size());
+          range->AddValueSize(iter->columns->payload_size());
         }
       }
       range->MarkKeyDone(iter);

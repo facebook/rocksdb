@@ -5,6 +5,8 @@
 
 #include "rocksdb/wide_columns.h"
 
+#include <iterator>
+
 #include "db/blob/blob_index.h"
 #include "db/wide/wide_column_serialization.h"
 
@@ -14,30 +16,31 @@ const Slice kDefaultWideColumnName;
 
 const WideColumns kNoWideColumns;
 
-Status PinnableWideColumns::CreateIndexForWideColumns() {
+Status PinnableWideColumns::BuildColumnsForEntity() {
   columns_.clear();
   unresolved_blob_column_indices_.clear();
 
-  Slice value_copy = value_;
-  Status status = WideColumnSerialization::Deserialize(value_copy, columns_);
-  if (status.IsNotSupported()) {
-    // Deserialize() may already populate columns_ before discovering V2 blob
-    // references and returning NotSupported. Clear the partial result before
-    // falling back to DeserializeV2(), which requires an empty output vector.
-    columns_.clear();
-    value_copy = value_;
-    std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-    status = WideColumnSerialization::DeserializeV2(value_copy, columns_,
-                                                    blob_columns);
-    if (status.ok()) {
-      unresolved_blob_column_indices_.reserve(blob_columns.size());
-      for (const auto& blob_column : blob_columns) {
-        unresolved_blob_column_indices_.push_back(blob_column.first);
-      }
+  // Called right after a Set*() has placed the serialized entity in a single
+  // backing buffer; the whole entity must live in backing_.front().
+  assert(!backing_.empty());
+  assert(std::next(backing_.begin()) == backing_.end());
+
+  // Collect any blob column references; a resolved entity simply yields none.
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  Status status = WideColumnSerialization::Deserialize(backing_.front(),
+                                                       columns_, &blob_columns);
+  if (status.ok()) {
+    unresolved_blob_column_indices_.reserve(blob_columns.size());
+    for (const auto& blob_column : blob_columns) {
+      unresolved_blob_column_indices_.push_back(blob_column.first);
     }
   }
 
   return status;
+}
+
+size_t PinnableWideColumns::serialized_size() const {
+  return WideColumnSerialization::SerializedSizeV1(columns_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

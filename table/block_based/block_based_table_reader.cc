@@ -1537,7 +1537,7 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
   Slice entity(value);
   std::vector<WideColumn> columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  s = WideColumnSerialization::DeserializeV2(entity, columns, blob_columns);
+  s = WideColumnSerialization::Deserialize(entity, columns, &blob_columns);
   if (!s.ok()) {
     return s;
   }
