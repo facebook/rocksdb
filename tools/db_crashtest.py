@@ -665,6 +665,7 @@ simple_default_params = {
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "test_secondary": lambda: random.choice([0, 1]),
+    "open_read_only_one_in": lambda: random.choice([0, 0, 0, 16]),
 }
 
 blackbox_simple_default_params = {
@@ -1539,6 +1540,15 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
+    # Opening a read-only DB on the primary's directory needs a plain read-write
+    # primary; it is not wired up for transactions, BlobDB, or TTL DBs.
+    if (
+        dest_params.get("use_txn", 0) == 1
+        or dest_params.get("use_optimistic_txn", 0) == 1
+        or dest_params.get("use_blob_db", 0) == 1
+        or dest_params.get("ttl", -1) != -1
+    ):
+        dest_params["open_read_only_one_in"] = 0
     if dest_params.get("use_multiscan") == 1:
         dest_params["async_io"] = 0
         dest_params["delpercent"] += dest_params["delrangepercent"]

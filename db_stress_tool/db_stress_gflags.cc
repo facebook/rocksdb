@@ -704,6 +704,14 @@ DEFINE_bool(test_secondary, false,
             "If true, start an additional secondary instance which can be used "
             "for verification.");
 
+DEFINE_int32(open_read_only_one_in, 0,
+             "If greater than 0, on thread 0 with probability 1/N per "
+             "operation, open a read-only DB instance on the primary's live "
+             "directory, flush the primary, then close the reader. Stresses "
+             "concurrent primary + read-only DB on the same directory to guard "
+             "against a read-only DB's close deleting the primary's live SST "
+             "files. 0 disables.");
+
 DEFINE_string(
     expected_values_dir, "",
     "Dir where files containing info about the latest/historical values will "

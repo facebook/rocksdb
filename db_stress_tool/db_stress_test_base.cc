@@ -1666,6 +1666,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      MaybeOpenReadOnlyOnPrimary(thread);
+
       MaybeClearOneColumnFamily(thread);
 
       if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
@@ -4859,6 +4861,93 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             "sequence number %" PRIu64 " from last DB session\n",
             db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
     port::ImmediateExit(1);
+  }
+}
+
+void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
+  assert(thread);
+  if (FLAGS_open_read_only_one_in <= 0 || thread->tid != 0 ||
+      !thread->rand.OneIn(FLAGS_open_read_only_one_in)) {
+    return;
+  }
+
+  // Snapshot the current column family names for the read-only open. Other
+  // worker threads can rename families via MaybeClearOneColumnFamily(), which
+  // writes column_family_names_[cf] while holding that family's per-CF lock, so
+  // read each name under the same lock to avoid a data race. This only builds a
+  // local descriptor list; it must not mutate any shared member state.
+  std::vector<ColumnFamilyDescriptor> cf_descriptors;
+  cf_descriptors.reserve(column_family_names_.size());
+  for (int cf = 0; cf < static_cast<int>(column_family_names_.size()); ++cf) {
+    thread->shared->LockColumnFamily(cf);
+    cf_descriptors.emplace_back(column_family_names_[cf],
+                                ColumnFamilyOptions(options_));
+    thread->shared->UnlockColumnFamily(cf);
+  }
+
+  // A read-only instance opened concurrently with the primary can trip over
+  // injected faults or files the primary mutates underneath it, so disable
+  // error injection while we open, read, and close the reader. The primary's
+  // own subsequent operations run with injection re-enabled, so a genuinely
+  // deleted live file still surfaces on the normal verification path.
+  if (db_fault_injection_fs_) {
+    db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
+  }
+
+  std::vector<ColumnFamilyHandle*> ro_cfhs;
+  std::unique_ptr<DB> ro_db;
+  // A read-only reader never compacts, so it must not share the primary's
+  // background-coordination services. Sharing the compaction service in
+  // particular would let the reader's open/close abort the primary's in-flight
+  // remote compactions, and sharing listeners would fire primary callbacks for
+  // the reader instance.
+  DBOptions read_only_db_options(options_);
+  read_only_db_options.compaction_service = nullptr;
+  read_only_db_options.listeners.clear();
+  Status s = DB::OpenForReadOnly(read_only_db_options, GetDbPath(),
+                                 cf_descriptors, &ro_cfhs, &ro_db);
+  // Opening read-only while the primary mutates the same directory is
+  // best-effort; a transient failure here is expected and not a bug.
+  if (s.ok()) {
+    // Create new SST files in the primary that are absent from the reader's
+    // frozen live-file snapshot, so that a read-only close wrongly running
+    // obsolete-file cleanup would delete these live files. Flush all column
+    // families; error injection is disabled here, so the flush is expected to
+    // succeed and any real failure is surfaced via ProcessStatus().
+    Status flush_s = db_->Flush(FlushOptions(), column_families_);
+    ProcessStatus(thread->shared, "Flush read-only-primary", flush_s);
+
+    ReadOptions read_opts;
+    std::string ts_str;
+    Slice ts;
+    if (FLAGS_user_timestamp_size > 0) {
+      ts_str = GetNowNanos();
+      ts = ts_str;
+      read_opts.timestamp = &ts;
+    }
+    std::string value;
+    for (auto* handle : ro_cfhs) {
+      // Error injection is disabled, so a read is expected to either find the
+      // key or return NotFound; any other status (for example, a missing file
+      // from a wrongly deleted live SST) is a real failure.
+      Status get_s = ro_db->Get(read_opts, handle, Key(0), &value);
+      if (!get_s.IsNotFound()) {
+        ProcessStatus(thread->shared, "Read-only Get", get_s);
+      }
+    }
+
+    // Closing the reader runs the read-only close path. If it wrongly purges
+    // obsolete files based on its stale snapshot, the primary's live files are
+    // deleted and later detected by db_stress's read/verification paths.
+    for (auto* handle : ro_cfhs) {
+      delete handle;
+    }
+    ro_cfhs.clear();
+    ro_db.reset();
+  }
+
+  if (db_fault_injection_fs_) {
+    db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
   }
 }
 
