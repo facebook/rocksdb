@@ -4194,6 +4194,12 @@ Status DBImpl::MultiGetImpl(
     assert(key->s);
 
     if (partition_mgr != nullptr && key->s->ok()) {
+      // TODO: value_size_soft_limit was already enforced (above and inside
+      // per-file MultiGet) on pre-resolution sizes. Separate-file blob columns
+      // are resolved eagerly in GetContext and thus counted, but direct-write
+      // blob values are resolved here, after that check, so their bytes are
+      // read unbounded. To bound them, sum projected BlobIndex::size() and
+      // enforce the limit before fetching.
       std::string blob_lookup_key_storage;
       MaybeResolveDirectWriteValue(
           read_options,

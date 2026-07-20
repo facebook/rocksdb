@@ -6,6 +6,7 @@
 #pragma once
 
 #include <forward_list>
+#include <iterator>
 #include <ostream>
 #include <tuple>
 #include <utility>
@@ -213,8 +214,19 @@ inline void PinnableWideColumns::Reset() {
 }
 
 inline void PinnableWideColumns::CopyValue(const Slice& value) {
-  backing_.clear();
-  backing_.emplace_front();
+  // Reuse an existing single, self-owned backing buffer when we have one;
+  // otherwise reset to a fresh one. Assigning into the existing buffer rather
+  // than freeing it first keeps the copy safe even when `value` aliases our own
+  // storage (e.g. a Slice returned by columns()): PinSelf() ->
+  // std::string::assign() handles self-overlapping input. It also avoids
+  // node/string churn when a PinnableWideColumns is reused across plain-value
+  // reads. A pinned node (external Cleanable storage) can't be reused because
+  // PinSelf() requires an unpinned target, so fall back to a fresh buffer.
+  if (backing_.empty() || std::next(backing_.begin()) != backing_.end() ||
+      backing_.front().IsPinned()) {
+    backing_.clear();
+    backing_.emplace_front();
+  }
   backing_.front().PinSelf(value);
 }
 
