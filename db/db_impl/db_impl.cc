@@ -2955,6 +2955,11 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
         return s;
       }
       resolved_value = blob_value;
+      // Test hook: exposes the freshly fetched blob buffer so tests can assert
+      // the resolved column Slice points directly at it (zero-copy) and stays
+      // stable across moves of the PinnableWideColumns.
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::ResolveDirectWriteWideColumns:BlobFetched", &blob_value);
     }
 
     resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
