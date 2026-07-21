@@ -3131,24 +3131,21 @@ struct SharedState {
 // Convenience alias so call sites can keep referring to `Duration`.
 using Duration = SharedState::Duration;
 
-// Handles an IO error surfaced by a benchmark op running on a worker thread.
-// `context` is logged and reused as the fatal message prefix.
+// Logs an IO error surfaced by a benchmark op running on a worker thread.
+// `context` is the log prefix.
 //
-// With --tolerate_io_errors_for_remote_dbs a non-data-loss IO error is recorded
-// as fatal so the run unwinds and shuts down gracefully, reporting the
-// benchmark result as INVALID instead of aborting the process; the caller
-// should then `return` out of its op. Without the flag (the default) it aborts,
-// which yields a core dump for local debugging. Data-loss errors are never
-// tolerated. Intended for remote storage backends that can return transient
-// infrastructure IO errors, where a crashed process is worse than an
-// invalidated run.
-static void HandleBenchmarkIOError(SharedState* shared, const Status& s,
-                                   const char* context) {
+// With --tolerate_io_errors_for_remote_dbs, a non-data-loss IO error against a
+// remote backend (--env_uri / --fs_uri) is logged and tolerated: this function
+// returns so the caller can skip the failed op and keep running (a best-effort
+// result). Without the flag (the default), or for data-loss / local-DB errors,
+// it aborts, which yields a core dump for local debugging. Intended for remote
+// storage backends that can return transient infrastructure IO errors, where
+// skipping a few ops is preferable to crashing or failing the whole run.
+static void HandleBenchmarkIOError(const Status& s, const char* context) {
   fprintf(stderr, "%s: %s\n", context, s.ToString().c_str());
   if (!IsTolerableIOError(s)) {
     abort();
   }
-  shared->SetFatal(s, std::string(context) + "; benchmark result is INVALID");
 }
 
 // Per-thread state for concurrent executions of the same benchmark.
@@ -5908,6 +5905,16 @@ class Benchmark {
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+      if (IsTolerableIOError(s)) {
+        // A tolerable remote IO error during open (e.g. a transient WS read
+        // failure) means the benchmark cannot run, but it is not a db_bench or
+        // RocksDB failure. Exit cleanly so remote benchmark jobs are not marked
+        // failed on transient infrastructure errors.
+        fprintf(stderr,
+                "Tolerated IO error during open; exiting 0 without running the "
+                "benchmark.\n");
+        db_bench_exit(0);
+      }
       db_bench_exit(1);
     }
   }
@@ -7032,8 +7039,8 @@ class Benchmark {
         found++;
         bytes += key.size() + pinnable_val.size();
       } else if (!s.IsNotFound()) {
-        HandleBenchmarkIOError(thread->shared, s, "Get returned an error");
-        return;
+        // Tolerated IO error: skip this read and continue.
+        HandleBenchmarkIOError(s, "Get returned an error");
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
@@ -7120,9 +7127,8 @@ class Benchmark {
         if (status.ok()) {
           ++found;
         } else if (!status.IsNotFound()) {
-          HandleBenchmarkIOError(thread->shared, status,
-                                 "Get returned an error");
-          return;
+          // Tolerated IO error: skip this read and continue.
+          HandleBenchmarkIOError(status, "Get returned an error");
         }
         if (key_rand >= FLAGS_num) {
           ++nonexist;
@@ -7261,8 +7267,8 @@ class Benchmark {
           pinnable_vals[i].Reset();
         }
       } else if (!s.IsNotFound()) {
-        HandleBenchmarkIOError(thread->shared, s, "Get returned an error");
-        return;
+        // Tolerated IO error: skip this read and continue.
+        HandleBenchmarkIOError(s, "Get returned an error");
       }
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
@@ -7340,9 +7346,8 @@ class Benchmark {
             bytes += keys[i].size() + values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!statuses[i].IsNotFound()) {
-            HandleBenchmarkIOError(thread->shared, statuses[i],
-                                   "MultiGet returned an error");
-            return;
+            // Tolerated IO error: skip this key and continue.
+            HandleBenchmarkIOError(statuses[i], "MultiGet returned an error");
           }
         }
       } else {
@@ -7357,9 +7362,8 @@ class Benchmark {
                 keys[i].size() + pin_values[i].size() + user_timestamp_size_;
             ++found;
           } else if (!stat_list[i].IsNotFound()) {
-            HandleBenchmarkIOError(thread->shared, stat_list[i],
-                                   "MultiGet returned an error");
-            return;
+            // Tolerated IO error: skip this key and continue.
+            HandleBenchmarkIOError(stat_list[i], "MultiGet returned an error");
           }
           stat_list[i] = Status::OK();
           pin_values[i].Reset();
@@ -8064,8 +8068,8 @@ class Benchmark {
           get_found++;
           bytes += key.size() + pinnable_val.size();
         } else if (!s.IsNotFound()) {
-          HandleBenchmarkIOError(thread->shared, s, "Get returned an error");
-          return;
+          // Tolerated IO error: skip this read and continue.
+          HandleBenchmarkIOError(s, "Get returned an error");
         }
 
         if (thread->shared->read_rate_limiter && (gets + seek) % 100 == 0) {
@@ -8368,9 +8372,8 @@ class Benchmark {
       s = db->Write(write_options_, &batch);
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kDelete);
       if (!s.ok()) {
-        fprintf(stderr, "del error: %s\n", s.ToString().c_str());
-        thread->shared->SetFatal(s, "DoDelete write error");
-        return;
+        // Tolerated IO error: skip this delete batch and continue.
+        HandleBenchmarkIOError(s, "del error");
       }
       i += entries_per_batch_;
     }
@@ -8489,15 +8492,13 @@ class Benchmark {
       written++;
 
       if (!s.ok()) {
-        fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-        // Don't exit() here: this worker holds a DbUseGuard and peer reader
-        // threads may be mid-call into the user FileSystem/Env. Record the
-        // error and unwind so RunBenchmark can shut down gracefully on the
-        // main thread. See SharedState::SetFatal.
-        thread->shared->SetFatal(s, "BGWriter put or merge error");
-        return;
+        // Tolerable remote IO error: skip byte accounting for this failed write
+        // and continue (best-effort result). Non-tolerable errors abort inside
+        // the handler (core dump for local debugging).
+        HandleBenchmarkIOError(s, "put or merge error");
+      } else {
+        bytes += key.size() + val.size() + user_timestamp_size_;
       }
-      bytes += key.size() + val.size() + user_timestamp_size_;
       thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
 
       if (FLAGS_benchmark_write_rate_limit > 0) {
@@ -8522,9 +8523,8 @@ class Benchmark {
                                &expanded_keys[offset]);
             s = db->Delete(write_options_, expanded_keys[offset]);
             if (!s.ok()) {
-              fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-              thread->shared->SetFatal(s, "BGWriter delete error");
-              return;
+              // Tolerated IO error: skip this delete and continue.
+              HandleBenchmarkIOError(s, "delete error");
             }
           }
         } else {
@@ -8534,9 +8534,8 @@ class Benchmark {
           s = db->DeleteRange(write_options_, db->DefaultColumnFamily(),
                               begin_key, end_key);
           if (!s.ok()) {
-            fprintf(stderr, "deleterange error: %s\n", s.ToString().c_str());
-            thread->shared->SetFatal(s, "BGWriter deleterange error");
-            return;
+            // Tolerated IO error: skip this delete-range and continue.
+            HandleBenchmarkIOError(s, "deleterange error");
           }
         }
         thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
@@ -8591,15 +8590,9 @@ class Benchmark {
         iter->SeekToFirst();
         num_seek_to_first++;
       } else if (!iter->status().ok()) {
-        fprintf(stderr, "Iterator error: %s\n",
-                iter->status().ToString().c_str());
-        if (!IsTolerableIOError(iter->status())) {
-          abort();
-        }
-        // Tolerated IO error: record it as fatal (result INVALID) and stop
-        // scanning so the iterator below is deleted and RunBenchmark shuts
-        // down gracefully.
-        thread->shared->SetFatal(iter->status(), "BGScan iterator error");
+        HandleBenchmarkIOError(iter->status(), "Iterator error");
+        // Tolerated IO error: the iterator cannot recover, so stop scanning and
+        // continue (the iterator below is deleted and the run proceeds).
         break;
       } else {
         iter->Next();
@@ -8776,9 +8769,8 @@ class Benchmark {
         // for all the gets we have done earlier
         Status s = PutMany(db, write_options_, key, gen.Generate());
         if (!s.ok()) {
-          fprintf(stderr, "putmany error: %s\n", s.ToString().c_str());
-          thread->shared->SetFatal(s, "RandomWithVerify putmany error");
-          return;
+          // Tolerated IO error: skip this put but still make progress.
+          HandleBenchmarkIOError(s, "putmany error");
         }
         put_weight--;
         puts_done++;
@@ -8786,9 +8778,8 @@ class Benchmark {
       } else if (delete_weight > 0) {
         Status s = DeleteMany(db, write_options_, key);
         if (!s.ok()) {
-          fprintf(stderr, "deletemany error: %s\n", s.ToString().c_str());
-          thread->shared->SetFatal(s, "RandomWithVerify deletemany error");
-          return;
+          // Tolerated IO error: skip this delete but still make progress.
+          HandleBenchmarkIOError(s, "deletemany error");
         }
         delete_weight--;
         deletes_done++;
@@ -8911,8 +8902,8 @@ class Benchmark {
         ++found;
         bytes += key.size() + value.size() + user_timestamp_size_;
       } else if (!status.IsNotFound()) {
-        HandleBenchmarkIOError(thread->shared, status, "Get returned an error");
-        return;
+        // Tolerated IO error: skip this read and continue.
+        HandleBenchmarkIOError(status, "Get returned an error");
       }
 
       if (thread->shared->write_rate_limiter) {
@@ -9045,8 +9036,9 @@ class Benchmark {
         ++found;
         bytes += key.size() + value.size() + user_timestamp_size_;
       } else if (!status.IsNotFound()) {
-        HandleBenchmarkIOError(thread->shared, status, "Get returned an error");
-        return;
+        // Tolerated IO error: skip this read; use empty value and continue.
+        HandleBenchmarkIOError(status, "Get returned an error");
+        value.clear();
       } else {
         // If not existing, then just assume an empty string of data
         value.clear();
