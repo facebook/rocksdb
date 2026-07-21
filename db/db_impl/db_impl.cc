@@ -868,6 +868,13 @@ Status DBImpl::CloseHelper() {
     cfd->UnrefAndTryDelete();
   }
 
+  for (auto* cfd : parked_compaction_cfds_) {
+    assert(cfd->queued_for_compaction());
+    cfd->set_queued_for_compaction(false);
+    cfd->UnrefAndTryDelete();
+  }
+  parked_compaction_cfds_.clear();
+
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
     mutex_.Unlock();

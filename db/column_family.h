@@ -520,6 +520,16 @@ class ColumnFamilyData {
   bool queued_for_flush() { return queued_for_flush_; }
   bool queued_for_compaction() { return queued_for_compaction_; }
 
+  int compaction_aborted() const {
+    return compaction_aborted_.load(std::memory_order_acquire);
+  }
+  void inc_compaction_aborted() {
+    compaction_aborted_.fetch_add(1, std::memory_order_release);
+  }
+  int dec_compaction_aborted() {
+    return compaction_aborted_.fetch_sub(1, std::memory_order_release) - 1;
+  }
+
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
       int num_unflushed_memtables, int num_l0_files,
@@ -711,9 +721,13 @@ class ColumnFamilyData {
   // If true --> this ColumnFamily is currently present in DBImpl::flush_queue_
   bool queued_for_flush_;
 
-  // If true --> this ColumnFamily is currently present in
-  // DBImpl::compaction_queue_
+  // If true, this ColumnFamily is in DBImpl::compaction_queue_ or its parked
+  // compaction set.
   bool queued_for_compaction_;
+
+  // Read outside the DB mutex by compaction workers. Mutations require the DB
+  // mutex.
+  std::atomic<int> compaction_aborted_{0};
 
   uint64_t prev_compaction_needed_bytes_;
 
