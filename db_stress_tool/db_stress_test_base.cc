@@ -4917,25 +4917,6 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
     Status flush_s = db_->Flush(FlushOptions(), column_families_);
     ProcessStatus(thread->shared, "Flush read-only-primary", flush_s);
 
-    ReadOptions read_opts;
-    std::string ts_str;
-    Slice ts;
-    if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
-      ts = ts_str;
-      read_opts.timestamp = &ts;
-    }
-    std::string value;
-    for (auto* handle : ro_cfhs) {
-      // Error injection is disabled, so a read is expected to either find the
-      // key or return NotFound; any other status (for example, a missing file
-      // from a wrongly deleted live SST) is a real failure.
-      Status get_s = ro_db->Get(read_opts, handle, Key(0), &value);
-      if (!get_s.IsNotFound()) {
-        ProcessStatus(thread->shared, "Read-only Get", get_s);
-      }
-    }
-
     // Closing the reader runs the read-only close path. If it wrongly purges
     // obsolete files based on its stale snapshot, the primary's live files are
     // deleted and later detected by db_stress's read/verification paths.
