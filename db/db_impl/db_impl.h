@@ -2219,7 +2219,10 @@ class DBImpl : public DB {
   // Required: DB mutex held
   Status PersistentStatsProcessFormatVersion();
 
-  Status ResumeImpl(DBRecoverContext context);
+  // `io_activity` is used to construct the ReadOptions/WriteOptions for the
+  // internal recovery work (e.g. the MANIFEST write in LogAndApply). Recovery
+  // is driven by flush operations, so callers pass Env::IOActivity::kFlush.
+  Status ResumeImpl(DBRecoverContext context, Env::IOActivity io_activity);
 
   void MaybeIgnoreError(Status* s) const;
 

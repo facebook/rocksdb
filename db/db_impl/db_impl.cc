@@ -321,12 +321,12 @@ Status DBImpl::Resume() {
 // 4. Schedule compactions if needed for all the CFs. This is needed as the
 //    flush in the prior step might have been a no-op for some CFs, which
 //    means a new super version wouldn't have been installed
-Status DBImpl::ResumeImpl(DBRecoverContext context) {
+Status DBImpl::ResumeImpl(DBRecoverContext context,
+                          Env::IOActivity io_activity) {
   mutex_.AssertHeld();
 
-  // TODO: plumb Env::IOActivity, Env::IOPriority
-  const ReadOptions read_options;
-  const WriteOptions write_options;
+  const ReadOptions read_options(io_activity);
+  const WriteOptions write_options(io_activity);
 
   WaitForBackgroundWork();
 
