@@ -55,6 +55,11 @@ INJECTION_SITES: dict[str, InjectionSite] = {
 # CompactionJob::Run entry_fn (see build_runs).
 REMOTE_COMPACTION_ENTRY_FN = "rocksdb::CompactionServiceCompactionJob::Run"
 
+# Largest value db_stress accepts for its --seed flag: it validates --seed against
+# UINT32_MAX and refuses to start on anything larger, so every seed we pick or accept
+# must stay within this bound.
+_DB_STRESS_SEED_MAX = 2**32 - 1
+
 # Small SDC-safe domain for the randomized max_key. db_crashtest's own range is far too
 # large -- a single injected flip in a huge keyspace rarely lands on a multi-version key,
 # washing out the SDC signal. Every choice here still produces a multi-version layout.
@@ -186,6 +191,24 @@ class Run:
     inject_json: Optional[dict[str, object]] = None
 
 
+def resolve_base_seed(requested_seed: int | None, run_count: int) -> int:
+    """Pick the base seed for a run set and ensure the whole set fits db_stress's
+    accepted seed range. requested_seed None means "draw a fresh random one". Run i uses
+    base_seed + i, so the highest seed is base_seed + run_count - 1; that must not exceed
+    _DB_STRESS_SEED_MAX, or db_stress refuses to start and every run comes back a
+    misleading NO_INJECTION. Raises ValueError if an explicit --seed is out of range."""
+    if requested_seed is None:
+        # Draw a fresh base seed low enough that the whole run set stays in range.
+        return random.randint(1, _DB_STRESS_SEED_MAX - (run_count - 1))
+    highest_seed = requested_seed + run_count - 1
+    if requested_seed < 1 or highest_seed > _DB_STRESS_SEED_MAX:
+        raise ValueError(
+            f"--seed range [{requested_seed}, {highest_seed}] is outside db_stress's "
+            f"accepted [1, {_DB_STRESS_SEED_MAX}]; pass a smaller --seed"
+        )
+    return requested_seed
+
+
 def build_runs(
     op: str,
     run_count: int,
@@ -202,7 +225,7 @@ def build_runs(
     op_index_max = max(op_count_estimate(op) // 3, 1)
     runs: list[Run] = []
     for index in range(run_count):
-        seed = (base_seed + index) % 2**64
+        seed = base_seed + index
         rng = random.Random(seed)
         op_index = rng.randint(1, op_index_max)
         target_fn = rng.choice(site.target_fns)
