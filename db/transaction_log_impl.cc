@@ -18,7 +18,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
     std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
-    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
+    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer,
+    NextLiveWalFn next_live_wal_fn)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -28,6 +29,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       versions_(versions),
       seq_per_batch_(seq_per_batch),
       io_tracer_(io_tracer),
+      next_live_wal_fn_(
+          std::move(next_live_wal_fn)),  // each iterator owns exclusively
       started_(false),
       is_valid_(false),
       current_file_index_(0),
@@ -213,13 +216,41 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
         return;
       }
     } else {
-      is_valid_ = false;
       if (current_last_seq_ == versions_->LastSequence()) {
+        is_valid_ = false;
         current_status_ = Status::OK();
-      } else {
-        const char* msg = "Create a new iterator to fetch the new tail.";
-        current_status_ = Status::TryAgain(msg);
+        return;
       }
+      // A WAL rotation happened (LastSequence advanced past our last read).
+      // Attempt fast rotation if the callback is available and we have
+      // already found our start sequence (started_). Without started_, we
+      // haven't delivered any records yet and should not follow rotations.
+      if (started_ && next_live_wal_fn_) {
+        std::unique_ptr<WalFile> next_wal;
+        SequenceNumber first_seq = 0;
+        Status s = next_live_wal_fn_(files_->back()->LogNumber(), &next_wal,
+                                     &first_seq);
+        if (s.ok() && first_seq == current_last_seq_ + 1) {
+          files_->push_back(std::move(next_wal));
+          ++current_file_index_;
+          Status open_s = OpenLogReader(files_->back().get());
+          if (open_s.ok()) {
+            // Release the just-finished WAL before continuing. The continuity
+            // check above guarantees no gap, so seek-back is not needed.
+            files_->erase(files_->begin(),
+                          files_->begin() + current_file_index_);
+            current_file_index_ = 0;
+            continue;  // Re-enter the read loop on the new WAL
+          }
+          // Propagate real I/O errors rather than masking them as TryAgain.
+          is_valid_ = false;
+          current_status_ = open_s;
+          return;
+        }
+      }
+      is_valid_ = false;
+      current_status_ =
+          Status::TryAgain("Create a new iterator to fetch the new tail.");
       return;
     }
   }
