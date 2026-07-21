@@ -943,8 +943,10 @@ XXPH_ALIGN(64) static const xxh_u8 kSecret[XXPH_SECRET_DEFAULT_SIZE] = {
  */
 #if defined(__GNUC__) && !defined(__clang__) && defined(__i386__)
 __attribute__((__target__("no-sse")))
-#endif
 static XXPH128_hash_t
+#else
+XXPH_FORCE_INLINE XXPH128_hash_t
+#endif
 XXPH_mult64to128(xxh_u64 lhs, xxh_u64 rhs)
 {
     /*
@@ -1052,13 +1054,14 @@ XXPH_mult64to128(xxh_u64 lhs, xxh_u64 rhs)
  *
  * Does a 64-bit to 128-bit multiply, then XOR folds it.
  * The reason for the separate function is to prevent passing
- * too many structs around by value. This will hopefully inline
- * the multiply, but we don't force it.
+ * too many structs around by value.
  */
 #if defined(__GNUC__) && !defined(__clang__) && defined(__i386__)
 __attribute__((__target__("no-sse")))
-#endif
 static xxh_u64
+#else
+XXPH_FORCE_INLINE xxh_u64
+#endif
 XXPH3_mul128_fold64(xxh_u64 lhs, xxh_u64 rhs)
 {
     XXPH128_hash_t product = XXPH_mult64to128(lhs, rhs);
@@ -1066,7 +1069,7 @@ XXPH3_mul128_fold64(xxh_u64 lhs, xxh_u64 rhs)
 }
 
 
-static XXPH64_hash_t XXPH3_avalanche(xxh_u64 h64)
+XXPH_FORCE_INLINE XXPH64_hash_t XXPH3_avalanche(xxh_u64 h64)
 {
     h64 ^= h64 >> 37;
     h64 *= PRIME64_3;
