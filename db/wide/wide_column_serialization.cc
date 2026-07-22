@@ -14,6 +14,7 @@
 #include "db/wide/wide_columns_helper.h"
 #include "rocksdb/slice.h"
 #include "util/autovector.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -459,8 +460,11 @@ Status WideColumnSerialization::Deserialize(
     return Status::Corruption("Error decoding wide column version");
   }
 
+  // A version newer than kVersion2 is reported as Corruption, consistent with
+  // how the rest of the codebase classifies an unrecognized serialized
+  // version/type (BlobIndex, blob log header, table footer).
   if (version > kVersion2) {
-    return Status::NotSupported("Unsupported wide column version");
+    return Status::Corruption("Corrupt or unsupported wide column version");
   }
 
   uint32_t num_columns = 0;
@@ -468,10 +472,10 @@ Status WideColumnSerialization::Deserialize(
     return Status::Corruption("Error decoding number of wide columns");
   }
 
-  if (!num_columns) {
-    return Status::OK();
-  }
-
+  // A zero-column entity is still dispatched to the version-specific parser
+  // below (rather than returning OK here) so that trailing bytes after an empty
+  // entity are rejected as Corruption too -- both parsers handle num_columns==0
+  // and validate that the input is exactly one serialized entity.
   if (version < kVersion2) {
     return DeserializeV1(input, num_columns, columns);
   }
@@ -526,6 +530,9 @@ Status WideColumnSerialization::HasBlobColumns(const Slice& input,
   if (version < kVersion2) {
     return Status::OK();
   }
+  if (version > kVersion2) {
+    return Status::Corruption("Corrupt or unsupported wide column version");
+  }
 
   uint32_t num_columns = 0;
   if (!GetVarint32(&input_ref, &num_columns)) {
@@ -571,6 +578,9 @@ Status WideColumnSerialization::ForEachBlobFileNumber(
   if (version < kVersion2) {
     return Status::OK();
   }
+  if (version > kVersion2) {
+    return Status::Corruption("Corrupt or unsupported wide column version");
+  }
 
   uint32_t num_columns = 0;
   if (!GetVarint32(&input_ref, &num_columns)) {
@@ -596,12 +606,18 @@ Status WideColumnSerialization::ForEachBlobFileNumber(
     return Status::Corruption("Error decoding wide column types");
   }
 
-  // Collect blob column indices
+  // Validate every column type, and note whether any blob columns are present.
+  // An unrecognized/unsupported type byte is Corruption (consistent with
+  // Deserialize() and HasBlobColumns()) rather than silently treated as a
+  // non-blob column.
   bool has_any_blob = false;
   for (uint32_t i = 0; i < num_columns; ++i) {
-    if (static_cast<uint8_t>(input_ref[i]) == kTypeBlobIndex) {
+    const auto type = lossless_cast<ValueType>(input_ref[i]);
+    if (!IsValidColumnValueType(type)) {
+      return Status::Corruption("Unsupported wide column ValueType");
+    }
+    if (type == kTypeBlobIndex) {
       has_any_blob = true;
-      break;
     }
   }
 
@@ -681,8 +697,10 @@ Status WideColumnSerialization::GetVersion(const Slice& input,
   return Status::OK();
 }
 
-Status WideColumnSerialization::GetValueOfDefaultColumn(const Slice& input,
-                                                        Slice& value) {
+Status WideColumnSerialization::GetValueOfDefaultColumn(
+    const Slice& input, Slice& value, bool& is_blob_reference) {
+  is_blob_reference = false;
+
   Slice input_ref = input;
 
   uint32_t version = 0;
@@ -690,8 +708,9 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(const Slice& input,
     return Status::Corruption("Error decoding wide column version");
   }
 
+  // See Deserialize(): a too-new version is Corruption, not NotSupported.
   if (version > kVersion2) {
-    return Status::NotSupported("Unsupported wide column version");
+    return Status::Corruption("Corrupt or unsupported wide column version");
   }
 
   uint32_t num_columns = 0;
@@ -722,16 +741,19 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(const Slice& input,
       return Status::Corruption("Error decoding wide column names bytes");
     }
 
-    // Read COLUMN TYPES (N bytes)
+    // Read COLUMN TYPES (N bytes). We only need column 0's type here (it is the
+    // default column's type only if column 0 is actually the default column,
+    // checked via its name size below), but validate it is a recognized type so
+    // a corrupt/unsupported type byte is reported as Corruption rather than
+    // silently treated as an inline value.
     if (input_ref.size() < num_columns) {
       return Status::Corruption("Error decoding wide column types");
     }
-    // Check if default column (index 0) is a blob reference
-    if (static_cast<uint8_t>(input_ref[0]) == kTypeBlobIndex) {
-      return Status::NotSupported(
-          "Wide column default value is a blob reference. Use "
-          "GetValueOfDefaultColumnResolvingBlobs().");
+    const auto column0_type = lossless_cast<ValueType>(input_ref[0]);
+    if (!IsValidColumnValueType(column0_type)) {
+      return Status::Corruption("Unsupported wide column ValueType");
     }
+    const bool column0_is_blob = column0_type == kTypeBlobIndex;
     input_ref.remove_prefix(num_columns);
 
     // Peek first name size from NAME SIZES section
@@ -769,15 +791,17 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(const Slice& input,
     }
     input_ref.remove_prefix(names_bytes);
 
-    // Read the first value from VALUES section
+    // Read the first value from VALUES section. For a blob-referenced default
+    // column these are the raw serialized BlobIndex bytes.
     if (input_ref.size() < first_value_size) {
       return Status::Corruption("Error decoding wide column value payload");
     }
     value = Slice(input_ref.data(), first_value_size);
+    is_blob_reference = column0_is_blob;
     return Status::OK();
   }
 
-  // V1 fallback: full deserialization
+  // V1 fallback: full deserialization. V1 has no blob references.
   WideColumns columns;
 
   if (Status s = DeserializeSimple(input, columns); !s.ok()) {
@@ -818,8 +842,6 @@ Status WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
     WideColumns& resolved_columns,
     std::forward_list<PinnableSlice>& extra_buffers, bool& resolved,
     uint64_t* total_bytes_read, uint64_t* num_blobs_resolved) {
-  assert(blob_fetcher);
-
   resolved = false;
 
   std::vector<WideColumn> columns;
@@ -844,6 +866,15 @@ Status WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
       // at them directly (zero copy). The caller keeps `entity_value` alive.
       columns[column_idx].value() = blob_idx.value();
       continue;
+    }
+
+    if (blob_fetcher == nullptr) {
+      // A blob-backed entity reached a read context with no blob fetcher (a
+      // reader without blob support, e.g. SstFileReader, or corrupt/legacy
+      // data). This is the single place entity blob resolution reports that
+      // condition; callers no longer pre-check the fetcher.
+      return Status::Corruption(
+          "Cannot resolve blob columns in entity without a blob fetcher");
     }
 
     FilePrefetchBuffer* prefetch_buffer =
@@ -879,48 +910,36 @@ Status WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
   return Status::OK();
 }
 
-Status WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
-    const Slice& entity_value, const Slice& user_key,
-    const BlobFetcher* blob_fetcher, PinnableSlice& result, bool& resolved) {
-  assert(blob_fetcher);
-
-  resolved = false;
-
-  std::vector<WideColumn> columns;
-  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-
-  if (Status s = Deserialize(entity_value, columns, &blob_columns); !s.ok()) {
-    return s;
+Status WideColumnSerialization::ResolveDefaultColumnBlobReference(
+    const Slice& blob_index, const Slice& user_key,
+    const BlobFetcher* blob_fetcher, PinnableSlice& value) {
+  if (blob_index.empty()) {
+    return Status::Corruption("Empty blob index in wide column default value");
   }
 
-  // The default column (empty name) is always at index 0 when present
-  // (columns are sorted by name).
-  if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
-    result.PinSelf(Slice());
+  BlobIndex blob_idx;
+  if (Status s = blob_idx.DecodeFrom(blob_index); !s.ok()) {
+    return Status::Corruption(
+        "Error decoding blob index in wide column default value");
+  }
+
+  if (blob_idx.IsInlined()) {
+    value.PinSelf(blob_idx.value());
     return Status::OK();
   }
 
-  // Check if the default column (index 0) is a blob reference
-  for (const auto& blob_col : blob_columns) {
-    if (blob_col.first == 0) {
-      const BlobIndex& blob_idx = blob_col.second;
-
-      resolved = true;
-
-      if (blob_idx.IsInlined()) {
-        result.PinSelf(blob_idx.value());
-        return Status::OK();
-      }
-
-      return blob_fetcher->FetchBlob(user_key, blob_idx,
-                                     nullptr /* prefetch_buffer */, &result,
-                                     nullptr /* bytes_read */);
-    }
+  if (blob_fetcher == nullptr) {
+    // A blob-backed default column reached a read context with no blob fetcher
+    // (a reader without blob support, e.g. SstFileReader, or corrupt/legacy
+    // data). This is the single place default-column blob resolution reports
+    // that condition; callers no longer pre-check the fetcher.
+    return Status::Corruption(
+        "Cannot resolve blob-backed default column without a blob fetcher");
   }
 
-  // Default column is inline
-  result.PinSelf(columns[0].value());
-  return Status::OK();
+  return blob_fetcher->FetchBlob(user_key, blob_idx,
+                                 nullptr /* prefetch_buffer */, &value,
+                                 nullptr /* bytes_read */);
 }
 
 Status WideColumnSerialization::ResolveEntityForMerge(
@@ -932,11 +951,9 @@ Status WideColumnSerialization::ResolveEntityForMerge(
   if (status.ok()) {
     if (!has_blob_columns) {
       effective_entity = entity_value;
-    } else if (!blob_fetcher) {
-      // FIXME: this is a violated coding precondition, not a corruption
-      status = Status::Corruption(
-          "Cannot resolve blob columns in entity without a blob fetcher");
     } else {
+      // A null blob_fetcher with blob columns present is reported as Corruption
+      // inside ResolveEntityBlobColumns -> ResolveEntityBlobColumnsMultiBuffer.
       bool resolved = false;
       status = ResolveEntityBlobColumns(
           entity_value, user_key, blob_fetcher, prefetch_buffers,

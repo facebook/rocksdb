@@ -88,8 +88,9 @@ class Slice;
 //   ct values are ValueType entries from db/dbformat.h, e.g.:
 //     kTypeValue (0x01) = inline value
 //     kTypeBlobIndex (0x11) = blob index reference
-//   Future per-column types (kTypeMerge, kTypeDeletion, etc.) can be
-//   added without format changes.
+//   Future per-column types (kTypeMerge, kTypeDeletion, etc.) can be added
+//   without changing the byte layout, though a reader predating a given type
+//   rejects it as Corruption (see IsValidColumnValueType).
 //
 // Section 4: NAME SIZES (N varints)
 //   +----------+----------+---...---+------------+
@@ -161,7 +162,8 @@ class WideColumnSerialization {
   // blob_columns: if non-null, receives (column_index, blob_index) pairs
   // identifying which entries in `columns` are blob references, and their
   // decoded BlobIndex data. If null, the caller is promising the entity is
-  // fully resolved (no blob references); encountering one returns NotSupported.
+  // fully resolved (no blob references); encountering one returns Corruption
+  // (as it could theoretically arise from data corruption).
   // When non-null, this agrees with HasBlobColumns() about whether blob column
   // references are present.
   static Status Deserialize(
@@ -169,7 +171,7 @@ class WideColumnSerialization {
       std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
 
   // Convenience wrapper of Deserialize() for callers that own a fully resolved
-  // entity with no blob references (returns NotSupported if one is present).
+  // entity with no blob references (returns Corruption if one is present).
   static Status DeserializeSimple(const Slice& input, WideColumns& columns) {
     return Deserialize(input, columns, nullptr /* blob_columns */);
   }
@@ -190,7 +192,17 @@ class WideColumnSerialization {
       const Slice& input,
       const std::function<Status(const BlobIndex&)>& callback);
 
-  static Status GetValueOfDefaultColumn(const Slice& input, Slice& value);
+  // Extracts the default column (empty name) from a serialized entity, without
+  // fetching any blob. Uses an O(1) fast path (no full deserialization).
+  //   is_blob_reference == false: `value` is the inline default column value.
+  //   is_blob_reference == true : `value` is the raw serialized BlobIndex of
+  //                               the default column; resolve it with
+  //                               ResolveDefaultColumnBlobReference().
+  // Either way `value` is a zero-copy Slice into `input`. If there is no
+  // default column, `value` is empty and is_blob_reference is false. Returns
+  // Corruption on decode errors (never NotSupported).
+  static Status GetValueOfDefaultColumn(const Slice& input, Slice& value,
+                                        bool& is_blob_reference);
 
   // Resolves all blob column references in a V2 wide-column entity,
   // fetches the blob values, and re-serializes as a V1 entity (all inline).
@@ -228,7 +240,10 @@ class WideColumnSerialization {
   // `extra_buffers` in alongside the original entity buffer).
   //
   // Sets `resolved` to false and leaves the outputs empty when no blob columns
-  // are present.
+  // are present. A non-inlined blob column with a null blob_fetcher (nothing to
+  // read the blob with) is reported as Corruption because this could
+  // hypothetically be caused by data corruption (more likely a programming
+  // mistake); inlined blob columns need no fetcher.
   static Status ResolveEntityBlobColumnsMultiBuffer(
       const Slice& entity_value, const Slice& user_key,
       const BlobFetcher* blob_fetcher,
@@ -236,17 +251,16 @@ class WideColumnSerialization {
       std::forward_list<PinnableSlice>& extra_buffers, bool& resolved,
       uint64_t* total_bytes_read, uint64_t* num_blobs_resolved);
 
-  // Extracts the default column value from a V2 entity, resolving its
-  // blob reference if needed. The default column (empty name) is always
-  // at index 0 when present (columns are sorted).
-  //
-  // Sets result to the resolved default column value (fetching from blob
-  // file if it's a blob reference). If there is no default column, result
-  // is set to empty. Sets *resolved to true if a blob was found for the
-  // default column, false otherwise.
-  static Status GetValueOfDefaultColumnResolvingBlobs(
-      const Slice& entity_value, const Slice& user_key,
-      const BlobFetcher* blob_fetcher, PinnableSlice& result, bool& resolved);
+  // Resolves the default column's blob reference -- the raw serialized
+  // BlobIndex returned by GetValueOfDefaultColumn() when is_blob_reference is
+  // true -- into its value. An inlined BlobIndex needs no fetch. A non-inlined
+  // reference with a null blob_fetcher returns Corruption: a blob-backed value
+  // with no way to read the blob (a reader without blob support, e.g.
+  // SstFileReader, or corrupt/legacy data). This is the single place that
+  // condition is handled for default-column reads.
+  static Status ResolveDefaultColumnBlobReference(
+      const Slice& blob_index, const Slice& user_key,
+      const BlobFetcher* blob_fetcher, PinnableSlice& value);
 
   // Resolves V2 entity blob columns if present, returning an effective
   // Slice for use with TimedFullMerge. If the entity has no blob columns

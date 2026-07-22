@@ -8,7 +8,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 ### Code Quality and Maintainability
 
-**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary.
+**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary. Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
 
 **Consistent Style:** Follow existing code style conventions. RocksDB uses `.clang-format` for formatting, specific naming conventions, and structural patterns. Deviations from these patterns are frequently flagged in reviews.
 

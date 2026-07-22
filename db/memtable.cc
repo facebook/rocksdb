@@ -52,25 +52,6 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-Status GetDefaultColumnBlobIndexSlice(Slice entity, Slice* blob_index_slice) {
-  assert(blob_index_slice != nullptr);
-
-  std::vector<WideColumn> columns;
-  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  Status status =
-      WideColumnSerialization::Deserialize(entity, columns, &blob_columns);
-  if (status.ok()) {
-    if (columns.empty() || columns.front().name() != kDefaultWideColumnName ||
-        blob_columns.empty() || blob_columns.front().first != 0) {
-      status = Status::Corruption(
-          "Wide column default column blob reference missing");
-    } else {
-      *blob_index_slice = columns.front().value();
-    }
-  }
-  return status;
-}
-
 Status PushWideColumnEntityDefaultOperand(const Slice& user_key,
                                           const Slice& entity,
                                           MergeContext* merge_context,
@@ -78,29 +59,24 @@ Status PushWideColumnEntityDefaultOperand(const Slice& user_key,
                                           const BlobFetcher* blob_fetcher) {
   assert(merge_context != nullptr);
 
-  Slice entity_ref = entity;
   Slice value_of_default;
+  bool is_blob_reference = false;
   Status status = WideColumnSerialization::GetValueOfDefaultColumn(
-      entity_ref, value_of_default);
-  if (status.ok()) {
+      entity, value_of_default, is_blob_reference);
+  if (!status.ok()) {
+    return status;
+  }
+  if (!is_blob_reference) {
     merge_context->PushOperand(value_of_default, operand_pinned);
     return status;
   }
-  if (!status.IsNotSupported()) {
-    return status;
-  }
-  if (blob_fetcher == nullptr) {
-    return Status::Corruption(
-        "Cannot resolve blob-backed default column without a blob fetcher");
-  }
 
   PinnableSlice resolved_default;
-  bool resolved = false;
-  status = WideColumnSerialization::GetValueOfDefaultColumnResolvingBlobs(
-      entity, user_key, blob_fetcher, resolved_default, resolved);
+  status = WideColumnSerialization::ResolveDefaultColumnBlobReference(
+      value_of_default, user_key, blob_fetcher, resolved_default);
   if (status.ok()) {
-    // Resolved blob values are backed by this stack-local PinnableSlice, so
-    // copy them into MergeContext instead of pinning their storage.
+    // Resolved value is backed by this stack-local PinnableSlice, so copy it
+    // into MergeContext instead of pinning its storage.
     merge_context->PushOperand(Slice(resolved_default), false);
   }
   return status;
@@ -1510,18 +1486,25 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else if (s->value) {
           Slice value_of_default;
+          bool is_blob_reference = false;
           *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
-              v, value_of_default);
+              v, value_of_default, is_blob_reference);
           if (s->status->ok()) {
-            s->value->assign(value_of_default.data(), value_of_default.size());
-          } else if (s->status->IsNotSupported() &&
-                     s->is_blob_index != nullptr) {
-            Slice blob_index_slice;
-            *(s->status) = GetDefaultColumnBlobIndexSlice(v, &blob_index_slice);
-            if (s->status->ok()) {
-              s->value->assign(blob_index_slice.data(),
-                               blob_index_slice.size());
+            if (!is_blob_reference) {
+              s->value->assign(value_of_default.data(),
+                               value_of_default.size());
+            } else if (s->is_blob_index != nullptr) {
+              // Caller requested the raw blob index (StackableDB BlobDB); hand
+              // back the serialized BlobIndex bytes without resolving.
+              s->value->assign(value_of_default.data(),
+                               value_of_default.size());
               default_blob_index_returned = true;
+            } else {
+              // Base RocksDB read of a blob-backed default column without
+              // is_blob_index requested: not supported here.
+              *(s->status) = Status::NotSupported(
+                  "Encountered blob-backed default column without "
+                  "is_blob_index");
             }
           }
         } else if (s->columns) {
