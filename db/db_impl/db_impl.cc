@@ -4216,25 +4216,52 @@ Status DBImpl::MultiGetImpl(
   PERF_TIMER_GUARD(get_post_process_time);
   size_t num_found = 0;
   uint64_t bytes_read = 0;
+  // value_size_soft_limit was enforced above (and inside per-file MultiGet) on
+  // pre-resolution sizes. Direct-write blob references, though, are resolved
+  // below -- after that check counted only their encoded blob-index bytes.
+  // Enforce the limit on them here too, but only abort a key once the bytes
+  // already returned by this MultiGet exceed the limit. That way at least one
+  // key is always read even if it alone exceeds the limit ("always make
+  // progress"), so a caller retrying aborted keys cannot loop forever on a
+  // single oversized value.
+  const bool enforce_direct_write_soft_limit =
+      partition_mgr != nullptr &&
+      read_options.value_size_soft_limit !=
+          std::numeric_limits<uint64_t>::max() &&
+      read_options.read_tier != kBlockCacheTier;
   for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
     KeyContext* key = (*sorted_keys)[i];
     assert(key);
     assert(key->s);
 
     if (partition_mgr != nullptr && key->s->ok()) {
-      // TODO: value_size_soft_limit was already enforced (above and inside
-      // per-file MultiGet) on pre-resolution sizes. Separate-file blob columns
-      // are resolved eagerly in GetContext and thus counted, but direct-write
-      // blob values are resolved here, after that check, so their bytes are
-      // read unbounded. To bound them, sum projected BlobIndex::size() and
-      // enforce the limit before fetching.
-      std::string blob_lookup_key_storage;
-      MaybeResolveDirectWriteValue(
-          read_options,
-          GetBlobLookupUserKey(*key->key, key->timestamp,
-                               &blob_lookup_key_storage),
-          /*resolve_direct_write_value=*/true, super_version->current, cfd,
-          key->value, key->columns, key->s, &key->is_blob_index);
+      const bool has_unresolved_direct_write =
+          key->is_blob_index ||
+          (key->columns != nullptr &&
+           !PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(
+                *key->columns)
+                .empty());
+      if (enforce_direct_write_soft_limit && has_unresolved_direct_write &&
+          bytes_read > read_options.value_size_soft_limit) {
+        // Prior keys in this MultiGet have already returned more than the soft
+        // limit, so skip fetching this key's (possibly large) blob value(s).
+        if (key->value != nullptr) {
+          key->value->Reset();
+        }
+        if (key->columns != nullptr) {
+          key->columns->Reset();
+        }
+        key->is_blob_index = false;
+        *key->s = Status::Aborted();
+      } else {
+        std::string blob_lookup_key_storage;
+        MaybeResolveDirectWriteValue(
+            read_options,
+            GetBlobLookupUserKey(*key->key, key->timestamp,
+                                 &blob_lookup_key_storage),
+            /*resolve_direct_write_value=*/true, super_version->current, cfd,
+            key->value, key->columns, key->s, &key->is_blob_index);
+      }
     }
 
     if (key->s->ok()) {

@@ -2187,9 +2187,12 @@ struct ReadOptions {
   // headers/footers, that we currently do not charge to rate limiter.
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
-  // It limits the maximum cumulative value size of the keys in batch while
-  // reading through MultiGet. Once the cumulative value size exceeds this
-  // soft limit then all the remaining keys are returned with status Aborted.
+  // Soft limit on the cumulative value size read by a single MultiGet, to bound
+  // how much it buffers. It always makes progress: at least one key is read
+  // even if its value alone exceeds the limit. Once the returned size exceeds
+  // the limit, subsequent keys get status Aborted (so a caller can retry them,
+  // and cannot loop forever on a single value that by itself exceeds the
+  // limit).
   uint64_t value_size_soft_limit = std::numeric_limits<uint64_t>::max();
 
   // When the number of merge operands applied exceeds this threshold

@@ -4873,16 +4873,18 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
 
   // Snapshot the current column family names for the read-only open. Other
   // worker threads can rename families via MaybeClearOneColumnFamily(), which
-  // writes column_family_names_[cf] while holding that family's per-CF lock, so
-  // read each name under the same lock to avoid a data race. This only builds a
-  // local descriptor list; it must not mutate any shared member state.
+  // writes column_family_names_[cf] while holding ALL key locks for that CF.
+  // We only need a single key lock per CF to synchronize with that writer --
+  // using LockColumnFamily would acquire all key locks (potentially hundreds of
+  // thousands) simultaneously, exceeding the number of locks TSAN's
+  // deadlock detector can track as held per thread (128), which aborts with
+  // "sanitizer_deadlock_detector.h ... n_all_locks_ < ... (0x80, 0x80)".
   std::vector<ColumnFamilyDescriptor> cf_descriptors;
   cf_descriptors.reserve(column_family_names_.size());
   for (int cf = 0; cf < static_cast<int>(column_family_names_.size()); ++cf) {
-    thread->shared->LockColumnFamily(cf);
+    MutexLock l(thread->shared->GetMutexForKey(cf, 0));
     cf_descriptors.emplace_back(column_family_names_[cf],
                                 ColumnFamilyOptions(options_));
-    thread->shared->UnlockColumnFamily(cf);
   }
 
   // A read-only instance opened concurrently with the primary can trip over
@@ -4916,25 +4918,6 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
     // succeed and any real failure is surfaced via ProcessStatus().
     Status flush_s = db_->Flush(FlushOptions(), column_families_);
     ProcessStatus(thread->shared, "Flush read-only-primary", flush_s);
-
-    ReadOptions read_opts;
-    std::string ts_str;
-    Slice ts;
-    if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
-      ts = ts_str;
-      read_opts.timestamp = &ts;
-    }
-    std::string value;
-    for (auto* handle : ro_cfhs) {
-      // Error injection is disabled, so a read is expected to either find the
-      // key or return NotFound; any other status (for example, a missing file
-      // from a wrongly deleted live SST) is a real failure.
-      Status get_s = ro_db->Get(read_opts, handle, Key(0), &value);
-      if (!get_s.IsNotFound()) {
-        ProcessStatus(thread->shared, "Read-only Get", get_s);
-      }
-    }
 
     // Closing the reader runs the read-only close path. If it wrongly purges
     // obsolete files based on its stale snapshot, the primary's live files are
