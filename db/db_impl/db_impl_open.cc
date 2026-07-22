@@ -683,7 +683,8 @@ Status DBImpl::Recover(
                            f->file_checksum, f->file_checksum_func_name,
                            f->unique_id, f->compensated_range_deletion_size,
                            f->tail_size, f->user_defined_timestamps_persisted,
-                           f->min_timestamp, f->max_timestamp);
+                           f->min_timestamp, f->max_timestamp,
+                           f->file_open_metadata);
               ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Moving #%" PRIu64
                              " from from_level-%d to from_level-%d %" PRIu64

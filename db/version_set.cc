@@ -7677,6 +7677,11 @@ Status VersionSet::WriteCurrentStateToManifest(
 
         for (const auto& f : level_files) {
           assert(f);
+          // Preserve file_open_metadata so live SSTs still benefit from
+          // fast_sst_open after a MANIFEST rotation. Without this, the
+          // rotated MANIFEST snapshot drops kFileOpenMetadata for unchanged
+          // files and their fast-open advantage is lost until they are
+          // rewritten.
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
@@ -7686,7 +7691,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->file_checksum_func_name, f->unique_id,
                        f->compensated_range_deletion_size, f->tail_size,
                        f->user_defined_timestamps_persisted, f->min_timestamp,
-                       f->max_timestamp);
+                       f->max_timestamp, f->file_open_metadata);
         }
       }
 
