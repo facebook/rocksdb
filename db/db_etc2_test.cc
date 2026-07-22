@@ -28,6 +28,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
 #include "util/defer.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 
@@ -7902,7 +7903,10 @@ class FastOpenTestFS : public FileSystemWrapper {
                                IODebugContext* dbg) override {
     if (file_opts.file_metadata != nullptr) {
       metadata_passed_on_open_.fetch_add(1, std::memory_order_relaxed);
-      last_metadata_received_ = *file_opts.file_metadata;
+      {
+        MutexLock l(&last_metadata_mu_);
+        last_metadata_received_ = *file_opts.file_metadata;
+      }
     }
     IOStatus s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
     if (s.ok()) {
@@ -7921,18 +7925,21 @@ class FastOpenTestFS : public FileSystemWrapper {
   }
 
   std::string GetLastMetadataReceived() const {
+    MutexLock l(&last_metadata_mu_);
     return last_metadata_received_;
   }
 
   void ResetCounters() {
     metadata_retrieved_count_.store(0, std::memory_order_relaxed);
     metadata_passed_on_open_.store(0, std::memory_order_relaxed);
+    MutexLock l(&last_metadata_mu_);
     last_metadata_received_.clear();
   }
 
  private:
   std::atomic<int> metadata_retrieved_count_{0};
   std::atomic<int> metadata_passed_on_open_{0};
+  mutable port::Mutex last_metadata_mu_;
   std::string last_metadata_received_;
 };
 
@@ -8269,6 +8276,122 @@ TEST_F(DBTest2, FastSstOpenDisableAfterMetadataPersisted) {
 
   // No metadata should have been passed despite being in the MANIFEST
   ASSERT_EQ(0, test_fs->GetMetadataPassedOnOpenCount());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenMetadataPreservedAcrossManifestRotation) {
+  // Regression test: FileMetaData::file_open_metadata for unchanged live
+  // SSTs must survive a MANIFEST rotation. WriteCurrentStateToManifest
+  // snapshots live SSTs into a new MANIFEST; if it drops file_open_metadata
+  // for those unchanged SSTs, the fast_sst_open optimization is silently
+  // disabled for them until they are rewritten by flush/compaction/ingest.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+  // Keep the pre-rotation SST from being rewritten by compaction.
+  options.disable_auto_compactions = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_manifest_rotate");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  // Flush an SST; metadata is retrieved and persisted in the MANIFEST.
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+
+  // Shrink max_manifest_file_size so the next MANIFEST write rotates and
+  // exercises WriteCurrentStateToManifest.
+  ASSERT_OK(db->SetDBOptions(
+      {{"max_manifest_file_size", "1"}, {"max_manifest_space_amp_pct", "0"}}));
+
+  uint64_t manifest_before =
+      static_cast<DBImpl*>(db.get())->TEST_Current_Manifest_FileNo();
+
+  // Flush a second SST to trigger the rotation. SST #1 is unchanged, so
+  // the rotated MANIFEST snapshot must carry SST #1's file_open_metadata.
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  uint64_t manifest_after =
+      static_cast<DBImpl*>(db.get())->TEST_Current_Manifest_FileNo();
+  ASSERT_GT(manifest_after, manifest_before);
+
+  db.reset();
+  test_fs->ResetCounters();
+
+  // Reopen. Every live SST should be opened with file_open_metadata.
+  // Pre-fix: only SST #2 (added by the rotating edit) has metadata; SST #1
+  // was stripped by the rotation snapshot, so the count would be 1.
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+  ASSERT_OK(db->Get(ReadOptions(), "key2", &value));
+  ASSERT_EQ("value2", value);
+
+  ASSERT_EQ(2, test_fs->GetMetadataPassedOnOpenCount());
+
+  db.reset();
+  ASSERT_OK(DestroyDB(test_dbname, options));
+}
+
+TEST_F(DBTest2, FastSstOpenMetadataPreservedAcrossTrivialMove) {
+  // Regression test: FileMetaData::file_open_metadata must survive a trivial
+  // move. Trivial move re-records an SST at a new level via DeleteFile +
+  // AddFile without physically rewriting the file. If AddFile drops
+  // file_open_metadata, the file loses its fast_sst_open advantage until
+  // it is next rewritten by real compaction/flush/ingest.
+  auto test_fs = std::make_shared<FastOpenTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> test_env(new CompositeEnvWrapper(env_, test_fs));
+
+  Options options;
+  options.env = test_env.get();
+  options.fast_sst_open = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  std::string test_dbname = test::PerThreadDBPath("fast_open_trivial_move");
+  ASSERT_OK(DestroyDB(test_dbname, options));
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  // Flush a single SST at L0; metadata is retrieved once and persisted.
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+
+  // Manual compaction. With a single L0 file and empty lower levels, the
+  // compaction picker converts this into a trivial move (no physical
+  // rewrite), exercising PrepareTrivialMoveEdit.
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // If the SST had been rewritten, metadata retrieval would have re-run on
+  // the new file. Unchanged count confirms this was a trivial move.
+  ASSERT_EQ(1, test_fs->GetMetadataRetrievedCount());
+
+  db.reset();
+  test_fs->ResetCounters();
+
+  // Reopen. The trivially-moved SST should still carry its
+  // file_open_metadata and be opened via the fast_sst_open fast path.
+  // Pre-fix, the trivial move stripped it and this count would be 0.
+  ASSERT_OK(DB::Open(options, test_dbname, &db));
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+  ASSERT_EQ("value1", value);
+
+  ASSERT_EQ(1, test_fs->GetMetadataPassedOnOpenCount());
 
   db.reset();
   ASSERT_OK(DestroyDB(test_dbname, options));
