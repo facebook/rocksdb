@@ -12,6 +12,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "db/version_set.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
@@ -338,6 +339,33 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
     snapshots_ = snapshots;
   }
   void TakeSnapshot(SequenceNumber seq) { snapshots_.push_back(seq); }
+  bool UpdateSnapshotsForTest(const std::vector<SequenceNumber>& snapshots,
+                              SequenceNumber version) {
+    return UpdateSnapshots(snapshots, version);
+  }
+  void CheckAgainstSnapshotsForTest(const CommitEntry& entry) {
+    CheckAgainstSnapshots(entry);
+  }
+  void ClearOldCommitMapForTest() {
+    WriteLock wl(&old_commit_map_mutex_);
+    old_commit_map_.clear();
+    old_commit_map_empty_.store(true, std::memory_order_release);
+  }
+  bool OldCommitMapHasEntryForTest(SequenceNumber snapshot_seq,
+                                   SequenceNumber prep_seq) {
+    ReadLock rl(&old_commit_map_mutex_);
+    auto it = old_commit_map_.find(snapshot_seq);
+    if (it == old_commit_map_.end()) {
+      return false;
+    }
+    return std::binary_search(it->second.begin(), it->second.end(), prep_seq);
+  }
+  void SetMaxEvictedSeqForTest(SequenceNumber seq) {
+    max_evicted_seq_.store(seq, std::memory_order_release);
+  }
+  SequenceNumber SnapshotsVersionForTest() const {
+    return snapshots_version_.load(std::memory_order_acquire);
+  }
 
  protected:
   const std::vector<SequenceNumber> GetSnapshotListFromDB(
@@ -368,6 +396,9 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
   }
   void UpdateTransactionDBOptions(size_t snapshot_cache_bits) {
     txn_db_options.wp_snapshot_cache_bits = snapshot_cache_bits;
+  }
+  SequenceNumber SmallestUnCommittedSeqForTest(WritePreparedTxnDB* txn_db) {
+    return txn_db->SmallestUnCommittedSeq();
   }
   // If expect_update is set, check if it actually updated old_commit_map_. If
   // it did not and yet suggested not to check the next snapshot, do the
@@ -1668,6 +1699,85 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
   }
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+
+// Recreate the two_write_queues window where LastSequence is ahead of
+// LastPublishedSequence. A snapshot taken in this state must still treat the
+// first unpublished sequence as invisible.
+TEST_P(WritePreparedTransactionTest,
+       SnapshotRejectsUnpublishedSequenceWhenLastSequenceIsAhead) {
+  if (!options.two_write_queues) {
+    return;
+  }
+
+  ASSERT_OK(ReOpen());
+  auto* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ASSERT_NE(wp_db, nullptr);
+  auto* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  auto* versions = db_impl->GetVersionSet();
+  ASSERT_NE(versions, nullptr);
+
+  const SequenceNumber published_seq = db_impl->GetLastPublishedSequence();
+  const SequenceNumber first_unpublished_seq = published_seq + 1;
+  const SequenceNumber latest_seq = published_seq + 2;
+  versions->SetLastAllocatedSequence(latest_seq);
+  versions->SetLastSequence(latest_seq);
+
+  ASSERT_EQ(published_seq, db_impl->GetLastPublishedSequence());
+  ASSERT_EQ(latest_seq, db_impl->GetLatestSequenceNumber());
+  ASSERT_EQ(first_unpublished_seq, SmallestUnCommittedSeqForTest(wp_db));
+
+  const auto* snap = db->GetSnapshot();
+  const auto* snap_impl = static_cast<const SnapshotImpl*>(snap);
+  ASSERT_EQ(published_seq, snap_impl->GetSequenceNumber());
+  ASSERT_EQ(first_unpublished_seq, snap_impl->min_uncommitted_);
+
+  WritePreparedTxnReadCallback callback(
+      wp_db, snap_impl->GetSequenceNumber(), snap_impl->min_uncommitted_,
+      kBackedByDBSnapshot);
+  ASSERT_FALSE(callback.IsVisible(first_unpublished_seq));
+  ASSERT_FALSE(callback.IsVisible(latest_seq));
+
+  db->ReleaseSnapshot(snap);
+
+  db_impl->SetLastPublishedSequence(latest_seq);
+}
+
+// Simulate the concurrent max-advance race where an older UpdateSnapshots()
+// call runs after a newer one. A stale update must not discard a still-live
+// snapshot, otherwise later commit-cache evictions can become visible to that
+// snapshot and break snapshot consistency checks like MySQLStyleTransactionTest.
+TEST_P(WritePreparedTransactionTest, StaleSnapshotUpdateKeepsLiveSnapshot) {
+  const size_t snapshot_cache_bits = 1;
+  const size_t commit_cache_bits = 0;
+  DBImpl* mock_db = new DBImpl(options, dbname);
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(
+      new WritePreparedTxnDBMock(mock_db, txn_db_options));
+
+  const std::vector<SequenceNumber> complete_snapshots = {10, 20};
+  const std::vector<SequenceNumber> stale_snapshots = {10};
+  const SequenceNumber complete_version = 30;
+  const SequenceNumber stale_version = 15;
+  const CommitEntry evicted(/*prep_seq=*/15, /*commit_seq=*/25);
+
+  ASSERT_TRUE(
+      wp_db->UpdateSnapshotsForTest(complete_snapshots, complete_version));
+  ASSERT_EQ(complete_version, wp_db->SnapshotsVersionForTest());
+  ASSERT_FALSE(wp_db->UpdateSnapshotsForTest(stale_snapshots, stale_version));
+  ASSERT_EQ(complete_version, wp_db->SnapshotsVersionForTest());
+
+  wp_db->ClearOldCommitMapForTest();
+  wp_db->CheckAgainstSnapshotsForTest(evicted);
+  ASSERT_FALSE(wp_db->OldCommitMapHasEntryForTest(10, evicted.prep_seq));
+  ASSERT_TRUE(wp_db->OldCommitMapHasEntryForTest(20, evicted.prep_seq));
+
+  wp_db->SetMaxEvictedSeqForTest(evicted.commit_seq);
+  bool snap_released = false;
+  ASSERT_FALSE(
+      wp_db->IsInSnapshot(evicted.prep_seq, 20, kMinUnCommittedSeq,
+                          &snap_released));
+  ASSERT_FALSE(snap_released);
+}
 
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
   // Given the sequential run of txns, with this timeout we should never see a

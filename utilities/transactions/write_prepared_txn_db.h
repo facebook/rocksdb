@@ -671,11 +671,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     // order: first read prepared_txns_ and then delayed_prepared_.
 
     // This must be called before calling ::top. This is because the concurrent
-    // thread would call ::RemovePrepared before updating
-    // GetLatestSequenceNumber(). Reading then in opposite order here guarantees
-    // that the ::top that we read would be lower the ::top if we had otherwise
-    // update/read them atomically.
-    auto next_prepare = db_impl_->GetLatestSequenceNumber() + 1;
+    // thread would call ::RemovePrepared before updating the published
+    // sequence. Reading then in opposite order here guarantees that the ::top
+    // that we read would be lower the ::top if we had otherwise update/read
+    // them atomically.
+    // Note: We use GetLastPublishedSequence() instead of
+    // GetLatestSequenceNumber() because GetSnapshotImpl() uses
+    // GetLastPublishedSequence() for the snapshot's sequence number. With
+    // two_write_queues, LastSequence can be ahead of LastPublishedSequence,
+    // which would cause min_uncommitted to exceed snapshot->number_ + 1.
+    auto next_prepare = db_impl_->GetLastPublishedSequence() + 1;
     auto min_prepare = prepared_txns_.top();
     // Since we update the prepare_heap always from the main write queue via
     // PreReleaseCallback, the prepared_txns_.top() indicates the smallest
@@ -691,8 +696,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
     bool empty = min_prepare == kMaxSequenceNumber;
     if (empty) {
-      // Since GetLatestSequenceNumber is updated
-      // after prepared_txns_ are, the value of GetLatestSequenceNumber would
+      // Since the last published sequence is updated
+      // after prepared_txns_ are, the value of GetLastPublishedSequence would
       // reflect any uncommitted data that is not added to prepared_txns_ yet.
       // Otherwise, if there is no concurrent txn, this value simply reflects
       // that latest value in the memtable.
@@ -722,7 +727,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // The concurrent invocations of this function is equivalent to a serial
   // invocation in which the last invocation is the one with the largest
   // version value.
-  void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
+  bool UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
                        const SequenceNumber& version);
   // Check the new list of new snapshots against the old one to see  if any of
   // the snapshots are released and to do the cleanup for the released snapshot.
@@ -772,7 +777,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   std::vector<SequenceNumber> snapshots_all_;
   // The version of the latest list of snapshots. This can be used to avoid
   // rewriting a list that is concurrently updated with a more recent version.
-  SequenceNumber snapshots_version_ = 0;
+  std::atomic<SequenceNumber> snapshots_version_ = {0};
 
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
