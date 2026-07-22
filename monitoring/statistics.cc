@@ -334,6 +334,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.atomic_flush.request.reason.memtable_max_range_deletions"},
     {ATOMIC_FLUSH_REQUEST_REASON_OTHER,
      "rocksdb.atomic_flush.request.reason.other"},
+    {COMPACTION_IOSTATS_CPU_NANOS_COUNTER_UNDERFLOW,
+     "rocksdb.compaction.iostats.cpu.nanos.counter.underflow"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
