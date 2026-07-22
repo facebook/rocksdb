@@ -1596,9 +1596,13 @@ Status DB::OpenAndCompact(
   //    needs LSM state from MANIFEST, not memtable data from WAL replay)
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
+  const uint64_t db_open_start_micros = db_options.env->NowMicros();
   s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
                                            column_families, &handles, &db,
                                            /*recover_wal=*/false);
+  RecordTimeToHistogram(db_options.statistics.get(),
+                        OPEN_AND_COMPACT_DB_OPEN_MICROS,
+                        db_options.env->NowMicros() - db_open_start_micros);
   if (!s.ok()) {
     return s;
   }
