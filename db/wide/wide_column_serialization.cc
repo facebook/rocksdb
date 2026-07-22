@@ -14,6 +14,7 @@
 #include "db/wide/wide_columns_helper.h"
 #include "rocksdb/slice.h"
 #include "util/autovector.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -605,12 +606,18 @@ Status WideColumnSerialization::ForEachBlobFileNumber(
     return Status::Corruption("Error decoding wide column types");
   }
 
-  // Collect blob column indices
+  // Validate every column type, and note whether any blob columns are present.
+  // An unrecognized/unsupported type byte is Corruption (consistent with
+  // Deserialize() and HasBlobColumns()) rather than silently treated as a
+  // non-blob column.
   bool has_any_blob = false;
   for (uint32_t i = 0; i < num_columns; ++i) {
-    if (static_cast<uint8_t>(input_ref[i]) == kTypeBlobIndex) {
+    const auto type = lossless_cast<ValueType>(input_ref[i]);
+    if (!IsValidColumnValueType(type)) {
+      return Status::Corruption("Unsupported wide column ValueType");
+    }
+    if (type == kTypeBlobIndex) {
       has_any_blob = true;
-      break;
     }
   }
 
@@ -734,14 +741,19 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(
       return Status::Corruption("Error decoding wide column names bytes");
     }
 
-    // Read COLUMN TYPES (N bytes). Note column 0's type; it is the default
-    // column's type only if column 0 is actually the default column (checked
-    // via its name size below).
+    // Read COLUMN TYPES (N bytes). We only need column 0's type here (it is the
+    // default column's type only if column 0 is actually the default column,
+    // checked via its name size below), but validate it is a recognized type so
+    // a corrupt/unsupported type byte is reported as Corruption rather than
+    // silently treated as an inline value.
     if (input_ref.size() < num_columns) {
       return Status::Corruption("Error decoding wide column types");
     }
-    const bool column0_is_blob =
-        static_cast<uint8_t>(input_ref[0]) == kTypeBlobIndex;
+    const auto column0_type = lossless_cast<ValueType>(input_ref[0]);
+    if (!IsValidColumnValueType(column0_type)) {
+      return Status::Corruption("Unsupported wide column ValueType");
+    }
+    const bool column0_is_blob = column0_type == kTypeBlobIndex;
     input_ref.remove_prefix(num_columns);
 
     // Peek first name size from NAME SIZES section

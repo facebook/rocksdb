@@ -403,6 +403,49 @@ TEST_F(WideColumnSerializationTest, DeserializeV2RejectsRecursiveType) {
   }
 }
 
+TEST_F(WideColumnSerializationTest, FastPathsRejectUnsupportedColumnType) {
+  // GetValueOfDefaultColumn() and ForEachBlobFileNumber() read the COLUMN TYPES
+  // section on a fast path. An unrecognized/unsupported type byte (here
+  // kTypeWideColumnEntity) must be rejected as Corruption -- consistent with
+  // Deserialize()/HasBlobColumns() -- rather than silently treated as an inline
+  // value or a non-blob column.
+  std::string buf;
+  PutVarint32(&buf, WideColumnSerialization::kVersion2);
+  PutVarint32(&buf, 1);  // num_columns
+
+  // Section 2: SKIP INFO
+  PutVarint32(&buf, 1);  // name_sizes_bytes (one varint: the name size 0)
+  PutVarint32(&buf, 1);  // value_sizes_bytes (one varint: the value size 3)
+  PutVarint32(&buf, 0);  // names_bytes (default column name is empty)
+
+  // Section 3: COLUMN TYPES -- unsupported type for the (default) column
+  buf.push_back(static_cast<char>(kTypeWideColumnEntity));
+
+  // Section 4: NAME SIZES
+  PutVarint32(&buf, 0);  // empty default column name
+  // Section 5: VALUE SIZES
+  PutVarint32(&buf, 3);
+  // Section 6: NAMES (empty)
+  // Section 7: VALUES
+  buf.append("xyz");
+
+  {
+    Slice value;
+    bool is_blob_reference = false;
+    const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
+        Slice(buf), value, is_blob_reference);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), "Unsupported wide column ValueType"));
+  }
+
+  {
+    const Status s = WideColumnSerialization::ForEachBlobFileNumber(
+        Slice(buf), [](const BlobIndex&) { return Status::OK(); });
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), "Unsupported wide column ValueType"));
+  }
+}
+
 // Helper: create a BlobIndex from EncodeBlob parameters.
 static BlobIndex MakeBlobIndex(uint64_t file_number, uint64_t offset,
                                uint64_t size,
