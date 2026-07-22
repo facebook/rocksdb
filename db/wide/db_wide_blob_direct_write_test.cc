@@ -1795,6 +1795,139 @@ TEST_F(DBWideBlobDirectWriteTest,
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBWideBlobDirectWriteTest,
+       MultiGetEntitySoftLimitBoundsDirectWriteBlobResolution) {
+  // value_size_soft_limit bounds direct-write blob resolution, which happens in
+  // MultiGetImpl's post-processing loop (after the batch-loop check counted
+  // only the small encoded blob-index bytes). With two over-limit entities, the
+  // first one is read -- making progress even though it exceeds the limit --
+  // and once the returned size is over the limit the second one is aborted
+  // before its blob is fetched.
+  Options options = GetDirectWriteOptions();
+
+  Reopen(options);
+
+  // Sorted order visits "a_large" before "b_large".
+  const std::string first_key = "a_large";
+  const std::string second_key = "b_large";
+  const std::string first_blob(10000, 'a');   // >= min_blob_size: blob column
+  const std::string second_blob(10000, 'b');  // >= min_blob_size: blob column
+  const WideColumns first_columns{{kDefaultWideColumnName, "1"},
+                                  {"c", first_blob}};
+  const WideColumns second_columns{{kDefaultWideColumnName, "2"},
+                                   {"c", second_blob}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           first_key, first_columns));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           second_key, second_columns));
+  // Intentionally do not flush: the entities (and their direct-write blob
+  // references) stay in the memtable so reads resolve through
+  // DBImpl::ResolveDirectWriteWideColumns() in the post-processing loop.
+
+  int blob_fetches = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ResolveDirectWriteWideColumns:BlobFetched",
+      [&](void* /*arg*/) { ++blob_fetches; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Below either entity's resolved size (~10000 bytes), so reading the first
+  // already pushes the returned total over the limit.
+  ReadOptions read_options;
+  read_options.value_size_soft_limit = 2000;
+
+  const std::array<Slice, 2> keys{Slice(first_key), Slice(second_key)};
+  std::array<PinnableWideColumns, 2> results;
+  std::array<Status, 2> statuses;
+  db_->MultiGetEntity(read_options, db_->DefaultColumnFamily(), keys.size(),
+                      keys.data(), results.data(), statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(results[0].columns(), first_columns);
+  ASSERT_TRUE(statuses[1].IsAborted());
+  // Only the first key's blob was fetched; the second key's fetch was skipped
+  // because the returned size was already over the limit.
+  ASSERT_EQ(blob_fetches, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       MultiGetEntitySoftLimitAlwaysReadsOversizedKey) {
+  // "Always make progress": a single entity whose blob value alone exceeds the
+  // soft limit is still read (not aborted), so a caller cannot loop forever
+  // retrying a key that by itself is over the limit.
+  Options options = GetDirectWriteOptions();
+
+  Reopen(options);
+
+  const std::string key = "oversized";
+  const std::string large_blob(10000, 'b');  // >= min_blob_size: blob column
+  const WideColumns columns{{kDefaultWideColumnName, "v"}, {"c", large_blob}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  // Intentionally do not flush: resolution happens in the post-processing loop.
+
+  int blob_fetches = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ResolveDirectWriteWideColumns:BlobFetched",
+      [&](void* /*arg*/) { ++blob_fetches; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Far below the entity's resolved size (~10000 bytes).
+  ReadOptions read_options;
+  read_options.value_size_soft_limit = 2000;
+
+  const std::array<Slice, 1> keys{Slice(key)};
+  std::array<PinnableWideColumns, 1> results;
+  std::array<Status, 1> statuses;
+  db_->MultiGetEntity(read_options, db_->DefaultColumnFamily(), keys.size(),
+                      keys.data(), results.data(), statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(results[0].columns(), columns);
+  ASSERT_EQ(blob_fetches, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBWideBlobDirectWriteTest,
+       MultiGetSoftLimitBoundsDirectWritePlainValue) {
+  // Same behavior for plain values stored as direct-write blob references (the
+  // is_blob_index path): the first over-limit value is read (progress), and the
+  // second is aborted once the returned size is over the limit.
+  Options options = GetDirectWriteOptions();
+
+  Reopen(options);
+
+  // Sorted order visits "a_large" before "b_large".
+  const std::string first_key = "a_large";
+  const std::string second_key = "b_large";
+  const std::string first_value(10000, 'a');   // >= min_blob_size: direct write
+  const std::string second_value(10000, 'b');  // >= min_blob_size: direct write
+
+  ASSERT_OK(db_->Put(WriteOptions(), first_key, first_value));
+  ASSERT_OK(db_->Put(WriteOptions(), second_key, second_value));
+  // Intentionally do not flush: the values stay in the memtable as direct-write
+  // blob references resolved in the post-processing loop.
+
+  ReadOptions read_options;
+  read_options.value_size_soft_limit = 2000;
+
+  const std::array<Slice, 2> keys{Slice(first_key), Slice(second_key)};
+  std::array<PinnableSlice, 2> values;
+  std::array<Status, 2> statuses;
+  db_->MultiGet(read_options, db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], first_value);
+  ASSERT_TRUE(statuses[1].IsAborted());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
