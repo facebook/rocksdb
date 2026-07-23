@@ -24,8 +24,9 @@ class DBImplReadOnly : public DBImpl {
 
   // Implementations of the DB interface
   using DBImpl::GetImpl;
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetImpl, const ReadOptions& options,
+                                  const Slice& key,
+                                  GetImplOptions& get_impl_options);
 
   // TODO: Implement ReadOnly MultiGet?
 

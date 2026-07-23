@@ -20,6 +20,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
+#include "util/coro_utils.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -177,11 +178,11 @@ class RandomAccessFileReader {
   // direct_io_buffer_context->buffer. Otherwise, results are returned in
   // scratch; unaligned reads use an internal aligned buffer and copy the
   // requested subrange to scratch.
-  IOStatus Read(
-      const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-      char* scratch,
+  DECLARE_SYNC_AND_ASYNC_CONST(
+      IOStatus, Read, const IOOptions& opts, uint64_t offset, size_t n,
+      Slice* result, char* scratch,
       AlignedBufferAllocationContext* direct_io_buffer_context = nullptr,
-      IODebugContext* dbg = nullptr) const;
+      IODebugContext* dbg = nullptr);
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
@@ -191,10 +192,10 @@ class RandomAccessFileReader {
   // Slices are used. Callers should pass a default-constructed AlignedBuffer
   // when default heap-backed allocation is sufficient. direct_io_buffer_context
   // is ignored in non-direct IO mode.
-  IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs,
-                     AlignedBufferAllocationContext* direct_io_buffer_context,
-                     IODebugContext* dbg = nullptr) const;
+  DECLARE_SYNC_AND_ASYNC_CONST(
+      IOStatus, MultiRead, const IOOptions& opts, FSReadRequest* reqs,
+      size_t num_reqs, AlignedBufferAllocationContext* direct_io_buffer_context,
+      IODebugContext* dbg = nullptr);
 
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n,
                     IODebugContext* dbg = nullptr) const {
