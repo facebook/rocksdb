@@ -5943,6 +5943,26 @@ void DBImpl::ReleaseOptionsFileNumber(
   }
 }
 
+Status DBImpl::FindNextLiveWalForTail(uint64_t last_wal_number,
+                                      std::unique_ptr<WalFile>* out,
+                                      SequenceNumber* first_seq) {
+  uint64_t next = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (const auto& wal : alive_wal_files_) {
+      if (wal.number > last_wal_number) {
+        next = wal.number;
+        break;
+      }
+    }
+  }
+  if (next == 0) {
+    return Status::TryAgain("No newer live WAL found");
+  }
+  return wal_manager_.PrepareNextWalForTail(last_wal_number, next, out,
+                                            first_seq);
+}
+
 Status DBImpl::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {
@@ -5955,7 +5975,16 @@ Status DBImpl::GetUpdatesSince(
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }
-  return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get());
+  NextLiveWalFn next_live_wal_fn = nullptr;
+  if (immutable_db_options_.wal_iterator_tail_rotations) {
+    next_live_wal_fn = [this](uint64_t last_wal_number,
+                              std::unique_ptr<WalFile>* out,
+                              SequenceNumber* first_seq) {
+      return FindNextLiveWalForTail(last_wal_number, out, first_seq);
+    };
+  }
+  return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get(),
+                                      std::move(next_live_wal_fn));
 }
 
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,

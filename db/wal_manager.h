@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <set>
@@ -17,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
 #include "options/db_options.h"
@@ -56,7 +58,7 @@ class WalManager {
   Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options,
-      VersionSet* version_set);
+      VersionSet* version_set, NextLiveWalFn next_live_wal_fn = nullptr);
 
   void PurgeObsoleteWALFiles();
 
@@ -65,6 +67,17 @@ class WalManager {
   Status DeleteFile(const std::string& fname, uint64_t number);
 
   Status GetLiveWalFile(uint64_t number, std::unique_ptr<WalFile>* log_file);
+
+  // For fast WAL rotation: opens the given next WAL (identified by
+  // next_wal_number) and returns its WalFile and first sequence number.
+  // Sanity-checks that next_wal_number > last_wal_number. Returns TryAgain
+  // if the WAL cannot be opened (purged/archived), is empty (no user records
+  // yet), or next_wal_number <= last_wal_number. The caller's continuity
+  // check (first_seq == current_last_seq_ + 1) is the real correctness guard.
+  Status PrepareNextWalForTail(uint64_t last_wal_number,
+                               uint64_t next_wal_number,
+                               std::unique_ptr<WalFile>* next_wal,
+                               SequenceNumber* first_seq);
 
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {
