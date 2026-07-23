@@ -61,6 +61,7 @@
 #include "utilities/merge_operators.h"
 
 using ROCKSDB_NAMESPACE::BackgroundErrorReason;
+using ROCKSDB_NAMESPACE::BackgroundErrorRecoveryInfo;
 using ROCKSDB_NAMESPACE::BackupEngine;
 using ROCKSDB_NAMESPACE::BackupEngineOptions;
 using ROCKSDB_NAMESPACE::BackupID;
@@ -254,6 +255,9 @@ struct rocksdb_t {
 };
 struct rocksdb_status_ptr_t {
   Status* rep;
+};
+struct rocksdb_backgrounderrorrecoveryinfo_t {
+  const BackgroundErrorRecoveryInfo* rep;
 };
 struct rocksdb_backup_engine_t {
   BackupEngine* rep;
@@ -1949,8 +1953,46 @@ void rocksdb_backup_engine_options_destroy(
   delete options;
 }
 
+static_assert(rocksdb_status_severity_no_error ==
+              static_cast<unsigned char>(Status::Severity::kNoError));
+static_assert(rocksdb_status_severity_soft_error ==
+              static_cast<unsigned char>(Status::Severity::kSoftError));
+static_assert(rocksdb_status_severity_hard_error ==
+              static_cast<unsigned char>(Status::Severity::kHardError));
+static_assert(rocksdb_status_severity_fatal_error ==
+              static_cast<unsigned char>(Status::Severity::kFatalError));
+static_assert(
+    rocksdb_status_severity_unrecoverable_error ==
+    static_cast<unsigned char>(Status::Severity::kUnrecoverableError));
+static_assert(rocksdb_status_severity_unrecoverable_error + 1 ==
+              static_cast<unsigned char>(Status::Severity::kMaxSeverity));
+
 void rocksdb_status_ptr_get_error(rocksdb_status_ptr_t* status, char** errptr) {
   SaveError(errptr, *(status->rep));
+}
+
+unsigned char rocksdb_status_ptr_get_severity(rocksdb_status_ptr_t* status) {
+  return static_cast<unsigned char>(status->rep->severity());
+}
+
+void rocksdb_backgrounderrorrecoveryinfo_old_bg_error(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info, char** errptr) {
+  SaveError(errptr, info->rep->old_bg_error);
+}
+
+unsigned char rocksdb_backgrounderrorrecoveryinfo_old_bg_error_severity(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info) {
+  return static_cast<unsigned char>(info->rep->old_bg_error.severity());
+}
+
+void rocksdb_backgrounderrorrecoveryinfo_new_bg_error(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info, char** errptr) {
+  SaveError(errptr, info->rep->new_bg_error);
+}
+
+unsigned char rocksdb_backgrounderrorrecoveryinfo_new_bg_error_severity(
+    const rocksdb_backgrounderrorrecoveryinfo_t* info) {
+  return static_cast<unsigned char>(info->rep->new_bg_error.severity());
 }
 
 rocksdb_checkpoint_t* rocksdb_checkpoint_object_create(rocksdb_t* db,
@@ -5604,6 +5646,10 @@ struct rocksdb_eventlistener_t : public EventListener {
   void (*on_external_file_ingested)(
       void*, rocksdb_t*, const rocksdb_externalfileingestioninfo_t*){};
   void (*on_background_error)(void*, uint32_t, rocksdb_status_ptr_t*){};
+  void (*on_error_recovery_begin)(void*, uint32_t, rocksdb_status_ptr_t*,
+                                  unsigned char*){};
+  void (*on_error_recovery_end)(void*,
+                                const rocksdb_backgrounderrorrecoveryinfo_t*){};
   void (*on_stall_conditions_changed)(void*, const rocksdb_writestallinfo_t*){};
   void (*on_memtable_sealed)(void*, const rocksdb_memtableinfo_t*){};
 
@@ -5615,68 +5661,124 @@ struct rocksdb_eventlistener_t : public EventListener {
   rocksdb_eventlistener_t& operator=(rocksdb_eventlistener_t&&) = delete;
 
   void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
-    rocksdb_t c_db = {db};
-    on_flush_begin(state_, &c_db,
-                   reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
+    if (on_flush_begin != nullptr) {
+      rocksdb_t c_db = {db};
+      on_flush_begin(state_, &c_db,
+                     reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
+    }
   }
 
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
-    rocksdb_t c_db = {db};
-    on_flush_completed(state_, &c_db,
-                       reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
+    if (on_flush_completed != nullptr) {
+      rocksdb_t c_db = {db};
+      on_flush_completed(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
+    }
   }
 
   void OnCompactionBegin(DB* db, const CompactionJobInfo& info) override {
-    rocksdb_t c_db = {db};
-    on_compaction_begin(
-        state_, &c_db,
-        reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
+    if (on_compaction_begin != nullptr) {
+      rocksdb_t c_db = {db};
+      on_compaction_begin(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
+    }
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
-    rocksdb_t c_db = {db};
-    on_compaction_completed(
-        state_, &c_db,
-        reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
+    if (on_compaction_completed != nullptr) {
+      rocksdb_t c_db = {db};
+      on_compaction_completed(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
+    }
   }
 
   void OnSubcompactionBegin(const SubcompactionJobInfo& info) override {
-    on_subcompaction_begin(
-        state_, reinterpret_cast<const rocksdb_subcompactionjobinfo_t*>(&info));
+    if (on_subcompaction_begin != nullptr) {
+      on_subcompaction_begin(
+          state_,
+          reinterpret_cast<const rocksdb_subcompactionjobinfo_t*>(&info));
+    }
   }
 
   void OnSubcompactionCompleted(const SubcompactionJobInfo& info) override {
-    on_subcompaction_completed(
-        state_, reinterpret_cast<const rocksdb_subcompactionjobinfo_t*>(&info));
+    if (on_subcompaction_completed != nullptr) {
+      on_subcompaction_completed(
+          state_,
+          reinterpret_cast<const rocksdb_subcompactionjobinfo_t*>(&info));
+    }
   }
 
   void OnExternalFileIngested(DB* db,
                               const ExternalFileIngestionInfo& info) override {
-    rocksdb_t c_db = {db};
-    on_external_file_ingested(
-        state_, &c_db,
-        reinterpret_cast<const rocksdb_externalfileingestioninfo_t*>(&info));
+    if (on_external_file_ingested != nullptr) {
+      rocksdb_t c_db = {db};
+      on_external_file_ingested(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_externalfileingestioninfo_t*>(&info));
+    }
   }
 
   void OnBackgroundError(BackgroundErrorReason reason,
                          Status* status) override {
-    rocksdb_status_ptr_t* s = new rocksdb_status_ptr_t;
-    s->rep = status;
-    on_background_error(state_, static_cast<uint32_t>(reason), s);
-    delete s;
+    if (on_background_error != nullptr) {
+      rocksdb_status_ptr_t s;
+      s.rep = status;
+      on_background_error(state_, static_cast<uint32_t>(reason), &s);
+    }
+  }
+
+  void OnErrorRecoveryBegin(BackgroundErrorReason reason, Status bg_error,
+                            bool* auto_recovery) override {
+    // Recovery callbacks are optional because rocksdb_eventlistener_create()
+    // delegates here with nullptrs for the newer callbacks.
+    if (on_error_recovery_begin != nullptr) {
+      // bg_error is callback-local; the C status pointer must not escape.
+      rocksdb_status_ptr_t s;
+      s.rep = &bg_error;
+      unsigned char c_auto_recovery =
+          auto_recovery != nullptr && *auto_recovery;
+      on_error_recovery_begin(state_, static_cast<uint32_t>(reason), &s,
+                              &c_auto_recovery);
+      if (auto_recovery != nullptr) {
+        *auto_recovery = c_auto_recovery != 0;
+      }
+    }
+    bg_error.PermitUncheckedError();
+  }
+
+  void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& info) override {
+    // Recovery callbacks are optional because rocksdb_eventlistener_create()
+    // delegates here with nullptrs for the newer callbacks.
+    if (on_error_recovery_end != nullptr) {
+      // info is callback-local; callers should copy anything needed later.
+      rocksdb_backgrounderrorrecoveryinfo_t c_info;
+      c_info.rep = &info;
+      on_error_recovery_end(state_, &c_info);
+    }
   }
 
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
-    on_stall_conditions_changed(
-        state_, reinterpret_cast<const rocksdb_writestallinfo_t*>(&info));
+    if (on_stall_conditions_changed != nullptr) {
+      on_stall_conditions_changed(
+          state_, reinterpret_cast<const rocksdb_writestallinfo_t*>(&info));
+    }
   }
 
   void OnMemTableSealed(const MemTableInfo& info) override {
-    on_memtable_sealed(state_,
-                       reinterpret_cast<const rocksdb_memtableinfo_t*>(&info));
+    if (on_memtable_sealed != nullptr) {
+      on_memtable_sealed(
+          state_, reinterpret_cast<const rocksdb_memtableinfo_t*>(&info));
+    }
   }
 
-  ~rocksdb_eventlistener_t() override { destructor_(state_); }
+  ~rocksdb_eventlistener_t() override {
+    if (destructor_ != nullptr) {
+      destructor_(state_);
+    }
+  }
 };
 
 rocksdb_eventlistener_t* rocksdb_eventlistener_create(
@@ -5690,6 +5792,27 @@ rocksdb_eventlistener_t* rocksdb_eventlistener_create(
     on_background_error_cb on_background_error,
     on_stall_conditions_changed_cb on_stall_conditions_changed,
     on_memtable_sealed_cb on_memtable_sealed) {
+  return rocksdb_eventlistener_create_with_error_recovery(
+      state_, destructor_, on_flush_begin, on_flush_completed,
+      on_compaction_begin, on_compaction_completed, on_subcompaction_begin,
+      on_subcompaction_completed, on_external_file_ingested,
+      on_background_error, nullptr, nullptr, on_stall_conditions_changed,
+      on_memtable_sealed);
+}
+
+rocksdb_eventlistener_t* rocksdb_eventlistener_create_with_error_recovery(
+    void* state_, void (*destructor_)(void*), on_flush_begin_cb on_flush_begin,
+    on_flush_completed_cb on_flush_completed,
+    on_compaction_begin_cb on_compaction_begin,
+    on_compaction_completed_cb on_compaction_completed,
+    on_subcompaction_begin_cb on_subcompaction_begin,
+    on_subcompaction_completed_cb on_subcompaction_completed,
+    on_external_file_ingested_cb on_external_file_ingested,
+    on_background_error_cb on_background_error,
+    on_error_recovery_begin_cb on_error_recovery_begin,
+    on_error_recovery_end_cb on_error_recovery_end,
+    on_stall_conditions_changed_cb on_stall_conditions_changed,
+    on_memtable_sealed_cb on_memtable_sealed) {
   rocksdb_eventlistener_t* et = new rocksdb_eventlistener_t;
   et->state_ = state_;
   et->destructor_ = destructor_;
@@ -5701,6 +5824,8 @@ rocksdb_eventlistener_t* rocksdb_eventlistener_create(
   et->on_subcompaction_completed = on_subcompaction_completed;
   et->on_external_file_ingested = on_external_file_ingested;
   et->on_background_error = on_background_error;
+  et->on_error_recovery_begin = on_error_recovery_begin;
+  et->on_error_recovery_end = on_error_recovery_end;
   et->on_stall_conditions_changed = on_stall_conditions_changed;
   et->on_memtable_sealed = on_memtable_sealed;
   return et;
