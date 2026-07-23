@@ -143,7 +143,8 @@ def emit() -> str:
     lines.append("//  This source code is licensed under both the GPLv2 (found in the")
     lines.append("//  COPYING file in the root directory) and Apache 2.0 License")
     lines.append("//  (found in the LICENSE.Apache file in the root directory).")
-    lines.append("// @generated")
+    # "\x40" is "@" -- escaped so this generator source is not flagged as generated
+    lines.append("// \x40generated")
     lines.append(
         "// -----------------------------------------------------------------------------"
     )
@@ -152,7 +153,7 @@ def emit() -> str:
     lines.append(
         "// Round-trip (set -> get -> assert) coverage for generated option wrappers."
     )
-    lines.append("// Rerun: python3 tools/c_api_gen/regen_all.py")
+    lines.append("// Rerun `make regen-c-api`")
     lines.append(
         "// -----------------------------------------------------------------------------"
     )

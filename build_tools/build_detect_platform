@@ -89,13 +89,36 @@ if test -z "$CC"; then
     fi
 fi
 
+# CLANG_CXX is the single clang++ detection point for the whole script: it is
+# used for CXX when building with clang, for CLANG_ANALYZER (scan-build), and by
+# tooling that needs clang even in a gcc build (e.g. the C API codegen, which
+# parses C++ ASTs). The fbcode config above already sets CLANG_CXX; otherwise
+# resolve it here.
+if test -z "$CLANG_CXX"; then
+    if [ -n "$CXX" ] && echo | $CXX -dM -E -x c++ - 2>/dev/null | grep -q '\b__clang__\b'; then
+        # Honor an already-configured clang compiler (e.g. CI sets
+        # CXX=clang++-21) so codegen parses headers with the same clang the
+        # build uses, not an unrelated clang++ that merely happens to come first
+        # on PATH (an image may ship both a bare clang++ and clang++-NN).
+        CLANG_CXX="$CXX"
+    else
+        # Otherwise take the first clang++ on PATH. Candidates cover a bare
+        # clang++, versioned names, and clang++.par (a Meta-internal wrapper
+        # often present on dev machines).
+        CLANG_CXX=$(command -v clang++ || command -v clang++-21 || command -v clang++-20 \
+            || command -v clang++-19 || command -v clang++-18 || command -v clang++-17 \
+            || command -v clang++-16 || command -v clang++-15 || command -v clang++-14 \
+            || command -v clang++-13 || command -v clang++.par || true)
+    fi
+fi
+
 if test -z "$CXX"; then
-    if [ "$USE_CLANG" -a -x "$(command -v clang++)" ]; then
-        CXX=clang++
+    if [ "$USE_CLANG" ] && [ -n "$CLANG_CXX" ]; then
+        CXX="$CLANG_CXX"
     elif [ -x "$(command -v g++)" ]; then
         CXX=g++
-    elif [ -x "$(command -v clang++)" ]; then
-        CXX=clang++
+    elif [ -n "$CLANG_CXX" ]; then
+        CXX="$CLANG_CXX"
     else
         CXX=g++
     fi
@@ -113,6 +136,17 @@ if test -z "$AR"; then
     fi
 fi
 
+# If the selected C++ compiler is actually clang (e.g. clang was the only
+# compiler available), reflect that as USE_CLANG so clang-specific logic in the
+# Makefile applies consistently. Detect it via the compiler's own __clang__
+# predefined macro rather than matching the binary path, which can false-positive
+# (e.g. a home directory containing "clang").
+if test -z "$USE_CLANG"; then
+    if echo | $CXX -dM -E -x c++ - 2>/dev/null | grep -q '\b__clang__\b'; then
+        USE_CLANG=1
+    fi
+fi
+
 # Detect OS
 if test -z "$TARGET_OS"; then
     TARGET_OS=`uname -s`
@@ -127,7 +161,7 @@ if test -z "$CLANG_SCAN_BUILD"; then
 fi
 
 if test -z "$CLANG_ANALYZER"; then
-    CLANG_ANALYZER=$(command -v clang++ 2> /dev/null)
+    CLANG_ANALYZER="$CLANG_CXX"
 fi
 
 if test -z "$FIND"; then
@@ -818,6 +852,10 @@ echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
 echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
+echo "CLANG_CXX=$CLANG_CXX" >> "$OUTPUT"
+if test -n "$USE_CLANG"; then
+  echo "USE_CLANG=$USE_CLANG" >> "$OUTPUT"
+fi
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
