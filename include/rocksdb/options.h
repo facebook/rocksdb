@@ -2432,6 +2432,22 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
+  // Names which block-based-table index a read should use. This is a
+  // preparatory API for replacing direct table_index_factory selection in a
+  // follow-up change. Until that wiring lands, table_index_factory keeps its
+  // existing behavior and read_index is not consulted by table reading.
+  enum class ReadIndex : uint8_t {
+    // Use the column family's default index routing.
+    kDefault = 0,
+    // Use the standard block-based-table index.
+    kBuiltin = 1,
+    // Prefer the configured custom index when present.
+    kPreferCustom = 2,
+  };
+  ReadIndex read_index = ReadIndex::kDefault;
+
+  // EXPERIMENTAL
+  //
   // Specify an alternate index to use in the SST files instead of the native
   // block based table index. The table_factory used for the column family
   // must support building/reading this index.
