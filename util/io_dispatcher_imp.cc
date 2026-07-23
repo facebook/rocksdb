@@ -611,7 +611,9 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
       const std::vector<size_t>& block_indices_to_read,
       const std::vector<BlockHandle>& block_handles,
       std::vector<FSReadRequest>* read_reqs,
-      std::vector<std::vector<size_t>>* coalesced_block_indices);
+      std::vector<std::vector<size_t>>* coalesced_block_indices,
+      uint64_t* out_prefetch_bytes = nullptr,
+      uint64_t* out_num_coalesced_nonadjacent = nullptr);
 
   // Surface actual async IO errors to caller, but allow fallback for
   // unsupported cases. Returns block indices that need sync fallback.
@@ -806,8 +808,19 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
   // Prepare and execute IO for the given blocks
   std::vector<FSReadRequest> read_reqs;
   std::vector<std::vector<size_t>> coalesced_block_indices;
+  uint64_t dispatched_bytes = 0;
+  uint64_t nonadjacent = 0;
   PrepareIORequests(job, block_indices, job->block_handles, &read_reqs,
-                    &coalesced_block_indices);
+                    &coalesced_block_indices, &dispatched_bytes, &nonadjacent);
+
+  // Account for the prefetch IO issued by this dispatch. Counted here (once per
+  // dispatched block, before the async/sync split) rather than at completion so
+  // async and memory-deferred prefetches are all captured, and so blocks that
+  // fall back from async to sync are not double counted.
+  read_set->num_blocks_prefetched_ += block_indices.size();
+  read_set->num_io_requests_ += read_reqs.size();
+  read_set->prefetch_bytes_ += dispatched_bytes;
+  read_set->num_coalesced_nonadjacent_ += nonadjacent;
 
   if (job->job_options.read_options.async_io) {
     Status async_status;
@@ -987,11 +1000,13 @@ void IODispatcherImpl::Impl::PrepareIORequests(
     const std::vector<size_t>& block_indices_to_read,
     const std::vector<BlockHandle>& block_handles,
     std::vector<FSReadRequest>* read_reqs,
-    std::vector<std::vector<size_t>>* coalesced_block_indices) {
+    std::vector<std::vector<size_t>>* coalesced_block_indices,
+    uint64_t* out_prefetch_bytes, uint64_t* out_num_coalesced_nonadjacent) {
   assert(BlockIndicesAreSortedByOffset(block_handles, block_indices_to_read));
   assert(coalesced_block_indices->empty());
   coalesced_block_indices->resize(1);
 
+  uint64_t nonadjacent = 0;
   for (const auto& block_idx : block_indices_to_read) {
     if (!coalesced_block_indices->back().empty()) {
       // Check if we can coalesce with previous block
@@ -1006,6 +1021,9 @@ void IODispatcherImpl::Impl::PrepareIORequests(
           last_block_end + job->job_options.io_coalesce_threshold) {
         // Gap too large - start new IO request
         coalesced_block_indices->emplace_back();
+      } else if (current_start > last_block_end) {
+        // Within coalesce threshold but not adjacent
+        ++nonadjacent;
       }
     }
     coalesced_block_indices->back().emplace_back(block_idx);
@@ -1015,6 +1033,7 @@ void IODispatcherImpl::Impl::PrepareIORequests(
   assert(read_reqs->empty());
   read_reqs->reserve(coalesced_block_indices->size());
 
+  uint64_t total_bytes = 0;
   for (const auto& block_indices : *coalesced_block_indices) {
     assert(!block_indices.empty());
 
@@ -1034,6 +1053,14 @@ void IODispatcherImpl::Impl::PrepareIORequests(
     read_reqs->back().offset = start_offset;
     read_reqs->back().len = end_offset - start_offset;
     read_reqs->back().scratch = nullptr;
+    total_bytes += read_reqs->back().len;
+  }
+
+  if (out_prefetch_bytes) {
+    *out_prefetch_bytes = total_bytes;
+  }
+  if (out_num_coalesced_nonadjacent) {
+    *out_num_coalesced_nonadjacent = nonadjacent;
   }
 }
 
