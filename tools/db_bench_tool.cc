@@ -4117,6 +4117,14 @@ class Benchmark {
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
 
+      // Read-mode selectors are members, so reset them each iteration;
+      // otherwise a mode set by an earlier comma-separated benchmark (e.g.
+      // readrandomentity) would leak into a later one (e.g. a trailing
+      // readrandom).
+      read_operands_ = false;
+      read_entity_ = false;
+      multiread_entity_ = false;
+
       int num_repeat = 1;
       int num_warmup = 0;
       if (!name.empty() && *name.rbegin() == ']') {
@@ -7420,6 +7428,10 @@ class Benchmark {
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
+    if (multiread_entity_ && user_timestamp_size_ > 0) {
+      fprintf(stderr, "multireadentity does not support user timestamps\n");
+      db_bench_exit(1);
+    }
     int64_t read = 0;
     int64_t bytes = 0;
     int64_t num_multireads = 0;
@@ -7430,18 +7442,18 @@ class Benchmark {
     std::vector<std::string> values(entries_per_batch_);
     PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
     std::unique_ptr<PinnableSlice[]> pin_values_guard(pin_values);
-    PinnableWideColumns* pin_columns =
-        new PinnableWideColumns[entries_per_batch_];
-    std::unique_ptr<PinnableWideColumns[]> pin_columns_guard(pin_columns);
+    // Only allocated for multireadentity (MultiGetEntity); plain
+    // multireadrandom never touches it.
+    PinnableWideColumns* pin_columns = nullptr;
+    std::unique_ptr<PinnableWideColumns[]> pin_columns_guard;
+    if (multiread_entity_) {
+      pin_columns = new PinnableWideColumns[entries_per_batch_];
+      pin_columns_guard.reset(pin_columns);
+    }
     std::vector<Status> stat_list(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       key_guards.push_back(std::unique_ptr<const char[]>());
       keys.push_back(AllocateKey(&key_guards.back()));
-    }
-
-    if (multiread_entity_ && user_timestamp_size_ > 0) {
-      fprintf(stderr, "multireadentity does not support user timestamps\n");
-      db_bench_exit(1);
     }
 
     std::unique_ptr<char[]> ts_guard;
@@ -10005,6 +10017,13 @@ class Benchmark {
               FLAGS_format_version);
       db_bench_exit(1);
     }
+    if (FLAGS_num_multi_db > 1) {
+      // tmp_dir is derived from FLAGS_db while the ingest target comes from
+      // SelectDB(); with multiple DBs these can diverge. fillembedded* is a
+      // single-DB setup benchmark, so require that here.
+      fprintf(stderr, "fillembedded* does not support num_multi_db > 1\n");
+      db_bench_exit(1);
+    }
 
     const std::string tmp_dir = FLAGS_db + "/embedded_tmp";
     Status s = FLAGS_env->CreateDirIfMissing(tmp_dir);
@@ -10015,6 +10034,13 @@ class Benchmark {
     }
     const std::string file_path = tmp_dir + "/embedded.sst";
 
+    // Remove the temp SST and its directory; called on every exit path so a
+    // failed run does not leave leftovers behind for the next --db run.
+    auto cleanup_tmp = [&]() {
+      FLAGS_env->DeleteFile(file_path).PermitUncheckedError();
+      FLAGS_env->DeleteDir(tmp_dir).PermitUncheckedError();
+    };
+
     SstFileWriterEmbeddedBlobOptions embedded_blob_options;
     embedded_blob_options.min_blob_size = FLAGS_embedded_blob_min_size;
 
@@ -10023,14 +10049,30 @@ class Benchmark {
     if (!s.ok()) {
       fprintf(stderr, "SstFileWriter::OpenWithEmbeddedBlobs(%s) failed: %s\n",
               file_path.c_str(), s.ToString().c_str());
+      cleanup_tmp();
       db_bench_exit(1);
     }
 
     RandomGenerator gen;
-    const EntityColumnLayout layout = MakeEntityColumnLayout();
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     int64_t bytes = 0;
+
+    // Only the entity benchmark needs a column layout (and consults
+    // num_wide_columns / num_short_wide_columns).
+    EntityColumnLayout layout;
+    if (entity_mode) {
+      const int num_short = std::max(0, FLAGS_num_short_wide_columns);
+      const int num_wide = std::max(0, FLAGS_num_wide_columns);
+      if (num_short + num_wide < 1) {
+        fprintf(stderr,
+                "fillembeddedentity requires num_wide_columns + "
+                "num_short_wide_columns >= 1\n");
+        cleanup_tmp();
+        db_bench_exit(1);
+      }
+      layout = MakeEntityColumnLayout();
+    }
 
     for (int64_t i = 0; i < num_; ++i) {
       GenerateKeyFromInt(i, num_, &key);
@@ -10054,6 +10096,7 @@ class Benchmark {
         sst_file_writer.Finish().PermitUncheckedError();
         fprintf(stderr, "SstFileWriter write failed: %s\n",
                 s.ToString().c_str());
+        cleanup_tmp();
         db_bench_exit(1);
       }
       thread->stats.FinishedOps(&db_, db, 1, kWrite);
@@ -10063,6 +10106,7 @@ class Benchmark {
     if (!s.ok()) {
       fprintf(stderr, "SstFileWriter::Finish(%s) failed: %s\n",
               file_path.c_str(), s.ToString().c_str());
+      cleanup_tmp();
       db_bench_exit(1);
     }
 
@@ -10071,9 +10115,10 @@ class Benchmark {
     s = db->IngestExternalFile({file_path}, ingest_options);
     if (!s.ok()) {
       fprintf(stderr, "IngestExternalFile failed: %s\n", s.ToString().c_str());
+      cleanup_tmp();
       db_bench_exit(1);
     }
-    FLAGS_env->DeleteFile(file_path).PermitUncheckedError();
+    cleanup_tmp();
 
     thread->stats.AddBytes(bytes);
     char msg[160];
