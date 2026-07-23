@@ -5486,7 +5486,8 @@ void InitializeOptionsFromFlags(
   if (udi_factory) {
     block_based_options.user_defined_index_factory = udi_factory;
     if (FLAGS_use_udi_as_primary_index) {
-      block_based_options.use_udi_as_primary_index = true;
+      block_based_options.index_mode =
+          BlockBasedTableOptions::IndexMode::kCustomDefault;
     }
     // Write fault injection can corrupt the UDI meta block during SST
     // creation. In primary mode all reads route through the UDI, so a

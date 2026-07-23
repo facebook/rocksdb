@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -43,6 +44,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
@@ -88,6 +90,75 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+static_assert(
+    std::is_same<IndexFactoryIterator, UserDefinedIndexIterator>::value);
+static_assert(std::is_same<IndexFactoryReader, UserDefinedIndexReader>::value);
+
+TEST(IndexFactoryCompatibilityTest, NewNamesPreserveOldSubclassShape) {
+  class LegacyOnlyBuilder : public IndexFactoryBuilder {
+   public:
+    Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                        const Slice* /*first_key_in_next_block*/,
+                        const BlockHandle& /*block_handle*/,
+                        std::string* /*separator_scratch*/,
+                        const IndexEntryContext& /*context*/) override {
+      return last_key_in_current_block;
+    }
+
+    Status Finish(Slice* index_contents) override {
+      *index_contents = Slice();
+      return Status::OK();
+    }
+
+    uint64_t EstimatedSize() const override { return 0; }
+  };
+
+  class LegacyOnlyFactory : public IndexFactory {
+   public:
+    using IndexFactory::NewBuilder;
+    using IndexFactory::NewReader;
+
+    const char* Name() const override { return "legacy_index"; }
+
+    IndexFactoryBuilder* NewBuilder() const override {
+      return new LegacyOnlyBuilder();
+    }
+
+    std::unique_ptr<IndexFactoryReader> NewReader(
+        Slice& /*index_block*/) const override {
+      return nullptr;
+    }
+  };
+
+  LegacyOnlyFactory factory;
+  const IndexFactory* index_factory = &factory;
+  IndexFactoryOptions options;
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_OK(index_factory->NewBuilder(options, builder));
+  ASSERT_NE(builder, nullptr);
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+  ASSERT_TRUE(index_contents.empty());
+  ASSERT_EQ(UserDefinedIndexBuilder::kValue,
+            UserDefinedIndexBuilder::ValueType::kValue);
+  ASSERT_STREQ(kIndexFactoryMetaPrefix, kUserDefinedIndexPrefix);
+}
+
+TEST(IndexFactoryCompatibilityTest, LegacyBlockBasedTableOptionsFields) {
+  BlockBasedTableOptions table_options;
+  table_options.use_udi_as_primary_index = true;
+  BlockBasedTableFactory primary_factory(table_options);
+  ASSERT_NE(primary_factory.GetPrintableOptions().find("index_mode: 2"),
+            std::string::npos);
+
+  table_options.use_udi_as_primary_index = false;
+  table_options.fail_if_no_udi_on_open = true;
+  BlockBasedTableFactory required_factory(table_options);
+  ASSERT_NE(required_factory.GetPrintableOptions().find("index_mode: 4"),
+            std::string::npos);
+}
 
 const std::string kDummyValue(10000, 'o');
 constexpr auto kVerbose = false;
@@ -7974,7 +8045,11 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
  public:
   class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
    public:
+    using IndexFactory::NewBuilder;
+    using IndexFactory::NewReader;
+
     const char* Name() const override { return "test_index"; }
+
     Status NewBuilder(
         const UserDefinedIndexOption& /*option*/,
         std::unique_ptr<UserDefinedIndexBuilder>& builder) const override {
@@ -8003,14 +8078,6 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         return comparator->Compare(lhs, rhs) < 0;
       }
     };
-
-    // Deprecated API
-    UserDefinedIndexBuilder* NewBuilder() const override { return nullptr; }
-
-    std::unique_ptr<UserDefinedIndexReader> NewReader(
-        Slice& /*index_block*/) const override {
-      return nullptr;
-    }
 
     Status NewReader(
         const UserDefinedIndexOption& option, Slice& index_block,
@@ -8642,7 +8709,7 @@ TEST_P(UserDefinedIndexTest, BasicTestWithoutPartitionedIndex) {
   BasicTest(/*use_partitioned_index=*/false);
 }
 
-TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
+TEST_P(UserDefinedIndexTest, ParallelCompressionFallsBackWithCustomIndex) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
   std::string ingest_file = dbname + "test.sst";
@@ -8663,10 +8730,10 @@ TEST_P(UserDefinedIndexTest, InvalidArgumentTest1) {
   writer.reset(new SstFileWriter(EnvOptions(), options_));
   ASSERT_OK(writer->Open(ingest_file));
 
-  std::string key = "foo";
+  std::string key = "key00";
   std::string value = "bar";
-  ASSERT_EQ(writer->Put(key, value), Status::InvalidArgument());
-  ASSERT_EQ(writer->Finish(), Status::InvalidArgument());
+  ASSERT_OK(writer->Put(key, value));
+  ASSERT_OK(writer->Finish());
   writer.reset();
 }
 
@@ -8819,19 +8886,23 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
 
   // Verify each mapping.
   ASSERT_EQ(type_map.count("key_01_put"), 1u);
-  EXPECT_EQ(type_map["key_01_put"], UserDefinedIndexBuilder::kValue);
+  EXPECT_EQ(type_map["key_01_put"], UserDefinedIndexBuilder::ValueType::kValue);
 
   ASSERT_EQ(type_map.count("key_02_merge"), 1u);
-  EXPECT_EQ(type_map["key_02_merge"], UserDefinedIndexBuilder::kMerge);
+  EXPECT_EQ(type_map["key_02_merge"],
+            UserDefinedIndexBuilder::ValueType::kMerge);
 
   ASSERT_EQ(type_map.count("key_03_del"), 1u);
-  EXPECT_EQ(type_map["key_03_del"], UserDefinedIndexBuilder::kDelete);
+  EXPECT_EQ(type_map["key_03_del"],
+            UserDefinedIndexBuilder::ValueType::kDelete);
 
   ASSERT_EQ(type_map.count("key_04_sdel"), 1u);
-  EXPECT_EQ(type_map["key_04_sdel"], UserDefinedIndexBuilder::kDelete);
+  EXPECT_EQ(type_map["key_04_sdel"],
+            UserDefinedIndexBuilder::ValueType::kDelete);
 
   ASSERT_EQ(type_map.count("key_05_entity"), 1u);
-  EXPECT_EQ(type_map["key_05_entity"], UserDefinedIndexBuilder::kOther);
+  EXPECT_EQ(type_map["key_05_entity"],
+            UserDefinedIndexBuilder::ValueType::kOther);
 
   ASSERT_OK(db->Close());
   ASSERT_OK(DestroyDB(dbname, options_));
@@ -9149,7 +9220,7 @@ TEST_P(UserDefinedIndexTest, EmptyRangeTest) {
 
 // Verify that external file ingestion fails if we try to ingest an SST file
 // without the UDI and a UDI factory is configured in BlockBasedTableOptions
-// and fail_if_no_udi_on_open is true in BlockBasedTableOptions.
+// and the configured index mode requires a custom index block.
 TEST_P(UserDefinedIndexTest, IngestFailTest) {
   BlockBasedTableOptions table_options;
   std::string dbname = test::PerThreadDBPath("user_defined_index_test");
@@ -9176,7 +9247,7 @@ TEST_P(UserDefinedIndexTest, IngestFailTest) {
   auto user_defined_index_factory =
       std::make_shared<TestUserDefinedIndexFactory>();
   table_options.user_defined_index_factory = user_defined_index_factory;
-  table_options.fail_if_no_udi_on_open = true;
+  table_options.index_mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
@@ -9192,7 +9263,7 @@ TEST_P(UserDefinedIndexTest, IngestFailTest) {
   ASSERT_NOK(s);
 
   ASSERT_OK(db->SetOptions(
-      cfh, {{"block_based_table_factory", "{fail_if_no_udi_on_open=false;}"}}));
+      cfh, {{"block_based_table_factory", "{index_mode=kStandardOnly;}"}}));
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_OK(s);
 
@@ -9233,7 +9304,8 @@ TEST_P(UserDefinedIndexTest, IngestEmptyUDI) {
   ASSERT_OK(writer->Finish());
   writer.reset();
 
-  table_options.fail_if_no_udi_on_open = true;
+  table_options.index_mode =
+      BlockBasedTableOptions::IndexMode::kStandardRequired;
   options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<DB> db;
