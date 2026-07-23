@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
+#include <new>
 #include <semaphore>
 
 #include "port/port.h"
@@ -64,6 +66,27 @@ TEST_F(PinnableSliceTest, MoveExternalBuffer) {
   v3 = std::move(v2);
   ASSERT_EQ(buf.data(), v3.data());
   ASSERT_EQ(&buf, v3.GetSelf());
+}
+
+TEST_F(PinnableSliceTest, MoveConstructPinnedThenReuse) {
+  int n2 = 2;
+  int res = 1;
+  Slice s("123");
+  PinnableSlice v1;
+  v1.PinSlice(s, Multiplier, &res, &n2);
+
+  alignas(PinnableSlice) unsigned char storage[sizeof(PinnableSlice)];
+  std::memset(storage, 0xab, sizeof(storage));
+  PinnableSlice* v2 = new (storage) PinnableSlice(std::move(v1));
+  ASSERT_TRUE(v2->IsPinned());
+  AssertSameData("123", *v2);
+
+  v2->Reset();
+  ASSERT_EQ(2, res);
+
+  v2->PinSelf(Slice("456"));
+  AssertSameData("456", *v2);
+  v2->~PinnableSlice();
 }
 
 TEST_F(PinnableSliceTest, Move) {
