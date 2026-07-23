@@ -2189,6 +2189,63 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   delete iter;
 }
 
+TEST_P(DBIteratorTest, PinnedDataIteratorMmapReads) {
+  // Regression test for https://github.com/facebook/rocksdb/issues/14895:
+  // ReadOptions::pin_data must still pin iterator keys/values when
+  // allow_mmap_reads = true, even though the DB is a normal (primary)
+  // instance rather than a Read-Only instance opened with an unbounded
+  // table cache (rep_->immortal_table).
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem, non-encrypted environment");
+    return;
+  }
+  Options options = CurrentOptions();
+  options.allow_mmap_reads = true;
+  options.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.use_delta_encoding = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  std::map<std::string, std::string> true_data;
+  Random rnd(301);
+  for (int i = 0; i < 1000; i++) {
+    std::string k = Key(i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(Put(k, v));
+    true_data[k] = v;
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions ro;
+  ro.pin_data = true;
+  auto iter = NewIterator(ro);
+
+  std::vector<std::pair<Slice, Slice>> results;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    std::string prop_value;
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+    ASSERT_EQ("1", prop_value);
+    ASSERT_OK(
+        iter->GetProperty("rocksdb.iterator.is-value-pinned", &prop_value));
+    ASSERT_EQ("1", prop_value);
+    // Capture the slices and make sure a later Next() does not invalidate
+    // them (this is what actually caught the regression: without the fix,
+    // is-key-pinned still happened to read "1" in some builds, but the
+    // captured Slice's bytes were silently overwritten by the next key).
+    results.emplace_back(iter->key(), iter->value());
+  }
+  ASSERT_OK(iter->status());
+
+  ASSERT_EQ(results.size(), true_data.size());
+  auto data_iter = true_data.begin();
+  for (size_t i = 0; i < results.size(); i++, data_iter++) {
+    ASSERT_EQ(results[i].first, data_iter->first);
+    ASSERT_EQ(results[i].second, data_iter->second);
+  }
+  delete iter;
+}
+
 TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;

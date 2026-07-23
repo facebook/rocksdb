@@ -463,10 +463,19 @@ class BlockBasedTable : public TableReader {
       Status& s, bool use_block_cache_for_lookup) const;
 
   // input_iter: if it is not null, update this one and return it as Iterator
+  // caller_guarantees_source_liveness: true iff the caller holds something
+  //   (e.g. a SuperVersion, as regular DB iterators and compaction do) that
+  //   keeps the block's backing storage (an mmap'd SST file, when
+  //   allow_mmap_reads=true) alive for as long as it needs the returned
+  //   iterator's keys/values to remain valid. Point lookups (Get()/
+  //   MultiGet()) do not hold such a guarantee past this call, so they must
+  //   pass false, causing mmap'd, not-block-cache-owned block contents to be
+  //   copied instead of pinned. See #14895.
   template <typename TBlockIter>
   TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
                                    CachableEntry<Block>& block,
-                                   TBlockIter* input_iter, Status s) const;
+                                   TBlockIter* input_iter, Status s,
+                                   bool caller_guarantees_source_liveness) const;
 
   class PartitionedIndexIteratorState;
 
