@@ -3119,7 +3119,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
                               ReadOnlyMemTable* new_imm,
                               SequenceNumber last_seqno) {
   mutex_.AssertHeld();
-  assert(lock_wal_count_ == 0);
+  assert(lock_wal_owner_thread_id_counts_.empty());
 
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const WriteOptions write_options;

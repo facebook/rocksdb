@@ -379,6 +379,17 @@ void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
 
 }  // namespace
 
+bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
+  assert(!error_s.ok());
+  const IOStatus io_s = status_to_io_status(Status(error_s));
+  return !io_s.GetDataLoss() &&
+         ((error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s)) ||
+          (FLAGS_tolerate_non_injected_io_errors_for_remote_dbs &&
+           (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) &&
+           error_s.IsIOError()));
+}
+
 const std::string& StressTest::GetDbLabel() const { return db_label_; }
 
 const std::string& StressTest::GetDbPath() const { return db_path_; }
@@ -454,6 +465,9 @@ StressTest::StressTest(int db_index, const std::string& db_path,
 }
 
 void StressTest::CleanUp() {
+  // Prevent any new VerifyPkSkFast entries from background threads before
+  // we close and destroy the DB.
+  db_aptr_.store(nullptr, std::memory_order_release);
   CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
@@ -1021,14 +1035,14 @@ void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
 // Under --verify_cpu_corruption_dir, right after each write op
 // (put/delete/deleterange), flush, and compaction (compactrange/compactfiles),
 // verifies that op for corruption and, on the first one found, writes a result
-// file into the directory and marks the run as a verification failure. It catches:
-// (a) a corruption returned by the op itself or by the read-back
+// file into the directory and marks the run as a verification failure. It
+// catches: (a) a corruption returned by the op itself or by the read-back
 // (Status::Corruption); or (b) a silent data corruption (SDC) -- a read-back
 // that SUCCEEDS but returns the wrong result vs the committed expected state: a
-// lost key (NotFound), a resurrected key (deleted but present), or a wrong value
-// (bytes differ). Surfacing these with an immediate read right after the op
-// (instead of waiting for a later read or the end-of-run db verification) gives
-// the most immediate and accurate verification when an external CPU-fault
+// lost key (NotFound), a resurrected key (deleted but present), or a wrong
+// value (bytes differ). Surfacing these with an immediate read right after the
+// op (instead of waiting for a later read or the end-of-run db verification)
+// gives the most immediate and accurate verification when an external CPU-fault
 // injector (e.g. gdb) flips a register inside that op.
 //
 // REQUIRES (enforced at startup) --threads=1 and all fault injection off (every
@@ -1037,9 +1051,9 @@ void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
 // would otherwise taint it.
 //
 // OUTPUT CONTRACT (one file per worker thread):
-// <dir>/data_corruption.<thread_id>.json -- a JSON object with fields: kind (one
-// of lost|resurrected|wrong-value|detected-corruption), cf (int), key (int),
-// value_from_db (hex), value_from_expected (hex), op_status (string).
+// <dir>/data_corruption.<thread_id>.json -- a JSON object with fields: kind
+// (one of lost|resurrected|wrong-value|detected-corruption), cf (int), key
+// (int), value_from_db (hex), value_from_expected (hex), op_status (string).
 //
 // PERFORMANCE: the read-back scans the entire keyspace after every op
 // (O(max_key) Get calls per op), so this is meant for single-op
@@ -1652,6 +1666,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      MaybeOpenReadOnlyOnPrimary(thread);
+
       MaybeClearOneColumnFamily(thread);
 
       if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
@@ -2028,8 +2044,9 @@ void StressTest::OperateDb(ThreadState* thread) {
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
-          Status s;
-          s = TestMultiScan(thread, read_opts, rand_column_families, rand_keys);
+          Status s =
+              TestMultiScan(thread, read_opts, rand_column_families, rand_keys);
+          ProcessStatus(shared, "MultiScan", s);
           ThreadStatusUtil::ResetThreadStatus();
         } else if (!FLAGS_skip_verifydb &&
                    thread->rand.OneInOpt(
@@ -2236,6 +2253,8 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   std::vector<std::string> end_key_strs;
   // TODO support reverse BytewiseComparator in the stress test
   MultiScanArgs scan_opts(options_.comparator);
+  const bool reverse_multiscan = FLAGS_multiscan_reverse;
+  scan_opts.reverse = reverse_multiscan;
   scan_opts.use_async_io =
       FLAGS_multiscan_use_async_io &&
       CheckFSFeatureSupport(options_.env->GetFileSystem().get(),
@@ -2252,7 +2271,11 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   end_key_strs.reserve(num_scans);
 
   // Will be initialized before Seek() below.
+  Slice lb;
   Slice ub;
+  if (reverse_multiscan) {
+    ro.iterate_lower_bound = &lb;
+  }
   ro.iterate_upper_bound = &ub;
   for (size_t i = 0; i < num_scans * 2; i += 2) {
     assert(rand_keys[i] <= rand_keys[i + 1]);
@@ -2295,7 +2318,9 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       early_exit && thread->rand.OneIn(2);
   bool abandon_prepared_scan = false;
 
-  for (const ScanOptions& scan_opt : scan_opts.GetScanRanges()) {
+  const std::vector<ScanOptions>& scan_ranges = scan_opts.GetScanRanges();
+  for (size_t scan_idx = 0; scan_idx < scan_ranges.size(); ++scan_idx) {
+    const ScanOptions& scan_opt = scan_ranges[scan_idx];
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
       op_logs = "(cleared...)\n";
@@ -2327,14 +2352,27 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
     assert(scan_opt.range.start);
     assert(scan_opt.range.limit);
-    Slice key = scan_opt.range.start.value();
+    lb = scan_opt.range.start.value();
     ub = scan_opt.range.limit.value();
+    Slice key = reverse_multiscan ? ub : lb;
 
     LastIterateOp last_op;
-    iter->Seek(key);
-    cmp_iter->Seek(key);
-    last_op = kLastOpSeek;
-    op_logs += "S " + key.ToString(true) + " ";
+    if (reverse_multiscan) {
+      iter->SeekForPrev(key);
+      cmp_iter->SeekForPrev(key);
+      while (cmp_iter->Valid() && options_.comparator->CompareWithoutTimestamp(
+                                      cmp_iter->key(), /*a_has_ts=*/false, ub,
+                                      /*b_has_ts=*/false) >= 0) {
+        cmp_iter->Prev();
+      }
+      last_op = kLastOpSeekForPrev;
+      op_logs += "SFP " + key.ToString(true) + " ";
+    } else {
+      iter->Seek(key);
+      cmp_iter->Seek(key);
+      last_op = kLastOpSeek;
+      op_logs += "S " + key.ToString(true) + " ";
+    }
 
     if (iter->Valid() && ro.allow_unprepared_value) {
       op_logs += "*";
@@ -2352,8 +2390,64 @@ Status StressTest::TestMultiScan(ThreadState* thread,
       return cmp_iter->status();
     }
 
-    VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                   key, rand_column_families, op_logs, verify_func, &diverged);
+    auto verify_reverse_multiscan = [&]() {
+      if (diverged || ro.iter_start_ts != nullptr) {
+        return;
+      }
+
+      if (!iter->status().ok()) {
+        fprintf(stderr, "Reverse MultiScan error: %s\n",
+                iter->status().ToString().c_str());
+        diverged = true;
+        thread->stats.AddErrors(1);
+        thread->shared->SetVerificationFailure();
+        return;
+      }
+
+      const bool cmp_valid =
+          cmp_iter->Valid() && options_.comparator->CompareWithoutTimestamp(
+                                   cmp_iter->key(), /*a_has_ts=*/false, lb,
+                                   /*b_has_ts=*/false) >= 0;
+      if (iter->Valid() != cmp_valid ||
+          (iter->Valid() && iter->key() != cmp_iter->key())) {
+        fprintf(stderr,
+                "Reverse MultiScan diverged from control iterator %s under "
+                "range [%s, %s)\n",
+                op_logs.c_str(), lb.ToString(true).c_str(),
+                ub.ToString(true).c_str());
+        if (iter->Valid()) {
+          fprintf(stderr, "iterator has key %s\n",
+                  iter->key().ToString(true).c_str());
+        } else {
+          fprintf(stderr, "iterator is not valid with status: %s\n",
+                  iter->status().ToString().c_str());
+        }
+        if (cmp_valid) {
+          fprintf(stderr, "control iterator has key %s\n",
+                  cmp_iter->key().ToString(true).c_str());
+        } else {
+          fprintf(stderr, "control iterator is outside range or invalid\n");
+        }
+        diverged = true;
+        thread->stats.AddErrors(1);
+        thread->shared->SetVerificationFailure();
+        return;
+      }
+
+      if (iter->Valid() && !verify_func(iter.get())) {
+        diverged = true;
+        thread->stats.AddErrors(1);
+        thread->shared->SetVerificationFailure();
+      }
+    };
+
+    if (reverse_multiscan) {
+      verify_reverse_multiscan();
+    } else {
+      VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                     key, rand_column_families, op_logs, verify_func,
+                     &diverged);
+    }
 
     uint64_t range_iterations = 0;
     while (iter->Valid()) {
@@ -2367,13 +2461,23 @@ Status StressTest::TestMultiScan(ThreadState* thread,
         break;
       }
 
-      iter->Next();
-      if (!diverged) {
-        assert(cmp_iter->Valid());
-        cmp_iter->Next();
+      if (reverse_multiscan) {
+        iter->Prev();
+        if (!diverged) {
+          assert(cmp_iter->Valid());
+          cmp_iter->Prev();
+        }
+        op_logs += "P";
+      } else {
+        iter->Next();
+        if (!diverged) {
+          assert(cmp_iter->Valid());
+          cmp_iter->Next();
+        }
+        op_logs += "N";
       }
-      op_logs += "N";
       ++range_iterations;
+      last_op = kLastOpNextOrPrev;
 
       if (iter->Valid() && ro.allow_unprepared_value) {
         op_logs += "*";
@@ -2391,9 +2495,13 @@ Status StressTest::TestMultiScan(ThreadState* thread,
         return cmp_iter->status();
       }
 
-      VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                     key, rand_column_families, op_logs, verify_func,
-                     &diverged);
+      if (reverse_multiscan) {
+        verify_reverse_multiscan();
+      } else {
+        VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                       key, rand_column_families, op_logs, verify_func,
+                       &diverged);
+      }
 
       if (diverged) {
         if (thread->shared->HasVerificationFailedYet()) {
@@ -4753,6 +4861,76 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             "sequence number %" PRIu64 " from last DB session\n",
             db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
     port::ImmediateExit(1);
+  }
+}
+
+void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
+  assert(thread);
+  if (FLAGS_open_read_only_one_in <= 0 || thread->tid != 0 ||
+      !thread->rand.OneIn(FLAGS_open_read_only_one_in)) {
+    return;
+  }
+
+  // Snapshot the current column family names for the read-only open. Other
+  // worker threads can rename families via MaybeClearOneColumnFamily(), which
+  // writes column_family_names_[cf] while holding ALL key locks for that CF.
+  // We only need a single key lock per CF to synchronize with that writer --
+  // using LockColumnFamily would acquire all key locks (potentially hundreds of
+  // thousands) simultaneously, exceeding the number of locks TSAN's
+  // deadlock detector can track as held per thread (128), which aborts with
+  // "sanitizer_deadlock_detector.h ... n_all_locks_ < ... (0x80, 0x80)".
+  std::vector<ColumnFamilyDescriptor> cf_descriptors;
+  cf_descriptors.reserve(column_family_names_.size());
+  for (int cf = 0; cf < static_cast<int>(column_family_names_.size()); ++cf) {
+    MutexLock l(thread->shared->GetMutexForKey(cf, 0));
+    cf_descriptors.emplace_back(column_family_names_[cf],
+                                ColumnFamilyOptions(options_));
+  }
+
+  // A read-only instance opened concurrently with the primary can trip over
+  // injected faults or files the primary mutates underneath it, so disable
+  // error injection while we open, read, and close the reader. The primary's
+  // own subsequent operations run with injection re-enabled, so a genuinely
+  // deleted live file still surfaces on the normal verification path.
+  if (db_fault_injection_fs_) {
+    db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
+  }
+
+  std::vector<ColumnFamilyHandle*> ro_cfhs;
+  std::unique_ptr<DB> ro_db;
+  // A read-only reader never compacts, so it must not share the primary's
+  // background-coordination services. Sharing the compaction service in
+  // particular would let the reader's open/close abort the primary's in-flight
+  // remote compactions, and sharing listeners would fire primary callbacks for
+  // the reader instance.
+  DBOptions read_only_db_options(options_);
+  read_only_db_options.compaction_service = nullptr;
+  read_only_db_options.listeners.clear();
+  Status s = DB::OpenForReadOnly(read_only_db_options, GetDbPath(),
+                                 cf_descriptors, &ro_cfhs, &ro_db);
+  // Opening read-only while the primary mutates the same directory is
+  // best-effort; a transient failure here is expected and not a bug.
+  if (s.ok()) {
+    // Create new SST files in the primary that are absent from the reader's
+    // frozen live-file snapshot, so that a read-only close wrongly running
+    // obsolete-file cleanup would delete these live files. Flush all column
+    // families; error injection is disabled here, so the flush is expected to
+    // succeed and any real failure is surfaced via ProcessStatus().
+    Status flush_s = db_->Flush(FlushOptions(), column_families_);
+    ProcessStatus(thread->shared, "Flush read-only-primary", flush_s);
+
+    // Closing the reader runs the read-only close path. If it wrongly purges
+    // obsolete files based on its stale snapshot, the primary's live files are
+    // deleted and later detected by db_stress's read/verification paths.
+    for (auto* handle : ro_cfhs) {
+      delete handle;
+    }
+    ro_cfhs.clear();
+    ro_db.reset();
+  }
+
+  if (db_fault_injection_fs_) {
+    db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
   }
 }
 

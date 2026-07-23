@@ -34,7 +34,8 @@ Status WideColumnsHelper::DumpSliceAsWideColumns(const Slice& value,
                                                  std::ostream& os, bool hex) {
   WideColumns columns;
   Slice value_copy = value;
-  const Status s = WideColumnSerialization::Deserialize(value_copy, columns);
+  const Status s =
+      WideColumnSerialization::DeserializeSimple(value_copy, columns);
   if (s.ok()) {
     DumpWideColumns(columns, os, hex);
   }

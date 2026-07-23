@@ -872,7 +872,6 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
   assert(builder_iter != builders_.end());
   VersionBuilder* builder = builder_iter->second->version_builder();
   const bool valid_pit_before_edit = builder->ValidVersionAvailable();
-  builder->CreateOrReplaceSavePoint();
   s = builder->Apply(&edit);
   const bool valid_pit_after_edit = builder->ValidVersionAvailable();
 
@@ -888,22 +887,40 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
   if (s.ok() && !missing_info && !in_atomic_group_ &&
       ((!valid_pit_after_edit && valid_pit_before_edit) ||
        (valid_pit_after_edit && force_create_version))) {
+    // The Version to be created reflects the state *before* this edit. On a
+    // negative edge (valid before, invalid after), roll the just-applied edit
+    // back so the builder reflects the pre-edit state, build the Version from
+    // it, then redo to restore the post-edit state and continue replay. In the
+    // force case the edit is empty, so pre-edit == post-edit and no rollback is
+    // needed.
+    const bool negative_edge = valid_pit_before_edit && !valid_pit_after_edit;
+    if (negative_edge) {
+      builder->RollbackLastApply();
+    }
     const auto& mopts = cfd->GetLatestMutableCFOptions();
     auto* version = new Version(
         cfd, version_set_, version_set_->file_options_, mopts, io_tracer_,
         version_set_->current_version_number_++, epoch_number_requirement_);
-    s = builder->LoadSavePointTableHandlers(
+    s = builder->LoadTableHandlers(
         cfd->internal_stats(),
         version_set_->db_options_->max_file_opening_threads, false, true, mopts,
         MaxFileSizeForL0MetaPin(mopts), read_options_);
     if (!s.ok()) {
       delete version;
+      if (negative_edge) {
+        builder->RedoLastApply();
+      }
       if (s.IsCorruption()) {
+        // This point in time cannot be recovered; skip it and continue.
         s = Status::OK();
       }
+      builder->CommitLastApply();
       return s;
     }
-    s = builder->SaveSavePointTo(version->storage_info());
+    s = builder->SaveTo(version->storage_info());
+    if (negative_edge) {
+      builder->RedoLastApply();
+    }
     if (s.ok()) {
       if (AtomicUpdateVersionsContains(cfd->GetID())) {
         AtomicUpdateVersionsPut(version);
@@ -927,7 +944,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     }
   }
 
-  builder->ClearSavePoint();
+  builder->CommitLastApply();
   return s;
 }
 

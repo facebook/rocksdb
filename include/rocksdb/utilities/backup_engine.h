@@ -309,6 +309,9 @@ struct CreateBackupOptions {
   // Flush will always trigger if 2PC is enabled.
   // If write-ahead logs are disabled, set flush_before_backup=true to
   // avoid losing unflushed key/value pairs from the memtable.
+  //
+  // NOTE: If LockWAL() is active and WAL-disabled writes left unpersisted data,
+  // backup may wait for UnlockWAL() before it can flush.
   bool flush_before_backup = false;
 
   // Callback for reporting progress, based on callback_trigger_interval_size.

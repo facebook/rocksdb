@@ -331,12 +331,47 @@ class DBCrashTestTest(unittest.TestCase):
             {
                 "num_dbs": 1,
                 "clear_column_family_one_in": 10,
+                "tolerate_non_injected_io_errors_for_remote_dbs": 0,
             },
         )
 
         finalized = db_crashtest.finalize_and_sanitize(params)
 
         self.assertEqual(10, finalized["clear_column_family_one_in"])
+        self.assertEqual(0, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
+
+    def test_finalize_tolerates_non_injected_io_errors_for_remote_db(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = True
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "enable_blob_direct_write": 1,
+                "tolerate_non_injected_io_errors_for_remote_dbs": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(0, finalized["enable_blob_direct_write"])
+        # Remote DBs keep the caller-provided value; it is not overridden.
+        self.assertEqual(1, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
+
+    def test_finalize_disables_tolerate_non_injected_io_errors_for_local_db(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = False
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "tolerate_non_injected_io_errors_for_remote_dbs": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        # Local DBs must never tolerate IO errors, even if requested, so genuine
+        # local IO errors (e.g. io_uring failures) are not silently masked.
+        self.assertEqual(0, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
 
     def test_build_out_of_space_diagnostics_summarizes_directory_suffixes(self):
         db_crashtest = self.load_db_crashtest()

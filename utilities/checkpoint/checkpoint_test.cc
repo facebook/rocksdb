@@ -13,6 +13,7 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <thread>
@@ -895,6 +896,70 @@ TEST_F(CheckpointTest, CheckpointWithLockWAL) {
   checkpoint = nullptr;
 
   ASSERT_OK(db_->UnlockWAL());
+  Close();
+
+  std::unique_ptr<DB> snapshot_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
+  ASSERT_EQ("foo_value", get_result);
+}
+
+TEST_F(CheckpointTest, CheckpointWithLockWALNoWALSameThreadAborted) {
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(db_->Put(write_options, "foo", "foo_value"));
+  ASSERT_OK(db_->LockWAL());
+
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> checkpoint_holder(checkpoint);
+
+  Status s = checkpoint->CreateCheckpoint(snapshot_name_);
+  ASSERT_TRUE(s.IsAborted()) << s.ToString();
+  ASSERT_NE(s.ToString().find("Likely deadlock"), std::string::npos)
+      << s.ToString();
+
+  ASSERT_OK(db_->UnlockWAL());
+}
+
+TEST_F(CheckpointTest, CheckpointWithLockWALNoWALCrossThreadFlushes) {
+  Options options = CurrentOptions();
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(db_->Put(write_options, "foo", "foo_value"));
+  ASSERT_OK(db_->LockWAL());
+
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> checkpoint_holder(checkpoint);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WaitForPendingWrites:BeforeBlock",
+        "CheckpointTest::CheckpointWithLockWALNoWALCrossThreadFlushes:"
+        "BeforeUnlock"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::atomic<bool> checkpoint_done{false};
+  Status checkpoint_status;
+  port::Thread checkpoint_thread([&]() {
+    checkpoint_status = checkpoint->CreateCheckpoint(snapshot_name_);
+    checkpoint_done.store(true);
+  });
+
+  TEST_SYNC_POINT(
+      "CheckpointTest::CheckpointWithLockWALNoWALCrossThreadFlushes:"
+      "BeforeUnlock");
+  const bool finished_early = checkpoint_done.load();
+  Status unlock_status = db_->UnlockWAL();
+  checkpoint_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({});
+
+  ASSERT_OK(unlock_status);
+  ASSERT_FALSE(finished_early) << checkpoint_status.ToString();
+  ASSERT_OK(checkpoint_status);
   Close();
 
   std::unique_ptr<DB> snapshot_db;

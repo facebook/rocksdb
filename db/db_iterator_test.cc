@@ -5418,6 +5418,157 @@ TEST_P(DBMultiScanIteratorTest, AsyncPrefetchAcrossMultipleFiles) {
   iter.reset();
 }
 
+TEST_P(DBMultiScanIteratorTest, ReversePrefetchAcrossMultipleRanges) {
+  auto options = CurrentOptions();
+  options.target_file_size_base = 1 << 15;  // 32KiB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  Random rnd(303);
+  for (int i = 0; i < 1000; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_GT(NumTableFilesAtLevel(49), 3);
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = false;
+  scan_options.reverse = true;
+  scan_options.io_dispatcher = tracking_dispatcher;
+  std::vector<std::string> key_ranges(
+      {Key(100), Key(200), Key(500), Key(600), Key(800), Key(900)});
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+
+  std::vector<std::string> actual_keys;
+  try {
+    for (auto range : *iter) {
+      for (auto it : range) {
+        actual_keys.push_back(it.first.ToString());
+      }
+    }
+  } catch (MultiScanException& ex) {
+    FAIL() << "Iterator returned status " << ex.what();
+  } catch (std::logic_error& ex) {
+    FAIL() << "Iterator returned logic error " << ex.what();
+  }
+
+  std::vector<std::string> expected_keys;
+  for (int i = 199; i >= 100; --i) {
+    expected_keys.push_back(Key(i));
+  }
+  for (int i = 599; i >= 500; --i) {
+    expected_keys.push_back(Key(i));
+  }
+  for (int i = 899; i >= 800; --i) {
+    expected_keys.push_back(Key(i));
+  }
+  ASSERT_EQ(actual_keys, expected_keys);
+  ASSERT_GT(tracking_dispatcher->GetReadSets().size(), 0);
+}
+
+TEST_P(DBMultiScanIteratorTest, ReverseUnreleasedPrefetchBlocksCountAsWasted) {
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  table_options.block_cache = NewLRUCache(10 * 1024 * 1024);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  constexpr int kNumKeys = 40;
+  const std::string value(100, 'v');
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), value));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  auto tracking_dispatcher = std::make_shared<TrackingIODispatcher>();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.use_async_io = false;
+  scan_options.reverse = true;
+  scan_options.io_dispatcher = tracking_dispatcher;
+  const std::string start_key = Key(0);
+  const std::string limit_key = Key(kNumKeys);
+  scan_options.insert(start_key, limit_key);
+
+  {
+    std::unique_ptr<MultiScan> iter =
+        dbfull()->NewMultiScan(ro, cfh, scan_options);
+    ASSERT_NE(iter, nullptr);
+
+    try {
+      auto range_it = iter->begin();
+      ASSERT_NE(range_it, iter->end());
+      auto range = *range_it;
+      auto row_it = range.begin();
+      ASSERT_NE(row_it, range.end());
+      ASSERT_EQ((*row_it).first.ToString(), Key(kNumKeys - 1));
+    } catch (MultiScanException& ex) {
+      FAIL() << "Iterator returned status " << ex.what();
+    } catch (std::logic_error& ex) {
+      FAIL() << "Iterator returned logic error " << ex.what();
+    }
+
+    ASSERT_GT(tracking_dispatcher->GetReadSets().size(), 0);
+  }
+
+  ASSERT_GT(
+      options.statistics->getTickerCount(MULTISCAN_PREFETCH_BLOCKS_WASTED), 0);
+}
+
+TEST_P(DBMultiScanIteratorTest, ReverseRequiresLimits) {
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+
+  ReadOptions ro;
+  ro.fill_cache = GetParam();
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  MultiScanArgs scan_options(BytewiseComparator());
+  scan_options.reverse = true;
+  scan_options.insert("a");
+  scan_options.insert("b", "c");
+
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  ASSERT_NE(iter, nullptr);
+  try {
+    (void)iter->begin();
+    FAIL() << "Expected reverse MultiScan without an upper bound to fail";
+  } catch (MultiScanException& ex) {
+    ASSERT_NOK(ex.status());
+    ASSERT_TRUE(ex.status().IsInvalidArgument());
+  }
+}
+
 // Wrapper filesystem that does not support async IO.
 // Used to verify that MultiScan gracefully falls back to sync IO.
 class NoAsyncIOFS : public FileSystemWrapper {
@@ -6114,13 +6265,7 @@ TEST_P(DBMultiScanIteratorTest, WastedBlocksTracking) {
   uint64_t wasted =
       options.statistics->getTickerCount(MULTISCAN_PREFETCH_BLOCKS_WASTED);
 
-  // We expect some wasted blocks due to the gap between ranges
-  // The exact number depends on prefetch behavior, but should be > 0
-  // if blocks between k020-k050 were prefetched
-  std::cout << "Wasted blocks: " << wasted << std::endl;
-
-  // Note: The test verifies the tracking mechanism works.
-  // The actual count depends on prefetch heuristics which may vary.
+  ASSERT_GT(wasted, 0);
 }
 
 class ReadPathRangeTombstoneTest : public DBIteratorBaseTest,

@@ -67,6 +67,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
+#include "util/coro_utils.h"
 #include "util/hash.h"
 #include "util/repeatable_thread.h"
 #include "util/stop_watch.h"
@@ -268,9 +269,14 @@ class DBImpl : public DB {
   bool HasAnyBlobDirectWriteColumnFamily();
 
   using DB::Get;
-  Status Get(const ReadOptions& _read_options,
-             ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value, std::string* timestamp) override;
+  using DB::GetAsync;
+  DECLARE_SYNC_ASYNC_AND_CALLBACK(
+      Status, Get, GetAsync,
+      (const ReadOptions& options, ColumnFamilyHandle* column_family,
+       const Slice& key, PinnableSlice* value, std::string* timestamp,
+       Status& status, AsyncCallback& callback),
+      const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* value, std::string* timestamp);
 
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
@@ -295,6 +301,7 @@ class DBImpl : public DB {
   }
 
   using DB::MultiGet;
+  using DB::MultiGetAsync;
   // This MultiGet is a batched version, which may be faster than calling Get
   // multiple times, especially if the keys have some spatial locality that
   // enables them to be queried in the same SST files/set of files. The larger
@@ -302,10 +309,16 @@ class DBImpl : public DB {
   // The values and statuses parameters are arrays with number of elements
   // equal to keys.size(). This allows the storage for those to be alloacted
   // by the caller on the stack for small batches
-  void MultiGet(const ReadOptions& _read_options, const size_t num_keys,
-                ColumnFamilyHandle** column_families, const Slice* keys,
-                PinnableSlice* values, std::string* timestamps,
-                Status* statuses, const bool sorted_input = false) override;
+  DECLARE_SYNC_ASYNC_AND_CALLBACK(
+      void, MultiGet, MultiGetAsync,
+      (const ReadOptions& options, const size_t num_keys,
+       ColumnFamilyHandle** column_families, const Slice* keys,
+       PinnableSlice* values, std::string* timestamps, Status* statuses,
+       const bool sorted_input, AsyncCallback& callback),
+      const ReadOptions& _read_options, const size_t num_keys,
+      ColumnFamilyHandle** column_families, const Slice* keys,
+      PinnableSlice* values, std::string* timestamps, Status* statuses,
+      const bool sorted_input = false);
 
   void MultiGetWithCallback(
       const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
@@ -718,13 +731,13 @@ class DBImpl : public DB {
     int* number_of_operands = nullptr;
   };
 
-  Status GetImpl(const ReadOptions& read_options,
-                 ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value);
+  DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& read_options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value);
 
-  Status GetImpl(const ReadOptions& read_options,
-                 ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value, std::string* timestamp);
+  DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& read_options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value, std::string* timestamp);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
@@ -733,8 +746,9 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.value
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
-  virtual Status GetImpl(const ReadOptions& options, const Slice& key,
-                         GetImplOptions& get_impl_options);
+  DECLARE_SYNC_AND_ASYNC_VIRTUAL(Status, GetImpl, const ReadOptions& options,
+                                 const Slice& key,
+                                 GetImplOptions& get_impl_options);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
@@ -2541,7 +2555,7 @@ class DBImpl : public DB {
     }
 
     // Wait for any LockWAL to clear
-    while (lock_wal_count_ > 0) {
+    while (!lock_wal_owner_thread_id_counts_.empty()) {
       bg_cv_.Wait();
     }
   }
@@ -2954,11 +2968,12 @@ class DBImpl : public DB {
                       PinnableWideColumns* columns, std::string* timestamps,
                       Status* statuses, bool sorted_input);
 
-  void MultiGetCommon(const ReadOptions& options, const size_t num_keys,
-                      ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableSlice* values, PinnableWideColumns* columns,
-                      std::string* timestamps, Status* statuses,
-                      bool sorted_input);
+  DECLARE_SYNC_AND_ASYNC(void, MultiGetCommon, const ReadOptions& options,
+                         const size_t num_keys,
+                         ColumnFamilyHandle** column_families,
+                         const Slice* keys, PinnableSlice* values,
+                         PinnableWideColumns* columns, std::string* timestamps,
+                         Status* statuses, bool sorted_input);
 
   // A structure to hold the information required to process MultiGet of keys
   // belonging to one column family. For a multi column family MultiGet, there
@@ -3033,8 +3048,9 @@ class DBImpl : public DB {
   // to have acquired the SuperVersion and pass in a snapshot sequence number
   // in order to construct the LookupKeys. The start_key and num_keys specify
   // the range of keys in the sorted_keys vector for a single column family.
-  Status MultiGetImpl(
-      const ReadOptions& read_options, size_t start_key, size_t num_keys,
+  DECLARE_SYNC_AND_ASYNC(
+      Status, MultiGetImpl, const ReadOptions& read_options, size_t start_key,
+      size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
 
@@ -3073,29 +3089,40 @@ class DBImpl : public DB {
       bool resolve_direct_write_value, const Version* current,
       ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
       Status* s, bool* is_blob_index, bool* value_found = nullptr);
+  // Completes primary memtable hits that can still carry direct-write blob
+  // references before the blob file is visible in Version metadata.
+  static void PostprocessDirectWriteValueRead(
+      const ReadOptions& read_options, const Slice& key,
+      const std::string* timestamp, bool resolve_direct_write_value,
+      const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+      PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+      bool* value_found = nullptr);
   // Resolves memtable read results that still carry blob references through
   // either a raw blob-index payload in `value` or unresolved blob columns in
   // `columns`. Unlike the direct-write helper above, this path only depends on
-  // a BlobFetcher and therefore works for read-only/secondary DBs.
-  static bool MaybeResolveMemtableBlobValue(const Slice& key,
-                                            const BlobFetcher* blob_fetcher,
-                                            PinnableSlice* value,
-                                            PinnableWideColumns* columns,
-                                            Status* s, bool* is_blob_index,
-                                            bool* value_found = nullptr);
-  // Completes read-only/secondary memtable Get()/GetEntity() hits by resolving
-  // blob-backed payloads when `resolve_blob_backed_memtable_value` is true,
-  // pinning plain values on success, and clearing outputs on error. When the
-  // caller explicitly requested raw blob indices via
-  // `GetImplOptions::is_blob_index`, this helper leaves that payload
-  // untouched. `memtable_blob_fetcher` may be null when blob support is
-  // disabled for the column family.
-  static void PostprocessMemtableValueRead(
+  // a BlobFetcher and therefore works for read-only/secondary DBs. Sets
+  // *did_resolve to true iff there was a reference to resolve -- in which case
+  // this function has finalized `value`/`columns` (populated on success,
+  // cleared on error) -- and false iff there was nothing to resolve (the caller
+  // finalizes the plain value). Only call with an OK incoming status.
+  static Status MaybeResolveMemtableBlobValue(
+      const Slice& key, const BlobFetcher* blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, bool* did_resolve, bool* is_blob_index,
+      bool* value_found = nullptr);
+  // Completes read-only/secondary memtable Get()/GetEntity() hits. Given the
+  // status from the memtable read, resolves blob-backed payloads when
+  // `resolve_blob_backed_memtable_value` is true, self-pins a plain value on
+  // success, and clears outputs on any error (never leaving a half-populated
+  // result). When the caller explicitly requested raw blob indices via
+  // `GetImplOptions::is_blob_index`, this helper leaves that payload untouched.
+  // `memtable_blob_fetcher` may be null when blob support is disabled for the
+  // column family. Returns the finalized status.
+  static Status PostprocessMemtableValueRead(
       const Slice& key, const std::string* timestamp,
       bool resolve_blob_backed_memtable_value,
       const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
-      PinnableWideColumns* columns, Status* s, bool* is_blob_index,
-      bool* value_found = nullptr);
+      PinnableWideColumns* columns, Status memtable_read_status,
+      bool* is_blob_index, bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>
@@ -3607,12 +3634,13 @@ class DBImpl : public DB {
 
   // Stop write token that is acquired when first LockWAL() is called.
   // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.
-  // See lock_wal_count_
+  // See lock_wal_owner_thread_id_counts_
   std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
 
-  // The number of LockWAL called without matching UnlockWAL call.
-  // See also lock_wal_write_token_
-  uint32_t lock_wal_count_ = 0;
+  // Thread IDs of valid LockWAL() owners and their recursive lock counts. Each
+  // owning thread must call UnlockWAL() the same number of times before writes
+  // can resume.
+  std::unordered_map<uint64_t, uint32_t> lock_wal_owner_thread_id_counts_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

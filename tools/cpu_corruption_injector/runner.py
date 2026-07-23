@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import random
 import re
 import subprocess
 import sys
@@ -27,6 +26,7 @@ from runner_build import (  # noqa: E402
     build_runs,
     INJECTION_SITES,
     REMOTE_COMPACTION_ENTRY_FN,
+    resolve_base_seed,
     Run,
 )
 from runner_report import report  # noqa: E402
@@ -39,14 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     report_dir = os.path.abspath(args.report_dir)
     stress_cmd = os.path.abspath(args.stress_cmd)
     parallel_runs = max(args.parallel, 1)
-    base_seed = args.seed or random.randint(1, 2**64)  # 0 -> a fresh seed each run
-
     os.makedirs(report_dir, exist_ok=True)
     _setup_logging(report_dir)
 
     # Fail fast on the deterministic, whole-run problems before doing any work.
     if not os.path.exists(stress_cmd):
         logger.error("stress_cmd not found at %s", stress_cmd)
+        return 2
+    try:
+        base_seed = resolve_base_seed(args.seed, args.runs)
+    except ValueError as e:
+        logger.error("%s", e)
         return 2
     try:
         verify_injection_site(stress_cmd, args.op)
@@ -109,10 +112,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--seed",
         type=int,
-        default=0,
-        help="master seed for the run set. 0 (default) picks a fresh random seed each "
-        "invocation (logged as base_seed=N); pass that N back via --seed to reproduce "
-        "the same runs. Run i uses seed N+i.",
+        default=None,
+        help="base_seed for the run set: run i uses seed base_seed+i (which drives both "
+        "the injection choices and db_stress's --seed), so the whole set is reproducible "
+        "from base_seed alone. Omit to draw one fresh random base_seed per campaign (once "
+        "per runner run; logged as base_seed=N); pass that N back "
+        "via --seed to replay the set, or --seed=<N+i> --runs 1 to replay just run i.",
     )
     parser.add_argument(
         "--randomize_stress_flags",

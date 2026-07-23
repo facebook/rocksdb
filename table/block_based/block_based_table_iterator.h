@@ -12,7 +12,6 @@
 #include "db/seqno_to_time_mapping.h"
 #include "rocksdb/io_dispatcher.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
 #include "table/block_based/multi_scan_index_iterator.h"
 #include "table/block_based/reader_common.h"
@@ -314,6 +313,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   };
 
   bool IsIndexAtCurr() const { return is_index_at_curr_block_; }
+
+  inline bool IsReverseMultiScan() const {
+    return multi_scan_read_set_ && multi_scan_index_iter_ &&
+           multi_scan_index_iter_->scan_opts()->reverse;
+  }
 
   const BlockBasedTable* table_;
   const ReadOptions& read_options_;

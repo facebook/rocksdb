@@ -58,6 +58,8 @@ typedef struct __toku_engine_status_row {
 #define DB_BUFFER_SMALL -30999
 #define DB_LOCK_DEADLOCK -30995
 #define DB_LOCK_NOTGRANTED -30994
+// wait aborted by killed_callback (vs. timeout)
+#define DB_LOCK_INTERRUPTED -30993
 #define DB_NOTFOUND -30989
 #define DB_KEYEXIST -30996
 #define DB_DBT_MALLOC 8

@@ -206,6 +206,7 @@ default_params = {
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
+    "tolerate_non_injected_io_errors_for_remote_dbs": 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -664,6 +665,7 @@ simple_default_params = {
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "test_secondary": lambda: random.choice([0, 1]),
+    "open_read_only_one_in": lambda: random.choice([0, 0, 0, 16]),
 }
 
 blackbox_simple_default_params = {
@@ -975,6 +977,11 @@ def finalize_and_sanitize(src_params):
     # remote --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
+    
+    # Not to accidentally ignore errors on local dbs
+    # (e.g. errors on IO Uring would be categorized as IO error)
+    if not is_remote_db:
+        dest_params["tolerate_non_injected_io_errors_for_remote_dbs"] = 0
 
     if dest_params.get("enable_blob_direct_write", 0) == 1:
         # Keep blob direct write in its reduced-scope crash-test profile.
@@ -1533,6 +1540,15 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
+    # Opening a read-only DB on the primary's directory needs a plain read-write
+    # primary; it is not wired up for transactions, BlobDB, or TTL DBs.
+    if (
+        dest_params.get("use_txn", 0) == 1
+        or dest_params.get("use_optimistic_txn", 0) == 1
+        or dest_params.get("use_blob_db", 0) == 1
+        or dest_params.get("ttl", -1) != -1
+    ):
+        dest_params["open_read_only_one_in"] = 0
     if dest_params.get("use_multiscan") == 1:
         dest_params["async_io"] = 0
         dest_params["delpercent"] += dest_params["delrangepercent"]

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <forward_list>
+#include <iterator>
 #include <ostream>
 #include <tuple>
 #include <utility>
@@ -17,7 +19,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
-class DBImpl;
+class PinnableWideColumnsHelper;
 
 // Class representing a wide column, which is defined as a pair of column name
 // and column value.
@@ -124,8 +126,18 @@ extern const Slice kDefaultWideColumnName;
 // An empty set of wide columns.
 extern const WideColumns kNoWideColumns;
 
-// A self-contained collection of wide columns. Used for the results of
-// wide-column queries.
+// A self-contained result of a wide-column query (e.g. GetEntity(),
+// MultiGetEntity(), or the columns view of an iterator). It owns the memory
+// backing its columns: columns() returns the column names and values as
+// zero-copy Slices that point into one or more stable backing buffers held
+// or tracked by this object, so the result remains valid without the caller
+// retaining any other state. Like PinnableSlice, it is move-only and cheap to
+// move.
+//
+// A result may be backed by a single buffer (e.g. a plain value or a serialized
+// entity) or by several buffers (e.g. after blob-referenced columns have been
+// resolved, where each resolved value keeps its own buffer); either way,
+// columns() presents a single unified, in-order column set.
 class PinnableWideColumns {
  public:
   PinnableWideColumns() = default;
@@ -133,13 +145,31 @@ class PinnableWideColumns {
   PinnableWideColumns(const PinnableWideColumns&) = delete;
   PinnableWideColumns& operator=(const PinnableWideColumns&) = delete;
 
-  PinnableWideColumns(PinnableWideColumns&&);
-  PinnableWideColumns& operator=(PinnableWideColumns&&);
+  PinnableWideColumns(PinnableWideColumns&&) = default;
+  PinnableWideColumns& operator=(PinnableWideColumns&&) = default;
 
   ~PinnableWideColumns() = default;
 
   const WideColumns& columns() const { return columns_; }
-  size_t serialized_size() const { return value_.size(); }
+
+  // Total size of the column names and values, computed as
+  // sum(name.size() + value.size()) over all columns. This is the measure used
+  // for read/threshold accounting; it is well-defined regardless of how the
+  // backing bytes are laid out (single buffer, multiple buffers, or zero-copy
+  // resolved columns). For a plain value (a single anonymous default column)
+  // this equals the raw value size.
+  size_t payload_size() const {
+    size_t total = 0;
+    for (const auto& column : columns_) {
+      total += column.name().size() + column.value().size();
+    }
+    return total;
+  }
+
+  // DEPRECATED: use payload_size(). Returns the number of bytes this entity
+  // would occupy if serialized in the version 1 wide-column format. Kept for
+  // external API compatibility; it has no internal callers.
+  size_t serialized_size() const;
 
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
@@ -154,65 +184,50 @@ class PinnableWideColumns {
   void Reset();
 
  private:
-  void Move(PinnableWideColumns&& other);
   void CopyValue(const Slice& value);
   void PinOrCopyValue(const Slice& value, Cleanable* cleanable);
   void MoveValue(PinnableSlice&& value);
   void MoveValue(std::string&& value);
 
-  void CreateIndexForPlainValue();
-  Status CreateIndexForWideColumns();
+  void BuildColumnsForPlainValue();
+  Status BuildColumnsForEntity();
 
-  friend class DBImpl;
+  friend class PinnableWideColumnsHelper;
 
-  PinnableSlice value_;
+  // One or more stable backing buffers. The name()/value() Slices in `columns_`
+  // point into these nodes. std::forward_list nodes are individually
+  // heap-allocated and never relocate on move, move-assignment, or splice, so
+  // those Slices stay valid across all of those operations -- even for a
+  // self-pinned (SSO) PinnableSlice, because the node holding the string never
+  // moves.
+  std::forward_list<PinnableSlice> backing_;
   WideColumns columns_;
   // Internal-only metadata for V2 entities whose blob columns still point to
-  // serialized BlobIndex payloads in `value_`.
+  // serialized BlobIndex payloads in `backing_`.
   std::vector<size_t> unresolved_blob_column_indices_;
 };
 
 inline void PinnableWideColumns::Reset() {
-  value_.Reset();
+  backing_.clear();
   columns_.clear();
   unresolved_blob_column_indices_.clear();
 }
 
-inline void PinnableWideColumns::Move(PinnableWideColumns&& other) {
-  assert(columns_.empty());
-
-  if (other.columns_.empty()) {
-    return;
-  }
-
-  const char* const data = other.value_.data();
-  const bool is_plain_value =
-      other.columns_.size() == 1 &&
-      other.columns_.front().name() == kDefaultWideColumnName &&
-      other.columns_.front().value() == other.value_;
-
-  MoveValue(std::move(other.value_));
-
-  if (value_.data() == data) {
-    columns_ = std::move(other.columns_);
-    unresolved_blob_column_indices_ =
-        std::move(other.unresolved_blob_column_indices_);
-  } else {
-    if (is_plain_value) {
-      CreateIndexForPlainValue();
-    } else {
-      const Status s = CreateIndexForWideColumns();
-      assert(s.ok());
-
-      s.PermitUncheckedError();
-    }
-  }
-
-  other.Reset();
-}
-
 inline void PinnableWideColumns::CopyValue(const Slice& value) {
-  value_.PinSelf(value);
+  // Reuse an existing single, self-owned backing buffer when we have one;
+  // otherwise reset to a fresh one. Assigning into the existing buffer rather
+  // than freeing it first keeps the copy safe even when `value` aliases our own
+  // storage (e.g. a Slice returned by columns()): PinSelf() ->
+  // std::string::assign() handles self-overlapping input. It also avoids
+  // node/string churn when a PinnableWideColumns is reused across plain-value
+  // reads. A pinned node (external Cleanable storage) can't be reused because
+  // PinSelf() requires an unpinned target, so fall back to a fresh buffer.
+  if (backing_.empty() || std::next(backing_.begin()) != backing_.end() ||
+      backing_.front().IsPinned()) {
+    backing_.clear();
+    backing_.emplace_front();
+  }
+  backing_.front().PinSelf(value);
 }
 
 inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
@@ -222,51 +237,57 @@ inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
     return;
   }
 
-  value_.PinSlice(value, cleanable);
+  backing_.clear();
+  backing_.emplace_front();
+  backing_.front().PinSlice(value, cleanable);
 }
 
 inline void PinnableWideColumns::MoveValue(PinnableSlice&& value) {
-  value_ = std::move(value);
+  backing_.clear();
+  backing_.emplace_front(std::move(value));
 }
 
 inline void PinnableWideColumns::MoveValue(std::string&& value) {
-  std::string* const buf = value_.GetSelf();
+  backing_.clear();
+  backing_.emplace_front();
+
+  std::string* const buf = backing_.front().GetSelf();
   assert(buf);
 
   *buf = std::move(value);
-  value_.PinSelf();
+  backing_.front().PinSelf();
 }
 
-inline void PinnableWideColumns::CreateIndexForPlainValue() {
+inline void PinnableWideColumns::BuildColumnsForPlainValue() {
   unresolved_blob_column_indices_.clear();
-  columns_ = WideColumns{{kDefaultWideColumnName, value_}};
+  columns_ = WideColumns{{kDefaultWideColumnName, backing_.front()}};
 }
 
 inline void PinnableWideColumns::SetPlainValue(const Slice& value) {
   CopyValue(value);
-  CreateIndexForPlainValue();
+  BuildColumnsForPlainValue();
 }
 
 inline void PinnableWideColumns::SetPlainValue(const Slice& value,
                                                Cleanable* cleanable) {
   PinOrCopyValue(value, cleanable);
-  CreateIndexForPlainValue();
+  BuildColumnsForPlainValue();
 }
 
 inline void PinnableWideColumns::SetPlainValue(PinnableSlice&& value) {
   MoveValue(std::move(value));
-  CreateIndexForPlainValue();
+  BuildColumnsForPlainValue();
 }
 
 inline void PinnableWideColumns::SetPlainValue(std::string&& value) {
   MoveValue(std::move(value));
-  CreateIndexForPlainValue();
+  BuildColumnsForPlainValue();
 }
 
 inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
   CopyValue(value);
 
-  const Status s = CreateIndexForWideColumns();
+  const Status s = BuildColumnsForEntity();
   if (!s.ok()) {
     Reset();
   }
@@ -278,7 +299,7 @@ inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
                                                       Cleanable* cleanable) {
   PinOrCopyValue(value, cleanable);
 
-  const Status s = CreateIndexForWideColumns();
+  const Status s = BuildColumnsForEntity();
   if (!s.ok()) {
     Reset();
   }
@@ -289,7 +310,7 @@ inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
 inline Status PinnableWideColumns::SetWideColumnValue(PinnableSlice&& value) {
   MoveValue(std::move(value));
 
-  const Status s = CreateIndexForWideColumns();
+  const Status s = BuildColumnsForEntity();
   if (!s.ok()) {
     Reset();
   }
@@ -300,26 +321,12 @@ inline Status PinnableWideColumns::SetWideColumnValue(PinnableSlice&& value) {
 inline Status PinnableWideColumns::SetWideColumnValue(std::string&& value) {
   MoveValue(std::move(value));
 
-  const Status s = CreateIndexForWideColumns();
+  const Status s = BuildColumnsForEntity();
   if (!s.ok()) {
     Reset();
   }
 
   return s;
-}
-
-inline PinnableWideColumns::PinnableWideColumns(PinnableWideColumns&& other) {
-  Move(std::move(other));
-}
-
-inline PinnableWideColumns& PinnableWideColumns::operator=(
-    PinnableWideColumns&& other) {
-  if (this != &other) {
-    Reset();
-    Move(std::move(other));
-  }
-
-  return *this;
 }
 
 inline bool operator==(const PinnableWideColumns& lhs,

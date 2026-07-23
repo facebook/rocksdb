@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
 import signal
 import subprocess
 
@@ -147,6 +148,8 @@ def _injector_argv(run: Run) -> list[str]:
 
 def _run_gdb(command: list[str], log_path: str) -> None:
     with open(log_path, "wb") as log_file:
+        log_file.write(("# " + shlex.join(command) + "\n\n").encode("utf-8"))
+        log_file.flush()
         proc = subprocess.Popen(
             command,
             stdout=log_file,

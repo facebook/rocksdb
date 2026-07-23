@@ -49,10 +49,15 @@ bucket.
 - `--op` is one of `write`, `flush`, `compaction`.
 - `--parallel N` runs `N` runs at once (each `db_stress` run is itself
   single-threaded, so raise this to use more cores).
-- `--seed N` reproduces a set: run `i` uses seed `N+i`. With `--seed 0` (the
-  default) a fresh random `base_seed` is chosen and logged; pass that value back
-  via `--seed` to replay, and add `--runs 1` with `--seed=<base_seed+i>` to
-  replay a single run `i`.
+- `--seed N` sets the campaign's `base_seed`: run `i` deterministically uses seed
+  `N+i`, which drives both the injection choices and `db_stress`'s own `--seed`, so
+  the whole set is reproducible from `base_seed` alone. Omit `--seed` to draw one
+  fresh random `base_seed` per campaign (chosen once per `runner.py` run and logged as `base_seed=N`); pass that `N` back via `--seed`
+  to replay the set, or `--seed=<N+i>` with `--runs 1` to replay just run `i`.
+
+In the examples below, `<db_stress>` is the path to the `db_stress` binary you
+built (see [Requirements](#requirements) above -- e.g. `./db_stress`), and
+`<dir>` is a writable directory for the campaign's output.
 
 ```bash
 # a compaction campaign of 100 runs
@@ -63,9 +68,10 @@ python3 tools/cpu_corruption_injector/runner.py --op compaction --runs 100 \
 python3 tools/cpu_corruption_injector/runner.py --op flush --runs 200 \
     --stress_cmd <db_stress> --report_dir <dir> --parallel 8
 
-# reproduce an earlier set from its logged base_seed
+# replay an earlier campaign: pass its logged base_seed back as --seed
+# (the runner prints "reproduce with --seed=<base_seed>"); base_seed is in [1, 4294967295]
 python3 tools/cpu_corruption_injector/runner.py --op write --runs 100 \
-    --stress_cmd <db_stress> --report_dir <dir> --seed 12345678
+    --stress_cmd <db_stress> --report_dir <dir> --seed 3141592653
 ```
 
 Before doing any work, `runner.py` preflights the build: it confirms `gdb` can

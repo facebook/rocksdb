@@ -271,6 +271,11 @@ public enum HistogramType {
    */
   FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES((byte) 0x4A),
 
+  /**
+   * Time spent opening the secondary DB inside DB::OpenAndCompact().
+   */
+  OPEN_AND_COMPACT_DB_OPEN_MICROS((byte) 0x4B),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

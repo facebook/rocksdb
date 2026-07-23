@@ -1623,16 +1623,16 @@ void DBImpl::PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
     for (size_t i = 0; i < c.num_input_files(l); i++) {
       FileMetaData* f = c.input(l, i);
       c.edit()->DeleteFile(c.level(l), f->fd.GetNumber());
-      c.edit()->AddFile(c.output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
-                        f->fd.GetFileSize(), f->smallest, f->largest,
-                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                        f->marked_for_compaction, f->temperature,
-                        f->oldest_blob_file_number, f->oldest_ancester_time,
-                        f->file_creation_time, f->epoch_number,
-                        f->file_checksum, f->file_checksum_func_name,
-                        f->unique_id, f->compensated_range_deletion_size,
-                        f->tail_size, f->user_defined_timestamps_persisted,
-                        f->min_timestamp, f->max_timestamp);
+      c.edit()->AddFile(
+          c.output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
+          f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
+          f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+          f->oldest_blob_file_number, f->oldest_ancester_time,
+          f->file_creation_time, f->epoch_number, f->file_checksum,
+          f->file_checksum_func_name, f->unique_id,
+          f->compensated_range_deletion_size, f->tail_size,
+          f->user_defined_timestamps_persisted, f->min_timestamp,
+          f->max_timestamp, f->file_open_metadata);
       moved_bytes += static_cast<size_t>(c.input(l, i)->fd.GetFileSize());
       ROCKS_LOG_BUFFER(
           log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
@@ -2209,7 +2209,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
           f->compensated_range_deletion_size, f->tail_size,
           f->user_defined_timestamps_persisted, f->min_timestamp,
-          f->max_timestamp);
+          f->max_timestamp, f->file_open_metadata);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -2649,6 +2649,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
   }
+  if (flush_options.wait) {
+    InstrumentedMutexLock lock(&mutex_);
+    if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+      return Status::Aborted(
+          "Likely deadlock as the same thread called LockWAL()");
+    }
+  }
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2806,6 +2813,13 @@ Status DBImpl::AtomicFlushMemTables(
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
+  }
+  if (flush_options.wait) {
+    InstrumentedMutexLock lock(&mutex_);
+    if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+      return Status::Aborted(
+          "Likely deadlock as the same thread called LockWAL()");
+    }
   }
   Status s;
   autovector<ColumnFamilyData*> candidate_cfds;

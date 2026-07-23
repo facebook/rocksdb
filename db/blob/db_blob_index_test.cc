@@ -143,14 +143,24 @@ class DBBlobIndexTest : public DBTestBase {
         columns, s, is_blob_index, value_found);
   }
 
-  bool MaybeResolveMemtableBlobValueForTest(const Slice& key,
-                                            const BlobFetcher* blob_fetcher,
-                                            PinnableSlice* value,
-                                            PinnableWideColumns* columns,
-                                            Status* s, bool* is_blob_index,
-                                            bool* value_found = nullptr) {
-    return DBImpl::MaybeResolveMemtableBlobValue(
-        key, blob_fetcher, value, columns, s, is_blob_index, value_found);
+  Status MaybeResolveMemtableBlobValueForTest(
+      const Slice& key, const BlobFetcher* blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, bool* did_resolve, bool* is_blob_index,
+      bool* value_found = nullptr) {
+    return DBImpl::MaybeResolveMemtableBlobValue(key, blob_fetcher, value,
+                                                 columns, did_resolve,
+                                                 is_blob_index, value_found);
+  }
+
+  Status PostprocessMemtableValueReadForTest(
+      const Slice& key, bool resolve_blob_backed_memtable_value,
+      const BlobFetcher* blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, Status memtable_read_status,
+      bool* is_blob_index, bool* value_found = nullptr) {
+    return DBImpl::PostprocessMemtableValueRead(
+        key, /*timestamp=*/nullptr, resolve_blob_backed_memtable_value,
+        blob_fetcher, value, columns, std::move(memtable_read_status),
+        is_blob_index, value_found);
   }
 
   Options GetTestOptions() {
@@ -309,15 +319,63 @@ TEST_F(DBBlobIndexTest,
   value.GetSelf()->assign(blob_index.data(), blob_index.size());
   value.PinSelf();
 
-  Status s = Status::OK();
+  bool did_resolve = false;
   bool is_blob_index = true;
-  ASSERT_TRUE(MaybeResolveMemtableBlobValueForTest(
-      Slice("key"), /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr, &s,
-      &is_blob_index));
+  Status s = MaybeResolveMemtableBlobValueForTest(
+      Slice("key"), /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr,
+      &did_resolve, &is_blob_index);
 
-  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_TRUE(did_resolve);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
   ASSERT_TRUE(value.empty());
   ASSERT_FALSE(is_blob_index);
+}
+
+TEST_F(DBBlobIndexTest, PostprocessMemtableValueReadClearsOutputsOnError) {
+  // Regression test for the "swallowed status" FIXME: on any error,
+  // PostprocessMemtableValueRead must clear the outputs and return the status,
+  // never leaving a half-populated result behind a non-OK status.
+
+  // Case 1: the incoming memtable read status is already non-OK. The resolve
+  // path is skipped; the finalization block clears outputs and returns it.
+  {
+    PinnableSlice value;
+    value.GetSelf()->assign("stale", 5);
+    value.PinSelf();
+
+    bool is_blob_index = false;
+    Status s = PostprocessMemtableValueReadForTest(
+        Slice("key"), /*resolve_blob_backed_memtable_value=*/true,
+        /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr,
+        Status::Corruption("read failed"), &is_blob_index);
+
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_TRUE(value.empty());
+  }
+
+  // Case 2: the incoming status is OK but the blob-resolve path itself fails (a
+  // blob-backed value with no fetcher). This is the actual scenario the FIXME
+  // referred to -- previously the non-OK status from the resolve path was
+  // dropped. The failure must propagate and the raw blob-index bytes must be
+  // cleared rather than handed back as if they were the value.
+  {
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, /*file_number=*/123, /*offset=*/456,
+                          /*size=*/789, kNoCompression);
+
+    PinnableSlice value;
+    value.GetSelf()->assign(blob_index.data(), blob_index.size());
+    value.PinSelf();
+
+    bool is_blob_index = true;
+    Status s = PostprocessMemtableValueReadForTest(
+        Slice("key"), /*resolve_blob_backed_memtable_value=*/true,
+        /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr, Status::OK(),
+        &is_blob_index);
+
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_TRUE(value.empty());
+  }
 }
 
 TEST_F(DBBlobIndexTest, ReadOnlyGetImplReturnsBlobIndexWhenRequested) {

@@ -8,7 +8,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 ### Code Quality and Maintainability
 
-**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary.
+**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary. Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
 
 **Consistent Style:** Follow existing code style conventions. RocksDB uses `.clang-format` for formatting, specific naming conventions, and structural patterns. Deviations from these patterns are frequently flagged in reviews.
 
@@ -243,6 +243,11 @@ from an implementation detail instead of an explicit option.
 * Don't manually edit BUCK file, after updating src.mk, run
     /usr/local/bin/python3 buckifier/buckify_rocksdb.py to update it
 * For -j in make command, use the number of CPU cores to decide it.
+* When searching for references to something (a symbol, library, etc.), do not
+  restrict or truncate your search based on presumed relevance or scope. It is
+  important and time-saving to keep the repo reasonably consistent across
+  different build systems, programming languages, and even between
+  documentation and implementation.
 
 ### Avoiding mixed build modes with Make (use `AUTO_CLEAN=1`)
 
@@ -334,6 +339,9 @@ rather than relying on libstdc++ transitive includes.
 * For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
     `--gtest_repeat`, or normal coerce-mode runs, inspect
     `tools/gtest_parallel_repro.py --help`.
+* Each unit test file has overheads, so avoid creating new unit test files
+  for random minor features. Consider adding to slice_test, db_etc3_test, or
+  others.
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object

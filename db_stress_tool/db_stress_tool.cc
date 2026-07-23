@@ -139,7 +139,7 @@ int db_stress_tool(int argc, char** argv) {
   int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
     fprintf(stderr, "Error: --env_uri and --fs_uri are mutually exclusive\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
@@ -147,7 +147,7 @@ int db_stress_tool(int argc, char** argv) {
   if (!s.ok()) {
     fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
             s.ToString().c_str());
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // Handle --destroy_db_and_exit early
@@ -227,20 +227,20 @@ int db_stress_tool(int argc, char** argv) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
             "not positive!\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_test_batches_snapshots && FLAGS_prefix_size <= 0) {
     fprintf(stderr,
             "Error: please specify prefix_size for "
             "test_batches_snapshots test!\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0 &&
       !FLAGS_memtable_whole_key_filtering) {
     fprintf(stderr,
             "Error: please specify positive prefix_size or enable whole key "
             "filtering in order to use memtable_prefix_bloom_size_ratio\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
        FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent +
@@ -255,41 +255,41 @@ int db_stress_tool(int argc, char** argv) {
         FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
         FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent,
         FLAGS_customopspercent);
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
     fprintf(stderr, "Error: Db cannot reopen safely with disable_wal set!\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
     fprintf(stderr,
             "Error: #DB-reopens should be < ops_per_thread\n"
             "Provided reopens = %d and ops_per_thread = %lu\n",
             FLAGS_reopen, (unsigned long)FLAGS_ops_per_thread);
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_test_batches_snapshots && FLAGS_delrangepercent > 0) {
     fprintf(stderr,
             "Error: nonzero delrangepercent unsupported in "
             "test_batches_snapshots mode\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_active_width > FLAGS_max_key) {
     fprintf(stderr, "Error: active_width can be at most max_key\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   } else if (FLAGS_active_width == 0) {
     FLAGS_active_width = FLAGS_max_key;
   }
   if (FLAGS_value_size_mult * kRandomValueMaxFactor > kValueMaxLen) {
     fprintf(stderr, "Error: value_size_mult can be at most %d\n",
             kValueMaxLen / kRandomValueMaxFactor);
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_use_merge && FLAGS_nooverwritepercent == 100) {
     fprintf(
         stderr,
         "Error: nooverwritepercent must not be 100 when using merge operands");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_enable_blob_direct_write) {
     // Blob direct write is intentionally validated as a reduced-scope stress
@@ -375,12 +375,12 @@ int db_stress_tool(int argc, char** argv) {
     fprintf(
         stderr,
         "Error: nooverwritepercent must not be 100 when using file ingestion");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {
     fprintf(stderr,
             "Error: clear_column_family_one_in must be 0 when using backup\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
@@ -393,7 +393,7 @@ int db_stress_tool(int argc, char** argv) {
             "Error: use_trie_index is incompatible with mmap_read. "
             "The trie index uses zero-copy pointers into block data "
             "which is unsafe with mmap'd reads.\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // TrieIndexFactory requires plain BytewiseComparator, but timestamps use
@@ -403,19 +403,35 @@ int db_stress_tool(int argc, char** argv) {
             "Error: use_trie_index is incompatible with user-defined "
             "timestamps. TrieIndexFactory requires BytewiseComparator "
             "but timestamps use BytewiseComparator.u64ts.\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   if (FLAGS_read_only) {
     if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
         FLAGS_delrangepercent != 0) {
       fprintf(stderr, "Error: updates are not supported in read only mode\n");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     } else if (FLAGS_checkpoint_one_in > 0 &&
                FLAGS_clear_column_family_one_in > 0) {
       fprintf(stdout,
               "Warn: checkpoint won't be validated since column families may "
               "be dropped.\n");
+    }
+  }
+
+  if (FLAGS_open_read_only_one_in > 0) {
+    if (FLAGS_read_only) {
+      fprintf(stderr,
+              "Error: open_read_only_one_in needs a read-write primary and is "
+              "incompatible with read_only\n");
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
+    }
+    if (FLAGS_use_txn || FLAGS_use_optimistic_txn || FLAGS_use_blob_db ||
+        FLAGS_ttl != -1) {
+      fprintf(stderr,
+              "Error: open_read_only_one_in is not supported with "
+              "transactions, BlobDB, or TTL\n");
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   }
 
@@ -438,7 +454,7 @@ int db_stress_tool(int argc, char** argv) {
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n", FLAGS_db.c_str(),
               s.ToString().c_str());
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   }
   std::vector<std::string> db_paths;
@@ -452,7 +468,7 @@ int db_stress_tool(int argc, char** argv) {
       if (!s.ok()) {
         fprintf(stderr, "Failed to create directory %s: %s\n", ep.c_str(),
                 s.ToString().c_str());
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       }
       ev_paths.push_back(std::move(ep));
     }
@@ -475,7 +491,7 @@ int db_stress_tool(int argc, char** argv) {
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n", sec_parent.c_str(),
               s.ToString().c_str());
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
     for (int i = 0; i < num_dbs; i++) {
       std::string suffix = (num_dbs == 1) ? "" : "/db_" + std::to_string(i);
@@ -484,7 +500,7 @@ int db_stress_tool(int argc, char** argv) {
       if (!s.ok()) {
         fprintf(stderr, "Failed to create directory %s: %s\n", sec_path.c_str(),
                 s.ToString().c_str());
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       }
       sec_paths.push_back(std::move(sec_path));
     }
@@ -498,19 +514,19 @@ int db_stress_tool(int argc, char** argv) {
     fprintf(stderr,
             "With best-efforts recovery, skip_verifydb and disable_wal "
             "should be set to true.\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_skip_verifydb) {
     if (FLAGS_verify_db_one_in > 0) {
       fprintf(stderr,
               "Must set -verify_db_one_in=0 if skip_verifydb is true.\n");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
     if (FLAGS_continuous_verification_interval > 0) {
       fprintf(stderr,
               "Must set -continuous_verification_interval=0 if skip_verifydb "
               "is true.\n");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   }
   if ((FLAGS_enable_compaction_filter || FLAGS_inplace_update_support) &&
@@ -525,7 +541,7 @@ int db_stress_tool(int argc, char** argv) {
         "prefixpercent, test_batches_snapshots, test_cf_consistency, "
         "check_multiget_consistency, check_multiget_entity_consistency must "
         "all be 0 when using compaction filter or inplace update support\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
   if (FLAGS_test_multi_ops_txns) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
@@ -536,24 +552,24 @@ int db_stress_tool(int argc, char** argv) {
         stderr,
         "You cannot set use_optimistic_txn true while use_txn is false. Please "
         "set use_txn true if you want to use OptimisticTransactionDB\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   if (FLAGS_create_timestamped_snapshot_one_in > 0) {
     if (!FLAGS_use_txn) {
       fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     } else if (FLAGS_txn_write_policy != 0) {
       fprintf(stderr,
               "timestamped snapshot supported only in write-committed\n");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   }
 
   if (FLAGS_preserve_unverified_changes && FLAGS_reopen != 0) {
     fprintf(stderr,
             "Reopen DB is incompatible with preserving unverified changes\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   if (FLAGS_use_txn && !FLAGS_use_optimistic_txn &&
@@ -561,7 +577,7 @@ int db_stress_tool(int argc, char** argv) {
     fprintf(stderr,
             "For TransactionDB, correctness testing with unsync data loss is "
             "currently compatible with only write committed policy\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   if (FLAGS_use_put_entity_one_in > 0 &&
@@ -570,7 +586,7 @@ int db_stress_tool(int argc, char** argv) {
     fprintf(stderr,
             "Wide columns are incompatible with V1 Merge, the multi-op "
             "transaction test, and user-defined timestamps\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
 #ifndef NDEBUG
@@ -589,7 +605,7 @@ int db_stress_tool(int argc, char** argv) {
       fprintf(stderr,
               "Number of weights in key_len_dist should be equal to"
               " max_key_len");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
 
     uint64_t total_weight = 0;
@@ -600,7 +616,7 @@ int db_stress_tool(int argc, char** argv) {
     }
     if (total_weight != 100) {
       fprintf(stderr, "Sum of all weights in key_len_dist should be 100");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   } else {
     uint64_t keys_per_level = key_gen_ctx.window / levels;

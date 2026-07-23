@@ -698,10 +698,19 @@ if(USE_FOLLY)
 
     include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
 
-    # Fix gflags library name for debug builds
+    # Fix gflags library name for debug builds. The getdeps gflags shared
+    # library is versioned (e.g. libgflags_debug.so.2.3), so resolve the
+    # actual file by glob rather than hard-coding a version.
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      file(GLOB GFLAGS_DEBUG_SHARED_LIBS
+        "${GFLAGS_INST_PATH}/lib/libgflags_debug.so.*")
+      if(NOT GFLAGS_DEBUG_SHARED_LIBS)
+        message(FATAL_ERROR
+          "Could not find getdeps libgflags_debug.so under ${GFLAGS_INST_PATH}/lib")
+      endif()
+      list(GET GFLAGS_DEBUG_SHARED_LIBS 0 GFLAGS_DEBUG_SHARED_LIB)
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath=${GFLAGS_INST_PATH}/lib")
-      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_INST_PATH}/lib/libgflags_debug.so.2.2")
+      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_DEBUG_SHARED_LIB}")
     endif()
   endif()
 
@@ -1698,7 +1707,21 @@ if(WITH_TESTS)
       )
       target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)
+          # Discover tests at ctest time instead of during the parallel build.
+          # POST_BUILD discovery (the default) runs each freshly-built test
+          # binary while the -j build is still compiling; on resource-constrained
+          # CI (notably the arm64 macOS runners) that discovery run can yield
+          # empty output, and CMake's JSON parser then aborts the whole build
+          # with "Syntax error: value, object or array expected". PRE_TEST moves
+          # discovery out of the build phase so a slow/empty enumeration no
+          # longer fails the build.
+          gtest_discover_tests(${exename}
+                               DISCOVERY_TIMEOUT 120
+                               DISCOVERY_MODE PRE_TEST)
+        else()
+          gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
+        endif()
         add_dependencies(rocksdb_check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
