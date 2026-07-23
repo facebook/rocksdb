@@ -93,7 +93,7 @@ class ReadPathBlobResolver {
   }
 
  private:
-  BlobFetcher blob_fetcher_;
+  VersionBlobFetcher blob_fetcher_;
 
   Slice user_key_;
   const std::vector<WideColumn>* columns_ = nullptr;

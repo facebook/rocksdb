@@ -552,6 +552,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
     if (rep_->has_embedded_blobs) {
       embedded_scratch.emplace();
     }
+    // MultiGet does not build row-cache replay logs (TableCache::MultiGetFilter
+    // returns NotSupported when row_cache is set, falling back to per-key Get),
+    // so same-file wide-column blob resolution is always deferred to GetContext
+    // for zero-copy resolution here.
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -684,10 +688,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           Slice key_to_save = biter->key();
           Slice value_to_save = biter->value();
           Cleanable* effective_pinner = value_pinner;
+          const bool defer_embedded_wide_columns =
+              embedded_scratch.has_value() && !get_context->HasReplayLog();
           if (embedded_scratch) {
             s = ResolveEmbeddedValueForGet(
                 read_options, biter->key(), biter->value(), &*embedded_scratch,
-                value_pinner, &key_to_save, &value_to_save, &effective_pinner);
+                value_pinner, &key_to_save, &value_to_save, &effective_pinner,
+                defer_embedded_wide_columns);
             if (!s.ok()) {
               break;
             }
@@ -701,8 +708,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             break;
           }
           Status read_status;
-          bool ret = get_context->SaveValue(parsed_key, value_to_save, &matched,
-                                            &read_status, effective_pinner);
+          bool ret = get_context->SaveValue(
+              parsed_key, value_to_save, &matched, &read_status,
+              effective_pinner, defer_embedded_wide_columns ? this : nullptr);
           if (!read_status.ok()) {
             s = read_status;
             break;

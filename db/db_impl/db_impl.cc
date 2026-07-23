@@ -3361,7 +3361,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
   const bool resolve_direct_write_value =
       partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (partition_mgr != nullptr) {
     memtable_blob_fetcher.emplace(sv->current, read_options,
                                   cfd->blob_file_cache(),
@@ -4127,7 +4127,7 @@ Status DBImpl::MultiGetImpl(
       (*sorted_keys)[start_key]->column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   auto* partition_mgr = cfd->blob_partition_manager();
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (partition_mgr != nullptr) {
     memtable_blob_fetcher.emplace(super_version->current, read_options,
                                   cfd->blob_file_cache(),
@@ -6739,7 +6739,7 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->blob_partition_manager() != nullptr) {
     memtable_blob_fetcher.emplace(sv->current, read_options,
                                   cfd->blob_file_cache(),

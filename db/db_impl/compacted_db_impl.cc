@@ -76,7 +76,7 @@ Status CompactedDBImpl::Get(const ReadOptions& _read_options,
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
-  BlobFetcher blob_fetcher(version_, read_options);
+  VersionBlobFetcher blob_fetcher(version_, read_options);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
   LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
@@ -169,7 +169,7 @@ void CompactedDBImpl::MultiGet(const ReadOptions& _read_options,
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
-  BlobFetcher blob_fetcher(version_, read_options);
+  VersionBlobFetcher blob_fetcher(version_, read_options);
   for (size_t i = 0; i < num_keys; ++i) {
     const Slice& key = keys[i];
     LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);

@@ -293,8 +293,9 @@ class DBIter final : public Iterator {
                                    const Slice& blob_index,
                                    bool allow_write_path_fallback);
     void ResetBlobValue() { blob_value_.Reset(); }
-    // Create a BlobFetcher with the same read options as this BlobReader.
-    BlobFetcher CreateBlobFetcher() const;
+    // Create a VersionBlobFetcher with the same read options as this
+    // BlobReader.
+    VersionBlobFetcher CreateBlobFetcher() const;
 
    private:
     PinnableSlice blob_value_;

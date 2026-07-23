@@ -1435,11 +1435,25 @@ Status BlockBasedTable::ResolveEmbeddedBlobCached(
       /*bytes_read=*/nullptr);
 }
 
+Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
+                                        const BlobIndex& blob_index,
+                                        PinnableSlice* value) const {
+  // Mirror the whole-value same-file path in MaybeResolveEmbeddedValue: prefer
+  // the blob-cache-backed read (BLOB_DB_* stats) when a BlobSource is wired,
+  // otherwise a direct pinned read (SstFileReader/sst_dump/repair). Both pin
+  // the payload zero-copy and run ValidateEmbeddedBlobIndex (which enforces
+  // read_tier == kBlockCacheTier -> Incomplete and record bounds).
+  if (rep_->blob_source_ != nullptr) {
+    return ResolveEmbeddedBlobCached(read_options, blob_index, value);
+  }
+  return ResolveEmbeddedBlobPinned(read_options, blob_index, value);
+}
+
 Status BlockBasedTable::MaybeResolveEmbeddedValue(
     const ReadOptions& read_options, const Slice& internal_key,
     const Slice& value, std::string* resolved_internal_key,
     std::string* resolved_value, bool* resolved, PinnableSlice* pinned_value,
-    bool* value_pinned) const {
+    bool* value_pinned, bool skip_wide_column_entities) const {
   assert(resolved_internal_key != nullptr);
   assert(resolved_value != nullptr);
   assert(resolved != nullptr);
@@ -1526,6 +1540,13 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
     return Status::OK();
   }
 
+  if (skip_wide_column_entities) {
+    // Get()/MultiGet() path: hand the raw entity to GetContext, which resolves
+    // its same-file (and separate-file) blob columns zero-copy via an
+    // EmbeddedAwareBlobFetcher. Only the iterator path re-serializes below.
+    return Status::OK();
+  }
+
   // FIXME: Reading embedded blob wide columns is very heavyweight with memcpy
   // and serialization/deserialization
   bool has_blob_columns = false;
@@ -1604,7 +1625,8 @@ Status BlockBasedTable::MaybeResolveEmbeddedValue(
 Status BlockBasedTable::ResolveEmbeddedValueForGet(
     const ReadOptions& read_options, const Slice& key, const Slice& value,
     EmbeddedValueGetScratch* scratch, Cleanable* block_pinner,
-    Slice* key_to_save, Slice* value_to_save, Cleanable** value_pinner) const {
+    Slice* key_to_save, Slice* value_to_save, Cleanable** value_pinner,
+    bool defer_wide_column_entities) const {
   assert(scratch != nullptr);
   *key_to_save = key;
   *value_to_save = value;
@@ -1617,7 +1639,8 @@ Status BlockBasedTable::ResolveEmbeddedValueForGet(
   scratch->pinned_value.Reset();
   Status s = MaybeResolveEmbeddedValue(
       read_options, key, value, &scratch->key_buf, &scratch->value_buf,
-      &resolved, &scratch->pinned_value, &value_pinned);
+      &resolved, &scratch->pinned_value, &value_pinned,
+      defer_wide_column_entities);
   if (s.ok() && resolved) {
     *key_to_save = Slice(scratch->key_buf);
     if (value_pinned) {
@@ -3068,6 +3091,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     if (rep_->has_embedded_blobs) {
       embedded_scratch.emplace();
     }
+    // Defer same-file wide-column blob resolution to GetContext (zero-copy)
+    // unless a row-cache replay log is being built: the replay log (and thus
+    // the row cache) must hold a fully resolved entity, since a later row-cache
+    // hit never opens this table and so cannot resolve same-file references.
+    const bool defer_embedded_wide_columns =
+        embedded_scratch.has_value() && !get_context->HasReplayLog();
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
 
@@ -3127,7 +3156,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           if (embedded_scratch) {
             s = ResolveEmbeddedValueForGet(
                 read_options, biter.key(), biter.value(), &*embedded_scratch,
-                value_pinner, &key_to_save, &value_to_save, &value_pinner);
+                value_pinner, &key_to_save, &value_to_save, &value_pinner,
+                defer_embedded_wide_columns);
             if (!s.ok()) {
               break;
             }
@@ -3142,8 +3172,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           }
 
           Status read_status;
-          bool ret = get_context->SaveValue(parsed_key, value_to_save, &matched,
-                                            &read_status, value_pinner);
+          bool ret = get_context->SaveValue(
+              parsed_key, value_to_save, &matched, &read_status, value_pinner,
+              defer_embedded_wide_columns ? this : nullptr);
           if (!read_status.ok()) {
             s = read_status;
             break;
