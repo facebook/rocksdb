@@ -9,9 +9,7 @@
 
 #include <atomic>
 #include <cstdint>
-#include <fstream>
 #include <functional>
-#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -1032,6 +1030,10 @@ TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityBlockCacheTier) {
 
 // A corrupt embedded blob record backing a wide-column column must surface an
 // error on GetEntity, not expose the raw same-file BlobIndex.
+// A failure resolving an embedded blob record backing a wide-column column
+// (e.g. a bad record or blob-region read fault) must surface on GetEntity, not
+// expose the raw same-file BlobIndex. The failure is injected via a sync point
+// so the test is independent of the on-disk byte layout (e.g. encrypted env).
 TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityCorruptionSurfaced) {
   Options options = GetTestOptions();
   options.create_if_missing = true;
@@ -1041,56 +1043,28 @@ TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityCorruptionSurfaced) {
   SstFileWriterEmbeddedBlobOptions embedded_blob_options;
   embedded_blob_options.min_blob_size = 8;
 
-  const std::string big_col(1024, 'Z');  // distinctive same-file blob payload
+  const std::string big_col(1024, 'Z');
   const WideColumns columns{{kDefaultWideColumnName, "d"}, {"big", big_col}};
 
   SstFileWriter writer(EnvOptions(), options);
   ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
   ASSERT_OK(writer.PutEntity("k", columns));
   ASSERT_OK(writer.Finish());
-
-  // Ingest validates embedded blob records, so corrupt the ingested copy (not
-  // the external file) afterwards and read cold: flip a byte in the embedded
-  // blob record payload (the only 'Z' run) so its per-record checksum fails
-  // when the same-file blob column is resolved at read time.
   ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
 
-  std::vector<std::string> children;
-  ASSERT_OK(options.env->GetChildren(dbname_, &children));
-  bool corrupted = false;
-  for (const std::string& child : children) {
-    if (child.size() < 4 || child.substr(child.size() - 4) != ".sst" ||
-        child == "embedded_wc_corrupt.sst") {
-      continue;  // skip the external file we wrote
-    }
-    const std::string full = dbname_ + "/" + child;
-    std::string contents;
-    {
-      std::ifstream in(full, std::ios::binary);
-      ASSERT_TRUE(in.good());
-      contents.assign((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
-    }
-    const size_t pos = contents.find(big_col);
-    if (pos == std::string::npos) {
-      continue;
-    }
-    contents[pos + big_col.size() / 2] ^= 0xFF;
-    std::ofstream out(full, std::ios::binary | std::ios::trunc);
-    ASSERT_TRUE(out.good());
-    out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
-    corrupted = true;
-    break;
-  }
-  ASSERT_TRUE(corrupted);
-
-  // Reopen so the corrupted record is read fresh from disk (not from a cached
-  // reader/block populated during ingest).
-  Reopen(options);
+  const Status kInjected = Status::Corruption("injected embedded blob error");
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+      [&](void* arg) { *static_cast<Status*>(arg) = kInjected; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   PinnableWideColumns result;
   const Status s =
       db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k", &result);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
