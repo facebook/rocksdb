@@ -214,6 +214,16 @@ static std::unordered_map<std::string,
          BlockBasedTableOptions::IndexShorteningMode::
              kShortenSeparatorsAndSuccessor}};
 
+static const std::unordered_map<std::string, BlockBasedTableOptions::IndexMode>
+    block_base_table_index_mode_string_map = {  // NOLINT(cert-err58-cpp)
+        {"kStandardOnly", BlockBasedTableOptions::IndexMode::kStandardOnly},
+        {"kStandardDefault",
+         BlockBasedTableOptions::IndexMode::kStandardDefault},
+        {"kCustomDefault", BlockBasedTableOptions::IndexMode::kCustomDefault},
+        {"kCustomOnly", BlockBasedTableOptions::IndexMode::kCustomOnly},
+        {"kStandardRequired",
+         BlockBasedTableOptions::IndexMode::kStandardRequired}};
+
 static std::unordered_map<std::string, OptionTypeInfo>
     metadata_cache_options_type_info = {
         {"top_level_index_pinning",
@@ -288,6 +298,9 @@ static struct BlockBasedTableTypeInfo {
          OptionTypeInfo::Enum<BlockBasedTableOptions::IndexShorteningMode>(
              offsetof(struct BlockBasedTableOptions, index_shortening),
              &block_base_table_index_shortening_mode_string_map)},
+        {"index_mode", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexMode>(
+                           offsetof(struct BlockBasedTableOptions, index_mode),
+                           &block_base_table_index_mode_string_map)},
         {"data_block_hash_table_util_ratio",
          {offsetof(struct BlockBasedTableOptions,
                    data_block_hash_table_util_ratio),
