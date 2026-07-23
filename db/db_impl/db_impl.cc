@@ -5885,8 +5885,7 @@ Status DBImpl::FindNextLiveWalForTail(uint64_t last_wal_number,
   if (next == 0) {
     return Status::TryAgain("No newer live WAL found");
   }
-  return wal_manager_.PrepareNextWalForTail(last_wal_number, next, out,
-                                            first_seq);
+  return wal_manager_.PrepareWalForTail(next, out, first_seq);
 }
 
 Status DBImpl::GetUpdatesSince(

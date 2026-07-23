@@ -1574,15 +1574,15 @@ struct DBOptions {
   bool background_close_inactive_wals = false;
 
   // If true, the TransactionLogIterator returned by GetUpdatesSince will
-  // attempt to seamlessly continue iterating across a single WAL rotation
+  // attempt to seamlessly continue iterating into the next available WAL file
   // instead of immediately returning Status::TryAgain. When the iterator
   // reaches EOF and detects that the database sequence has advanced (indicating
-  // a WAL rotation), it will open the next live WAL and validate that its first
-  // batch continues at current_last_seq + 1 (continuity check). If validation
-  // succeeds, iteration continues without the caller needing to rebuild the
-  // iterator. If validation fails (multiple rotations, sequence gap, WAL
-  // purged, or new WAL empty), Status::TryAgain is returned so the caller
-  // falls back to a fresh GetUpdatesSince(seq) call.
+  // a WAL rotation), it will open the next WAL and validate that its first
+  // sequence number continues exactly where the previous WAL left off. If
+  // validation succeeds, iteration continues without the caller needing to
+  // recreate the iterator. If validation fails (sequence gap, WAL purged, or
+  // new WAL empty), Status::TryAgain is returned so that the caller can fall
+  // back to a fresh GetUpdatesSince(seq) call.
   //
   // Default: false (existing behavior preserved -- TryAgain on every rotation).
   bool wal_iterator_tail_rotations = false;

@@ -449,8 +449,9 @@ TEST_F(DBTestXactLogIterator,
   dbfull()->TEST_DeleteObsoleteFiles();
 
   // The immediate successor WAL is purged; alive_wal_files_ no longer has it.
-  // The fast path finds the next alive WAL but its first_seq won't be
-  // contiguous with current_last_seq_, so it returns TryAgain.
+  // The fast path finds the next alive WAL but its first sequence won't equal
+  // current_last_seq_ + 1 (there's a gap), so the strict continuity check
+  // rejects it and falls through to TryAgain.
   iter->Next();
   ASSERT_TRUE(!iter->Valid());
   ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
@@ -522,9 +523,11 @@ TEST_F(DBTestXactLogIterator, FastRotation_SequenceGap_FallsBackToTryAgain) {
   ASSERT_OK(Put("key2", DummyString(128)));
   ASSERT_OK(db_->FlushWAL(false));
 
-  // Enable sync point to perturb ReadFirstRecord for the fast-rotation path
+  // Perturb the first sequence number reported by PrepareWalForTail to
+  // simulate a gap (as if an intermediate WAL was skipped). The continuity
+  // check (first_seq == current_last_seq_ + 1) should reject this.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "WalManager::PrepareNextWalForTail:AfterReadFirst", [](void* arg) {
+      "WalManager::PrepareWalForTail:AfterReadFirst", [](void* arg) {
         auto* seq = reinterpret_cast<SequenceNumber*>(arg);
         if (*seq > 0) {
           *seq = *seq + 100;
@@ -534,7 +537,7 @@ TEST_F(DBTestXactLogIterator, FastRotation_SequenceGap_FallsBackToTryAgain) {
 
   // Drain key1 and attempt to cross to next WAL
   iter->Next();
-  // The perturbed sequence should cause continuity check to fail -> TryAgain
+  // The perturbed sequence fails the continuity check -> TryAgain
   ASSERT_TRUE(!iter->Valid());
   ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
 

@@ -130,18 +130,12 @@ Status WalManager::GetUpdatesSince(
   return (*iter)->status();
 }
 
-Status WalManager::PrepareNextWalForTail(uint64_t last_wal_number,
-                                         uint64_t next_wal_number,
-                                         std::unique_ptr<WalFile>* next_wal,
-                                         SequenceNumber* first_seq) {
-  // Sanity check: the next WAL must be past the iterator's last file.
-  if (next_wal_number <= last_wal_number) {
-    return Status::TryAgain("No WAL rotation detected");
-  }
-
-  Status s = GetLiveWalFile(next_wal_number, next_wal);
+Status WalManager::PrepareWalForTail(uint64_t wal_number,
+                                     std::unique_ptr<WalFile>* next_wal,
+                                     SequenceNumber* first_seq) {
+  Status s = GetLiveWalFile(wal_number, next_wal);
   if (!s.ok()) {
-    return Status::TryAgain("Could not open next WAL file");
+    return Status::TryAgain("Could not open WAL file");
   }
 
   // Read the first sequence directly from disk (bypassing
@@ -150,17 +144,17 @@ Status WalManager::PrepareNextWalForTail(uint64_t last_wal_number,
   // returning the sentinel value 1), the stale entry would permanently block
   // the fast path for this WAL number. Reading fresh avoids that.
   *first_seq = 0;
-  std::string fname = LogFileName(wal_dir_, next_wal_number);
-  s = ReadFirstLine(fname, next_wal_number, first_seq);
-  TEST_SYNC_POINT_CALLBACK("WalManager::PrepareNextWalForTail:AfterReadFirst",
+  std::string fname = LogFileName(wal_dir_, wal_number);
+  Status read_s = ReadFirstLine(fname, wal_number, first_seq);
+  TEST_SYNC_POINT_CALLBACK("WalManager::PrepareWalForTail:AfterReadFirst",
                            first_seq);
-  if (!s.ok() && env_->FileExists(fname).ok()) {
+  if (!read_s.ok() && env_->FileExists(fname).ok()) {
     next_wal->reset();
-    return Status::TryAgain("Next WAL unreadable");
+    return Status::TryAgain("WAL unreadable");
   }
   if (*first_seq == 0) {
     next_wal->reset();
-    return Status::TryAgain("Next WAL is empty");
+    return Status::TryAgain("WAL is empty");
   }
 
   return Status::OK();

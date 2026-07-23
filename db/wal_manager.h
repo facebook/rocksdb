@@ -68,16 +68,12 @@ class WalManager {
 
   Status GetLiveWalFile(uint64_t number, std::unique_ptr<WalFile>* log_file);
 
-  // For fast WAL rotation: opens the given next WAL (identified by
-  // next_wal_number) and returns its WalFile and first sequence number.
-  // Sanity-checks that next_wal_number > last_wal_number. Returns TryAgain
-  // if the WAL cannot be opened (purged/archived), is empty (no user records
-  // yet), or next_wal_number <= last_wal_number. The caller's continuity
-  // check (first_seq == current_last_seq_ + 1) is the real correctness guard.
-  Status PrepareNextWalForTail(uint64_t last_wal_number,
-                               uint64_t next_wal_number,
-                               std::unique_ptr<WalFile>* next_wal,
-                               SequenceNumber* first_seq);
+  // Opens the WAL identified by wal_number and returns its WalFile and first
+  // sequence number for the tail-rotation path. Returns TryAgain if the WAL
+  // cannot be opened (purged/archived) or is empty (no user records).
+  Status PrepareWalForTail(uint64_t wal_number,
+                           std::unique_ptr<WalFile>* next_wal,
+                           SequenceNumber* first_seq);
 
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {

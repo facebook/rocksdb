@@ -235,8 +235,6 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
           ++current_file_index_;
           Status open_s = OpenLogReader(files_->back().get());
           if (open_s.ok()) {
-            // Release the just-finished WAL before continuing. The continuity
-            // check above guarantees no gap, so seek-back is not needed.
             files_->erase(files_->begin(),
                           files_->begin() + current_file_index_);
             current_file_index_ = 0;
