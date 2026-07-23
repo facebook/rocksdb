@@ -1330,18 +1330,27 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     switch (footer.index_type) {
       case BlockBasedTableOptions::kDataBlockBinarySearch:
         break;
-      case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-        if (input.size() < sizeof(uint16_t) /* NUM_BUCK */) {
-          size = 0;
+      case BlockBasedTableOptions::kDataBlockBinaryAndHash: {
+        // The hash index uses uint16_t offsets, so it only supports blocks
+        // smaller than 64KiB. A corrupted footer can set the hash index bit on
+        // a larger block, which would truncate the size below and mis-parse the
+        // hash index, so reject those here.
+        if (input.size() < sizeof(uint16_t) /* NUM_BUCK */ ||
+            input.size() >= kMaxBlockSizeSupportedByHashIndex) {
+          size = 0;  // Error marker
           break;
         }
         uint16_t map_offset;
-        data_block_hash_index_.Initialize(contents_.data.data(),
-                                          static_cast<uint16_t>(input.size()),
-                                          &map_offset);
+        if (!data_block_hash_index_.Initialize(
+                contents_.data.data(), static_cast<uint16_t>(input.size()),
+                &map_offset)) {
+          size = 0;  // Corrupted hash index
+          break;
+        }
         // Strip the hash index, leaving just data + restarts
         input.remove_suffix(input.size() - map_offset);
         break;
+      }
       default:
         size = 0;  // Error marker
     }
