@@ -825,6 +825,9 @@ enum Histograms : uint32_t {
   // Distribution of total memtable memory usage for WBM-triggered flushes.
   FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES,
 
+  // Time spent opening the secondary DB inside DB::OpenAndCompact().
+  OPEN_AND_COMPACT_DB_OPEN_MICROS,
+
   HISTOGRAM_ENUM_MAX
 };
 

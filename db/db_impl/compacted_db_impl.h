@@ -26,18 +26,21 @@ class CompactedDBImpl : public DBImpl {
 
   // Implementations of the DB interface
   using DB::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, Get, const ReadOptions& options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key, PinnableSlice* value,
+                                  std::string* timestamp);
 
   using DB::MultiGet;
   // Note that CompactedDBImpl::MultiGet is not the optimized version of
   // MultiGet to use.
   // TODO: optimize CompactedDBImpl::MultiGet, see DBImpl::MultiGet for details.
-  void MultiGet(const ReadOptions& options, size_t num_keys,
-                ColumnFamilyHandle** column_families, const Slice* keys,
-                PinnableSlice* values, std::string* timestamps,
-                Status* statuses, const bool sorted_input) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet, const ReadOptions& options,
+                                  size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool sorted_input);
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,

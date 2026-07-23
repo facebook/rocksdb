@@ -139,6 +139,10 @@ def emit() -> str:
         by_prefix.setdefault(pair.prefix, []).append(pair)
 
     lines: list[str] = []
+    lines.append("//  Copyright (c) Meta Platforms, Inc. and affiliates.")
+    lines.append("//  This source code is licensed under both the GPLv2 (found in the")
+    lines.append("//  COPYING file in the root directory) and Apache 2.0 License")
+    lines.append("//  (found in the LICENSE.Apache file in the root directory).")
     lines.append("// @generated")
     lines.append(
         "// -----------------------------------------------------------------------------"

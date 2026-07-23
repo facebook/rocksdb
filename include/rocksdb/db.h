@@ -1097,6 +1097,127 @@ class DB {
     return ms_iter;
   }
 
+  // EXPERIMENTAL: IN DEVELOPMENT, NOT READY FOR PRODUCTION USE
+  //
+  // RocksDB async read variants of Get and MultiGet. Implementations may
+  // complete asynchronously. The default implementation runs synchronously and
+  // invokes the callback inline before returning. Callers must keep the DB,
+  // callback, inputs, and output buffers alive until callback invocation.
+  class AsyncCallback {
+   public:
+    virtual ~AsyncCallback() = default;
+    virtual void OnComplete() = 0;
+  };
+
+  virtual void GetAsync(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        PinnableSlice* value, std::string* timestamp,
+                        Status& status, AsyncCallback& callback) {
+    status = Get(options, column_family, key, value, timestamp);
+    callback.OnComplete();
+  }
+
+  virtual void GetAsync(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        std::string* value, std::string* timestamp,
+                        Status& status, AsyncCallback& callback) {
+    class CallbackWrapper final : public AsyncCallback {
+     public:
+      CallbackWrapper(std::string* value, Status& status,
+                      AsyncCallback& callback)
+          : value_(value),
+            pinnable_value_(value),
+            status_(status),
+            callback_(callback) {}
+
+      PinnableSlice* value() { return &pinnable_value_; }
+
+      void OnComplete() override {
+        std::unique_ptr<CallbackWrapper> self(this);
+        if (status_.ok() && pinnable_value_.IsPinned()) {
+          value_->assign(pinnable_value_.data(), pinnable_value_.size());
+        }
+        AsyncCallback& callback = callback_;
+        self.reset();
+        callback.OnComplete();
+      }
+
+     private:
+      std::string* value_;
+      PinnableSlice pinnable_value_;
+      Status& status_;
+      AsyncCallback& callback_;
+    };
+
+    assert(value != nullptr);
+    auto* wrapper = new CallbackWrapper(value, status, callback);
+    GetAsync(options, column_family, key, wrapper->value(), timestamp, status,
+             *wrapper);
+  }
+
+  virtual void GetAsync(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        PinnableSlice* value, Status& status,
+                        AsyncCallback& callback) {
+    GetAsync(options, column_family, key, value, nullptr, status, callback);
+  }
+
+  virtual void GetAsync(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        std::string* value, Status& status,
+                        AsyncCallback& callback) {
+    GetAsync(options, column_family, key, value, nullptr, status, callback);
+  }
+
+  virtual void GetAsync(const ReadOptions& options, const Slice& key,
+                        std::string* value, Status& status,
+                        AsyncCallback& callback) {
+    GetAsync(options, DefaultColumnFamily(), key, value, status, callback);
+  }
+
+  virtual void GetAsync(const ReadOptions& options, const Slice& key,
+                        std::string* value, std::string* timestamp,
+                        Status& status, AsyncCallback& callback) {
+    GetAsync(options, DefaultColumnFamily(), key, value, timestamp, status,
+             callback);
+  }
+
+  virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,
+                             ColumnFamilyHandle** column_families,
+                             const Slice* keys, PinnableSlice* values,
+                             std::string* timestamps, Status* statuses,
+                             const bool sorted_input, AsyncCallback& callback) {
+    MultiGet(options, num_keys, column_families, keys, values, timestamps,
+             statuses, sorted_input);
+    callback.OnComplete();
+  }
+
+  virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,
+                             ColumnFamilyHandle** column_families,
+                             const Slice* keys, PinnableSlice* values,
+                             Status* statuses, const bool sorted_input,
+                             AsyncCallback& callback) {
+    MultiGetAsync(options, num_keys, column_families, keys, values, nullptr,
+                  statuses, sorted_input, callback);
+  }
+
+  virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,
+                             ColumnFamilyHandle** column_families,
+                             const Slice* keys, PinnableSlice* values,
+                             std::string* timestamps, Status* statuses,
+                             AsyncCallback& callback) {
+    MultiGetAsync(options, num_keys, column_families, keys, values, timestamps,
+                  statuses, /*sorted_input=*/false, callback);
+  }
+
+  virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,
+                             ColumnFamilyHandle** column_families,
+                             const Slice* keys, PinnableSlice* values,
+                             Status* statuses, AsyncCallback& callback) {
+    MultiGetAsync(options, num_keys, column_families, keys, values, nullptr,
+                  statuses, /*sorted_input=*/false, callback);
+  }
+
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
   // state.  The caller must call ReleaseSnapshot(result) when the
