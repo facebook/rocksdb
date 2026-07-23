@@ -35,13 +35,13 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (s.ok()) {
-      last_valid_record_end_ = reader.LastRecordEnd();
       s = read_buffer_.AddEdit(&edit);
     }
     if (s.ok()) {
       ColumnFamilyData* cfd = nullptr;
       if (edit.IsInAtomicGroup()) {
         if (read_buffer_.IsFull()) {
+          const uint64_t atomic_group_end = reader.LastRecordEnd();
           s = OnAtomicGroupReplayBegin();
           for (size_t i = 0; s.ok() && i < read_buffer_.replay_buffer().size();
                i++) {
@@ -55,10 +55,14 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
             read_buffer_.Clear();
             s = OnAtomicGroupReplayEnd();
           }
+          if (s.ok()) {
+            last_valid_record_end_ = atomic_group_end;
+          }
         }
       } else {
         s = ApplyVersionEdit(edit, &cfd);
         if (s.ok()) {
+          last_valid_record_end_ = reader.LastRecordEnd();
           recovered_edits++;
         }
       }
