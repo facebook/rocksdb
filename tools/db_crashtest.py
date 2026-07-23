@@ -293,10 +293,11 @@ default_params = {
     # use_trie_index must be the same across invocations so that all SSTs
     # in a DB are opened with matching table options.
     "use_trie_index": random.choice([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-    # use_udi_as_primary_index must be the same across invocations (like
-    # use_trie_index) so that SSTs written in primary mode can be read on
-    # reopen.
-    "use_udi_as_primary_index": random.choice([0, 0, 0, 1]),
+    # index_mode must be the same across invocations (like use_trie_index)
+    # so that SSTs written in primary mode can be read on reopen.
+    # 0=kStandardOnly, 1=kStandardDefault, 2=kCustomDefault,
+    # 3=kCustomOnly, 4=kStandardRequired
+    "index_mode": random.choice([0, 0, 1, 2, 3, 4]),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
@@ -1145,33 +1146,51 @@ def finalize_and_sanitize(src_params):
         dest_params["open_read_fault_one_in"] = 0
         dest_params["sync_fault_injection"] = 0
 
-    # UDI now supports all operation types and all iteration directions.
-    # Only parallel compression and mmap_read remain incompatible.
+    # UDI is compatible with all operation types and iteration directions
+    # except mmap_read.
     if dest_params.get("use_trie_index") == 1:
         # Trie UDI uses zero-copy pointers into block data, which is
         # incompatible with mmap_read.
         dest_params["mmap_read"] = 0
-        # Parallel compression is incompatible with UDI
-        dest_params["compression_parallel_threads"] = 1
-        if dest_params.get("use_udi_as_primary_index") == 1:
-            # Primary UDI mode: the standard index is still fully populated,
-            # but partitioned index (kTwoLevelIndexSearch) and partitioned
-            # filters are not compatible with the UDI wrapper layout.
+        index_mode = dest_params.get("index_mode", 0)
+        if index_mode == 3 and dest_params.get("format_version", 0) < 6:
+            # kCustomOnly needs the footer feature marker introduced in
+            # block-based table format version 6.
+            dest_params["format_version"] = 6
+        if index_mode in (2, 3, 4):
+            # These reopen paths lose the user_defined_index_factory
+            # shared_ptr while preserving index_mode in serialized OPTIONS,
+            # so they cannot exercise strict-secondary or custom-default
+            # read routing correctly.
+            dest_params["backup_one_in"] = 0
+            dest_params["test_secondary"] = 0
+            dest_params["remote_compaction_worker_threads"] = 0
+        if index_mode in (2, 3):
+            # kCustomDefault/kCustomOnly: the standard index is still fully
+            # populated (except kCustomOnly), but partitioned index
+            # (kTwoLevelIndexSearch) and partitioned filters are not
+            # compatible with the UDI wrapper layout.
             dest_params["index_type"] = random.choice([0, 0, 3])
             dest_params["partition_filters"] = 0
-            # Backup/restore serializes Options to strings, losing the
-            # user_defined_index_factory (shared_ptr). The restored DB
-            # opens without UDI support and cannot route reads through
-            # the trie in primary mode.
-            dest_params["backup_one_in"] = 0
-            # Secondary DB opens SSTs with default Options (not a copy of
-            # the primary's), losing the UDI factory. Without the factory,
-            # reads cannot be routed through the trie.
-            dest_params["test_secondary"] = 0
-    else:
-        # use_udi_as_primary_index requires use_trie_index
-        dest_params["use_udi_as_primary_index"] = 0
-
+            # cf_consistency requires bit-identical CRCs across column
+            # families. In primary UDI modes (kCustomDefault/kCustomOnly),
+            # write-fault injection on the UDI meta block can corrupt
+            # reads:
+            #   - kCustomOnly: no standard-index fallback, so a corrupted
+            #     UDI block can fail reads outright.
+            #   - kCustomDefault: reads route through the UDI block first;
+            #     a corruption in one CF's UDI but not the other still
+            #     diverges the per-CF read view.
+            # The same condition is guarded for compaction record-count
+            # verification in db_stress. Disable fault injection here so
+            # cf_consistency can verify index routing without false-positive
+            # CRC mismatches.
+            if dest_params.get("test_cf_consistency") == 1:
+                dest_params["metadata_write_fault_one_in"] = 0
+                dest_params["write_fault_one_in"] = 0
+                dest_params["open_metadata_write_fault_one_in"] = 0
+                dest_params["open_write_fault_one_in"] = 0
+                dest_params["sync_fault_injection"] = 0
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (
@@ -1601,6 +1620,14 @@ def finalize_and_sanitize(src_params):
         # See ValidateNumDbsFlags() in db_stress_tool.cc for C++ guards.
         dest_params["clear_column_family_one_in"] = 0
         dest_params["test_multi_ops_txns"] = 0
+
+    # Some sanitizers, such as user timestamps, can disable trie after the
+    # UDI-specific rules above have run. Keep the final mode valid without a
+    # custom factory.
+    if dest_params.get("use_trie_index") != 1 and dest_params.get(
+        "index_mode", 0
+    ) in (2, 3, 4):
+        dest_params["index_mode"] = 0
 
     return dest_params
 

@@ -696,8 +696,32 @@ DEFINE_bool(index_with_first_key, false, "Include first key in the index");
 DEFINE_bool(use_trie_index, false,
             "Use trie-based user-defined index (UDI) for block-based tables. "
             "Builds a LOUDS-encoded succinct trie from separator keys, "
-            "providing space reduction compared to the default binary search "
-            "index. Requires BytewiseComparator.");
+            "providing space reduction compared to the standard index. "
+            "Requires BytewiseComparator.");
+
+DEFINE_int32(
+    index_mode, -1,
+    "BlockBasedTableOptions::IndexMode. Controls how the custom index (e.g. "
+    "trie when --use_trie_index=1) interacts with the standard index: "
+    "-1=auto (kStandardOnly without trie, kStandardDefault with trie), "
+    "0=kStandardOnly (no UDI), "
+    "1=kStandardDefault (UDI built, standard is read default), "
+    "2=kCustomDefault (UDI built, UDI is read default), 3=kCustomOnly "
+    "(only UDI built, standard is a minimal stub), 4=kStandardRequired "
+    "(like kStandardDefault, but missing UDI is an error). Without "
+    "--use_trie_index, "
+    "this flag is only valid as -1, kStandardOnly, or kStandardDefault because "
+    "there is no "
+    "custom factory to wire up.");
+
+DEFINE_int32(
+    read_index, -1,
+    "Per-read ReadOptions::ReadIndex override (only meaningful with "
+    "--use_trie_index=1). -1=auto (kPreferCustom for secondary UDI modes, "
+    "kDefault otherwise), 0=kDefault (use whatever index_mode says), "
+    "1=kBuiltin (force the standard index), "
+    "2=kPreferCustom (use the UDI when this SST has one, fall back to "
+    "standard otherwise).");
 
 DEFINE_bool(
     optimize_filters_for_memory,
@@ -2112,6 +2136,21 @@ static bool IsTolerableIOError(const Status& s) {
          !status_to_io_status(Status(s)).GetDataLoss();
 }
 
+static BlockBasedTableOptions::IndexMode EffectiveIndexMode() {
+  if (FLAGS_index_mode >= 0) {
+    return static_cast<BlockBasedTableOptions::IndexMode>(FLAGS_index_mode);
+  }
+  return FLAGS_use_trie_index
+             ? BlockBasedTableOptions::IndexMode::kStandardDefault
+             : BlockBasedTableOptions::IndexMode::kStandardOnly;
+}
+
+static bool ShouldPreferCustomIndexForReads() {
+  const auto index_mode = EffectiveIndexMode();
+  return index_mode == BlockBasedTableOptions::IndexMode::kStandardDefault ||
+         index_mode == BlockBasedTableOptions::IndexMode::kStandardRequired;
+}
+
 }  // namespace
 
 enum DistributionType : unsigned char { kFixed = 0, kUniform, kNormal };
@@ -3219,7 +3258,7 @@ class Benchmark {
   int64_t max_num_range_tombstones_;
   ReadOptions read_options_;
   WriteOptions write_options_;
-  std::shared_ptr<ROCKSDB_NAMESPACE::UserDefinedIndexFactory> udi_factory_;
+  std::shared_ptr<ROCKSDB_NAMESPACE::IndexFactory> udi_factory_;
   Options open_options_;  // keep options around to properly destroy db later
   TraceOptions trace_options_;
   TraceOptions block_cache_trace_options_;
@@ -3289,6 +3328,24 @@ class Benchmark {
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
       fprintf(stderr, "compression_ratio should be between 0 and 1\n");
+      return false;
+    }
+    if (FLAGS_index_mode < -1 || FLAGS_index_mode > 4) {
+      fprintf(stderr, "--index_mode=%d out of range [-1..4]\n",
+              FLAGS_index_mode);
+      return false;
+    }
+    if (!FLAGS_use_trie_index && FLAGS_index_mode > 1) {
+      fprintf(stderr,
+              "--index_mode=%d requires --use_trie_index=1; only auto (-1) "
+              "kStandardOnly (0), or kStandardDefault (1) is valid without a "
+              "UDI factory\n",
+              FLAGS_index_mode);
+      return false;
+    }
+    if (FLAGS_read_index < -1 || FLAGS_read_index > 2) {
+      fprintf(stderr, "--read_index=%d out of range [-1..2]\n",
+              FLAGS_read_index);
       return false;
     }
     return true;
@@ -4007,8 +4064,12 @@ class Benchmark {
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
       read_options_.auto_refresh_iterator_with_snapshot =
           FLAGS_auto_refresh_iterator_with_snapshot;
-      if (FLAGS_use_trie_index && udi_factory_) {
-        read_options_.table_index_factory = udi_factory_.get();
+      if (udi_factory_ && FLAGS_read_index == -1 &&
+          ShouldPreferCustomIndexForReads()) {
+        read_options_.read_index = ReadOptions::ReadIndex::kPreferCustom;
+      } else if (FLAGS_read_index >= 0) {
+        read_options_.read_index =
+            static_cast<ReadOptions::ReadIndex>(FLAGS_read_index);
       }
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
@@ -5380,6 +5441,7 @@ class Benchmark {
         fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
       }
 
+      block_based_options.index_mode = EffectiveIndexMode();
       if (FLAGS_use_trie_index) {
         udi_factory_ = std::make_shared<trie_index::TrieIndexFactory>();
         block_based_options.user_defined_index_factory = udi_factory_;
