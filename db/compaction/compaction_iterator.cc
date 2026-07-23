@@ -1669,7 +1669,7 @@ bool CompactionIterator::FetchBlobsNeedingGC(
     Status s = blob_fetcher_->FetchBlob(user_key(), blob_index, prefetch_buffer,
                                         &blob_value, &bytes_read);
     if (!s.ok()) {
-      status_ = s;
+      status_ = std::move(s);
       validity_info_.Invalidate();
       return false;
     }
