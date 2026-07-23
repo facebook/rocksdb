@@ -10,6 +10,9 @@
 #include <cstring>
 
 #include "db/db_test_util.h"
+#include "db/log_writer.h"
+#include "db/version_edit.h"
+#include "file/writable_file_writer.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/filter_policy.h"
@@ -78,6 +81,23 @@ class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  private:
   const int num_keys_in_block_;
 };
+
+Status FindManifestPath(Env* env, const std::string& dbname,
+                        std::string* manifest_path) {
+  assert(manifest_path);
+  manifest_path->clear();
+
+  std::string current;
+  Status s = ReadFileToString(env, CurrentFileName(dbname), &current);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!current.empty() && current.back() == '\n') {
+    current.pop_back();
+  }
+  *manifest_path = dbname + "/" + current;
+  return Status::OK();
+}
 }  // namespace
 
 static bool enable_io_uring = true;
@@ -982,18 +1002,7 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
 
   // Find the MANIFEST file and append garbage to it.
   std::string manifest_path;
-  {
-    std::vector<std::string> files;
-    ASSERT_OK(env_->GetChildren(dbname_, &files));
-    for (const auto& f : files) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
-        manifest_path = dbname_ + "/" + f;
-        break;
-      }
-    }
-  }
+  ASSERT_OK(FindManifestPath(env_, dbname_, &manifest_path));
   ASSERT_FALSE(manifest_path.empty());
   {
     std::string contents;
@@ -1015,6 +1024,83 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
 
   ASSERT_EQ(0, reopened.load());
   ASSERT_EQ("v", Get("k"));
+}
+
+TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  std::string manifest_path;
+  ASSERT_OK(FindManifestPath(env_, dbname_, &manifest_path));
+  ASSERT_FALSE(manifest_path.empty());
+
+  {
+    uint64_t file_size;
+    ASSERT_OK(env_->GetFileSize(manifest_path, &file_size));
+
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<FSWritableFile> fs_file;
+    ASSERT_OK(fs->ReopenWritableFile(manifest_path, FileOptions(), &fs_file,
+                                     /*dbg=*/nullptr));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(fs_file), manifest_path, FileOptions(), /*clock=*/nullptr,
+        /*io_tracer=*/nullptr, /*stats=*/nullptr,
+        Histograms::HISTOGRAM_ENUM_MAX, /*listeners=*/{},
+        /*file_checksum_gen_factory=*/nullptr,
+        /*perform_data_verification=*/false,
+        /*buffered_data_with_checksum=*/false,
+        /*initial_file_size=*/file_size));
+    log::Writer log_writer(std::move(file_writer), /*log_number=*/0,
+                           /*recycle_log_files=*/false,
+                           /*manual_flush=*/false, kNoCompression,
+                           /*track_and_verify_wals=*/false,
+                           file_size % log::kBlockSize);
+
+    VersionEdit edit1;
+    edit1.SetLogNumber(0);
+    edit1.SetNextFile(100);
+    edit1.SetLastSequence(100);
+    edit1.MarkAtomicGroup(2);
+    std::string record1;
+    ASSERT_TRUE(edit1.EncodeTo(&record1, /*ts_sz=*/0));
+    ASSERT_OK(log_writer.AddRecord(WriteOptions(), record1));
+
+    VersionEdit edit2;
+    edit2.SetLogNumber(0);
+    edit2.SetNextFile(100);
+    edit2.SetLastSequence(100);
+    edit2.MarkAtomicGroup(1);
+    std::string record2;
+    ASSERT_TRUE(edit2.EncodeTo(&record2, /*ts_sz=*/0));
+    ASSERT_OK(log_writer.AddRecord(WriteOptions(), record2));
+  }
+
+  std::atomic<int> reopened{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(TryReopen(options));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ("v", Get("k"));
+
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  ASSERT_OK(TryReopen(options));
+  ASSERT_EQ("v", Get("k"));
+  ASSERT_EQ("v2", Get("k2"));
 }
 
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
