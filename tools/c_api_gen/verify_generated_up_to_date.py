@@ -38,6 +38,15 @@ def parse_args() -> argparse.Namespace:
             "and regenerated output before comparison (default: clang-format)"
         ),
     )
+    parser.add_argument(
+        "--clang",
+        default="clang++",
+        help=(
+            "clang++ binary used by the generator to parse C++ headers; "
+            "forwarded to regen_all.py (default: clang++). The Makefile "
+            "overrides this with CLANG_CXX."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -121,7 +130,7 @@ def compare_snapshots(work_root: Path) -> int:
     if proc.returncode == 1:
         sys.stderr.write(
             "C API generated files are out of date. Re-run "
-            "`python3 tools/c_api_gen/regen_all.py` and commit the updated "
+            "`make regen-c-api` and commit the updated "
             "files under c_api_gen/, "
             "include/rocksdb/c.h, and db/c.cc.\n"
         )
@@ -152,7 +161,14 @@ def main() -> int:
         # thus the inlined c.h/c.cc) are canonicalized with the same clang-format
         # version on both sides of the comparison.
         subprocess.run(
-            [sys.executable, str(REGEN_ALL), "--clang-format", args.clang_format],
+            [
+                sys.executable,
+                str(REGEN_ALL),
+                "--clang-format",
+                args.clang_format,
+                "--clang",
+                args.clang,
+            ],
             cwd=ROOT,
             check=True,
         )
