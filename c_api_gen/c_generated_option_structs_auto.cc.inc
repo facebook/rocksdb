@@ -2703,6 +2703,36 @@ uint64_t rocksdb_fifo_compaction_options_get_trivial_copy_buffer_size(
 
 /* BackupEngineOptions */
 
+void rocksdb_backup_engine_options_set_io_buffer_size(
+    rocksdb_backup_engine_options_t* opt, uint64_t v) {
+  opt->rep.io_buffer_size = v;
+}
+
+uint64_t rocksdb_backup_engine_options_get_io_buffer_size(
+    rocksdb_backup_engine_options_t* opt) {
+  return opt->rep.io_buffer_size;
+}
+
+void rocksdb_backup_engine_options_set_backup_rate_limit(
+    rocksdb_backup_engine_options_t* opt, uint64_t v) {
+  opt->rep.backup_rate_limit = v;
+}
+
+uint64_t rocksdb_backup_engine_options_get_backup_rate_limit(
+    rocksdb_backup_engine_options_t* opt) {
+  return opt->rep.backup_rate_limit;
+}
+
+void rocksdb_backup_engine_options_set_max_background_operations(
+    rocksdb_backup_engine_options_t* opt, int v) {
+  opt->rep.max_background_operations = v;
+}
+
+int rocksdb_backup_engine_options_get_max_background_operations(
+    rocksdb_backup_engine_options_t* opt) {
+  return opt->rep.max_background_operations;
+}
+
 void rocksdb_backup_engine_options_set_backup_dir(
     rocksdb_backup_engine_options_t* opt, const char* v) {
   opt->rep.backup_dir = v;
@@ -2754,26 +2784,6 @@ unsigned char rocksdb_backup_engine_options_get_backup_log_files(
   return opt->rep.backup_log_files;
 }
 
-void rocksdb_backup_engine_options_set_io_buffer_size(
-    rocksdb_backup_engine_options_t* opt, uint64_t v) {
-  opt->rep.io_buffer_size = v;
-}
-
-uint64_t rocksdb_backup_engine_options_get_io_buffer_size(
-    rocksdb_backup_engine_options_t* opt) {
-  return opt->rep.io_buffer_size;
-}
-
-void rocksdb_backup_engine_options_set_backup_rate_limit(
-    rocksdb_backup_engine_options_t* opt, uint64_t v) {
-  opt->rep.backup_rate_limit = v;
-}
-
-uint64_t rocksdb_backup_engine_options_get_backup_rate_limit(
-    rocksdb_backup_engine_options_t* opt) {
-  return opt->rep.backup_rate_limit;
-}
-
 void rocksdb_backup_engine_options_set_restore_rate_limit(
     rocksdb_backup_engine_options_t* opt, uint64_t v) {
   opt->rep.restore_rate_limit = v;
@@ -2792,16 +2802,6 @@ void rocksdb_backup_engine_options_set_share_files_with_checksum(
 unsigned char rocksdb_backup_engine_options_get_share_files_with_checksum(
     rocksdb_backup_engine_options_t* opt) {
   return opt->rep.share_files_with_checksum;
-}
-
-void rocksdb_backup_engine_options_set_max_background_operations(
-    rocksdb_backup_engine_options_t* opt, int v) {
-  opt->rep.max_background_operations = v;
-}
-
-int rocksdb_backup_engine_options_get_max_background_operations(
-    rocksdb_backup_engine_options_t* opt) {
-  return opt->rep.max_background_operations;
 }
 
 void rocksdb_backup_engine_options_set_callback_trigger_interval_size(
@@ -2858,16 +2858,6 @@ rocksdb_backup_engine_options_get_current_temperatures_override_manifest(
 
 /* CreateBackupOptions */
 
-void rocksdb_create_backup_options_set_flush_before_backup(
-    rocksdb_create_backup_options_t* opt, unsigned char v) {
-  opt->rep.flush_before_backup = v;
-}
-
-unsigned char rocksdb_create_backup_options_get_flush_before_backup(
-    rocksdb_create_backup_options_t* opt) {
-  return opt->rep.flush_before_backup;
-}
-
 void rocksdb_create_backup_options_set_decrease_background_thread_cpu_priority(
     rocksdb_create_backup_options_t* opt, unsigned char v) {
   opt->rep.decrease_background_thread_cpu_priority = v;
@@ -2888,6 +2878,16 @@ void rocksdb_create_backup_options_set_background_thread_cpu_priority(
 int rocksdb_create_backup_options_get_background_thread_cpu_priority(
     rocksdb_create_backup_options_t* opt) {
   return static_cast<int>(opt->rep.background_thread_cpu_priority);
+}
+
+void rocksdb_create_backup_options_set_flush_before_backup(
+    rocksdb_create_backup_options_t* opt, unsigned char v) {
+  opt->rep.flush_before_backup = v;
+}
+
+unsigned char rocksdb_create_backup_options_get_flush_before_backup(
+    rocksdb_create_backup_options_t* opt) {
+  return opt->rep.flush_before_backup;
 }
 
 void rocksdb_create_backup_options_set_atomic_flush(

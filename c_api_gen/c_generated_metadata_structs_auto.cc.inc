@@ -478,6 +478,17 @@ uint64_t rocksdb_compaction_file_info_oldest_blob_file_number(
 
 /* BlobFileAdditionInfo */
 
+const char* rocksdb_blob_file_addition_info_blob_file_path(
+    const rocksdb_blob_file_addition_info_t* info, size_t* size) {
+  *size = info->rep.blob_file_path.size();
+  return info->rep.blob_file_path.data();
+}
+
+uint64_t rocksdb_blob_file_addition_info_blob_file_number(
+    const rocksdb_blob_file_addition_info_t* info) {
+  return info->rep.blob_file_number;
+}
+
 uint64_t rocksdb_blob_file_addition_info_total_blob_count(
     const rocksdb_blob_file_addition_info_t* info) {
   return info->rep.total_blob_count;
@@ -489,6 +500,17 @@ uint64_t rocksdb_blob_file_addition_info_total_blob_bytes(
 }
 
 /* BlobFileGarbageInfo */
+
+const char* rocksdb_blob_file_garbage_info_blob_file_path(
+    const rocksdb_blob_file_garbage_info_t* info, size_t* size) {
+  *size = info->rep.blob_file_path.size();
+  return info->rep.blob_file_path.data();
+}
+
+uint64_t rocksdb_blob_file_garbage_info_blob_file_number(
+    const rocksdb_blob_file_garbage_info_t* info) {
+  return info->rep.blob_file_number;
+}
 
 uint64_t rocksdb_blob_file_garbage_info_garbage_blob_count(
     const rocksdb_blob_file_garbage_info_t* info) {
