@@ -97,8 +97,9 @@ class DBImplSecondary : public DBImpl {
   // it eagerly keeps all talbe files open and is able to access the contents of
   // deleted files via prior open fd.
   using DBImpl::GetImpl;
-  Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetImpl, const ReadOptions& options,
+                                  const Slice& key,
+                                  GetImplOptions& get_impl_options);
 
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being
