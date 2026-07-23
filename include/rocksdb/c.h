@@ -157,6 +157,7 @@ typedef struct rocksdb_sstfilewriter_t rocksdb_sstfilewriter_t;
 typedef struct rocksdb_ratelimiter_t rocksdb_ratelimiter_t;
 typedef struct rocksdb_perfcontext_t rocksdb_perfcontext_t;
 typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
+typedef struct rocksdb_pinnable_multi_get_t rocksdb_pinnable_multi_get_t;
 typedef struct rocksdb_transactiondb_options_t rocksdb_transactiondb_options_t;
 typedef struct rocksdb_transactiondb_t rocksdb_transactiondb_t;
 typedef struct rocksdb_transaction_options_t rocksdb_transaction_options_t;
@@ -724,6 +725,52 @@ extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf_slice(
     rocksdb_column_family_handle_t* column_family, size_t num_keys,
     const rocksdb_slice_t* keys_list, rocksdb_pinnableslice_t** values,
     char** errs, const bool sorted_input);
+
+/*
+ * Result states returned by rocksdb_pinnable_multi_get_result().
+ */
+enum {
+  rocksdb_pinnable_multi_get_not_found = 0,
+  rocksdb_pinnable_multi_get_found = 1,
+  rocksdb_pinnable_multi_get_error = 2,
+  rocksdb_pinnable_multi_get_out_of_bounds = 3,
+};
+
+/*
+ * Runs a batched MultiGet for one column family and returns one owner for all
+ * pinned values and error messages. Result indexes match the input key order,
+ * including duplicate keys.
+ *
+ * If sorted_input is nonzero, keys must be sorted using the column family's
+ * comparator.
+ */
+extern ROCKSDB_LIBRARY_API rocksdb_pinnable_multi_get_t*
+rocksdb_batched_multi_get_pinned_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const rocksdb_slice_t* keys, unsigned char sorted_input);
+
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_pinnable_multi_get_count(const rocksdb_pinnable_multi_get_t* multi_get);
+
+/*
+ * Returns the result state at index. For a found value, value and value_size
+ * describe borrowed value bytes. For an error, error and error_size describe a
+ * borrowed null-terminated error message. The borrowed data remains valid until
+ * rocksdb_pinnable_multi_get_destroy() is called. The batch must be destroyed
+ * before closing the DB used to create it.
+ *
+ * Unused outputs are set to NULL and zero. An index greater than or equal to
+ * rocksdb_pinnable_multi_get_count() returns
+ * rocksdb_pinnable_multi_get_out_of_bounds.
+ */
+extern ROCKSDB_LIBRARY_API int rocksdb_pinnable_multi_get_result(
+    const rocksdb_pinnable_multi_get_t* multi_get, size_t index,
+    const char** value, size_t* value_size, const char** error,
+    size_t* error_size);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_pinnable_multi_get_destroy(
+    rocksdb_pinnable_multi_get_t* multi_get);
 
 // The value is only allocated (using malloc) and returned if it is found and
 // value_found isn't NULL. In that case the user is responsible for freeing it.

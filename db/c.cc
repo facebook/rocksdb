@@ -14,6 +14,7 @@
 
 #include <cstdlib>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <unordered_set>
@@ -593,6 +594,63 @@ struct rocksdb_perfcontext_t {
 };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
+};
+struct rocksdb_pinnable_multi_get_t {
+  static constexpr size_t kNotFound = std::numeric_limits<size_t>::max();
+
+  explicit rocksdb_pinnable_multi_get_t(size_t result_count)
+      : result_indexes(result_count, kNotFound) {}
+
+  void ReservePayloads(const std::vector<Status>& statuses) {
+    size_t value_count = 0;
+    size_t error_count = 0;
+    for (const Status& status : statuses) {
+      value_count += status.ok();
+      error_count += !status.ok() && !status.IsNotFound();
+    }
+    values.reserve(value_count);
+    errors.reserve(error_count);
+  }
+
+  void StoreResults(std::vector<PinnableSlice>* multi_get_values,
+                    const std::vector<Status>& statuses) {
+    ReservePayloads(statuses);
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      if (statuses[i].ok()) {
+        result_indexes[i] = values.size();
+        values.emplace_back(std::move((*multi_get_values)[i]));
+      } else if (!statuses[i].IsNotFound()) {
+        result_indexes[i] = kNotFound - errors.size() - 1;
+        errors.emplace_back(statuses[i].ToString());
+      }
+    }
+  }
+
+  int GetResult(size_t index, const char** value, size_t* value_size,
+                const char** error, size_t* error_size) const {
+    if (index >= result_indexes.size()) {
+      return rocksdb_pinnable_multi_get_out_of_bounds;
+    }
+    const size_t result_index = result_indexes[index];
+    if (result_index == kNotFound) {
+      return rocksdb_pinnable_multi_get_not_found;
+    }
+    if (result_index < values.size()) {
+      *value = values[result_index].data();
+      *value_size = values[result_index].size();
+      return rocksdb_pinnable_multi_get_found;
+    }
+    const std::string& message = errors[kNotFound - result_index - 1];
+    *error = message.c_str();
+    *error_size = message.size();
+    return rocksdb_pinnable_multi_get_error;
+  }
+
+  // Found entries store a value index. Error entries count back from
+  // kNotFound - 1, leaving kNotFound to represent a missing key.
+  std::vector<size_t> result_indexes;
+  std::vector<PinnableSlice> values;
+  std::vector<std::string> errors;
 };
 struct rocksdb_transactiondb_options_t {
   TransactionDBOptions rep;
@@ -2860,6 +2918,44 @@ void rocksdb_batched_multi_get_cf_slice(
 
   delete[] value_slices;
   delete[] statuses;
+}
+
+rocksdb_pinnable_multi_get_t* rocksdb_batched_multi_get_pinned_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const rocksdb_slice_t* keys, unsigned char sorted_input) {
+  auto results = std::make_unique<rocksdb_pinnable_multi_get_t>(num_keys);
+  if (num_keys == 0) {
+    return results.release();
+  }
+  const Slice* key_slices = reinterpret_cast<const Slice*>(keys);
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  db->rep->MultiGet(options->rep, column_family->rep, num_keys, key_slices,
+                    values.data(), statuses.data(), sorted_input != 0);
+  results->StoreResults(&values, statuses);
+  return results.release();
+}
+
+size_t rocksdb_pinnable_multi_get_count(
+    const rocksdb_pinnable_multi_get_t* multi_get) {
+  return multi_get->result_indexes.size();
+}
+
+int rocksdb_pinnable_multi_get_result(
+    const rocksdb_pinnable_multi_get_t* multi_get, size_t index,
+    const char** value, size_t* value_size, const char** error,
+    size_t* error_size) {
+  *value = nullptr;
+  *value_size = 0;
+  *error = nullptr;
+  *error_size = 0;
+  return multi_get->GetResult(index, value, value_size, error, error_size);
+}
+
+void rocksdb_pinnable_multi_get_destroy(
+    rocksdb_pinnable_multi_get_t* multi_get) {
+  delete multi_get;
 }
 
 unsigned char rocksdb_key_may_exist(rocksdb_t* db,
