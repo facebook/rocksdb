@@ -300,6 +300,24 @@ struct PerfContextBase {
   uint64_t filter_block_read_byte;
   uint64_t compression_dict_block_read_byte;
   uint64_t metadata_block_read_byte;
+
+  // MultiScan (scan Prepare) prefetch metrics. Populated by
+  // BlockBasedTableIterator::Prepare and its IODispatcher prefetch path. These
+  // mirror the rocksdb.multiscan.* tickers but are scoped to the current
+  // thread/operation. Average blocks per prepare is derivable as
+  // (multiscan_blocks_prefetched + multiscan_blocks_from_cache) /
+  // multiscan_prepare_count.
+  uint64_t multiscan_prepare_count;
+  // Blocks for which a prefetch IO was dispatched (read from disk).
+  uint64_t multiscan_blocks_prefetched;
+  // Blocks that were already in the block cache at Prepare time.
+  uint64_t multiscan_blocks_from_cache;
+  // Total bytes spanned by the (coalesced) prefetch IO requests.
+  uint64_t multiscan_prefetch_bytes;
+  // Number of (coalesced) IO requests issued for the prefetch.
+  uint64_t multiscan_io_requests;
+  // Blocks coalesced into an IO request across a non-adjacent gap.
+  uint64_t multiscan_io_coalesced_nonadjacent;
 };
 
 struct PerfContext : public PerfContextBase {

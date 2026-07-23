@@ -221,6 +221,15 @@ class ReadSet {
   uint64_t GetNumSyncReads() const { return num_sync_reads_; }
   uint64_t GetNumAsyncReads() const { return num_async_reads_; }
   uint64_t GetNumCacheHits() const { return num_cache_hits_; }
+  // Blocks for which a prefetch IO was dispatched (sync + async), the number of
+  // (coalesced) IO requests issued for them, the total bytes those requests
+  // span, and how many blocks were coalesced across a non-adjacent gap.
+  uint64_t GetNumBlocksPrefetched() const { return num_blocks_prefetched_; }
+  uint64_t GetNumIORequests() const { return num_io_requests_; }
+  uint64_t GetPrefetchBytes() const { return prefetch_bytes_; }
+  uint64_t GetNumCoalescedNonadjacent() const {
+    return num_coalesced_nonadjacent_;
+  }
 
  private:
   friend class IODispatcherImpl;
@@ -255,6 +264,12 @@ class ReadSet {
   std::atomic<uint64_t> num_sync_reads_ = 0;
   std::atomic<uint64_t> num_async_reads_ = 0;
   std::atomic<uint64_t> num_cache_hits_ = 0;
+  // Prefetch IO accounting, incremented as prefetch IO is dispatched (not on
+  // completion) so async and memory-deferred prefetches are all captured.
+  std::atomic<uint64_t> num_blocks_prefetched_ = 0;
+  std::atomic<uint64_t> num_io_requests_ = 0;
+  std::atomic<uint64_t> prefetch_bytes_ = 0;
+  std::atomic<uint64_t> num_coalesced_nonadjacent_ = 0;
 
   // Poll and process a specific async IO request
   Status PollAndProcessAsyncIO(
