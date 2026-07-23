@@ -811,7 +811,8 @@ class VersionEdit {
                const uint64_t compensated_range_deletion_size,
                uint64_t tail_size, bool user_defined_timestamps_persisted,
                const std::string& min_timestamp = "",
-               const std::string& max_timestamp = "") {
+               const std::string& max_timestamp = "",
+               const std::string& file_open_metadata = "") {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -822,6 +823,9 @@ class VersionEdit {
             epoch_number, file_checksum, file_checksum_func_name, unique_id,
             compensated_range_deletion_size, tail_size,
             user_defined_timestamps_persisted, min_timestamp, max_timestamp));
+    if (!file_open_metadata.empty()) {
+      new_files_.back().second.file_open_metadata = file_open_metadata;
+    }
     files_to_quarantine_.push_back(file);
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);

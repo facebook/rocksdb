@@ -145,7 +145,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    f->file_checksum_func_name, f->unique_id,
                    f->compensated_range_deletion_size, f->tail_size,
                    f->user_defined_timestamps_persisted, f->min_timestamp,
-                   f->max_timestamp);
+                   f->max_timestamp, f->file_open_metadata);
     }
 
     status = versions_->LogAndApply(cfd, read_options, write_options, &edit,

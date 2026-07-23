@@ -205,9 +205,10 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
       SequenceNumber read_seqno, const Slice* timestamp) override;
 
   // @param skip_filters Disables loading/accessing the filter block
-  Status Get(const ReadOptions& readOptions, const Slice& key,
-             GetContext* get_context, const SliceTransform* prefix_extractor,
-             bool skip_filters = false) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, Get, const ReadOptions& readOptions,
+                                  const Slice& key, GetContext* get_context,
+                                  const SliceTransform* prefix_extractor,
+                                  bool skip_filters = false);
 
   // Whether this SST contains embedded (same-file) blob records, as advertised
   // by the embedded blob stats property.
@@ -473,19 +474,20 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
   const Rep* get_rep() const { return rep_; }
 
   // input_iter: if it is not null, update this one and return it as Iterator
-  template <typename TBlockIter>
-  TBlockIter* NewDataBlockIterator(
+  DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(
+      template <typename TBlockIter>, TBlockIter*, NewDataBlockIterator,
       const ReadOptions& ro, const BlockHandle& block_handle,
       TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
       FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
-      Status& s, bool use_block_cache_for_lookup) const;
+      Status& s, bool use_block_cache_for_lookup);
 
   // input_iter: if it is not null, update this one and return it as Iterator
-  template <typename TBlockIter>
-  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
-                                   CachableEntry<Block>& block,
-                                   TBlockIter* input_iter, Status s) const;
+  DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(template <typename TBlockIter>,
+                                        TBlockIter*, NewDataBlockIterator,
+                                        const ReadOptions& ro,
+                                        CachableEntry<Block>& block,
+                                        TBlockIter* input_iter, Status s);
 
   class PartitionedIndexIteratorState;
 
@@ -530,25 +532,25 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  template <typename TBlocklike>
-  WithBlocklikeCheck<Status, TBlocklike> MaybeReadBlockAndLoadToCache(
-      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
-      bool for_compaction, CachableEntry<TBlocklike>* block_entry,
-      GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      BlockContents* contents, bool async_read,
-      bool use_block_cache_for_lookup) const;
+  DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(
+      template <typename TBlocklike>, BlocklikeStatus<TBlocklike>,
+      MaybeReadBlockAndLoadToCache, FilePrefetchBuffer* prefetch_buffer,
+      const ReadOptions& ro, const BlockHandle& handle,
+      UnownedPtr<Decompressor> decomp, bool for_compaction,
+      CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context, BlockContents* contents,
+      bool async_read, bool use_block_cache_for_lookup);
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
-  template <typename TBlocklike>
-  WithBlocklikeCheck<Status, TBlocklike> RetrieveBlock(
-      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+  DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(
+      template <typename TBlocklike>, BlocklikeStatus<TBlocklike>,
+      RetrieveBlock, FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
       CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, bool for_compaction,
-      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const;
+      bool use_cache, bool async_read, bool use_block_cache_for_lookup);
 
   template <typename TBlocklike>
   WithBlocklikeCheck<void, TBlocklike> SaveLookupContextOrTraceRecord(

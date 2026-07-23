@@ -12,7 +12,6 @@
 #include "db/seqno_to_time_mapping.h"
 #include "rocksdb/io_dispatcher.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
 #include "table/block_based/multi_scan_index_iterator.h"
 #include "table/block_based/reader_common.h"

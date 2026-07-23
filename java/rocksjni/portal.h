@@ -6084,6 +6084,8 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::
           FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES:
         return 0x4A;
+      case ROCKSDB_NAMESPACE::Histograms::OPEN_AND_COMPACT_DB_OPEN_MICROS:
+        return 0x4B;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6255,6 +6257,8 @@ class HistogramTypeJni {
       case 0x4A:
         return ROCKSDB_NAMESPACE::Histograms::
             FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES;
+      case 0x4B:
+        return ROCKSDB_NAMESPACE::Histograms::OPEN_AND_COMPACT_DB_OPEN_MICROS;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.

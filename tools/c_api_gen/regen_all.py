@@ -137,6 +137,21 @@ def _generated_banner(edit_target: str) -> str:
     )
 
 
+def _strip_leading_license(text: str) -> str:
+    """Drop the leading license header block from a generated fragment.
+
+    The fragment's license block is the run of contiguous C++ line comments at
+    the very top, before the "// @generated" marker.
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines or not lines[0].startswith("//  Copyright (c) Meta Platforms"):
+        return text
+    idx = 0
+    while idx < len(lines) and not lines[idx].startswith("// @generated"):
+        idx += 1
+    return "".join(lines[idx:])
+
+
 def _strip_source_template_notice(base: str) -> str:
     import re
 
@@ -190,7 +205,10 @@ def _inline_fragments(
 
     def inline_include(m: re.Match) -> str:
         inc_path = search_root / m.group(1)
-        inc_content = inc_path.read_text().strip("\n")
+        # The standalone .inc fragments each carry the license header, but the
+        # assembled c.h / c.cc already have one at the top; drop the per-fragment
+        # copy so it is not repeated once per inlined fragment.
+        inc_content = _strip_leading_license(inc_path.read_text()).strip("\n")
         filename = _Path(m.group(1)).name
         return (
             f"// BEGIN generated: {filename}\n"

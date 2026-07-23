@@ -106,6 +106,8 @@ class StackableDB : public DB {
     return db_->Get(options, column_family, key, value, timestamp);
   }
 
+  using DB::GetAsync;
+
   using DB::GetEntity;
 
   Status GetEntity(const ReadOptions& options,
@@ -138,6 +140,8 @@ class StackableDB : public DB {
     return db_->MultiGet(options, num_keys, column_families, keys, values,
                          timestamps, statuses, sorted_input);
   }
+
+  using DB::MultiGetAsync;
 
   using DB::MultiGetEntity;
 

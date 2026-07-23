@@ -20,6 +20,7 @@
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
+#include "util/coro_utils.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -136,6 +137,15 @@ class TableReader {
                      GetContext* get_context,
                      const SliceTransform* prefix_extractor,
                      bool skip_filters = false) = 0;
+
+#if USE_COROUTINES
+  virtual folly::coro::Task<Status> GetCoroutine(
+      const ReadOptions& readOptions, const Slice& key, GetContext* get_context,
+      const SliceTransform* prefix_extractor, bool skip_filters = false) {
+    co_return Get(readOptions, key, get_context, prefix_extractor,
+                  skip_filters);
+  }
+#endif  // USE_COROUTINES
 
   // Use bloom filters in the table file, if present, to filter out keys. The
   // mget_range will be updated to skip keys that get a negative result from
