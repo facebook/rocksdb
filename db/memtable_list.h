@@ -287,7 +287,12 @@ class MemTableList {
 
   // Should not delete MemTableList without making sure MemTableList::current()
   // is Unref()'d.
-  ~MemTableList() {}
+  ~MemTableList() {
+    // All flush-completion notifications must have drained before this column
+    // family's memtable list is destroyed; otherwise a reserve leaked (see
+    // num_pending_flush_notifications_).
+    assert(num_pending_flush_notifications_ == 0);
+  }
 
   MemTableListVersion* current() const { return current_; }
 
@@ -304,6 +309,20 @@ class MemTableList {
   // Returns total number of memtables in the list that have been
   // completely flushed and logged.
   int NumFlushed() const;
+
+  // Flush-completion listener notification accounting. All require the DB
+  // mutex to be held (this class is not internally synchronized). See
+  // num_pending_flush_notifications_ for details.
+  void AddPendingFlushNotifications(int n) {
+    num_pending_flush_notifications_ += n;
+  }
+  void SubPendingFlushNotifications(int n) {
+    num_pending_flush_notifications_ -= n;
+    assert(num_pending_flush_notifications_ >= 0);
+  }
+  int NumPendingFlushNotifications() const {
+    return num_pending_flush_notifications_;
+  }
 
   // Returns true if there is at least one memtable on which flush has
   // not yet started.
@@ -552,6 +571,15 @@ class MemTableList {
   // Last memtabe list version id, increase by 1 each time a new
   // MemtableListVersion is installed.
   uint64_t last_memtable_list_version_id_;
+
+  // Number of committed flush results for this column family whose
+  // EventListener::OnFlushCompleted callbacks have not finished running yet.
+  // Incremented (by the background flush thread) at flush-commit time, before
+  // the DB mutex is released to invoke the callbacks, and decremented after the
+  // callbacks return. Consulted by WaitForFlushMemTables() when the caller set
+  // FlushOptions::listener_wait, so that Flush(wait=true) does not return
+  // before the callbacks complete. Guarded by the DB mutex.
+  int num_pending_flush_notifications_ = 0;
 };
 
 // Installs memtable atomic flush results.

@@ -3905,6 +3905,11 @@ void StressTest::TestFlush(ThreadState* thread,
                            const std::vector<int>& rand_column_families) {
   FlushOptions flush_opts;
   assert(flush_opts.wait);
+  // Occasionally exercise the stronger guarantee that Flush() does not return
+  // until the OnFlushCompleted listener callbacks have finished.
+  if (thread->rand.OneIn(4)) {
+    flush_opts.listener_wait = true;
+  }
   Status status;
   if (FLAGS_atomic_flush) {
     status = db_->Flush(flush_opts, column_families_);

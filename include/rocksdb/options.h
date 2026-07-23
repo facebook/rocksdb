@@ -2609,8 +2609,22 @@ struct FlushOptions {
   // Default: false (uses DBOptions::atomic_flush setting).
   bool force_atomic_flush;
 
+  // If true (and `wait` is also true), Flush() will not return until the
+  // registered EventListener::OnFlushCompleted callbacks for the flushed
+  // memtables have finished running. By default (false), Flush(wait=true) may
+  // return as soon as the flush result is committed, which can be before (or
+  // while) the OnFlushCompleted callbacks execute on the background flush
+  // thread. Set this to true when the caller needs to observe the effects of
+  // its OnFlushCompleted listener(s) immediately after Flush() returns.
+  // Has no effect when `wait == false`.
+  // Default: false
+  bool listener_wait;
+
   FlushOptions()
-      : wait(true), allow_write_stall(false), force_atomic_flush(false) {}
+      : wait(true),
+        allow_write_stall(false),
+        force_atomic_flush(false),
+        listener_wait(false) {}
 };
 
 struct FlushWALOptions {
