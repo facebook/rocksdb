@@ -506,8 +506,7 @@ default_params = {
     "memtable_verify_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
-    "track_and_verify_wals": lambda: random.choice([0]),
+    "track_and_verify_wals": lambda: random.choice([0, 1]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
     # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
@@ -1601,6 +1600,22 @@ def finalize_and_sanitize(src_params):
         # See ValidateNumDbsFlags() in db_stress_tool.cc for C++ guards.
         dest_params["clear_column_family_one_in"] = 0
         dest_params["test_multi_ops_txns"] = 0
+
+    if dest_params.get("track_and_verify_wals", 0) == 1:
+        # Disable fault injection while track_and_verify_wals is on. These fault
+        # injections trigger auto recovery, which flushes the memtable and
+        # rotates the WAL; that is currently incompatible with WAL tracking and
+        # verification and surfaces as spurious WAL verification failures.
+        # TODO: re-enable once the auto-recovery vs. track_and_verify_wals
+        # compatibility issue is fixed.
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
 
     return dest_params
 
