@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <algorithm>
 #include <cinttypes>
 #include <deque>
 #include <unordered_map>
@@ -1130,11 +1131,15 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
                             const Slice* begin_without_ts,
                             const Slice* end_without_ts) {
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  assert(cfd);
+
   if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
 
-  if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+  if (IsCompactionAborted(cfd)) {
     return Status::Incomplete(Status::SubCode::kCompactionAborted);
   }
 
@@ -1673,8 +1678,7 @@ Status DBImpl::CompactFilesImpl(
     return Status::ShutdownInProgress();
   }
 
-  // triggered by AbortAllCompactions
-  if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+  if (IsCompactionAborted(cfd)) {
     return Status::Incomplete(Status::SubCode::kCompactionAborted);
   }
 
@@ -1801,7 +1805,8 @@ Status DBImpl::CompactFilesImpl(
 
     c.reset();
     bg_compaction_scheduled_--;
-    if (bg_compaction_scheduled_ == 0) {
+    if (bg_compaction_scheduled_ == 0 ||
+        per_cf_compaction_abort_waiters_ > 0) {
       bg_cv_.SignalAll();
     }
     MaybeScheduleFlushOrCompaction();
@@ -1936,7 +1941,8 @@ Status DBImpl::CompactFilesImpl(
   c.reset();
 
   bg_compaction_scheduled_--;
-  if (bg_compaction_scheduled_ == 0) {
+  if (bg_compaction_scheduled_ == 0 ||
+      per_cf_compaction_abort_waiters_ > 0) {
     bg_cv_.SignalAll();
   }
   MaybeScheduleFlushOrCompaction();
@@ -2406,12 +2412,11 @@ Status DBImpl::RunManualCompaction(
     return manual.status;
   }
 
-  if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
-    // All compactions are being aborted. Return immediately.
-    int counter = compaction_aborted_.load(std::memory_order_acquire);
+  if (IsCompactionAborted(cfd)) {
     ROCKS_LOG_INFO(
         immutable_db_options_.info_log,
-        "RunManualCompaction: Aborting due to compaction_aborted_=%d", counter);
+        "[%s] RunManualCompaction: aborting compaction",
+        cfd->GetName().c_str());
     manual.status = Status::Incomplete(Status::SubCode::kCompactionAborted);
     manual.done = true;
     return manual.status;
@@ -2441,7 +2446,7 @@ Status DBImpl::RunManualCompaction(
     // and `CompactRangeOptions::canceled` might not work well together.
     while (bg_bottom_compaction_scheduled_ > 0 ||
            bg_compaction_scheduled_ > 0) {
-      if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+      if (IsCompactionAborted(cfd)) {
         // Pretend the error came from compaction so the below cleanup/error
         // handling code can process it.
         manual.done = true;
@@ -2477,6 +2482,11 @@ Status DBImpl::RunManualCompaction(
   // true.
   while (!manual.done) {
     assert(HasPendingManualCompaction());
+    if (IsCompactionAborted(cfd) && !scheduled && !manual.in_progress) {
+      manual.done = true;
+      manual.status = Status::Incomplete(Status::SubCode::kCompactionAborted);
+      break;
+    }
     manual_conflict = false;
     Compaction* compaction = nullptr;
     if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
@@ -2566,7 +2576,7 @@ Status DBImpl::RunManualCompaction(
     if (!scheduled) {
       // There is nothing scheduled to wait on, so any cancellation can end the
       // manual now.
-      if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+      if (IsCompactionAborted(cfd)) {
         // Stop waiting since it was canceled. Pretend the error came from
         // compaction so the below cleanup/error handling code can process it.
         manual.done = true;
@@ -3227,6 +3237,26 @@ void DBImpl::EnableManualCompaction() {
   manual_compaction_paused_.fetch_sub(1, std::memory_order_release);
 }
 
+bool DBImpl::IsCompactionAborted(ColumnFamilyData* cfd) const {
+  return compaction_aborted_.load(std::memory_order_acquire) > 0 ||
+      cfd->compaction_aborted() > 0;
+}
+
+bool DBImpl::HasRunningCompaction(ColumnFamilyData* cfd) {
+  mutex_.AssertHeld();
+  for (const auto* compaction :
+       *cfd->compaction_picker()->compactions_in_progress()) {
+    const auto reason = compaction->compaction_reason();
+    // These are picker reservations for conflict tracking, not CompactionJobs,
+    // so they never observe the abort atomic in ProcessKeyValue().
+    if (reason != CompactionReason::kExternalSstIngestion &&
+        reason != CompactionReason::kRefitLevel) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void DBImpl::AbortAllCompactions() {
   InstrumentedMutexLock l(&mutex_);
 
@@ -3250,6 +3280,61 @@ void DBImpl::AbortAllCompactions() {
   while (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
          HasPendingManualCompaction()) {
     bg_cv_.Wait();
+  }
+}
+
+void DBImpl::AbortCompactions(ColumnFamilyHandle* column_family) {
+  assert(column_family != nullptr);
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh->db() == this);
+  auto* cfd = cfh->cfd();
+  assert(cfd != nullptr);
+
+  InstrumentedMutexLock l(&mutex_);
+  cfd->inc_compaction_aborted();
+  TEST_SYNC_POINT("DBImpl::AbortCompactions:FlagSet");
+
+  for (const auto* manual_compaction : manual_compaction_dequeue_) {
+    if (manual_compaction->cfd == cfd) {
+      manual_compaction->canceled.store(true, std::memory_order_release);
+    }
+  }
+  bg_cv_.SignalAll();
+
+  ++per_cf_compaction_abort_waiters_;
+  while (HasRunningCompaction(cfd) || HasPendingManualCompaction(cfd)) {
+    bg_cv_.Wait();
+  }
+  --per_cf_compaction_abort_waiters_;
+}
+
+void DBImpl::ResumeCompactions(ColumnFamilyHandle* column_family) {
+  assert(column_family != nullptr);
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh->db() == this);
+  auto* cfd = cfh->cfd();
+  assert(cfd != nullptr);
+
+  InstrumentedMutexLock l(&mutex_);
+  const int before = cfd->compaction_aborted();
+  if (before <= 0) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "ResumeCompactions called without prior AbortCompactions "
+                   "for column family %s (counter=%d)",
+                   cfd->GetName().c_str(), before);
+    return;
+  }
+
+  const int current = cfd->dec_compaction_aborted();
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] ResumeCompactions: counter %d -> %d",
+                 cfd->GetName().c_str(), before, current);
+  if (current == 0) {
+    if (!RestoreParkedCompaction(cfd) && !cfd->IsDropped()) {
+      EnqueuePendingCompaction(cfd);
+    }
+    MaybeScheduleFlushOrCompaction();
+    bg_cv_.SignalAll();
   }
 }
 
@@ -3504,6 +3589,28 @@ void DBImpl::AddToCompactionQueue(ColumnFamilyData* cfd) {
   ++unscheduled_compactions_;
 }
 
+bool DBImpl::RestoreParkedCompaction(ColumnFamilyData* cfd) {
+  mutex_.AssertHeld();
+  auto it = parked_compaction_cfds_.find(cfd);
+  if (it == parked_compaction_cfds_.end()) {
+    return false;
+  }
+
+  parked_compaction_cfds_.erase(it);
+  assert(cfd->queued_for_compaction());
+  if (!cfd->IsDropped() && cfd->NeedsCompaction()) {
+    TEST_SYNC_POINT_CALLBACK("EnqueuePendingCompaction::cfd",
+                             static_cast<void*>(cfd));
+    compaction_queue_.push_back(cfd);
+    ++unscheduled_compactions_;
+  } else {
+    cfd->set_queued_for_compaction(false);
+    const bool deleted = cfd->UnrefAndTryDelete();
+    assert(!deleted);
+  }
+  return true;
+}
+
 ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
   assert(!compaction_queue_.empty());
   auto cfd = *compaction_queue_.begin();
@@ -3531,22 +3638,35 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   return flush_req;
 }
 
-ColumnFamilyData* DBImpl::PickCompactionFromQueue(
-    std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer) {
+DBImpl::CompactionQueuePickResult DBImpl::PickCompactionFromQueue(
+    ColumnFamilyData** cfd, std::unique_ptr<TaskLimiterToken>* token,
+    LogBuffer* log_buffer) {
   assert(!compaction_queue_.empty());
+  assert(cfd != nullptr);
+  assert(*cfd == nullptr);
   assert(*token == nullptr);
   autovector<ColumnFamilyData*> throttled_candidates;
-  ColumnFamilyData* cfd = nullptr;
+  auto result = CompactionQueuePickResult::kThrottled;
   while (!compaction_queue_.empty()) {
     auto first_cfd = *compaction_queue_.begin();
     compaction_queue_.pop_front();
     assert(first_cfd->queued_for_compaction());
+    if (first_cfd->compaction_aborted() > 0) {
+      // Parking consumes this worker's credit. Remaining queue entries retain
+      // their own credits and are scheduled when this worker returns.
+      const bool inserted = parked_compaction_cfds_.insert(first_cfd).second;
+      assert(inserted);
+      TEST_SYNC_POINT("DBImpl::PickCompactionFromQueue:Parked");
+      result = CompactionQueuePickResult::kParked;
+      break;
+    }
     if (!RequestCompactionToken(first_cfd, false, token, log_buffer)) {
       throttled_candidates.push_back(first_cfd);
       continue;
     }
-    cfd = first_cfd;
-    cfd->set_queued_for_compaction(false);
+    *cfd = first_cfd;
+    first_cfd->set_queued_for_compaction(false);
+    result = CompactionQueuePickResult::kPicked;
     break;
   }
   // Add throttled compaction candidates back to queue in the original order.
@@ -3554,7 +3674,7 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
        iter != throttled_candidates.rend(); ++iter) {
     compaction_queue_.push_front(*iter);
   }
-  return cfd;
+  return result;
 }
 
 bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
@@ -3601,7 +3721,7 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
 
 void DBImpl::EnqueuePendingCompaction(ColumnFamilyData* cfd) {
   mutex_.AssertHeld();
-  if (reject_new_background_jobs_) {
+  if (reject_new_background_jobs_ || cfd->compaction_aborted() > 0) {
     return;
   }
   if (!cfd->queued_for_compaction() && cfd->NeedsCompaction()) {
@@ -4067,7 +4187,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       prepicked_compaction->task_token.reset();
     }
 
-    if (made_progress ||
+    if (made_progress || per_cf_compaction_abort_waiters_ > 0 ||
         (bg_compaction_scheduled_ == 0 &&
          bg_bottom_compaction_scheduled_ == 0) ||
         HasPendingManualCompaction() || unscheduled_compactions_ == 0) {
@@ -4110,6 +4230,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     c.reset(prepicked_compaction->compaction);
   }
   bool is_prepicked = is_manual || c;
+  ColumnFamilyData* prepicked_cfd = nullptr;
+  if (c) {
+    prepicked_cfd = c->column_family_data();
+  } else if (manual_compaction != nullptr) {
+    prepicked_cfd = manual_compaction->cfd;
+  }
 
   // (manual_compaction->in_progress == false);
   bool trivial_move_disallowed =
@@ -4137,6 +4263,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         // can schedule the still-queued work.
         unscheduled_compactions_++;
       }
+    } else if (prepicked_cfd != nullptr &&
+               prepicked_cfd->compaction_aborted() > 0) {
+      status = Status::Incomplete(Status::SubCode::kCompactionAborted);
     } else if (is_manual &&
                manual_compaction->canceled.load(std::memory_order_acquire)) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
@@ -4241,13 +4370,18 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ColumnFamilyData* cfd = nullptr;
 
     if (!need_repick) {
-      cfd = PickCompactionFromQueue(&task_token, log_buffer);
-      if (cfd == nullptr) {
+      const auto pick_result =
+          PickCompactionFromQueue(&cfd, &task_token, log_buffer);
+      if (pick_result == CompactionQueuePickResult::kThrottled) {
         // Can't find any executable task from the compaction queue.
         // All tasks have been throttled by compaction thread limiter.
         ++unscheduled_compactions_;
         return Status::Busy();
       }
+      if (pick_result == CompactionQueuePickResult::kParked) {
+        return Status::Incomplete(Status::SubCode::kCompactionAborted);
+      }
+      assert(cfd != nullptr);
 
       // We unreference here because the following code will take a Ref() on
       // this cfd if it is going to use it (Compaction class holds a
@@ -5010,6 +5144,14 @@ bool DBImpl::HasPendingManualCompaction() {
   return (!manual_compaction_dequeue_.empty());
 }
 
+bool DBImpl::HasPendingManualCompaction(ColumnFamilyData* cfd) {
+  return std::any_of(manual_compaction_dequeue_.begin(),
+                     manual_compaction_dequeue_.end(),
+                     [cfd](const ManualCompactionState* manual) {
+                       return manual->cfd == cfd;
+                     });
+}
+
 void DBImpl::AddManualCompaction(DBImpl::ManualCompactionState* m) {
   assert(manual_compaction_paused_ == 0);
   manual_compaction_dequeue_.push_back(m);
@@ -5360,6 +5502,7 @@ Status DBImpl::WaitForCompact(
     }
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_ || unscheduled_compactions_ ||
+         !parked_compaction_cfds_.empty() ||
          (wait_for_compact_options.wait_for_purge && bg_purge_scheduled_) ||
          unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {

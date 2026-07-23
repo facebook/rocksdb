@@ -4,6 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <set>
 #include <thread>
 #include <unordered_map>
@@ -86,6 +89,19 @@ class AbortSynchronizer {
     if (!abort_triggered_.exchange(true)) {
       abort_thread_ = std::thread([this, db]() {
         db->AbortAllCompactions();
+        SignalAbortCompleted();
+      });
+    }
+  }
+
+  void TriggerAbort(DBImpl* db, ColumnFamilyHandle* column_family) {
+    if (abort_triggered_.load() && abort_completed_.load()) {
+      Reset();
+    }
+
+    if (!abort_triggered_.exchange(true)) {
+      abort_thread_ = std::thread([this, db, column_family]() {
+        db->AbortCompactions(column_family);
         SignalAbortCompleted();
       });
     }
@@ -457,6 +473,223 @@ TEST_F(DBCompactionAbortTest, AbortScheduledAutomaticCompactionBeforePick) {
             compact_write_bytes_before_resume);
   ASSERT_LT(NumTableFilesAtLevel(0), kNumL0Files);
   VerifyDataIntegrity(/*num_keys=*/100);
+}
+
+TEST_F(DBCompactionAbortTest, AbortCompactionsIsScopedToColumnFamily) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 100;
+  options.max_background_compactions = 2;
+  options.max_subcompactions = 1;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"target", "sibling"}, options);
+
+  Random rnd(301);
+  for (int cf = 1; cf <= 2; ++cf) {
+    for (int file = 0; file < 4; ++file) {
+      for (int key = 0; key < 100; ++key) {
+        ASSERT_OK(Put(cf, Key(key), rnd.RandomString(1000)));
+      }
+      ASSERT_OK(Flush(cf));
+    }
+  }
+
+  AbortSynchronizer abort_sync;
+  std::atomic<int> compactions_started{0};
+  std::mutex sibling_mutex;
+  std::condition_variable sibling_cv;
+  bool sibling_started = false;
+  bool allow_sibling_to_finish = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::AbortCompactions:FlagSet",
+       "DBCompactionAbortTest::ScopedAbort:WaitForAbort"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction:Start", [&](void* /*arg*/) {
+        if (compactions_started.fetch_add(1) == 0) {
+          std::unique_lock<std::mutex> lock(sibling_mutex);
+          sibling_started = true;
+          sibling_cv.notify_all();
+          sibling_cv.wait(lock, [&]() { return allow_sibling_to_finish; });
+          return;
+        }
+        abort_sync.TriggerAbort(dbfull(), handles_[1]);
+        TEST_SYNC_POINT_CALLBACK(
+            "DBCompactionAbortTest::ScopedAbort:WaitForAbort", nullptr);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Status sibling_status;
+  std::thread sibling_thread([&]() {
+    sibling_status = dbfull()->CompactRange(
+        CompactRangeOptions(), handles_[2], nullptr, nullptr);
+  });
+  {
+    std::unique_lock<std::mutex> lock(sibling_mutex);
+    sibling_cv.wait(lock, [&]() { return sibling_started; });
+  }
+
+  Status target_status = dbfull()->CompactRange(
+      CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  abort_sync.WaitForAbortCompletion();
+  {
+    std::lock_guard<std::mutex> guard(sibling_mutex);
+    allow_sibling_to_finish = true;
+  }
+  sibling_cv.notify_all();
+  sibling_thread.join();
+  CleanupSyncPoints();
+
+  ASSERT_TRUE(target_status.IsIncomplete());
+  ASSERT_TRUE(target_status.IsCompactionAborted());
+  ASSERT_OK(sibling_status);
+  target_status = dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                         nullptr, nullptr);
+  ASSERT_TRUE(target_status.IsIncomplete());
+  ASSERT_TRUE(target_status.IsCompactionAborted());
+
+  dbfull()->ResumeCompactions(handles_[1]);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                   nullptr));
+}
+
+TEST_F(DBCompactionAbortTest, PerColumnFamilyAndGlobalAbortCountersCompose) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 100;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"target", "sibling"}, options);
+
+  for (int cf = 1; cf <= 2; ++cf) {
+    for (int file = 0; file < 2; ++file) {
+      ASSERT_OK(Put(cf, Key(file), "value"));
+      ASSERT_OK(Flush(cf));
+    }
+  }
+
+  dbfull()->AbortAllCompactions();
+  dbfull()->AbortCompactions(handles_[1]);
+  dbfull()->AbortCompactions(handles_[1]);
+  dbfull()->ResumeCompactions(handles_[1]);
+
+  Status sibling_status = dbfull()->CompactRange(
+      CompactRangeOptions(), handles_[2], nullptr, nullptr);
+  ASSERT_TRUE(sibling_status.IsIncomplete());
+  ASSERT_TRUE(sibling_status.IsCompactionAborted());
+
+  dbfull()->ResumeAllCompactions();
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[2], nullptr,
+                                   nullptr));
+  Status target_status = dbfull()->CompactRange(
+      CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_TRUE(target_status.IsIncomplete());
+  ASSERT_TRUE(target_status.IsCompactionAborted());
+
+  dbfull()->ResumeCompactions(handles_[1]);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                   nullptr));
+}
+
+TEST_F(DBCompactionAbortTest, AbortCompactionsRejectsCompactFilesTrivialMove) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"target"}, options);
+
+  ASSERT_OK(Put(1, "key", "value"));
+  ASSERT_OK(Flush(1));
+
+  ColumnFamilyMetaData metadata;
+  dbfull()->GetColumnFamilyMetaData(handles_[1], &metadata);
+  ASSERT_EQ(metadata.levels[0].files.size(), 1);
+  const std::vector<std::string> input_files = {
+      metadata.levels[0].files.front().name};
+
+  CompactionOptions compaction_options;
+  compaction_options.allow_trivial_move = true;
+  dbfull()->AbortCompactions(handles_[1]);
+  Status status = dbfull()->CompactFiles(compaction_options, handles_[1],
+                                         input_files, 1);
+  ASSERT_TRUE(status.IsIncomplete());
+  ASSERT_TRUE(status.IsCompactionAborted());
+
+  dbfull()->ResumeCompactions(handles_[1]);
+  ASSERT_OK(dbfull()->CompactFiles(compaction_options, handles_[1], input_files,
+                                   1));
+}
+
+TEST_F(DBCompactionAbortTest, ResumeRestoresParkedAutomaticCompaction) {
+  constexpr int kCompactionTrigger = 4;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kCompactionTrigger;
+  options.max_background_compactions = 1;
+  options.disable_auto_compactions = false;
+  CreateAndReopenWithCF({"target", "sibling"}, options);
+
+  AbortSynchronizer abort_sync;
+  std::mutex parked_mutex;
+  std::condition_variable parked_cv;
+  bool compaction_parked = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::AbortCompactions:FlagSet",
+       "DBCompactionAbortTest::ParkedCompaction:WaitForAbort"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void* /*arg*/) {
+        abort_sync.TriggerAbort(dbfull(), handles_[1]);
+        TEST_SYNC_POINT_CALLBACK(
+            "DBCompactionAbortTest::ParkedCompaction:WaitForAbort", nullptr);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PickCompactionFromQueue:Parked", [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> guard(parked_mutex);
+        compaction_parked = true;
+        parked_cv.notify_all();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int file = 0; file < kCompactionTrigger; ++file) {
+    for (int key = 0; key < 100; ++key) {
+      ASSERT_OK(Put(1, Key(key), rnd.RandomString(1000)));
+    }
+    ASSERT_OK(Flush(1));
+  }
+  {
+    std::unique_lock<std::mutex> lock(parked_mutex);
+    parked_cv.wait(lock, [&]() { return compaction_parked; });
+  }
+
+  CleanupSyncPoints();
+  abort_sync.WaitForAbortCompletion();
+  const int l0_files_before_resume = NumTableFilesAtLevel(0, 1);
+  ASSERT_GE(l0_files_before_resume, kCompactionTrigger);
+
+  WaitForCompactOptions wait_options;
+  wait_options.timeout = std::chrono::milliseconds(1);
+  ASSERT_TRUE(dbfull()->WaitForCompact(wait_options).IsTimedOut());
+
+  for (int file = 0; file < kCompactionTrigger; ++file) {
+    for (int key = 0; key < 100; ++key) {
+      ASSERT_OK(Put(2, Key(key), rnd.RandomString(1000)));
+    }
+    ASSERT_OK(Flush(2));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  ASSERT_LT(NumTableFilesAtLevel(0, 2), kCompactionTrigger);
+  ASSERT_EQ(NumTableFilesAtLevel(0, 1), l0_files_before_resume);
+
+  std::atomic<bool> target_reenqueued{false};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "EnqueuePendingCompaction::cfd", [&](void* arg) {
+        auto* cfd = static_cast<ColumnFamilyData*>(arg);
+        if (cfd->GetName() == "target") {
+          target_reenqueued.store(true);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  dbfull()->ResumeCompactions(handles_[1]);
+  ASSERT_TRUE(target_reenqueued.load());
+  CleanupSyncPoints();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_LT(NumTableFilesAtLevel(0, 1), l0_files_before_resume);
 }
 
 TEST_F(DBCompactionAbortTest, AbortAndVerifyNoOutputFiles) {

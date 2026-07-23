@@ -464,6 +464,8 @@ class DBImpl : public DB {
   void DisableManualCompaction() override;
   void AbortAllCompactions() override;
   void ResumeAllCompactions() override;
+  void AbortCompactions(ColumnFamilyHandle* column_family) override;
+  void ResumeCompactions(ColumnFamilyHandle* column_family) override;
 
   using DB::SetOptions;
   Status SetOptions(
@@ -2771,9 +2773,20 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   FlushRequest PopFirstFromFlushQueue();
 
+  enum class CompactionQueuePickResult {
+    kPicked,
+    kThrottled,
+    kParked,
+  };
+
   // Pick the first unthrottled compaction with task token from queue.
-  ColumnFamilyData* PickCompactionFromQueue(
-      std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
+  CompactionQueuePickResult PickCompactionFromQueue(
+      ColumnFamilyData** cfd, std::unique_ptr<TaskLimiterToken>* token,
+      LogBuffer* log_buffer);
+  bool IsCompactionAborted(ColumnFamilyData* cfd) const;
+  bool HasRunningCompaction(ColumnFamilyData* cfd);
+  bool HasPendingManualCompaction(ColumnFamilyData* cfd);
+  bool RestoreParkedCompaction(ColumnFamilyData* cfd);
 
   IOStatus SyncWalImpl(bool include_current_wal,
                        const WriteOptions& write_options,
@@ -3150,6 +3163,10 @@ class DBImpl : public DB {
   // DB mutex in compaction code paths.
   std::atomic<int> compaction_aborted_ = 0;
 
+  // Number of AbortCompactions() callers waiting for a targeted compaction to
+  // finish. Protected by the DB mutex.
+  int per_cf_compaction_abort_waiters_ = 0;
+
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
   // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't
@@ -3359,7 +3376,7 @@ class DBImpl : public DB {
   // cfd->imm()->IsFlushPending()
   // A column family is inserted into compaction_queue_ when it satisfied
   // condition cfd->NeedsCompaction()
-  // Column families in this list are all Ref()-erenced
+  // Column families in these collections are all Ref()-erenced.
   // TODO(icanadi) Provide some kind of ReferencedColumnFamily class that will
   // do RAII on ColumnFamilyData
   // Column families are in this queue when they need to be flushed or
@@ -3374,9 +3391,10 @@ class DBImpl : public DB {
   // invariant(column family present in flush_queue_ <==>
   // ColumnFamilyData::pending_flush_ == true)
   std::deque<FlushRequest> flush_queue_;
-  // invariant(column family present in compaction_queue_ <==>
-  // ColumnFamilyData::pending_compaction_ == true)
+  // invariant(column family present in compaction_queue_ or
+  // parked_compaction_cfds_ <=> queued_for_compaction() == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
+  std::unordered_set<ColumnFamilyData*> parked_compaction_cfds_;
 
   // A map to store file numbers and filenames of the files to be purged
   std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;

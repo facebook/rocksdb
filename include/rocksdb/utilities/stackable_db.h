@@ -390,6 +390,12 @@ class StackableDB : public DB {
   }
   void AbortAllCompactions() override { return db_->AbortAllCompactions(); }
   void ResumeAllCompactions() override { return db_->ResumeAllCompactions(); }
+  void AbortCompactions(ColumnFamilyHandle* column_family) override {
+    return db_->AbortCompactions(column_family);
+  }
+  void ResumeCompactions(ColumnFamilyHandle* column_family) override {
+    return db_->ResumeCompactions(column_family);
+  }
 
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override {

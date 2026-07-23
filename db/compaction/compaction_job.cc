@@ -1669,7 +1669,8 @@ Status CompactionJob::ProcessKeyValue(
   [[maybe_unused]] const std::optional<const Slice> end = sub_compact->end;
 
   // Check for abort signal before starting key processing
-  if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+  if (compaction_aborted_.load(std::memory_order_acquire) > 0 ||
+      cfd->compaction_aborted() > 0) {
     return Status::Incomplete(Status::SubCode::kCompactionAborted);
   }
 
@@ -1691,7 +1692,8 @@ Status CompactionJob::ProcessKeyValue(
     // Periodic cron operations: stats update, abort check.
     if ((num_records & kCronEveryMask) == kCronEveryMask) {
       // Check for abort signal periodically
-      if (compaction_aborted_.load(std::memory_order_acquire) > 0) {
+      if (compaction_aborted_.load(std::memory_order_acquire) > 0 ||
+          cfd->compaction_aborted() > 0) {
         status = Status::Incomplete(Status::SubCode::kCompactionAborted);
         break;
       }

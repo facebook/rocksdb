@@ -1735,6 +1735,25 @@ class DB {
   // ResumeAllCompactions().
   virtual void ResumeAllCompactions() = 0;
 
+  // Abort compaction work for `column_family`. Running compactions for the
+  // column family are signaled to abort, and new compactions for it are rejected
+  // until ResumeCompactions() is called. Compactions for other column families
+  // are unaffected. `column_family` must be a live handle owned by this DB.
+  //
+  // Calls are reference counted independently for each column family. The
+  // caller must retain the live handle through all matching ResumeCompactions()
+  // calls. Flushes and external-ingestion reservations are unaffected. An
+  // already-running level refit is neither signaled nor waited on; new
+  // CompactRange() calls are rejected at entry. Remote compaction-service work
+  // is not actively aborted.
+  virtual void AbortCompactions(ColumnFamilyHandle* column_family) = 0;
+
+  // Resume compactions for `column_family`. This must be called as many times as
+  // AbortCompactions() for the same column family before work is rescheduled.
+  // `column_family` must be the live handle passed to AbortCompactions().
+  // Extra calls log a warning and otherwise have no effect.
+  virtual void ResumeCompactions(ColumnFamilyHandle* column_family) = 0;
+
   // Wait for all flush and compactions jobs to finish. Jobs to wait include the
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,
   // Status::ShutdownInProgress will be returned.
