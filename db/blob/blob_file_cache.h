@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <cstdint>
 
 #include "cache/typed_cache.h"
 #include "db/blob/blob_file_reader.h"

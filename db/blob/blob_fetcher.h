@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
