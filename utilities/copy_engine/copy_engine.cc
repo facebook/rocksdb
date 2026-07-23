@@ -126,6 +126,9 @@ void CopyEngine::ThreadBody() {
           work_item.src_temperature);
       result.db_id = work_item.db_id;
       result.db_session_id = work_item.db_session_id;
+    } else if (work_item.type == Link) {
+      result.io_status =
+          LinkFile(work_item.src_path, work_item.dst_path, work_item.dst_env);
     } else {
       result.io_status = IOStatus::InvalidArgument(
           "Unknown work item type: " + std::to_string(work_item.type));
@@ -282,6 +285,15 @@ IOStatus CopyEngine::CopyOrCreateFile(
     io_s = dest_writer->Close(opts);
   }
   return io_s;
+}
+
+IOStatus CopyEngine::LinkFile(const std::string& src, const std::string& dst,
+                              Env* dst_env) {
+  if (ShouldAbort()) {
+    return status_to_io_status(
+        Status::Incomplete(options_.abort_status_message));
+  }
+  return dst_env->GetFileSystem()->LinkFile(src, dst, IOOptions(), nullptr);
 }
 
 uint64_t CopyEngine::CalculateIOBufferSize(RateLimiter* rate_limiter) const {

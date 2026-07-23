@@ -69,6 +69,7 @@ struct WorkItemResult {
 enum WorkItemType : uint64_t {
   CopyOrCreate = 1U,
   ComputeChecksum = 2U,
+  Link = 3U,
 };
 
 // Exactly one of src_path and contents must be non-empty. If src_path is
@@ -173,8 +174,9 @@ struct CopyEngineOptions {
   std::string abort_status_message = "Operation stopped";
 };
 
-// A pool of background threads that copy or checksum files pulled from a shared
-// work queue, so BackupEngine and CheckpointEngine share one implementation.
+// A pool of background threads that copy, hard-link, or checksum files pulled
+// from a shared work queue, so BackupEngine and CheckpointEngine share one
+// implementation.
 class CopyEngine {
  public:
   explicit CopyEngine(CopyEngineOptions options);
@@ -208,6 +210,11 @@ class CopyEngine {
                                       uint64_t size_limit,
                                       std::string* checksum_hex,
                                       Temperature src_temperature) const;
+
+  // Returns the FileSystem's NotSupported when linking is unavailable, so
+  // callers can fall back to copying.
+  IOStatus LinkFile(const std::string& src, const std::string& dst,
+                    Env* dst_env);
 
   uint64_t CalculateIOBufferSize(RateLimiter* rate_limiter) const;
 
