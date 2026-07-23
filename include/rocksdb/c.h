@@ -3836,6 +3836,11 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_livefiles_entries(const rocksdb_livefiles_t*, int index);
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_livefiles_deletions(const rocksdb_livefiles_t*, int index);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_file_checksum(
+    const rocksdb_livefiles_t*, int index);
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_livefiles_file_checksum_func_name(const rocksdb_livefiles_t*,
+                                          int index);
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_destroy(
     const rocksdb_livefiles_t*);
 
@@ -3900,6 +3905,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_livefile_set_num_entries(
     rocksdb_livefile_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_livefile_set_num_deletions(
     rocksdb_livefile_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_livefile_set_file_checksum(
+    rocksdb_livefile_t*, const char*);
+extern ROCKSDB_LIBRARY_API void rocksdb_livefile_set_file_checksum_func_name(
+    rocksdb_livefile_t*, const char*);
 extern ROCKSDB_LIBRARY_API void rocksdb_livefile_destroy(rocksdb_livefile_t*);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_livefiles_add(rocksdb_livefiles_t*,
