@@ -45,7 +45,7 @@ class TableReader;
 class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
-class UserDefinedIndexFactory;
+class IndexFactory;
 
 // Hook for providing read-scoped storage for data blocks read from SST files.
 // This is configured through C++ options rather than OPTIONS files.
@@ -595,9 +595,33 @@ struct BlockBasedTableOptions {
   // This allows users to define their own index format and build the index
   // during table building.
   //
-  // NOTE: UserDefinedIndexFactory currently disables parallel compression
+  // NOTE: IndexFactory currently disables parallel compression
   // (CompressionOptions::parallel_threads sanitized to 1).
-  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
+  std::shared_ptr<IndexFactory> user_defined_index_factory = nullptr;
+
+  // EXPERIMENTAL
+  //
+  // Names the intended relationship between the standard block-based-table
+  // index and a custom index. This is a preparatory API for replacing the
+  // legacy UDI booleans below in a follow-up change. Until that wiring lands,
+  // use_udi_as_primary_index and fail_if_no_udi_on_open keep their existing
+  // behavior and index_mode is not consulted by table building or reading.
+  enum class IndexMode {
+    // Build and read the standard index only.
+    kStandardOnly = 0,
+    // Build both indexes, read the standard index by default, and allow
+    // per-read custom-index selection.
+    kStandardDefault = 1,
+    // Build both indexes and read the custom index by default.
+    kCustomDefault = 2,
+    // Build only the custom index. This requires a later format-safety change
+    // before it can be used by table writing.
+    kCustomOnly = 3,
+    // Build both indexes, read the standard index by default, and require the
+    // custom index block when a factory is configured.
+    kStandardRequired = 4,
+  };
+  IndexMode index_mode = IndexMode::kStandardDefault;
 
   // EXPERIMENTAL
   //
