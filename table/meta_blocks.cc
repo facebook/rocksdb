@@ -95,6 +95,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.udi_is_primary_index != 0) {
     Add(TablePropertiesNames::kUDIIsPrimaryIndex, props.udi_is_primary_index);
   }
+  if (props.standard_index_is_stub != 0) {
+    Add(TablePropertiesNames::kStandardIndexIsStub,
+        props.standard_index_is_stub);
+  }
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
   Add(TablePropertiesNames::kNumFilterEntries, props.num_filter_entries);
   Add(TablePropertiesNames::kDeletedKeys, props.num_deletions);
@@ -304,6 +308,8 @@ Status ParsePropertiesBlock(
        &new_table_properties->index_value_is_delta_encoded},
       {TablePropertiesNames::kUDIIsPrimaryIndex,
        &new_table_properties->udi_is_primary_index},
+      {TablePropertiesNames::kStandardIndexIsStub,
+       &new_table_properties->standard_index_is_stub},
       {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
       {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
       {TablePropertiesNames::kRawValueSize,
