@@ -5612,8 +5612,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     for (const auto& fname : filenames) {
       if (ParseFileName(fname, &number, info_log_prefix.prefix, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
-        Status del;
         std::string path_to_delete = dbname + "/" + fname;
+        if (type == kExternalLogFile) {
+          // External log files can contain application-owned data and are left
+          // for the application to preserve or delete explicitly.
+          continue;
+        }
+        Status del;
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kWalFile ||

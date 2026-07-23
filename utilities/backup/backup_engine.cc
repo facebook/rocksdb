@@ -1541,6 +1541,10 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           if (type == kWalFile && !options_.backup_log_files) {
             return IOStatus::OK();
           }
+          if (type == kExternalLogFile) {
+            return IOStatus::NotSupported(
+                "BackupEngine cannot preserve external log files");
+          }
           Log(options_.info_log, "add file for backup %s", fname.c_str());
           uint64_t size_bytes = 0;
           IOStatus io_st;

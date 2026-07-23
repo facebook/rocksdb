@@ -54,7 +54,8 @@ enum FileType {
   kIdentityFile,
   kOptionsFile,
   kBlobFile,
-  kCompactionProgressFile
+  kCompactionProgressFile,
+  kExternalLogFile
 };
 
 // User-oriented representation of internal key types.

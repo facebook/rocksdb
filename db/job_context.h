@@ -194,6 +194,9 @@ struct JobContext {
   // the list of all live blob files that cannot be deleted
   std::vector<uint64_t> blob_live;
 
+  // the list of all live external log files that cannot be deleted
+  std::vector<uint64_t> external_log_live;
+
   // the list of blob files that we need to delete
   std::vector<ObsoleteBlobFileInfo> blob_delete_files;
 

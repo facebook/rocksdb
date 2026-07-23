@@ -10,6 +10,7 @@
 #include "utilities/checkpoint/checkpoint_impl.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cinttypes>
 #include <string>
 #include <tuple>
@@ -34,6 +35,45 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+std::string CheckpointJoinPath(const std::string& dirname,
+                               const std::string& relative_path) {
+  if (dirname.empty()) {
+    return relative_path;
+  }
+  if (relative_path.empty()) {
+    return dirname;
+  }
+  if (dirname.back() == '/') {
+    return dirname + relative_path;
+  }
+  return dirname + "/" + relative_path;
+}
+
+Status CreateRelativeFileParentDirs(FileSystem* fs, const std::string& root,
+                                    const std::string& relative_filename) {
+  assert(fs != nullptr);
+  std::string current = root;
+  size_t component_start = 0;
+  while (true) {
+    const size_t slash = relative_filename.find('/', component_start);
+    if (slash == std::string::npos) {
+      return Status::OK();
+    }
+    current = CheckpointJoinPath(
+        current,
+        relative_filename.substr(component_start, slash - component_start));
+    Status s = fs->CreateDirIfMissing(current, IOOptions(), nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    component_start = slash + 1;
+  }
+}
+
+}  // namespace
+
 Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   *checkpoint_ptr = new CheckpointImpl(db);
   return Status::OK();
@@ -47,38 +87,9 @@ Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
 
 Status CheckpointImpl::CleanStagingDirectory(
     const std::string& full_private_path, Logger* info_log) {
-  std::vector<std::string> subchildren;
-  Status s = db_->GetEnv()->FileExists(full_private_path);
-  if (s.IsNotFound()) {
-    // Nothing to clean
-    return Status::OK();
-  } else if (!s.ok()) {
-    return s;
-  }
-  assert(s.ok());
-  ROCKS_LOG_INFO(info_log, "File exists %s -- %s", full_private_path.c_str(),
+  Status s = DestroyDir(db_->GetEnv(), full_private_path);
+  ROCKS_LOG_INFO(info_log, "Delete dir %s -- %s", full_private_path.c_str(),
                  s.ToString().c_str());
-
-  s = db_->GetEnv()->GetChildren(full_private_path, &subchildren);
-  if (s.ok()) {
-    for (auto& subchild : subchildren) {
-      Status del_s;
-      std::string subchild_path = full_private_path + "/" + subchild;
-      del_s = db_->GetEnv()->DeleteFile(subchild_path);
-      ROCKS_LOG_INFO(info_log, "Delete file %s -- %s", subchild_path.c_str(),
-                     del_s.ToString().c_str());
-      if (!del_s.ok() && s.ok()) {
-        s = del_s;
-      }
-    }
-  }
-
-  // Then delete the private dir
-  if (s.ok()) {
-    s = db_->GetEnv()->DeleteDir(full_private_path);
-    ROCKS_LOG_INFO(info_log, "Delete dir %s -- %s", full_private_path.c_str(),
-                   s.ToString().c_str());
-  }
   return s;
 }
 
@@ -144,26 +155,50 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     if (s.ok() || s.IsNotSupported()) {
       s = CreateCustomCheckpoint(
           [&](const std::string& src_dirname, const std::string& fname,
-              FileType) {
+              FileType) -> Status {
             ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s",
                            fname.c_str());
+            Status parent_s = CreateRelativeFileParentDirs(
+                db_->GetFileSystem(), full_private_path, fname);
+            if (!parent_s.ok()) {
+              return parent_s;
+            }
             return db_->GetFileSystem()->LinkFile(
                 src_dirname + "/" + fname, full_private_path + "/" + fname,
                 IOOptions(), nullptr);
           } /* link_file_cb */,
           [&](const std::string& src_dirname, const std::string& fname,
-              uint64_t size_limit_bytes, FileType,
+              uint64_t size_limit_bytes, FileType type,
               const std::string& /* checksum_func_name */,
               const std::string& /* checksum_val */,
-              const Temperature temperature) {
+              const Temperature temperature) -> Status {
             ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
+            Status parent_s = CreateRelativeFileParentDirs(
+                db_->GetFileSystem(), full_private_path, fname);
+            if (!parent_s.ok()) {
+              return parent_s;
+            }
+            if (type == kExternalLogFile && size_limit_bytes == 0) {
+              // CopyFile() treats size 0 as "copy all", but an unsealed
+              // external log can have an empty MANIFEST prefix and a non-empty
+              // physical tail that checkpoint must not expose.
+              return CreateFile(db_->GetFileSystem(),
+                                full_private_path + "/" + fname, "",
+                                db_options.use_fsync);
+            }
             return CopyFile(db_->GetFileSystem(), src_dirname + "/" + fname,
                             temperature, full_private_path + "/" + fname,
                             temperature, size_limit_bytes, db_options.use_fsync,
                             nullptr);
           } /* copy_file_cb */,
-          [&](const std::string& fname, const std::string& contents, FileType) {
+          [&](const std::string& fname, const std::string& contents,
+              FileType) -> Status {
             ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
+            Status parent_s = CreateRelativeFileParentDirs(
+                db_->GetFileSystem(), full_private_path, fname);
+            if (!parent_s.ok()) {
+              return parent_s;
+            }
             return CreateFile(db_->GetFileSystem(),
                               full_private_path + "/" + fname, contents,
                               db_options.use_fsync);
@@ -243,6 +278,13 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     Status s = db_->GetLiveFilesStorageInfo(opts, &infos);
     if (!s.ok()) {
       return s;
+    }
+  }
+
+  for (const auto& info : infos) {
+    if (info.file_type == kExternalLogFile) {
+      return Status::NotSupported(
+          "Checkpoint with external log files is not supported");
     }
   }
 

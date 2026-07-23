@@ -67,6 +67,8 @@ LIB_SOURCES =                                                   \
   db/error_handler.cc                                           \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
+  db/external_log_file_edit.cc                                  \
+  db/external_log_file_impl.cc                                  \
   db/external_sst_file_ingestion_job.cc                         \
   db/file_indexer.cc                                            \
   db/flush_job.cc                                               \
@@ -544,6 +546,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/error_handler_fs_test.cc                                           \
+  db/external_log_file_test.cc                                          \
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \

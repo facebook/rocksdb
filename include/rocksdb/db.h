@@ -19,6 +19,7 @@
 
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/block_cache_trace_writer.h"
+#include "rocksdb/external_log_file.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -2142,6 +2143,18 @@ class DB {
   // would always be set to 0
   virtual Status GetCurrentWalFile(
       std::unique_ptr<WalFile>* current_wal_file) = 0;
+
+  // EXPERIMENTAL: Creates a manager for MANIFEST-tracked external log files.
+  // The returned manager is bound to this DB instance and must not outlive it.
+  // Implementations that do not support external log files return
+  // Status::NotSupported().
+  virtual Status NewExternalLogFileManager(
+      std::unique_ptr<ExternalLogFileManager>* manager) {
+    if (manager != nullptr) {
+      manager->reset();
+    }
+    return Status::NotSupported("External log files are not supported");
+  }
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:

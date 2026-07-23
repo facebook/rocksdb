@@ -225,12 +225,27 @@ Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
     s = OnColumnFamilyAdd(edit, cfd);
   } else if (edit.IsColumnFamilyDrop()) {
     s = OnColumnFamilyDrop(edit, cfd);
-  } else if (edit.IsWalAddition()) {
-    s = OnWalAddition(edit);
-  } else if (edit.IsWalDeletion()) {
-    s = OnWalDeletion(edit);
   } else {
-    s = OnNonCfOperation(edit, cfd);
+    bool handled_non_cf_file_metadata = false;
+    if (edit.IsWalAddition()) {
+      s = OnWalAddition(edit);
+      handled_non_cf_file_metadata = true;
+    }
+    if (s.ok() && edit.IsWalDeletion()) {
+      s = OnWalDeletion(edit);
+      handled_non_cf_file_metadata = true;
+    }
+    if (s.ok() && edit.IsExternalLogFileAddition()) {
+      s = OnExternalLogFileAddition(edit);
+      handled_non_cf_file_metadata = true;
+    }
+    if (s.ok() && edit.IsExternalLogFileDeletion()) {
+      s = OnExternalLogFileDeletion(edit);
+      handled_non_cf_file_metadata = true;
+    }
+    if (s.ok() && !handled_non_cf_file_metadata) {
+      s = OnNonCfOperation(edit, cfd);
+    }
   }
   if (s.ok()) {
     assert(cfd != nullptr);
@@ -307,6 +322,18 @@ Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
   assert(edit.IsWalDeletion());
   return version_set_->wals_.DeleteWalsBefore(
       edit.GetWalDeletion().GetLogNumber());
+}
+
+Status VersionEditHandler::OnExternalLogFileAddition(VersionEdit& edit) {
+  assert(edit.IsExternalLogFileAddition());
+  return version_set_->external_log_files_.AddFiles(
+      edit.GetExternalLogFileAdditions());
+}
+
+Status VersionEditHandler::OnExternalLogFileDeletion(VersionEdit& edit) {
+  assert(edit.IsExternalLogFileDeletion());
+  return version_set_->external_log_files_.DeleteFiles(
+      edit.GetExternalLogFileDeletions());
 }
 
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,

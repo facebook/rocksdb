@@ -39,6 +39,7 @@
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"
+#include "db/external_log_file_edit.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
 #include "db/range_del_aggregator.h"
@@ -1659,6 +1660,11 @@ class VersionSet {
   // The returned WalSet needs to be accessed with DB mutex held.
   const WalSet& GetWalSet() const { return wals_; }
 
+  // The returned ExternalLogFileSet needs to be accessed with DB mutex held.
+  const ExternalLogFileSet& GetExternalLogFileSet() const {
+    return external_log_files_;
+  }
+
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
 
@@ -1731,7 +1737,8 @@ class VersionSet {
   Status WriteCurrentStateToManifest(
       const WriteOptions& write_options,
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
+      const VersionEdit& non_cf_file_additions, log::Writer* log,
+      IOStatus& io_s);
 
   // Reopen the existing MANIFEST file for append at the end of Recover()
   // when reuse_manifest_on_open is set, so the next LogAndApply appends
@@ -1777,6 +1784,7 @@ class VersionSet {
 
   // Protected by DB mutex.
   WalSet wals_;
+  ExternalLogFileSet external_log_files_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Cache* table_cache_;
