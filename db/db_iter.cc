@@ -296,14 +296,14 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(
       prefetch_buffer, &blob_value_, bytes_read);
 }
 
-BlobFetcher DBIter::BlobReader::CreateBlobFetcher() const {
+VersionBlobFetcher DBIter::BlobReader::CreateBlobFetcher() const {
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
   read_options.verify_checksums = verify_checksums_;
   read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
-  return BlobFetcher(version_, read_options, blob_file_cache_,
-                     allow_write_path_fallback_);
+  return VersionBlobFetcher(version_, read_options, blob_file_cache_,
+                            allow_write_path_fallback_);
 }
 
 bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
@@ -1645,7 +1645,7 @@ bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
                                           const Slice& user_key) {
   // Resolve V2 entity blob columns if present, since TimedFullMerge only
   // supports V1 format.
-  BlobFetcher blob_fetcher = blob_state_->reader.CreateBlobFetcher();
+  VersionBlobFetcher blob_fetcher = blob_state_->reader.CreateBlobFetcher();
   std::string resolved_entity;
   Slice effective_entity;
   Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(

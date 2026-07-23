@@ -251,7 +251,7 @@ void CompactionIterator::SetBlobFetcher(const Version* version,
   read_options.io_activity = io_activity;
   read_options.fill_cache = false;
 
-  blob_fetcher_ = std::make_unique<BlobFetcher>(
+  blob_fetcher_ = std::make_unique<VersionBlobFetcher>(
       version, read_options, blob_file_cache, allow_write_path_fallback);
   blob_resolver_.Init(blob_fetcher_.get(), prefetch_buffers_.get(),
                       &iter_stats_);
@@ -1669,7 +1669,7 @@ bool CompactionIterator::FetchBlobsNeedingGC(
     Status s = blob_fetcher_->FetchBlob(user_key(), blob_index, prefetch_buffer,
                                         &blob_value, &bytes_read);
     if (!s.ok()) {
-      status_ = s;
+      status_ = std::move(s);
       validity_info_.Invalidate();
       return false;
     }
@@ -2064,7 +2064,7 @@ std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
     }
   }
 
-  return std::unique_ptr<BlobFetcher>(new BlobFetcher(
+  return std::unique_ptr<BlobFetcher>(new VersionBlobFetcher(
       version, read_options, blob_file_cache, allow_write_path_fallback));
 }
 

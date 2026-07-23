@@ -91,7 +91,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->ioptions().enable_blob_direct_write ||
       cfd->GetLatestMutableCFOptions().enable_blob_files) {
     // Recovered memtables can still contain older blob references after

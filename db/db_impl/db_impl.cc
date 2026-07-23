@@ -5989,7 +5989,7 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->blob_partition_manager() != nullptr) {
     memtable_blob_fetcher.emplace(sv->current, read_options,
                                   cfd->blob_file_cache(),
