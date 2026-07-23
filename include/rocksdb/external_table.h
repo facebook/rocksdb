@@ -35,6 +35,15 @@ class ExternalTableFactory;
 // replacing the column family by ingesting a new set of files. In all cases,
 // the external table files will only be allowed in the bottommost level.
 //
+// Sequence numbers for ingested external table files are owned by RocksDB.
+// External table implementations store and expose user keys; RocksDB assigns a
+// single file-wide sequence number during ingestion and passes it to the
+// adapter through the MANIFEST/TableReaderOptions. External formats must not
+// rely on per-key sequence numbers to resolve visibility. RepairDB currently
+// cannot reconstruct a non-zero ingestion-assigned sequence number from an
+// external table file alone, so RepairDB is not supported for column families
+// containing external table files ingested with non-zero assigned seqnos.
+//
 // The external table can support one or both of the following layouts -
 // 1. Total order seek - All the keys in the files are in sorted order, and a
 //    user can seek to the first, last, or any key in between and iterate
@@ -63,6 +72,11 @@ class ExternalTableFactory;
 class ExternalTableIterator : public IteratorBase {
  public:
   virtual ~ExternalTableIterator() {}
+
+  // If the DB exposes reverse iteration over this table, SeekForPrev() and
+  // Prev() from IteratorBase must be implemented with normal RocksDB iterator
+  // semantics. Returning NotSupported from those methods will surface to user
+  // reverse scans.
 
   // This can optionally be called to prepare the iterator for a series
   // of scans. The scan_opts parameter specifies the order of scans to
@@ -129,7 +143,9 @@ class ExternalTableReader {
   // supports PutPropertiesBlock(), then this must be supported. The
   // properties block should be written to the table file as is (no
   // compression or mutation of any kind), and its offset in the file
-  // should be returned in file_offset.
+  // should be returned in file_offset. The RocksDB-generated properties block
+  // is also used to validate any table-level seqno metadata against the
+  // MANIFEST-provided file-wide seqno.
   virtual Status GetPropertiesBlock(std::unique_ptr<char[]>* /*property_block*/,
                                     uint64_t* /*size*/,
                                     uint64_t* /*file_offset*/) {
@@ -173,6 +189,10 @@ class ExternalTableBuilder {
 
   // Write a single KV to the table file. This is guaranteed to be called
   // in key order, and the write may be buffered and flushed at a later time.
+  // The external format receives user keys only. Internally, RocksDB requires
+  // every key in one external table file to share one sequence number; the
+  // adapter rejects a build that attempts to encode multiple seqnos in one
+  // file.
   virtual void Add(const Slice& key, const Slice& value) = 0;
 
   // Return the current Status. This could return non-ok, for example, if
