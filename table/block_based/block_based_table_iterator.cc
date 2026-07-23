@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
 
+#include "monitoring/perf_context_imp.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr, false); }
@@ -1029,6 +1031,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
   assert(!multi_scan_read_set_);
   RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_CALLS);
+  PERF_COUNTER_ADD(multiscan_prepare_count, 1);
   StopWatch sw(table_->get_rep()->ioptions.clock, table_->GetStatistics(),
                MULTISCAN_PREPARE_MICROS);
 
@@ -1117,6 +1120,10 @@ void BlockBasedTableIterator::Prepare(const MultiScanArgs* multiscan_opts) {
     RecordTick(table_->GetStatistics(), MULTISCAN_PREPARE_ERRORS);
     return;
   }
+
+  // Number of data blocks submitted to the dispatcher for this Prepare.
+  RecordInHistogram(table_->GetStatistics(), MULTISCAN_BLOCKS_PER_PREPARE,
+                    job->block_handles.size());
 
   // Successful Prepare. Create MultiScanIndexIterator and swap it in as
   // the index iterator. The original index_iter_ is saved for restoration

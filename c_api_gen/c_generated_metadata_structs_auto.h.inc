@@ -346,6 +346,14 @@ rocksdb_compaction_file_info_oldest_blob_file_number(
 
 /* BlobFileAdditionInfo */
 
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_blob_file_addition_info_blob_file_path(
+    const rocksdb_blob_file_addition_info_t* info, size_t* size);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_blob_file_addition_info_blob_file_number(
+    const rocksdb_blob_file_addition_info_t* info);
+
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_blob_file_addition_info_total_blob_count(
     const rocksdb_blob_file_addition_info_t* info);
@@ -355,6 +363,14 @@ rocksdb_blob_file_addition_info_total_blob_bytes(
     const rocksdb_blob_file_addition_info_t* info);
 
 /* BlobFileGarbageInfo */
+
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_blob_file_garbage_info_blob_file_path(
+    const rocksdb_blob_file_garbage_info_t* info, size_t* size);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_blob_file_garbage_info_blob_file_number(
+    const rocksdb_blob_file_garbage_info_t* info);
 
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_blob_file_garbage_info_garbage_blob_count(

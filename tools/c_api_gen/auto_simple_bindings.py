@@ -776,7 +776,7 @@ def walk_ast(node: dict) -> Iterable[dict]:
         yield from walk_ast(child)
 
 
-def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
+def _dump_record(struct_name: str, header: Path) -> dict:
     cmd = [
         get_clang_binary(),
         "-std=c++20",
@@ -788,9 +788,9 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
         "-Xclang",
         "-ast-dump=json",
         "-Xclang",
-        f"-ast-dump-filter={family.struct_name}",
+        f"-ast-dump-filter={struct_name}",
         "-fsyntax-only",
-        str(family.header.relative_to(ROOT)),
+        str(header.relative_to(ROOT)),
     ]
     proc = subprocess.run(
         cmd,
@@ -804,15 +804,48 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
         for node in walk_ast(doc):
             if (
                 node.get("kind") in ("RecordDecl", "CXXRecordDecl")
-                and node.get("name") == family.struct_name
+                and node.get("name") == struct_name
                 and node.get("completeDefinition")
             ):
-                fields = []
-                for child in node.get("inner", []):
-                    if child.get("kind") == "FieldDecl":
-                        fields.append((child["name"], child["type"]["qualType"]))
-                return fields
-    raise RuntimeError(f"Could not find AST definition for {family.struct_name}")
+                return node
+    raise RuntimeError(f"Could not find AST definition for {struct_name}")
+
+
+def _public_base_names(node: dict) -> list[str]:
+    names = []
+    for base in node.get("bases", []):
+        if base.get("access") != "public":
+            continue
+        qual_type = base.get("type", {}).get("qualType", "")
+        simple = qual_type.split()[-1].split("::")[-1] if qual_type else ""
+        if simple:
+            names.append(simple)
+    return names
+
+
+def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
+    # Include fields inherited from public base classes that are not themselves
+    # managed families, so a family whose fields live in a shared base (e.g.
+    # BackupEngineOptions : CheckpointOrBackupEngineOptions) still exposes them.
+    # Base fields precede own fields, matching C++ subobject layout. Managed
+    # bases are skipped so each managed family owns exactly its own fields (e.g.
+    # ColumnFamilyOptions does not absorb AdvancedColumnFamilyOptions).
+    fields: list[tuple[str, str]] = []
+    seen_bases: set[str] = set()
+
+    def collect(struct_name: str) -> None:
+        node = _dump_record(struct_name, family.header)
+        for base_name in _public_base_names(node):
+            if base_name in MANAGED_FAMILY_NAMES or base_name in seen_bases:
+                continue
+            seen_bases.add(base_name)
+            collect(base_name)
+        for child in node.get("inner", []):
+            if child.get("kind") == "FieldDecl":
+                fields.append((child["name"], child["type"]["qualType"]))
+
+    collect(family.struct_name)
+    return fields
 
 
 def collect_function_names(root_file: Path, include_re: re.Pattern[str]) -> set[str]:
