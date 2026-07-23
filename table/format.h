@@ -227,6 +227,13 @@ inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
   return version >= 7;
 }
 
+// Incompatible features are stored in checked footer bytes for format_version
+// >= 6. Older readers reject any non-zero feature bits.
+inline constexpr uint64_t kFooterFeatureRequireUserDefinedIndex = uint64_t{1}
+                                                                  << 0;
+inline constexpr uint64_t kKnownFooterFeatures =
+    kFooterFeatureRequireUserDefinedIndex;
+
 // Footer encapsulates the fixed information stored at the tail end of every
 // SST file. In general, it should only include things that cannot go
 // elsewhere under the metaindex block. For example, checksum_type is
@@ -242,6 +249,7 @@ class Footer {
     table_magic_number_ = kNullTableMagicNumber;
     format_version_ = kInvalidFormatVersion;
     base_context_checksum_ = 0;
+    incompatible_features_ = 0;
     metaindex_handle_ = BlockHandle::NullBlockHandle();
     index_handle_ = BlockHandle::NullBlockHandle();
     checksum_type_ = kInvalidChecksumType;
@@ -267,6 +275,12 @@ class Footer {
 
   // See ChecksumModifierForContext()
   uint32_t base_context_checksum() const { return base_context_checksum_; }
+
+  uint64_t incompatible_features() const { return incompatible_features_; }
+
+  bool HasIncompatibleFeature(uint64_t feature) const {
+    return (incompatible_features_ & feature) != 0;
+  }
 
   // Block handle for metaindex block.
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
@@ -316,6 +330,7 @@ class Footer {
   uint64_t table_magic_number_ = kNullTableMagicNumber;
   uint32_t format_version_ = kInvalidFormatVersion;
   uint32_t base_context_checksum_ = 0;
+  uint64_t incompatible_features_ = 0;
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
   int checksum_type_ = kInvalidChecksumType;
@@ -346,7 +361,8 @@ class FooterBuilder {
                uint64_t footer_offset, ChecksumType checksum_type,
                const BlockHandle& metaindex_handle,
                const BlockHandle& index_handle = BlockHandle::NullBlockHandle(),
-               uint32_t base_context_checksum = 0);
+               uint32_t base_context_checksum = 0,
+               uint64_t incompatible_features = 0);
 
   // After Builder, get a Slice for the serialized Footer, backed by this
   // FooterBuilder.

@@ -162,7 +162,7 @@ class PartitionedFilterBlockTest
         BloomFilterPolicy::GetBuilderFromContext(
             FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
-        p_index_builder, partition_size, ts_sz_,
+        p_index_builder, p_index_builder, partition_size, ts_sz_,
         user_defined_timestamps_persisted_, decouple_partitioned_filters);
   }
 
