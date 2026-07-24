@@ -118,7 +118,16 @@ class DataBlockHashIndex {
  public:
   DataBlockHashIndex() : num_buckets_(0) {}
 
-  void Initialize(const char* data, uint16_t size, uint16_t* map_offset);
+  // Parses the serialized hash index at the tail of a data block. `data` points
+  // to the start of the block and `size` is the number of bytes preceding the
+  // hash index footer (i.e. everything up to and including the hash index).
+  // On success, sets `*map_offset` to the offset of the bucket array and
+  // returns true. Returns false (without setting `*map_offset`) if `size` is
+  // not supported or the encoded `num_buckets` is inconsistent with it, which
+  // can happen with corrupted block contents. Callers must treat a false return
+  // as a corrupt block; the debug-only asserts formerly guarding this are
+  // compiled out in release builds, so validation must happen at runtime.
+  bool Initialize(const char* data, size_t size, uint16_t* map_offset);
 
   uint8_t Lookup(const char* data, uint32_t map_offset, const Slice& key) const;
 
