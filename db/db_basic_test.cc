@@ -10,6 +10,9 @@
 #include <cstring>
 
 #include "db/db_test_util.h"
+#include "db/log_writer.h"
+#include "db/version_edit.h"
+#include "file/writable_file_writer.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/filter_policy.h"
@@ -1015,6 +1018,92 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
 
   ASSERT_EQ(0, reopened.load());
   ASSERT_EQ("v", Get("k"));
+}
+
+// Regression test for corrupted atomic group when reuse_manifest_on_open
+// appends after an incomplete atomic group at the MANIFEST tail.
+// Before the fix, last_valid_record_end_ included records from an incomplete
+// trailing atomic group, causing ReopenManifestForAppend to append new records
+// after them. On subsequent recovery the incomplete group followed by new
+// records triggers "corrupted atomic group".
+TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Find the MANIFEST file.
+  std::string manifest_path;
+  {
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& f : files) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        manifest_path = dbname_ + "/" + f;
+        break;
+      }
+    }
+  }
+  ASSERT_FALSE(manifest_path.empty());
+
+  // Append an incomplete atomic group (2 records of a 3-member group) to the
+  // MANIFEST. These are valid log records with correct CRCs but the atomic
+  // group is not complete (missing the third record with remaining_entries=0).
+  {
+    uint64_t file_size;
+    ASSERT_OK(env_->GetFileSize(manifest_path, &file_size));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<FSWritableFile> fs_file;
+    ASSERT_OK(fs->ReopenWritableFile(manifest_path, FileOptions(), &fs_file,
+                                     nullptr));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(fs_file), manifest_path, FileOptions()));
+    log::Writer log_writer(std::move(file_writer), 0, false, false,
+                           kNoCompression, false, file_size % log::kBlockSize);
+
+    // Write 2 records of a 3-member atomic group
+    VersionEdit edit1;
+    edit1.SetLogNumber(0);
+    edit1.SetNextFile(100);
+    edit1.SetLastSequence(100);
+    edit1.MarkAtomicGroup(2);  // remaining_entries=2, expects 3 total
+    std::string record1;
+    ASSERT_TRUE(edit1.EncodeTo(&record1, 0));
+    ASSERT_OK(log_writer.AddRecord(WriteOptions(), record1));
+
+    VersionEdit edit2;
+    edit2.SetLogNumber(0);
+    edit2.SetNextFile(100);
+    edit2.SetLastSequence(100);
+    edit2.MarkAtomicGroup(1);  // remaining_entries=1
+    std::string record2;
+    ASSERT_TRUE(edit2.EncodeTo(&record2, 0));
+    ASSERT_OK(log_writer.AddRecord(WriteOptions(), record2));
+    // Deliberately NOT writing the third record (remaining_entries=0)
+  }
+
+  // Reopen: recovery should succeed (incomplete trailing group is ignored).
+  // With the fix, ReopenManifestForAppend will NOT reuse the MANIFEST because
+  // manifest_last_valid_record_end_ < physical_size (the incomplete group
+  // records are excluded from the valid end).
+  Reopen(options);
+  ASSERT_EQ("v", Get("k"));
+
+  // Write new data to create new MANIFEST records.
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Final reopen: must NOT fail with "corrupted atomic group".
+  Reopen(options);
+  ASSERT_EQ("v", Get("k"));
+  ASSERT_EQ("v2", Get("k2"));
+  Close();
 }
 
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
