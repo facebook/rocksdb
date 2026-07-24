@@ -4744,6 +4744,12 @@ cpp_unittest_wrapper(name="configurable_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="copy_engine_test",
+            srcs=["utilities/copy_engine/copy_engine_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="corruption_test",
             srcs=["db/corruption_test.cc"],
             deps=[":rocksdb_test_lib"],
