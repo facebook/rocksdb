@@ -64,6 +64,8 @@ class CheckpointEngineImpl : public CheckpointEngine {
     copy_options.max_background_operations =
         std::max(1, options_.max_background_operations);
     copy_options.io_buffer_size = options_.io_buffer_size;
+    copy_options.read_bytes_ticker = CHECKPOINT_READ_BYTES;
+    copy_options.write_bytes_ticker = CHECKPOINT_WRITE_BYTES;
     copy_options.info_log = options_.info_log;
     copy_options.thread_name = "rocksdb:ckpt";
     copy_engine_ = std::make_unique<CopyEngine>(std::move(copy_options));
@@ -157,12 +159,14 @@ class SerialFileMover : public CheckpointFileMover {
 class ParallelFileMover : public CheckpointFileMover {
  public:
   ParallelFileMover(CopyEngine* engine, Env* env, bool use_link, bool use_fsync,
-                    RateLimiter* copy_rate_limiter, Logger* info_log)
+                    RateLimiter* copy_rate_limiter, Statistics* stats,
+                    Logger* info_log)
       : engine_(engine),
         env_(env),
         use_link_(use_link),
         use_fsync_(use_fsync),
         copy_rate_limiter_(copy_rate_limiter),
+        stats_(stats),
         info_log_(info_log) {}
 
   Status Link(const std::string& src, const std::string& dst,
@@ -188,7 +192,7 @@ class ParallelFileMover : public CheckpointFileMover {
     ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
     WorkItem w(src, dst, temperature, temperature, /*contents=*/"", env_, env_,
                EnvOptions(), use_fsync_, copy_rate_limiter_, size_limit,
-               /*stats=*/nullptr);
+               stats_);
     copy_futures_.push_back(w.result.get_future());
     engine_->Submit(std::move(w));
     return Status::OK();
@@ -219,7 +223,7 @@ class ParallelFileMover : public CheckpointFileMover {
         // files are linked, so this matches the serial path's info.size bound.
         WorkItem w(p.src, p.dst, p.temperature, p.temperature,
                    /*contents=*/"", env_, env_, EnvOptions(), use_fsync_,
-                   copy_rate_limiter_, /*size_limit=*/0, /*stats=*/nullptr);
+                   copy_rate_limiter_, /*size_limit=*/0, stats_);
         fallback_copies.push_back(w.result.get_future());
         engine_->Submit(std::move(w));
       } else {
@@ -245,6 +249,7 @@ class ParallelFileMover : public CheckpointFileMover {
   bool use_link_;
   bool use_fsync_;
   RateLimiter* copy_rate_limiter_;
+  Statistics* stats_;
   Logger* info_log_;
   std::vector<std::future<WorkItemResult>> copy_futures_;
   std::vector<PendingLink> link_pendings_;
@@ -376,7 +381,7 @@ Status CheckpointImpl::CreateCheckpointImpl(const std::string& checkpoint_dir,
   } else {
     mover = std::make_unique<ParallelFileMover>(
         engine, env, use_link, db_options.use_fsync, copy_rate_limiter,
-        db_options.info_log.get());
+        db_options.statistics.get(), db_options.info_log.get());
   }
 
   // create snapshot directory
