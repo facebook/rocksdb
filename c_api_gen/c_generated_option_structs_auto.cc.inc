@@ -1678,6 +1678,16 @@ unsigned char rocksdb_flushoptions_get_force_atomic_flush(
   return opt->rep.force_atomic_flush;
 }
 
+void rocksdb_flushoptions_set_listener_wait(rocksdb_flushoptions_t* opt,
+                                            unsigned char v) {
+  opt->rep.listener_wait = v;
+}
+
+unsigned char rocksdb_flushoptions_get_listener_wait(
+    rocksdb_flushoptions_t* opt) {
+  return opt->rep.listener_wait;
+}
+
 /* FlushWALOptions */
 
 void rocksdb_flushwaloptions_set_sync(rocksdb_flushwaloptions_t* opt,

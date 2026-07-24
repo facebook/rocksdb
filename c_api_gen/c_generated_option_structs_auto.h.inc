@@ -545,6 +545,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_set_force_atomic_flush(
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_flushoptions_get_force_atomic_flush(rocksdb_flushoptions_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_set_listener_wait(
+    rocksdb_flushoptions_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushoptions_get_listener_wait(
+    rocksdb_flushoptions_t* opt);
+
 /* FlushWALOptions */
 
 extern ROCKSDB_LIBRARY_API void rocksdb_flushwaloptions_set_sync(

@@ -164,6 +164,22 @@ Status DBImpl::TEST_FlushMemTable(ColumnFamilyData* cfd,
   return FlushMemTable(cfd, flush_opts, FlushReason::kTest);
 }
 
+Status DBImpl::TEST_FlushMemTableWithListenerWait(bool allow_write_stall,
+                                                  ColumnFamilyHandle* cfh) {
+  FlushOptions fo;
+  fo.wait = true;
+  fo.listener_wait = true;
+  fo.allow_write_stall = allow_write_stall;
+  ColumnFamilyData* cfd;
+  if (cfh == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(cfh);
+    cfd = cfhi->cfd();
+  }
+  return FlushMemTable(cfd, fo, FlushReason::kTest);
+}
+
 Status DBImpl::TEST_AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     const FlushOptions& flush_opts) {

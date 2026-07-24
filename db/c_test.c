@@ -4531,6 +4531,11 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     rocksdb_flushoptions_set_wait(flush_options, 1);
+    // Ensure the OnFlushCompleted callbacks (which update listener_state) have
+    // finished by the time rocksdb_flush() returns, so the flush_count /
+    // saw_flush_entries_* assertions below are not racy.
+    rocksdb_flushoptions_set_listener_wait(flush_options, 1);
+    CheckCondition(1 == rocksdb_flushoptions_get_listener_wait(flush_options));
 
     rocksdb_put(local_db, local_woptions, "a", 1, "1", 1, &err);
     CheckNoError(err);

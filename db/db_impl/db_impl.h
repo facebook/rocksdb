@@ -1203,6 +1203,13 @@ class DBImpl : public DB {
   Status TEST_FlushMemTable(ColumnFamilyData* cfd,
                             const FlushOptions& flush_opts);
 
+  // Like TEST_FlushMemTable(bool wait, ...), but also sets
+  // FlushOptions::listener_wait so the flush does not return until the
+  // registered EventListener::OnFlushCompleted callbacks for the flushed
+  // memtables have finished running.
+  Status TEST_FlushMemTableWithListenerWait(bool allow_write_stall = false,
+                                            ColumnFamilyHandle* cfh = nullptr);
+
   // Flush (multiple) ColumnFamilyData without using ColumnFamilyHandle. This
   // is because in certain cases, we can flush column families, wait for the
   // flush to complete, but delete the column family handle before the wait
@@ -2518,18 +2525,24 @@ class DBImpl : public DB {
   // memtable pending flush.
   // resuming_from_bg_err indicates whether the caller is attempting to resume
   // from background error.
+  // If wait_for_listener_notifications is true, also wait until the
+  // EventListener::OnFlushCompleted callbacks for the flushed memtables have
+  // finished running (see FlushOptions::listener_wait).
   Status WaitForFlushMemTable(
       ColumnFamilyData* cfd, const uint64_t* flush_memtable_id = nullptr,
       bool resuming_from_bg_err = false,
-      std::optional<FlushReason> flush_reason = std::nullopt) {
+      std::optional<FlushReason> flush_reason = std::nullopt,
+      bool wait_for_listener_notifications = false) {
     return WaitForFlushMemTables({cfd}, {flush_memtable_id},
-                                 resuming_from_bg_err, flush_reason);
+                                 resuming_from_bg_err, flush_reason,
+                                 wait_for_listener_notifications);
   }
   // Wait for memtables to be flushed for multiple column families.
   Status WaitForFlushMemTables(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids,
-      bool resuming_from_bg_err, std::optional<FlushReason> flush_reason);
+      bool resuming_from_bg_err, std::optional<FlushReason> flush_reason,
+      bool wait_for_listener_notifications = false);
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();

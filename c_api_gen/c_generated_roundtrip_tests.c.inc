@@ -463,6 +463,10 @@ static void rocksdb_roundtrip_test_rocksdb_flushoptions(void) {
   CheckCondition(rocksdb_flushoptions_get_force_atomic_flush(obj) == 1);
   rocksdb_flushoptions_set_force_atomic_flush(obj, 0);
   CheckCondition(rocksdb_flushoptions_get_force_atomic_flush(obj) == 0);
+  rocksdb_flushoptions_set_listener_wait(obj, 1);
+  CheckCondition(rocksdb_flushoptions_get_listener_wait(obj) == 1);
+  rocksdb_flushoptions_set_listener_wait(obj, 0);
+  CheckCondition(rocksdb_flushoptions_get_listener_wait(obj) == 0);
   rocksdb_flushoptions_set_wait(obj, 1);
   CheckCondition(rocksdb_flushoptions_get_wait(obj) == 1);
   rocksdb_flushoptions_set_wait(obj, 0);
