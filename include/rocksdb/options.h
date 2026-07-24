@@ -2347,27 +2347,6 @@ struct ReadOptions {
   // in background.
   bool background_purge_on_iterator_cleanup = false;
 
-  // A callback to determine whether relevant keys for this scan exist in a
-  // given table based on the table's properties. The callback is passed the
-  // properties of each table during iteration. If the callback returns false,
-  // the table will not be scanned. This option only affects Iterators and has
-  // no impact on point lookups.
-  //
-  // Iterator creation on read-write DB variants returns InvalidArgument for
-  // safety when the target column family's min_tombstones_for_range_conversion
-  // is non-zero. The reasoning is that a fully visible iterator may create a
-  // range tombstone from tombstones that can be later converted to a range
-  // tombstone. If another iterator tries to filter out the table with the
-  // tombstones, the reader would expect the deletes to no longer apply, but it
-  // actually still does because of the range tombstone that was inserted.
-  // IMPORTANT: min_tombstones_for_range_conversion is a dynamic option, so
-  // disabling it may allow you to use table_filters again, you must account for
-  // the possibility that range tombstones have already been inserted into
-  // either the memtable or other sst files.
-  //
-  // Default: empty (every table will be scanned)
-  std::function<bool(const TableProperties&)> table_filter;
-
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
   // during scans internally based on block cache data when block cache is
   // enabled, iteration upper bound when `iterate_upper_bound != nullptr` and
@@ -2494,6 +2473,37 @@ struct ReadOptions {
   const std::string* request_id = nullptr;
 
   // *** END per-request settings for internal team use only ***
+
+  // NOTE: table_filter logically belongs to the "options only relevant to
+  // iterators or scans" group above, but it is intentionally placed here as the
+  // last data member, outside the normal option groupings. It is the only
+  // member of ReadOptions that is not trivially copyable (it is a
+  // std::function). Keeping it last lets all the trivially copyable members
+  // form a single contiguous block that the copy constructor can copy with one
+  // memcpy, followed by the single std::function copy -- instead of splitting
+  // the trivial members into two separate memcpy runs around a std::function
+  // copy sitting in the middle of the struct.
+  //
+  // A callback to determine whether relevant keys for this scan exist in a
+  // given table based on the table's properties. The callback is passed the
+  // properties of each table during iteration. If the callback returns false,
+  // the table will not be scanned. This option only affects Iterators and has
+  // no impact on point lookups.
+  //
+  // Iterator creation on read-write DB variants returns InvalidArgument for
+  // safety when the target column family's min_tombstones_for_range_conversion
+  // is non-zero. The reasoning is that a fully visible iterator may create a
+  // range tombstone from tombstones that can be later converted to a range
+  // tombstone. If another iterator tries to filter out the table with the
+  // tombstones, the reader would expect the deletes to no longer apply, but it
+  // actually still does because of the range tombstone that was inserted.
+  // IMPORTANT: min_tombstones_for_range_conversion is a dynamic option, so
+  // disabling it may allow you to use table_filters again, you must account for
+  // the possibility that range tombstones have already been inserted into
+  // either the memtable or other sst files.
+  //
+  // Default: empty (every table will be scanned)
+  std::function<bool(const TableProperties&)> table_filter;
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);
