@@ -306,6 +306,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
+        "utilities/copy_engine/copy_engine.cc",
         "utilities/counted_fs.cc",
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
