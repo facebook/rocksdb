@@ -1064,8 +1064,7 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(fs_file), manifest_path, FileOptions()));
     log::Writer log_writer(std::move(file_writer), 0, false, false,
-                           kNoCompression, false,
-                           file_size % log::kBlockSize);
+                           kNoCompression, false, file_size % log::kBlockSize);
 
     // Write 2 records of a 3-member atomic group
     VersionEdit edit1;
