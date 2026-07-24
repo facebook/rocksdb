@@ -26,6 +26,7 @@
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "port/likely.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_dispatcher.h"
@@ -124,7 +125,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       // prefix_same_as_start do not guarantee complete scans, so conversion
       // must stay disabled for the iterator lifetime.
       min_tombstones_for_range_conversion_(
-          active_mem != nullptr && !read_options.table_filter &&
+          active_mem != nullptr && !HasTableFilter(read_options) &&
                   (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
                   HasFullTimestampVisibility(read_options)
               ? mutable_cf_options.min_tombstones_for_range_conversion

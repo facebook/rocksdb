@@ -408,12 +408,16 @@ struct rocksdb_readoptions_t {
   void* table_filter_state = nullptr;
   void (*table_filter_destructor)(void*) = nullptr;
   rocksdb_readoptions_table_filter_cb table_filter_callback = nullptr;
+  // Owns the std::function that rep.table_filter points to. rep.table_filter is
+  // a pointer to a caller-owned std::function, and this struct is that owner.
+  std::function<bool(const TableProperties&)> table_filter_func;
   std::shared_ptr<UserDefinedIndexFactory> table_index_factory;
 
   ~rocksdb_readoptions_t() { ClearTableFilter(); }
 
   void ClearTableFilter() {
-    rep.table_filter = {};
+    rep.table_filter = nullptr;
+    table_filter_func = {};
     if (table_filter_destructor != nullptr) {
       (*table_filter_destructor)(table_filter_state);
     }
@@ -431,11 +435,12 @@ struct rocksdb_readoptions_t {
     if (callback != nullptr) {
       auto cb = table_filter_callback;
       auto filter_state = table_filter_state;
-      rep.table_filter = [cb, filter_state](const TableProperties& props) {
+      table_filter_func = [cb, filter_state](const TableProperties& props) {
         return cb(filter_state,
                   reinterpret_cast<const rocksdb_table_properties_t*>(
                       &props)) != 0;
       };
+      rep.table_filter = &table_filter_func;
     }
   }
 };

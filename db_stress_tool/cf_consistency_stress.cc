@@ -876,6 +876,7 @@ class CfConsistencyStressTest : public StressTest {
 
     std::string upper_bound;
     Slice ub_slice;
+    std::function<bool(const TableProperties&)> table_filter;
 
     ReadOptions ro_copy = readoptions;
     std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
@@ -890,8 +891,9 @@ class CfConsistencyStressTest : public StressTest {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
       if (FLAGS_use_sqfc_for_range_queries) {
-        ro_copy.table_filter =
+        table_filter =
             sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+        ro_copy.table_filter = &table_filter;
       }
     }
 

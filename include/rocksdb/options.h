@@ -2130,6 +2130,14 @@ class MultiScanArgs {
 
 // Options that control read operations
 struct ReadOptions {
+  // NOTE: for all pointer members of ReadOptions (e.g. snapshot, timestamp,
+  // iterate_lower_bound, iterate_upper_bound, table_filter, ...), when the
+  // pointer is non-nullptr the caller retains ownership of the pointed-to
+  // object and is responsible for keeping it alive and unchanged for as long as
+  // the read operation using these options is in progress (which, for an
+  // iterator, is the lifetime of the iterator). This keeps ReadOptions cheap to
+  // copy (internal to RocksDB).
+
   // *** BEGIN options relevant to point lookups as well as scans ***
 
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
@@ -2365,8 +2373,11 @@ struct ReadOptions {
   // the possibility that range tombstones have already been inserted into
   // either the memtable or other sst files.
   //
-  // Default: empty (every table will be scanned)
-  std::function<bool(const TableProperties&)> table_filter;
+  // A nullptr, or a pointer to an empty std::function, means no filtering
+  // (every table will be scanned).
+  //
+  // Default: nullptr (every table will be scanned)
+  const std::function<bool(const TableProperties&)>* table_filter = nullptr;
 
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
   // during scans internally based on block cache data when block cache is

@@ -2584,10 +2584,12 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     ro.iterate_lower_bound = &lower_bound;
   }
 
+  std::function<bool(const TableProperties&)> table_filter;
   if (FLAGS_use_sqfc_for_range_queries && ro.iterate_upper_bound &&
       ro.iterate_lower_bound) {
-    ro.table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
+    table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
         *ro.iterate_lower_bound, *ro.iterate_upper_bound);
+    ro.table_filter = &table_filter;
   }
 
   std::unique_ptr<IterType> iter = new_iter_func(ro);
