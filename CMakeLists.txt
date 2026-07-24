@@ -1023,6 +1023,7 @@ set(SOURCES
         util/xxhash.cc
         utilities/agg_merge/agg_merge.cc
         utilities/backup/backup_engine.cc
+        utilities/copy_engine/copy_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
