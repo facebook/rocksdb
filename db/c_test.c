@@ -189,6 +189,57 @@ static void CheckMultiGetValues(size_t num_keys, char** values,
   }
 }
 
+static void CheckPinnableMultiGetFound(
+    const rocksdb_pinnable_multi_get_t* multi_get, size_t index,
+    const char* expected, size_t expected_size) {
+  const char* value;
+  const char* error;
+  size_t value_size;
+  size_t error_size;
+  int result = rocksdb_pinnable_multi_get_result(
+      multi_get, index, &value, &value_size, &error, &error_size);
+  CheckCondition(result == rocksdb_pinnable_multi_get_found);
+  CheckCondition(value_size == expected_size);
+  CheckCondition(error == NULL);
+  CheckCondition(error_size == 0);
+  if (expected_size > 0) {
+    CheckCondition(value != NULL);
+    CheckCondition(memcmp(value, expected, expected_size) == 0);
+  }
+}
+
+static void CheckPinnableMultiGetNotFound(
+    const rocksdb_pinnable_multi_get_t* multi_get, size_t index) {
+  const char* value;
+  const char* error;
+  size_t value_size;
+  size_t error_size;
+  int result = rocksdb_pinnable_multi_get_result(
+      multi_get, index, &value, &value_size, &error, &error_size);
+  CheckCondition(result == rocksdb_pinnable_multi_get_not_found);
+  CheckCondition(value == NULL);
+  CheckCondition(value_size == 0);
+  CheckCondition(error == NULL);
+  CheckCondition(error_size == 0);
+}
+
+static void CheckPinnableMultiGetError(
+    const rocksdb_pinnable_multi_get_t* multi_get, size_t index,
+    const char* expected) {
+  const char* value;
+  const char* error;
+  size_t value_size;
+  size_t error_size;
+  int result = rocksdb_pinnable_multi_get_result(
+      multi_get, index, &value, &value_size, &error, &error_size);
+  CheckCondition(result == rocksdb_pinnable_multi_get_error);
+  CheckCondition(value == NULL);
+  CheckCondition(value_size == 0);
+  CheckCondition(error != NULL);
+  CheckCondition(error_size == strlen(error));
+  CheckCondition(strstr(error, expected) != NULL);
+}
+
 static void CheckIter(rocksdb_iterator_t* iter, const char* key,
                       const char* val) {
   size_t len;
@@ -832,6 +883,39 @@ static char* MergeOperatorPartialMerge(void* arg, const char* key,
   char* result = malloc(4);
   memcpy(result, "fake", 4);
   return result;
+}
+
+static char* FailingMergeOperatorFullMerge(
+    void* arg, const char* key, size_t key_length, const char* existing_value,
+    size_t existing_value_length, const char* const* operands_list,
+    const size_t* operands_list_length, int num_operands,
+    unsigned char* success, size_t* new_value_length) {
+  (void)arg;
+  (void)key;
+  (void)key_length;
+  (void)existing_value;
+  (void)existing_value_length;
+  (void)operands_list;
+  (void)operands_list_length;
+  (void)num_operands;
+  *success = 0;
+  *new_value_length = 0;
+  return NULL;
+}
+
+static char* FailingMergeOperatorPartialMerge(
+    void* arg, const char* key, size_t key_length,
+    const char* const* operands_list, const size_t* operands_list_length,
+    int num_operands, unsigned char* success, size_t* new_value_length) {
+  (void)arg;
+  (void)key;
+  (void)key_length;
+  (void)operands_list;
+  (void)operands_list_length;
+  (void)num_operands;
+  *success = 0;
+  *new_value_length = 0;
+  return NULL;
 }
 
 static void CheckTxnGet(rocksdb_transaction_t* txn,
@@ -2639,12 +2723,17 @@ int main(int argc, char** argv) {
     // use dbpathname2 as the cf_path for "cf1"
     rocksdb_dbpath_t* dbpath2;
     char dbpathname2[200];
+    rocksdb_mergeoperator_t* failing_merge_operator;
     snprintf(dbpathname2, sizeof(dbpathname2),
              "%s/rocksdb_c_test-%" PRIu64 "-dbpath2", GetTempDir(),
              GetTestId());
     dbpath2 = rocksdb_dbpath_create(dbpathname2, 1024 * 1024);
     const rocksdb_dbpath_t* cf_paths[1] = {dbpath2};
     rocksdb_options_set_cf_paths(cf_options_2, cf_paths, 1);
+    failing_merge_operator = rocksdb_mergeoperator_create(
+        NULL, MergeOperatorDestroy, FailingMergeOperatorFullMerge,
+        FailingMergeOperatorPartialMerge, NULL, MergeOperatorName);
+    rocksdb_options_set_merge_operator(cf_options_2, failing_merge_operator);
 
     const char* cf_names[2] = {"default", "cf1"};
     const rocksdb_options_t* cf_opts[2] = {cf_options_1, cf_options_2};
@@ -3166,6 +3255,95 @@ int main(int argc, char** argv) {
         }
       }
     }
+
+    {
+      rocksdb_slice_t pinned_keys[6] = {{"box", 3},   {"missing", 7},
+                                        {"empty", 5}, {"merge-error", 11},
+                                        {"box", 3},   {"owned", 5}};
+      rocksdb_pinnable_multi_get_t* multi_get;
+      const char* value;
+      const char* error;
+      size_t value_size;
+      size_t error_size;
+      int result;
+
+      rocksdb_put_cf(db, woptions, handles[1], "empty", 5, "", 0, &err);
+      CheckNoError(err);
+      rocksdb_put_cf(db, woptions, handles[1], "merge-error", 11, "base", 4,
+                     &err);
+      CheckNoError(err);
+      rocksdb_merge_cf(db, woptions, handles[1], "merge-error", 11, "operand",
+                       7, &err);
+      CheckNoError(err);
+      rocksdb_put_cf(db, woptions, handles[1], "owned", 5, "before", 6, &err);
+      CheckNoError(err);
+
+      multi_get = rocksdb_batched_multi_get_pinned_cf(db, roptions, handles[1],
+                                                      6, pinned_keys, 0);
+      CheckCondition(rocksdb_pinnable_multi_get_count(multi_get) == 6);
+      CheckPinnableMultiGetFound(multi_get, 0, "c", 1);
+      CheckPinnableMultiGetNotFound(multi_get, 1);
+      CheckPinnableMultiGetFound(multi_get, 2, "", 0);
+      CheckPinnableMultiGetError(multi_get, 3, "Merge operator failed");
+      CheckPinnableMultiGetFound(multi_get, 4, "c", 1);
+      CheckPinnableMultiGetFound(multi_get, 5, "before", 6);
+
+      value = "unchanged";
+      error = "unchanged";
+      value_size = 9;
+      error_size = 9;
+      result = rocksdb_pinnable_multi_get_result(
+          multi_get, 6, &value, &value_size, &error, &error_size);
+      CheckCondition(result == rocksdb_pinnable_multi_get_out_of_bounds);
+      CheckCondition(value == NULL);
+      CheckCondition(value_size == 0);
+      CheckCondition(error == NULL);
+      CheckCondition(error_size == 0);
+
+      result = rocksdb_pinnable_multi_get_result(
+          multi_get, 5, &value, &value_size, &error, &error_size);
+      CheckCondition(result == rocksdb_pinnable_multi_get_found);
+      const char* borrowed_value = value;
+      size_t borrowed_value_size = value_size;
+      result = rocksdb_pinnable_multi_get_result(
+          multi_get, 3, &value, &value_size, &error, &error_size);
+      CheckCondition(result == rocksdb_pinnable_multi_get_error);
+      const char* borrowed_error = error;
+      size_t borrowed_error_size = error_size;
+      rocksdb_put_cf(db, woptions, handles[1], "owned", 5, "after", 5, &err);
+      CheckNoError(err);
+      CheckCondition(borrowed_value_size == 6);
+      CheckCondition(memcmp(borrowed_value, "before", 6) == 0);
+      CheckCondition(borrowed_error_size == strlen(borrowed_error));
+      CheckCondition(strstr(borrowed_error, "Merge operator failed") != NULL);
+      rocksdb_pinnable_multi_get_destroy(multi_get);
+    }
+
+    {
+      rocksdb_slice_t sorted_keys[4] = {
+          {"box", 3}, {"box", 3}, {"empty", 5}, {"missing", 7}};
+      rocksdb_pinnable_multi_get_t* multi_get =
+          rocksdb_batched_multi_get_pinned_cf(db, roptions, handles[1], 4,
+                                              sorted_keys, 1);
+      CheckCondition(rocksdb_pinnable_multi_get_count(multi_get) == 4);
+      CheckPinnableMultiGetFound(multi_get, 0, "c", 1);
+      CheckPinnableMultiGetFound(multi_get, 1, "c", 1);
+      CheckPinnableMultiGetFound(multi_get, 2, "", 0);
+      CheckPinnableMultiGetNotFound(multi_get, 3);
+      rocksdb_pinnable_multi_get_destroy(multi_get);
+
+      multi_get = rocksdb_batched_multi_get_pinned_cf(db, roptions, handles[1],
+                                                      0, sorted_keys, 1);
+      CheckCondition(rocksdb_pinnable_multi_get_count(multi_get) == 0);
+      rocksdb_pinnable_multi_get_destroy(multi_get);
+    }
+
+    rocksdb_delete_cf(db, woptions, handles[1], "empty", 5, &err);
+    CheckNoError(err);
+    rocksdb_delete_cf(db, woptions, handles[1], "merge-error", 11, &err);
+    CheckNoError(err);
+    rocksdb_delete_cf(db, woptions, handles[1], "owned", 5, &err);
+    CheckNoError(err);
 
     {
       unsigned char value_found = 0;
