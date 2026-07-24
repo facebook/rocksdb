@@ -1256,7 +1256,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
     io_s = status_to_io_status(checkpoint.CreateCustomCheckpoint(
         [&](const std::string& /*src_dirname*/, const std::string& /*fname*/,
-            FileType) {
+            FileType, const Temperature /*temperature*/) {
           // custom checkpoint will switch to calling copy_file_cb after it sees
           // NotSupported returned from link_file_cb.
           return IOStatus::NotSupported();

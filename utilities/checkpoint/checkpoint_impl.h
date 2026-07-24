@@ -13,6 +13,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class CopyEngine;
+class RateLimiter;
+
 class CheckpointImpl : public Checkpoint {
  public:
   explicit CheckpointImpl(DB* db) : db_(db) {}
@@ -20,6 +23,14 @@ class CheckpointImpl : public Checkpoint {
   Status CreateCheckpoint(const std::string& checkpoint_dir,
                           uint64_t log_size_for_flush,
                           uint64_t* sequence_number_ptr) override;
+
+  // Shared by the legacy Checkpoint API and CheckpointEngine. engine == nullptr
+  // links/copies serially; otherwise work runs on the pool, awaited before the
+  // staging dir is committed.
+  Status CreateCheckpointImpl(const std::string& checkpoint_dir,
+                              uint64_t log_size_for_flush,
+                              uint64_t* sequence_number_ptr, CopyEngine* engine,
+                              bool use_link, RateLimiter* copy_rate_limiter);
 
   Status ExportColumnFamily(ColumnFamilyHandle* handle,
                             const std::string& export_dir,
@@ -29,7 +40,8 @@ class CheckpointImpl : public Checkpoint {
   // or create.
   Status CreateCustomCheckpoint(
       std::function<Status(const std::string& src_dirname,
-                           const std::string& fname, FileType type)>
+                           const std::string& fname, FileType type,
+                           const Temperature temperature)>
           link_file_cb,
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname, uint64_t size_limit_bytes,

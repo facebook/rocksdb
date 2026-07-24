@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "rocksdb/env.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -80,6 +81,46 @@ struct CreateCheckpointOptions : public CreateCheckpointOrBackupOptions {
   // recent writes when WAL writing is not always enabled. Always flushes for
   // 2PC.
   uint64_t log_size_for_flush = 0;
+};
+
+// A reusable engine for creating checkpoints. Unlike the legacy Checkpoint API
+// (bound to one DB, serial), a CheckpointEngine is opened once from
+// CheckpointEngineOptions, can checkpoint any DB, and copies/hard-links data
+// files across a background thread pool (max_background_operations).
+//
+// Safe to reuse across DBs and concurrent callers; all calls share the one
+// thread pool, so decrease_background_thread_cpu_priority applies pool-wide.
+class CheckpointEngineBase {
+ public:
+  CheckpointEngineBase() = default;
+  virtual ~CheckpointEngineBase() = default;
+  CheckpointEngineBase(const CheckpointEngineBase&) = delete;
+  CheckpointEngineBase& operator=(const CheckpointEngineBase&) = delete;
+  CheckpointEngineBase(CheckpointEngineBase&&) = delete;
+  CheckpointEngineBase& operator=(CheckpointEngineBase&&) = delete;
+
+  // Builds an openable snapshot of source_db under destination_dir (must not
+  // exist). Data files are hard-linked when possible, else copied, across the
+  // pool. sequence_number_ptr, if set, receives a seqno in the checkpoint.
+  virtual IOStatus CreateCheckpoint(
+      DB* source_db, const std::string& destination_dir,
+      uint64_t* sequence_number_ptr = nullptr,
+      const CreateCheckpointOptions& options = {}) = 0;
+
+  // Exports all live SST files of the given column family into destination_dir,
+  // returning their metadata in *out_metadata.
+  virtual IOStatus ExportColumnFamily(
+      DB* source_db, ColumnFamilyHandle* handle,
+      const std::string& destination_dir,
+      ExportImportFilesMetaData** out_metadata,
+      const CreateCheckpointOptions& options = {}) = 0;
+};
+
+class CheckpointEngine : public CheckpointEngineBase {
+ public:
+  // Opens no files yet, so failures are generally configuration errors.
+  static Status Open(const CheckpointEngineOptions& options,
+                     std::unique_ptr<CheckpointEngine>* out_checkpoint_engine);
 };
 
 class Checkpoint {
