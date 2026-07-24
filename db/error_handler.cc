@@ -668,7 +668,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // can generate background errors should be the flush operations
   recovery_error_ = IOStatus::OK();
   recovery_error_.PermitUncheckedError();
-  Status s = db_->ResumeImpl(recover_context_);
+  Status s = db_->ResumeImpl(recover_context_, Env::IOActivity::kFlush);
   if (s.ok()) {
     soft_error_no_bg_work_ = false;
   } else {
@@ -764,7 +764,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
     recovery_error_ = IOStatus::OK();
     retry_count++;
-    Status s = db_->ResumeImpl(context);
+    Status s = db_->ResumeImpl(context, Env::IOActivity::kFlush);
     RecordStats({ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT},
                 {} /* int_histograms */);
     if (s.IsShutdownInProgress() ||

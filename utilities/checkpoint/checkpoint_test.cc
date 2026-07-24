@@ -25,6 +25,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/sst_file_manager.h"
@@ -1539,6 +1540,106 @@ TEST_F(CheckpointTest, BackupWithoutFlushRejectsBlobDirectWrite) {
       << s.ToString();
 
   test::DeleteDir(env_, backup_dir);
+}
+
+namespace {
+// FileSystem wrapper that fails all hard-links, forcing the copy path.
+class NoLinkFileSystem : public FileSystemWrapper {
+ public:
+  explicit NoLinkFileSystem(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "NoLinkFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus LinkFile(const std::string& /*src*/, const std::string& /*dst*/,
+                    const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+    return IOStatus::NotSupported("Hard links not supported");
+  }
+};
+
+}  // namespace
+
+TEST_F(CheckpointTest, CheckpointEngineParallelLink) {
+  // Default FileSystem supports hard links, so files are linked across threads.
+  constexpr int kNumFiles = 8;
+  constexpr int kKeysPerFile = 50;
+  for (int f = 0; f < kNumFiles; ++f) {
+    for (int k = 0; k < kKeysPerFile; ++k) {
+      int id = f * kKeysPerFile + k;
+      ASSERT_OK(Put("key" + std::to_string(id), "value" + std::to_string(id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_));
+
+  Options options = CurrentOptions();
+  options.create_if_missing = false;
+  std::unique_ptr<DB> checkpoint_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &checkpoint_db));
+  if (checkpoint_db == nullptr) {
+    FAIL() << "DB::Open returned a null db";
+  }
+  for (int id = 0; id < kNumFiles * kKeysPerFile; ++id) {
+    std::string value;
+    ASSERT_OK(
+        checkpoint_db->Get(ReadOptions(), "key" + std::to_string(id), &value));
+    ASSERT_EQ("value" + std::to_string(id), value);
+  }
+}
+
+TEST_F(CheckpointTest, CheckpointEngineParallelCopy) {
+  // Links fail NotSupported and fall back to parallel copies.
+  auto no_link_fs = std::make_shared<NoLinkFileSystem>(FileSystem::Default());
+  std::unique_ptr<Env> no_link_env(NewCompositeEnv(no_link_fs));
+
+  Options options = CurrentOptions();
+  options.env = no_link_env.get();
+  Reopen(options);
+
+  constexpr int kNumFiles = 8;
+  constexpr int kKeysPerFile = 50;
+  for (int f = 0; f < kNumFiles; ++f) {
+    for (int k = 0; k < kKeysPerFile; ++k) {
+      int id = f * kKeysPerFile + k;
+      ASSERT_OK(Put("key" + std::to_string(id), "value" + std::to_string(id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_));
+
+  Close();  // before tearing down the env the DB was opened with
+
+  options.env = env_;
+  options.create_if_missing = false;
+  std::unique_ptr<DB> checkpoint_db;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &checkpoint_db));
+  if (checkpoint_db == nullptr) {
+    FAIL() << "DB::Open returned a null db";
+  }
+  for (int id = 0; id < kNumFiles * kKeysPerFile; ++id) {
+    std::string value;
+    ASSERT_OK(
+        checkpoint_db->Get(ReadOptions(), "key" + std::to_string(id), &value));
+    ASSERT_EQ("value" + std::to_string(id), value);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

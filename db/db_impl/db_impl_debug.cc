@@ -37,7 +37,7 @@ Status DBImpl::TEST_SwitchWAL() {
 
 Status DBImpl::TEST_ResumeImpl(DBRecoverContext context) {
   InstrumentedMutexLock l(&mutex_);
-  return ResumeImpl(context);
+  return ResumeImpl(context, Env::IOActivity::kFlush);
 }
 
 uint64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
