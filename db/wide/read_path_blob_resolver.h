@@ -43,9 +43,7 @@ class Version;
 // resolver (ensured by SuperVersion pinning in the caller).
 class ReadPathBlobResolver {
  public:
-  ReadPathBlobResolver(const Version* version, ReadTier read_tier,
-                       bool verify_checksums, bool fill_cache,
-                       Env::IOActivity io_activity,
+  ReadPathBlobResolver(const Version* version, const ReadOptions& read_options,
                        BlobFileCache* blob_file_cache = nullptr,
                        bool allow_write_path_fallback = false);
 
@@ -93,7 +91,10 @@ class ReadPathBlobResolver {
   }
 
  private:
-  VersionBlobFetcher blob_fetcher_;
+  // Owns its ReadOptions: a resolver's lifetime is independent of the caller
+  // that created it (e.g. it may outlive the originating ReadOptions once
+  // returned as part of a lazy result).
+  OwningVersionBlobFetcher blob_fetcher_;
 
   Slice user_key_;
   const std::vector<WideColumn>* columns_ = nullptr;

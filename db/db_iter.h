@@ -276,38 +276,22 @@ class DBIter final : public Iterator {
 
   class BlobReader {
    public:
-    BlobReader(const Version* version, ReadTier read_tier,
-               bool verify_checksums, bool fill_cache,
-               Env::IOActivity io_activity, BlobFileCache* blob_file_cache,
-               bool allow_write_path_fallback)
-        : version_(version),
-          read_tier_(read_tier),
-          verify_checksums_(verify_checksums),
-          fill_cache_(fill_cache),
-          io_activity_(io_activity),
-          blob_file_cache_(blob_file_cache),
-          allow_write_path_fallback_(allow_write_path_fallback) {}
+    BlobReader(const Version* version, const ReadOptions& read_options,
+               BlobFileCache* blob_file_cache, bool allow_write_path_fallback)
+        : blob_fetcher_(version, ReadOptions(read_options), blob_file_cache,
+                        allow_write_path_fallback) {}
 
     const Slice& GetBlobValue() const { return blob_value_; }
     Status RetrieveAndSetBlobValue(const Slice& user_key,
-                                   const Slice& blob_index,
-                                   bool allow_write_path_fallback);
+                                   const Slice& blob_index);
     void ResetBlobValue() { blob_value_.Reset(); }
-    // Create a VersionBlobFetcher with the same read options as this
-    // BlobReader.
-    VersionBlobFetcher CreateBlobFetcher() const;
+    // The blob fetcher backing this reader, for resolving wide-column entity
+    // blob references (the merge path). Valid for this BlobReader's lifetime.
+    const BlobFetcher& blob_fetcher() const { return blob_fetcher_; }
 
    private:
     PinnableSlice blob_value_;
-    const Version* version_;
-    ReadTier read_tier_;
-    bool verify_checksums_;
-    bool fill_cache_;
-    Env::IOActivity io_activity_;
-    // Cache used by the write-path fallback for in-flight direct-write blob
-    // files that are not yet reachable through Version.
-    BlobFileCache* blob_file_cache_;
-    bool allow_write_path_fallback_;
+    OwningVersionBlobFetcher blob_fetcher_;
   };
   struct BlobState {
     BlobReader reader;
@@ -332,9 +316,7 @@ class DBIter final : public Iterator {
     ValueColumnsState(const Version* version, const ReadOptions& read_options,
                       ColumnFamilyData* cfd)
         : entity_blob_resolver_(
-              version, read_options.read_tier, read_options.verify_checksums,
-              read_options.fill_cache, read_options.io_activity,
-              cfd ? cfd->blob_file_cache() : nullptr,
+              version, read_options, cfd ? cfd->blob_file_cache() : nullptr,
               cfd != nullptr && cfd->blob_partition_manager() != nullptr) {}
 
     Slice& value() { return value_; }
@@ -674,6 +656,14 @@ class DBIter final : public Iterator {
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
   IteratorWrapper iter_;
+  // TODO: blob_state_'s BlobReader (whole-value blob reads + the merge entity
+  // path) and value_columns_state_'s ReadPathBlobResolver (lazy per-column
+  // entity resolution) each own a Version-backed blob fetcher with the same
+  // {version, read_options, blob_file_cache, allow_write_path_fallback}, so an
+  // iterator holds two ReadOptions copies. Collapse to a single shared fetcher.
+  // Deferred because the resolver must keep owning its fetcher for the planned
+  // lazy entity read path, where the result outlives the read call and owns the
+  // SuperVersion pin; unifying is best done together with that work.
   DirtyTracked<BlobState> blob_state_;
   ReadCallback* read_callback_;
   // Max visible sequence number. It is normally the snapshot seq unless we have
@@ -720,7 +710,6 @@ class DBIter final : public Iterator {
   DBImpl* trace_db_;
   uint32_t trace_cf_id_;
   bool has_trace_state_;
-  bool allow_blob_write_path_fallback_;
   port::RWMutex* ingest_sst_lock_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;

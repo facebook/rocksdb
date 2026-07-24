@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -44,18 +46,15 @@ class BlobFetcher {
   virtual const ReadOptions& read_options() const = 0;
 };
 
-// The default BlobFetcher: reads through a Version, optionally falling back to
-// direct-write blob files that are not yet manifest-visible. Usable by value.
-class VersionBlobFetcher : public BlobFetcher {
+// Shared implementation of the two Version-backed BlobFetchers below. Reads
+// through a Version, optionally falling back to direct-write blob files that
+// are not yet manifest-visible. Everything except the ReadOptions is stored
+// here; the concrete subclass decides whether it references a caller-owned
+// ReadOptions (VersionBlobFetcher) or owns its own copy
+// (OwningVersionBlobFetcher). FetchBlob reads the options via the virtual
+// read_options() so both storage strategies share one implementation.
+class VersionBlobFetcherBase : public BlobFetcher {
  public:
-  VersionBlobFetcher(const Version* version, const ReadOptions& read_options,
-                     BlobFileCache* blob_file_cache = nullptr,
-                     bool allow_write_path_fallback = false)
-      : version_(version),
-        read_options_(read_options),
-        blob_file_cache_(blob_file_cache),
-        allow_write_path_fallback_(allow_write_path_fallback) {}
-
   // Un-hide the base's Slice-based convenience overload.
   using BlobFetcher::FetchBlob;
 
@@ -64,13 +63,75 @@ class VersionBlobFetcher : public BlobFetcher {
                    PinnableSlice* blob_value,
                    uint64_t* bytes_read) const override;
 
+  // True if this fetcher has enough context to resolve a (non-inlined,
+  // non-same-file) blob reference: either a Version to read through, or the
+  // direct-write fallback (a blob file cache) enabled. Callers that may hold a
+  // null Version (e.g. DBIter) can check this to surface a clean Corruption on
+  // an unexpected blob index instead of dereferencing null in FetchBlob.
+  bool CanResolve() const {
+    return version_ != nullptr ||
+           (allow_write_path_fallback_ && blob_file_cache_ != nullptr);
+  }
+
+ protected:
+  VersionBlobFetcherBase(const Version* version, BlobFileCache* blob_file_cache,
+                         bool allow_write_path_fallback)
+      : version_(version),
+        blob_file_cache_(blob_file_cache),
+        allow_write_path_fallback_(allow_write_path_fallback) {}
+
+  const Version* version_;
+  BlobFileCache* blob_file_cache_;
+  bool allow_write_path_fallback_;
+};
+
+// The default BlobFetcher for transient/stack use: holds a reference to a
+// caller-owned ReadOptions rather than a copy, avoiding a per-fetcher copy of
+// the (growing) ReadOptions on the hot path. The referenced ReadOptions must
+// outlive the fetcher, so this is only appropriate for fetchers whose lifetime
+// is bounded by the caller's (e.g. a stack local per Get / per resolution).
+// Use OwningVersionBlobFetcher for lifetime-independent fetchers.
+class VersionBlobFetcher : public VersionBlobFetcherBase {
+ public:
+  VersionBlobFetcher(const Version* version, const ReadOptions& read_options,
+                     BlobFileCache* blob_file_cache = nullptr,
+                     bool allow_write_path_fallback = false)
+      : VersionBlobFetcherBase(version, blob_file_cache,
+                               allow_write_path_fallback),
+        read_options_(read_options) {}
+
+  // Reject binding to a temporary ReadOptions, which would leave a dangling
+  // reference. Callers that cannot guarantee the ReadOptions outlives the
+  // fetcher must use OwningVersionBlobFetcher instead.
+  VersionBlobFetcher(const Version* version, ReadOptions&& read_options,
+                     BlobFileCache* blob_file_cache = nullptr,
+                     bool allow_write_path_fallback = false) = delete;
+
   const ReadOptions& read_options() const override { return read_options_; }
 
  private:
-  const Version* version_;
+  const ReadOptions& read_options_;
+};
+
+// A BlobFetcher that owns its ReadOptions, for fetchers whose lifetime is
+// independent of the caller that created them (the lazy read-path resolver and
+// compaction). Takes ownership of the ReadOptions by rvalue so ownership
+// transfer is explicit and no hidden copy is made on the way in; later reads
+// never touch caller state. Callers holding a borrowed ReadOptions they cannot
+// move must make the copy explicit (e.g. ReadOptions(read_options)).
+class OwningVersionBlobFetcher : public VersionBlobFetcherBase {
+ public:
+  OwningVersionBlobFetcher(const Version* version, ReadOptions&& read_options,
+                           BlobFileCache* blob_file_cache = nullptr,
+                           bool allow_write_path_fallback = false)
+      : VersionBlobFetcherBase(version, blob_file_cache,
+                               allow_write_path_fallback),
+        read_options_(std::move(read_options)) {}
+
+  const ReadOptions& read_options() const override { return read_options_; }
+
+ private:
   ReadOptions read_options_;
-  BlobFileCache* blob_file_cache_;
-  bool allow_write_path_fallback_;
 };
 
 // A BlobFetcher decorator that resolves same-file ("embedded") blob references
