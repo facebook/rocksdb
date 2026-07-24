@@ -276,6 +276,21 @@ public enum HistogramType {
    */
   OPEN_AND_COMPACT_DB_OPEN_MICROS((byte) 0x4B),
 
+  /**
+   * Time from IODispatcher async read submission until completion callback.
+   */
+  IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS((byte) 0x4C),
+
+  /**
+   * Time IODispatcher spends waiting in FileSystem::Poll().
+   */
+  IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS((byte) 0x4D),
+
+  /**
+   * Time from IODispatcher async read submission until the consumer polls.
+   */
+  IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS((byte) 0x4E),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

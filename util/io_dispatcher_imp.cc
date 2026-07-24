@@ -229,7 +229,25 @@ struct AsyncIOState {
   std::vector<size_t> block_indices;
   std::vector<BlockHandle> blocks;
   FSReadRequest read_req;
+  SystemClock* clock = nullptr;
+  Statistics* statistics = nullptr;
+  uint64_t submit_time_us = 0;
 };
+
+static uint64_t GetIODispatcherNowMicros(SystemClock* clock) {
+  return clock != nullptr ? clock->NowMicros() : 0;
+}
+
+static void RecordIODispatcherTime(Statistics* statistics,
+                                   uint32_t histogram_type,
+                                   uint64_t start_time_us,
+                                   uint64_t end_time_us) {
+  if (statistics != nullptr && start_time_us != 0 &&
+      end_time_us >= start_time_us) {
+    RecordTimeToHistogram(statistics, histogram_type,
+                          end_time_us - start_time_us);
+  }
+}
 
 // ReadSet destructor - clean up IO handles
 // Must call AbortIO before deleting handles to avoid use-after-free when
@@ -455,12 +473,20 @@ bool ReadSet::IsBlockAvailable(size_t block_index) const {
 
 // Poll and process async IO for a specific block
 Status ReadSet::PollAndProcessAsyncIO(
-    const std::shared_ptr<AsyncIOState>& async_state) {
+    std::shared_ptr<AsyncIOState> async_state) {
   auto* rep = job_->table->get_rep();
 
   // Poll for IO completion using FileSystem Poll API
   std::vector<void*> io_handles = {async_state->io_handle};
+  const uint64_t poll_start_time_us =
+      GetIODispatcherNowMicros(async_state->clock);
+  RecordIODispatcherTime(async_state->statistics,
+                         IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
+                         async_state->submit_time_us, poll_start_time_us);
   IOStatus io_s = rep->ioptions.env->GetFileSystem()->Poll(io_handles, 1);
+  RecordIODispatcherTime(
+      async_state->statistics, IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
+      poll_start_time_us, GetIODispatcherNowMicros(async_state->clock));
   if (!io_s.ok()) {
     return io_s;
   }
@@ -496,9 +522,7 @@ Status ReadSet::PollAndProcessAsyncIO(
   DeleteAsyncIOHandle(async_state);
 
   // Remove from map - all blocks in this request have been processed
-  // Store indices in a temporary vector to avoid iterator invalidation
-  std::vector<size_t> indices_to_remove = async_state->block_indices;
-  for (const auto idx : indices_to_remove) {
+  for (const auto idx : async_state->block_indices) {
     async_io_map_.erase(idx);
   }
 
@@ -1152,6 +1176,9 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
         read_scoped_io.read_buffer_requires_cleanup;
     async_state->block_indices = coalesced_block_indices[i];
     async_state->read_req = std::move(read_reqs[i]);
+    async_state->clock = rep->ioptions.clock;
+    async_state->statistics = rep->ioptions.stats;
+    async_state->submit_time_us = GetIODispatcherNowMicros(async_state->clock);
 
     for (const auto idx : coalesced_block_indices[i]) {
       async_state->blocks.emplace_back(job->block_handles[idx]);
@@ -1201,6 +1228,10 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       auto* state = static_cast<AsyncIOState*>(cb_arg);
       state->read_req.result = req.result;
       state->read_req.status = req.status;
+      RecordIODispatcherTime(
+          state->statistics,
+          IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,
+          state->submit_time_us, GetIODispatcherNowMicros(state->clock));
     };
 
     s = rep->file->ReadAsync(
