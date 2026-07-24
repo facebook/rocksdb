@@ -2042,7 +2042,9 @@ class DB {
   // write-batch exists, then iter is positioned at the next write-batch whose
   // start_seq > seq_number.
   //
-  // Returns Status::OK if iterator is valid
+  // Returns Status::OK if iterator is valid. See the comment on
+  // TransactionLogIterator for how to use the iterator.
+  //
   // Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
   // use this api, else the WAL files will get
   // cleared aggressively and the iterator might keep getting invalid before
