@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <future>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <unordered_set>
@@ -25,17 +27,244 @@
 #include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/file_checksum_helper.h"
+#include "utilities/copy_engine/copy_engine.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   *checkpoint_ptr = new CheckpointImpl(db);
+  return Status::OK();
+}
+
+namespace {
+// CheckpointEngine backed by the shared CopyEngine pool; reuses
+// CheckpointImpl's enumeration via CreateCheckpointImpl.
+class CheckpointEngineImpl : public CheckpointEngine {
+ public:
+  explicit CheckpointEngineImpl(const CheckpointEngineOptions& options)
+      : options_(options) {}
+
+  // Spawn the pool once at Open() so it is reused across checkpoints.
+  void Initialize() {
+    // Build a rate limiter from backup_rate_limit if the caller passed a number
+    // instead of a limiter (mirrors BackupEngineImpl).
+    if (options_.backup_rate_limiter == nullptr &&
+        options_.backup_rate_limit > 0) {
+      options_.backup_rate_limiter.reset(
+          NewGenericRateLimiter(options_.backup_rate_limit));
+    }
+    CopyEngineOptions copy_options;
+    copy_options.max_background_operations =
+        std::max(1, options_.max_background_operations);
+    copy_options.io_buffer_size = options_.io_buffer_size;
+    copy_options.read_bytes_ticker = CHECKPOINT_READ_BYTES;
+    copy_options.write_bytes_ticker = CHECKPOINT_WRITE_BYTES;
+    copy_options.info_log = options_.info_log;
+    copy_options.thread_name = "rocksdb:ckpt";
+    copy_engine_ = std::make_unique<CopyEngine>(std::move(copy_options));
+  }
+
+  IOStatus CreateCheckpoint(
+      DB* source_db, const std::string& destination_dir,
+      uint64_t* sequence_number_ptr,
+      const CreateCheckpointOptions& create_options) override {
+    assert(copy_engine_ != nullptr);
+    if (create_options.decrease_background_thread_cpu_priority) {
+      copy_engine_->MaybeDecreaseCpuPriority(
+          create_options.background_thread_cpu_priority);
+    }
+
+    const bool use_link = options_.use_link_file_when_available;
+    CheckpointImpl impl(source_db);
+    return status_to_io_status(impl.CreateCheckpointImpl(
+        destination_dir, create_options.log_size_for_flush, sequence_number_ptr,
+        copy_engine_.get(), use_link, options_.backup_rate_limiter.get()));
+  }
+
+  IOStatus ExportColumnFamily(
+      DB* source_db, ColumnFamilyHandle* handle,
+      const std::string& destination_dir,
+      ExportImportFilesMetaData** out_metadata,
+      const CreateCheckpointOptions& /*options*/) override {
+    // Export runs serially for now; parallelizing it is future work.
+    CheckpointImpl impl(source_db);
+    return status_to_io_status(
+        impl.ExportColumnFamily(handle, destination_dir, out_metadata));
+  }
+
+ private:
+  CheckpointEngineOptions options_;
+  std::unique_ptr<CopyEngine> copy_engine_;
+};
+
+// Stages checkpoint files into the temp dir, hiding the serial-vs-parallel
+// split from CreateCheckpointImpl. Finish() awaits any deferred work and
+// returns the first error.
+class CheckpointFileMover {
+ public:
+  virtual ~CheckpointFileMover() = default;
+
+  // Returning NotSupported makes CreateCustomCheckpoint retry the file via
+  // Copy. temperature is the file's temperature, preserved if a failed link
+  // falls back to a copy.
+  virtual Status Link(const std::string& src, const std::string& dst,
+                      Temperature temperature) = 0;
+
+  virtual Status Copy(const std::string& src, const std::string& dst,
+                      uint64_t size_limit, Temperature temperature) = 0;
+
+  virtual Status Finish() = 0;
+};
+
+// Links/copies inline (legacy Checkpoint behavior); a failed Link() lets
+// CreateCustomCheckpoint fall back to copy. Finish() is a no-op.
+class SerialFileMover : public CheckpointFileMover {
+ public:
+  SerialFileMover(FileSystem* fs, bool use_fsync, Logger* info_log)
+      : fs_(fs), use_fsync_(use_fsync), info_log_(info_log) {}
+
+  Status Link(const std::string& src, const std::string& dst,
+              Temperature /*temperature*/) override {
+    // A failed link falls back to copy_file_cb, which preserves temperature.
+    ROCKS_LOG_INFO(info_log_, "Hard Linking %s", dst.c_str());
+    return fs_->LinkFile(src, dst, IOOptions(), nullptr);
+  }
+
+  Status Copy(const std::string& src, const std::string& dst,
+              uint64_t size_limit, Temperature temperature) override {
+    ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
+    return CopyFile(fs_, src, temperature, dst, temperature, size_limit,
+                    use_fsync_, /*io_tracer=*/nullptr);
+  }
+
+  Status Finish() override { return Status::OK(); }
+
+ private:
+  FileSystem* fs_;
+  bool use_fsync_;
+  Logger* info_log_;
+};
+
+// Enqueues link/copy work on the CopyEngine pool; Finish() awaits it and does
+// the link->copy fallback for FileSystems that cannot hard-link (which costs an
+// extra round-trip per file; the intended warm-storage targets support
+// linking).
+class ParallelFileMover : public CheckpointFileMover {
+ public:
+  ParallelFileMover(CopyEngine* engine, Env* env, bool use_link, bool use_fsync,
+                    RateLimiter* copy_rate_limiter, Statistics* stats,
+                    Logger* info_log)
+      : engine_(engine),
+        env_(env),
+        use_link_(use_link),
+        use_fsync_(use_fsync),
+        copy_rate_limiter_(copy_rate_limiter),
+        stats_(stats),
+        info_log_(info_log) {}
+
+  Status Link(const std::string& src, const std::string& dst,
+              Temperature temperature) override {
+    if (!use_link_) {
+      // Force CreateCustomCheckpoint down its copy path.
+      return Status::NotSupported("Linking disabled");
+    }
+    ROCKS_LOG_INFO(info_log_, "Hard Linking %s", dst.c_str());
+    // Linking moves no data, so the WorkItem carries no temperature; it is kept
+    // in PendingLink for the copy fallback in Finish().
+    WorkItem w(src, dst, Temperature::kUnknown, Temperature::kUnknown,
+               /*contents=*/"", env_, env_, EnvOptions(), use_fsync_,
+               /*rate_limiter=*/nullptr, /*size_limit=*/0, /*stats=*/nullptr);
+    w.type = WorkItemType::Link;
+    link_pendings_.push_back({w.result.get_future(), src, dst, temperature});
+    engine_->Submit(std::move(w));
+    return Status::OK();
+  }
+
+  Status Copy(const std::string& src, const std::string& dst,
+              uint64_t size_limit, Temperature temperature) override {
+    ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
+    WorkItem w(src, dst, temperature, temperature, /*contents=*/"", env_, env_,
+               EnvOptions(), use_fsync_, copy_rate_limiter_, size_limit,
+               stats_);
+    copy_futures_.push_back(w.result.get_future());
+    engine_->Submit(std::move(w));
+    return Status::OK();
+  }
+
+  Status Finish() override {
+    Status result;
+    auto fold = [&result](const IOStatus& io_s) {
+      if (!io_s.ok() && result.ok()) {
+        result = io_s;
+      }
+    };
+    for (auto& f : copy_futures_) {
+      fold(f.get().io_status);
+    }
+    // Await all links even after an error: every submitted WorkItem must finish
+    // before we return, or pool threads could touch the staging dir during
+    // cleanup. NotSupported ones fall back to a copy (still on the pool).
+    std::vector<std::future<WorkItemResult>> fallback_copies;
+    for (auto& p : link_pendings_) {
+      IOStatus link_s = p.future.get().io_status;
+      if (link_s.ok()) {
+        continue;
+      }
+      if (link_s.IsNotSupported()) {
+        ROCKS_LOG_INFO(info_log_, "Copying (link fallback) %s", p.dst.c_str());
+        // size_limit 0 copies the whole file; only immutable (non-trim_to_size)
+        // files are linked, so this matches the serial path's info.size bound.
+        WorkItem w(p.src, p.dst, p.temperature, p.temperature,
+                   /*contents=*/"", env_, env_, EnvOptions(), use_fsync_,
+                   copy_rate_limiter_, /*size_limit=*/0, stats_);
+        fallback_copies.push_back(w.result.get_future());
+        engine_->Submit(std::move(w));
+      } else {
+        fold(link_s);
+      }
+    }
+    for (auto& f : fallback_copies) {
+      fold(f.get().io_status);
+    }
+    return result;
+  }
+
+ private:
+  struct PendingLink {
+    std::future<WorkItemResult> future;
+    std::string src;
+    std::string dst;
+    Temperature temperature = Temperature::kUnknown;
+  };
+
+  CopyEngine* engine_;
+  Env* env_;
+  bool use_link_;
+  bool use_fsync_;
+  RateLimiter* copy_rate_limiter_;
+  Statistics* stats_;
+  Logger* info_log_;
+  std::vector<std::future<WorkItemResult>> copy_futures_;
+  std::vector<PendingLink> link_pendings_;
+};
+}  // namespace
+
+Status CheckpointEngine::Open(
+    const CheckpointEngineOptions& options,
+    std::unique_ptr<CheckpointEngine>* out_checkpoint_engine) {
+  if (out_checkpoint_engine == nullptr) {
+    return Status::InvalidArgument("out_checkpoint_engine must not be null");
+  }
+  auto engine = std::make_unique<CheckpointEngineImpl>(options);
+  engine->Initialize();
+  *out_checkpoint_engine = std::move(engine);
   return Status::OK();
 }
 
@@ -92,9 +321,21 @@ Status Checkpoint::ExportColumnFamily(
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                                         uint64_t log_size_for_flush,
                                         uint64_t* sequence_number_ptr) {
-  DBOptions db_options = db_->GetDBOptions();
+  return CreateCheckpointImpl(checkpoint_dir, log_size_for_flush,
+                              sequence_number_ptr, /*engine=*/nullptr,
+                              /*use_link=*/true, /*copy_rate_limiter=*/nullptr);
+}
 
-  Status file_exists_s = db_->GetEnv()->FileExists(checkpoint_dir);
+Status CheckpointImpl::CreateCheckpointImpl(const std::string& checkpoint_dir,
+                                            uint64_t log_size_for_flush,
+                                            uint64_t* sequence_number_ptr,
+                                            CopyEngine* engine, bool use_link,
+                                            RateLimiter* copy_rate_limiter) {
+  DBOptions db_options = db_->GetDBOptions();
+  Env* env = db_->GetEnv();
+  const auto& fs = db_->GetFileSystem();
+
+  Status file_exists_s = env->FileExists(checkpoint_dir);
   if (file_exists_s.ok()) {
     return Status::InvalidArgument("Directory exists");
   } else if (!file_exists_s.IsNotFound()) {
@@ -133,8 +374,18 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
         " needed before checkpoint creation : " + s.ToString());
   }
 
+  std::unique_ptr<CheckpointFileMover> mover;
+  if (engine == nullptr) {
+    mover = std::make_unique<SerialFileMover>(fs, db_options.use_fsync,
+                                              db_options.info_log.get());
+  } else {
+    mover = std::make_unique<ParallelFileMover>(
+        engine, env, use_link, db_options.use_fsync, copy_rate_limiter,
+        db_options.statistics.get(), db_options.info_log.get());
+  }
+
   // create snapshot directory
-  s = db_->GetEnv()->CreateDir(full_private_path);
+  s = env->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
   if (s.ok()) {
     // enable file deletions
@@ -144,31 +395,33 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     if (s.ok() || s.IsNotSupported()) {
       s = CreateCustomCheckpoint(
           [&](const std::string& src_dirname, const std::string& fname,
-              FileType) {
-            ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s",
-                           fname.c_str());
-            return db_->GetFileSystem()->LinkFile(
-                src_dirname + "/" + fname, full_private_path + "/" + fname,
-                IOOptions(), nullptr);
+              FileType, const Temperature temperature) -> Status {
+            return mover->Link(src_dirname + "/" + fname,
+                               full_private_path + "/" + fname, temperature);
           } /* link_file_cb */,
           [&](const std::string& src_dirname, const std::string& fname,
               uint64_t size_limit_bytes, FileType,
               const std::string& /* checksum_func_name */,
               const std::string& /* checksum_val */,
-              const Temperature temperature) {
-            ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-            return CopyFile(db_->GetFileSystem(), src_dirname + "/" + fname,
-                            temperature, full_private_path + "/" + fname,
-                            temperature, size_limit_bytes, db_options.use_fsync,
-                            nullptr);
+              const Temperature temperature) -> Status {
+            return mover->Copy(src_dirname + "/" + fname,
+                               full_private_path + "/" + fname,
+                               size_limit_bytes, temperature);
           } /* copy_file_cb */,
           [&](const std::string& fname, const std::string& contents, FileType) {
             ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-            return CreateFile(db_->GetFileSystem(),
-                              full_private_path + "/" + fname, contents,
+            return CreateFile(fs, full_private_path + "/" + fname, contents,
                               db_options.use_fsync);
           } /* create_file_cb */,
           &sequence_number, log_size_for_flush);
+
+      // Await any deferred work and fold in the first error before committing.
+      Status finish_s = mover->Finish();
+      if (s.ok()) {
+        s = finish_s;
+      } else {
+        finish_s.PermitUncheckedError();
+      }
 
       // we copied all the files, enable file deletions
       if (disabled_file_deletions) {
@@ -181,16 +434,24 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
   if (s.ok()) {
     // move tmp private backup to real snapshot directory
-    s = db_->GetEnv()->RenameFile(full_private_path, checkpoint_dir);
+    Status rename_s = env->RenameFile(full_private_path, checkpoint_dir);
+    if (!rename_s.ok()) {
+      s = rename_s;
+    }
   }
   if (s.ok()) {
     std::unique_ptr<FSDirectory> checkpoint_directory;
-    s = db_->GetFileSystem()->NewDirectory(checkpoint_dir, IOOptions(),
-                                           &checkpoint_directory, nullptr);
-    if (s.ok() && checkpoint_directory != nullptr) {
-      s = checkpoint_directory->FsyncWithDirOptions(
+    IOStatus new_dir_io_s = fs->NewDirectory(checkpoint_dir, IOOptions(),
+                                             &checkpoint_directory, nullptr);
+    if (new_dir_io_s.ok() && checkpoint_directory != nullptr) {
+      IOStatus fsync_io_s = checkpoint_directory->FsyncWithDirOptions(
           IOOptions(), nullptr,
           DirFsyncOptions(DirFsyncOptions::FsyncReason::kDirRenamed));
+      if (!fsync_io_s.ok()) {
+        s = fsync_io_s;
+      }
+    } else if (!new_dir_io_s.ok()) {
+      s = new_dir_io_s;
     }
   }
 
@@ -218,7 +479,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
 Status CheckpointImpl::CreateCustomCheckpoint(
     std::function<Status(const std::string& src_dirname,
-                         const std::string& src_fname, FileType type)>
+                         const std::string& src_fname, FileType type,
+                         const Temperature temperature)>
         link_file_cb,
     std::function<
         Status(const std::string& src_dirname, const std::string& src_fname,
@@ -276,8 +538,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       }
     } else {
       if (same_fs && !info.trim_to_size) {
-        s = link_file_cb(info.directory, info.relative_filename,
-                         info.file_type);
+        s = link_file_cb(info.directory, info.relative_filename, info.file_type,
+                         info.temperature);
         if (s.IsNotSupported()) {
           same_fs = false;
           s = Status::OK();
