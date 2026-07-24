@@ -10,6 +10,7 @@
 
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/same_file_blob_reader.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"
@@ -109,9 +110,9 @@ void GetContext::MarkKeyMayExist() {
   }
 }
 
-Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
-                                                  const Slice& entity,
-                                                  Cleanable* value_pinner) {
+Status GetContext::SaveWideColumnEntityToPinnable(
+    const Slice& user_key, const Slice& entity, Cleanable* value_pinner,
+    const SameFileBlobReader* same_file_reader) {
   assert(pinnable_val_ != nullptr);
 
   // Fast path: extract the default column without full deserialization. An
@@ -133,13 +134,15 @@ Status GetContext::SaveWideColumnEntityToPinnable(const Slice& user_key,
     }
     return Status::OK();
   }
+  EmbeddedAwareBlobFetcher embedded_fetcher(blob_fetcher_, same_file_reader);
   return WideColumnSerialization::ResolveDefaultColumnBlobReference(
-      value_of_default, user_key, blob_fetcher_, *pinnable_val_);
+      value_of_default, user_key, embedded_fetcher.EffectiveFetcher(),
+      *pinnable_val_);
 }
 
-Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
-                                                 const Slice& entity,
-                                                 Cleanable* value_pinner) {
+Status GetContext::SaveWideColumnEntityToColumns(
+    const Slice& user_key, const Slice& entity, Cleanable* value_pinner,
+    const SameFileBlobReader* same_file_reader) {
   assert(columns_ != nullptr);
 
   // Pin (or copy) the serialized entity as the base backing buffer; this also
@@ -163,13 +166,16 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   // buffers and splice them in, so inline columns keep zero-copy Slices into
   // the pinned entity and no re-serialization is needed. A null blob_fetcher_
   // with blob columns present is reported as Corruption inside the resolver.
+  // For an embedded-blob SST, `same_file_reader` composes an embedded-aware
+  // fetcher so same-file blob columns are pinned zero-copy from this SST too.
+  EmbeddedAwareBlobFetcher embedded_fetcher(blob_fetcher_, same_file_reader);
   WideColumns resolved_columns;
   std::forward_list<PinnableSlice> extra_buffers;
   bool resolved = false;
   status = WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
       PinnableWideColumnsHelper::GetSerializedEntity(*columns_), user_key,
-      blob_fetcher_, nullptr /* prefetch_buffers */, resolved_columns,
-      extra_buffers, resolved, nullptr /* total_bytes_read */,
+      embedded_fetcher.EffectiveFetcher(), nullptr /* prefetch_buffers */,
+      resolved_columns, extra_buffers, resolved, nullptr /* total_bytes_read */,
       nullptr /* num_blobs_resolved */);
   if (status.ok()) {
     assert(resolved);
@@ -181,9 +187,9 @@ Status GetContext::SaveWideColumnEntityToColumns(const Slice& user_key,
   return status;
 }
 
-Status GetContext::PushWideColumnEntityDefaultOperand(const Slice& user_key,
-                                                      const Slice& entity,
-                                                      Cleanable* value_pinner) {
+Status GetContext::PushWideColumnEntityDefaultOperand(
+    const Slice& user_key, const Slice& entity, Cleanable* value_pinner,
+    const SameFileBlobReader* same_file_reader) {
   Slice value_of_default;
   bool is_blob_reference = false;
   Status status = WideColumnSerialization::GetValueOfDefaultColumn(
@@ -196,9 +202,11 @@ Status GetContext::PushWideColumnEntityDefaultOperand(const Slice& user_key,
     return status;
   }
 
+  EmbeddedAwareBlobFetcher embedded_fetcher(blob_fetcher_, same_file_reader);
   PinnableSlice resolved_default;
   status = WideColumnSerialization::ResolveDefaultColumnBlobReference(
-      value_of_default, user_key, blob_fetcher_, resolved_default);
+      value_of_default, user_key, embedded_fetcher.EffectiveFetcher(),
+      resolved_default);
   if (status.ok()) {
     // Resolved value is backed by this stack-local PinnableSlice, so copy it
     // into MergeContext instead of pinning its storage.
@@ -333,7 +341,8 @@ void GetContext::ReportCounters() {
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, bool* matched,
-                           Status* read_status, Cleanable* value_pinner) {
+                           Status* read_status, Cleanable* value_pinner,
+                           const SameFileBlobReader* same_file_reader) {
   assert(matched);
   assert((State() != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
@@ -433,7 +442,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
               if (type == kTypeWideColumnEntity) {
                 const Status s = SaveWideColumnEntityToPinnable(
-                    parsed_key.user_key, unpacked_value, value_pinner);
+                    parsed_key.user_key, unpacked_value, value_pinner,
+                    same_file_reader);
                 if (!s.ok()) {
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
@@ -460,7 +470,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             } else if (columns_ != nullptr) {
               if (type == kTypeWideColumnEntity) {
                 const Status s = SaveWideColumnEntityToColumns(
-                    parsed_key.user_key, unpacked_value, value_pinner);
+                    parsed_key.user_key, unpacked_value, value_pinner,
+                    same_file_reader);
                 if (!s.ok()) {
                   if (s.IsIncomplete()) {
                     MarkKeyMayExist();
@@ -489,7 +500,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               push_operand(blob_value, nullptr);
             } else if (type == kTypeWideColumnEntity) {
               const Status s = PushWideColumnEntityDefaultOperand(
-                  parsed_key.user_key, unpacked_value, value_pinner);
+                  parsed_key.user_key, unpacked_value, value_pinner,
+                  same_file_reader);
               if (!s.ok()) {
                 if (s.IsIncomplete()) {
                   MarkKeyMayExist();
@@ -531,7 +543,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             state_ = kFound;
 
             if (do_merge_) {
-              const Status s = MergeWithWideColumnBaseValue(unpacked_value);
+              const Status s = MergeWithWideColumnBaseValue(unpacked_value,
+                                                            same_file_reader);
               if (!s.ok()) {
                 *read_status = s;
                 return false;
@@ -541,7 +554,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               // API and the current value should be part of
               // merge_context_->operand_list
               const Status s = PushWideColumnEntityDefaultOperand(
-                  parsed_key.user_key, unpacked_value, value_pinner);
+                  parsed_key.user_key, unpacked_value, value_pinner,
+                  same_file_reader);
               if (!s.ok()) {
                 if (s.IsIncomplete()) {
                   MarkKeyMayExist();
@@ -679,18 +693,21 @@ Status GetContext::MergeWithPlainBaseValue(const Slice& value) {
   return PostprocessMerge(s);
 }
 
-Status GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
+Status GetContext::MergeWithWideColumnBaseValue(
+    const Slice& entity, const SameFileBlobReader* same_file_reader) {
   assert(do_merge_);
   assert(pinnable_val_ || columns_);
   assert(!pinnable_val_ || !columns_);
 
   // Resolve V2 entity blob columns if present, since TimedFullMerge only
-  // supports V1 format.
+  // supports V1 format. For an embedded-blob SST, `same_file_reader` composes
+  // an embedded-aware fetcher so same-file blob columns resolve too.
+  EmbeddedAwareBlobFetcher embedded_fetcher(blob_fetcher_, same_file_reader);
   std::string resolved_entity;
   Slice effective_entity;
   Status s_resolve = WideColumnSerialization::ResolveEntityForMerge(
-      entity, user_key_, blob_fetcher_, nullptr /* prefetch_buffers */,
-      resolved_entity, effective_entity);
+      entity, user_key_, embedded_fetcher.EffectiveFetcher(),
+      nullptr /* prefetch_buffers */, resolved_entity, effective_entity);
   if (!s_resolve.ok()) {
     if (s_resolve.IsIncomplete()) {
       MarkKeyMayExist();

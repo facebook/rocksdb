@@ -723,51 +723,11 @@ def iter_json_docs(text: str) -> Iterable[dict]:
         yield obj
 
 
-def _find_clang_binary() -> str:
-    """Return the clang++ binary to use for AST dumping.
-
-    Resolution order:
-      1. a clang token from $CXX -- which may be empty, a single binary, or
-         compiler-launcher-prefixed and/or versioned (e.g. "ccache clang++-21");
-         we use the clang word itself (a bare compiler, not the launcher, since
-         we run -ast-dump rather than compile)
-      2. bare 'clang++'
-      3. versioned fallbacks, newest first
-    Raises RuntimeError if none found.
-    """
-    import os
-    cxx = os.environ.get("CXX", "")
-    for token in cxx.split():
-        if "clang" in token and shutil.which(token):
-            return token
-    for candidate in (
-        "clang++",
-        "clang++-21",
-        "clang++-20",
-        "clang++-19",
-        "clang++-18",
-        "clang++-17",
-        "clang++-16",
-        "clang++-15",
-        "clang++-14",
-        "clang++-13",
-    ):
-        if shutil.which(candidate):
-            return candidate
-    raise RuntimeError(
-        "clang++ not found. Install clang or set CXX to a clang++ binary. "
-        "Alternatively, run tools/c_api_gen/regen_all.py on a machine "
-        "with clang++ and commit the resulting .inc files."
-    )
-
-
-_CLANG_BINARY_CACHE: list[str] = []
-
-
-def get_clang_binary() -> str:
-    if not _CLANG_BINARY_CACHE:
-        _CLANG_BINARY_CACHE.append(_find_clang_binary())
-    return _CLANG_BINARY_CACHE[0]
+# clang++ used for AST dumping. Always supplied via --clang (from CLANG_CXX,
+# resolved once by build_tools/build_detect_platform); this script is a codegen
+# step driven by `make regen-c-api`, not meant to be run by hand, so it does no
+# clang detection of its own.
+_CLANG_BINARY = ""
 
 
 def walk_ast(node: dict) -> Iterable[dict]:
@@ -776,9 +736,27 @@ def walk_ast(node: dict) -> Iterable[dict]:
         yield from walk_ast(child)
 
 
-def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
+_ROCKSDB_NS_PREFIX = "rocksdb::"
+
+
+def _normalize_qual_type(qual_type: str, struct_name: str) -> str:
+    # Older clang (e.g. 15) spells a field's type fully qualified -- with the
+    # ROCKSDB namespace ("rocksdb::ReadTier") and, for enums nested in the struct
+    # being dumped, the enclosing class too ("rocksdb::BlockBasedTableOptions::
+    # IndexType"). Newer clang -- the fbcode/CI toolchain the checked-in output is
+    # generated with -- spells these minimally ("ReadTier", "IndexType"), which is
+    # what the family type tables use. Strip the ROCKSDB namespace and
+    # enclosing-struct qualifiers so field discovery is clang-version-independent
+    # (a no-op on newer clang). Qualifiers for *other* classes (e.g.
+    # "Env::IOPriority") are intentionally preserved.
+    qual_type = qual_type.removeprefix(_ROCKSDB_NS_PREFIX)
+    qual_type = qual_type.removeprefix(f"{struct_name}::")
+    return qual_type
+
+
+def _dump_record(struct_name: str, header: Path) -> dict:
     cmd = [
-        get_clang_binary(),
+        _CLANG_BINARY,
         "-std=c++20",
         "-Wno-pragma-once-outside-header",
         "-I.",
@@ -788,9 +766,9 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
         "-Xclang",
         "-ast-dump=json",
         "-Xclang",
-        f"-ast-dump-filter={family.struct_name}",
+        f"-ast-dump-filter={struct_name}",
         "-fsyntax-only",
-        str(family.header.relative_to(ROOT)),
+        str(header.relative_to(ROOT)),
     ]
     proc = subprocess.run(
         cmd,
@@ -804,15 +782,55 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
         for node in walk_ast(doc):
             if (
                 node.get("kind") in ("RecordDecl", "CXXRecordDecl")
-                and node.get("name") == family.struct_name
+                and node.get("name") == struct_name
                 and node.get("completeDefinition")
             ):
-                fields = []
-                for child in node.get("inner", []):
-                    if child.get("kind") == "FieldDecl":
-                        fields.append((child["name"], child["type"]["qualType"]))
-                return fields
-    raise RuntimeError(f"Could not find AST definition for {family.struct_name}")
+                return node
+    raise RuntimeError(f"Could not find AST definition for {struct_name}")
+
+
+def _public_base_names(node: dict) -> list[str]:
+    names = []
+    for base in node.get("bases", []):
+        if base.get("access") != "public":
+            continue
+        qual_type = base.get("type", {}).get("qualType", "")
+        simple = qual_type.split()[-1].split("::")[-1] if qual_type else ""
+        if simple:
+            names.append(simple)
+    return names
+
+
+def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
+    # Include fields inherited from public base classes that are not themselves
+    # managed families, so a family whose fields live in a shared base (e.g.
+    # BackupEngineOptions : CheckpointOrBackupEngineOptions) still exposes them.
+    # Base fields precede own fields, matching C++ subobject layout. Managed
+    # bases are skipped so each managed family owns exactly its own fields (e.g.
+    # ColumnFamilyOptions does not absorb AdvancedColumnFamilyOptions).
+    fields: list[tuple[str, str]] = []
+    seen_bases: set[str] = set()
+
+    def collect(struct_name: str) -> None:
+        node = _dump_record(struct_name, family.header)
+        for base_name in _public_base_names(node):
+            if base_name in MANAGED_FAMILY_NAMES or base_name in seen_bases:
+                continue
+            seen_bases.add(base_name)
+            collect(base_name)
+        for child in node.get("inner", []):
+            if child.get("kind") == "FieldDecl":
+                fields.append(
+                    (
+                        child["name"],
+                        _normalize_qual_type(
+                            child["type"]["qualType"], struct_name
+                        ),
+                    )
+                )
+
+    collect(family.struct_name)
+    return fields
 
 
 def collect_function_names(root_file: Path, include_re: re.Pattern[str]) -> set[str]:
@@ -1135,7 +1153,8 @@ def auto_header_banner(output_group: OutputGroup) -> list[str]:
         "//  This source code is licensed under both the GPLv2 (found in the",
         "//  COPYING file in the root directory) and Apache 2.0 License",
         "//  (found in the LICENSE.Apache file in the root directory).",
-        "// @generated",
+        # "\x40" is "@" -- escaped so this generator source is not flagged as generated
+        "// \x40generated",
         "// -----------------------------------------------------------------------------",
         "// Auto-generated by tools/c_api_gen/auto_simple_bindings.py.",
         "// DO NOT EDIT THIS FILE DIRECTLY.",
@@ -1270,7 +1289,19 @@ def main() -> int:
         default=BLOCKLIST_PATH,
         help="path to the checked-in auto-binding blocklist JSON",
     )
+    parser.add_argument(
+        "--clang",
+        default="clang++",
+        help=(
+            "clang++ binary used for AST dumping (default: clang++). "
+            "`make regen-c-api` overrides this with CLANG_CXX from "
+            "build_detect_platform."
+        ),
+    )
     args = parser.parse_args()
+
+    global _CLANG_BINARY
+    _CLANG_BINARY = args.clang
 
     blocklist_path = args.blocklist
     if not blocklist_path.is_absolute():

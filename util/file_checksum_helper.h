@@ -14,6 +14,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Converts a 32-bit checksum value (e.g. a CRC32C) to its hex string
+// representation, matching the on-disk/backup-metadata encoding. Shared by the
+// backup and copy engines.
+inline std::string ChecksumInt32ToHex(uint32_t checksum_value) {
+  std::string checksum_str;
+  PutFixed32(&checksum_str, EndianSwapValue(checksum_value));
+  return Slice(checksum_str).ToString(/*hex=*/true);
+}
+
 // This is the class to generate the file checksum based on Crc32. It
 // will be used as the default checksum method for SST file checksum
 class FileChecksumGenCrc32c : public FileChecksumGenerator {

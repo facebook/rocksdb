@@ -77,6 +77,7 @@
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
@@ -245,6 +246,14 @@ DEFINE_string(
     "\tflush - flush the memtable\n"
     "\tingestexternalfile -- Create external SST files and ingest them into "
     "the DB via IngestExternalFile\n"
+    "\tfillembeddedentity -- Create and ingest an SST of wide-column entities "
+    "whose columns are embedded (same-file) blobs; read with readrandomentity "
+    "/ "
+    "multireadentity / readrandom. Requires format_version>=7\n"
+    "\tfillembeddedblob -- Create and ingest an SST of whole-value embedded "
+    "(same-file) blobs; read with readrandom. Requires format_version>=7\n"
+    "\treadrandomentity -- read N times in random order via GetEntity\n"
+    "\tmultireadentity -- read N in random batches via MultiGetEntity\n"
     "\topenandcompact -- Open DB and compact all files to bottommost level, "
     "writing output to separate directory without modifying source DB. "
     "Designed for remote compaction service testing\n"
@@ -1215,6 +1224,30 @@ DEFINE_int32(blob_cache_numshardbits, 6,
 DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
+
+// Embedded (same-file) blob SST options. These are distinct from the Integrated
+// BlobDB options above: embedded blobs are stored in a leading segment of the
+// same block-based SST (a same-file BlobIndex), not in separate blob files.
+// They are produced only by SstFileWriter::OpenWithEmbeddedBlobs and enter the
+// DB via ingestion (see the fillembeddedentity / fillembeddedblob benchmarks),
+// and require block-based table format_version >= 7.
+DEFINE_uint64(
+    embedded_blob_min_size, 2048,
+    "For the fillembeddedentity / fillembeddedblob benchmarks: values "
+    "(or wide-column values) of at least this size are written as "
+    "embedded (same-file) blob records; smaller ones stay inline.");
+
+DEFINE_int32(
+    num_wide_columns, 4,
+    "For the fillembeddedentity benchmark: number of large columns per "
+    "entity, each with a value_size value (an embedded blob when "
+    "value_size >= embedded_blob_min_size).");
+
+DEFINE_int32(num_short_wide_columns, 1,
+             "For the fillembeddedentity benchmark: number of small/inline "
+             "columns per entity (tiny values that stay inline). If >= 1, the "
+             "default column is one of these inline columns; if 0, the default "
+             "column is an embedded blob.");
 
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
@@ -2257,6 +2290,69 @@ class RandomGenerator {
   }
 };
 
+// Small inline wide-column value size for the fillembeddedentity benchmark;
+// kept well below any sensible --embedded_blob_min_size so these columns stay
+// inline.
+static constexpr int kShortWideColumnSize = 16;
+
+// Column names + per-column value sizes for the fillembeddedentity benchmark,
+// computed once and reused for every key (only the values differ per key). See
+// --num_wide_columns / --num_short_wide_columns. Column 0 is the default column
+// (empty name); it is a short/inline column when num_short_wide_columns >= 1
+// and a large (embedded-blob) column otherwise. Names ascend ("" < "s..." <
+// "w...") so the built WideColumns are already sorted as PutEntity requires.
+struct EntityColumnLayout {
+  std::vector<std::string> names;
+  std::vector<int> value_sizes;
+};
+
+static EntityColumnLayout MakeEntityColumnLayout() {
+  const int num_short = std::max(0, FLAGS_num_short_wide_columns);
+  const int num_wide = std::max(0, FLAGS_num_wide_columns);
+
+  EntityColumnLayout layout;
+
+  // Default column (empty name), sorts first.
+  layout.names.emplace_back(kDefaultWideColumnName.data(),
+                            kDefaultWideColumnName.size());
+  layout.value_sizes.push_back(num_short >= 1 ? kShortWideColumnSize
+                                              : static_cast<int>(value_size));
+
+  // Remaining short/inline columns.
+  for (int i = 1; i < num_short; ++i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "s%08d", i);
+    layout.names.emplace_back(buf);
+    layout.value_sizes.push_back(kShortWideColumnSize);
+  }
+
+  // Large (embedded-blob) columns. When there is no inline default column, one
+  // large column has already been consumed by the default column above.
+  const int num_wide_named = num_short >= 1 ? num_wide : num_wide - 1;
+  for (int i = 0; i < num_wide_named; ++i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "w%08d", i);
+    layout.names.emplace_back(buf);
+    layout.value_sizes.push_back(static_cast<int>(value_size));
+  }
+
+  return layout;
+}
+
+// Builds a wide-column entity for one key from `layout`, drawing each column's
+// value from `gen`. The returned Slices reference `layout` (names) and `gen`'s
+// backing buffer (values), which both outlive the immediate PutEntity call.
+static WideColumns MakeWideColumns(const EntityColumnLayout& layout,
+                                   RandomGenerator* gen) {
+  WideColumns columns;
+  columns.reserve(layout.names.size());
+  for (size_t i = 0; i < layout.names.size(); ++i) {
+    columns.emplace_back(Slice(layout.names[i]),
+                         gen->Generate(layout.value_sizes[i]));
+  }
+  return columns;
+}
+
 static void AppendWithSpace(std::string* str, Slice msg) {
   if (msg.empty()) {
     return;
@@ -3232,6 +3328,8 @@ class Benchmark {
   bool report_file_operations_;
   bool use_blob_db_;    // Stacked BlobDB
   bool read_operands_;  // read via GetMergeOperands()
+  bool read_entity_;    // read via GetEntity() (readrandomentity)
+  bool multiread_entity_;  // read via MultiGetEntity() (multireadentity)
   std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
@@ -3738,7 +3836,9 @@ class Benchmark {
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
         report_file_operations_(FLAGS_report_file_operations),
         use_blob_db_(FLAGS_use_blob_db),  // Stacked BlobDB
-        read_operands_(false) {
+        read_operands_(false),
+        read_entity_(false),
+        multiread_entity_(false) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -4017,6 +4117,14 @@ class Benchmark {
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
 
+      // Read-mode selectors are members, so reset them each iteration;
+      // otherwise a mode set by an earlier comma-separated benchmark (e.g.
+      // readrandomentity) would leak into a later one (e.g. a trailing
+      // readrandom).
+      read_operands_ = false;
+      read_entity_ = false;
+      multiread_entity_ = false;
+
       int num_repeat = 1;
       int num_warmup = 0;
       if (!name.empty() && *name.rbegin() == ']') {
@@ -4130,6 +4238,14 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "readrandomentity") {
+        method = &Benchmark::ReadRandom;
+        read_entity_ = true;
+      } else if (name == "multireadentity") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        method = &Benchmark::MultiReadRandom;
+        multiread_entity_ = true;
       } else if (name == "multiscan") {
         fprintf(stderr, "multiscan_stride = %" PRIi64 "\n",
                 FLAGS_multiscan_stride);
@@ -4238,6 +4354,14 @@ class Benchmark {
       } else if (name == "ingestexternalfile") {
         num_threads = 1;
         method = &Benchmark::IngestExternalFile;
+      } else if (name == "fillembeddedentity") {
+        fresh_db = true;
+        num_threads = 1;
+        method = &Benchmark::FillEmbeddedEntity;
+      } else if (name == "fillembeddedblob") {
+        fresh_db = true;
+        num_threads = 1;
+        method = &Benchmark::FillEmbeddedBlob;
       } else if (name == "compactall") {
         CompactAll();
       } else if (name == "compact0") {
@@ -7183,11 +7307,16 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
+    PinnableWideColumns pinnable_columns;
     std::vector<PinnableSlice> pinnable_vals;
     if (read_operands_) {
       // Start off with a small-ish value that'll be increased later if
       // `GetMergeOperands()` tells us it is not large enough.
       pinnable_vals.resize(8);
+    }
+    if (read_entity_ && user_timestamp_size_ > 0) {
+      fprintf(stderr, "readrandomentity does not support user timestamps\n");
+      db_bench_exit(1);
     }
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
@@ -7226,6 +7355,7 @@ class Benchmark {
       }
       Status s;
       pinnable_val.Reset();
+      pinnable_columns.Reset();
       for (size_t i = 0; i < pinnable_vals.size(); ++i) {
         pinnable_vals[i].Reset();
       }
@@ -7255,6 +7385,8 @@ class Benchmark {
               options, cfh, key, pinnable_vals.data(),
               &get_merge_operands_options, &number_of_operands);
         }
+      } else if (read_entity_) {
+        s = db_with_cfh->db->GetEntity(options, cfh, key, &pinnable_columns);
       } else {
         s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
       }
@@ -7265,6 +7397,11 @@ class Benchmark {
         for (size_t i = 0; i < pinnable_vals.size(); ++i) {
           bytes += pinnable_vals[i].size();
           pinnable_vals[i].Reset();
+        }
+        if (read_entity_) {
+          for (const auto& column : pinnable_columns.columns()) {
+            bytes += column.name().size() + column.value().size();
+          }
         }
       } else if (!s.IsNotFound()) {
         // Tolerated IO error: skip this read and continue.
@@ -7291,6 +7428,10 @@ class Benchmark {
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
+    if (multiread_entity_ && user_timestamp_size_ > 0) {
+      fprintf(stderr, "multireadentity does not support user timestamps\n");
+      db_bench_exit(1);
+    }
     int64_t read = 0;
     int64_t bytes = 0;
     int64_t num_multireads = 0;
@@ -7301,6 +7442,14 @@ class Benchmark {
     std::vector<std::string> values(entries_per_batch_);
     PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
     std::unique_ptr<PinnableSlice[]> pin_values_guard(pin_values);
+    // Only allocated for multireadentity (MultiGetEntity); plain
+    // multireadrandom never touches it.
+    PinnableWideColumns* pin_columns = nullptr;
+    std::unique_ptr<PinnableWideColumns[]> pin_columns_guard;
+    if (multiread_entity_) {
+      pin_columns = new PinnableWideColumns[entries_per_batch_];
+      pin_columns_guard.reset(pin_columns);
+    }
     std::vector<Status> stat_list(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       key_guards.push_back(std::unique_ptr<const char[]>());
@@ -7335,7 +7484,28 @@ class Benchmark {
         ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
         options.timestamp = &ts;
       }
-      if (!FLAGS_multiread_batched) {
+      if (multiread_entity_) {
+        db->MultiGetEntity(options, db->DefaultColumnFamily(), keys.size(),
+                           keys.data(), pin_columns, stat_list.data());
+
+        read += entries_per_batch_;
+        num_multireads++;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (stat_list[i].ok()) {
+            bytes += keys[i].size();
+            for (const auto& column : pin_columns[i].columns()) {
+              bytes += column.name().size() + column.value().size();
+            }
+            ++found;
+          } else if (!stat_list[i].IsNotFound()) {
+            // Tolerated IO error: skip this key and continue.
+            HandleBenchmarkIOError(stat_list[i],
+                                   "MultiGetEntity returned an error");
+          }
+          stat_list[i] = Status::OK();
+          pin_columns[i].Reset();
+        }
+      } else if (!FLAGS_multiread_batched) {
         std::vector<Status> statuses = db->MultiGet(options, keys, &values);
         assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
@@ -9828,6 +9998,152 @@ class Benchmark {
              use_file_info ? ", file_info" : "");
     thread->stats.AddMessage(msg);
   }
+
+  // Shared implementation for fillembeddedentity / fillembeddedblob: builds a
+  // single SST of same-file ("embedded") blob records via
+  // SstFileWriter::OpenWithEmbeddedBlobs and ingests it, so the read benchmarks
+  // (readrandomentity / multireadentity / readrandom) can exercise
+  // embedded-blob resolution. In entity mode each key is a wide-column entity
+  // (PutEntity) whose large columns are embedded blobs; in blob mode each key
+  // is a whole value (Put) that becomes an embedded blob when value_size >=
+  // embedded_blob_min_size.
+  void FillEmbedded(ThreadState* thread, bool entity_mode) {
+    DB* db = SelectDB(thread);
+
+    if (FLAGS_format_version < 7) {
+      fprintf(stderr,
+              "fillembedded* requires block-based table format_version >= 7 "
+              "(got %d)\n",
+              FLAGS_format_version);
+      db_bench_exit(1);
+    }
+    if (FLAGS_num_multi_db > 1) {
+      // tmp_dir is derived from FLAGS_db while the ingest target comes from
+      // SelectDB(); with multiple DBs these can diverge. fillembedded* is a
+      // single-DB setup benchmark, so require that here.
+      fprintf(stderr, "fillembedded* does not support num_multi_db > 1\n");
+      db_bench_exit(1);
+    }
+
+    const std::string tmp_dir = FLAGS_db + "/embedded_tmp";
+    Status s = FLAGS_env->CreateDirIfMissing(tmp_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "CreateDirIfMissing(%s) failed: %s\n", tmp_dir.c_str(),
+              s.ToString().c_str());
+      db_bench_exit(1);
+    }
+    const std::string file_path = tmp_dir + "/embedded.sst";
+
+    // Remove the temp SST and its directory; called on every exit path so a
+    // failed run does not leave leftovers behind for the next --db run.
+    auto cleanup_tmp = [&]() {
+      FLAGS_env->DeleteFile(file_path).PermitUncheckedError();
+      FLAGS_env->DeleteDir(tmp_dir).PermitUncheckedError();
+    };
+
+    SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+    embedded_blob_options.min_blob_size = FLAGS_embedded_blob_min_size;
+
+    SstFileWriter sst_file_writer(EnvOptions(), open_options_);
+    s = sst_file_writer.OpenWithEmbeddedBlobs(file_path, embedded_blob_options);
+    if (!s.ok()) {
+      fprintf(stderr, "SstFileWriter::OpenWithEmbeddedBlobs(%s) failed: %s\n",
+              file_path.c_str(), s.ToString().c_str());
+      cleanup_tmp();
+      db_bench_exit(1);
+    }
+
+    RandomGenerator gen;
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    int64_t bytes = 0;
+
+    // Only the entity benchmark needs a column layout (and consults
+    // num_wide_columns / num_short_wide_columns).
+    EntityColumnLayout layout;
+    if (entity_mode) {
+      const int num_short = std::max(0, FLAGS_num_short_wide_columns);
+      const int num_wide = std::max(0, FLAGS_num_wide_columns);
+      if (num_short + num_wide < 1) {
+        fprintf(stderr,
+                "fillembeddedentity requires num_wide_columns + "
+                "num_short_wide_columns >= 1\n");
+        cleanup_tmp();
+        db_bench_exit(1);
+      }
+      layout = MakeEntityColumnLayout();
+    }
+
+    for (int64_t i = 0; i < num_; ++i) {
+      GenerateKeyFromInt(i, num_, &key);
+      if (entity_mode) {
+        WideColumns columns = MakeWideColumns(layout, &gen);
+        s = sst_file_writer.PutEntity(key, columns);
+        if (s.ok()) {
+          bytes += key.size();
+          for (const auto& column : columns) {
+            bytes += column.name().size() + column.value().size();
+          }
+        }
+      } else {
+        Slice value = gen.Generate();
+        s = sst_file_writer.Put(key, value);
+        if (s.ok()) {
+          bytes += key.size() + value.size();
+        }
+      }
+      if (!s.ok()) {
+        sst_file_writer.Finish().PermitUncheckedError();
+        fprintf(stderr, "SstFileWriter write failed: %s\n",
+                s.ToString().c_str());
+        cleanup_tmp();
+        db_bench_exit(1);
+      }
+      thread->stats.FinishedOps(&db_, db, 1, kWrite);
+    }
+
+    s = sst_file_writer.Finish();
+    if (!s.ok()) {
+      fprintf(stderr, "SstFileWriter::Finish(%s) failed: %s\n",
+              file_path.c_str(), s.ToString().c_str());
+      cleanup_tmp();
+      db_bench_exit(1);
+    }
+
+    IngestExternalFileOptions ingest_options;
+    ingest_options.move_files = true;
+    s = db->IngestExternalFile({file_path}, ingest_options);
+    if (!s.ok()) {
+      fprintf(stderr, "IngestExternalFile failed: %s\n", s.ToString().c_str());
+      cleanup_tmp();
+      db_bench_exit(1);
+    }
+    cleanup_tmp();
+
+    thread->stats.AddBytes(bytes);
+    char msg[160];
+    if (entity_mode) {
+      snprintf(msg, sizeof(msg),
+               "(%" PRId64
+               " entities, %d cols [%d inline + %d embedded], "
+               "embedded_blob_min_size=%" PRIu64 ")",
+               num_, FLAGS_num_short_wide_columns + FLAGS_num_wide_columns,
+               FLAGS_num_short_wide_columns, FLAGS_num_wide_columns,
+               FLAGS_embedded_blob_min_size);
+    } else {
+      snprintf(msg, sizeof(msg),
+               "(%" PRId64
+               " values, value_size=%d, "
+               "embedded_blob_min_size=%" PRIu64 ")",
+               num_, FLAGS_value_size, FLAGS_embedded_blob_min_size);
+    }
+    thread->stats.AddMessage(msg);
+  }
+
+  void FillEmbeddedEntity(ThreadState* thread) { FillEmbedded(thread, true); }
+
+  void FillEmbeddedBlob(ThreadState* thread) { FillEmbedded(thread, false); }
+
   void CompactAll() {
     CompactRangeOptions cro;
     cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);

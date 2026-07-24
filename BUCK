@@ -306,6 +306,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
+        "utilities/copy_engine/copy_engine.cc",
         "utilities/counted_fs.cc",
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
@@ -4739,6 +4740,12 @@ cpp_unittest_wrapper(name="compression_test",
 
 cpp_unittest_wrapper(name="configurable_test",
             srcs=["options/configurable_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="copy_engine_test",
+            srcs=["utilities/copy_engine/copy_engine_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
