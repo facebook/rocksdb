@@ -314,6 +314,7 @@ default_params = {
     "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
+    "use_async_db_api": lambda: random.choice([0] * 5 + [1]),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),

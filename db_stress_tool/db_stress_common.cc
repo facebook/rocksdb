@@ -12,6 +12,8 @@
 #include "db_stress_tool/db_stress_common.h"
 
 #include <cmath>
+#include <condition_variable>
+#include <mutex>
 
 #include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
@@ -35,6 +37,83 @@ std::vector<double> sum_probs(100001);
 constexpr int64_t zipf_sum_size = 100000;
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+class BlockingAsyncCallback : public DB::AsyncCallback {
+ public:
+  void OnComplete() override {
+    std::lock_guard<std::mutex> lock(mu_);
+    done_ = true;
+    cv_.notify_one();
+  }
+
+  void Wait() {
+    std::unique_lock<std::mutex> lock(mu_);
+    cv_.wait(lock, [this] { return done_; });
+  }
+
+ private:
+  std::mutex mu_;
+  std::condition_variable cv_;
+  bool done_ = false;
+};
+
+}  // namespace
+
+Status DbStressGet(DB* db, const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value, std::string* timestamp) {
+#if USE_COROUTINES
+  if (FLAGS_use_async_db_api) {
+    BlockingAsyncCallback callback;
+    Status status;
+    db->GetAsync(options, column_family, key, value, timestamp, status,
+                 callback);
+    callback.Wait();
+    return status;
+  }
+#endif  // USE_COROUTINES
+  return db->Get(options, column_family, key, value, timestamp);
+}
+
+Status DbStressGet(DB* db, const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   std::string* value, std::string* timestamp) {
+#if USE_COROUTINES
+  if (FLAGS_use_async_db_api) {
+    BlockingAsyncCallback callback;
+    Status status;
+    db->GetAsync(options, column_family, key, value, timestamp, status,
+                 callback);
+    callback.Wait();
+    return status;
+  }
+#endif  // USE_COROUTINES
+  return db->Get(options, column_family, key, value, timestamp);
+}
+
+Status DbStressGet(DB* db, const ReadOptions& options, const Slice& key,
+                   std::string* value) {
+  return DbStressGet(db, options, db->DefaultColumnFamily(), key, value);
+}
+
+void DbStressMultiGet(DB* db, const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses) {
+#if USE_COROUTINES
+  if (FLAGS_use_async_db_api) {
+    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+    BlockingAsyncCallback callback;
+    db->MultiGetAsync(options, num_keys, column_families.data(), keys, values,
+                      statuses, callback);
+    callback.Wait();
+    return;
+  }
+#endif  // USE_COROUTINES
+  db->MultiGet(options, column_family, num_keys, keys, values, statuses);
+}
 
 // Zipfian distribution is generated based on a pre-calculated array.
 // It should be used before start the stress test.

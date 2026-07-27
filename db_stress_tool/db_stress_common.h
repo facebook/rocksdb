@@ -250,6 +250,7 @@ DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
 DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
+DECLARE_bool(use_async_db_api);
 DECLARE_bool(use_get_entity);
 DECLARE_bool(use_multi_get_entity);
 DECLARE_int32(readpercent);
@@ -844,6 +845,19 @@ bool VerifyIteratorAttributeGroups(
 AttributeGroups GenerateAttributeGroups(
     const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
     const Slice& slice);
+
+Status DbStressGet(DB* db, const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value, std::string* timestamp = nullptr);
+Status DbStressGet(DB* db, const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   std::string* value, std::string* timestamp = nullptr);
+Status DbStressGet(DB* db, const ReadOptions& options, const Slice& key,
+                   std::string* value);
+void DbStressMultiGet(DB* db, const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses);
 
 StressTest* CreateCfConsistencyStressTest(int db_index,
                                           const std::string& db_path,
