@@ -91,6 +91,13 @@ class DbStressRandomAccessFileWrapper : public FSRandomAccessFileOwnerWrapper {
     return target()->ReadAsync(req, options, cb, cb_arg, io_handle, del_fn,
                                dbg);
   }
+
+  void SubmitReadAsync(FSReadRequest& req, const IOOptions& options,
+                       std::function<void(FSReadRequest&)> cb,
+                       IODebugContext* dbg) override {
+    CheckIOActivity(options);
+    target()->SubmitReadAsync(req, options, std::move(cb), dbg);
+  }
 };
 
 class DbStressWritableFileWrapper : public FSWritableFileOwnerWrapper {

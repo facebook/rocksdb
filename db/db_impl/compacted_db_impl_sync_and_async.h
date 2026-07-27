@@ -85,8 +85,8 @@ DEFINE_SYNC_AND_ASYNC(Status, CompactedDBImpl::Get)
   if (s.ok()) {
     assert(handle == nullptr);
     // Use TableReader directly to avoid extra table_cache->Get() overheads
-    s = CO_AWAIT(t->Get)(read_options, lkey.internal_key(), &get_context,
-                         nullptr);
+    s = CO_AWAIT(t->Get, read_options, lkey.internal_key(), &get_context,
+                 nullptr);
   }
   if (!s.ok() && !s.IsNotFound()) {
     CO_RETURN s;
@@ -181,8 +181,8 @@ DEFINE_SYNC_AND_ASYNC(void, CompactedDBImpl::MultiGet)
     if (status.ok()) {
       assert(handle == nullptr);
       // Use TableReader directly to avoid extra table_cache->Get() overheads
-      status = CO_AWAIT(t->Get)(read_options, lkey.internal_key(), &get_context,
-                                nullptr);
+      status = CO_AWAIT(t->Get, read_options, lkey.internal_key(), &get_context,
+                        nullptr);
     }
     if (!status.ok() && !status.IsNotFound()) {
       statuses[i] = status;

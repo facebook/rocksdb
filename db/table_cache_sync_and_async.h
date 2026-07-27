@@ -67,9 +67,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::Get)
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      s = CO_AWAIT(t->Get)(options, k, get_context,
-                           mutable_cf_options.prefix_extractor.get(),
-                           skip_filters);
+      s = CO_AWAIT(t->Get, options, k, get_context,
+                   mutable_cf_options.prefix_extractor.get(), skip_filters);
       get_context->SetReplayLog(nullptr);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       // Couldn't find table in cache and couldn't open it because of no_io.
@@ -169,9 +168,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       UpdateRangeTombstoneSeqnums(options, t, table_range);
     }
     if (s.ok()) {
-      CO_AWAIT(t->MultiGet)
-      (options, &table_range, mutable_cf_options.prefix_extractor.get(),
-       skip_filters);
+      CO_AWAIT(t->MultiGet, options, &table_range,
+               mutable_cf_options.prefix_extractor.get(), skip_filters);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
         Status* status = iter->s;

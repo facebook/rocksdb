@@ -145,11 +145,20 @@ def generate_buck(repo_path, deps_map):
         # always add range_tree, it's only excluded on ppc64, which we don't use internally
         src_mk["RANGE_TREE_SOURCES"] + src_mk["TOOL_LIB_SOURCES"],
         deps=[
+            "//folly:executor",
             "//folly/container:f14_hash",
+            "//folly/coro:baton",
             "//folly/coro:blocking_wait",
             "//folly/coro:collect",
             "//folly/coro:coroutine",
+            "//folly/coro:nothrow",
             "//folly/coro:task",
+            "//folly/executors:io_executor",
+            "//folly/executors:io_thread_pool_executor",
+            "//folly/executors/thread_factory:named_thread_factory",
+            "//folly/io/async:async_base",
+            "//folly/io/async:event_base_manager",
+            "//folly/io/async:io_uring_backend",
             "//folly/synchronization:distributed_mutex",
         ],
         headers=LiteralValue("glob([\"**/*.h\"])")
