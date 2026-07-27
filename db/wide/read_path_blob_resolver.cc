@@ -7,6 +7,8 @@
 
 #include <cassert>
 
+#include "db/blob/blob_fetcher.h"
+#include "db/blob/same_file_blob_reader.h"
 #include "db/version_set.h"
 #include "db/wide/blob_column_resolver_util.h"
 
@@ -21,10 +23,12 @@ ReadPathBlobResolver::ReadPathBlobResolver(const Version* version,
 
 void ReadPathBlobResolver::Reset(
     const Slice& user_key, const std::vector<WideColumn>* columns,
-    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns) {
+    const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+    const SameFileBlobReader* same_file_reader) {
   user_key_ = user_key;
   columns_ = columns;
   blob_columns_ = blob_columns;
+  same_file_reader_ = same_file_reader;
   resolved_cache_.clear();
 }
 
@@ -64,9 +68,16 @@ Status ReadPathBlobResolver::ResolveColumn(size_t column_index,
           constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
           constexpr uint64_t* bytes_read = nullptr;
 
-          status =
-              blob_fetcher_.FetchBlob(user_key_, blob_index, prefetch_buffer,
-                                      new_entry.second.get(), bytes_read);
+          // Route same-file ("embedded") references through the current SST's
+          // SameFileBlobReader when one is set; separate-file references (and
+          // the no-same-file-reader case) go straight to the Version-backed
+          // fetcher. EffectiveFetcher() returns the plain base fetcher when
+          // there is no same-file reader, adding no indirection.
+          EmbeddedAwareBlobFetcher embedded_fetcher(&blob_fetcher_,
+                                                    same_file_reader_);
+          status = embedded_fetcher.EffectiveFetcher()->FetchBlob(
+              user_key_, blob_index, prefetch_buffer, new_entry.second.get(),
+              bytes_read);
           if (!status.ok()) {
             resolved_cache_.pop_back();
           } else {

@@ -77,7 +77,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class Cleanable;
 class FileIngestionHandleImpl;
+class SameFileBlobReader;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
@@ -285,6 +287,10 @@ class DBImpl : public DB {
   Status GetEntity(const ReadOptions& options, const Slice& key,
                    PinnableAttributeGroups* result) override;
 
+  Status GetEntityLazy(const ReadOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       LazyWideColumns* result) override;
+
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
@@ -339,6 +345,11 @@ class DBImpl : public DB {
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       const Slice* keys,
                       PinnableAttributeGroups* results) override;
+
+  void MultiGetEntityLazy(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, size_t num_keys,
+                          const Slice* keys, LazyWideColumnsBatch* result,
+                          Status* statuses, bool sorted_input) override;
 
   void MultiGetEntityWithCallback(
       const ReadOptions& read_options, ColumnFamilyHandle* column_family,
@@ -729,6 +740,24 @@ class DBImpl : public DB {
     PinnableSlice* merge_operands = nullptr;
     GetMergeOperandsOptions* get_merge_operands_options = nullptr;
     int* number_of_operands = nullptr;
+
+    // Lazy wide-column mode (used by GetEntityLazy / MultiGetEntityLazy). When
+    // `lazy_columns_pin` is non-null, the SST point-lookup path leaves a
+    // wide-column entity's blob references *unresolved* (see
+    // GetContext::SaveWideColumnEntityToColumns), so the caller can resolve
+    // them on demand later. On a successful lookup GetImpl then:
+    //   - sets `*lazy_columns_version` to the Version the entity was read from
+    //     (the resolution context for blob references), and
+    //   - transfers an extra SuperVersion reference by registering a cleanup on
+    //     `*lazy_columns_pin`, so the result may outlive this call (as an
+    //     iterator's result does).
+    // The SameFileBlobReader for the SST that held the entity (if any) is
+    // stored in `*lazy_columns_same_file_reader` by the read path, so same-file
+    // ("embedded") references stay resolvable later. All three must be set
+    // together. `columns` must also be set (the entity output).
+    Cleanable* lazy_columns_pin = nullptr;
+    const Version** lazy_columns_version = nullptr;
+    const SameFileBlobReader** lazy_columns_same_file_reader = nullptr;
   };
 
   DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& read_options,
@@ -749,6 +778,17 @@ class DBImpl : public DB {
   DECLARE_SYNC_AND_ASYNC_VIRTUAL(Status, GetImpl, const ReadOptions& options,
                                  const Slice& key,
                                  GetImplOptions& get_impl_options);
+
+  // Shared implementation of GetEntityLazy / MultiGetEntityLazy for a single
+  // key: performs a lazy point lookup for `key` (leaving blob references
+  // unresolved) into `*result`, which takes ownership of a SuperVersion pin so
+  // it may outlive this call. `read_options` must already be finalized (e.g.
+  // io_activity set). Returns OK on success, NotFound (with an empty `*result`)
+  // if there is no entry, or another non-OK status on error. REQUIRES:
+  // max_open_files == -1 has already been validated by the caller.
+  Status GetEntityLazyImpl(const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           LazyWideColumns* result);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,

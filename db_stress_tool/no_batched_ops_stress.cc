@@ -1254,6 +1254,8 @@ class NonBatchedOpsStressTest : public StressTest {
               s.ToString().c_str(), StringToHex(key_str).c_str(), rand_keys[0]);
       thread->shared->SetVerificationFailure();
     }
+
+    MaybeTestGetEntityLazy(thread, read_opts, cfh, key_str);
   }
 
   void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
@@ -1669,6 +1671,14 @@ class NonBatchedOpsStressTest : public StressTest {
                     [&](const Slice& key, PinnableWideColumns* result) {
                       return db_->GetEntity(read_opts_copy, cfh, key, result);
                     });
+
+      std::vector<const WideColumns*> eager_refs(num_keys);
+      for (size_t i = 0; i < num_keys; ++i) {
+        eager_refs[i] =
+            results[i][0].status().ok() ? &results[i][0].columns() : nullptr;
+      }
+      MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
+                                  key_slices.data(), &eager_refs);
     } else {
       // Non-AttributeGroup MultiGetEntity verification
 
@@ -1697,6 +1707,13 @@ class NonBatchedOpsStressTest : public StressTest {
                     [&](const Slice& key, PinnableWideColumns* result) {
                       return db_->GetEntity(read_opts_copy, cfh, key, result);
                     });
+
+      std::vector<const WideColumns*> eager_refs(num_keys);
+      for (size_t i = 0; i < num_keys; ++i) {
+        eager_refs[i] = statuses[i].ok() ? &results[i].columns() : nullptr;
+      }
+      MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
+                                  key_slices.data(), &eager_refs);
     }
   }
 

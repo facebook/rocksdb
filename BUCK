@@ -112,6 +112,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/version_util.cc",
         "db/wal_edit.cc",
         "db/wal_manager.cc",
+        "db/wide/lazy_wide_columns.cc",
         "db/wide/read_path_blob_resolver.cc",
         "db/wide/wide_column_serialization.cc",
         "db/wide/wide_columns.cc",
@@ -4932,6 +4933,12 @@ cpp_unittest_wrapper(name="db_iterator_test",
 
 cpp_unittest_wrapper(name="db_kv_checksum_test",
             srcs=["db/db_kv_checksum_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_lazy_entity_test",
+            srcs=["db/wide/db_lazy_entity_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

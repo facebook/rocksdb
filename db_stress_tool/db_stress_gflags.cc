@@ -965,6 +965,18 @@ DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads.");
 DEFINE_bool(use_multi_get_entity, false,
             "If set, use the MultiGetEntity API for reads.");
 
+DEFINE_int32(
+    lazy_entity_read_one_in, 0,
+    "If greater than 0, then on roughly 1/N of GetEntity / MultiGetEntity "
+    "operations, additionally read the same key(s) via the lazy wide-column "
+    "API "
+    "(GetEntityLazy / MultiGetEntityLazy) under a pinned snapshot and verify "
+    "the "
+    "lazily-resolved columns (a random subset, possibly none) match the eager "
+    "GetEntity result. Only takes effect when open_files == -1 (required by "
+    "the "
+    "lazy API), user_timestamp_size == 0, and not using transactions.");
+
 DEFINE_int32(test_ingest_standalone_range_deletion_one_in, 0,
              "If non-zero, file ingestion flow will test standalone range "
              "deletion file once every N file ingestion operations.");

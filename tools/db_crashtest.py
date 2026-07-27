@@ -239,7 +239,7 @@ default_params = {
     # the random seed, so the same keys are chosen by every run for disallowing
     # overwrites.
     "nooverwritepercent": 1,
-    "open_files": lambda: random.choice([-1, -1, 100, 500000]),
+    "open_files": lambda: random.choice([-1, -1, -1, -1, 100, 500000]),
     "open_files_async": lambda: random.choice([0, 1]),
     "async_wal_precreate": lambda: random.choice([0, 1]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
@@ -316,6 +316,8 @@ default_params = {
     "use_multiget": lambda: random.randint(0, 1),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
+    # NOTE: only takes effect when open_files == -1 (required by the lazy API)
+    "lazy_entity_read_one_in": lambda: random.choice([0, 0, 0, 10, 100]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "max_compaction_trigger_wakeup_seconds": lambda: random.choice([43200, 600, 30]),
     "read_triggered_compaction_threshold": lambda: random.choice([0.0, 0.001, 0.01]),

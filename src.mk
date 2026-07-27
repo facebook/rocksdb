@@ -102,6 +102,7 @@ LIB_SOURCES =                                                   \
   db/version_util.cc                                            \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
+  db/wide/lazy_wide_columns.cc                                   \
   db/wide/read_path_blob_resolver.cc                             \
   db/wide/wide_column_serialization.cc                          \
   db/wide/wide_columns.cc                                       \
@@ -573,6 +574,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
+  db/wide/db_lazy_entity_test.cc                                       \
   db/wide/db_wide_basic_test.cc                                         \
   db/wide/db_wide_blob_direct_write_test.cc                             \
   db/wide/wide_column_serialization_test.cc                             \
