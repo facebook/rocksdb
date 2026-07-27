@@ -81,6 +81,7 @@ class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  private:
   const int num_keys_in_block_;
 };
+
 }  // namespace
 
 static bool enable_io_uring = true;
@@ -3955,6 +3956,20 @@ class DBMultiGetAsyncIOTest
   const std::shared_ptr<Statistics>& statistics() { return statistics_; }
 
  protected:
+  void AssertMultiGetIOBatchSize(uint64_t expected_count,
+                                 uint64_t expected_max) {
+    HistogramData multiget_io_batch_size;
+    statistics()->histogramData(MULTIGET_IO_BATCH_SIZE,
+                                &multiget_io_batch_size);
+    ASSERT_EQ(multiget_io_batch_size.count, expected_count);
+    ASSERT_EQ(multiget_io_batch_size.max, expected_max);
+  }
+
+  bool UseCoroutineRead() const {
+    return use_coroutine_ &&
+           options_.env->GetFileSystem()->GetReadExecutor() != nullptr;
+  }
+
   void PrepareDBForTest() {
 #ifdef ROCKSDB_IOURING_PRESENT
     Reopen(options_);
@@ -3992,20 +4007,17 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   ASSERT_EQ(values[1], "val_l0_" + std::to_string(40));
   ASSERT_EQ(values[2], "val_l0_" + std::to_string(80));
 
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
-  // With async IO, lookups will happen in parallel for each key
 #ifdef ROCKSDB_IOURING_PRESENT
-  if (optimize_multiget_for_io_) {
-    ASSERT_EQ(multiget_io_batch_size.count, 1);
-    ASSERT_EQ(multiget_io_batch_size.max, 3);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  } else if (optimize_multiget_for_io_) {
+    AssertMultiGetIOBatchSize(1, 3);
     ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
   } else {
     // Without Async IO, MultiGet will call MultiRead 3 times, once for each
     // L0 file
-    ASSERT_EQ(multiget_io_batch_size.count, 3);
+    AssertMultiGetIOBatchSize(3, 1);
   }
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
@@ -4025,18 +4037,41 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
 #ifdef ROCKSDB_IOURING_PRESENT
-  // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 3);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+  } else {
+    // A batch of 3 async IOs is expected, one for each overlapping file in L1.
+    AssertMultiGetIOBatchSize(1, 3);
+  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 6 : 3);
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 #endif  // ROCKSDB_IOURING_PRESENT
+}
+
+TEST_P(DBMultiGetAsyncIOTest, SingleGetFromL1UsesCoroutineRead) {
+  int coroutine_read_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync",
+      [&](void*) { ++coroutine_read_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PrepareDBForTest();
+
+  ASSERT_EQ(
+      "val_l1_" + std::to_string(33),
+      Get(Key(33), static_cast<const Snapshot*>(nullptr), use_coroutine_));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  if (UseCoroutineRead()) {
+    ASSERT_GT(coroutine_read_count, 0);
+  } else {
+    ASSERT_EQ(coroutine_read_count, 0);
+  }
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -4079,14 +4114,14 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], Status::IOError().ToString());
 
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
-  // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(2, 1);
+  } else {
+    // A batch of 3 async IOs is expected, one for each overlapping file in L1.
+    AssertMultiGetIOBatchSize(1, 2);
+  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 5 : 2);
 }
 #endif  // ROCKSDB_IOURING_PRESENT
 
@@ -4105,16 +4140,15 @@ TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
 #ifdef ROCKSDB_IOURING_PRESENT
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
   // Since the first MultiGet key is the last key in a file, the MultiGet is
   // expected to lookup in that file first, before moving on to other files.
   // So the first file lookup will issue one async read, and the next lookup
   // will lookup 2 files in parallel and issue 2 async reads
-  ASSERT_EQ(multiget_io_batch_size.count, 2);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+  } else {
+    AssertMultiGetIOBatchSize(2, 2);
+  }
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4133,15 +4167,15 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
 #ifdef ROCKSDB_IOURING_PRESENT
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
   // There are 2 keys in L1 in twp separate files, and 1 in L2. With
   // optimize_multiget_for_io, all three lookups will happen in parallel.
   // Otherwise, the L2 lookup will happen after L1.
-  ASSERT_EQ(multiget_io_batch_size.count, optimize_multiget_for_io_ ? 1 : 2);
-  ASSERT_EQ(multiget_io_batch_size.max, optimize_multiget_for_io_ ? 3 : 2);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+  } else {
+    AssertMultiGetIOBatchSize(optimize_multiget_for_io_ ? 1 : 2,
+                              optimize_multiget_for_io_ ? 3 : 2);
+  }
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4159,8 +4193,12 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
 
 #ifdef ROCKSDB_IOURING_PRESENT
-  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+  // Bloom filters in L0/L1 avoid the coroutine calls in those levels. The
+  // coroutine path counts every per-file MultiGetFromSST coroutine (including
+  // serial reads), whereas the async_io path counts only the parallel overlap
+  // batch, so the coroutine path observes one more.
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 3 : 2);
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 #endif  // ROCKSDB_IOURING_PRESENT
@@ -4223,7 +4261,13 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
 
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(async_read_bytes.count, 0);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  const uint64_t coroutine_count =
+      statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT);
+  if (UseCoroutineRead()) {
+    ASSERT_GT(coroutine_count, 0);
+  } else {
+    ASSERT_EQ(coroutine_count, 0);
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,

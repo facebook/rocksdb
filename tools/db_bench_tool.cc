@@ -43,6 +43,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
+#include "env/composite_env_wrapper.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
@@ -108,6 +109,14 @@
 #ifdef OS_WIN
 #include <io.h>  // open/close
 #endif
+
+#if USE_COROUTINES
+#include "folly/coro/Baton.h"
+#include "folly/coro/Task.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/futures/Future.h"
+#include "folly/io/async/EventBase.h"
+#endif  // USE_COROUTINES
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -193,6 +202,7 @@ DEFINE_string(
     "\treadtocache   -- 1 thread reading database sequentially\n"
     "\treadreverse   -- read N times in reverse order\n"
     "\treadrandom    -- read N times in random order\n"
+    "\treadrandomcoroutine -- read N times in random order using async Get\n"
     "\treadmissing   -- read N missing keys in random order\n"
     "\treadwhilewriting      -- 1 writer, N threads doing random "
     "reads\n"
@@ -463,7 +473,8 @@ DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
               "num * exp(-r) where r is uniform number from 0 to this value. "
               "The larger the number is, the more skewed the reads are. "
-              "Only used in readrandom and multireadrandom benchmarks.");
+              "Only used in readrandom, readrandomcoroutine, multireadrandom, "
+              "and multireadrandomcoroutine benchmarks.");
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
@@ -1968,6 +1979,12 @@ DEFINE_bool(avoid_flush_during_shutdown,
 DEFINE_int64(multiread_stride, 0,
              "Stride length for the keys in a MultiGet batch");
 DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
+DEFINE_int32(coro_jobs_per_thread, 1,
+             "For readrandomcoroutine and multireadrandomcoroutine: number of "
+             "concurrent coroutine jobs per executor thread. Each job does the "
+             "same work as one benchmark thread; the executor has -threads "
+             "threads. Values > 1 over-subscribe so a job whose IO is in "
+             "flight yields its thread to another job.");
 
 DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
@@ -3326,9 +3343,9 @@ class Benchmark {
   int64_t readwrites_;
   int64_t merge_keys_;
   bool report_file_operations_;
-  bool use_blob_db_;    // Stacked BlobDB
-  bool read_operands_;  // read via GetMergeOperands()
-  bool read_entity_;    // read via GetEntity() (readrandomentity)
+  bool use_blob_db_;       // Stacked BlobDB
+  bool read_operands_;     // read via GetMergeOperands()
+  bool read_entity_;       // read via GetEntity() (readrandomentity)
   bool multiread_entity_;  // read via MultiGetEntity() (multireadentity)
   std::vector<std::string> keys_;
 
@@ -4232,12 +4249,28 @@ class Benchmark {
                   entries_per_batch_);
         }
         method = &Benchmark::ReadRandom;
+      } else if (name == "readrandomcoroutine") {
+        fprintf(stderr, "read executor pool size (threads) = %d\n",
+                FLAGS_threads > 0 ? FLAGS_threads : 1);
+        // A single db_bench driver thread issues concurrent async Get calls
+        // onto the configured read executor.
+        num_threads = 1;
+        method = &Benchmark::ReadRandomCoroutine;
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
       } else if (name == "multireadrandom") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "multireadrandomcoroutine") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        fprintf(stderr, "read executor pool size (threads) = %d\n",
+                FLAGS_threads > 0 ? FLAGS_threads : 1);
+        // A single db_bench driver thread issues concurrent async MultiGet
+        // calls onto the configured read executor.
+        num_threads = 1;
+        method = &Benchmark::MultiReadRandomCoroutine;
       } else if (name == "readrandomentity") {
         method = &Benchmark::ReadRandom;
         read_entity_ = true;
@@ -7553,6 +7586,281 @@ class Benchmark {
              read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
+  }
+
+#if USE_COROUTINES
+  folly::IOExecutor* GetReadExecutorForCoroutineBenchmark(
+      const char* benchmark_name, int pool_threads) {
+    Env* env =
+        open_options_.env != nullptr ? open_options_.env : Env::Default();
+    auto fs = env->GetFileSystem();
+    if (fs != nullptr) {
+      fs->SetReadIOExecutorThreads(pool_threads);
+    }
+    auto* read_executor = fs != nullptr ? fs->GetReadExecutor() : nullptr;
+    if (read_executor == nullptr) {
+      fprintf(stderr,
+              "%s requires a read executor available from the configured "
+              "FileSystem\n",
+              benchmark_name);
+      ErrorExit();
+    }
+    return read_executor;
+  }
+
+  struct AsyncAwaitCallback : public DB::AsyncCallback {
+    void OnComplete() override { baton.post(); }
+
+    folly::coro::Baton baton;
+  };
+
+  folly::coro::Task<Status> AwaitGetAsync(DB* db, const ReadOptions& options,
+                                          ColumnFamilyHandle* cfh,
+                                          const Slice& key,
+                                          PinnableSlice* value,
+                                          std::string* timestamp) {
+    AsyncAwaitCallback callback;
+    Status status;
+    db->GetAsync(options, cfh, key, value, timestamp, status, callback);
+    co_await callback.baton;
+    co_return status;
+  }
+
+  folly::coro::Task<void> AwaitMultiGetAsync(
+      DB* db, const ReadOptions& options, size_t num_keys,
+      ColumnFamilyHandle** column_families, const Slice* keys,
+      PinnableSlice* values, Status* statuses) {
+    AsyncAwaitCallback callback;
+    db->MultiGetAsync(options, num_keys, column_families, keys, values,
+                      statuses, callback);
+    co_await callback.baton;
+    co_return;
+  }
+
+  folly::coro::Task<void> ReadRandomCoroutineJob(
+      uint64_t seed, int64_t ops, std::atomic<int64_t>* total_ops,
+      std::atomic<int64_t>* total_found, std::atomic<int64_t>* total_bytes) {
+    Random64 rng(seed);
+    ReadOptions options = read_options_;
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    PinnableSlice pinnable_val;
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
+
+    int64_t job_ops = 0;
+    int64_t job_found = 0;
+    int64_t job_bytes = 0;
+    for (int64_t done = 0; done < ops; ++done) {
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(rng.Next());
+      const int64_t key_rand = GetRandomKey(&rng);
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+
+      std::string ts_ret;
+      std::string* ts_ptr = nullptr;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->GetTimestampForRead(rng, ts_guard.get());
+        options.timestamp = &ts;
+        ts_ptr = &ts_ret;
+      }
+
+      pinnable_val.Reset();
+      ColumnFamilyHandle* cfh;
+      if (FLAGS_num_column_families > 1) {
+        cfh = db_with_cfh->GetCfh(key_rand);
+      } else {
+        cfh = db_with_cfh->db->DefaultColumnFamily();
+      }
+
+      Status s = co_await AwaitGetAsync(db_with_cfh->db, options, cfh, key,
+                                        &pinnable_val, ts_ptr);
+      ++job_ops;
+      if (s.ok()) {
+        ++job_found;
+        job_bytes += key.size() + pinnable_val.size() + user_timestamp_size_;
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "GetAsync returned an error: %s\n",
+                s.ToString().c_str());
+        abort();
+      }
+    }
+
+    total_ops->fetch_add(job_ops, std::memory_order_relaxed);
+    total_found->fetch_add(job_found, std::memory_order_relaxed);
+    total_bytes->fetch_add(job_bytes, std::memory_order_relaxed);
+    co_return;
+  }
+
+  // One coroutine "job": mirrors a single multireadrandom thread -- a loop of
+  // batched async MultiGet reads -- but as a coroutine, so it yields its
+  // executor thread while its IO is in flight. Per-job buffers and RNG mean
+  // jobs share no mutable state; results are folded into the shared counters.
+  folly::coro::Task<void> MultiGetAsyncCoroutineJob(
+      DB* db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
+      std::atomic<int64_t>* total_ops, std::atomic<int64_t>* total_found,
+      std::atomic<int64_t>* total_bytes) {
+    Random64 rng(seed);
+    ReadOptions options = read_options_;
+    std::vector<std::unique_ptr<const char[]>> key_guards(entries_per_batch_);
+    std::vector<Slice> keys(entries_per_batch_);
+    for (int64_t i = 0; i < entries_per_batch_; ++i) {
+      keys[i] = AllocateKey(&key_guards[i]);
+    }
+    std::vector<ColumnFamilyHandle*> cfs(entries_per_batch_, cfh);
+    std::unique_ptr<PinnableSlice[]> values(
+        new PinnableSlice[entries_per_batch_]);
+    std::vector<Status> statuses(entries_per_batch_);
+
+    int64_t job_ops = 0;
+    int64_t job_found = 0;
+    int64_t job_bytes = 0;
+    for (int64_t done = 0; done < ops; done += entries_per_batch_) {
+      for (int64_t i = 0; i < entries_per_batch_; ++i) {
+        GenerateKeyFromInt(GetRandomKey(&rng), FLAGS_num, &keys[i]);
+        statuses[i] = Status::OK();
+        values[i].Reset();
+      }
+      co_await AwaitMultiGetAsync(db, options, entries_per_batch_, cfs.data(),
+                                  keys.data(), values.get(), statuses.data());
+      job_ops += entries_per_batch_;
+      for (int64_t i = 0; i < entries_per_batch_; ++i) {
+        if (statuses[i].ok()) {
+          job_bytes += keys[i].size() + values[i].size();
+          ++job_found;
+        } else if (!statuses[i].IsNotFound()) {
+          fprintf(stderr, "MultiGetAsync returned an error: %s\n",
+                  statuses[i].ToString().c_str());
+          abort();
+        }
+      }
+    }
+    total_ops->fetch_add(job_ops, std::memory_order_relaxed);
+    total_found->fetch_add(job_found, std::memory_order_relaxed);
+    total_bytes->fetch_add(job_bytes, std::memory_order_relaxed);
+    co_return;
+  }
+#endif  // USE_COROUTINES
+
+  // Coroutine variant of ReadRandom. A single db_bench driver thread launches
+  // (-coro_jobs_per_thread * -threads) async Get jobs onto the FileSystem
+  // read executor and waits for them all.
+  void ReadRandomCoroutine(ThreadState* thread) {
+#if USE_COROUTINES
+    const int pool_threads = FLAGS_threads > 0 ? FLAGS_threads : 1;
+    const int jobs_per_thread =
+        FLAGS_coro_jobs_per_thread > 0 ? FLAGS_coro_jobs_per_thread : 1;
+    const int num_jobs = jobs_per_thread * pool_threads;
+    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
+        "readrandomcoroutine", pool_threads);
+    DB* db = SelectDB(thread);
+
+    std::atomic<int64_t> total_ops{0};
+    std::atomic<int64_t> total_found{0};
+    std::atomic<int64_t> total_bytes{0};
+
+    // Spread reads_ * pool_threads ops across the jobs
+    const int64_t total_reads = reads_ * pool_threads;
+    if (total_reads % num_jobs != 0) {
+      fprintf(stderr,
+              "readrandomcoroutine requires reads * threads to be divisible "
+              "by coro_jobs_per_thread * threads\n");
+      ErrorExit();
+    }
+    const int64_t ops = total_reads / num_jobs;
+
+    std::vector<folly::SemiFuture<folly::Unit>> futures;
+    futures.reserve(num_jobs);
+    for (int j = 0; j < num_jobs; ++j) {
+      futures.push_back(
+          folly::coro::co_withExecutor(
+              folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
+              ReadRandomCoroutineJob(thread->rand.Next(), ops, &total_ops,
+                                     &total_found, &total_bytes))
+              .start());
+    }
+    for (auto& f : futures) {
+      std::move(f).get();
+    }
+
+    thread->stats.FinishedOps(nullptr, db, total_ops.load(), kRead);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             total_found.load(), total_ops.load());
+    thread->stats.AddBytes(total_bytes.load());
+    thread->stats.AddMessage(msg);
+#else   // USE_COROUTINES
+    (void)thread;
+    fprintf(stderr,
+            "readrandomcoroutine requires a coroutine-enabled build "
+            "(USE_COROUTINES)\n");
+    ErrorExit();
+#endif  // USE_COROUTINES
+  }
+
+  // Coroutine variant of MultiReadRandom. A single db_bench driver thread
+  // launches (-coro_jobs_per_thread * -threads) async MultiGet jobs onto the
+  // FileSystem read executor and waits for them all. Because each job suspends
+  // while its IO is in flight, jobs over-subscribe the executor and keep its
+  // threads busy.
+  void MultiReadRandomCoroutine(ThreadState* thread) {
+#if USE_COROUTINES
+    const int pool_threads = FLAGS_threads > 0 ? FLAGS_threads : 1;
+    const int jobs_per_thread =
+        FLAGS_coro_jobs_per_thread > 0 ? FLAGS_coro_jobs_per_thread : 1;
+    const int num_jobs = jobs_per_thread * pool_threads;
+    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
+        "multireadrandomcoroutine", pool_threads);
+    DB* db = SelectDB(thread);
+    ColumnFamilyHandle* cfh = db->DefaultColumnFamily();
+
+    std::atomic<int64_t> total_ops{0};
+    std::atomic<int64_t> total_found{0};
+    std::atomic<int64_t> total_bytes{0};
+
+    const int64_t total_reads = reads_ * pool_threads;
+    if (total_reads % num_jobs != 0) {
+      fprintf(stderr,
+              "multireadrandomcoroutine requires reads * threads to be "
+              "divisible by coro_jobs_per_thread * threads\n");
+      ErrorExit();
+    }
+    const int64_t ops = total_reads / num_jobs;
+    if (ops % entries_per_batch_ != 0) {
+      fprintf(stderr,
+              "multireadrandomcoroutine requires per-job reads to be "
+              "divisible by batch_size\n");
+      ErrorExit();
+    }
+    std::vector<folly::SemiFuture<folly::Unit>> futures;
+    futures.reserve(num_jobs);
+    for (int j = 0; j < num_jobs; ++j) {
+      futures.push_back(
+          folly::coro::co_withExecutor(
+              folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
+              MultiGetAsyncCoroutineJob(db, cfh, thread->rand.Next(), ops,
+                                        &total_ops, &total_found, &total_bytes))
+              .start());
+    }
+    for (auto& f : futures) {
+      std::move(f).get();
+    }
+
+    thread->stats.FinishedOps(nullptr, db, total_ops.load(), kRead);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             total_found.load(), total_ops.load());
+    thread->stats.AddBytes(total_bytes.load());
+    thread->stats.AddMessage(msg);
+#else   // USE_COROUTINES
+    (void)thread;
+    fprintf(stderr,
+            "multireadrandomcoroutine requires a coroutine-enabled build "
+            "(USE_COROUTINES)\n");
+    ErrorExit();
+#endif  // USE_COROUTINES
   }
 
   std::shared_ptr<IODispatcher> MaybeCreateIODispatcher() {

@@ -15,6 +15,12 @@
 #include <alloca.h>
 #endif
 
+#if USE_COROUTINES
+#include "folly/Executor.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/io/async/EventBase.h"
+#endif  // USE_COROUTINES
+
 #include <cinttypes>
 #include <cstdio>
 #include <deque>
@@ -2525,6 +2531,12 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
 }
 
 struct GetMergeOperandsState {
+  GetMergeOperandsState(MergeContext _merge_context,
+                        PinnedIteratorsManager _pinned_iters_mgr)
+      : merge_context(std::move(_merge_context)),
+        pinned_iters_mgr(std::move(_pinned_iters_mgr)),
+        sv_handle(nullptr) {}
+
   MergeContext merge_context;
   PinnedIteratorsManager pinned_iters_mgr;
   SuperVersionHandle* sv_handle;
@@ -7505,6 +7517,28 @@ void DBImpl::GetAsync(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       PinnableSlice* value, std::string* timestamp,
                       Status& status, AsyncCallback& callback) {
+#if USE_COROUTINES
+  auto* read_executor =
+      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    auto task = [](DBImpl* db, ReadOptions task_options,
+                   ColumnFamilyHandle* task_column_family, Slice task_key,
+                   PinnableSlice* task_value, std::string* task_timestamp,
+                   Status& task_status,
+                   AsyncCallback& task_callback) -> folly::coro::Task<void> {
+      task_status = co_await folly::coro::co_nothrow(
+          db->GetCoroutine(task_options, task_column_family, task_key,
+                           task_value, task_timestamp));
+      task_callback.OnComplete();
+    }(this, options, column_family, key, value, timestamp, status, callback);
+    folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+        .start();
+    return;
+  }
+#endif  // USE_COROUTINES
   DB::GetAsync(options, column_family, key, value, timestamp, status, callback);
 }
 
@@ -7513,6 +7547,30 @@ void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
                            const Slice* keys, PinnableSlice* values,
                            std::string* timestamps, Status* statuses,
                            const bool sorted_input, AsyncCallback& callback) {
+#if USE_COROUTINES
+  auto* read_executor =
+      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    auto task =
+        [](DBImpl* db, ReadOptions task_options, size_t task_num_keys,
+           ColumnFamilyHandle** task_column_families, const Slice* task_keys,
+           PinnableSlice* task_values, std::string* task_timestamps,
+           Status* task_statuses, bool task_sorted_input,
+           AsyncCallback& task_callback) -> folly::coro::Task<void> {
+      co_await folly::coro::co_nothrow(db->MultiGetCoroutine(
+          task_options, task_num_keys, task_column_families, task_keys,
+          task_values, task_timestamps, task_statuses, task_sorted_input));
+      task_callback.OnComplete();
+    }(this, options, num_keys, column_families, keys, values, timestamps,
+                                         statuses, sorted_input, callback);
+    folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+        .start();
+    return;
+  }
+#endif  // USE_COROUTINES
   DB::MultiGetAsync(options, num_keys, column_families, keys, values,
                     timestamps, statuses, sorted_input, callback);
 }

@@ -1097,12 +1097,25 @@ class DB {
     return ms_iter;
   }
 
-  // EXPERIMENTAL: IN DEVELOPMENT, NOT READY FOR PRODUCTION USE
+  // EXPERIMENTAL
   //
   // RocksDB async read variants of Get and MultiGet. Implementations may
   // complete asynchronously. The default implementation runs synchronously and
-  // invokes the callback inline before returning. Callers must keep the DB,
-  // callback, inputs, and output buffers alive until callback invocation.
+  // invokes the callback inline before returning.
+  //
+  // Full async execution requires RocksDB to be built with coroutine support,
+  // a configured FileSystem read executor, and an underlying FileSystem that
+  // implements FSRandomAccessFile::SubmitReadAsync(). Without those
+  // requirements, implementations delegate to the synchronous Get/MultiGet path
+  // and invoke the callback inline before returning. When full async execution
+  // is available, RocksDB can run an internal read coroutine on the read
+  // executor, suspend while async file IO is outstanding, and resume when the
+  // filesystem signals completion. The callback is invoked after the requested
+  // statuses and output buffers have been populated.
+  //
+  // Callers must keep the DB, callback, inputs, and output buffers alive until
+  // the callback returns. The callback may run inline before the async method
+  // returns, or later from the implementation's completion path.
   class AsyncCallback {
    public:
     virtual ~AsyncCallback() = default;
