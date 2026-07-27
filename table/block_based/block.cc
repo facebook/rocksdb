@@ -1356,6 +1356,9 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     // Set up values_section_ from footer if separated KV storage is used
     if (size != 0 && footer.separated_kv) {
       if (footer.values_section_offset > restart_offset_) {
+        // The footer decoded fine; the corruption is a semantic one that
+        // re-decoding cannot rediscover.
+        restart_offset_ = 0;
         size = 0;  // Error marker
       } else {
         values_section_ = data() + footer.values_section_offset;
