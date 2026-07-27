@@ -944,6 +944,7 @@ def finalize_and_sanitize(src_params):
         dest_params["use_direct_reads"] = 0
         dest_params["use_direct_io_for_compaction_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
+        dest_params["open_read_only_one_in"] = 0
     if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
         # SQFC range-query filtering installs ReadOptions::table_filter on
         # iterators. Read-write iterators reject table_filter when read-path
