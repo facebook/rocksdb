@@ -15,6 +15,13 @@
 #include <alloca.h>
 #endif
 
+#if USE_COROUTINES
+#include "folly/Executor.h"
+#include "folly/coro/Invoke.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/io/async/EventBase.h"
+#endif  // USE_COROUTINES
+
 #include <cinttypes>
 #include <cstdio>
 #include <deque>
@@ -117,6 +124,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/coro_stats_util.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
 #include "util/distributed_mutex.h"
@@ -323,12 +331,12 @@ Status DBImpl::Resume() {
 // 4. Schedule compactions if needed for all the CFs. This is needed as the
 //    flush in the prior step might have been a no-op for some CFs, which
 //    means a new super version wouldn't have been installed
-Status DBImpl::ResumeImpl(DBRecoverContext context) {
+Status DBImpl::ResumeImpl(DBRecoverContext context,
+                          Env::IOActivity io_activity) {
   mutex_.AssertHeld();
 
-  // TODO: plumb Env::IOActivity, Env::IOPriority
-  const ReadOptions read_options;
-  const WriteOptions write_options;
+  const ReadOptions read_options(io_activity);
+  const WriteOptions write_options(io_activity);
 
   WaitForBackgroundWork();
 
@@ -2525,6 +2533,12 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
 }
 
 struct GetMergeOperandsState {
+  GetMergeOperandsState(MergeContext _merge_context,
+                        PinnedIteratorsManager _pinned_iters_mgr)
+      : merge_context(std::move(_merge_context)),
+        pinned_iters_mgr(std::move(_pinned_iters_mgr)),
+        sv_handle(nullptr) {}
+
   MergeContext merge_context;
   PinnedIteratorsManager pinned_iters_mgr;
   SuperVersionHandle* sv_handle;
@@ -6017,7 +6031,7 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->blob_partition_manager() != nullptr) {
     memtable_blob_fetcher.emplace(sv->current, read_options,
                                   cfd->blob_file_cache(),
@@ -7529,11 +7543,102 @@ void DBImpl::TriggerPeriodicCompaction() {
   }
 }
 
+namespace {
+
+void ResetThreadLocalStatsForAsyncCallback() {
+#ifndef NPERF_CONTEXT
+  get_perf_context()->Reset();
+#endif
+#ifndef NIOSTATS_CONTEXT
+  get_iostats_context()->Reset();
+#endif
+}
+
+const PerfContext* CurrentPerfContextForAsyncCallback(bool stats_enabled) {
+  if (!stats_enabled) {
+    return nullptr;
+  }
+#ifdef NPERF_CONTEXT
+  return nullptr;
+#else
+  return get_perf_context();
+#endif
+}
+
+const IOStatsContext* CurrentIOStatsContextForAsyncCallback(
+    bool stats_enabled) {
+  if (!stats_enabled) {
+    return nullptr;
+  }
+#ifdef NIOSTATS_CONTEXT
+  return nullptr;
+#else
+  return get_iostats_context();
+#endif
+}
+
+#if USE_COROUTINES
+std::optional<CoroutineStatsConfig> CaptureCoroutineStatsConfigForCallback(
+    bool stats_enabled) {
+  if (!stats_enabled) {
+    return std::nullopt;
+  }
+  return CaptureCoroutineStatsConfig();
+}
+
+#endif  // USE_COROUTINES
+
+}  // namespace
+
 void DBImpl::GetAsync(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       PinnableSlice* value, std::string* timestamp,
                       Status& status, AsyncCallback& callback) {
-  DB::GetAsync(options, column_family, key, value, timestamp, status, callback);
+  const bool stats_enabled = callback.EnableStats();
+#if USE_COROUTINES
+  auto* read_executor =
+      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    auto task =
+        [](std::optional<CoroutineStatsConfig> task_stats_config, DBImpl* db,
+           ReadOptions task_options, ColumnFamilyHandle* task_column_family,
+           Slice task_key, PinnableSlice* task_value,
+           std::string* task_timestamp, Status& task_status,
+           AsyncCallback& task_callback) mutable -> folly::coro::Task<void> {
+      std::optional<CoroutineStatsContextScope> coroutine_stats_scope;
+      if (task_stats_config.has_value()) {
+        coroutine_stats_scope.emplace(std::move(*task_stats_config),
+                                      db->immutable_db_options_.env);
+      }
+      task_status = co_await folly::coro::co_nothrow(
+          db->GetCoroutine(task_options, task_column_family, task_key,
+                           task_value, task_timestamp));
+      if (coroutine_stats_scope.has_value()) {
+        coroutine_stats_scope->Finalize();
+      }
+      task_callback.OnComplete(
+          CurrentPerfContextForAsyncCallback(coroutine_stats_scope.has_value()),
+          CurrentIOStatsContextForAsyncCallback(
+              coroutine_stats_scope.has_value()));
+    }(CaptureCoroutineStatsConfigForCallback(stats_enabled), this, options,
+                                                 column_family, key, value,
+                                                 timestamp, status, callback);
+    folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+        .start();
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (stats_enabled) {
+    // Mirror behavior of coroutine version where each coroutine gets a clean
+    // context
+    ResetThreadLocalStatsForAsyncCallback();
+  }
+  status = Get(options, column_family, key, value, timestamp);
+  callback.OnComplete(CurrentPerfContextForAsyncCallback(stats_enabled),
+                      CurrentIOStatsContextForAsyncCallback(stats_enabled));
 }
 
 void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
@@ -7541,8 +7646,53 @@ void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
                            const Slice* keys, PinnableSlice* values,
                            std::string* timestamps, Status* statuses,
                            const bool sorted_input, AsyncCallback& callback) {
-  DB::MultiGetAsync(options, num_keys, column_families, keys, values,
-                    timestamps, statuses, sorted_input, callback);
+  const bool stats_enabled = callback.EnableStats();
+#if USE_COROUTINES
+  auto* read_executor =
+      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    auto task = [](std::optional<CoroutineStatsConfig> task_stats_config,
+                   DBImpl* db, ReadOptions task_options, size_t task_num_keys,
+                   ColumnFamilyHandle** task_column_families,
+                   const Slice* task_keys, PinnableSlice* task_values,
+                   std::string* task_timestamps, Status* task_statuses,
+                   bool task_sorted_input, AsyncCallback& task_callback) mutable
+        -> folly::coro::Task<void> {
+      std::optional<CoroutineStatsContextScope> coroutine_stats_scope;
+      if (task_stats_config.has_value()) {
+        coroutine_stats_scope.emplace(std::move(*task_stats_config),
+                                      db->immutable_db_options_.env);
+      }
+      co_await folly::coro::co_nothrow(db->MultiGetCoroutine(
+          task_options, task_num_keys, task_column_families, task_keys,
+          task_values, task_timestamps, task_statuses, task_sorted_input));
+      if (coroutine_stats_scope.has_value()) {
+        coroutine_stats_scope->Finalize();
+      }
+      task_callback.OnComplete(
+          CurrentPerfContextForAsyncCallback(coroutine_stats_scope.has_value()),
+          CurrentIOStatsContextForAsyncCallback(
+              coroutine_stats_scope.has_value()));
+    }(CaptureCoroutineStatsConfigForCallback(stats_enabled), this, options,
+        num_keys, column_families, keys, values, timestamps, statuses,
+        sorted_input, callback);
+    folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+        .start();
+    return;
+  }
+#endif  // USE_COROUTINES
+  if (stats_enabled) {
+    // Mirror behavior of coroutine version where each coroutine gets a clean
+    // context
+    ResetThreadLocalStatsForAsyncCallback();
+  }
+  MultiGet(options, num_keys, column_families, keys, values, timestamps,
+           statuses, sorted_input);
+  callback.OnComplete(CurrentPerfContextForAsyncCallback(stats_enabled),
+                      CurrentIOStatsContextForAsyncCallback(stats_enabled));
 }
 
 void DBImpl::TrackOrUntrackFiles(

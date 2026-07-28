@@ -520,12 +520,13 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
+  FlushOptions flush_opts;
+  flush_opts.listener_wait = true;
   for (int i = 1; i < 8; ++i) {
-    ASSERT_OK(Flush(i));
-    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-    // Ensure background work is fully finished including listener callbacks
-    // before accessing listener state.
-    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+    ASSERT_OK(db_->Flush(flush_opts, handles_[i]));
+    // listener_wait guarantees the OnFlushCompleted callbacks have finished
+    // running by the time Flush() returns, so the listener state below is up to
+    // date without separately waiting for background work.
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
@@ -635,19 +636,15 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
     }
   }
 
+  FlushOptions flush_opts;
+  flush_opts.listener_wait = true;
   for (size_t c = 0; c < cf_names.size(); ++c) {
     for (int d = 0; d < kNumDBs; ++d) {
-      ASSERT_OK(dbs[d]->Flush(FlushOptions(), vec_handles[d][c]));
-      ASSERT_OK(static_cast_with_check<DBImpl>(dbs[d].get())
-                    ->TEST_WaitForFlushMemTable());
+      // listener_wait ensures the OnFlushCompleted callbacks have finished by
+      // the time Flush() returns, so the listener state checked below is up to
+      // date without separately waiting for background work.
+      ASSERT_OK(dbs[d]->Flush(flush_opts, vec_handles[d][c]));
     }
-  }
-
-  for (int d = 0; d < kNumDBs; ++d) {
-    // Ensure background work is fully finished including listener callbacks
-    // before accessing listener state.
-    ASSERT_OK(static_cast_with_check<DBImpl>(dbs[d].get())
-                  ->TEST_WaitForBackgroundWork());
   }
 
   for (auto* listener : listeners) {

@@ -93,7 +93,7 @@ def main() -> int:
         sys.stderr.write(
             "\nEach such function breaks downstream bindings at link time.\n"
             "Add the implementation to tools/c_api_gen/c_base.cc (or via the\n"
-            "generators) and rerun python3 tools/c_api_gen/regen_all.py.\n"
+            "generators) and rerun `make regen-c-api`.\n"
         )
 
     if duplicated:

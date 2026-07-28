@@ -37,7 +37,7 @@ Status DBImpl::TEST_SwitchWAL() {
 
 Status DBImpl::TEST_ResumeImpl(DBRecoverContext context) {
   InstrumentedMutexLock l(&mutex_);
-  return ResumeImpl(context);
+  return ResumeImpl(context, Env::IOActivity::kFlush);
 }
 
 uint64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
@@ -162,6 +162,22 @@ Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
 Status DBImpl::TEST_FlushMemTable(ColumnFamilyData* cfd,
                                   const FlushOptions& flush_opts) {
   return FlushMemTable(cfd, flush_opts, FlushReason::kTest);
+}
+
+Status DBImpl::TEST_FlushMemTableWithListenerWait(bool allow_write_stall,
+                                                  ColumnFamilyHandle* cfh) {
+  FlushOptions fo;
+  fo.wait = true;
+  fo.listener_wait = true;
+  fo.allow_write_stall = allow_write_stall;
+  ColumnFamilyData* cfd;
+  if (cfh == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(cfh);
+    cfd = cfhi->cfd();
+  }
+  return FlushMemTable(cfd, fo, FlushReason::kTest);
 }
 
 Status DBImpl::TEST_AtomicFlushMemTables(

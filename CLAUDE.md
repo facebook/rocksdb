@@ -389,6 +389,8 @@ rather than relying on libstdc++ transitive includes.
 
 ### Adding release note
 * Release note should be kept short at high level for external user consumption.
+* If more than single markdown line, consider how their formatting will be
+    integrated into HISTORY.md.
 
 ### Blog posts (docs/_posts)
 * Blog post authors must be defined in `docs/_data/authors.yml` to be displayed

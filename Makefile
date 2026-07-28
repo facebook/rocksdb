@@ -1174,30 +1174,43 @@ check-c-api-gen:
 	  echo "Skipping C API backward-compatibility check ($(API_COMPAT_REF) not found; set API_COMPAT_REF)"; \
 	fi
 	# Staleness: regenerate and confirm the checked-in output is current. Needs a
-	# clang++ (the generator parses C++ ASTs); detect one the way the generator
-	# does (a clang in $(CXX) -- which may be ccache-prefixed/versioned -- else a
-	# bare/versioned clang++ on PATH) rather than testing $(CXX) verbatim.
+	# clang++ (the generator parses C++ ASTs). Use CLANG_CXX, which
+	# build_tools/build_detect_platform resolves once (the fbcode clang++ in
+	# fbcode builds, else a versioned clang++ on PATH) and passes explicitly, so
+	# the check and the generator agree on the same binary without heuristics.
 	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
 	cf_arg=""; \
 	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
-	have_clang=""; \
-	for c in $$(printf '%s\n' $(CXX) | grep -i clang) clang++ clang++-21 clang++-20 clang++-19 clang++-18 clang++-17 clang++-16 clang++-15 clang++-14 clang++-13; do \
-	  if command -v "$$c" >/dev/null 2>&1; then have_clang=1; break; fi; \
-	done; \
-	if [ -n "$$have_clang" ]; then \
-	  $(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py $$cf_arg; \
+	if [ -n "$(CLANG_CXX)" ] && command -v "$(CLANG_CXX)" >/dev/null 2>&1; then \
+	  $(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py --clang "$(CLANG_CXX)" $$cf_arg; \
 	elif [ -n "$$strict" ]; then \
-	  echo "ERROR: no clang++ found and CHECK_C_API_GEN_STRICT is set; cannot run the C API staleness check" >&2; exit 1; \
+	  echo "ERROR: no clang++ found (CLANG_CXX unset) and CHECK_C_API_GEN_STRICT is set; cannot run the C API staleness check" >&2; exit 1; \
 	else \
-	  echo "Skipping C API codegen staleness check (no clang++ found; install clang++ or set CXX to a clang to enable)"; \
+	  echo "Skipping C API codegen staleness check (no clang++ found; CLANG_CXX unset, install clang++ to enable)"; \
 	fi
+
+# Regenerate the checked-in C API generated files (fragments under c_api_gen/,
+# the inlined include/rocksdb/c.h and db/c.cc, and the round-trip tests). Uses
+# CLANG_CXX (resolved by build_tools/build_detect_platform) so it works in a gcc
+# build too. Aborts up front if no usable clang++ is available, so a bad
+# toolchain never leaves the tree in a partially regenerated state. Pin the
+# formatter to match CI with CLANG_FORMAT_BINARY, e.g.:
+#   make regen-c-api CLANG_FORMAT_BINARY=clang-format-21
+.PHONY: regen-c-api
+regen-c-api:
+	@if [ -z "$(CLANG_CXX)" ] || ! command -v "$(CLANG_CXX)" >/dev/null 2>&1; then \
+	  echo "ERROR: no clang++ found (CLANG_CXX unset); build on a host with clang++ or the fbcode toolchain to regenerate the C API" >&2; exit 1; \
+	fi
+	@cf_arg=""; \
+	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
+	$(PYTHON) tools/c_api_gen/regen_all.py --clang "$(CLANG_CXX)" $$cf_arg
 
 # Quick local validation for C API generation plus the focused C API test.
 # This verifies the checked-in generated fragments as well as the inlined
 # include/rocksdb/c.h and db/c.cc outputs, then runs c_test in an isolated
 # TEST_TMPDIR to avoid stale-state failures.
 check-c-api-c_test:
-	$(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py
+	$(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py --clang "$(CLANG_CXX)"
 	$(MAKE) c_test
 	@tmpdir=$$(mktemp -d); \
 	  trap 'rm -rf "$$tmpdir"' EXIT; \
@@ -1814,6 +1827,9 @@ backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBR
 	$(AM_LINK)
 
 checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+copy_engine_test: $(OBJ_DIR)/utilities/copy_engine/copy_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 sorted_run_builder_test: $(OBJ_DIR)/utilities/sorted_run_builder/sorted_run_builder_test.o $(TEST_LIBRARY) $(LIBRARY)

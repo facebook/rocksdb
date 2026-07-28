@@ -43,6 +43,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
+#include "env/composite_env_wrapper.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
@@ -77,6 +78,7 @@
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/wide_columns.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
@@ -107,6 +109,16 @@
 #ifdef OS_WIN
 #include <io.h>  // open/close
 #endif
+
+#if USE_COROUTINES
+#include "folly/coro/Baton.h"
+#include "folly/coro/CurrentExecutor.h"
+#include "folly/coro/Task.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/futures/Future.h"
+#include "folly/io/async/EventBase.h"
+#include "folly/io/async/Request.h"
+#endif  // USE_COROUTINES
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -192,6 +204,7 @@ DEFINE_string(
     "\treadtocache   -- 1 thread reading database sequentially\n"
     "\treadreverse   -- read N times in reverse order\n"
     "\treadrandom    -- read N times in random order\n"
+    "\treadrandomcoroutine -- read N times in random order using async Get\n"
     "\treadmissing   -- read N missing keys in random order\n"
     "\treadwhilewriting      -- 1 writer, N threads doing random "
     "reads\n"
@@ -245,6 +258,14 @@ DEFINE_string(
     "\tflush - flush the memtable\n"
     "\tingestexternalfile -- Create external SST files and ingest them into "
     "the DB via IngestExternalFile\n"
+    "\tfillembeddedentity -- Create and ingest an SST of wide-column entities "
+    "whose columns are embedded (same-file) blobs; read with readrandomentity "
+    "/ "
+    "multireadentity / readrandom. Requires format_version>=7\n"
+    "\tfillembeddedblob -- Create and ingest an SST of whole-value embedded "
+    "(same-file) blobs; read with readrandom. Requires format_version>=7\n"
+    "\treadrandomentity -- read N times in random order via GetEntity\n"
+    "\tmultireadentity -- read N in random batches via MultiGetEntity\n"
     "\topenandcompact -- Open DB and compact all files to bottommost level, "
     "writing output to separate directory without modifying source DB. "
     "Designed for remote compaction service testing\n"
@@ -454,7 +475,8 @@ DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
               "num * exp(-r) where r is uniform number from 0 to this value. "
               "The larger the number is, the more skewed the reads are. "
-              "Only used in readrandom and multireadrandom benchmarks.");
+              "Only used in readrandom, readrandomcoroutine, multireadrandom, "
+              "and multireadrandomcoroutine benchmarks.");
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
@@ -1216,6 +1238,30 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
+// Embedded (same-file) blob SST options. These are distinct from the Integrated
+// BlobDB options above: embedded blobs are stored in a leading segment of the
+// same block-based SST (a same-file BlobIndex), not in separate blob files.
+// They are produced only by SstFileWriter::OpenWithEmbeddedBlobs and enter the
+// DB via ingestion (see the fillembeddedentity / fillembeddedblob benchmarks),
+// and require block-based table format_version >= 7.
+DEFINE_uint64(
+    embedded_blob_min_size, 2048,
+    "For the fillembeddedentity / fillembeddedblob benchmarks: values "
+    "(or wide-column values) of at least this size are written as "
+    "embedded (same-file) blob records; smaller ones stay inline.");
+
+DEFINE_int32(
+    num_wide_columns, 4,
+    "For the fillembeddedentity benchmark: number of large columns per "
+    "entity, each with a value_size value (an embedded blob when "
+    "value_size >= embedded_blob_min_size).");
+
+DEFINE_int32(num_short_wide_columns, 1,
+             "For the fillembeddedentity benchmark: number of small/inline "
+             "columns per entity (tiny values that stay inline). If >= 1, the "
+             "default column is one of these inline columns; if 0, the default "
+             "column is an embedded blob.");
+
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
             "Open a RocksDB secondary instance. A primary instance can be "
@@ -1935,6 +1981,12 @@ DEFINE_bool(avoid_flush_during_shutdown,
 DEFINE_int64(multiread_stride, 0,
              "Stride length for the keys in a MultiGet batch");
 DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
+DEFINE_int32(coro_jobs_per_thread, 1,
+             "For readrandomcoroutine and multireadrandomcoroutine: number of "
+             "concurrent coroutine jobs per executor thread. Each job does the "
+             "same work as one benchmark thread; the executor has -threads "
+             "threads. Values > 1 over-subscribe so a job whose IO is in "
+             "flight yields its thread to another job.");
 
 DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
@@ -2256,6 +2308,69 @@ class RandomGenerator {
     return Generate(len);
   }
 };
+
+// Small inline wide-column value size for the fillembeddedentity benchmark;
+// kept well below any sensible --embedded_blob_min_size so these columns stay
+// inline.
+static constexpr int kShortWideColumnSize = 16;
+
+// Column names + per-column value sizes for the fillembeddedentity benchmark,
+// computed once and reused for every key (only the values differ per key). See
+// --num_wide_columns / --num_short_wide_columns. Column 0 is the default column
+// (empty name); it is a short/inline column when num_short_wide_columns >= 1
+// and a large (embedded-blob) column otherwise. Names ascend ("" < "s..." <
+// "w...") so the built WideColumns are already sorted as PutEntity requires.
+struct EntityColumnLayout {
+  std::vector<std::string> names;
+  std::vector<int> value_sizes;
+};
+
+static EntityColumnLayout MakeEntityColumnLayout() {
+  const int num_short = std::max(0, FLAGS_num_short_wide_columns);
+  const int num_wide = std::max(0, FLAGS_num_wide_columns);
+
+  EntityColumnLayout layout;
+
+  // Default column (empty name), sorts first.
+  layout.names.emplace_back(kDefaultWideColumnName.data(),
+                            kDefaultWideColumnName.size());
+  layout.value_sizes.push_back(num_short >= 1 ? kShortWideColumnSize
+                                              : static_cast<int>(value_size));
+
+  // Remaining short/inline columns.
+  for (int i = 1; i < num_short; ++i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "s%08d", i);
+    layout.names.emplace_back(buf);
+    layout.value_sizes.push_back(kShortWideColumnSize);
+  }
+
+  // Large (embedded-blob) columns. When there is no inline default column, one
+  // large column has already been consumed by the default column above.
+  const int num_wide_named = num_short >= 1 ? num_wide : num_wide - 1;
+  for (int i = 0; i < num_wide_named; ++i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "w%08d", i);
+    layout.names.emplace_back(buf);
+    layout.value_sizes.push_back(static_cast<int>(value_size));
+  }
+
+  return layout;
+}
+
+// Builds a wide-column entity for one key from `layout`, drawing each column's
+// value from `gen`. The returned Slices reference `layout` (names) and `gen`'s
+// backing buffer (values), which both outlive the immediate PutEntity call.
+static WideColumns MakeWideColumns(const EntityColumnLayout& layout,
+                                   RandomGenerator* gen) {
+  WideColumns columns;
+  columns.reserve(layout.names.size());
+  for (size_t i = 0; i < layout.names.size(); ++i) {
+    columns.emplace_back(Slice(layout.names[i]),
+                         gen->Generate(layout.value_sizes[i]));
+  }
+  return columns;
+}
 
 static void AppendWithSpace(std::string* str, Slice msg) {
   if (msg.empty()) {
@@ -3230,8 +3345,10 @@ class Benchmark {
   int64_t readwrites_;
   int64_t merge_keys_;
   bool report_file_operations_;
-  bool use_blob_db_;    // Stacked BlobDB
-  bool read_operands_;  // read via GetMergeOperands()
+  bool use_blob_db_;       // Stacked BlobDB
+  bool read_operands_;     // read via GetMergeOperands()
+  bool read_entity_;       // read via GetEntity() (readrandomentity)
+  bool multiread_entity_;  // read via MultiGetEntity() (multireadentity)
   std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
@@ -3738,7 +3855,9 @@ class Benchmark {
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
         report_file_operations_(FLAGS_report_file_operations),
         use_blob_db_(FLAGS_use_blob_db),  // Stacked BlobDB
-        read_operands_(false) {
+        read_operands_(false),
+        read_entity_(false),
+        multiread_entity_(false) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -4017,6 +4136,14 @@ class Benchmark {
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
 
+      // Read-mode selectors are members, so reset them each iteration;
+      // otherwise a mode set by an earlier comma-separated benchmark (e.g.
+      // readrandomentity) would leak into a later one (e.g. a trailing
+      // readrandom).
+      read_operands_ = false;
+      read_entity_ = false;
+      multiread_entity_ = false;
+
       int num_repeat = 1;
       int num_warmup = 0;
       if (!name.empty() && *name.rbegin() == ']') {
@@ -4124,12 +4251,36 @@ class Benchmark {
                   entries_per_batch_);
         }
         method = &Benchmark::ReadRandom;
+      } else if (name == "readrandomcoroutine") {
+        fprintf(stderr, "read executor pool size (threads) = %d\n",
+                FLAGS_threads > 0 ? FLAGS_threads : 1);
+        // A single db_bench driver thread issues concurrent async Get calls
+        // onto the configured read executor.
+        num_threads = 1;
+        method = &Benchmark::ReadRandomCoroutine;
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
       } else if (name == "multireadrandom") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "multireadrandomcoroutine") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        fprintf(stderr, "read executor pool size (threads) = %d\n",
+                FLAGS_threads > 0 ? FLAGS_threads : 1);
+        // A single db_bench driver thread issues concurrent async MultiGet
+        // calls onto the configured read executor.
+        num_threads = 1;
+        method = &Benchmark::MultiReadRandomCoroutine;
+      } else if (name == "readrandomentity") {
+        method = &Benchmark::ReadRandom;
+        read_entity_ = true;
+      } else if (name == "multireadentity") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        method = &Benchmark::MultiReadRandom;
+        multiread_entity_ = true;
       } else if (name == "multiscan") {
         fprintf(stderr, "multiscan_stride = %" PRIi64 "\n",
                 FLAGS_multiscan_stride);
@@ -4238,6 +4389,14 @@ class Benchmark {
       } else if (name == "ingestexternalfile") {
         num_threads = 1;
         method = &Benchmark::IngestExternalFile;
+      } else if (name == "fillembeddedentity") {
+        fresh_db = true;
+        num_threads = 1;
+        method = &Benchmark::FillEmbeddedEntity;
+      } else if (name == "fillembeddedblob") {
+        fresh_db = true;
+        num_threads = 1;
+        method = &Benchmark::FillEmbeddedBlob;
       } else if (name == "compactall") {
         CompactAll();
       } else if (name == "compact0") {
@@ -7183,11 +7342,16 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
+    PinnableWideColumns pinnable_columns;
     std::vector<PinnableSlice> pinnable_vals;
     if (read_operands_) {
       // Start off with a small-ish value that'll be increased later if
       // `GetMergeOperands()` tells us it is not large enough.
       pinnable_vals.resize(8);
+    }
+    if (read_entity_ && user_timestamp_size_ > 0) {
+      fprintf(stderr, "readrandomentity does not support user timestamps\n");
+      db_bench_exit(1);
     }
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
@@ -7226,6 +7390,7 @@ class Benchmark {
       }
       Status s;
       pinnable_val.Reset();
+      pinnable_columns.Reset();
       for (size_t i = 0; i < pinnable_vals.size(); ++i) {
         pinnable_vals[i].Reset();
       }
@@ -7255,6 +7420,8 @@ class Benchmark {
               options, cfh, key, pinnable_vals.data(),
               &get_merge_operands_options, &number_of_operands);
         }
+      } else if (read_entity_) {
+        s = db_with_cfh->db->GetEntity(options, cfh, key, &pinnable_columns);
       } else {
         s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
       }
@@ -7265,6 +7432,11 @@ class Benchmark {
         for (size_t i = 0; i < pinnable_vals.size(); ++i) {
           bytes += pinnable_vals[i].size();
           pinnable_vals[i].Reset();
+        }
+        if (read_entity_) {
+          for (const auto& column : pinnable_columns.columns()) {
+            bytes += column.name().size() + column.value().size();
+          }
         }
       } else if (!s.IsNotFound()) {
         // Tolerated IO error: skip this read and continue.
@@ -7291,6 +7463,10 @@ class Benchmark {
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
+    if (multiread_entity_ && user_timestamp_size_ > 0) {
+      fprintf(stderr, "multireadentity does not support user timestamps\n");
+      db_bench_exit(1);
+    }
     int64_t read = 0;
     int64_t bytes = 0;
     int64_t num_multireads = 0;
@@ -7301,6 +7477,14 @@ class Benchmark {
     std::vector<std::string> values(entries_per_batch_);
     PinnableSlice* pin_values = new PinnableSlice[entries_per_batch_];
     std::unique_ptr<PinnableSlice[]> pin_values_guard(pin_values);
+    // Only allocated for multireadentity (MultiGetEntity); plain
+    // multireadrandom never touches it.
+    PinnableWideColumns* pin_columns = nullptr;
+    std::unique_ptr<PinnableWideColumns[]> pin_columns_guard;
+    if (multiread_entity_) {
+      pin_columns = new PinnableWideColumns[entries_per_batch_];
+      pin_columns_guard.reset(pin_columns);
+    }
     std::vector<Status> stat_list(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       key_guards.push_back(std::unique_ptr<const char[]>());
@@ -7335,7 +7519,28 @@ class Benchmark {
         ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
         options.timestamp = &ts;
       }
-      if (!FLAGS_multiread_batched) {
+      if (multiread_entity_) {
+        db->MultiGetEntity(options, db->DefaultColumnFamily(), keys.size(),
+                           keys.data(), pin_columns, stat_list.data());
+
+        read += entries_per_batch_;
+        num_multireads++;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (stat_list[i].ok()) {
+            bytes += keys[i].size();
+            for (const auto& column : pin_columns[i].columns()) {
+              bytes += column.name().size() + column.value().size();
+            }
+            ++found;
+          } else if (!stat_list[i].IsNotFound()) {
+            // Tolerated IO error: skip this key and continue.
+            HandleBenchmarkIOError(stat_list[i],
+                                   "MultiGetEntity returned an error");
+          }
+          stat_list[i] = Status::OK();
+          pin_columns[i].Reset();
+        }
+      } else if (!FLAGS_multiread_batched) {
         std::vector<Status> statuses = db->MultiGet(options, keys, &values);
         assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
@@ -7383,6 +7588,362 @@ class Benchmark {
              read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
+  }
+
+#if USE_COROUTINES
+  folly::IOExecutor* GetReadExecutorForCoroutineBenchmark(
+      const char* benchmark_name, int pool_threads) {
+    Env* env =
+        open_options_.env != nullptr ? open_options_.env : Env::Default();
+    auto fs = env->GetFileSystem();
+    if (fs != nullptr) {
+      fs->SetReadIOExecutorThreads(pool_threads);
+    }
+    auto* read_executor = fs != nullptr ? fs->GetReadExecutor() : nullptr;
+    if (read_executor == nullptr) {
+      fprintf(stderr,
+              "%s requires a read executor available from the configured "
+              "FileSystem\n",
+              benchmark_name);
+      ErrorExit();
+    }
+    return read_executor;
+  }
+
+  struct AsyncAwaitCallback : public DB::AsyncCallback {
+    AsyncAwaitCallback(
+        PerfContext* job_perf_context,
+        std::shared_ptr<folly::RequestContext> caller_request_context)
+        : job_perf_context_(job_perf_context),
+          caller_request_context_(std::move(caller_request_context)) {}
+
+    bool EnableStats() const override { return job_perf_context_ != nullptr; }
+
+    void OnComplete(const PerfContext* callback_perf_context,
+                    const IOStatsContext* /*iostats_context*/) override {
+      if (job_perf_context_ != nullptr && callback_perf_context != nullptr) {
+        job_perf_context_->Merge(*callback_perf_context);
+      }
+      folly::RequestContextScopeGuard context_scope(caller_request_context_);
+      baton.post();
+    }
+
+    PerfContext* job_perf_context_;
+    std::shared_ptr<folly::RequestContext> caller_request_context_;
+    folly::coro::Baton baton;
+  };
+
+  void PrepareCoroutineJobPerfContext(PerfContext* job_perf_context) {
+    SetPerfLevel(static_cast<PerfLevel>(FLAGS_perf_level));
+    if (job_perf_context == nullptr) {
+      return;
+    }
+#ifndef NPERF_CONTEXT
+    get_perf_context()->EnablePerLevelPerfContext();
+#endif
+  }
+
+  folly::coro::Task<Status> AwaitGetAsync(DB* db, const ReadOptions& options,
+                                          ColumnFamilyHandle* cfh,
+                                          const Slice& key,
+                                          PinnableSlice* value,
+                                          std::string* timestamp,
+                                          PerfContext* job_perf_context) {
+    PrepareCoroutineJobPerfContext(job_perf_context);
+    AsyncAwaitCallback callback(job_perf_context,
+                                folly::RequestContext::saveContext());
+    Status status;
+    db->GetAsync(options, cfh, key, value, timestamp, status, callback);
+    co_await callback.baton;
+    co_await folly::coro::co_reschedule_on_current_executor;
+    co_return status;
+  }
+
+  folly::coro::Task<void> AwaitMultiGetAsync(
+      DB* db, const ReadOptions& options, size_t num_keys,
+      ColumnFamilyHandle** column_families, const Slice* keys,
+      PinnableSlice* values, Status* statuses, PerfContext* job_perf_context) {
+    PrepareCoroutineJobPerfContext(job_perf_context);
+    AsyncAwaitCallback callback(job_perf_context,
+                                folly::RequestContext::saveContext());
+    db->MultiGetAsync(options, num_keys, column_families, keys, values,
+                      statuses, callback);
+    co_await callback.baton;
+    co_await folly::coro::co_reschedule_on_current_executor;
+    co_return;
+  }
+
+  void SetCoroutineJobPerfContextMessage(
+      std::vector<std::string>* job_perf_contexts, int job_id,
+      const char* benchmark_name, const PerfContext* job_perf_context) {
+    if (job_perf_contexts == nullptr || job_perf_context == nullptr) {
+      return;
+    }
+    (*job_perf_contexts)[job_id] = std::string(benchmark_name) + " job " +
+                                   std::to_string(job_id) + " PERF_CONTEXT:\n" +
+                                   job_perf_context->ToString();
+  }
+
+  folly::coro::Task<void> ReadRandomCoroutineJob(
+      uint64_t seed, int64_t ops, std::atomic<int64_t>* total_ops,
+      std::atomic<int64_t>* total_found, std::atomic<int64_t>* total_bytes,
+      int job_id, std::vector<std::string>* job_perf_contexts) {
+    Random64 rng(seed);
+    ReadOptions options = read_options_;
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    PinnableSlice pinnable_val;
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
+
+    int64_t job_ops = 0;
+    int64_t job_found = 0;
+    int64_t job_bytes = 0;
+    PerfContext job_perf_context;
+    for (int64_t done = 0; done < ops; ++done) {
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(rng.Next());
+      const int64_t key_rand = GetRandomKey(&rng);
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+
+      std::string ts_ret;
+      std::string* ts_ptr = nullptr;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->GetTimestampForRead(rng, ts_guard.get());
+        options.timestamp = &ts;
+        ts_ptr = &ts_ret;
+      }
+
+      pinnable_val.Reset();
+      ColumnFamilyHandle* cfh;
+      if (FLAGS_num_column_families > 1) {
+        cfh = db_with_cfh->GetCfh(key_rand);
+      } else {
+        cfh = db_with_cfh->db->DefaultColumnFamily();
+      }
+
+      Status s = co_await AwaitGetAsync(
+          db_with_cfh->db, options, cfh, key, &pinnable_val, ts_ptr,
+          job_perf_contexts != nullptr ? &job_perf_context : nullptr);
+      ++job_ops;
+      if (s.ok()) {
+        ++job_found;
+        job_bytes += key.size() + pinnable_val.size() + user_timestamp_size_;
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "GetAsync returned an error: %s\n",
+                s.ToString().c_str());
+        abort();
+      }
+    }
+
+    total_ops->fetch_add(job_ops, std::memory_order_relaxed);
+    total_found->fetch_add(job_found, std::memory_order_relaxed);
+    total_bytes->fetch_add(job_bytes, std::memory_order_relaxed);
+    SetCoroutineJobPerfContextMessage(job_perf_contexts, job_id,
+                                      "readrandomcoroutine", &job_perf_context);
+    co_return;
+  }
+
+  // One coroutine "job": mirrors a single multireadrandom thread -- a loop of
+  // batched async MultiGet reads -- but as a coroutine, so it yields its
+  // executor thread while its IO is in flight. Per-job buffers and RNG mean
+  // jobs share no mutable state; results are folded into the shared counters.
+  folly::coro::Task<void> MultiGetAsyncCoroutineJob(
+      DB* db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
+      std::atomic<int64_t>* total_ops, std::atomic<int64_t>* total_found,
+      std::atomic<int64_t>* total_bytes, int job_id,
+      std::vector<std::string>* job_perf_contexts) {
+    Random64 rng(seed);
+    ReadOptions options = read_options_;
+    std::vector<std::unique_ptr<const char[]>> key_guards(entries_per_batch_);
+    std::vector<Slice> keys(entries_per_batch_);
+    for (int64_t i = 0; i < entries_per_batch_; ++i) {
+      keys[i] = AllocateKey(&key_guards[i]);
+    }
+    std::vector<ColumnFamilyHandle*> cfs(entries_per_batch_, cfh);
+    std::unique_ptr<PinnableSlice[]> values(
+        new PinnableSlice[entries_per_batch_]);
+    std::vector<Status> statuses(entries_per_batch_);
+
+    int64_t job_ops = 0;
+    int64_t job_found = 0;
+    int64_t job_bytes = 0;
+    PerfContext job_perf_context;
+    for (int64_t done = 0; done < ops; done += entries_per_batch_) {
+      for (int64_t i = 0; i < entries_per_batch_; ++i) {
+        GenerateKeyFromInt(GetRandomKey(&rng), FLAGS_num, &keys[i]);
+        statuses[i] = Status::OK();
+        values[i].Reset();
+      }
+      co_await AwaitMultiGetAsync(
+          db, options, entries_per_batch_, cfs.data(), keys.data(),
+          values.get(), statuses.data(),
+          job_perf_contexts != nullptr ? &job_perf_context : nullptr);
+      job_ops += entries_per_batch_;
+      for (int64_t i = 0; i < entries_per_batch_; ++i) {
+        if (statuses[i].ok()) {
+          job_bytes += keys[i].size() + values[i].size();
+          ++job_found;
+        } else if (!statuses[i].IsNotFound()) {
+          fprintf(stderr, "MultiGetAsync returned an error: %s\n",
+                  statuses[i].ToString().c_str());
+          abort();
+        }
+      }
+    }
+    total_ops->fetch_add(job_ops, std::memory_order_relaxed);
+    total_found->fetch_add(job_found, std::memory_order_relaxed);
+    total_bytes->fetch_add(job_bytes, std::memory_order_relaxed);
+    SetCoroutineJobPerfContextMessage(job_perf_contexts, job_id,
+                                      "multireadrandomcoroutine",
+                                      &job_perf_context);
+    co_return;
+  }
+#endif  // USE_COROUTINES
+
+  // Coroutine variant of ReadRandom. A single db_bench driver thread launches
+  // (-coro_jobs_per_thread * -threads) async Get jobs onto the FileSystem
+  // read executor and waits for them all.
+  void ReadRandomCoroutine(ThreadState* thread) {
+#if USE_COROUTINES
+    const int pool_threads = FLAGS_threads > 0 ? FLAGS_threads : 1;
+    const int jobs_per_thread =
+        FLAGS_coro_jobs_per_thread > 0 ? FLAGS_coro_jobs_per_thread : 1;
+    const int num_jobs = jobs_per_thread * pool_threads;
+    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
+        "readrandomcoroutine", pool_threads);
+    DB* db = SelectDB(thread);
+
+    std::atomic<int64_t> total_ops{0};
+    std::atomic<int64_t> total_found{0};
+    std::atomic<int64_t> total_bytes{0};
+    std::vector<std::string> job_perf_contexts;
+    std::vector<std::string>* job_perf_contexts_ptr = nullptr;
+#ifndef NPERF_CONTEXT
+    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
+      job_perf_contexts.resize(num_jobs);
+      job_perf_contexts_ptr = &job_perf_contexts;
+    }
+#endif
+
+    // Spread reads_ * pool_threads ops across the jobs
+    const int64_t total_reads = reads_ * pool_threads;
+    if (total_reads % num_jobs != 0) {
+      fprintf(stderr,
+              "readrandomcoroutine requires reads * threads to be divisible "
+              "by coro_jobs_per_thread * threads\n");
+      ErrorExit();
+    }
+    const int64_t ops = total_reads / num_jobs;
+
+    std::vector<folly::SemiFuture<folly::Unit>> futures;
+    futures.reserve(num_jobs);
+    for (int j = 0; j < num_jobs; ++j) {
+      futures.push_back(
+          folly::coro::co_withExecutor(
+              folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
+              ReadRandomCoroutineJob(thread->rand.Next(), ops, &total_ops,
+                                     &total_found, &total_bytes, j,
+                                     job_perf_contexts_ptr))
+              .start());
+    }
+    for (auto& f : futures) {
+      std::move(f).get();
+    }
+
+    thread->stats.FinishedOps(nullptr, db, total_ops.load(), kRead);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             total_found.load(), total_ops.load());
+    thread->stats.AddBytes(total_bytes.load());
+    thread->stats.AddMessage(msg);
+    if (!job_perf_contexts.empty() && !job_perf_contexts.front().empty()) {
+      thread->stats.AddMessage(job_perf_contexts.front());
+    }
+#else   // USE_COROUTINES
+    (void)thread;
+    fprintf(stderr,
+            "readrandomcoroutine requires a coroutine-enabled build "
+            "(USE_COROUTINES)\n");
+    ErrorExit();
+#endif  // USE_COROUTINES
+  }
+
+  // Coroutine variant of MultiReadRandom. A single db_bench driver thread
+  // launches (-coro_jobs_per_thread * -threads) async MultiGet jobs onto the
+  // FileSystem read executor and waits for them all. Because each job suspends
+  // while its IO is in flight, jobs over-subscribe the executor and keep its
+  // threads busy.
+  void MultiReadRandomCoroutine(ThreadState* thread) {
+#if USE_COROUTINES
+    const int pool_threads = FLAGS_threads > 0 ? FLAGS_threads : 1;
+    const int jobs_per_thread =
+        FLAGS_coro_jobs_per_thread > 0 ? FLAGS_coro_jobs_per_thread : 1;
+    const int num_jobs = jobs_per_thread * pool_threads;
+    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
+        "multireadrandomcoroutine", pool_threads);
+    DB* db = SelectDB(thread);
+    ColumnFamilyHandle* cfh = db->DefaultColumnFamily();
+
+    std::atomic<int64_t> total_ops{0};
+    std::atomic<int64_t> total_found{0};
+    std::atomic<int64_t> total_bytes{0};
+    std::vector<std::string> job_perf_contexts;
+    std::vector<std::string>* job_perf_contexts_ptr = nullptr;
+#ifndef NPERF_CONTEXT
+    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
+      job_perf_contexts.resize(num_jobs);
+      job_perf_contexts_ptr = &job_perf_contexts;
+    }
+#endif
+
+    const int64_t total_reads = reads_ * pool_threads;
+    if (total_reads % num_jobs != 0) {
+      fprintf(stderr,
+              "multireadrandomcoroutine requires reads * threads to be "
+              "divisible by coro_jobs_per_thread * threads\n");
+      ErrorExit();
+    }
+    const int64_t ops = total_reads / num_jobs;
+    if (ops % entries_per_batch_ != 0) {
+      fprintf(stderr,
+              "multireadrandomcoroutine requires per-job reads to be "
+              "divisible by batch_size\n");
+      ErrorExit();
+    }
+    std::vector<folly::SemiFuture<folly::Unit>> futures;
+    futures.reserve(num_jobs);
+    for (int j = 0; j < num_jobs; ++j) {
+      futures.push_back(
+          folly::coro::co_withExecutor(
+              folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
+              MultiGetAsyncCoroutineJob(db, cfh, thread->rand.Next(), ops,
+                                        &total_ops, &total_found, &total_bytes,
+                                        j, job_perf_contexts_ptr))
+              .start());
+    }
+    for (auto& f : futures) {
+      std::move(f).get();
+    }
+
+    thread->stats.FinishedOps(nullptr, db, total_ops.load(), kRead);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             total_found.load(), total_ops.load());
+    thread->stats.AddBytes(total_bytes.load());
+    thread->stats.AddMessage(msg);
+    if (!job_perf_contexts.empty() && !job_perf_contexts.front().empty()) {
+      thread->stats.AddMessage(job_perf_contexts.front());
+    }
+#else   // USE_COROUTINES
+    (void)thread;
+    fprintf(stderr,
+            "multireadrandomcoroutine requires a coroutine-enabled build "
+            "(USE_COROUTINES)\n");
+    ErrorExit();
+#endif  // USE_COROUTINES
   }
 
   std::shared_ptr<IODispatcher> MaybeCreateIODispatcher() {
@@ -9828,6 +10389,152 @@ class Benchmark {
              use_file_info ? ", file_info" : "");
     thread->stats.AddMessage(msg);
   }
+
+  // Shared implementation for fillembeddedentity / fillembeddedblob: builds a
+  // single SST of same-file ("embedded") blob records via
+  // SstFileWriter::OpenWithEmbeddedBlobs and ingests it, so the read benchmarks
+  // (readrandomentity / multireadentity / readrandom) can exercise
+  // embedded-blob resolution. In entity mode each key is a wide-column entity
+  // (PutEntity) whose large columns are embedded blobs; in blob mode each key
+  // is a whole value (Put) that becomes an embedded blob when value_size >=
+  // embedded_blob_min_size.
+  void FillEmbedded(ThreadState* thread, bool entity_mode) {
+    DB* db = SelectDB(thread);
+
+    if (FLAGS_format_version < 7) {
+      fprintf(stderr,
+              "fillembedded* requires block-based table format_version >= 7 "
+              "(got %d)\n",
+              FLAGS_format_version);
+      db_bench_exit(1);
+    }
+    if (FLAGS_num_multi_db > 1) {
+      // tmp_dir is derived from FLAGS_db while the ingest target comes from
+      // SelectDB(); with multiple DBs these can diverge. fillembedded* is a
+      // single-DB setup benchmark, so require that here.
+      fprintf(stderr, "fillembedded* does not support num_multi_db > 1\n");
+      db_bench_exit(1);
+    }
+
+    const std::string tmp_dir = FLAGS_db + "/embedded_tmp";
+    Status s = FLAGS_env->CreateDirIfMissing(tmp_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "CreateDirIfMissing(%s) failed: %s\n", tmp_dir.c_str(),
+              s.ToString().c_str());
+      db_bench_exit(1);
+    }
+    const std::string file_path = tmp_dir + "/embedded.sst";
+
+    // Remove the temp SST and its directory; called on every exit path so a
+    // failed run does not leave leftovers behind for the next --db run.
+    auto cleanup_tmp = [&]() {
+      FLAGS_env->DeleteFile(file_path).PermitUncheckedError();
+      FLAGS_env->DeleteDir(tmp_dir).PermitUncheckedError();
+    };
+
+    SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+    embedded_blob_options.min_blob_size = FLAGS_embedded_blob_min_size;
+
+    SstFileWriter sst_file_writer(EnvOptions(), open_options_);
+    s = sst_file_writer.OpenWithEmbeddedBlobs(file_path, embedded_blob_options);
+    if (!s.ok()) {
+      fprintf(stderr, "SstFileWriter::OpenWithEmbeddedBlobs(%s) failed: %s\n",
+              file_path.c_str(), s.ToString().c_str());
+      cleanup_tmp();
+      db_bench_exit(1);
+    }
+
+    RandomGenerator gen;
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    int64_t bytes = 0;
+
+    // Only the entity benchmark needs a column layout (and consults
+    // num_wide_columns / num_short_wide_columns).
+    EntityColumnLayout layout;
+    if (entity_mode) {
+      const int num_short = std::max(0, FLAGS_num_short_wide_columns);
+      const int num_wide = std::max(0, FLAGS_num_wide_columns);
+      if (num_short + num_wide < 1) {
+        fprintf(stderr,
+                "fillembeddedentity requires num_wide_columns + "
+                "num_short_wide_columns >= 1\n");
+        cleanup_tmp();
+        db_bench_exit(1);
+      }
+      layout = MakeEntityColumnLayout();
+    }
+
+    for (int64_t i = 0; i < num_; ++i) {
+      GenerateKeyFromInt(i, num_, &key);
+      if (entity_mode) {
+        WideColumns columns = MakeWideColumns(layout, &gen);
+        s = sst_file_writer.PutEntity(key, columns);
+        if (s.ok()) {
+          bytes += key.size();
+          for (const auto& column : columns) {
+            bytes += column.name().size() + column.value().size();
+          }
+        }
+      } else {
+        Slice value = gen.Generate();
+        s = sst_file_writer.Put(key, value);
+        if (s.ok()) {
+          bytes += key.size() + value.size();
+        }
+      }
+      if (!s.ok()) {
+        sst_file_writer.Finish().PermitUncheckedError();
+        fprintf(stderr, "SstFileWriter write failed: %s\n",
+                s.ToString().c_str());
+        cleanup_tmp();
+        db_bench_exit(1);
+      }
+      thread->stats.FinishedOps(&db_, db, 1, kWrite);
+    }
+
+    s = sst_file_writer.Finish();
+    if (!s.ok()) {
+      fprintf(stderr, "SstFileWriter::Finish(%s) failed: %s\n",
+              file_path.c_str(), s.ToString().c_str());
+      cleanup_tmp();
+      db_bench_exit(1);
+    }
+
+    IngestExternalFileOptions ingest_options;
+    ingest_options.move_files = true;
+    s = db->IngestExternalFile({file_path}, ingest_options);
+    if (!s.ok()) {
+      fprintf(stderr, "IngestExternalFile failed: %s\n", s.ToString().c_str());
+      cleanup_tmp();
+      db_bench_exit(1);
+    }
+    cleanup_tmp();
+
+    thread->stats.AddBytes(bytes);
+    char msg[160];
+    if (entity_mode) {
+      snprintf(msg, sizeof(msg),
+               "(%" PRId64
+               " entities, %d cols [%d inline + %d embedded], "
+               "embedded_blob_min_size=%" PRIu64 ")",
+               num_, FLAGS_num_short_wide_columns + FLAGS_num_wide_columns,
+               FLAGS_num_short_wide_columns, FLAGS_num_wide_columns,
+               FLAGS_embedded_blob_min_size);
+    } else {
+      snprintf(msg, sizeof(msg),
+               "(%" PRId64
+               " values, value_size=%d, "
+               "embedded_blob_min_size=%" PRIu64 ")",
+               num_, FLAGS_value_size, FLAGS_embedded_blob_min_size);
+    }
+    thread->stats.AddMessage(msg);
+  }
+
+  void FillEmbeddedEntity(ThreadState* thread) { FillEmbedded(thread, true); }
+
+  void FillEmbeddedBlob(ThreadState* thread) { FillEmbedded(thread, false); }
+
   void CompactAll() {
     CompactRangeOptions cro;
     cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);

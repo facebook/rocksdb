@@ -15,6 +15,7 @@
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
 #include "util/cast_util.h"
+#include "util/coro_utils.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -80,7 +81,7 @@ class BlockFetcher {
     }
   }
 
-  IOStatus ReadBlockContents();
+  DECLARE_SYNC_AND_ASYNC(IOStatus, ReadBlockContents);
   IOStatus ReadAsyncBlockContents();
 
   inline CompressionType compression_type() const {
@@ -164,7 +165,7 @@ class BlockFetcher {
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void ProcessTrailerIfPresent();
-  void ReadBlock(bool retry);
+  DECLARE_SYNC_AND_ASYNC(void, ReadBlock, bool retry);
 
   void ReleaseFileSystemProvidedBuffer(FSReadRequest* read_req) {
     if (use_fs_scratch_) {

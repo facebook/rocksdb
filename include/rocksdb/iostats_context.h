@@ -74,11 +74,14 @@ struct FileIOByTemperature {
     unknown_non_last_level_read_count = 0;
     unknown_last_level_read_count = 0;
   }
+
+  void Merge(const FileIOByTemperature& other);
 };
 
 struct IOStatsContext {
   // reset all io-stats counter to zero
   void Reset();
+  void Merge(const IOStatsContext& other);
 
   std::string ToString(bool exclude_zero_counters = false) const;
 
@@ -108,7 +111,8 @@ struct IOStatsContext {
   uint64_t logger_nanos;
   // CPU time spent in write() and pwrite()
   uint64_t cpu_write_nanos;
-  // CPU time spent in read() and pread()
+  // CPU time spent in read() and pread(). Not supported for async read
+  // requests.
   uint64_t cpu_read_nanos;
 
   FileIOByTemperature file_io_stats_by_temperature;

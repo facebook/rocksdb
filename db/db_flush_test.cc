@@ -8,7 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <atomic>
+#include <condition_variable>
 #include <limits>
+#include <mutex>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -2219,8 +2221,12 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   listener->seq1 = db_->GetLatestSequenceNumber();
   // t1 will wait for the second flush complete before committing flush result.
   auto t1 = port::Thread([&]() {
-    // flush_opts.wait = true
-    ASSERT_OK(db_->Flush(FlushOptions()));
+    // flush_opts.wait = true, and listener_wait = true so that Flush() does not
+    // return until the OnFlushCompleted callbacks (which set completed1 and
+    // completed2) have finished running.
+    FlushOptions flush_opts;
+    flush_opts.listener_wait = true;
+    ASSERT_OK(db_->Flush(flush_opts));
   });
   // Wait for first flush started.
   TEST_SYNC_POINT(
@@ -2233,13 +2239,140 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   flush_opts.wait = false;
   ASSERT_OK(db_->Flush(flush_opts));
   t1.join();
-  // Ensure background work is fully finished including listener callbacks
-  // before accessing listener state.
-  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  // listener_wait on t1's flush above guarantees both OnFlushCompleted
+  // callbacks have finished by the time Flush() returned; no need to
+  // additionally wait for background work here.
   ASSERT_TRUE(listener->completed1);
   ASSERT_TRUE(listener->completed2);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+namespace {
+// EventListener whose OnFlushCompleted blocks until explicitly released, used
+// to verify FlushOptions::listener_wait. Optionally only blocks on the first
+// callback (useful for atomic flush, which fires one callback per CF).
+class BlockingFlushListener : public EventListener {
+ public:
+  explicit BlockingFlushListener(bool block_only_first)
+      : block_only_first_(block_only_first) {}
+
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
+    if (block_only_first_ && num_completed_.fetch_add(1) != 0) {
+      return;
+    }
+    std::unique_lock<std::mutex> lk(mu_);
+    entered_ = true;
+    cv_.notify_all();
+    cv_.wait(lk, [this] { return release_; });
+    returned_ = true;
+  }
+
+  void WaitUntilEntered() {
+    std::unique_lock<std::mutex> lk(mu_);
+    cv_.wait(lk, [this] { return entered_; });
+  }
+
+  void Release() {
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      release_ = true;
+    }
+    cv_.notify_all();
+  }
+
+  bool CallbackReturned() {
+    std::lock_guard<std::mutex> lk(mu_);
+    return returned_;
+  }
+
+ private:
+  const bool block_only_first_;
+  std::atomic<int> num_completed_{0};
+  std::mutex mu_;
+  std::condition_variable cv_;
+  bool entered_ = false;
+  bool release_ = false;
+  bool returned_ = false;
+};
+}  // anonymous namespace
+
+TEST_F(DBFlushTest, ListenerWaitWaitsForOnFlushCompleted) {
+  // With FlushOptions::listener_wait, Flush(wait=true) must not return until
+  // the OnFlushCompleted callback has finished, even if the flush result is
+  // already committed and bg_cv_ is signalled by unrelated background work.
+  auto listener = std::make_shared<BlockingFlushListener>(
+      /*block_only_first=*/false);
+  Options options = CurrentOptions();
+  options.listeners.push_back(listener);
+  Reopen(options);
+  ASSERT_OK(Put("k", "v"));
+
+  std::atomic<bool> flush_returned{false};
+  port::Thread flush_thread([&] {
+    // Exercises the TEST_ wrapper, which flushes with wait=true and
+    // listener_wait=true.
+    ASSERT_OK(dbfull()->TEST_FlushMemTableWithListenerWait());
+    flush_returned.store(true);
+  });
+
+  // Wait until we are inside OnFlushCompleted. At this point the memtable has
+  // already been committed/removed, which is what unblocks a plain
+  // Flush(wait=true).
+  listener->WaitUntilEntered();
+
+  // Pump spurious bg_cv_ wakeups. A waiter that ignored listener_wait would
+  // wake, observe the memtable already gone, and return here.
+  for (int i = 0; i < 10; ++i) {
+    db_->DisableManualCompaction();
+    db_->EnableManualCompaction();
+  }
+
+  // The OnFlushCompleted callback has not returned, so neither must Flush().
+  ASSERT_FALSE(listener->CallbackReturned());
+  ASSERT_FALSE(flush_returned.load());
+
+  listener->Release();
+  flush_thread.join();
+  ASSERT_TRUE(flush_returned.load());
+  ASSERT_TRUE(listener->CallbackReturned());
+}
+
+TEST_F(DBFlushTest, ListenerWaitAtomicFlushWaitsForAllOnFlushCompleted) {
+  // Same guarantee for atomic flush across multiple column families. The atomic
+  // flush removes all CFs' memtables together and then fires OnFlushCompleted
+  // per CF, releasing the DB mutex between CFs; listener_wait must still block
+  // Flush() until the (first, still-running) callback has finished.
+  auto listener = std::make_shared<BlockingFlushListener>(
+      /*block_only_first=*/true);
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.listeners.push_back(listener);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(0, "k0", "v0"));
+  ASSERT_OK(Put(1, "k1", "v1"));
+
+  std::atomic<bool> flush_returned{false};
+  port::Thread flush_thread([&] {
+    FlushOptions fo;
+    fo.wait = true;
+    fo.listener_wait = true;
+    ASSERT_OK(db_->Flush(fo, {handles_[0], handles_[1]}));
+    flush_returned.store(true);
+  });
+
+  listener->WaitUntilEntered();
+  for (int i = 0; i < 10; ++i) {
+    db_->DisableManualCompaction();
+    db_->EnableManualCompaction();
+  }
+  ASSERT_FALSE(listener->CallbackReturned());
+  ASSERT_FALSE(flush_returned.load());
+
+  listener->Release();
+  flush_thread.join();
+  ASSERT_TRUE(flush_returned.load());
+  ASSERT_TRUE(listener->CallbackReturned());
 }
 
 TEST_F(DBFlushTest, FlushWithBlob) {

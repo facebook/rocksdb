@@ -2078,11 +2078,14 @@ TEST_F(WideColumnEntityBlobExtractionTest,
 // Mock BlobFetcher for testing blob GC without a real Version
 class MockBlobFetcher : public BlobFetcher {
  public:
-  MockBlobFetcher() : BlobFetcher(nullptr /* version */, ReadOptions()) {}
+  MockBlobFetcher() = default;
+
+  using BlobFetcher::FetchBlob;
 
   Status FetchBlob(const Slice& /* user_key */, const BlobIndex& blob_index,
                    FilePrefetchBuffer* /* prefetch_buffer */,
-                   PinnableSlice* blob_value, uint64_t* bytes_read) const {
+                   PinnableSlice* blob_value,
+                   uint64_t* bytes_read) const override {
     auto it = blob_data_.find(
         std::make_pair(blob_index.file_number(), blob_index.offset()));
     if (it == blob_data_.end()) {
@@ -2096,6 +2099,8 @@ class MockBlobFetcher : public BlobFetcher {
     return Status::OK();
   }
 
+  const ReadOptions& read_options() const override { return read_options_; }
+
   void AddBlob(uint64_t file_number, uint64_t offset,
                const std::string& value) {
     blob_data_[std::make_pair(file_number, offset)] = value;
@@ -2103,6 +2108,7 @@ class MockBlobFetcher : public BlobFetcher {
 
  private:
   std::map<std::pair<uint64_t, uint64_t>, std::string> blob_data_;
+  ReadOptions read_options_;
 };
 
 // FakeCompaction that supports blob garbage collection

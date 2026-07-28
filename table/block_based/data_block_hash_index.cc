@@ -73,14 +73,26 @@ void DataBlockHashIndexBuilder::Reset() {
   hash_and_restart_pairs_.clear();
 }
 
-void DataBlockHashIndex::Initialize(const char* data, uint16_t size,
+bool DataBlockHashIndex::Initialize(const char* data, size_t size,
                                     uint16_t* map_offset) {
-  assert(size >= sizeof(uint16_t));  // NUM_BUCKETS
+  num_buckets_ = 0;
+  if (size < sizeof(uint16_t) /* NUM_BUCKETS */ ||
+      size >= kMaxBlockSizeSupportedByHashIndex) {
+    return false;
+  }
   num_buckets_ = DecodeFixed16(data + size - sizeof(uint16_t));
-  assert(num_buckets_ > 0);
-  assert(size > num_buckets_ * sizeof(uint8_t));
+  // The bucket array plus the NUM_BUCKETS field must fit within `size`. A
+  // corrupted block can encode a `num_buckets_` large enough to underflow the
+  // `map_offset` computation below, so reject it here rather than relying on
+  // the debug-only asserts (compiled out in release/ASAN builds).
+  if (num_buckets_ == 0 ||
+      num_buckets_ * sizeof(uint8_t) + sizeof(uint16_t) > size) {
+    num_buckets_ = 0;
+    return false;
+  }
   *map_offset = static_cast<uint16_t>(size - sizeof(uint16_t) -
                                       num_buckets_ * sizeof(uint8_t));
+  return true;
 }
 
 uint8_t DataBlockHashIndex::Lookup(const char* data, uint32_t map_offset,

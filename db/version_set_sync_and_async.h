@@ -38,7 +38,7 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
   // need to provide it here.
   bool is_blob_index = false;
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
-  BlobFetcher blob_fetcher(this, read_options);
+  VersionBlobFetcher blob_fetcher(this, read_options);
 
   assert(pinned_iters_mgr);
   GetContext get_context(
@@ -71,22 +71,26 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
       sample_file_read_inc(f->file_metadata);
     }
 
+#if defined(WITHOUT_COROUTINES)
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
-    *status = CO_AWAIT(table_cache_->Get)(
-        read_options, *internal_comparator(), *f->file_metadata, ikey,
-        &get_context, mutable_cf_options_,
-        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                        fp.IsHitFileLastInLevel()),
-        fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
+#endif
+    *status =
+        CO_AWAIT(table_cache_->Get, read_options, *internal_comparator(),
+                 *f->file_metadata, ikey, &get_context, mutable_cf_options_,
+                 cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+                 IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                                 fp.IsHitFileLastInLevel()),
+                 fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
     // TODO: examine the behavior for corrupted key
+#if defined(WITHOUT_COROUTINES)
     if (timer_enabled) {
       PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
                                 fp.GetHitFileLevel());
     }
+#endif
     if (!status->ok()) {
       if (db_statistics_ != nullptr) {
         get_context.ReportCounters();
@@ -224,21 +228,24 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
  std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
  TableCache::TypedHandle* table_handle, uint64_t& num_filter_read,
  uint64_t& num_index_read, uint64_t& num_sst_read) {
+  Status s;
+#if defined(WITHOUT_COROUTINES)
   bool timer_enabled = GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
                        get_perf_context()->per_level_perf_context_enabled;
-
-  Status s;
   StopWatchNano timer(clock_, timer_enabled /* auto_start */);
-  s = CO_AWAIT(table_cache_->MultiGet)(
-      read_options, *internal_comparator(), *f->file_metadata, &file_range,
-      mutable_cf_options_,
-      cfd_->internal_stats()->GetFileReadHist(hit_file_level), skip_filters,
-      skip_range_deletions, hit_file_level, table_handle);
+#endif
+  s = CO_AWAIT(table_cache_->MultiGet, read_options, *internal_comparator(),
+               *f->file_metadata, &file_range, mutable_cf_options_,
+               cfd_->internal_stats()->GetFileReadHist(hit_file_level),
+               skip_filters, skip_range_deletions, hit_file_level,
+               table_handle);
   // TODO: examine the behavior for corrupted key
+#if defined(WITHOUT_COROUTINES)
   if (timer_enabled) {
     PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
                               hit_file_level);
   }
+#endif
   if (!s.ok()) {
     // TODO: Set status for individual keys appropriately
     for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
@@ -395,7 +402,7 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
   autovector<GetContext, 16> get_ctx;
-  BlobFetcher blob_fetcher(this, read_options);
+  VersionBlobFetcher blob_fetcher(this, read_options);
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
@@ -422,12 +429,15 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
   // blob_file => [[blob_idx, it], ...]
   std::unordered_map<uint64_t, BlobReadContexts> blob_ctxs;
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
-#if USE_COROUTINES
+#if defined(WITHOUT_COROUTINES) && defined(USE_COROUTINES)
+  // optimize_multiget_for_io overlaps reads across levels via blockingWait; it
+  // is only used by the synchronous variant. The coroutine variant overlaps
+  // within a level via co_await below.
   if (read_options.async_io && read_options.optimize_multiget_for_io &&
       using_coroutines() && use_async_io_) {
     s = MultiGetAsync(read_options, range, &blob_ctxs);
   } else
-#endif  // USE_COROUTINES
+#endif  // WITHOUT_COROUTINES && USE_COROUTINES
   {
     MultiGetRange file_picker_range(*range, range->begin(), range->end());
     FilePickerMultiGet fp(&file_picker_range, &storage_info_.level_files_brief_,
@@ -450,18 +460,26 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
       // Avoid using the coroutine version if we're looking in a L0 file, since
       // L0 files won't be parallelized anyway. The regular synchronous version
       // is faster.
+#ifdef WITH_COROUTINES
+      if (fp.GetHitFileLevel() == 0 || !fp.RemainingOverlapInLevel()) {
+#else
       if (!read_options.async_io || !using_coroutines() || !use_async_io_ ||
           fp.GetHitFileLevel() == 0 || !fp.RemainingOverlapInLevel()) {
+#endif
         if (f) {
           bool skip_filters =
               IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                               fp.IsHitFileLastInLevel());
-          // Call MultiGetFromSST for looking up a single file
-          s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
-                              fp.GetHitFileLevel(), skip_filters,
-                              /*skip_range_deletions=*/false, f, blob_ctxs,
-                              /*table_handle=*/nullptr, num_filter_read,
-                              num_index_read, num_sst_read);
+          s = CO_AWAIT(MultiGetFromSST, read_options, fp.CurrentFileRange(),
+                       fp.GetHitFileLevel(), skip_filters,
+                       /*skip_range_deletions=*/false, f, blob_ctxs,
+                       /*table_handle=*/nullptr, num_filter_read,
+                       num_index_read, num_sst_read);
+#ifdef WITH_COROUTINES
+          // Count this per-file coroutine read. The overlap branch below
+          // records the same ticker for its batch of parallel reads.
+          RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT);
+#endif
           if (fp.GetHitFileLevel() == 0) {
             dump_stats_for_l0_file = true;
           }
@@ -511,11 +529,16 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
         if (mget_tasks.size() > 0) {
           RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT,
                      mget_tasks.size());
-          // Collect all results so far
+          // Collect all results so far.
+#ifdef WITH_COROUTINES
+          std::vector<Status> statuses = co_await folly::coro::co_nothrow(
+              folly::coro::collectAllRange(std::move(mget_tasks)));
+#else
           std::vector<Status> statuses =
               folly::coro::blockingWait(co_withExecutor(
                   &range->context()->executor(),
                   folly::coro::collectAllRange(std::move(mget_tasks))));
+#endif
           if (s.ok()) {
             for (Status stat : statuses) {
               if (!stat.ok()) {

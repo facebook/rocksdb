@@ -40,7 +40,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
     get_impl_options.timestamp->clear();
   }
 
+#if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+#endif
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -73,12 +75,20 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
   }
 
   // Acquire SuperVersion
+#if defined(WITH_COROUTINES)
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
+#else
   SuperVersion* super_version = GetAndRefSuperVersion(cfd);
+#endif
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     s = FailIfReadCollapsedHistory(cfd, super_version,
                                    *(read_options.timestamp));
     if (!s.ok()) {
+#if defined(WITH_COROUTINES)
+      CleanupSuperVersion(super_version);
+#else
       ReturnAndCleanupSuperVersion(cfd, super_version);
+#endif
       CO_RETURN s;
     }
   }
@@ -90,7 +100,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
   bool done = false;
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->ioptions().enable_blob_direct_write ||
       cfd->GetLatestMutableCFOptions().enable_blob_files) {
     // Catch-up can rebuild older blob references into memtables after mutable
@@ -159,23 +169,32 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
   }
   if (!s.ok() && !s.IsMergeInProgress() && !s.IsNotFound()) {
     assert(done);
+#if defined(WITH_COROUTINES)
+    CleanupSuperVersion(super_version);
+#else
     ReturnAndCleanupSuperVersion(cfd, super_version);
+#endif
     CO_RETURN s;
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
-    CO_AWAIT(super_version->current->Get)(
-        read_options, lkey, get_impl_options.value, get_impl_options.columns,
-        ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
-        /*value_found*/ nullptr,
-        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
-        /*do_merge=*/get_impl_options.get_value);
+    CO_AWAIT(super_version->current->Get, read_options, lkey,
+             get_impl_options.value, get_impl_options.columns, ts, &s,
+             &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+             /*value_found*/ nullptr,
+             /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
+             /*is_blob*/ nullptr,
+             /*do_merge=*/get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
     PERF_TIMER_GUARD(get_post_process_time);
+#if defined(WITH_COROUTINES)
+    CleanupSuperVersion(super_version);
+#else
     ReturnAndCleanupSuperVersion(cfd, super_version);
+#endif
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     // Mirror DBImpl::GetImpl: only produce merge-operand output and count bytes

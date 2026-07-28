@@ -253,6 +253,7 @@ LIB_SOURCES =                                                   \
   util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
+  util/coro_stats_util.cc                                       \
   util/crc32c.cc                                                \
   util/crc32c_arm64.cc                                          \
   util/data_structure.cc                                        \
@@ -287,6 +288,7 @@ LIB_SOURCES =                                                   \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
   utilities/checkpoint/checkpoint_impl.cc                       \
+  utilities/copy_engine/copy_engine.cc                         \
   utilities/compaction_filters.cc                               \
   utilities/sorted_run_builder/sorted_run_builder.cc            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
@@ -656,6 +658,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/cassandra/cassandra_row_merge_test.cc                       \
   utilities/cassandra/cassandra_serialize_test.cc                       \
   utilities/checkpoint/checkpoint_test.cc                               \
+  utilities/copy_engine/copy_engine_test.cc                     \
   utilities/sorted_run_builder/sorted_run_builder_test.cc               \
   utilities/env_timed_test.cc                                           \
   utilities/fault_injection_fs_test.cc                                  \

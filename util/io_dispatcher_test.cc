@@ -24,6 +24,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -445,6 +446,7 @@ class IODispatcherTest : public DBTestBase {
   std::vector<std::unique_ptr<ImmutableOptions>> all_ioptions_;
   std::vector<std::unique_ptr<EnvOptions>> all_env_options_;
   std::vector<std::unique_ptr<InternalKeyComparator>> all_comparators_;
+  std::vector<std::shared_ptr<Statistics>> all_statistics_;
 
   class TestReadScopedBlockBufferProvider
       : public ReadScopedBlockBufferProvider {
@@ -611,11 +613,12 @@ class IODispatcherTest : public DBTestBase {
       const BlockBasedTableOptions* table_options_override = nullptr,
       bool use_direct_reads = false,
       CompressionType compression_type = kNoCompression,
-      bool allow_mmap_reads = false, Env* env_override = nullptr) {
+      bool allow_mmap_reads = false, Env* env_override = nullptr,
+      std::shared_ptr<Statistics> statistics = nullptr) {
     // Create options - store in member variables to avoid use-after-scope
     // The BlockBasedTable will keep references to these options
     Options options{};
-    options.statistics = nullptr;
+    options.statistics = statistics;
     options.allow_mmap_reads = allow_mmap_reads;
     if (env_override != nullptr) {
       options.env = env_override;
@@ -685,7 +688,7 @@ class IODispatcherTest : public DBTestBase {
     foptions.use_direct_reads = use_direct_reads;
     foptions.use_mmap_reads = allow_mmap_reads;
 
-    NewFileReader(table_name, foptions, &file, nullptr);
+    NewFileReader(table_name, foptions, &file, statistics.get());
 
     auto soptions = std::make_unique<EnvOptions>();
     soptions->use_mmap_reads = allow_mmap_reads;
@@ -708,6 +711,7 @@ class IODispatcherTest : public DBTestBase {
     all_ioptions_.push_back(std::move(ioptions));
     all_env_options_.push_back(std::move(soptions));
     all_comparators_.push_back(std::move(internal_comparator));
+    all_statistics_.push_back(std::move(statistics));
 
     table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
 
@@ -1532,6 +1536,64 @@ TEST_F(IODispatcherTest, StatisticsTracking) {
   uint64_t total_reads = num_sync + num_async + num_cache;
   ASSERT_EQ(total_reads, block_handles.size());
 }
+
+TEST_F(IODispatcherTest, AsyncReadLatencyHistograms) {
+  if (!kIOUringPresent) {
+    ROCKSDB_GTEST_SKIP("Test requires io_uring support");
+    return;
+  }
+
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = nullptr;
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = true;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             true /* use_direct_reads */, kNoCompression,
+                             false /* allow_mmap_reads */, controlled_env.get(),
+                             statistics));
+  ASSERT_FALSE(block_handles.empty());
+  block_handles.resize(1);
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_EQ(tracking_fs_->GetReadAsyncCount(), 1);
+
+  CachableEntry<Block> block;
+  ASSERT_OK(read_set->ReadIndex(0, &block));
+  ASSERT_NE(block.GetValue(), nullptr);
+
+  HistogramData observed_completion;
+  HistogramData poll_wait;
+  HistogramData prefetch_lead;
+  statistics->histogramData(IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,
+                            &observed_completion);
+  statistics->histogramData(IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
+                            &poll_wait);
+  statistics->histogramData(IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
+                            &prefetch_lead);
+
+  EXPECT_EQ(observed_completion.count, 1);
+  EXPECT_EQ(poll_wait.count, 1);
+  EXPECT_EQ(prefetch_lead.count, 1);
+  EXPECT_GE(observed_completion.sum, prefetch_lead.sum);
+}
+
 TEST_F(IODispatcherTest, AsyncAndSyncRead) {
   // This test verifies the difference between async_io=true and async_io=false
   // by checking the statistics after reading all blocks.

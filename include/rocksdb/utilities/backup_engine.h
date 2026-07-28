@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <climits>
 #include <cstdint>
 #include <forward_list>
 #include <functional>
@@ -21,6 +22,7 @@
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/checkpoint.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BackupEngineReadOnlyBase;
@@ -31,7 +33,7 @@ constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 // The default BackupEngine file checksum function name.
 constexpr char kBackupFileChecksumFuncName[] = "crc32c";
 
-struct BackupEngineOptions {
+struct BackupEngineOptions : public CheckpointOrBackupEngineOptions {
   // Where to keep the backup files. Has to be different than dbname_
   // Best to set this to dbname_ + "/backups"
   // Required
@@ -54,11 +56,6 @@ struct BackupEngineOptions {
   // default: true
   bool share_table_files;
 
-  // Backup info and error messages will be written to info_log
-  // if non-nullptr.
-  // Default: nullptr
-  Logger* info_log;
-
   // If sync == true, we can guarantee you'll get consistent backup and
   // restore even on a machine crash/reboot. Backup and restore processes are
   // slower with sync enabled. If sync == false, we can only guarantee that
@@ -76,28 +73,6 @@ struct BackupEngineOptions {
   // memory.
   // Default: true
   bool backup_log_files;
-
-  // Size of the buffer in bytes used for reading files.
-  // Enables optimally configuring the IO size based on the storage backend.
-  // If specified, takes precendence over the rate limiter burst size (if
-  // specified) as well as kDefaultCopyFileBufferSize.
-  // If 0, the rate limiter burst size (if specified) or
-  // kDefaultCopyFileBufferSize will be used.
-  // Default: 0
-  uint64_t io_buffer_size;
-
-  // Max bytes that can be transferred in a second during backup.
-  // If 0, go as fast as you can
-  // This limit only applies to writes. To also limit reads,
-  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
-  // have to be passed in through the option "backup_rate_limiter"
-  // Default: 0
-  uint64_t backup_rate_limit;
-
-  // Backup rate limiter. Used to control transfer speed for backup. If this is
-  // not null, backup_rate_limit is ignored.
-  // Default: nullptr
-  std::shared_ptr<RateLimiter> backup_rate_limiter{nullptr};
 
   // Max bytes that can be transferred in a second during restore.
   // If 0, go as fast as you can
@@ -125,11 +100,6 @@ struct BackupEngineOptions {
   //
   // Default: true
   bool share_files_with_checksum;
-
-  // Up to this many background threads will be used to copy files & compute
-  // checksums for CreateNewBackup() and RestoreDBFromBackup().
-  // Default: 1
-  int max_background_operations;
 
   // During backup user can get callback every time next
   // callback_trigger_interval_size bytes being copied.
@@ -244,18 +214,18 @@ struct BackupEngineOptions {
       int _max_valid_backups_to_open = INT_MAX,
       ShareFilesNaming _share_files_with_checksum_naming =
           static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize))
-      : backup_dir(_backup_dir),
+      : CheckpointOrBackupEngineOptions{_info_log, _io_buffer_size,
+                                        _backup_rate_limit,
+                                        /*backup_rate_limiter=*/nullptr,
+                                        _max_background_operations},
+        backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
-        info_log(_info_log),
         sync(_sync),
         destroy_old_data(_destroy_old_data),
         backup_log_files(_backup_log_files),
-        io_buffer_size(_io_buffer_size),
-        backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
         share_files_with_checksum(true),
-        max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
         share_files_with_checksum_naming(_share_files_with_checksum_naming) {
@@ -305,7 +275,7 @@ struct MaybeExcludeBackupFile {
   bool exclude_decision = false;
 };
 
-struct CreateBackupOptions {
+struct CreateBackupOptions : public CreateCheckpointOrBackupOptions {
   // Flush will always trigger if 2PC is enabled.
   // If write-ahead logs are disabled, set flush_before_backup=true to
   // avoid losing unflushed key/value pairs from the memtable.
@@ -341,14 +311,6 @@ struct CreateBackupOptions {
   std::function<void(MaybeExcludeBackupFile* files_begin,
                      MaybeExcludeBackupFile* files_end)>
       exclude_files_callback = {};
-
-  // If false, background_thread_cpu_priority is ignored.
-  // Otherwise, the cpu priority can be decreased,
-  // if you try to increase the priority, the priority will not change.
-  // The initial priority of the threads is CpuPriority::kNormal,
-  // so you can decrease to priorities lower than kNormal.
-  bool decrease_background_thread_cpu_priority = false;
-  CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
 
   // If true, use atomic flush to flush all column families atomically
   // before creating the backup. This ensures cross-CF consistency without

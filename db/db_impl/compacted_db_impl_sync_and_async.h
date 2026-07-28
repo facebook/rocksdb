@@ -53,7 +53,7 @@ DEFINE_SYNC_AND_ASYNC(Status, CompactedDBImpl::Get)
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
-  BlobFetcher blob_fetcher(version_, read_options);
+  VersionBlobFetcher blob_fetcher(version_, read_options);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
   LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
@@ -85,8 +85,8 @@ DEFINE_SYNC_AND_ASYNC(Status, CompactedDBImpl::Get)
   if (s.ok()) {
     assert(handle == nullptr);
     // Use TableReader directly to avoid extra table_cache->Get() overheads
-    s = CO_AWAIT(t->Get)(read_options, lkey.internal_key(), &get_context,
-                         nullptr);
+    s = CO_AWAIT(t->Get, read_options, lkey.internal_key(), &get_context,
+                 nullptr);
   }
   if (!s.ok() && !s.IsNotFound()) {
     CO_RETURN s;
@@ -146,7 +146,7 @@ DEFINE_SYNC_AND_ASYNC(void, CompactedDBImpl::MultiGet)
   }
 
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
-  BlobFetcher blob_fetcher(version_, read_options);
+  VersionBlobFetcher blob_fetcher(version_, read_options);
   for (size_t i = 0; i < num_keys; ++i) {
     const Slice& key = keys[i];
     LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
@@ -181,8 +181,8 @@ DEFINE_SYNC_AND_ASYNC(void, CompactedDBImpl::MultiGet)
     if (status.ok()) {
       assert(handle == nullptr);
       // Use TableReader directly to avoid extra table_cache->Get() overheads
-      status = CO_AWAIT(t->Get)(read_options, lkey.internal_key(), &get_context,
-                                nullptr);
+      status = CO_AWAIT(t->Get, read_options, lkey.internal_key(), &get_context,
+                        nullptr);
     }
     if (!status.ok() && !status.IsNotFound()) {
       statuses[i] = status;

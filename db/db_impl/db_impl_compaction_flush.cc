@@ -31,6 +31,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/concurrent_task_limiter_impl.h"
+#include "util/defer.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -357,6 +358,34 @@ Status DBImpl::FlushMemTableToOutputFile(
                       &error_handler_);
     need_cancel = false;
   }
+
+  // Reserve a pending flush-completion notification before the DB mutex can be
+  // released, so that a Flush(wait=true, listener_wait=true) caller cannot
+  // observe this flush as finished until NotifyOnFlushCompleted() below has
+  // run. flush_job.Run() removed the memtables from the immutable list (which
+  // is what unblocks the waiter) and the DB mutex has been held continuously
+  // since, so there is no window in which the waiter could see the flush
+  // committed with a zero count. Reserved only when a notification will
+  // actually fire (matches the NotifyOnFlushCompleted call below): flush
+  // committed successfully, not a mempurge, listeners are registered, and this
+  // job committed at least one flush result to report.
+  const bool reserved_flush_notification =
+      s.ok() && !switched_to_mempurge &&
+      !immutable_db_options_.listeners.empty() &&
+      !flush_job.GetCommittedFlushJobsInfo()->empty();
+  if (reserved_flush_notification) {
+    cfd->imm()->AddPendingFlushNotifications(1);
+  }
+  // Release the reservation on every exit path (RAII) so a future early return
+  // cannot leak the count and hang listener_wait waiters. The DB mutex is held
+  // throughout this function, including at scope exit, which
+  // SubPendingFlushNotifications() requires. Runs after
+  // NotifyOnFlushCompleted() below has returned.
+  Defer release_flush_notification([&] {
+    if (reserved_flush_notification) {
+      cfd->imm()->SubPendingFlushNotifications(1);
+    }
+  });
 
   if (cfd->blob_partition_manager() != nullptr &&
       prepared_blob_generations > 0) {
@@ -899,6 +928,42 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         committed_flush_jobs_info, &job_context->memtables_to_free,
         directories_.GetDbDir(), log_buffer);
   }
+
+  // Reserve a pending flush-completion notification for every CF that the
+  // NotifyOnFlushCompleted loop below will service, while the DB mutex is still
+  // held continuously since InstallMemtableAtomicFlushResults removed the
+  // memtables. This closes the window where a
+  // Flush(wait=true, listener_wait=true) waiter could observe an atomic flush
+  // as finished before a later CF's OnFlushCompleted has run, since the notify
+  // loop releases and re-acquires the mutex between CFs. The reservations are
+  // released by a matching pass after the notify loop.
+  autovector<uint8_t> reserved_flush_notification;
+  reserved_flush_notification.reserve(num_cfs);
+  {
+    const bool has_listeners = !immutable_db_options_.listeners.empty();
+    for (int i = 0; i != num_cfs; ++i) {
+      const bool reserve = s.ok() && has_listeners &&
+                           !switched_to_mempurge[i] && !cfds[i]->IsDropped() &&
+                           !jobs[i]->GetCommittedFlushJobsInfo()->empty();
+      if (reserve) {
+        cfds[i]->imm()->AddPendingFlushNotifications(1);
+      }
+      reserved_flush_notification.push_back(reserve ? 1 : 0);
+    }
+  }
+  // Release the reservations on every exit path (RAII) so a future early return
+  // cannot leak the count and hang listener_wait waiters. Done independently of
+  // the notify loop's skips so the count stays balanced even if a CF was
+  // dropped after it was reserved. The DB mutex is held throughout this
+  // function, including at scope exit, which SubPendingFlushNotifications()
+  // requires.
+  Defer release_flush_notifications([&] {
+    for (int i = 0; i != num_cfs; ++i) {
+      if (reserved_flush_notification[i]) {
+        cfds[i]->imm()->SubPendingFlushNotifications(1);
+      }
+    }
+  });
 
   if (!s.ok()) {
     // If the atomic flush's combined MANIFEST write failed, the output files
@@ -2794,7 +2859,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
-        flush_reason);
+        flush_reason, flush_options.listener_wait);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2949,7 +3014,7 @@ Status DBImpl::AtomicFlushMemTables(
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
-        flush_reason);
+        flush_reason, flush_options.listener_wait);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
@@ -3118,7 +3183,8 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids,
-    bool resuming_from_bg_err, std::optional<FlushReason> flush_reason) {
+    bool resuming_from_bg_err, std::optional<FlushReason> flush_reason,
+    bool wait_for_listener_notifications) {
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
@@ -3163,7 +3229,13 @@ Status DBImpl::WaitForFlushMemTables(
             flush_reason.value() != FlushReason::kExternalFileIngestion ||
             cfds[i]->GetSuperVersion()->imm->GetID() ==
                 cfds[i]->imm()->current()->GetID()) {
-          ++num_finished;
+          // When the caller requested it, also wait for the flush-completion
+          // listener callbacks for this CF to finish before counting it as
+          // finished (see FlushOptions::listener_wait).
+          if (!wait_for_listener_notifications ||
+              cfds[i]->imm()->NumPendingFlushNotifications() == 0) {
+            ++num_finished;
+          }
         }
       }
     }

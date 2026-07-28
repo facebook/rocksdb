@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+#include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "rocksdb/options.h"
 
@@ -39,6 +40,31 @@ MultiScanIndexIterator::~MultiScanIndexIterator() {
   if (statistics_ && wasted_blocks_count_ > 0) {
     RecordTick(statistics_, MULTISCAN_PREFETCH_BLOCKS_WASTED,
                wasted_blocks_count_);
+  }
+  // Report the prefetch IO the ReadSet performed for this Prepare. Recorded at
+  // teardown (not in Prepare) so async and memory-deferred prefetches, which
+  // complete during iteration, are included in the counts.
+  if (read_set_) {
+    const uint64_t blocks_from_cache = read_set_->GetNumCacheHits();
+    const uint64_t blocks_prefetched = read_set_->GetNumBlocksPrefetched();
+    const uint64_t prefetch_bytes = read_set_->GetPrefetchBytes();
+    const uint64_t io_requests = read_set_->GetNumIORequests();
+    const uint64_t io_coalesced_nonadjacent =
+        read_set_->GetNumCoalescedNonadjacent();
+    if (statistics_) {
+      RecordTick(statistics_, MULTISCAN_BLOCKS_FROM_CACHE, blocks_from_cache);
+      RecordTick(statistics_, MULTISCAN_BLOCKS_PREFETCHED, blocks_prefetched);
+      RecordTick(statistics_, MULTISCAN_PREFETCH_BYTES, prefetch_bytes);
+      RecordTick(statistics_, MULTISCAN_IO_REQUESTS, io_requests);
+      RecordTick(statistics_, MULTISCAN_IO_COALESCED_NONADJACENT,
+                 io_coalesced_nonadjacent);
+    }
+    PERF_COUNTER_ADD(multiscan_blocks_from_cache, blocks_from_cache);
+    PERF_COUNTER_ADD(multiscan_blocks_prefetched, blocks_prefetched);
+    PERF_COUNTER_ADD(multiscan_prefetch_bytes, prefetch_bytes);
+    PERF_COUNTER_ADD(multiscan_io_requests, io_requests);
+    PERF_COUNTER_ADD(multiscan_io_coalesced_nonadjacent,
+                     io_coalesced_nonadjacent);
   }
   // Release any remaining pinned blocks
   if (read_set_) {

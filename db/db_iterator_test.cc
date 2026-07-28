@@ -6268,6 +6268,95 @@ TEST_P(DBMultiScanIteratorTest, WastedBlocksTracking) {
   ASSERT_GT(wasted, 0);
 }
 
+TEST_P(DBMultiScanIteratorTest, PrefetchStatsRecorded) {
+  // Regression test: the MultiScan prefetch stats must still be published after
+  // the prefetch path moved into the IODispatcher. A cold scan populates the
+  // prefetch counters; a warm re-scan registers cache hits.
+  auto options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  table_options.block_cache = NewLRUCache(10 * 1024 * 1024);  // 10MB cache
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  const int kNumKeys = 50;
+  std::string value(100, 'v');
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::stringstream ss;
+    ss << "k" << std::setw(3) << std::setfill('0') << i;
+    ASSERT_OK(Put(ss.str(), value));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+
+  auto run_scan = [&]() {
+    MultiScanArgs scan_options(BytewiseComparator());
+    scan_options.use_async_io = false;  // deterministic sync path
+    scan_options.insert("k000", "k049");
+    ReadOptions ro;
+    ro.fill_cache = true;
+    std::unique_ptr<MultiScan> iter =
+        dbfull()->NewMultiScan(ro, cfh, scan_options);
+    ASSERT_NE(iter, nullptr);
+    if (iter == nullptr) {
+      return;
+    }
+    int count = 0;
+    try {
+      for (auto range : *iter) {
+        for (auto it : range) {
+          it.first.ToString();
+          count++;
+        }
+      }
+    } catch (MultiScanException& ex) {
+      FAIL() << "Scan failed: " << ex.what();
+    }
+    ASSERT_GT(count, 0);
+  };
+
+  // Cold scan: force blocks to be read from disk so the prefetch path runs.
+  table_options.block_cache->EraseUnRefEntries();
+  SetPerfLevel(kEnableCount);
+  PerfContext* perf = get_perf_context();
+  ASSERT_NE(perf, nullptr);
+  if (perf == nullptr) {
+    return;
+  }
+  perf->Reset();
+  run_scan();  // MultiScanIndexIterator destroyed here -> stats recorded
+
+  ASSERT_GT(TestGetTickerCount(options, MULTISCAN_PREPARE_CALLS), 0);
+  ASSERT_GT(TestGetTickerCount(options, MULTISCAN_BLOCKS_PREFETCHED), 0);
+  ASSERT_GT(TestGetTickerCount(options, MULTISCAN_PREFETCH_BYTES), 0);
+  ASSERT_GT(TestGetTickerCount(options, MULTISCAN_IO_REQUESTS), 0);
+  HistogramData blocks_per_prepare;
+  options.statistics->histogramData(MULTISCAN_BLOCKS_PER_PREPARE,
+                                    &blocks_per_prepare);
+  ASSERT_GT(blocks_per_prepare.count, 0);
+
+  // PerfContext mirrors the same metrics scoped to this operation/thread.
+  ASSERT_GT(perf->multiscan_prepare_count, 0);
+  ASSERT_GT(perf->multiscan_blocks_prefetched, 0);
+  ASSERT_GT(perf->multiscan_prefetch_bytes, 0);
+  ASSERT_GT(perf->multiscan_io_requests, 0);
+  SetPerfLevel(kDisable);
+
+  // Warm scan: the just-cached blocks now count as cache hits.
+  uint64_t cache_hits_before =
+      TestGetTickerCount(options, MULTISCAN_BLOCKS_FROM_CACHE);
+  run_scan();
+  ASSERT_GT(TestGetTickerCount(options, MULTISCAN_BLOCKS_FROM_CACHE),
+            cache_hits_before);
+}
+
 class ReadPathRangeTombstoneTest : public DBIteratorBaseTest,
                                    public ::testing::WithParamInterface<bool> {
  protected:

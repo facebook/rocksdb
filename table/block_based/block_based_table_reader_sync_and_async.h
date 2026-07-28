@@ -49,7 +49,12 @@ DEFINE_SYNC_AND_ASYNC(Status, ReadAndParseBlockFromFile)(
       CO_RETURN s;
     }
   } else {
+#if defined(WITH_COROUTINES)
+    s = co_await folly::coro::co_nothrow(
+        block_fetcher.ReadBlockContentsCoroutine());
+#else
     s = block_fetcher.ReadBlockContents();
+#endif
   }
   if (s.ok()) {
     create_context.Create(result, std::move(contents));
@@ -155,7 +160,12 @@ DEFINE_SYNC_AND_ASYNC(BlocklikeStatus<TBlocklike>,
             CO_RETURN s;
           }
         } else {
+#if defined(WITH_COROUTINES)
+          s = co_await folly::coro::co_nothrow(
+              block_fetcher.ReadBlockContentsCoroutine());
+#else
           s = block_fetcher.ReadBlockContents();
+#endif
         }
 
         contents_comp_type = block_fetcher.compression_type();
@@ -236,9 +246,9 @@ DEFINE_SYNC_AND_ASYNC(BlocklikeStatus<TBlocklike>,
   assert(out_parsed_block->IsEmpty());
 
   if (use_cache) {
-    Status s = CO_AWAIT(MaybeReadBlockAndLoadToCache)(
-        prefetch_buffer, ro, handle, decomp, for_compaction, out_parsed_block,
-        get_context, lookup_context,
+    Status s = CO_AWAIT(
+        MaybeReadBlockAndLoadToCache, prefetch_buffer, ro, handle, decomp,
+        for_compaction, out_parsed_block, get_context, lookup_context,
         /*contents=*/nullptr, async_read, use_block_cache_for_lookup);
 
     if (!s.ok()) {
@@ -273,11 +283,12 @@ DEFINE_SYNC_AND_ASYNC(BlocklikeStatus<TBlocklike>,
             ? GetReadScopedBlockBufferProvider(ro,
                                                rep_->ioptions.allow_mmap_reads)
             : std::nullopt;
-    s = CO_AWAIT(ReadAndParseBlockFromFile)(
-        rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
-        rep_->ioptions, rep_->create_context, maybe_compressed, decomp,
-        rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
-        for_compaction, async_read, block_buffer_provider);
+    s = CO_AWAIT(ReadAndParseBlockFromFile, rep_->file.get(), prefetch_buffer,
+                 rep_->footer, ro, handle, &block, rep_->ioptions,
+                 rep_->create_context, maybe_compressed, decomp,
+                 rep_->persistent_cache_options,
+                 GetMemoryAllocator(rep_->table_options), for_compaction,
+                 async_read, block_buffer_provider);
 
     if (get_context) {
       switch (TBlocklike::kBlockType) {
@@ -354,20 +365,19 @@ DEFINE_SYNC_AND_ASYNC(TBlockIter*, BlockBasedTable::NewDataBlockIterator)(
     }
 
     if (block_type == BlockType::kRangeDeletion) {
-      s = CO_AWAIT(RetrieveBlock)(prefetch_buffer, ro, handle, decomp,
-                                  &block.As<Block_kRangeDeletion>(),
-                                  get_context, lookup_context, for_compaction,
-                                  /* use_cache */ true, async_read,
-                                  use_block_cache_for_lookup);
+      s = CO_AWAIT(RetrieveBlock, prefetch_buffer, ro, handle, decomp,
+                   &block.As<Block_kRangeDeletion>(), get_context,
+                   lookup_context, for_compaction, /* use_cache */ true,
+                   async_read, use_block_cache_for_lookup);
     } else {
       const bool use_cache =
           block_type != BlockType::kData ||
           ShouldUseDataBlockCacheForIterator(rep_->table_options, ro,
                                              rep_->ioptions.allow_mmap_reads);
-      s = CO_AWAIT(RetrieveBlock)(
-          prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
-          get_context, lookup_context, for_compaction, use_cache, async_read,
-          use_block_cache_for_lookup && use_cache);
+      s = CO_AWAIT(RetrieveBlock, prefetch_buffer, ro, handle, decomp,
+                   &block.As<IterBlocklike>(), get_context, lookup_context,
+                   for_compaction, use_cache, async_read,
+                   use_block_cache_for_lookup && use_cache);
     }
   }
 
@@ -552,6 +562,12 @@ DEFINE_SYNC_AND_ASYNC(Status, BlockBasedTable::Get)
     if (rep_->has_embedded_blobs) {
       embedded_scratch.emplace();
     }
+    // Defer same-file wide-column blob resolution to GetContext (zero-copy)
+    // unless a row-cache replay log is being built: the replay log (and thus
+    // the row cache) must hold a fully resolved entity, since a later row-cache
+    // hit never opens this table and so cannot resolve same-file references.
+    const bool defer_embedded_wide_columns =
+        embedded_scratch.has_value() && !get_context->HasReplayLog();
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
 
@@ -573,11 +589,11 @@ DEFINE_SYNC_AND_ASYNC(Status, BlockBasedTable::Get)
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
       Status tmp_status;
-      NewDataBlockIterator<DataBlockIter>(
-          read_options, v.handle, &biter, BlockType::kData, get_context,
-          &lookup_data_block_context, /*prefetch_buffer=*/nullptr,
-          /*for_compaction=*/false, /*async_read=*/false, tmp_status,
-          /*use_block_cache_for_lookup=*/true);
+      CO_AWAIT(NewDataBlockIterator, read_options, v.handle, &biter,
+               BlockType::kData, get_context, &lookup_data_block_context,
+               /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+               /*async_read=*/false, tmp_status,
+               /*use_block_cache_for_lookup=*/true);
 
       if (read_options.read_tier == kBlockCacheTier &&
           biter.status().IsIncomplete()) {
@@ -611,7 +627,8 @@ DEFINE_SYNC_AND_ASYNC(Status, BlockBasedTable::Get)
           if (embedded_scratch) {
             s = ResolveEmbeddedValueForGet(
                 read_options, biter.key(), biter.value(), &*embedded_scratch,
-                value_pinner, &key_to_save, &value_to_save, &value_pinner);
+                value_pinner, &key_to_save, &value_to_save, &value_pinner,
+                defer_embedded_wide_columns);
             if (!s.ok()) {
               break;
             }
@@ -626,8 +643,9 @@ DEFINE_SYNC_AND_ASYNC(Status, BlockBasedTable::Get)
           }
 
           Status read_status;
-          bool ret = get_context->SaveValue(parsed_key, value_to_save, &matched,
-                                            &read_status, value_pinner);
+          bool ret = get_context->SaveValue(
+              parsed_key, value_to_save, &matched, &read_status, value_pinner,
+              defer_embedded_wide_columns ? this : nullptr);
           if (!read_status.ok()) {
             s = read_status;
             break;
@@ -817,15 +835,21 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     IOStatus s = file->PrepareIOOptions(options, opts, &dbg);
     if (s.ok()) {
 #if defined(WITH_COROUTINES)
-      if (file->use_direct_io()) {
-#endif  // WITH_COROUTINES
+      // RandomAccessFileReader handles direct IO alignment and delegates to the
+      // file coroutine read path.
+      if (batch->context()->use_coro_read()) {
+        s = co_await file->MultiReadCoroutine(
+            opts, &read_reqs[0], read_reqs.size(), &direct_io_context, &dbg);
+      } else if (file->use_direct_io()) {
         s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
                             &direct_io_context, &dbg);
-#if defined(WITH_COROUTINES)
       } else {
         co_await batch->context()->reader().MultiReadAsync(
             file, opts, &read_reqs[0], read_reqs.size(), &dbg);
       }
+#else   // WITH_COROUTINES
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
+                          &direct_io_context, &dbg);
 #endif  // WITH_COROUTINES
     }
     if (!s.ok()) {
@@ -950,8 +974,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
   }
 
   if (use_fs_scratch) {
-    // Free the allocated scratch buffer by fs here as read requests might have
-    // been combined into one.
+    // Free the FileSystem-provided scratch buffers here. The direct-IO
+    // coroutine path also hands its aligned buffers back via fs_scratch. Read
+    // requests might have been combined into one.
     for (FSReadRequest& req : read_reqs) {
       if (req.fs_scratch != nullptr) {
         req.fs_scratch.reset();
@@ -1200,12 +1225,11 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             block_buf.reset(scratch);
           }
         }
-        CO_AWAIT(RetrieveMultipleBlocks)
-        (read_options, &data_block_range, &block_handles, &statuses[0],
-         &results[0], scratch,
-         dict.GetValue() ? dict.GetValue()->decompressor_.get()
-                         : rep_->decompressor.get(),
-         use_fs_scratch);
+        CO_AWAIT(RetrieveMultipleBlocks, read_options, &data_block_range,
+                 &block_handles, &statuses[0], &results[0], scratch,
+                 dict.GetValue() ? dict.GetValue()->decompressor_.get()
+                                 : rep_->decompressor.get(),
+                 use_fs_scratch);
         if (get_context) {
           ++(get_context->get_context_stats_.num_sst_read);
         }
@@ -1224,6 +1248,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
     if (rep_->has_embedded_blobs) {
       embedded_scratch.emplace();
     }
+    // MultiGet does not build row-cache replay logs (TableCache::MultiGetFilter
+    // returns NotSupported when row_cache is set, falling back to per-key Get),
+    // so same-file wide-column blob resolution is always deferred to GetContext
+    // for zero-copy resolution here.
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -1356,10 +1384,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           Slice key_to_save = biter->key();
           Slice value_to_save = biter->value();
           Cleanable* effective_pinner = value_pinner;
+          const bool defer_embedded_wide_columns =
+              embedded_scratch.has_value() && !get_context->HasReplayLog();
           if (embedded_scratch) {
             s = ResolveEmbeddedValueForGet(
                 read_options, biter->key(), biter->value(), &*embedded_scratch,
-                value_pinner, &key_to_save, &value_to_save, &effective_pinner);
+                value_pinner, &key_to_save, &value_to_save, &effective_pinner,
+                defer_embedded_wide_columns);
             if (!s.ok()) {
               break;
             }
@@ -1373,8 +1404,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             break;
           }
           Status read_status;
-          bool ret = get_context->SaveValue(parsed_key, value_to_save, &matched,
-                                            &read_status, effective_pinner);
+          bool ret = get_context->SaveValue(
+              parsed_key, value_to_save, &matched, &read_status,
+              effective_pinner, defer_embedded_wide_columns ? this : nullptr);
           if (!read_status.ok()) {
             s = read_status;
             break;
