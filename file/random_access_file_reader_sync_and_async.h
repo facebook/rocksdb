@@ -94,10 +94,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
-#if defined(WITHOUT_COROUTINES)
-    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-#endif
     if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
@@ -267,9 +264,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
     RecordIOStats(stats_, file_temperature_, is_last_level_, result->size());
-#if defined(WITHOUT_COROUTINES)
-    SetPerfLevel(prev_perf_level);
-#endif
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
@@ -324,10 +318,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
-#if defined(WITHOUT_COROUTINES)
-    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-#endif
 
     FSReadRequest* fs_reqs = read_reqs;
     size_t num_fs_reqs = num_reqs;
@@ -465,9 +456,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
       }
       RecordIOStats(stats_, file_temperature_, is_last_level_, result_size);
     }
-#if defined(WITHOUT_COROUTINES)
-    SetPerfLevel(prev_perf_level);
-#endif
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);

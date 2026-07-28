@@ -44,7 +44,9 @@ struct DBOptions;
 struct ExternalSstFileInfo;
 struct FlushOptions;
 struct FlushWALOptions;
+struct IOStatsContext;
 struct Options;
+struct PerfContext;
 struct ReadOptions;
 struct TableProperties;
 struct WriteOptions;
@@ -1115,11 +1117,28 @@ class DB {
   //
   // Callers must keep the DB, callback, inputs, and output buffers alive until
   // the callback returns. The callback may run inline before the async method
-  // returns, or later from the implementation's completion path.
+  // returns, or later from the implementation's completion path. Callbacks must
+  // not invoke another async read.
+  //
+  // STATS:
+  // Callbacks can opt into perf and io metrics by overriding `EnableStats`.
+  // When provided, the returned contexts contain metrics for this request
+  // only. Most metrics should generally be available. Some scoped CPU metrics
+  // may be missing (e.g. `block_read_cpu_time`). Each returned context only has
+  // stats for a single operation, unlike the sync version which can re-use the
+  // same context for multiple operations. DO NOT use get_perf_context() or
+  // get_iostats_context() for statistics as you would for sync versions.
+  //
+  // Also enabling perf for async reads is generally more expensive because each
+  // request needs a separate stats context, rather than relying on the
+  // traditional TLS stats. Stats configuration (e.g. perf level) can be set
+  // before calling async read, and the config is saved by the coroutine.
   class AsyncCallback {
    public:
     virtual ~AsyncCallback() = default;
-    virtual void OnComplete() = 0;
+    virtual bool EnableStats() const { return false; }
+    virtual void OnComplete(const PerfContext* callback_perf_context,
+                            const IOStatsContext* callback_iostats_context) = 0;
   };
 
   virtual void GetAsync(const ReadOptions& options,
@@ -1127,7 +1146,8 @@ class DB {
                         PinnableSlice* value, std::string* timestamp,
                         Status& status, AsyncCallback& callback) {
     status = Get(options, column_family, key, value, timestamp);
-    callback.OnComplete();
+    callback.OnComplete(/*callback_perf_context=*/nullptr,
+                        /*callback_iostats_context=*/nullptr);
   }
 
   virtual void GetAsync(const ReadOptions& options,
@@ -1145,14 +1165,17 @@ class DB {
 
       PinnableSlice* value() { return &pinnable_value_; }
 
-      void OnComplete() override {
+      bool EnableStats() const override { return callback_.EnableStats(); }
+
+      void OnComplete(const PerfContext* callback_perf_context,
+                      const IOStatsContext* callback_iostats_context) override {
         std::unique_ptr<CallbackWrapper> self(this);
         if (status_.ok() && pinnable_value_.IsPinned()) {
           value_->assign(pinnable_value_.data(), pinnable_value_.size());
         }
         AsyncCallback& callback = callback_;
         self.reset();
-        callback.OnComplete();
+        callback.OnComplete(callback_perf_context, callback_iostats_context);
       }
 
      private:
@@ -1202,7 +1225,8 @@ class DB {
                              const bool sorted_input, AsyncCallback& callback) {
     MultiGet(options, num_keys, column_families, keys, values, timestamps,
              statuses, sorted_input);
-    callback.OnComplete();
+    callback.OnComplete(/*callback_perf_context=*/nullptr,
+                        /*callback_iostats_context=*/nullptr);
   }
 
   virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,

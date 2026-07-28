@@ -43,9 +43,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
 
 #if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  PERF_TIMER_GUARD(get_snapshot_time);
-#endif  // defined(WITHOUT_COROUTINES)
+#endif
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
+  PERF_TIMER_GUARD(get_snapshot_time);
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
@@ -92,9 +92,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
 
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_STOP(get_snapshot_time);
-#endif  // defined(WITHOUT_COROUTINES)
   std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->ioptions().enable_blob_direct_write ||
       cfd->GetLatestMutableCFOptions().enable_blob_files) {
@@ -122,9 +120,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
         &is_blob_index, get_impl_options.value_found);
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
-#if defined(WITHOUT_COROUTINES)
     PERF_TIMER_GUARD(get_from_output_files_time);
-#endif  // defined(WITHOUT_COROUTINES)
     PinnedIteratorsManager pinned_iters_mgr;
     CO_AWAIT(super_version->current->Get, read_options, lkey,
              get_impl_options.value, get_impl_options.columns, ts, &s,
