@@ -1002,6 +1002,7 @@ set(SOURCES
         util/simple_mixed_compressor.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
+        util/coro_stats_util.cc
         util/crc32c.cc
         util/data_structure.cc
         util/dynamic_bloom.cc

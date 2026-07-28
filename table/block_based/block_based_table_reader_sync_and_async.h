@@ -331,9 +331,7 @@ DEFINE_SYNC_AND_ASYNC(TBlockIter*, BlockBasedTable::NewDataBlockIterator)(
   using IterBlocklike =
       std::conditional_t<std::is_same_v<TBlockIter, DataBlockIter>, Block_kData,
                          Block_kIndex>;
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
-#endif  // defined(WITHOUT_COROUTINES)
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
   if (!s.ok()) {

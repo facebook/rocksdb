@@ -47,9 +47,10 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
-    co_return co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
+    Status s = co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
         folly::Executor::getKeepAliveToken(read_event_base),
         GetImplCoroutine(read_options, column_family, key, value, timestamp)));
+    co_return s;
   }
 #endif
   CO_RETURN GetImpl(read_options, column_family, key, value, timestamp);
@@ -99,11 +100,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 
 #if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-#endif  // defined(WITHOUT_COROUTINES)
+#endif
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_GUARD(get_snapshot_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
@@ -208,9 +207,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot, read_options.timestamp);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_STOP(get_snapshot_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
@@ -301,9 +298,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
-#if defined(WITHOUT_COROUTINES)
     PERF_TIMER_GUARD(get_from_output_files_time);
-#endif  // defined(WITHOUT_COROUTINES)
     CO_AWAIT(
         sv->current->Get, read_options, lkey, get_impl_options.value,
         get_impl_options.columns, timestamp, &s, &merge_context,
@@ -326,9 +321,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   }
 
   {
-#if defined(WITHOUT_COROUTINES)
     PERF_TIMER_GUARD(get_post_process_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -521,9 +514,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
       }
     }
     if (lookup_current) {
-#if defined(WITHOUT_COROUTINES)
       PERF_TIMER_GUARD(get_from_output_files_time);
-#endif  // defined(WITHOUT_COROUTINES)
       CO_AWAIT(super_version->current->MultiGet, read_options, &range,
                callback);
     }
@@ -542,9 +533,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
   }
 
   // Post processing (decrement reference counts and record statistics)
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_GUARD(get_post_process_time);
-#endif  // defined(WITHOUT_COROUTINES)
   size_t num_found = 0;
   uint64_t bytes_read = 0;
   // value_size_soft_limit was enforced above (and inside per-file MultiGet) on
@@ -627,9 +616,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
   RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_STOP(get_post_process_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
   CO_RETURN s;
 }
