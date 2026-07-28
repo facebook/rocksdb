@@ -465,6 +465,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
   uint32_t restarts_;  // Offset of restart array (list of fixed32)
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
+  // Cached result of GetKeysEndOffset(). Computed once in InitializeBase()
+  // since values_section_, data_, and restarts_ do not change afterward.
+  uint32_t keys_end_offset_{0};
   // Raw key from block.
   IterKey raw_key_;
   // Buffer for key data when global seqno assignment is enabled.
@@ -588,6 +591,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
             (block_restart_interval > 0 || num_restarts == 1)));
 
     values_section_ = values_section;
+    keys_end_offset_ = values_section_
+                           ? static_cast<uint32_t>(values_section_ - data_)
+                           : restarts_;
     current_ = GetKeysEndOffset();
   }
 
@@ -704,10 +710,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Return the offset where the keys section ends.
   // For separated KV storage, this is the start of the values section.
   // Otherwise, it's the start of the restart array.
-  inline uint32_t GetKeysEndOffset() const {
-    return values_section_ ? static_cast<uint32_t>(values_section_ - data_)
-                           : restarts_;
-  }
+  inline uint32_t GetKeysEndOffset() const { return keys_end_offset_; }
 
   uint32_t GetRestartPoint(uint32_t index) const {
     assert(index < num_restarts_);

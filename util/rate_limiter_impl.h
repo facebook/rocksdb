@@ -45,6 +45,8 @@ class GenericRateLimiter : public RateLimiter {
   using RateLimiter::Request;
   void Request(const int64_t bytes, const Env::IOPriority pri,
                Statistics* stats) override;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats, RateLimiter::OpType op_type) override;
 
   int64_t GetSingleBurstBytes() const override {
     int64_t raw_single_burst_bytes =
@@ -110,6 +112,8 @@ class GenericRateLimiter : public RateLimiter {
 
  private:
   static constexpr int kMicrosecondsPerSecond = 1000000;
+  void RequestImpl(int64_t bytes, Env::IOPriority pri, Statistics* stats,
+                   RateLimiter::OpType op_type);
   void RefillBytesAndGrantRequestsLocked();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
@@ -152,5 +156,24 @@ class GenericRateLimiter : public RateLimiter {
   const int64_t max_bytes_per_sec_;
   std::chrono::microseconds tuned_time_;
 };
+
+// Requests `total_bytes_to_request` bytes from `rate_limiter`, split into
+// GetSingleBurstBytes()-sized chunks and blocking until all are granted. Shared
+// by the backup and copy engines.
+inline void LoopRateLimitRequestHelper(size_t total_bytes_to_request,
+                                       RateLimiter* rate_limiter,
+                                       Env::IOPriority pri, Statistics* stats,
+                                       RateLimiter::OpType op_type) {
+  assert(rate_limiter != nullptr);
+  size_t remaining_bytes = total_bytes_to_request;
+  size_t request_bytes = 0;
+  while (remaining_bytes > 0) {
+    request_bytes =
+        std::min(static_cast<size_t>(rate_limiter->GetSingleBurstBytes()),
+                 remaining_bytes);
+    rate_limiter->Request(request_bytes, pri, stats, op_type);
+    remaining_bytes -= request_bytes;
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE

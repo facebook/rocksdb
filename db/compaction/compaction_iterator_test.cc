@@ -1896,8 +1896,8 @@ TEST_F(WideColumnEntityBlobExtractionTest,
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns));
 
   // The large column should now be a blob reference
   ASSERT_EQ(1, blob_columns.size());
@@ -1941,8 +1941,8 @@ TEST_F(WideColumnEntityBlobExtractionTest,
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns));
 
   // All three columns should be blob references
   ASSERT_EQ(3, blob_columns.size());
@@ -2014,8 +2014,8 @@ TEST_F(WideColumnEntityBlobExtractionTest, WideColumnEntityMixedSizes) {
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns));
 
   // Only the large column should be a blob reference
   ASSERT_EQ(1, blob_columns.size());
@@ -2058,8 +2058,8 @@ TEST_F(WideColumnEntityBlobExtractionTest,
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns));
 
   // The default column should be a blob reference
   ASSERT_EQ(1, blob_columns.size());
@@ -2078,11 +2078,14 @@ TEST_F(WideColumnEntityBlobExtractionTest,
 // Mock BlobFetcher for testing blob GC without a real Version
 class MockBlobFetcher : public BlobFetcher {
  public:
-  MockBlobFetcher() : BlobFetcher(nullptr /* version */, ReadOptions()) {}
+  MockBlobFetcher() = default;
+
+  using BlobFetcher::FetchBlob;
 
   Status FetchBlob(const Slice& /* user_key */, const BlobIndex& blob_index,
                    FilePrefetchBuffer* /* prefetch_buffer */,
-                   PinnableSlice* blob_value, uint64_t* bytes_read) const {
+                   PinnableSlice* blob_value,
+                   uint64_t* bytes_read) const override {
     auto it = blob_data_.find(
         std::make_pair(blob_index.file_number(), blob_index.offset()));
     if (it == blob_data_.end()) {
@@ -2096,6 +2099,8 @@ class MockBlobFetcher : public BlobFetcher {
     return Status::OK();
   }
 
+  const ReadOptions& read_options() const override { return read_options_; }
+
   void AddBlob(uint64_t file_number, uint64_t offset,
                const std::string& value) {
     blob_data_[std::make_pair(file_number, offset)] = value;
@@ -2103,6 +2108,7 @@ class MockBlobFetcher : public BlobFetcher {
 
  private:
   std::map<std::pair<uint64_t, uint64_t>, std::string> blob_data_;
+  ReadOptions read_options_;
 };
 
 // FakeCompaction that supports blob garbage collection
@@ -2372,8 +2378,8 @@ TEST_F(WideColumnEntityBlobGCTest, WideColumnEntityBlobGCRelocate) {
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns_out));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns_out));
 
   // Entity structure should be preserved
   ASSERT_EQ(2, output_columns.size());
@@ -2431,8 +2437,8 @@ TEST_F(WideColumnEntityBlobGCTest, WideColumnEntityBlobGCNoRelocateNewerFile) {
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns_out));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns_out));
 
   // Blob column should still exist and reference the same file
   ASSERT_EQ(1, blob_columns_out.size());
@@ -2491,8 +2497,8 @@ TEST_F(WideColumnEntityBlobGCTest, WideColumnEntityBlobGCPartialRelocation) {
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns_out));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns_out));
 
   // All three columns should exist
   ASSERT_EQ(3, output_columns.size());
@@ -2563,8 +2569,8 @@ TEST_F(WideColumnEntityBlobGCTest, WideColumnEntityBlobGCToInline) {
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> blob_columns_out;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   blob_columns_out));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &blob_columns_out));
 
   // Both columns should exist
   ASSERT_EQ(2, output_columns.size());
@@ -2788,8 +2794,8 @@ TEST_F(WideColumnEntityBlobGCTest,
   Slice value_slice(output_values[0]);
   std::vector<WideColumn> output_columns;
   std::vector<std::pair<size_t, BlobIndex>> output_blob_columns;
-  ASSERT_OK(WideColumnSerialization::DeserializeV2(value_slice, output_columns,
-                                                   output_blob_columns));
+  ASSERT_OK(WideColumnSerialization::Deserialize(value_slice, output_columns,
+                                                 &output_blob_columns));
 
   ASSERT_EQ(2, output_columns.size());
   ASSERT_EQ("alpha", output_columns[0].name().ToString());

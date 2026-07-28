@@ -127,6 +127,24 @@ class OffsetableCacheKey : private CacheKey {
     return CacheKey(file_num_etc64_, offset_etc64_ ^ offset);
   }
 
+  // Construct a CacheKey for a record located at byte `offset` within a file in
+  // which every distinct cached region is at least 5 bytes long. The low two
+  // offset bits are dropped, which is collision-free under that >= 5-byte (>= 4
+  // would suffice) guarantee and lets different kinds of records in the same
+  // file share a single keyspace without colliding.
+  //
+  // This is the canonical cache-key scheme for byte-offset records that carry
+  // the block-based "min 5 byte" guarantee: block-based SST blocks (see
+  // BlockBasedTable::GetCacheKey) and SimpleGen2Blob records (which always
+  // include a >= 5-byte trailer; see db/blob/blob_gen2_format.h). Because both
+  // use this same function, an SST's data blocks and its embedded blob records
+  // never collide even when the block cache and blob cache are the same cache.
+  // Keeping a single implementation here avoids a divergence bug that would
+  // silently alias the two keyspaces.
+  inline CacheKey WithOffsetForMinSizeRecord(uint64_t offset) const {
+    return WithOffset(offset >> 2);
+  }
+
   // The "common prefix" is a shared prefix for all the returned CacheKeys.
   // It is specific to the file but the same for all offsets within the file.
   static constexpr size_t kCommonPrefixSize = 8;

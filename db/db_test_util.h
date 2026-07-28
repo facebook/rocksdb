@@ -1231,22 +1231,27 @@ class DBTestBase : public testing::Test {
 
   Status SingleDelete(int cf, const std::string& k);
 
-  std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
+  std::string Get(const std::string& k, const Snapshot* snapshot = nullptr,
+                  bool use_coroutine = false);
 
   std::string Get(int cf, const std::string& k,
-                  const Snapshot* snapshot = nullptr);
+                  const Snapshot* snapshot = nullptr,
+                  bool use_coroutine = false);
 
-  Status Get(const std::string& k, PinnableSlice* v);
+  Status Get(const std::string& k, PinnableSlice* v,
+             bool use_coroutine = false);
 
   std::vector<std::string> MultiGet(std::vector<int> cfs,
                                     const std::vector<std::string>& k,
-                                    const Snapshot* snapshot,
-                                    const bool batched,
-                                    const bool async = false);
+                                    const Snapshot* snapshot, bool batched,
+                                    bool async = false,
+                                    bool use_coroutine = false);
 
   std::vector<std::string> MultiGet(const std::vector<std::string>& k,
                                     const Snapshot* snapshot = nullptr,
-                                    const bool async = false);
+                                    bool async = false,
+                                    bool optimize_multiget_for_io = true,
+                                    bool use_coroutine = false);
 
   Status CompactRange(const CompactRangeOptions& options,
                       std::optional<Slice> begin, std::optional<Slice> end);

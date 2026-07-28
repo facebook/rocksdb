@@ -234,13 +234,13 @@ int lock_request::start(void) {
 // sleep on the lock request until it becomes resolved or the wait time has
 // elapsed.
 int lock_request::wait(uint64_t wait_time_ms) {
-  return wait(wait_time_ms, 0, nullptr);
+  return wait(wait_time_ms, 0, nullptr, nullptr);
 }
 
 int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
-                       int (*killed_callback)(void),
-                       void (*lock_wait_callback)(void *, lock_wait_infos *),
-                       void *callback_arg) {
+                       int (*killed_callback)(void*), void* killed_callback_arg,
+                       void (*lock_wait_callback)(void*, lock_wait_infos*),
+                       void* callback_arg) {
   uint64_t t_now = toku_current_time_microsec();
   uint64_t t_start = t_now;
   uint64_t t_end = t_start + wait_time_ms * 1000;
@@ -258,9 +258,9 @@ int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
 
   while (m_state == state::PENDING) {
     // check if this thread is killed
-    if (killed_callback && killed_callback()) {
+    if (killed_callback && killed_callback(killed_callback_arg)) {
       remove_from_lock_requests();
-      complete(DB_LOCK_NOTGRANTED);
+      complete(DB_LOCK_INTERRUPTED);
       continue;
     }
 
@@ -439,26 +439,6 @@ void lock_request::report_waits(lock_wait_infos *wait_conflicts,
 }
 
 void *lock_request::get_extra(void) const { return m_extra; }
-
-void lock_request::kill_waiter(void) {
-  remove_from_lock_requests();
-  complete(DB_LOCK_NOTGRANTED);
-  toku_external_cond_broadcast(&m_wait_cond);
-}
-
-void lock_request::kill_waiter(locktree *lt, void *extra) {
-  lt_lock_request_info *info = lt->get_lock_request_info();
-  toku_external_mutex_lock(&info->mutex);
-  for (uint32_t i = 0; i < info->pending_lock_requests.size(); i++) {
-    lock_request *request;
-    int r = info->pending_lock_requests.fetch(i, &request);
-    if (r == 0 && request->get_extra() == extra) {
-      request->kill_waiter();
-      break;
-    }
-  }
-  toku_external_mutex_unlock(&info->mutex);
-}
 
 // find another lock request by txnid. must hold the mutex.
 lock_request *lock_request::find_lock_request(const TXNID &txnid) {

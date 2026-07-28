@@ -288,7 +288,7 @@ endif
 endif
 
 export JAVAC_ARGS
-CLEAN_FILES += make_config.mk rocksdb.pc
+CLEAN_FILES += rocksdb.pc
 
 ifeq ($(V), 1)
 $(info $(shell uname -a))
@@ -764,7 +764,6 @@ util/build_version.cc: $(filter-out $(OBJ_DIR)/util/build_version.o, $(LIB_OBJEC
 	$(AM_V_at)$(gen_build_version) > $@
 endif
 CLEAN_FILES += util/build_version.cc
-
 default: all
 
 #-----------------------------------------------
@@ -809,7 +808,8 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: check clean coverage ldb_tests package dbg gen-pc build_size \
 	release tags tags0 valgrind_check format static_lib shared_lib all \
 	rocksdbjavastatic rocksdbjava install install-static install-shared \
-	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy
+	uninstall analyze tools tools_lib check-headers checkout_folly clang-tidy \
+	check-c-api-c_test
 
 # Auto-configure git hooks on first build so developers do not need to run
 # "make install-hooks" manually. This is a no-op if already set.
@@ -1116,13 +1116,6 @@ check: all
 	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
-ifeq ($(PLATFORM), OS_LINUX)
-ifneq ($(GITHUB_ACTIONS),true)
-	$(PYTHON) tools/test_db_crashtest.py
-else ifeq ($(RUN_DB_CRASHTEST_COMPATIBILITY_TESTS),1)
-	$(PYTHON) tools/test_db_crashtest.py
-endif
-endif
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	$(PYTHON) tools/db_crashtest_test.py
@@ -1134,7 +1127,101 @@ ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-buck-targets
 	$(MAKE) check-sources
 	$(MAKE) check-workflow-yaml
+	$(MAKE) check-c-api-gen
 endif
+
+# Check that the auto-generated C API files are up to date. It regenerates the
+# fragments and the inlined c.h/c.cc and compares them against a snapshot of the
+# checked-in copies (no net change when everything is up to date). It requires
+# clang++ (libclang, used to parse the C++ headers) and clang-format. When those
+# are unavailable the staleness/compat sub-checks are SKIPPED with a message so
+# `make check` still works without the codegen toolchain; the link-completeness
+# sub-check always runs (it needs no toolchain).
+#
+# Pin the formatter to match CI by setting CLANG_FORMAT_BINARY, e.g.:
+#   make check-c-api-gen CLANG_FORMAT_BINARY=clang-format-21
+# This target is part of `make check` and is skipped by SKIP_FORMAT_BUCK_CHECKS.
+#
+# Set CHECK_C_API_GEN_STRICT=1 to turn every "skip" below into a hard error, so a
+# core CI job that runs this target cannot silently regress to a no-op if a
+# prerequisite (clang++, or the compat baseline ref) goes missing. The dedicated
+# build-linux-clang-21-no_test_run CI job runs this target with the flag set.
+# Any non-empty value other than 0/no/false enables strict mode.
+CLANG_FORMAT_BINARY ?=
+# Backward-compatibility baseline for the C API (signature-level) check. CI
+# overrides this with the PR's merge target; locally it falls back to main /
+# origin/main and is skipped if neither resolves.
+API_COMPAT_REF ?= main
+CHECK_C_API_GEN_STRICT ?=
+check-c-api-gen:
+	# Link-completeness is a property of the checked-in c.h/c.cc and needs no
+	# clang toolchain, so it always runs: every declared public C API function
+	# must have exactly one definition (guards against dropped wrappers that
+	# would break downstream language bindings at link time).
+	$(PYTHON) tools/c_api_gen/check_api_completeness.py
+	# Backward-compatibility: no public C function may be removed or have its
+	# signature changed vs the baseline. Skipped if the baseline ref is not
+	# resolvable locally (CI passes an explicit ref), unless CHECK_C_API_GEN_STRICT.
+	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
+	ref=""; \
+	if git rev-parse --verify --quiet "$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="$(API_COMPAT_REF)"; \
+	elif git rev-parse --verify --quiet "origin/$(API_COMPAT_REF)^{commit}" >/dev/null; then ref="origin/$(API_COMPAT_REF)"; fi; \
+	if [ -n "$$ref" ]; then \
+	  $(PYTHON) tools/c_api_gen/check_api_compatibility.py --ref "$$ref"; \
+	elif [ -n "$$strict" ]; then \
+	  echo "ERROR: C API compat baseline '$(API_COMPAT_REF)' not resolvable and CHECK_C_API_GEN_STRICT is set" >&2; exit 1; \
+	else \
+	  echo "Skipping C API backward-compatibility check ($(API_COMPAT_REF) not found; set API_COMPAT_REF)"; \
+	fi
+	# Staleness: regenerate and confirm the checked-in output is current. Needs a
+	# clang++ (the generator parses C++ ASTs). Use CLANG_CXX, which
+	# build_tools/build_detect_platform resolves once (the fbcode clang++ in
+	# fbcode builds, else a versioned clang++ on PATH) and passes explicitly, so
+	# the check and the generator agree on the same binary without heuristics.
+	@strict=""; case "$(CHECK_C_API_GEN_STRICT)" in ""|0|no|NO|false|FALSE) ;; *) strict=1 ;; esac; \
+	cf_arg=""; \
+	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
+	if [ -n "$(CLANG_CXX)" ] && command -v "$(CLANG_CXX)" >/dev/null 2>&1; then \
+	  $(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py --clang "$(CLANG_CXX)" $$cf_arg; \
+	elif [ -n "$$strict" ]; then \
+	  echo "ERROR: no clang++ found (CLANG_CXX unset) and CHECK_C_API_GEN_STRICT is set; cannot run the C API staleness check" >&2; exit 1; \
+	else \
+	  echo "Skipping C API codegen staleness check (no clang++ found; CLANG_CXX unset, install clang++ to enable)"; \
+	fi
+
+# Regenerate the checked-in C API generated files (fragments under c_api_gen/,
+# the inlined include/rocksdb/c.h and db/c.cc, and the round-trip tests). Uses
+# CLANG_CXX (resolved by build_tools/build_detect_platform) so it works in a gcc
+# build too. Aborts up front if no usable clang++ is available, so a bad
+# toolchain never leaves the tree in a partially regenerated state. Pin the
+# formatter to match CI with CLANG_FORMAT_BINARY, e.g.:
+#   make regen-c-api CLANG_FORMAT_BINARY=clang-format-21
+.PHONY: regen-c-api
+regen-c-api:
+	@if [ -z "$(CLANG_CXX)" ] || ! command -v "$(CLANG_CXX)" >/dev/null 2>&1; then \
+	  echo "ERROR: no clang++ found (CLANG_CXX unset); build on a host with clang++ or the fbcode toolchain to regenerate the C API" >&2; exit 1; \
+	fi
+	@cf_arg=""; \
+	if [ -n "$(CLANG_FORMAT_BINARY)" ]; then cf_arg="--clang-format $(CLANG_FORMAT_BINARY)"; fi; \
+	$(PYTHON) tools/c_api_gen/regen_all.py --clang "$(CLANG_CXX)" $$cf_arg
+
+# Quick local validation for C API generation plus the focused C API test.
+# This verifies the checked-in generated fragments as well as the inlined
+# include/rocksdb/c.h and db/c.cc outputs, then runs c_test in an isolated
+# TEST_TMPDIR to avoid stale-state failures.
+check-c-api-c_test:
+	$(PYTHON) tools/c_api_gen/verify_generated_up_to_date.py --clang "$(CLANG_CXX)"
+	$(MAKE) c_test
+	@tmpdir=$$(mktemp -d); \
+	  trap 'rm -rf "$$tmpdir"' EXIT; \
+	  echo "===== Running c_test with TEST_TMPDIR=$$tmpdir"; \
+	  if command -v timeout >/dev/null 2>&1; then \
+	    TEST_TMPDIR="$$tmpdir" timeout 60 ./c_test; \
+	  elif command -v gtimeout >/dev/null 2>&1; then \
+	    TEST_TMPDIR="$$tmpdir" gtimeout 60 ./c_test; \
+	  else \
+	    TEST_TMPDIR="$$tmpdir" ./c_test; \
+	  fi
 
 # TODO add ldb_tests
 check_some: $(ROCKSDBTESTS_SUBSET)
@@ -1285,8 +1372,13 @@ rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
 clean: clean-ext-libraries-all clean-rocks clean-rocksjava
+# Removed here rather than in clean-rocks (via CLEAN_FILES) so the build-parameter
+# auto-clean, which runs clean-rocks, doesn't delete the make_config.mk already
+# included by the in-progress make.
+	@rm -f make_config.mk
 
 clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-rocksjava
+	@rm -f make_config.mk
 
 clean-rocks:
 # Not practical to exactly match all versions/variants in naming (e.g. debug or not)
@@ -1301,6 +1393,11 @@ clean-rocks:
 	else \
 		$(FIND) . -name "*.[oda]" -exec rm -f {} \; ; \
 	fi
+# Remove the build signature(s) LAST. Done after the object files are gone so
+# that a Ctrl+C partway through clean leaves the old signature in place: it
+# still matches the leftover objects, so a later build with different
+# parameters is still detected (signature usefulness is preserved).
+	@rm -f $(BUILD_SIG_FILE) jl/.build_signature jls/.build_signature
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -1730,6 +1827,9 @@ backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBR
 	$(AM_LINK)
 
 checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+copy_engine_test: $(OBJ_DIR)/utilities/copy_engine/copy_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 sorted_run_builder_test: $(OBJ_DIR)/utilities/sorted_run_builder/sorted_run_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2333,6 +2433,101 @@ ifeq ($(PLATFORM), OS_OPENBSD)
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
 endif
 export SHA256_CMD
+
+# ----------------------------------------------------------------------------
+# Build parameter change detection
+# ----------------------------------------------------------------------------
+# RocksDB writes object files to the same $(OBJ_DIR) paths regardless of
+# DEBUG_LEVEL, sanitizers (ASAN/TSAN/UBSAN), ASSERT_STATUS_CHECKED, RTTI, LTO,
+# COERCE_CONTEXT_SWITCH, etc.  Most of those are applied in this Makefile after
+# `include make_config.mk` and are therefore NOT reflected in make_config.mk,
+# so switching them and rebuilding silently mixes incompatible object files.
+# To guard against that, we hash the fully-resolved compile/link parameters
+# (which already embed make_config.mk via PLATFORM_*) and compare against the
+# value recorded from the previous build.  On mismatch the build stops so the
+# user can `make clean`.  Knobs:
+#   AUTO_CLEAN=1
+#     run `make clean-rocks` automatically on mismatch
+#   ALLOW_BUILD_PARAMETER_CHANGE=1
+#     skip the check entirely (e.g. intentionally mixing DEBUG_LEVEL=1 and
+#     DEBUG_LEVEL=2)
+# The signature is stored per-$(OBJ_DIR), so Java (jl/jls) builds are tracked
+# independently from the default build.
+BUILD_SIG_FILE := $(OBJ_DIR)/.build_signature
+# NOTE: deliberately NOT added to CLEAN_FILES. The signature is removed as the
+# very last step of clean-rocks so that an interrupted clean keeps it (see
+# clean-rocks), preserving change detection across a Ctrl+C'd clean.
+
+# Goals that do not compile object files into the tree (pure utilities,
+# informational, source/config checks): the change check is irrelevant for them.
+BUILD_SIG_NONBUILD_GOALS := \
+	clean clean-rocks clean-not-downloaded clean-rocksjava \
+	clean-not-downloaded-rocksjava clean-ext-libraries-all \
+	clean-ext-libraries-bin \
+	format format-auto check-format check-buck-targets check-headers \
+	check-sources check-workflow-yaml check-progress clang-tidy \
+	tags tags0 package jclean checkout_folly build_folly \
+	watch-log dump-log suggest-slow-tests list_all_tests gen-pc \
+	gen_parallel_tests check-c-api-gen \
+	setup-hooks install-hooks uninstall-hooks uninstall db_crashtest_tests
+# Goals that clean before building (depend on or invoke `clean`): they manage
+# their own freshness, so the check must not block them (it would error before
+# their built-in clean runs).
+BUILD_SIG_NONBUILD_GOALS += \
+	release coverage build_size analyze analyze_incremental \
+	asan_check asan_crash_test asan_crash_test_with_atomic_flush \
+	asan_crash_test_with_txn asan_crash_test_with_best_efforts_recovery \
+	whitebox_asan_crash_test blackbox_asan_crash_test \
+	ubsan_check ubsan_crash_test ubsan_crash_test_with_atomic_flush \
+	ubsan_crash_test_with_txn ubsan_crash_test_with_best_efforts_recovery \
+	whitebox_ubsan_crash_test blackbox_ubsan_crash_test
+
+# Goals that explicitly clean; never trip the check when one is requested.
+BUILD_SIG_CLEAN_GOALS := \
+	clean clean-rocks clean-not-downloaded clean-rocksjava \
+	clean-not-downloaded-rocksjava clean-ext-libraries-all \
+	clean-ext-libraries-bin
+
+BUILD_SIG_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+BUILD_SIG_DO_BUILD := $(filter-out $(BUILD_SIG_NONBUILD_GOALS),$(BUILD_SIG_GOALS))
+BUILD_SIG_CLEANING := $(filter $(BUILD_SIG_CLEAN_GOALS),$(MAKECMDGOALS))
+# Dry runs (-n/--just-print) must not write the stamp, clean, or error; the
+# parse-time $(shell) below would otherwise run even under -n. Note that
+# actual options are canonicalized and shorted as possible such that all
+# short options are in the first word of MAKEFLAGS.
+BUILD_SIG_DRYRUN := $(findstring n,$(firstword -$(MAKEFLAGS)))
+
+# Only enforce at the top level. Sub-makes (e.g. `check` invokes
+# $(MAKE) gen_parallel_tests / check-c-api-gen / check_0) inherit the parent's
+# build flags, so the top-level check already covers them; re-checking inside a
+# sub-make only causes spurious failures.
+ifneq ($(ALLOW_BUILD_PARAMETER_CHANGE),1)
+ifeq ($(MAKELEVEL),0)
+ifeq ($(BUILD_SIG_DRYRUN),)
+ifeq ($(BUILD_SIG_CLEANING),)
+ifneq ($(BUILD_SIG_DO_BUILD),)
+  BUILD_SIG := $(shell printf '%s' '$(CC)|$(CXX)|$(CFLAGS)|$(CXXFLAGS)|$(LDFLAGS)|$(EXEC_LDFLAGS)' | $(SHA256_CMD) | cut -d ' ' -f 1)
+  BUILD_SIG_OLD := $(shell cat $(BUILD_SIG_FILE) 2>/dev/null)
+  ifneq ($(BUILD_SIG_OLD),)
+  ifneq ($(BUILD_SIG_OLD),$(BUILD_SIG))
+  ifeq ($(AUTO_CLEAN),1)
+    $(info *** Build parameters changed since last build (OBJ_DIR=$(OBJ_DIR)); running 'make clean-rocks' because AUTO_CLEAN=1)
+    BUILD_SIG_CLEAN_OUTPUT := $(shell $(MAKE) clean-rocks 1>&2)
+    ifneq ($(.SHELLSTATUS),0)
+      $(error AUTO_CLEAN: 'make clean-rocks' failed (exit $(.SHELLSTATUS)); not building against a partially-cleaned tree)
+    endif
+  else
+    $(error Build parameters changed since the last build (OBJ_DIR=$(OBJ_DIR)). Existing object files are stale and must be removed. Run 'make clean', or set AUTO_CLEAN=1 to clean automatically, or ALLOW_BUILD_PARAMETER_CHANGE=1 to build anyway)
+  endif
+  endif
+  endif
+  # Record the current signature for the next build.
+  BUILD_SIG_WRITE := $(shell mkdir -p $(OBJ_DIR) 2>/dev/null; printf '%s\n' '$(BUILD_SIG)' > $(BUILD_SIG_FILE))
+endif
+endif
+endif
+endif
+endif
 
 zlib-$(ZLIB_VER).tar.gz:
 	curl --fail --output zlib-$(ZLIB_VER).tar.gz --location ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz

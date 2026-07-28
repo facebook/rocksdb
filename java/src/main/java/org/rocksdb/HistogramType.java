@@ -241,6 +241,56 @@ public enum HistogramType {
    */
   INGEST_EXTERNAL_FILE_RUN_TIME((byte) 0x44),
 
+  /**
+   * Time read requests spent waiting for rate limiter refills.
+   */
+  RATE_LIMITER_WAIT_MICROS_READ((byte) 0x45),
+
+  /**
+   * Time write requests spent waiting for rate limiter refills.
+   */
+  RATE_LIMITER_WAIT_MICROS_WRITE((byte) 0x46),
+
+  /**
+   * Total memtable memory usage at flush start.
+   */
+  FLUSH_MEMTABLE_MEMORY_BYTES((byte) 0x47),
+
+  /**
+   * Total memtable data size at flush start.
+   */
+  FLUSH_MEMTABLE_TOTAL_DATA_SIZE((byte) 0x48),
+
+  /**
+   * Total memtable memory usage for write-buffer-full flushes.
+   */
+  FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES((byte) 0x49),
+
+  /**
+   * Total memtable memory usage for WBM-triggered flushes.
+   */
+  FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES((byte) 0x4A),
+
+  /**
+   * Time spent opening the secondary DB inside DB::OpenAndCompact().
+   */
+  OPEN_AND_COMPACT_DB_OPEN_MICROS((byte) 0x4B),
+
+  /**
+   * Time from IODispatcher async read submission until completion callback.
+   */
+  IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS((byte) 0x4C),
+
+  /**
+   * Time IODispatcher spends waiting in FileSystem::Poll().
+   */
+  IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS((byte) 0x4D),
+
+  /**
+   * Time from IODispatcher async read submission until the consumer polls.
+   */
+  IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS((byte) 0x4E),
+
   // 0x3E is reserved for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3E);
 

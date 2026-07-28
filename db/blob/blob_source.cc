@@ -12,7 +12,10 @@
 #include "cache/charged_cache.h"
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_gen2_format.h"
 #include "db/blob/blob_log_format.h"
+#include "file/random_access_file_reader.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
@@ -290,6 +293,96 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   if (blob_cache_ && read_options.fill_cache) {
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
+    Slice key = cache_key.AsSlice();
+    s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
+    if (!s.ok()) {
+      return s;
+    }
+
+    PinCachedBlob(&blob_handle, value);
+  } else {
+    PinOwnedBlob(&blob_contents, value);
+  }
+
+  assert(s.ok());
+  return s;
+}
+
+Status BlobSource::GetSimpleGen2Blob(
+    const ReadOptions& read_options, const OffsetableCacheKey& base_cache_key,
+    RandomAccessFileReader* file, uint64_t record_offset, uint64_t payload_size,
+    ChecksumType checksum_type, uint32_t base_context_checksum,
+    CompressionType expected_compression, PinnableSlice* value,
+    uint64_t* bytes_read) {
+  assert(value);
+  assert(file);
+
+  const uint64_t record_size = payload_size + kSimpleGen2BlobTrailerSize;
+
+  // The cache key is derived from the SimpleGen2Blob format (shared scheme with
+  // block-based SST blocks); see GetSimpleGen2BlobCacheKey.
+  const CacheKey cache_key =
+      GetSimpleGen2BlobCacheKey(base_cache_key, record_offset);
+
+  Status s;
+
+  CacheHandleGuard<BlobContents> blob_handle;
+
+  // First, try to get the blob from the cache.
+  if (blob_cache_) {
+    Slice key = cache_key.AsSlice();
+    s = GetBlobFromCache(key, &blob_handle);
+    if (s.ok()) {
+      PinCachedBlob(&blob_handle, value);
+
+      // For consistency, the on-disk record size is assigned to bytes_read on
+      // both cache hits and misses.
+      if (bytes_read) {
+        *bytes_read = record_size;
+      }
+      return s;
+    }
+  }
+
+  assert(blob_handle.IsEmpty());
+
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  if (no_io) {
+    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+  }
+
+  // Cache miss (or no cache configured). Read the record into a buffer
+  // allocated from the blob cache's memory allocator when we intend to insert
+  // it, exposing the uncompressed payload as BlobContents (the trailer just
+  // sits unused at the tail of the buffer).
+  MemoryAllocator* const allocator = (blob_cache_ && read_options.fill_cache)
+                                         ? blob_cache_.get()->memory_allocator()
+                                         : nullptr;
+
+  CacheAllocationPtr buf =
+      AllocateBlock(static_cast<size_t>(record_size), allocator);
+  s = ReadAndVerifySimpleGen2BlobRecord(
+      read_options, file, record_offset, static_cast<size_t>(payload_size),
+      static_cast<size_t>(record_size), checksum_type, base_context_checksum,
+      expected_compression, buf.get());
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<BlobContents> blob_contents(
+      new BlobContents(std::move(buf), static_cast<size_t>(payload_size)));
+
+  // Record the per-read statistics (mirrors BlobFileReader::GetBlob).
+  RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, record_size);
+  PERF_COUNTER_ADD(blob_read_count, 1);
+  PERF_COUNTER_ADD(blob_read_byte, record_size);
+  if (bytes_read) {
+    *bytes_read = record_size;
+  }
+
+  if (blob_cache_ && read_options.fill_cache) {
+    // If filling cache is allowed and a cache is configured, try to put the
+    // blob into the cache.
     Slice key = cache_key.AsSlice();
     s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
     if (!s.ok()) {

@@ -48,10 +48,6 @@
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "env/file_system_tracer.h"
-#if USE_COROUTINES
-#include "folly/coro/BlockingWait.h"
-#include "folly/coro/Collect.h"
-#endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "options/offpeak_time_info.h"
@@ -966,17 +962,18 @@ class Version {
   //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
   // REQUIRES: pinned_iters_mgr != nullptr
-  void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
-           PinnableWideColumns* columns, std::string* timestamp, Status* status,
-           MergeContext* merge_context,
-           SequenceNumber* max_covering_tombstone_seq,
-           PinnedIteratorsManager* pinned_iters_mgr,
-           bool* value_found = nullptr, bool* key_exists = nullptr,
-           SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr, bool do_merge = true);
+  DECLARE_SYNC_AND_ASYNC(
+      void, Get, const ReadOptions&, const LookupKey& key, PinnableSlice* value,
+      PinnableWideColumns* columns, std::string* timestamp, Status* status,
+      MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
+      PinnedIteratorsManager* pinned_iters_mgr, bool* value_found = nullptr,
+      bool* key_exists = nullptr, SequenceNumber* seq = nullptr,
+      ReadCallback* callback = nullptr, bool* is_blob = nullptr,
+      bool do_merge = true);
 
-  void MultiGet(const ReadOptions&, MultiGetRange* range,
-                ReadCallback* callback = nullptr);
+  DECLARE_SYNC_AND_ASYNC(void, MultiGet, const ReadOptions&,
+                         MultiGetRange* range,
+                         ReadCallback* callback = nullptr);
 
   // Interprets blob_index_slice as a blob reference, and (assuming the
   // corresponding blob file is part of this Version) retrieves the blob and

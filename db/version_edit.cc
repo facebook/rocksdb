@@ -68,6 +68,23 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   // Helper: update oldest_blob_file_number from a single BlobIndex.
   auto update_oldest_blob = [&](const BlobIndex& blob_index) -> Status {
     if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
+      // INTEGRITY TRIPWIRE -- do not weaken. This is generic file metadata on
+      // the table-build output path (flush / compaction / recovery, via
+      // BuildTable and CompactionOutputs), which must only ever see external
+      // blob-file references. file_number 0 is kInvalidBlobFileNumber, which is
+      // deliberately also the same-file ("embedded") sentinel
+      // kCurrentFileBlobIndexFileNumber (see blob_constants.h). Reaching here
+      // with 0 means one of:
+      //   * a same-file/embedded reference leaked into the output stream
+      //     unresolved -- e.g. EmbeddedBlobResolvingIterator failed to resolve
+      //     and fell back to the raw value on a blob-region read error
+      //     (T277566778); or
+      //   * an uninitialized/corrupt BlobIndex (default file number never set).
+      // Rejecting it flags the bug closer to its root cause. Do NOT relax this
+      // to skip same-file refs (e.g. via BlobIndex::IsSameFile()): that would
+      // mask real corruption AND could persist unresolvable same-file
+      // references into ordinary (non-embedded) SSTs, turning a transient error
+      // into permanent data loss.
       if (blob_index.file_number() == kInvalidBlobFileNumber) {
         return Status::Corruption("Invalid blob file number");
       }

@@ -130,6 +130,14 @@ DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
 
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
+DEFINE_string(
+    verify_cpu_corruption_dir, "",
+    "When non-empty, activates a slow, meticulous verification mode intended "
+    "only for use with a CPU fault injector; on the first corruption found it "
+    "writes a result file here and fails the run. See "
+    "StressTest::MaybeVerifyCpuCorruption for the full behavior and "
+    "output-file contract. Empty (default) = off.");
+
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
 DEFINE_bool(destroy_db_initially, true,
@@ -143,14 +151,14 @@ DEFINE_string(delete_dir_and_exit, "",
               "Recursively deletes the specified directory and exits. "
               "Useful for cleaning up TEST_TMPDIR after crash tests.");
 
-DEFINE_bool(validate_db_stress_flags_only, false,
-            "Validate db_stress flag compatibility after parsing and exit "
-            "without opening DB.");
+DEFINE_bool(validate_flags_only, false,
+            "Validate flag compatibility after parsing and exit without "
+            "opening DB.");
 
-DEFINE_string(option_compatibility_check_level, "reject",
-              "Optional core RocksDB option compatibility check level: skip, "
-              "warn, or reject. Mandatory RocksDB option validation and "
-              "db_stress-only validation still run.");
+DEFINE_bool(fail_on_option_compatibility_error, true,
+            "Fail when core RocksDB options are outside the tested "
+            "compatibility envelope. Mandatory RocksDB option validation and "
+            "db_stress-only validation always run.");
 
 DEFINE_bool(verbose, false, "Verbose");
 
@@ -705,6 +713,14 @@ DEFINE_bool(test_secondary, false,
             "If true, start an additional secondary instance which can be used "
             "for verification.");
 
+DEFINE_int32(open_read_only_one_in, 0,
+             "If greater than 0, on thread 0 with probability 1/N per "
+             "operation, open a read-only DB instance on the primary's live "
+             "directory, flush the primary, then close the reader. Stresses "
+             "concurrent primary + read-only DB on the same directory to guard "
+             "against a read-only DB's close deleting the primary's live SST "
+             "files. 0 disables.");
+
 DEFINE_string(
     expected_values_dir, "",
     "Dir where files containing info about the latest/historical values will "
@@ -875,6 +891,14 @@ DEFINE_int32(ingest_external_file_use_file_info_one_in, 0,
              "SstFileWriter::Finish) once every N ingestions on average, so "
              "ingestion skips re-opening and scanning the files.");
 
+DEFINE_bool(
+    ingest_external_file_with_embedded_blobs, false,
+    "If true, external files for ingestion are written with embedded "
+    "blobs via SstFileWriter::OpenWithEmbeddedBlobs(). min_blob_size is "
+    "set so that only the largest generated values are embedded. "
+    "Requires block-based table format_version >= 7 and "
+    "ingest_external_file_one_in > 0.");
+
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called once for every N "
              "operations on average.  0 indicates CompactFiles() is disabled.");
@@ -940,10 +964,13 @@ DEFINE_uint64(snapshot_hold_ops, 0,
 DEFINE_bool(long_running_snapshots, false,
             "If set, hold on some some snapshots for much longer time.");
 
-// The following three options affect both regular read operations during the
+// The following four options affect both regular read operations during the
 // test and initial/final database verification through VerifyDB.
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads.");
+
+DEFINE_bool(use_async_db_api, false,
+            "If set, use DB::GetAsync and DB::MultiGetAsync for reads.");
 
 DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads.");
 
@@ -1084,6 +1111,13 @@ DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
               " with --env_uri."
               " Creates a default environment with the specified filesystem.");
+
+DEFINE_bool(
+    tolerate_non_injected_io_errors_for_remote_dbs, false,
+    "Treat non-injected, non-data-loss IO errors as retryable. Intended "
+    "only for remote DBs (--env_uri / --fs_uri) where infrastructure "
+    "can return transient IO errors; db_crashtest.py forces it off for "
+    "local DBs so real local IO errors are not masked.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
 static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
@@ -1715,6 +1749,11 @@ DEFINE_bool(
 
 DEFINE_bool(use_multiscan, false,
             "If set, use the batched MultiScan API for scans.");
+
+DEFINE_bool(multiscan_reverse, false,
+            "If set with use_multiscan, scan each MultiScan range in reverse "
+            "using SeekForPrev and Prev. This does not require "
+            "test_backward_scan.");
 
 DEFINE_bool(multiscan_use_async_io, false,
             "If set, enable async_io for MultiScan operations.");

@@ -173,7 +173,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"use_direct_reads", "false"},
       {"use_direct_io_for_compaction_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
-      {"option_compatibility_check_level", "kWarn"},
+      {"fail_on_option_compatibility_error", "true"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
@@ -361,8 +361,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_compaction_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
-  ASSERT_EQ(new_db_opt.option_compatibility_check_level,
-            OptionCompatibilityCheckLevel::kWarn);
+  ASSERT_TRUE(new_db_opt.fail_on_option_compatibility_error);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_db_opt.stats_persist_period_sec, 57U);
@@ -2713,7 +2712,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"use_direct_reads", "false"},
       {"use_direct_io_for_compaction_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
-      {"option_compatibility_check_level", "kWarn"},
+      {"fail_on_option_compatibility_error", "true"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
@@ -2906,8 +2905,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_compaction_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
-  ASSERT_EQ(new_db_opt.option_compatibility_check_level,
-            OptionCompatibilityCheckLevel::kWarn);
+  ASSERT_TRUE(new_db_opt.fail_on_option_compatibility_error);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_db_opt.stats_persist_period_sec, 57U);

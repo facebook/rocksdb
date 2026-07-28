@@ -20,8 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 
 typedef DeadlockInfoBufferTempl<RangeDeadlockPath> RangeDeadlockInfoBuffer;
 
-struct RangeTreeCmpContext;
-
 // A Range Lock Manager that uses PerconaFT's locktree library
 class RangeTreeLockManager : public RangeLockManagerBase,
                              public RangeLockManagerHandle {
@@ -96,11 +94,17 @@ class RangeTreeLockManager : public RangeLockManagerBase,
     barrier_func_ = func;
   }
 
+  void SetIsKilledCallback(IsKilledCallback func) override {
+    killed_callback_ = func;
+  }
+
  private:
   toku::locktree_manager ltm_;
 
   EscalationBarrierFunc barrier_func_ =
       [](const Endpoint&, const Endpoint&) -> bool { return false; };
+
+  IsKilledCallback killed_callback_{};
 
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
@@ -118,8 +122,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   RangeDeadlockInfoBuffer dlock_buffer_;
 
-  std::shared_ptr<toku::locktree> MakeLockTreePtr(
-      toku::locktree* lt, std::unique_ptr<RangeTreeCmpContext> ctx = nullptr);
+  std::shared_ptr<toku::locktree> MakeLockTreePtr(toku::locktree* lt);
   static int CompareDbtEndpoints(void* arg, const DBT* a_key, const DBT* b_key);
 
   // Callbacks
@@ -129,6 +132,10 @@ class RangeTreeLockManager : public RangeLockManagerBase,
                           const toku::range_buffer& buffer, void* extra);
 
   static bool OnEscalationBarrierCheck(const DBT* a, const DBT* b, void* extra);
+
+  // Bridges the C-style toku killed-callback to killed_callback_; extra is the
+  // RangeTreeLockManager*.
+  static int IsKilledThunk(void* extra);
 };
 
 void serialize_endpoint(const Endpoint& endp, std::string* buf);

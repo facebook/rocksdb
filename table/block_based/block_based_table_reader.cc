@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -22,13 +23,18 @@
 #include "block_cache.h"
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "db/blob/blob_gen2_format.h"
+#include "db/blob/blob_index.h"
+#include "db/blob/blob_source.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/wide/wide_column_serialization.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
+#include "memory/memory_allocator_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "parsed_full_filter_block.h"
 #include "port/lang.h"
@@ -53,6 +59,7 @@
 #include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/block_prefix_index.h"
 #include "table/block_based/block_type.h"
+#include "table/block_based/embedded_blob_resolving_iterator.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -61,6 +68,7 @@
 #include "table/block_based/partitioned_index_reader.h"
 #include "table/block_based/user_defined_index_wrapper.h"
 #include "table/block_fetcher.h"
+#include "table/embedded_blob_sst.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -84,6 +92,12 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
   heap_buf = AllocateBlock(buf.size(), allocator);
   memcpy(heap_buf.get(), buf.data(), buf.size());
   return heap_buf;
+}
+
+// Cleanup function for a Cleanable/PinnableSlice that owns a `new char[]`
+// buffer (used to pin embedded blob payloads without copying).
+void DeleteCharArray(void* arg1, void* /*arg2*/) {
+  delete[] static_cast<char*>(arg1);
 }
 }  // namespace
 
@@ -206,40 +220,6 @@ Status CopyBufferToReadScopedBlockContents(
   return Status::OK();
 }
 
-// Explicitly instantiate templates for each "blocklike" type we use (and
-// before implicit specialization).
-// This makes it possible to keep the template definitions in the .cc file.
-#define INSTANTIATE_BLOCKLIKE_TEMPLATES(T)                                     \
-  template Status BlockBasedTable::RetrieveBlock<T>(                           \
-      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
-      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
-      CachableEntry<T>* out_parsed_block, GetContext* get_context,             \
-      BlockCacheLookupContext* lookup_context, bool for_compaction,            \
-      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const; \
-  template Status BlockBasedTable::MaybeReadBlockAndLoadToCache<T>(            \
-      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
-      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
-      bool for_compaction, CachableEntry<T>* block_entry,                      \
-      GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
-      BlockContents* contents, bool async_read,                                \
-      bool use_block_cache_for_lookup) const;                                  \
-  template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
-      const ReadOptions& ro, const BlockHandle& handle,                        \
-      CachableEntry<T>* out_parsed_block) const;                               \
-  template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
-      const ReadOptions& ro, const BlockHandle& handle,                        \
-      UnownedPtr<Decompressor> decomp, BlockContents* block_contents,          \
-      CachableEntry<T>* out_parsed_block) const;
-
-INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(DecompressorDict);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kData);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kIndex);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kFilterPartitionIndex);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kRangeDeletion);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kMetaIndex);
-INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kUserDefinedIndex);
-
 }  // namespace ROCKSDB_NAMESPACE
 
 // Generate the regular and coroutine versions of some methods by
@@ -309,47 +289,6 @@ BlockBasedTable::~BlockBasedTable() {
 }
 
 namespace {
-// Read the block identified by "handle" from "file".
-// The only relevant option is options.verify_checksums for now.
-// On failure return non-OK.
-// On success fill *result and return OK - caller owns *result
-// @param uncompression_dict Data for presetting the compression library's
-//    dictionary.
-template <typename TBlocklike>
-Status ReadAndParseBlockFromFile(
-    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
-    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    std::unique_ptr<TBlocklike>* result, const ImmutableOptions& ioptions,
-    BlockCreateContext& create_context, bool maybe_compressed,
-    UnownedPtr<Decompressor> decomp,
-    const PersistentCacheOptions& cache_options,
-    MemoryAllocator* memory_allocator, bool for_compaction, bool async_read,
-    ReadScopedBlockBufferProviderRef block_buffer_provider = std::nullopt) {
-  assert(result);
-
-  BlockContents contents;
-  BlockFetcher block_fetcher(
-      file, prefetch_buffer, footer, options, handle, &contents, ioptions,
-      /*do_uncompress*/ maybe_compressed, maybe_compressed,
-      TBlocklike::kBlockType, decomp, cache_options, memory_allocator, nullptr,
-      for_compaction, block_buffer_provider);
-  Status s;
-  // If prefetch_buffer is not allocated, it will fallback to synchronous
-  // reading of block contents.
-  if (async_read && prefetch_buffer != nullptr) {
-    s = block_fetcher.ReadAsyncBlockContents();
-    if (!s.ok()) {
-      return s;
-    }
-  } else {
-    s = block_fetcher.ReadBlockContents();
-  }
-  if (s.ok()) {
-    create_context.Create(result, std::move(contents));
-  }
-  return s;
-}
-
 // For hash based index, return false if table_properties->prefix_extractor_name
 // and prefix_extractor both exist and match, otherwise true.
 inline bool PrefixExtractorChangedHelper(
@@ -847,8 +786,10 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
                                       const BlockHandle& handle) {
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
-  // from offet.
-  return base_cache_key.WithOffset(handle.offset() >> 2);
+  // from offset. This is the same scheme SimpleGen2Blob records use (see
+  // OffsetableCacheKey::WithOffsetForMinSizeRecord), so blocks and embedded
+  // blob records in the same file share one collision-free keyspace.
+  return base_cache_key.WithOffsetForMinSizeRecord(handle.offset());
 }
 
 Status BlockBasedTable::Open(
@@ -869,7 +810,7 @@ Status BlockBasedTable::Open(
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
     uint64_t cur_file_num, UniqueId64x2 expected_unique_id,
     const bool user_defined_timestamps_persisted,
-    const bool avoid_shared_metadata_cache) {
+    const bool avoid_shared_metadata_cache, BlobSource* blob_source) {
   table_reader->reset();
 
   Status s;
@@ -945,6 +886,7 @@ Status BlockBasedTable::Open(
       file_size, level, immortal_table, user_defined_timestamps_persisted);
   rep->file = std::move(file);
   rep->footer = footer;
+  rep->blob_source_ = blob_source;
 
   // For fully portable/stable cache keys, we need to read the properties
   // block before setting up cache keys. TODO: consider setting up a bootstrap
@@ -1263,6 +1205,11 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
   // Read index_type from properties (required for format_version >= 2)
   auto& props = rep_->table_properties->user_collected_properties;
+  // The presence of the embedded blob stats property signals that this SST
+  // contains same-file ("embedded") blob records. The counter values are
+  // diagnostic only; only presence matters for correctness.
+  rep_->has_embedded_blobs =
+      props.find(kEmbeddedBlobSstStatsPropertyName) != props.end();
   auto index_type_pos = props.find(BlockBasedTablePropertyNames::kIndexType);
   if (index_type_pos == props.end()) {
     return Status::Corruption("Missing index type property");
@@ -1277,7 +1224,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
   if (max_ts_pos != props.end()) {
     rep_->max_timestamp = Slice(max_ts_pos->second);
   }
-
   rep_->index_has_first_key =
       rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
 
@@ -1285,6 +1231,352 @@ Status BlockBasedTable::ReadPropertiesBlock(
                               &(rep_->global_seqno));
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger, "%s", s.ToString().c_str());
+  }
+  return s;
+}
+
+bool BlockBasedTable::HasEmbeddedBlobRecords() const {
+  return rep_->has_embedded_blobs;
+}
+
+Status BlockBasedTable::ValidateEmbeddedBlobIndex(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    size_t* payload_size, size_t* record_size) const {
+  assert(payload_size != nullptr);
+  assert(record_size != nullptr);
+  if (!blob_index.IsSameFile()) {
+    return Status::InvalidArgument("Blob index does not reference this file");
+  }
+  if (blob_index.HasTTL()) {
+    return Status::Corruption(
+        "Embedded blob index must not contain TTL metadata");
+  }
+  if (!rep_->has_embedded_blobs) {
+    return Status::Corruption(
+        "Same-file blob index found without embedded blob records");
+  }
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete(
+        "Cannot read embedded blob in block-cache-only mode");
+  }
+
+  const uint64_t payload_size_u64 = blob_index.size();
+  if (payload_size_u64 >
+      static_cast<uint64_t>(std::numeric_limits<size_t>::max()) -
+          kSimpleGen2BlobTrailerSize) {
+    return Status::Corruption("Embedded blob record is too large");
+  }
+  const uint64_t record_size_u64 =
+      payload_size_u64 + kSimpleGen2BlobTrailerSize;
+  // The per-record context checksum is the correctness guard for same-file
+  // references; this cheap bound just prevents a wild read past EOF (the range
+  // pre-check no longer exists now that records are interleaved with blocks).
+  const uint64_t record_offset = blob_index.offset();
+  if (record_offset > rep_->file_size ||
+      record_size_u64 > rep_->file_size - record_offset) {
+    return Status::Corruption("Embedded blob record extends past file size");
+  }
+
+  *payload_size = static_cast<size_t>(payload_size_u64);
+  *record_size = static_cast<size_t>(record_size_u64);
+  return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
+                                            const BlobIndex& blob_index,
+                                            std::string* value) const {
+  assert(value != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+  // Read the record (payload + trailer) directly into `value`, then drop the
+  // trailer with a shrink (no extra copy on the common non-mmap path).
+  value->resize(record_size);
+  s = ReadAndVerifySimpleGen2BlobRecord(
+      read_options, rep_->file.get(), blob_index.offset(), payload_size,
+      record_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(),
+      &(*value)[0]);
+  if (!s.ok()) {
+    return s;
+  }
+  value->resize(payload_size);
+  return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlobPinned(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    PinnableSlice* value) const {
+  assert(value != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+  // Read into a heap buffer owned by `value` via a registered cleanup, so the
+  // payload can be pinned (no copy) and outlive this reader. The trailer just
+  // sits unused at the tail of the buffer.
+  std::unique_ptr<char[]> buf(new char[record_size]);
+  s = ReadAndVerifySimpleGen2BlobRecord(
+      read_options, rep_->file.get(), blob_index.offset(), payload_size,
+      record_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(),
+      buf.get());
+  if (!s.ok()) {
+    return s;
+  }
+  char* raw = buf.release();
+  value->PinSlice(Slice(raw, payload_size), &DeleteCharArray, raw, nullptr);
+  return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlobCached(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    PinnableSlice* value) const {
+  assert(value != nullptr);
+  assert(rep_->blob_source_ != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // BlobSource derives the cache key from the SimpleGen2Blob format (the same
+  // offset scheme as the SST's data blocks; see GetSimpleGen2BlobCacheKey), so
+  // we only pass the SST's base cache key. This keeps embedded blob records
+  // collision-free with data blocks even when blob_cache == block_cache.
+  return rep_->blob_source_->GetSimpleGen2Blob(
+      read_options, rep_->base_cache_key, rep_->file.get(), blob_index.offset(),
+      payload_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(), value,
+      /*bytes_read=*/nullptr);
+}
+
+Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
+                                        const BlobIndex& blob_index,
+                                        PinnableSlice* value) const {
+  // Mirror the whole-value same-file path in MaybeResolveEmbeddedValue: prefer
+  // the blob-cache-backed read (BLOB_DB_* stats) when a BlobSource is wired,
+  // otherwise a direct pinned read (SstFileReader/sst_dump/repair). Both pin
+  // the payload zero-copy and run ValidateEmbeddedBlobIndex (which enforces
+  // read_tier == kBlockCacheTier -> Incomplete and record bounds).
+  if (rep_->blob_source_ != nullptr) {
+    return ResolveEmbeddedBlobCached(read_options, blob_index, value);
+  }
+  return ResolveEmbeddedBlobPinned(read_options, blob_index, value);
+}
+
+Status BlockBasedTable::MaybeResolveEmbeddedValue(
+    const ReadOptions& read_options, const Slice& internal_key,
+    const Slice& value, std::string* resolved_internal_key,
+    std::string* resolved_value, bool* resolved, PinnableSlice* pinned_value,
+    bool* value_pinned, bool skip_wide_column_entities) const {
+  assert(resolved_internal_key != nullptr);
+  assert(resolved_value != nullptr);
+  assert(resolved != nullptr);
+
+  *resolved = false;
+  if (value_pinned != nullptr) {
+    *value_pinned = false;
+  }
+  if (!rep_->has_embedded_blobs) {
+    return Status::OK();
+  }
+
+#ifndef NDEBUG
+  // Test-only hook: inject a resolution failure (simulating a blob-region read
+  // fault) so tests can verify that the error is surfaced rather than masked by
+  // exposing the raw same-file value downstream. Compiled out in release.
+  {
+    Status injected_status;
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+        &injected_status);
+    if (!injected_status.ok()) {
+      return injected_status;
+    }
+  }
+#endif  // NDEBUG
+
+  ParsedInternalKey parsed_key;
+  // FIXME: de-dup ParseInternalKey() work from callers
+  Status s =
+      ParseInternalKey(internal_key, &parsed_key, false /* log_err_key */);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (parsed_key.type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(value);
+    if (!s.ok() || !blob_index.IsSameFile()) {
+      return s;
+    }
+
+    // Whole-value same-file blob. Route through the BlobSource (blob value
+    // cache + BLOB_DB_* stats) when available, pinning the cached payload (no
+    // copy). When no BlobSource is wired (SstFileReader/sst_dump/repair), fall
+    // back to a direct read. When the caller provides no PinnableSlice, use a
+    // local one so we still benefit from caching, then copy into
+    // `resolved_value`.
+    if (rep_->blob_source_ != nullptr) {
+      if (pinned_value != nullptr) {
+        s = ResolveEmbeddedBlobCached(read_options, blob_index, pinned_value);
+        if (s.ok() && value_pinned != nullptr) {
+          *value_pinned = true;
+        }
+      } else {
+        PinnableSlice local_value;
+        s = ResolveEmbeddedBlobCached(read_options, blob_index, &local_value);
+        if (s.ok()) {
+          resolved_value->assign(local_value.data(), local_value.size());
+        }
+      }
+    } else if (pinned_value != nullptr) {
+      s = ResolveEmbeddedBlobPinned(read_options, blob_index, pinned_value);
+      if (s.ok() && value_pinned != nullptr) {
+        *value_pinned = true;
+      }
+    } else {
+      s = ResolveEmbeddedBlob(read_options, blob_index, resolved_value);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+
+    InternalKey resolved_key(parsed_key.user_key, parsed_key.sequence,
+                             kTypeValue);
+    const Slice encoded_resolved_key = resolved_key.Encode();
+    resolved_internal_key->assign(encoded_resolved_key.data(),
+                                  encoded_resolved_key.size());
+    *resolved = true;
+    return Status::OK();
+  }
+
+  if (parsed_key.type != kTypeWideColumnEntity) {
+    return Status::OK();
+  }
+
+  if (skip_wide_column_entities) {
+    // Get()/MultiGet() path: hand the raw entity to GetContext, which resolves
+    // its same-file (and separate-file) blob columns zero-copy via an
+    // EmbeddedAwareBlobFetcher. Only the iterator path re-serializes below.
+    return Status::OK();
+  }
+
+  // FIXME: Reading embedded blob wide columns is very heavyweight with memcpy
+  // and serialization/deserialization
+  bool has_blob_columns = false;
+  s = WideColumnSerialization::HasBlobColumns(value, has_blob_columns);
+  if (!s.ok() || !has_blob_columns) {
+    return s;
+  }
+
+  Slice entity(value);
+  std::vector<WideColumn> columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  s = WideColumnSerialization::Deserialize(entity, columns, &blob_columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::vector<std::pair<std::string, std::string>> rewritten_columns;
+  rewritten_columns.reserve(columns.size());
+  for (const WideColumn& column : columns) {
+    rewritten_columns.emplace_back(column.name().ToString(),
+                                   column.value().ToString());
+  }
+
+  std::vector<std::pair<size_t, BlobIndex>> remaining_blob_columns;
+  remaining_blob_columns.reserve(blob_columns.size());
+  for (const auto& blob_column : blob_columns) {
+    const size_t column_index = blob_column.first;
+    const BlobIndex& blob_index = blob_column.second;
+    if (!blob_index.IsSameFile()) {
+      remaining_blob_columns.emplace_back(blob_column);
+      continue;
+    }
+    if (column_index >= rewritten_columns.size()) {
+      return Status::Corruption("Wide-column blob index out of range");
+    }
+
+    // Per-column same-file blob: cache via BlobSource when available (same
+    // SST-like key, keyed by this column's record offset), copying into the
+    // rebuilt column value; otherwise read directly.
+    if (rep_->blob_source_ != nullptr) {
+      PinnableSlice column_value;
+      s = ResolveEmbeddedBlobCached(read_options, blob_index, &column_value);
+      if (s.ok()) {
+        rewritten_columns[column_index].second.assign(column_value.data(),
+                                                      column_value.size());
+      }
+    } else {
+      s = ResolveEmbeddedBlob(read_options, blob_index,
+                              &rewritten_columns[column_index].second);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    *resolved = true;
+  }
+
+  if (!*resolved) {
+    return Status::OK();
+  }
+
+  resolved_internal_key->assign(internal_key.data(), internal_key.size());
+  resolved_value->clear();
+  if (!remaining_blob_columns.empty()) {
+    return WideColumnSerialization::SerializeV2(
+        rewritten_columns, remaining_blob_columns, *resolved_value);
+  }
+
+  WideColumns resolved_columns;
+  resolved_columns.reserve(rewritten_columns.size());
+  for (const auto& column : rewritten_columns) {
+    resolved_columns.emplace_back(column.first, column.second);
+  }
+  return WideColumnSerialization::Serialize(resolved_columns, *resolved_value);
+}
+
+Status BlockBasedTable::ResolveEmbeddedValueForGet(
+    const ReadOptions& read_options, const Slice& key, const Slice& value,
+    EmbeddedValueGetScratch* scratch, Cleanable* block_pinner,
+    Slice* key_to_save, Slice* value_to_save, Cleanable** value_pinner,
+    bool defer_wide_column_entities) const {
+  assert(scratch != nullptr);
+  *key_to_save = key;
+  *value_to_save = value;
+  // When nothing is resolved, save the original entry pinned by the data block.
+  *value_pinner = block_pinner;
+  bool resolved = false;
+  bool value_pinned = false;
+  // The pinned buffer (if any) from a prior entry has been delegated to that
+  // entry's output; reset before reuse so PinSlice can pin again.
+  scratch->pinned_value.Reset();
+  Status s = MaybeResolveEmbeddedValue(
+      read_options, key, value, &scratch->key_buf, &scratch->value_buf,
+      &resolved, &scratch->pinned_value, &value_pinned,
+      defer_wide_column_entities);
+  if (s.ok() && resolved) {
+    *key_to_save = Slice(scratch->key_buf);
+    if (value_pinned) {
+      // Whole-value blob: pin the owned buffer into the output (no copy).
+      *value_to_save = Slice(scratch->pinned_value);
+      *value_pinner = &scratch->pinned_value;
+    } else {
+      // Built (wide-column) value lives in reused scratch; it must be copied.
+      *value_to_save = Slice(scratch->value_buf);
+      *value_pinner = nullptr;
+    }
   }
   return s;
 }
@@ -1966,173 +2258,6 @@ Status BlockBasedTable::CreateAndPinBlockInCache(
   return s;
 }
 
-// If contents is nullptr, this function looks up the block caches for the
-// data block referenced by handle, and read the block from disk if necessary.
-// If contents is non-null, it skips the cache lookup and disk read, since
-// the caller has already read it. In both cases, if ro.fill_cache is true,
-// it inserts the block into the block cache.
-template <typename TBlocklike>
-WithBlocklikeCheck<Status, TBlocklike>
-BlockBasedTable::MaybeReadBlockAndLoadToCache(
-    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-    const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
-    bool for_compaction, CachableEntry<TBlocklike>* out_parsed_block,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    BlockContents* contents, bool async_read,
-    bool use_block_cache_for_lookup) const {
-  assert(out_parsed_block != nullptr);
-  const bool no_io = (ro.read_tier == kBlockCacheTier);
-  BlockCacheInterface<TBlocklike> block_cache{
-      rep_->table_options.block_cache.get()};
-  // First, try to get the block from the cache
-  //
-  // If either block cache is enabled, we'll try to read from it.
-  Status s;
-  CacheKey key_data;
-  Slice key;
-  bool is_cache_hit = false;
-  if (block_cache) {
-    // create key for block cache
-    key_data = GetCacheKey(rep_->base_cache_key, handle);
-    key = key_data.AsSlice();
-
-    if (!contents) {
-      if (use_block_cache_for_lookup) {
-        s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
-                                  get_context, decomp);
-        // Value could still be null at this point, so check the cache handle
-        // and update the read pattern for prefetching
-        if (out_parsed_block->GetValue() ||
-            out_parsed_block->GetCacheHandle()) {
-          // TODO(haoyu): Differentiate cache hit on uncompressed block cache
-          // and compressed block cache.
-          is_cache_hit = true;
-          if (prefetch_buffer) {
-            // Update the block details so that PrefetchBuffer can use the read
-            // pattern to determine if reads are sequential or not for
-            // prefetching. It should also take in account blocks read from
-            // cache.
-            prefetch_buffer->UpdateReadPattern(
-                handle.offset(), BlockSizeWithTrailer(handle),
-                ro.adaptive_readahead /*decrease_readahead_size*/);
-          }
-        }
-      }
-    }
-
-    // Can't find the block from the cache. If I/O is allowed, read from the
-    // file.
-    if (out_parsed_block->GetValue() == nullptr &&
-        out_parsed_block->GetCacheHandle() == nullptr && !no_io &&
-        ro.fill_cache) {
-      Statistics* statistics = rep_->ioptions.stats;
-      const bool maybe_compressed =
-          BlockTypeMaybeCompressed(TBlocklike::kBlockType) &&
-          rep_->decompressor;
-      // This flag, if true, tells BlockFetcher to return the uncompressed
-      // block when ReadBlockContents() is called.
-      const bool do_uncompress = maybe_compressed;
-      CompressionType contents_comp_type;
-      // Maybe serialized or uncompressed
-      BlockContents tmp_contents;
-      BlockContents uncomp_contents;
-      BlockContents comp_contents;
-      if (!contents) {
-        Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
-                                              : READ_BLOCK_GET_MICROS;
-        StopWatch sw(rep_->ioptions.clock, statistics, histogram);
-        // Setting do_uncompress to false may cause an extra mempcy in the
-        // following cases -
-        // 1. Compression is enabled, but block is not actually compressed
-        // 2. Compressed block is in the prefetch buffer
-        // 3. Direct IO
-        //
-        // It would also cause a memory allocation to be used rather than
-        // stack if the compressed block size is < 5KB
-        BlockFetcher block_fetcher(
-            rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
-            &tmp_contents, rep_->ioptions, do_uncompress, maybe_compressed,
-            TBlocklike::kBlockType, decomp, rep_->persistent_cache_options,
-            GetMemoryAllocator(rep_->table_options),
-            /*allocator=*/nullptr);
-
-        // If prefetch_buffer is not allocated, it will fallback to synchronous
-        // reading of block contents.
-        if (async_read && prefetch_buffer != nullptr) {
-          s = block_fetcher.ReadAsyncBlockContents();
-          if (!s.ok()) {
-            return s;
-          }
-        } else {
-          s = block_fetcher.ReadBlockContents();
-        }
-
-        contents_comp_type = block_fetcher.compression_type();
-        if (get_context) {
-          switch (TBlocklike::kBlockType) {
-            case BlockType::kIndex:
-              ++get_context->get_context_stats_.num_index_read;
-              break;
-            case BlockType::kFilter:
-            case BlockType::kFilterPartitionIndex:
-              ++get_context->get_context_stats_.num_filter_read;
-              break;
-            default:
-              break;
-          }
-        }
-        if (s.ok()) {
-          if (do_uncompress && contents_comp_type != kNoCompression) {
-            comp_contents = BlockContents(block_fetcher.GetCompressedBlock());
-            uncomp_contents = std::move(tmp_contents);
-          } else if (contents_comp_type != kNoCompression) {
-            // do_uncompress must be false, so output of BlockFetcher is
-            // compressed
-            comp_contents = std::move(tmp_contents);
-          } else {
-            uncomp_contents = std::move(tmp_contents);
-          }
-
-          // If filling cache is allowed and a cache is configured, try to put
-          // the block to the cache. Do this here while block_fetcher is in
-          // scope, since comp_contents will be a reference to the compressed
-          // block in block_fetcher
-          s = PutDataBlockToCache(
-              key, block_cache, out_parsed_block, std::move(uncomp_contents),
-              std::move(comp_contents), contents_comp_type, decomp,
-              GetMemoryAllocator(rep_->table_options), get_context);
-        }
-      } else {
-        contents_comp_type = GetBlockCompressionType(*contents);
-        if (contents_comp_type != kNoCompression) {
-          comp_contents = std::move(*contents);
-        } else {
-          uncomp_contents = std::move(*contents);
-        }
-
-        if (s.ok()) {
-          // If filling cache is allowed and a cache is configured, try to put
-          // the block to the cache.
-          s = PutDataBlockToCache(
-              key, block_cache, out_parsed_block, std::move(uncomp_contents),
-              std::move(comp_contents), contents_comp_type, decomp,
-              GetMemoryAllocator(rep_->table_options), get_context);
-        }
-      }
-    }
-  }
-
-  // TODO: optimize so that lookup_context != nullptr implies the others
-  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
-      lookup_context) {
-    SaveLookupContextOrTraceRecord(
-        key, is_cache_hit, ro, out_parsed_block->GetValue(), lookup_context);
-  }
-
-  assert(s.ok() || out_parsed_block->GetValue() == nullptr);
-  return s;
-}
-
 template <typename TBlocklike>
 WithBlocklikeCheck<void, TBlocklike>
 BlockBasedTable::SaveLookupContextOrTraceRecord(
@@ -2205,6 +2330,112 @@ BlockBasedTable::SaveLookupContextOrTraceRecord(
   }
 }
 
+// Explicitly instantiate templates for each "blocklike" type we use.
+// This makes it possible to keep the template definitions in the .cc include
+// path rather than broad headers.
+#define INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(T)                                \
+  template Status BlockBasedTable::RetrieveBlock<T>(                           \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
+      CachableEntry<T>* out_parsed_block, GetContext* get_context,             \
+      BlockCacheLookupContext* lookup_context, bool for_compaction,            \
+      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const; \
+  template Status BlockBasedTable::MaybeReadBlockAndLoadToCache<T>(            \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
+      bool for_compaction, CachableEntry<T>* block_entry,                      \
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
+      BlockContents* contents, bool async_read,                                \
+      bool use_block_cache_for_lookup) const;                                  \
+  template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      CachableEntry<T>* out_parsed_block) const;                               \
+  template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      UnownedPtr<Decompressor> decomp, BlockContents* block_contents,          \
+      CachableEntry<T>* out_parsed_block) const;
+
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(ParsedFullFilterBlock);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(DecompressorDict);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(Block_kData);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(Block_kIndex);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(Block_kFilterPartitionIndex);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(Block_kRangeDeletion);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(Block_kMetaIndex);
+INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES(Block_kUserDefinedIndex);
+
+#undef INSTANTIATE_BLOCKLIKE_SYNC_TEMPLATES
+
+#if USE_COROUTINES
+#define INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(T)                                \
+  template folly::coro::Task<Status>                                           \
+  BlockBasedTable::RetrieveBlockCoroutine<T>(                                  \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
+      CachableEntry<T>* out_parsed_block, GetContext* get_context,             \
+      BlockCacheLookupContext* lookup_context, bool for_compaction,            \
+      bool use_cache, bool async_read, bool use_block_cache_for_lookup) const; \
+  template folly::coro::Task<Status>                                           \
+  BlockBasedTable::MaybeReadBlockAndLoadToCacheCoroutine<T>(                   \
+      FilePrefetchBuffer * prefetch_buffer, const ReadOptions& ro,             \
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,              \
+      bool for_compaction, CachableEntry<T>* block_entry,                      \
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,        \
+      BlockContents* contents, bool async_read,                                \
+      bool use_block_cache_for_lookup) const;
+
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(ParsedFullFilterBlock);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(DecompressorDict);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(Block_kData);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(Block_kIndex);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(Block_kFilterPartitionIndex);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(Block_kRangeDeletion);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(Block_kMetaIndex);
+INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES(Block_kUserDefinedIndex);
+
+#undef INSTANTIATE_BLOCKLIKE_CORO_TEMPLATES
+#endif
+
+#define INSTANTIATE_BLOCK_ITER_SYNC_TEMPLATE(T)                        \
+  template T* BlockBasedTable::NewDataBlockIterator<T>(                \
+      const ReadOptions& ro, const BlockHandle& handle, T* input_iter, \
+      BlockType block_type, GetContext* get_context,                   \
+      BlockCacheLookupContext* lookup_context,                         \
+      FilePrefetchBuffer* prefetch_buffer, bool for_compaction,        \
+      bool async_read, Status& s, bool use_block_cache_for_lookup) const;
+
+INSTANTIATE_BLOCK_ITER_SYNC_TEMPLATE(DataBlockIter);
+INSTANTIATE_BLOCK_ITER_SYNC_TEMPLATE(IndexBlockIter);
+
+#undef INSTANTIATE_BLOCK_ITER_SYNC_TEMPLATE
+
+#if USE_COROUTINES
+#define INSTANTIATE_BLOCK_ITER_CORO_TEMPLATE(T)                        \
+  template folly::coro::Task<T*>                                       \
+  BlockBasedTable::NewDataBlockIteratorCoroutine<T>(                   \
+      const ReadOptions& ro, const BlockHandle& handle, T* input_iter, \
+      BlockType block_type, GetContext* get_context,                   \
+      BlockCacheLookupContext* lookup_context,                         \
+      FilePrefetchBuffer* prefetch_buffer, bool for_compaction,        \
+      bool async_read, Status& s, bool use_block_cache_for_lookup) const;
+
+INSTANTIATE_BLOCK_ITER_CORO_TEMPLATE(DataBlockIter);
+INSTANTIATE_BLOCK_ITER_CORO_TEMPLATE(IndexBlockIter);
+
+#undef INSTANTIATE_BLOCK_ITER_CORO_TEMPLATE
+#endif
+
+template DataBlockIter* BlockBasedTable::NewDataBlockIterator<DataBlockIter>(
+    const ReadOptions& ro, CachableEntry<Block>& block,
+    DataBlockIter* input_iter, Status s) const;
+
+#if USE_COROUTINES
+template folly::coro::Task<DataBlockIter*>
+BlockBasedTable::NewDataBlockIteratorCoroutine<DataBlockIter>(
+    const ReadOptions& ro, CachableEntry<Block>& block,
+    DataBlockIter* input_iter, Status s) const;
+#endif
+
 void BlockBasedTable::FinishTraceRecord(
     const BlockCacheLookupContext& lookup_context, const Slice& block_key,
     const Slice& referenced_key, bool does_referenced_key_exist,
@@ -2226,85 +2457,6 @@ void BlockBasedTable::FinishTraceRecord(
       ->WriteBlockAccess(access_record, block_key, rep_->cf_name_for_tracing(),
                          referenced_key)
       .PermitUncheckedError();
-}
-
-template <typename TBlocklike /*, auto*/>
-WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
-    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-    const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
-    CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, bool for_compaction,
-    bool use_cache, bool async_read, bool use_block_cache_for_lookup) const {
-  assert(out_parsed_block);
-  assert(out_parsed_block->IsEmpty());
-
-  if (use_cache) {
-    Status s = MaybeReadBlockAndLoadToCache(
-        prefetch_buffer, ro, handle, decomp, for_compaction, out_parsed_block,
-        get_context, lookup_context,
-        /*contents=*/nullptr, async_read, use_block_cache_for_lookup);
-
-    if (!s.ok()) {
-      return s;
-    }
-
-    if (out_parsed_block->GetValue() != nullptr ||
-        out_parsed_block->GetCacheHandle() != nullptr) {
-      assert(s.ok());
-      return s;
-    }
-  }
-
-  assert(out_parsed_block->IsEmpty());
-
-  const bool no_io = ro.read_tier == kBlockCacheTier;
-  if (no_io) {
-    return Status::Incomplete("no blocking io");
-  }
-
-  const bool maybe_compressed =
-      BlockTypeMaybeCompressed(TBlocklike::kBlockType) && rep_->decompressor;
-  std::unique_ptr<TBlocklike> block;
-  Status s;
-
-  {
-    Histograms histogram =
-        for_compaction ? READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
-    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
-    ReadScopedBlockBufferProviderRef block_buffer_provider =
-        (!use_cache && TBlocklike::kBlockType == BlockType::kData)
-            ? GetReadScopedBlockBufferProvider(ro,
-                                               rep_->ioptions.allow_mmap_reads)
-            : std::nullopt;
-    s = ReadAndParseBlockFromFile(
-        rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
-        rep_->ioptions, rep_->create_context, maybe_compressed, decomp,
-        rep_->persistent_cache_options, GetMemoryAllocator(rep_->table_options),
-        for_compaction, async_read, block_buffer_provider);
-
-    if (get_context) {
-      switch (TBlocklike::kBlockType) {
-        case BlockType::kIndex:
-          ++(get_context->get_context_stats_.num_index_read);
-          break;
-        case BlockType::kFilter:
-        case BlockType::kFilterPartitionIndex:
-          ++(get_context->get_context_stats_.num_filter_read);
-          break;
-        default:
-          break;
-      }
-    }
-  }
-
-  if (!s.ok()) {
-    return s;
-  }
-
-  out_parsed_block->SetOwnedValue(std::move(block));
-
-  assert(s.ok());
-  return s;
 }
 
 BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
@@ -2423,25 +2575,55 @@ InternalIterator* BlockBasedTable::NewIterator(
       /*disable_prefix_seek=*/need_upper_bound_check &&
           rep_->index_type == BlockBasedTableOptions::kHashSearch,
       /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context));
+  bool check_filter =
+      !skip_filters &&
+      (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+       read_options.prefix_same_as_start) &&
+      prefix_extractor != nullptr;
+  // Same-file ("embedded") blob references are resolved by a wrapper iterator
+  // so the block-based iterator never exposes an unresolved BlobIndex. The SST
+  // dump tool must keep seeing raw BlobIndex values, so it is excluded.
+  const bool resolve_embedded_values =
+      caller != TableReaderCaller::kSSTDumpTool && HasEmbeddedBlobRecords();
+  // When wrapping, the inner iterator must materialize each data block (it must
+  // not defer to the index's first key), so force allow_unprepared_value off;
+  // the wrapper re-introduces value laziness above it.
+  const bool inner_allow_unprepared_value =
+      allow_unprepared_value && !resolve_embedded_values;
+
   if (arena == nullptr) {
-    return new BlockBasedTableIterator(
+    auto* iter = new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters &&
-            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
-             read_options.prefix_same_as_start) &&
-            prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size, allow_unprepared_value);
+        check_filter, need_upper_bound_check, prefix_extractor, caller,
+        compaction_readahead_size, inner_allow_unprepared_value);
+    if (!resolve_embedded_values) {
+      return iter;
+    }
+    if (allow_unprepared_value) {
+      return new LazyEmbeddedBlobResolvingIterator(this, read_options, iter,
+                                                   /*arena_mode=*/false);
+    }
+    return new EagerEmbeddedBlobResolvingIterator(this, read_options, iter,
+                                                  /*arena_mode=*/false);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
-    return new (mem) BlockBasedTableIterator(
+    auto* iter = new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters &&
-            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
-             read_options.prefix_same_as_start) &&
-            prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size, allow_unprepared_value);
+        check_filter, need_upper_bound_check, prefix_extractor, caller,
+        compaction_readahead_size, inner_allow_unprepared_value);
+    if (!resolve_embedded_values) {
+      return iter;
+    }
+    if (allow_unprepared_value) {
+      auto* wrap_mem =
+          arena->AllocateAligned(sizeof(LazyEmbeddedBlobResolvingIterator));
+      return new (wrap_mem) LazyEmbeddedBlobResolvingIterator(
+          this, read_options, iter, /*arena_mode=*/true);
+    }
+    auto* wrap_mem =
+        arena->AllocateAligned(sizeof(EagerEmbeddedBlobResolvingIterator));
+    return new (wrap_mem) EagerEmbeddedBlobResolvingIterator(
+        this, read_options, iter, /*arena_mode=*/true);
   }
 }
 
@@ -2631,183 +2813,6 @@ bool BlockBasedTable::TimestampMayMatch(const ReadOptions& read_options) const {
     }
   }
   return true;
-}
-
-Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
-                            GetContext* get_context,
-                            const SliceTransform* prefix_extractor,
-                            bool skip_filters) {
-  // Similar to Bloom filter !may_match
-  // If timestamp is beyond the range of the table, skip
-  if (!TimestampMayMatch(read_options)) {
-    return Status::OK();
-  }
-  assert(key.size() >= 8);  // key must be internal key
-  assert(get_context != nullptr);
-  Status s;
-
-  FilterBlockReader* const filter =
-      !skip_filters ? rep_->filter.get() : nullptr;
-
-  // First check the full filter
-  // If full filter not useful, Then go into each block
-  uint64_t tracing_get_id = get_context->get_tracing_get_id();
-  BlockCacheLookupContext lookup_context{
-      TableReaderCaller::kUserGet, tracing_get_id,
-      /*get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
-  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
-    // Trace the key since it contains both user key and sequence number.
-    lookup_context.referenced_key = key.ToString();
-    lookup_context.get_from_user_specified_snapshot =
-        read_options.snapshot != nullptr;
-  }
-  TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
-  const bool may_match =
-      FullFilterKeyMayMatch(filter, key, prefix_extractor, get_context,
-                            &lookup_context, read_options);
-  TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
-  if (may_match) {
-    IndexBlockIter iiter_on_stack;
-    // if prefix_extractor found in block differs from options, disable
-    // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
-    bool need_upper_bound_check = false;
-    if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
-      need_upper_bound_check = PrefixExtractorChanged(prefix_extractor);
-    }
-    auto iiter =
-        NewIndexIterator(read_options, need_upper_bound_check, &iiter_on_stack,
-                         get_context, &lookup_context);
-    std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
-    if (iiter != &iiter_on_stack) {
-      iiter_unique_ptr.reset(iiter);
-    }
-
-    size_t ts_sz =
-        rep_->internal_comparator.user_comparator()->timestamp_size();
-    bool matched = false;  // if such user key matched a key in SST
-    bool done = false;
-    for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-      IndexValue v = iiter->value();
-
-      if (!v.first_internal_key.empty() && !skip_filters &&
-          UserComparatorWrapper(rep_->internal_comparator.user_comparator())
-                  .CompareWithoutTimestamp(
-                      ExtractUserKey(key),
-                      ExtractUserKey(v.first_internal_key)) < 0) {
-        // The requested key falls between highest key in previous block and
-        // lowest key in current block.
-        break;
-      }
-
-      BlockCacheLookupContext lookup_data_block_context{
-          TableReaderCaller::kUserGet, tracing_get_id,
-          /*get_from_user_specified_snapshot=*/read_options.snapshot !=
-              nullptr};
-      bool does_referenced_key_exist = false;
-      DataBlockIter biter;
-      uint64_t referenced_data_size = 0;
-      Status tmp_status;
-      NewDataBlockIterator<DataBlockIter>(
-          read_options, v.handle, &biter, BlockType::kData, get_context,
-          &lookup_data_block_context, /*prefetch_buffer=*/nullptr,
-          /*for_compaction=*/false, /*async_read=*/false, tmp_status,
-          /*use_block_cache_for_lookup=*/true);
-
-      if (read_options.read_tier == kBlockCacheTier &&
-          biter.status().IsIncomplete()) {
-        // couldn't get block from block_cache
-        // Update Saver.state to Found because we are only looking for
-        // whether we can guarantee the key is not there when "no_io" is set
-        get_context->MarkKeyMayExist();
-        s = biter.status();
-        break;
-      }
-      if (!biter.status().ok()) {
-        s = biter.status();
-        break;
-      }
-
-      bool may_exist = biter.SeekForGet(key);
-      // If user-specified timestamp is supported, we cannot end the search
-      // just because hash index lookup indicates the key+ts does not exist.
-      if (!may_exist && ts_sz == 0) {
-        // HashSeek cannot find the key this block and the the iter is not
-        // the end of the block, i.e. cannot be in the following blocks
-        // either. In this case, the seek_key cannot be found, so we break
-        // from the top level for-loop.
-        done = true;
-      } else {
-        // Call the *saver function on each entry/block until it returns false
-        for (; biter.Valid(); biter.Next()) {
-          ParsedInternalKey parsed_key;
-          Status pik_status = ParseInternalKey(
-              biter.key(), &parsed_key, false /* log_err_key */);  // TODO
-          if (!pik_status.ok()) {
-            s = pik_status;
-            break;
-          }
-
-          Status read_status;
-          bool ret = get_context->SaveValue(
-              parsed_key, biter.value(), &matched, &read_status,
-              biter.IsValuePinned() ? &biter : nullptr);
-          if (!read_status.ok()) {
-            s = read_status;
-            break;
-          }
-          if (!ret) {
-            if (get_context->State() == GetContext::GetState::kFound) {
-              does_referenced_key_exist = true;
-              referenced_data_size = biter.key().size() + biter.value().size();
-            }
-            done = true;
-            break;
-          }
-        }
-        if (s.ok()) {
-          s = biter.status();
-        }
-        if (!s.ok()) {
-          break;
-        }
-      }
-      // Write the block cache access record.
-      if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
-        // Avoid making copy of block_key, cf_name, and referenced_key when
-        // constructing the access record.
-        Slice referenced_key;
-        if (does_referenced_key_exist) {
-          referenced_key = biter.key();
-        } else {
-          referenced_key = key;
-        }
-        FinishTraceRecord(lookup_data_block_context,
-                          lookup_data_block_context.block_key, referenced_key,
-                          does_referenced_key_exist, referenced_data_size);
-      }
-
-      if (done) {
-        // Avoid the extra Next which is expensive in two-level indexes
-        break;
-      }
-    }
-    if (matched && filter != nullptr) {
-      if (rep_->whole_key_filtering) {
-        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
-      } else {
-        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_TRUE_POSITIVE);
-      }
-      // Includes prefix stats
-      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
-                                rep_->level);
-    }
-
-    if (s.ok() && !iiter->status().IsNotFound()) {
-      s = iiter->status();
-    }
-  }
-
-  return s;
 }
 
 Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,

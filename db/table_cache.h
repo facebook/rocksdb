@@ -34,6 +34,7 @@ class Arena;
 struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
+class BlobSource;
 
 struct TableCacheOpenOptions {
   // Open a new TableReader owned by the returned iterator instead of reusing
@@ -68,6 +69,15 @@ class TableCache {
              const std::shared_ptr<IOTracer>& io_tracer,
              const std::string& db_session_id, bool fast_sst_open = false);
   ~TableCache();
+
+  // Sets the BlobSource used to route same-file ("embedded") blob reads of SSTs
+  // opened through this cache via the blob value cache + BLOB_DB_* statistics.
+  // Both the TableCache and the BlobSource are owned by the same
+  // ColumnFamilyData and share its lifetime, so the raw pointer is safe.
+  // Called once at CFD setup, after the BlobSource is constructed. Left unset
+  // (nullptr) in non-DB contexts (e.g. repair), where embedded reads fall back
+  // to a direct (uncached) read.
+  void SetBlobSource(BlobSource* blob_source) { blob_source_ = blob_source; }
 
   // Cache interface for table cache
   using CacheInterface =
@@ -134,13 +144,14 @@ class TableCache {
   //                       recorded
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
-  Status Get(const ReadOptions& options,
-             const InternalKeyComparator& internal_comparator,
-             const FileMetaData& file_meta, const Slice& k,
-             GetContext* get_context,
-             const MutableCFOptions& mutable_cf_options,
-             HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-             int level = -1, size_t max_file_size_for_l0_meta_pin = 0);
+  DECLARE_SYNC_AND_ASYNC(Status, Get, const ReadOptions& options,
+                         const InternalKeyComparator& internal_comparator,
+                         const FileMetaData& file_meta, const Slice& k,
+                         GetContext* get_context,
+                         const MutableCFOptions& mutable_cf_options,
+                         HistogramImpl* file_read_hist = nullptr,
+                         bool skip_filters = false, int level = -1,
+                         size_t max_file_size_for_l0_meta_pin = 0);
 
   // Return the range delete tombstone iterator of the file specified by
   // `file_meta`.
@@ -353,6 +364,9 @@ class TableCache {
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;
   std::string db_session_id_;
+  // Owned by the same ColumnFamilyData; see SetBlobSource(). nullptr in non-DB
+  // contexts (e.g. repair).
+  BlobSource* blob_source_ = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

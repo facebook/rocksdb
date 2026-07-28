@@ -8,7 +8,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 ### Code Quality and Maintainability
 
-**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary.
+**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary. Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
 
 **Consistent Style:** Follow existing code style conventions. RocksDB uses `.clang-format` for formatting, specific naming conventions, and structural patterns. Deviations from these patterns are frequently flagged in reviews.
 
@@ -38,7 +38,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 **SIMD and Vectorization:** Leverage SIMD instructions (SSE, AVX) for data-parallel operations when appropriate. Structure data to enable auto-vectorization by the compiler. Consider explicit SIMD intrinsics for critical hot paths like checksum computation, encoding/decoding, and bulk data processing.
 
-**Branch Prediction:** Minimize unpredictable branches in hot paths. Use `LIKELY`/`UNLIKELY` macros to hint branch prediction. Consider branchless alternatives for simple conditionals. Order switch cases and if-else chains by frequency.
+**Branch Prediction:** Minimize unpredictable branches in hot paths. Use `LIKELY`/`UNLIKELY` macros to hint branch prediction, e.g. for error cases and other rare or otherwise costly cases, but NOT for predicting popular configurations. Consider branchless alternatives for simple conditionals. Order switch cases and if-else chains by frequency.
 
 **Memory and Resource Management:** Be mindful of memory allocations, especially in hot paths. Use RAII patterns, smart pointers, and RocksDB's memory management utilities appropriately.
 
@@ -243,27 +243,21 @@ from an implementation detail instead of an explicit option.
 * Don't manually edit BUCK file, after updating src.mk, run
     /usr/local/bin/python3 buckifier/buckify_rocksdb.py to update it
 * For -j in make command, use the number of CPU cores to decide it.
+* When searching for references to something (a symbol, library, etc.), do not
+  restrict or truncate your search based on presumed relevance or scope. It is
+  important and time-saving to keep the repo reasonably consistent across
+  different build systems, programming languages, and even between
+  documentation and implementation.
 
-### When to run `make clean` (avoid mixing build modes)
+### Avoiding mixed build modes with Make (use `AUTO_CLEAN=1`)
 
-The Makefile does **not** track build mode, so object files from a prior
-build are silently reused even when compiled with different flags, leading
-to confusing linker errors, sanitizer false negatives, ODR violations, or
-"phantom" bugs.
-
-Run `make clean` before switching any of these:
-* **`ASSERT_STATUS_CHECKED=1` ↔ unset** — changes the `Status` class layout (ABI break).
-* **Sanitizer builds** — toggling any of `COMPILE_WITH_ASAN=1`,
-    `COMPILE_WITH_UBSAN=1`, `COMPILE_WITH_TSAN=1` on/off.
-* `DEBUG_LEVEL=0` (release) ↔ `DEBUG_LEVEL=1` (debug, default for `make dbg`).
-* Different compilers, `OPT` levels, or other flags affecting codegen/ABI.
-
-**Notable exception:** `DEBUG_LEVEL=2` can be safely mixed with
-`DEBUG_LEVEL=1` — rebuild a subset of files with `DEBUG_LEVEL=2` to get
-extra/more accurate runtime checks for those files without a full clean.
-
-When in doubt, `make clean` is cheap insurance compared to chasing a
-phantom bug.
+Object files are written to the same paths regardless of build flags, so
+reusing objects from a prior build with different flags causes confusing
+linker errors, etc. This problem is essentially avoidable by ALWAYS using
+`AUTO_CLEAN=1 make -j<n> <something>` for manual make invocations. This
+will automatically clean object files if the build parameters/flavor have
+changed. The `build_tools/rockstest.sh` / `rocksptest.sh` helpers described
+below set `AUTO_CLEAN=1` for you.
 
 ### Source checks
 * Run `make check-sources` before committing. This catches non-ASCII
@@ -271,6 +265,22 @@ phantom bug.
     reject. In particular, **do not use Unicode characters** (em dashes,
     smart quotes, etc.) in comments or strings -- use ASCII equivalents
     (`--` instead of em dash, `'` instead of smart quote, etc.).
+
+### License headers
+* Every new source file needs a license header. For a file that does **not**
+    carry an outside/third-party copyright, use the standard Meta dual-licensed
+    header (the dual-license designation is required -- a bare
+    "All Rights Reserved" copyright is not an acceptable open-source header):
+    ```
+    //  Copyright (c) Meta Platforms, Inc. and affiliates.
+    //  This source code is licensed under both the GPLv2 (found in the
+    //  COPYING file in the root directory) and Apache 2.0 License
+    //  (found in the LICENSE.Apache file in the root directory).
+    ```
+    Use a `#` comment prefix instead of `//` for shell, Python, and Makefile
+    fragments.
+* Files derived from an external source (e.g. LevelDB) keep their original
+    upstream copyright line in addition to the header above.
 
 ### RTTI and dynamic_cast
 * Production code and `db_stress` must build in **release mode
@@ -309,17 +319,29 @@ rather than relying on libstdc++ transitive includes.
 * Don't use sleep to wait for certain events to happen. This will cause test to
     be flaky. Instead, use sync point to synchronize thread progress.
 * Cap unit test execution with 60 seconds timeout.
-* When there are multiple unit tests need to be executed, try to use
-    gtest_parallel.py if available. E.g.
-    python3 ${GTEST_PARALLEL}/gtest_parallel.py ./table_test
-* After writing a test, stress-test for flakiness:
+* To build and run unit tests locally, prefer these helper scripts:
+    * `build_tools/rocksptest.sh <test_binary> [more_binaries...] [args...]`
+        builds the binary(ies) with parallel make and `AUTO_CLEAN=1` and runs
+        them under gtest-parallel, sharding the test cases across CPUs. Prefer
+        this whenever running more than a couple of test cases, e.g.
+        `build_tools/rocksptest.sh table_test` or
+        `build_tools/rocksptest.sh db_test env_test --gtest_filter=*Foo*`.
+    * `build_tools/rockstest.sh <test_binary> [args...]` builds with parallel
+        make and `AUTO_CLEAN=1` and runs the binary directly (serially).
+        Use it only for a very small number of test cases, e.g.
+        `build_tools/rockstest.sh db_test --gtest_filter=*MixedSlowdown*`.
+* After writing a test, stress-test for flakiness (AUTO_CLEAN handles the
+    rebuild needed by the `COERCE_CONTEXT_SWITCH=1` flag change):
     ```bash
-    COERCE_CONTEXT_SWITCH=1 make {test_binary}
-    ./{test_binary} --gtest_filter="*YourTestName*" --gtest_repeat=5
+    COERCE_CONTEXT_SWITCH=1 build_tools/rockstest.sh {test_binary} -r100 \
+        --gtest_filter="*YourTestName*"
     ```
 * For CI-style flaky tests that do not reproduce with `gtest_parallel.py`,
     `--gtest_repeat`, or normal coerce-mode runs, inspect
     `tools/gtest_parallel_repro.py --help`.
+* Each unit test file has overheads, so avoid creating new unit test files
+  for random minor features. Consider adding to slice_test, db_etc3_test, or
+  others.
 
 ### Unit test dedup guidelines
 * Extract helper functions for repeated patterns such as object
@@ -367,17 +389,20 @@ rather than relying on libstdc++ transitive includes.
 
 ### Adding release note
 * Release note should be kept short at high level for external user consumption.
+* If more than single markdown line, consider how their formatting will be
+    integrated into HISTORY.md.
 
 ### Blog posts (docs/_posts)
 * Blog post authors must be defined in `docs/_data/authors.yml` to be displayed
 
 ### Final verification of the change
-* Execute make clean to clean all of the changes.
-* Execute make check to build all of the changes and execute all of the tests.
-    Note that executing all of the tests could take multiple minutes.
-* Run `ASSERT_STATUS_CHECKED=1 make check` to verify all Status objects are
-    properly checked. This catches missing error handling that can lead to
-    silent data corruption.
+* Execute `AUTO_CLEAN=1 make check` to build all of the changes and execute all
+    of the tests. `AUTO_CLEAN=1` ensures a clean rebuild if your previous build
+    used different parameters. Note that executing all of the tests could take
+    multiple minutes.
+* Run `AUTO_CLEAN=1 ASSERT_STATUS_CHECKED=1 make check` to verify all Status
+    objects are properly checked. This catches missing error handling that can
+    lead to silent data corruption.
 
 ### Monitoring make check progress
 * Use `make check-progress` to get machine-parseable JSON progress while
@@ -385,7 +410,7 @@ rather than relying on libstdc++ transitive includes.
     builds without timeout issues.
 * Run `make check` in background, then poll progress:
     ```bash
-    make check &
+    AUTO_CLEAN=1 make check &
     # Poll periodically:
     make check-progress
     ```
@@ -410,9 +435,10 @@ rather than relying on libstdc++ transitive includes.
 
 ### Executing benchmark using db_bench
 * Since the goal is to measure performance, we need to build a release binary
-    using `make clean && DEBUG_LEVEL=0 make db_bench`. If there is an engine
-    crash due to bug, we need to switch back to debug build. Make sure to run
-    `make clean` before running `make dbg`.
+    using `AUTO_CLEAN=1 DEBUG_LEVEL=0 make db_bench`. If there is an engine
+    crash due to a bug, switch back to a debug build with
+    `AUTO_CLEAN=1 make dbg`; `AUTO_CLEAN=1` handles the release<->debug rebuild
+    automatically.
 
 ### Formatting code
 * After making change, use `make format-auto` to auto-apply formatting without

@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <stdexcept>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
 #elif defined(__MACH__)
@@ -45,6 +46,7 @@
 #endif
 #include <deque>
 #include <set>
+#include <thread>
 #include <vector>
 
 #include "env/composite_env_wrapper.h"
@@ -65,6 +67,16 @@
 #include "util/thread_local.h"
 #include "util/threadpool_imp.h"
 
+#if USE_COROUTINES
+#include "folly/executors/IOThreadPoolExecutor.h"
+#include "folly/io/async/EventBaseManager.h"
+#if FOLLY_HAS_LIBURING
+#include "folly/executors/thread_factory/NamedThreadFactory.h"
+#include "folly/io/async/EventBase.h"
+#include "folly/io/async/IoUringBackend.h"
+#endif  // FOLLY_HAS_LIBURING
+#endif
+
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
 #endif
@@ -84,6 +96,56 @@ namespace {
 inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
+
+#if USE_COROUTINES
+#if FOLLY_HAS_LIBURING
+folly::IoUringOptions GetReadIOUringOptions() {
+  folly::IoUringOptions options;
+  options.setMaxSubmit(512);
+  options.setCapacity(1024);
+  options.setMinCapacity(512);
+  options.setRegisterRingFd(true);
+  options.setDeferTaskRun(true);
+  options.setTaskRunCoop(true);
+  return options;
+}
+
+#endif  // FOLLY_HAS_LIBURING
+
+struct ReadIOExecutorState {
+  ReadIOExecutorState() {
+#if FOLLY_HAS_LIBURING
+    try {
+      // Older Linux kernels can support basic io_uring while rejecting some
+      // of the required setup flags. Validate the worker options at runtime
+      // before exposing the lazy executor.
+      std::make_unique<folly::IoUringBackend>(GetReadIOUringOptions());
+      folly::EventBase::Options event_base_options;
+      event_base_options.setBackendFactory([]() {
+        return std::make_unique<folly::IoUringBackend>(GetReadIOUringOptions());
+      });
+      event_base_manager_ =
+          std::make_unique<folly::EventBaseManager>(event_base_options);
+      executor_ = std::make_unique<folly::IOThreadPoolExecutor>(
+          std::max(1u, std::thread::hardware_concurrency()),
+          /*minThreads=*/0,
+          std::make_shared<folly::NamedThreadFactory>("RocksDBAsyncRead"),
+          event_base_manager_.get());
+    } catch (const std::runtime_error&) {
+      executor_.reset();
+      event_base_manager_.reset();
+      return;
+    }
+#else
+    event_base_manager_ = nullptr;
+    executor_ = nullptr;
+#endif  // FOLLY_HAS_LIBURING
+  }
+
+  std::unique_ptr<folly::EventBaseManager> event_base_manager_;
+  std::unique_ptr<folly::IOThreadPoolExecutor> executor_;
+};
+#endif  // USE_COROUTINES
 
 // list of pathnames that are locked
 // Only used for error message.
@@ -144,6 +206,23 @@ class PosixFileSystem : public FileSystem {
   static const char* kClassName() { return "PosixFileSystem"; }
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
+
+#if USE_COROUTINES
+  folly::IOExecutor* GetReadExecutor() override {
+    return read_io_executor_state_.executor_.get();
+  }
+
+  void SetReadIOExecutorThreads(int num) override {
+    assert(num > 0);
+    if (num <= 0) {
+      return;
+    }
+    if (read_io_executor_state_.executor_ != nullptr) {
+      read_io_executor_state_.executor_->setNumThreads(
+          static_cast<size_t>(num));
+    }
+  }
+#endif  // USE_COROUTINES
 
   ~PosixFileSystem() override = default;
   bool IsInstanceOf(const std::string& name) const override {
@@ -269,8 +348,12 @@ class PosixFileSystem : public FileSystem {
       result->reset(new PosixRandomAccessFile(
           fname, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
           options
-#if defined(ROCKSDB_IOURING_PRESENT)
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
           ,
+          read_io_executor_state_.event_base_manager_.get()
+#endif
+#if defined(ROCKSDB_IOURING_PRESENT)
+              ,
           !IsIOUringEnabled() ? nullptr
                               : thread_local_async_read_io_urings_.get(),
           !IsIOUringEnabled() ? nullptr
@@ -1307,6 +1390,10 @@ class PosixFileSystem : public FileSystem {
 #endif
     supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
+
+#if USE_COROUTINES
+  ReadIOExecutorState read_io_executor_state_;
+#endif  // USE_COROUTINES
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance

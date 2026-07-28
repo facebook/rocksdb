@@ -6,11 +6,12 @@
 
 #if defined(USE_COROUTINES)
 #include "folly/coro/Coroutine.h"
+#include "folly/coro/Nothrow.h"
 #include "folly/coro/Task.h"
 #endif
 #include "rocksdb/rocksdb_namespace.h"
 
-// This file has two sctions. The first section applies to all instances of
+// This file has two sections. The first section applies to all instances of
 // header file inclusion and has an include guard. The second section is
 // meant for multiple inclusions in the same source file, and is idempotent.
 namespace ROCKSDB_NAMESPACE {
@@ -20,11 +21,15 @@ namespace ROCKSDB_NAMESPACE {
 
 #if defined(USE_COROUTINES)
 
-// The follwoing macros expand to regular and coroutine function
+// The following macros expand to regular and coroutine function
 // declarations for a given function
 #define DECLARE_SYNC_AND_ASYNC(__ret_type__, __func_name__, ...) \
   __ret_type__ __func_name__(__VA_ARGS__);                       \
   folly::coro::Task<__ret_type__> __func_name__##Coroutine(__VA_ARGS__);
+
+#define DECLARE_SYNC_AND_ASYNC_VIRTUAL(__ret_type__, __func_name__, ...) \
+  virtual __ret_type__ __func_name__(__VA_ARGS__);                       \
+  virtual folly::coro::Task<__ret_type__> __func_name__##Coroutine(__VA_ARGS__);
 
 #define DECLARE_SYNC_AND_ASYNC_OVERRIDE(__ret_type__, __func_name__, ...) \
   __ret_type__ __func_name__(__VA_ARGS__) override;                       \
@@ -35,19 +40,46 @@ namespace ROCKSDB_NAMESPACE {
   __ret_type__ __func_name__(__VA_ARGS__) const;                       \
   folly::coro::Task<__ret_type__> __func_name__##Coroutine(__VA_ARGS__) const;
 
+#define DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(__template_decl__, __ret_type__, \
+                                              __func_name__, ...)              \
+  __template_decl__ __ret_type__ __func_name__(__VA_ARGS__) const;             \
+  __template_decl__ folly::coro::Task<__ret_type__> __func_name__##Coroutine(  \
+      __VA_ARGS__) const;
+
+#define DECLARE_SYNC_ASYNC_AND_CALLBACK(__ret_type__, __func_name__, \
+                                        __callback_func_name__,      \
+                                        __callback_args__, ...)      \
+  __ret_type__ __func_name__(__VA_ARGS__) override;                  \
+  virtual folly::coro::Task<__ret_type__> __func_name__##Coroutine(  \
+      __VA_ARGS__);                                                  \
+  void __callback_func_name__ __callback_args__ final override;
+
 constexpr bool using_coroutines() { return true; }
 #else  // !USE_COROUTINES
 
-// The follwoing macros expand to a regular function declaration for a given
+// The following macros expand to a regular function declaration for a given
 // function
 #define DECLARE_SYNC_AND_ASYNC(__ret_type__, __func_name__, ...) \
   __ret_type__ __func_name__(__VA_ARGS__);
+
+#define DECLARE_SYNC_AND_ASYNC_VIRTUAL(__ret_type__, __func_name__, ...) \
+  virtual __ret_type__ __func_name__(__VA_ARGS__);
 
 #define DECLARE_SYNC_AND_ASYNC_OVERRIDE(__ret_type__, __func_name__, ...) \
   __ret_type__ __func_name__(__VA_ARGS__) override;
 
 #define DECLARE_SYNC_AND_ASYNC_CONST(__ret_type__, __func_name__, ...) \
   __ret_type__ __func_name__(__VA_ARGS__) const;
+
+#define DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(__template_decl__, __ret_type__, \
+                                              __func_name__, ...)              \
+  __template_decl__ __ret_type__ __func_name__(__VA_ARGS__) const;
+
+#define DECLARE_SYNC_ASYNC_AND_CALLBACK(__ret_type__, __func_name__, \
+                                        __callback_func_name__,      \
+                                        __callback_args__, ...)      \
+  __ret_type__ __func_name__(__VA_ARGS__) override;                  \
+  void __callback_func_name__ __callback_args__ final override;
 
 constexpr bool using_coroutines() { return false; }
 #endif  // USE_COROUTINES
@@ -75,12 +107,16 @@ constexpr bool using_coroutines() { return false; }
 // This macro should be used to call a function that might be a
 // coroutine. It expands to the correct function name and prefixes
 // the co_await operator if necessary. For example -
-// s = CO_AWAIT(foo)(true);
+// s = CO_AWAIT(foo, true);
 // if the code is compiled WITH_COROUTINES, would expand to
-// s = co_await fooCoroutine(true);
+// s = co_await folly::coro::co_nothrow(fooCoroutine(true));
 // if compiled WITHOUT_COROUTINES, would expand to
 // s = foo(true);
-#define CO_AWAIT(__func_name__) co_await __func_name__##Coroutine
+// co_nothrow drops folly's per-await exception-rethrow scaffolding (RocksDB
+// uses Status, not exceptions). The call args are passed into CO_AWAIT (not
+// appended after it) so co_nothrow can wrap the whole call.
+#define CO_AWAIT(__func_name__, ...) \
+  co_await folly::coro::co_nothrow(__func_name__##Coroutine(__VA_ARGS__))
 
 #define CO_RETURN co_return
 
@@ -99,12 +135,12 @@ constexpr bool using_coroutines() { return false; }
 // This macro should be used to call a function that might be a
 // coroutine. It expands to the correct function name and prefixes
 // the co_await operator if necessary. For example -
-// s = CO_AWAIT(foo)(true);
+// s = CO_AWAIT(foo, true);
 // if the code is compiled WITH_COROUTINES, would expand to
-// s = co_await fooCoroutine(true);
+// s = co_await folly::coro::co_nothrow(fooCoroutine(true));
 // if compiled WITHOUT_COROUTINES, would expand to
 // s = foo(true);
-#define CO_AWAIT(__func_name__) __func_name__
+#define CO_AWAIT(__func_name__, ...) __func_name__(__VA_ARGS__)
 
 #define CO_RETURN return
 

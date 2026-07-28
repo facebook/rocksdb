@@ -29,6 +29,7 @@
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/coding.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1218,6 +1219,58 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
   }
 }
 
+TEST_F(BlockPerKVChecksumTest, CorruptHashIndexNumBucketsNoOverRead) {
+  // Regression test for a heap-buffer-overflow(read) reachable from a corrupted
+  // SST. A data block whose footer claims the hash index format but encodes a
+  // NUM_BUCKETS larger than the block would, in release builds (where the
+  // debug-only asserts in DataBlockHashIndex::Initialize are compiled out),
+  // underflow map_offset. That inflated restart_offset_ was then trusted by
+  // Block::GetCorruptionStatus() to size a Slice, driving an out-of-bounds read
+  // in DataBlockFooter::DecodeFrom(). The block must instead be reported as
+  // corrupt without reading past its heap allocation (verified under ASAN).
+  Options options = Options();
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr /* ioptions */,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    0 /* protection_bytes_per_key */,
+                                    options.comparator};
+
+  // Body bytes followed by a 2-byte NUM_BUCKETS field, then the encoded footer
+  // (values_section_offset + packed). Layout mirrors what DecodeFrom expects.
+  std::string block_body(500, 'x');
+  // NUM_BUCKETS far larger than the block: forces the map_offset underflow.
+  PutFixed16(&block_body, 60000);
+  DataBlockFooter footer;
+  footer.num_restarts = 1;
+  footer.index_type = BlockBasedTableOptions::kDataBlockBinaryAndHash;
+  footer.separated_kv = true;
+  footer.is_uniform = false;
+  // Large offset so the (pre-fix) inflated restart_offset_ path marks size == 0
+  // and routes through GetCorruptionStatus().
+  footer.values_section_offset = 0xFFFFFFFFu;
+  footer.EncodeTo(&block_body);
+
+  // Use a tightly-sized heap allocation so any over-read hits an ASAN redzone.
+  std::unique_ptr<char[]> buf(new char[block_body.size()]);
+  memcpy(buf.get(), block_body.data(), block_body.size());
+  BlockContents contents(std::move(buf), block_body.size());
+
+  std::unique_ptr<Block_kData> data_block;
+  create_context.Create(&data_block, std::move(contents));
+  ASSERT_NE(data_block, nullptr);
+  if (data_block == nullptr) {
+    return;
+  }
+  std::unique_ptr<DataBlockIter> iter{data_block->NewDataIterator(
+      options.comparator, kDisableGlobalSequenceNumber)};
+  ASSERT_NE(iter, nullptr);
+  if (iter == nullptr) {
+    return;
+  }
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
 TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
   // Tests that ApproximateMemoryUsage() includes memory used by block kv
   // checksum.
@@ -2064,6 +2117,51 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_F(BlockTest, SeparatedKVInvalidValuesSectionOffset) {
+  BlockBuilder builder(16 /* restart_interval */, true /* use_delta_encoding */,
+                       false /* use_value_delta_encoding */,
+                       BlockBasedTableOptions::kDataBlockBinaryAndHash,
+                       0.75 /* hash_ratio */, 0 /* ts_sz */,
+                       true /* persist_user_defined_timestamps */,
+                       false /* is_user_key */, true /* separate_key_value */);
+
+  for (int i = 0; i < 5; i++) {
+    std::string key = "key" + std::to_string(i);
+    AppendInternalKeyFooter(&key, 100 - i, kTypeValue);
+    builder.Add(key, "value" + std::to_string(i));
+  }
+
+  Slice raw_block = builder.Finish();
+  std::string block_data = raw_block.ToString();
+
+  Slice footer_input(block_data);
+  DataBlockFooter footer;
+  ASSERT_OK(footer.DecodeFrom(&footer_input));
+  ASSERT_TRUE(footer.separated_kv);
+  footer.values_section_offset = static_cast<uint32_t>(block_data.size());
+
+  std::string encoded_footer;
+  footer.EncodeTo(&encoded_footer);
+  ASSERT_GE(block_data.size(), encoded_footer.size());
+  block_data.replace(block_data.size() - encoded_footer.size(),
+                     encoded_footer.size(), encoded_footer);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+
+  Block block(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+              nullptr /* statistics */, 0 /* restart_interval */);
+
+  ASSERT_EQ(block.size(), 0);
+
+  std::unique_ptr<DataBlockIter> iter(
+      block.NewDataIterator(BytewiseComparator(), kDisableGlobalSequenceNumber,
+                            nullptr, nullptr, false, true));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  ASSERT_EQ(iter->status().ToString(), "Corruption: bad block contents");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

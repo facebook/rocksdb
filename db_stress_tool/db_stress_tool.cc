@@ -21,6 +21,7 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <iostream>
 #include <thread>
 
 #include "db_stress_tool/db_stress_common.h"
@@ -85,6 +86,7 @@ void RegisterCrashCallbacks(
     });
   }
 }
+
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -112,7 +114,7 @@ int db_stress_tool(int argc, char** argv) {
   int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
     fprintf(stderr, "Error: --env_uri and --fs_uri are mutually exclusive\n");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
@@ -120,7 +122,7 @@ int db_stress_tool(int argc, char** argv) {
   if (!s.ok()) {
     fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
             s.ToString().c_str());
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   auto validate_flags = [&]() {
@@ -132,16 +134,17 @@ int db_stress_tool(int argc, char** argv) {
                                   ROCKSDB_NAMESPACE::Env::Priority::LOW);
     raw_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
                                   ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
+
     int rc = ValidateDbStressFlags();
     if (rc != 0) {
       return rc;
     }
-    if (FLAGS_validate_db_stress_flags_only) {
+    if (FLAGS_validate_flags_only) {
       return ValidateDbStressCoreOptionCompatibility();
     }
     return 0;
   };
-  if (FLAGS_validate_db_stress_flags_only) {
+  if (FLAGS_validate_flags_only) {
     return validate_flags();
   }
 
@@ -188,7 +191,7 @@ int db_stress_tool(int argc, char** argv) {
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n", FLAGS_db.c_str(),
               s.ToString().c_str());
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   }
   std::vector<std::string> db_paths;
@@ -202,7 +205,7 @@ int db_stress_tool(int argc, char** argv) {
       if (!s.ok()) {
         fprintf(stderr, "Failed to create directory %s: %s\n", ep.c_str(),
                 s.ToString().c_str());
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       }
       ev_paths.push_back(std::move(ep));
     }
@@ -225,7 +228,7 @@ int db_stress_tool(int argc, char** argv) {
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n", sec_parent.c_str(),
               s.ToString().c_str());
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
     for (int i = 0; i < num_dbs; i++) {
       std::string suffix = (num_dbs == 1) ? "" : "/db_" + std::to_string(i);
@@ -234,7 +237,7 @@ int db_stress_tool(int argc, char** argv) {
       if (!s.ok()) {
         fprintf(stderr, "Failed to create directory %s: %s\n", sec_path.c_str(),
                 s.ToString().c_str());
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       }
       sec_paths.push_back(std::move(sec_path));
     }
@@ -259,7 +262,7 @@ int db_stress_tool(int argc, char** argv) {
       fprintf(stderr,
               "Number of weights in key_len_dist should be equal to"
               " max_key_len");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
 
     uint64_t total_weight = 0;
@@ -270,7 +273,7 @@ int db_stress_tool(int argc, char** argv) {
     }
     if (total_weight != 100) {
       fprintf(stderr, "Sum of all weights in key_len_dist should be 100");
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   } else {
     uint64_t keys_per_level = key_gen_ctx.window / levels;

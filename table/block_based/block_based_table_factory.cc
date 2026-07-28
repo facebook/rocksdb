@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -28,12 +29,14 @@
 #include "rocksdb/table.h"
 #include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
+#include "utilities/trie_index/trie_index_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -623,12 +626,15 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,
       table_reader_options.unique_id,
       table_reader_options.user_defined_timestamps_persisted,
-      table_reader_options.avoid_shared_metadata_cache);
+      table_reader_options.avoid_shared_metadata_cache,
+      table_reader_options.blob_source);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
+  // BlockBasedTableBuilder self-detects embedded-blob mode from
+  // table_builder_options.embedded_blob_options.
   return new BlockBasedTableBuilder(table_options_, table_builder_options,
                                     file);
 }
@@ -1127,6 +1133,11 @@ TableFactory* NewBlockBasedTableFactory(
 Status UserDefinedIndexFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<UserDefinedIndexFactory>* factory) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    trie_index::RegisterBuiltinTrieIndexFactory(
+        *(ObjectLibrary::Default().get()), "");
+  });
   return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
                                                    factory);
 }

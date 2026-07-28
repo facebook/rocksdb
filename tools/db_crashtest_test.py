@@ -1,9 +1,7 @@
+#!/usr/bin/env python3
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 #  This source code is licensed under both the GPLv2 (found in the COPYING file in the root directory)
 #  and the Apache 2.0 License (found in the LICENSE.Apache file in the root directory).
-
-#!/usr/bin/env python3
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import importlib.util
 import io
@@ -133,18 +131,13 @@ class DBCrashTestTest(unittest.TestCase):
             {
                 "disable_wal": 1,
                 "test_batches_snapshots": 1,
-                # Keep unrelated fixed-across-run defaults from legitimately
-                # re-enabling WAL; this test is only about the disable_wal
-                # consequence on test_batches_snapshots.
+                # finalize_and_sanitize() intentionally forces disable_wal=0
+                # when inplace_update_support=1.
                 "inplace_update_support": 0,
             },
         )
 
-        # Pin disable_wal as the winning root so this test verifies the
-        # disable_wal consequence rather than random-priority conflict choice.
-        finalized = db_crashtest.finalize_and_sanitize(
-            params, explicit_keys={"disable_wal"}
-        )
+        finalized = db_crashtest.finalize_and_sanitize(params)
 
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
@@ -172,8 +165,6 @@ class DBCrashTestTest(unittest.TestCase):
         params = self.build_params(
             db_crashtest.default_params,
             {
-                "inplace_update_support": 1,
-                "memtablerep": "skip_list",
                 "test_batches_snapshots": 0,
                 "use_multiscan": 0,
                 "use_sqfc_for_range_queries": 1,
@@ -181,38 +172,10 @@ class DBCrashTestTest(unittest.TestCase):
             },
         )
 
-        finalized = db_crashtest.finalize_and_sanitize(
-            params,
-            explicit_keys={"min_tombstones_for_range_conversion", "use_multiscan"},
-        )
+        finalized = db_crashtest.finalize_and_sanitize(params)
 
         self.assertEqual(2, finalized["min_tombstones_for_range_conversion"])
         self.assertEqual(0, finalized["use_sqfc_for_range_queries"])
-        self.assertEqual(0, finalized["inplace_update_support"])
-
-    def test_finalize_disables_direct_io_for_mmap_read(self):
-        db_crashtest = self.load_db_crashtest()
-        params = self.build_params(
-            db_crashtest.default_params,
-            {
-                "mmap_read": 1,
-                "multiscan_use_async_io": 1,
-                "use_direct_io_for_compaction_reads": 1,
-                "use_direct_io_for_flush_and_compaction": 1,
-                "use_direct_reads": 1,
-            },
-        )
-
-        finalized = db_crashtest.finalize_and_sanitize(
-            params,
-            explicit_keys={"mmap_read"},
-        )
-
-        self.assertEqual(1, finalized["mmap_read"])
-        self.assertEqual(0, finalized["multiscan_use_async_io"])
-        self.assertEqual(0, finalized["use_direct_io_for_compaction_reads"])
-        self.assertEqual(0, finalized["use_direct_io_for_flush_and_compaction"])
-        self.assertEqual(0, finalized["use_direct_reads"])
 
     def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
         db_crashtest = self.load_db_crashtest()
@@ -368,12 +331,47 @@ class DBCrashTestTest(unittest.TestCase):
             {
                 "num_dbs": 1,
                 "clear_column_family_one_in": 10,
+                "tolerate_non_injected_io_errors_for_remote_dbs": 0,
             },
         )
 
         finalized = db_crashtest.finalize_and_sanitize(params)
 
         self.assertEqual(10, finalized["clear_column_family_one_in"])
+        self.assertEqual(0, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
+
+    def test_finalize_tolerates_non_injected_io_errors_for_remote_db(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = True
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "enable_blob_direct_write": 1,
+                "tolerate_non_injected_io_errors_for_remote_dbs": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(0, finalized["enable_blob_direct_write"])
+        # Remote DBs keep the caller-provided value; it is not overridden.
+        self.assertEqual(1, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
+
+    def test_finalize_disables_tolerate_non_injected_io_errors_for_local_db(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = False
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "tolerate_non_injected_io_errors_for_remote_dbs": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        # Local DBs must never tolerate IO errors, even if requested, so genuine
+        # local IO errors (e.g. io_uring failures) are not silently masked.
+        self.assertEqual(0, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
 
     def test_build_out_of_space_diagnostics_summarizes_directory_suffixes(self):
         db_crashtest = self.load_db_crashtest()

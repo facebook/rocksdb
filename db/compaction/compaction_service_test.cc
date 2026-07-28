@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <memory>
+
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "port/stack_trace.h"
@@ -11,6 +13,71 @@
 #include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+// Append ":extra_value" to every "counts=...;" field in a serialized
+// CompactionServiceResult string to simulate a worker with more
+// CompactionReason enums than the reader. Loops because the serialized
+// result contains multiple CompactionStats structs (output_level_stats,
+// proximal_level_stats), each with its own "counts=" field.
+void AppendToCountsFields(std::string* s, const std::string& extra_value) {
+  const std::string prefix = "counts=";
+  size_t pos = s->find(prefix);
+  while (pos != std::string::npos) {
+    // Find the semicolon that terminates this field's value.
+    size_t semi = s->find(';', pos + prefix.size());
+    assert(semi != std::string::npos);
+    // Insert ":extra_value" just before the semicolon.
+    s->insert(semi, ":" + extra_value);
+    // Advance past the inserted text to find the next occurrence.
+    pos = s->find(prefix, semi + extra_value.size() + 2);
+  }
+}
+
+// Remove the last colon-separated element from every "counts=...;" field
+// to simulate a worker with fewer CompactionReason enums than the reader.
+// Loops for the same reason as AppendToCountsFields (multiple counts fields).
+void RemoveLastFromCountsFields(std::string* s) {
+  const std::string prefix = "counts=";
+  size_t pos = s->find(prefix);
+  while (pos != std::string::npos) {
+    size_t val_begin = pos + prefix.size();
+    size_t semi = s->find(';', val_begin);
+    assert(semi != std::string::npos);
+    // Find the last ':' separator within the value.
+    size_t last_sep = s->rfind(':', semi - 1);
+    assert(last_sep != std::string::npos && last_sep >= val_begin);
+    // Erase from the last ':' up to (not including) the ';'.
+    // e.g. "counts=0:3:5;" -> erase ":5" -> "counts=0:3;"
+    s->erase(last_sep, semi - last_sep);
+    pos = s->find(prefix, last_sep);
+  }
+}
+
+// Count the colon-separated elements in the first "counts=...;" field of a
+// serialized CompactionServiceResult. Used to assert the serialized width
+// (how many CompactionReason counts this binary writes).
+size_t CountFirstCountsFieldElements(const std::string& s) {
+  const std::string prefix = "counts=";
+  size_t pos = s.find(prefix);
+  assert(pos != std::string::npos);
+  size_t val_begin = pos + prefix.size();
+  size_t semi = s.find(';', val_begin);
+  assert(semi != std::string::npos);
+  if (semi == val_begin) {
+    return 0;
+  }
+  size_t count = 1;
+  for (size_t i = val_begin; i < semi; ++i) {
+    if (s[i] == ':') {
+      ++count;
+    }
+  }
+  return count;
+}
+
+}  // namespace
 
 class MyTestCompactionService : public CompactionService {
  public:
@@ -1607,6 +1674,68 @@ TEST_F(CompactionServiceTest, InvalidResultFallsBackToLocal) {
   ASSERT_EQ(1, my_cs->GetOnInstallationCount());
   ASSERT_EQ(CompactionServiceJobStatus::kUseLocal,
             my_cs->GetFinalCompactionServiceJobStatus());
+}
+
+TEST_F(CompactionServiceTest, CompatCheckCountsWidthTolerance) {
+  // Number of per-CompactionReason counts this binary serializes and expects.
+  constexpr size_t kExpected =
+      static_cast<size_t>(CompactionReason::kNumOfReasons) - 1;
+  constexpr size_t kLastIndex = kExpected - 1;
+  constexpr int kFirstCount = 3;
+  constexpr int kLastCount = 5;
+
+  CompactionServiceResult result;
+  result.status = Status::OK();
+  result.output_level = 2;
+  result.output_path = "/tmp/output";
+  result.internal_stats.output_level_stats.counts[0] = kFirstCount;
+  result.internal_stats.output_level_stats.counts[kLastIndex] = kLastCount;
+  std::string serialized;
+  ASSERT_OK(result.Write(&serialized));
+
+  // Guard the produced format: this binary writes exactly kExpected counts.
+  // That element count is what a remote worker hands to the primary to read,
+  // so pinning it catches an accidental change to what is written.
+  ASSERT_EQ(CountFirstCountsFieldElements(serialized), kExpected);
+
+  // Peer agrees on kNumOfReasons: every written count is read back unchanged.
+  {
+    CompactionServiceResult parsed;
+    ASSERT_OK(CompactionServiceResult::Read(serialized, &parsed));
+    ASSERT_OK(parsed.status);
+    const auto& counts = parsed.internal_stats.output_level_stats.counts;
+    ASSERT_EQ(counts[0], kFirstCount);
+    ASSERT_EQ(counts[kLastIndex], kLastCount);
+  }
+
+  // Peer serialized one more count than this binary knows (a worker with an
+  // extra CompactionReason): the surplus trailing count is ignored, and the
+  // counts this binary understands are read unchanged.
+  {
+    std::string from_wider_peer = serialized;
+    AppendToCountsFields(&from_wider_peer, "7");
+    ASSERT_EQ(CountFirstCountsFieldElements(from_wider_peer), kExpected + 1);
+    CompactionServiceResult parsed;
+    ASSERT_OK(CompactionServiceResult::Read(from_wider_peer, &parsed));
+    ASSERT_OK(parsed.status);
+    const auto& counts = parsed.internal_stats.output_level_stats.counts;
+    ASSERT_EQ(counts[0], kFirstCount);
+    ASSERT_EQ(counts[kLastIndex], kLastCount);
+  }
+
+  // Peer serialized one fewer count than this binary knows (a worker missing
+  // the newest CompactionReason): the absent trailing count reads as zero.
+  {
+    std::string from_narrower_peer = serialized;
+    RemoveLastFromCountsFields(&from_narrower_peer);
+    ASSERT_EQ(CountFirstCountsFieldElements(from_narrower_peer), kExpected - 1);
+    CompactionServiceResult parsed;
+    ASSERT_OK(CompactionServiceResult::Read(from_narrower_peer, &parsed));
+    ASSERT_OK(parsed.status);
+    const auto& counts = parsed.internal_stats.output_level_stats.counts;
+    ASSERT_EQ(counts[0], kFirstCount);
+    ASSERT_EQ(counts[kLastIndex], 0);
+  }
 }
 
 TEST_F(CompactionServiceTest, SubCompaction) {

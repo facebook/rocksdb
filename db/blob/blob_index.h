@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 
+#include "db/blob/blob_constants.h"
 #include "rocksdb/compression_type.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -56,6 +57,14 @@ class BlobIndex {
   BlobIndex& operator=(const BlobIndex&) = default;
 
   bool IsInlined() const { return type_ == Type::kInlinedTTL; }
+
+  // True for a blob record stored in the same physical file as the table entry.
+  // Only embedded-blob SST reader/writer paths should interpret file number
+  // zero this way; generic blob metadata treats it as invalid.
+  bool IsSameFile() const {
+    return (type_ == Type::kBlob || type_ == Type::kBlobTTL) &&
+           file_number_ == kCurrentFileBlobIndexFileNumber;
+  }
 
   bool HasTTL() const {
     return type_ == Type::kInlinedTTL || type_ == Type::kBlobTTL;
@@ -125,8 +134,13 @@ class BlobIndex {
     if (IsInlined()) {
       oss << "[inlined blob] value:" << value_.ToString(output_hex);
     } else {
-      oss << "[blob ref] file:" << file_number_ << " offset:" << offset_
-          << " size:" << size_
+      oss << "[blob ref] file:";
+      if (IsSameFile()) {
+        oss << "same";
+      } else {
+        oss << file_number_;
+      }
+      oss << " offset:" << offset_ << " size:" << size_
           << " compression: " << CompressionTypeToString(compression_);
     }
 

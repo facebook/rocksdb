@@ -447,17 +447,6 @@ enum class WALRecoveryMode : char {
   kSkipAnyCorruptedRecords = 0x03,
 };
 
-enum class OptionCompatibilityCheckLevel : char {
-  // Do not run optional option-compatibility checks. Mandatory product
-  // validation still runs and can reject invalid option combinations.
-  kSkip = 0,
-  // Log optional option-compatibility diagnostics through info_log when
-  // configured, and continue.
-  kWarn = 1,
-  // Reject optional option-compatibility diagnostics with InvalidArgument.
-  kReject = 2,
-};
-
 struct DbPath {
   std::string path;
   uint64_t target_size;  // Target size of total files under the path, in byte.
@@ -1201,15 +1190,13 @@ struct DBOptions {
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 
-  // Controls optional option-compatibility checks for known feature
-  // combinations. These checks are intended for compatibility validation and
-  // rollout policy, not for exhaustively validating numeric/string option
-  // spaces. Mandatory product validation is not controlled by this option and
-  // still rejects invalid RocksDB configurations.
+  // When true, return InvalidArgument for known option combinations outside
+  // RocksDB's tested compatibility envelope. When false, log those issues as
+  // warnings through info_log when configured. Mandatory invalid combinations
+  // are not controlled by this option and are always rejected.
   //
-  // Default: kSkip
-  OptionCompatibilityCheckLevel option_compatibility_check_level =
-      OptionCompatibilityCheckLevel::kSkip;
+  // Default: false
+  bool fail_on_option_compatibility_error = false;
 
   // If false, fallocate() calls are bypassed, which disables file
   // preallocation. The file space preallocation is used to increase the file
@@ -2016,12 +2003,14 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
   }
   MultiScanArgs(MultiScanArgs&& other) noexcept
       : io_coalesce_threshold(other.io_coalesce_threshold),
         max_prefetch_size(other.max_prefetch_size),
         use_async_io(other.use_async_io),
+        reverse(other.reverse),
         io_dispatcher(std::move(other.io_dispatcher)),
         comp_(other.comp_),
         original_ranges_(std::move(other.original_ranges_)) {}
@@ -2032,6 +2021,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
     return *this;
   }
@@ -2043,6 +2033,7 @@ class MultiScanArgs {
       io_coalesce_threshold = other.io_coalesce_threshold;
       max_prefetch_size = other.max_prefetch_size;
       use_async_io = other.use_async_io;
+      reverse = other.reverse;
       io_dispatcher = std::move(other.io_dispatcher);
     }
     return *this;
@@ -2106,6 +2097,7 @@ class MultiScanArgs {
     io_coalesce_threshold = other.io_coalesce_threshold;
     max_prefetch_size = other.max_prefetch_size;
     use_async_io = other.use_async_io;
+    reverse = other.reverse;
     io_dispatcher = other.io_dispatcher;
   }
 
@@ -2127,6 +2119,10 @@ class MultiScanArgs {
   // When true, BlockBasedTableIterator will use ReadAsync() for reading blocks
   // When false, it will use synchronous MultiRead().
   bool use_async_io = false;
+
+  // Scan ranges in reverse order. Ranges are still specified in comparator
+  // order as [start, limit), and reverse scans require bounded ranges.
+  bool reverse = false;
 
   // Optional IODispatcher for multi-scan operations.
   // If nullptr (default), a new IODispatcher is created internally.
@@ -2199,9 +2195,12 @@ struct ReadOptions {
   // headers/footers, that we currently do not charge to rate limiter.
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
-  // It limits the maximum cumulative value size of the keys in batch while
-  // reading through MultiGet. Once the cumulative value size exceeds this
-  // soft limit then all the remaining keys are returned with status Aborted.
+  // Soft limit on the cumulative value size read by a single MultiGet, to bound
+  // how much it buffers. It always makes progress: at least one key is read
+  // even if its value alone exceeds the limit. Once the returned size exceeds
+  // the limit, subsequent keys get status Aborted (so a caller can retry them,
+  // and cannot loop forever on a single value that by itself exceeds the
+  // limit).
   uint64_t value_size_soft_limit = std::numeric_limits<uint64_t>::max();
 
   // When the number of merge operands applied exceeds this threshold
@@ -2618,8 +2617,22 @@ struct FlushOptions {
   // Default: false (uses DBOptions::atomic_flush setting).
   bool force_atomic_flush;
 
+  // If true (and `wait` is also true), Flush() will not return until the
+  // registered EventListener::OnFlushCompleted callbacks for the flushed
+  // memtables have finished running. By default (false), Flush(wait=true) may
+  // return as soon as the flush result is committed, which can be before (or
+  // while) the OnFlushCompleted callbacks execute on the background flush
+  // thread. Set this to true when the caller needs to observe the effects of
+  // its OnFlushCompleted listener(s) immediately after Flush() returns.
+  // Has no effect when `wait == false`.
+  // Default: false
+  bool listener_wait;
+
   FlushOptions()
-      : wait(true), allow_write_stall(false), force_atomic_flush(false) {}
+      : wait(true),
+        allow_write_stall(false),
+        force_atomic_flush(false),
+        listener_wait(false) {}
 };
 
 struct FlushWALOptions {

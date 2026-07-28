@@ -29,11 +29,25 @@ using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
-  static bool IsErrorInjectedAndRetryable(const Status& error_s) {
-    assert(!error_s.ok());
-    return error_s.getState() &&
-           FaultInjectionTestFS::IsInjectedError(error_s) &&
-           !status_to_io_status(Status(error_s)).GetDataLoss();
+  // Returns true if `error_s` should be treated as retryable rather than a real
+  // failure. Covers injected fault-injection errors, and -- despite the name --
+  // also non-injected IO errors, but only when a remote backend (--env_uri /
+  // --fs_uri) is in use and --tolerate_non_injected_io_errors_for_remote_dbs is
+  // set (infrastructure behind a remote backend can return transient IO
+  // errors). Gating on a remote backend guarantees non-injected IO errors on
+  // local DBs are never masked. Data-loss errors are never retryable.
+  //
+  // Defined out-of-line in db_stress_test_base.cc: it reads FLAGS_env_uri /
+  // FLAGS_fs_uri, which db_stress_common.h declares only after it includes this
+  // header, so they are not visible here.
+  static bool IsErrorInjectedAndRetryable(const Status& error_s);
+
+  static bool IsTolerableCompactionFailure(const Status& s) {
+    // TOOD (hx235): allow an exact list of tolerable failures under stress
+    // test
+    return s.IsManualCompactionPaused() || s.IsCompactionAborted() ||
+           IsErrorInjectedAndRetryable(s) || s.IsAborted() ||
+           s.IsInvalidArgument() || s.IsNotSupported();
   }
 
   // Returns true if the status is an expected transactional error, including
@@ -380,7 +394,8 @@ class StressTest {
 
   void TestCompactFiles(ThreadState* thread, ColumnFamilyHandle* column_family);
 
-  Status TestFlush(const std::vector<int>& rand_column_families);
+  void TestFlush(ThreadState* thread,
+                 const std::vector<int>& rand_column_families);
 
   Status TestResetStats();
 
@@ -433,6 +448,14 @@ class StressTest {
   void VerificationAbort(SharedState* shared, int cf, int64_t key,
                          const Slice& value, const WideColumns& columns) const;
 
+  // Under --verify_cpu_corruption_dir, verifies the just-run op (named by
+  // `op_label`, e.g. "put"/"flush"/"compactrange") for a returned/read-back
+  // corruption or a silent data corruption. A no-op when the flag is empty. See
+  // the definition in db_stress_test_base.cc for the full behavior, startup
+  // requirements, performance cost, and result-file contract.
+  void MaybeVerifyCpuCorruption(ThreadState* thread, const char* op_label,
+                                const Status& op_status);
+
   static std::string DebugString(const Slice& value,
                                  const WideColumns& columns);
 
@@ -441,6 +464,13 @@ class StressTest {
   void Open(SharedState* shared, bool reopen = false);
 
   void Reopen(ThreadState* thread);
+
+  // Periodically opens a read-only DB instance on the primary's live directory
+  // while the primary keeps writing, then closes it. Exercises the concurrent
+  // primary + read-only-DB-on-the-same-directory topology to guard against a
+  // read-only DB's close deleting the primary's live SST files. Detection
+  // relies on db_stress's existing missing-file/corruption checks.
+  void MaybeOpenReadOnlyOnPrimary(ThreadState* thread);
 
   virtual void RegisterAdditionalListeners() {}
 

@@ -34,18 +34,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 Status ReportOptionCompatibilityIssue(const DBOptions& db_opts,
-                                      OptionCompatibilityCheckLevel level,
                                       const std::string& message) {
-  if (level == OptionCompatibilityCheckLevel::kSkip) {
-    return Status::OK();
-  }
-
   std::string full_message = "RocksDB option compatibility check: " + message;
-  if (level == OptionCompatibilityCheckLevel::kReject) {
+  if (db_opts.fail_on_option_compatibility_error) {
     return Status::InvalidArgument(full_message);
   }
 
-  assert(level == OptionCompatibilityCheckLevel::kWarn);
   ROCKS_LOG_WARN(db_opts.info_log, "%s", full_message.c_str());
   return Status::OK();
 }
@@ -102,42 +96,20 @@ Status ValidateDBOptionCompatibility(const DBOptions& db_opts) {
 
 Status ValidateOptionCompatibility(const DBOptions& db_opts,
                                    const ColumnFamilyOptions& cf_opts) {
-  return ValidateOptionCompatibility(db_opts, cf_opts,
-                                     db_opts.option_compatibility_check_level);
-}
-
-Status ValidateOptionCompatibility(const DBOptions& db_opts,
-                                   const ColumnFamilyOptions& cf_opts,
-                                   OptionCompatibilityCheckLevel level) {
   Status s = ValidateDBOptionCompatibility(db_opts);
   if (!s.ok()) {
     return s;
   }
 
-  if (level == OptionCompatibilityCheckLevel::kSkip) {
-    return Status::OK();
-  }
-
-  return ValidateColumnFamilyOptionCompatibility(db_opts, cf_opts, level);
+  return ValidateColumnFamilyOptionCompatibility(db_opts, cf_opts);
 }
 
 Status ValidateColumnFamilyOptionCompatibility(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) {
-  return ValidateColumnFamilyOptionCompatibility(
-      db_opts, cf_opts, db_opts.option_compatibility_check_level);
-}
-
-Status ValidateColumnFamilyOptionCompatibility(
-    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts,
-    OptionCompatibilityCheckLevel level) {
-  if (level == OptionCompatibilityCheckLevel::kSkip) {
-    return Status::OK();
-  }
-
   if (cf_opts.inplace_update_support &&
       cf_opts.min_tombstones_for_range_conversion > 0) {
     return ReportOptionCompatibilityIssue(
-        db_opts, level,
+        db_opts,
         "inplace_update_support is incompatible with "
         "min_tombstones_for_range_conversion > 0");
   }
@@ -213,8 +185,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       immutable_db_options.use_direct_io_for_flush_and_compaction;
-  options.option_compatibility_check_level =
-      immutable_db_options.option_compatibility_check_level;
+  options.fail_on_option_compatibility_error =
+      immutable_db_options.fail_on_option_compatibility_error;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;

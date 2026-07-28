@@ -12,6 +12,7 @@
 
 #include <array>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -178,6 +179,31 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteRangeDelBlock(MetaIndexBuilder* meta_index_builder);
   void WriteFooter(BlockHandle& metaindex_block_handle,
                    BlockHandle& index_block_handle);
+
+  // Embedded-blob SST support. These are only exercised when the builder is in
+  // embedded mode (rep_->embedded_blob_options is set), in which delta encoding
+  // of index values is disabled so blob records can be written inline as values
+  // are added (possibly interleaved with data blocks).
+
+  // For an embedded-mode value entry, possibly extracts large value payload(s)
+  // into inline same-file blob records and rewrites *key / *value to reference
+  // them (a kTypeBlobIndex entry for whole values, or a rebuilt wide-column
+  // entity with per-column BlobIndex refs). On no-op, *key / *value are left
+  // unchanged. Returns false and records a failed status on error.
+  bool MaybeExtractEmbeddedBlobs(SequenceNumber seq, ValueType value_type,
+                                 Slice* key, Slice* value);
+
+  // Rewrites eligible wide-column values as inline same-file blob records,
+  // building the rebuilt entity into rep_->embedded_blob_state->entity_buf.
+  // Sets *rewritten when at least one column was extracted (otherwise the
+  // original value should be used as-is).
+  Status BuildEmbeddedWideColumnEntity(const Slice& value, bool* rewritten);
+
+  // Appends one uncompressed same-file blob record for `payload` at the current
+  // table offset, advances the offset, lazily allocates and updates the
+  // embedded-blob state (counters), and encodes a same-file BlobIndex into
+  // rep_->embedded_blob_state->blob_index_buf.
+  Status WriteEmbeddedBlobRecord(const Slice& payload);
 
   struct Rep;
   class BlockBasedTablePropertiesCollectorFactory;

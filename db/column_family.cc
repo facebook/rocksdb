@@ -678,6 +678,9 @@ ColumnFamilyData::ColumnFamilyData(
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
     blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
                                       db_session_id, blob_file_cache_.get()));
+    // Let the table cache route same-file ("embedded") blob reads through the
+    // blob value cache + stats. Both objects share this CFD's lifetime.
+    table_cache_->SetBlobSource(blob_source_.get());
 
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(

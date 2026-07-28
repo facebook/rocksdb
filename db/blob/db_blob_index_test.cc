@@ -25,6 +25,9 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/perf_context.h"
+#include "rocksdb/sst_file_writer.h"
+#include "rocksdb/table.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -40,6 +43,18 @@ void CorruptPinnedBlobIndexOnCleanup(void* arg1, void* /*arg2*/) {
 }
 
 }  // namespace
+
+TEST(BlobIndexTest, SameFileBlobIndex) {
+  std::string encoded;
+  BlobIndex::EncodeBlob(&encoded, kCurrentFileBlobIndexFileNumber,
+                        /*offset=*/123, /*size=*/456, kNoCompression);
+
+  BlobIndex blob_index;
+  ASSERT_OK(blob_index.DecodeFrom(encoded));
+  EXPECT_TRUE(blob_index.IsSameFile());
+  EXPECT_EQ(blob_index.file_number(), kCurrentFileBlobIndexFileNumber);
+  EXPECT_NE(blob_index.DebugString(false).find("file:same"), std::string::npos);
+}
 
 // kTypeBlobIndex is a value type used by BlobDB only. The base rocksdb
 // should accept the value type on write, and report not supported value
@@ -128,14 +143,24 @@ class DBBlobIndexTest : public DBTestBase {
         columns, s, is_blob_index, value_found);
   }
 
-  bool MaybeResolveMemtableBlobValueForTest(const Slice& key,
-                                            const BlobFetcher* blob_fetcher,
-                                            PinnableSlice* value,
-                                            PinnableWideColumns* columns,
-                                            Status* s, bool* is_blob_index,
-                                            bool* value_found = nullptr) {
-    return DBImpl::MaybeResolveMemtableBlobValue(
-        key, blob_fetcher, value, columns, s, is_blob_index, value_found);
+  Status MaybeResolveMemtableBlobValueForTest(
+      const Slice& key, const BlobFetcher* blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, bool* did_resolve, bool* is_blob_index,
+      bool* value_found = nullptr) {
+    return DBImpl::MaybeResolveMemtableBlobValue(key, blob_fetcher, value,
+                                                 columns, did_resolve,
+                                                 is_blob_index, value_found);
+  }
+
+  Status PostprocessMemtableValueReadForTest(
+      const Slice& key, bool resolve_blob_backed_memtable_value,
+      const BlobFetcher* blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, Status memtable_read_status,
+      bool* is_blob_index, bool* value_found = nullptr) {
+    return DBImpl::PostprocessMemtableValueRead(
+        key, /*timestamp=*/nullptr, resolve_blob_backed_memtable_value,
+        blob_fetcher, value, columns, std::move(memtable_read_status),
+        is_blob_index, value_found);
   }
 
   Options GetTestOptions() {
@@ -294,15 +319,63 @@ TEST_F(DBBlobIndexTest,
   value.GetSelf()->assign(blob_index.data(), blob_index.size());
   value.PinSelf();
 
-  Status s = Status::OK();
+  bool did_resolve = false;
   bool is_blob_index = true;
-  ASSERT_TRUE(MaybeResolveMemtableBlobValueForTest(
-      Slice("key"), /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr, &s,
-      &is_blob_index));
+  Status s = MaybeResolveMemtableBlobValueForTest(
+      Slice("key"), /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr,
+      &did_resolve, &is_blob_index);
 
-  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_TRUE(did_resolve);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
   ASSERT_TRUE(value.empty());
   ASSERT_FALSE(is_blob_index);
+}
+
+TEST_F(DBBlobIndexTest, PostprocessMemtableValueReadClearsOutputsOnError) {
+  // Regression test for the "swallowed status" FIXME: on any error,
+  // PostprocessMemtableValueRead must clear the outputs and return the status,
+  // never leaving a half-populated result behind a non-OK status.
+
+  // Case 1: the incoming memtable read status is already non-OK. The resolve
+  // path is skipped; the finalization block clears outputs and returns it.
+  {
+    PinnableSlice value;
+    value.GetSelf()->assign("stale", 5);
+    value.PinSelf();
+
+    bool is_blob_index = false;
+    Status s = PostprocessMemtableValueReadForTest(
+        Slice("key"), /*resolve_blob_backed_memtable_value=*/true,
+        /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr,
+        Status::Corruption("read failed"), &is_blob_index);
+
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_TRUE(value.empty());
+  }
+
+  // Case 2: the incoming status is OK but the blob-resolve path itself fails (a
+  // blob-backed value with no fetcher). This is the actual scenario the FIXME
+  // referred to -- previously the non-OK status from the resolve path was
+  // dropped. The failure must propagate and the raw blob-index bytes must be
+  // cleared rather than handed back as if they were the value.
+  {
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, /*file_number=*/123, /*offset=*/456,
+                          /*size=*/789, kNoCompression);
+
+    PinnableSlice value;
+    value.GetSelf()->assign(blob_index.data(), blob_index.size());
+    value.PinSelf();
+
+    bool is_blob_index = true;
+    Status s = PostprocessMemtableValueReadForTest(
+        Slice("key"), /*resolve_blob_backed_memtable_value=*/true,
+        /*blob_fetcher=*/nullptr, &value, /*columns=*/nullptr, Status::OK(),
+        &is_blob_index);
+
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_TRUE(value.empty());
+  }
 }
 
 TEST_F(DBBlobIndexTest, ReadOnlyGetImplReturnsBlobIndexWhenRequested) {
@@ -328,6 +401,671 @@ TEST_F(DBBlobIndexTest, ReadOnlyGetImplReturnsBlobIndexWhenRequested) {
   bool is_blob_index = false;
   ASSERT_EQ(blob_index, GetImpl("blob_key", &is_blob_index));
   ASSERT_TRUE(is_blob_index);
+}
+
+// Regression test for a same-file (embedded) BlobIndex being exposed
+// unresolved through an iterator. With index_type=kBinarySearchWithFirstKey
+// and allow_unprepared_value (the default for DB iterators), the block-based
+// table iterator can sit in the is_at_first_key_from_index_ state and return
+// the raw kTypeBlobIndex internal key from the index, while value() resolves
+// the same-file blob to its plain payload. DBIter then reads the stale
+// kTypeBlobIndex type and routes the already-resolved plain value through the
+// blob-index path, corrupting/misreading it.
+//
+// Forcing one entry per data block makes every embedded blob the first key of
+// a block, reliably triggering the deferred-first-key state on both SeekToFirst
+// and forward block transitions.
+TEST_F(DBBlobIndexTest, EmbeddedBlobIteratorWithFirstKeyIndex) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  BlockBasedTableOptions bbto;
+  bbto.index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey;
+  // Soft limit of 1 byte starts a new data block after every entry.
+  bbto.block_size = 1;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Build an embedded-blob SST whose large values are stored as same-file blob
+  // records (table entries become same-file BlobIndex references).
+  const std::string sst_path = dbname_ + "/embedded_first_key.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+  const std::string big3(1024, 'z');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Put("k3", big3));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Point lookups resolve same-file blobs before exposing them, so Get works.
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  ASSERT_EQ(Get("k3"), big3);
+
+  // Iterator path: the bug manifests here.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k3");
+  EXPECT_EQ(iter->value(), big3);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Seek directly to a block whose first key is an embedded blob.
+  iter->Seek("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+}
+
+// Backward iteration (Prev / SeekForPrev) over an embedded-blob SST must work,
+// including for wide-column entities whose same-file blob columns are resolved
+// into an iterator-owned buffer. DBIter requires the underlying iterator's
+// value to be pinned for backward iteration; EmbeddedBlobResolvingIterator
+// therefore pins resolved values -- both whole-value blob payloads and rebuilt
+// wide-column values -- and hands their cleanup to the PinnedIteratorsManager
+// across repositioning. Before that, backward iteration over the wide-column
+// entity returned NotSupported (or tripped the IsValuePinned() assertion).
+TEST_F(DBBlobIndexTest, EmbeddedBlobBackwardIteration) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_backward.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  // Whole-value same-file blobs.
+  const std::string big1(1024, 'x');
+  const std::string big3(1024, 'z');
+  // Wide-column entity: a small (inline) default column plus a large
+  // (embedded, same-file blob) non-default column -- the mixed wide-column
+  // path whose resolved value lands in an iterator-owned buffer.
+  const std::string k2_default(2, 'd');
+  const std::string k2_big_col(1024, 'c');
+  const WideColumns k2_columns{{kDefaultWideColumnName, k2_default},
+                               {"big", k2_big_col}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.PutEntity("k2", k2_columns));
+  ASSERT_OK(writer.Put("k3", big3));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+  // Backward scan via SeekToLast + Prev.
+  iter->SeekToLast();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k3");
+  EXPECT_EQ(iter->value(), big3);
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), k2_default);
+  EXPECT_EQ(iter->columns(), k2_columns);
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // SeekForPrev directly onto the wide-column entity, then step back.
+  iter->SeekForPrev("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), k2_default);
+  EXPECT_EQ(iter->columns(), k2_columns);
+
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+}
+
+// Regression test for T277566778. If resolving a same-file ("embedded") blob
+// fails during compaction (e.g. a blob-region read fault), the error must be
+// surfaced as-is. It must NOT be masked by feeding the raw, unresolved
+// same-file BlobIndex downstream, where FileMetaData::UpdateBoundaries would
+// (correctly) reject file number 0 and report a misleading "Invalid blob file
+// number" corruption. The EmbeddedBlobResolvingIterator must not expose an
+// unresolved same-file value on error: for eager (compaction) callers it
+// resolves during positioning so the error is visible via status()/Valid()
+// before value().
+TEST_F(DBBlobIndexTest, EmbeddedBlobResolveErrorDuringCompactionNotMasked) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_resolve_err.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  // Wide-column entity with a large (embedded, same-file blob) column: the
+  // mixed path whose resolution reads the blob region during compaction.
+  const std::string big_col(1024, 'c');
+  const WideColumns columns{{kDefaultWideColumnName, "d"}, {"big", big_col}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k2", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Add keys straddling the entity so a real compaction (not a trivial move)
+  // reads and resolves the embedded entity.
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Put("k3", "v3"));
+  ASSERT_OK(Flush());
+
+  // Inject a resolution failure only during the compaction below, simulating a
+  // blob-region read fault.
+  const Status kInjected = Status::IOError("injected embedded blob read error");
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+      [&](void* arg) { *static_cast<Status*>(arg) = kInjected; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The compaction must fail with the injected read error, NOT a masked
+  // "Invalid blob file number" corruption.
+  ASSERT_NOK(s);
+  EXPECT_TRUE(s.IsIOError()) << s.ToString();
+  EXPECT_EQ(s.ToString().find("Invalid blob file number"), std::string::npos)
+      << s.ToString();
+}
+
+// Regression test for T277310719, the whole-value (kTypeBlobIndex) sibling of
+// the wide-column-entity case above (T277566778). Both share one root cause: on
+// a blob-region resolution error during compaction, the
+// EmbeddedBlobResolvingIterator must not fall back to exposing the raw,
+// unresolved same-file value.
+//
+// The whole-value variant is more dangerous than the entity variant because it
+// escapes the FileMetaData::UpdateBoundaries tripwire: ResolveKeyType()
+// rewrites the key type kTypeBlobIndex -> kTypeValue (no I/O, always succeeds),
+// so on a masked resolution error the emitted entry is {kTypeValue, raw
+// BlobIndex bytes}. UpdateBoundaries only scans kTypeBlobIndex/entity types, so
+// unlike the entity variant it does NOT reject it -- the masked error slips
+// through, a corrupt {kTypeValue, BlobIndex} record is written to the
+// compaction output, and a later point lookup reads those raw BlobIndex bytes
+// back as the value (in db_stress this surfaced as the
+// ExpectedValue::IsValueBaseValid assertion, not "Invalid blob file number").
+// The eager (compaction) resolver must surface the error via status()/Valid()
+// before value() is consumed.
+TEST_F(DBBlobIndexTest,
+       EmbeddedBlobResolveErrorWholeValueDuringCompactionNotMasked) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_resolve_err_wholevalue.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  // A large whole value is stored as a same-file blob, so the table entry
+  // becomes a same-file (file number 0) BlobIndex (kTypeBlobIndex) -- the
+  // whole-value path whose resolution reads the blob region during compaction.
+  const std::string big_val(1024, 'b');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k2", big_val));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Add keys straddling the embedded blob so a real compaction (not a trivial
+  // move) reads and resolves it.
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Put("k3", "v3"));
+  ASSERT_OK(Flush());
+
+  // Inject a resolution failure only during the compaction below, simulating a
+  // blob-region read fault.
+  const Status kInjected = Status::IOError("injected embedded blob read error");
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+      [&](void* arg) { *static_cast<Status*>(arg) = kInjected; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // The compaction must fail with the injected read error. Before the fix it
+  // instead succeeded (masking the error) and persisted a {kTypeValue, raw
+  // BlobIndex} record; it must not do that, and it must not report a misleading
+  // "Invalid blob file number" corruption either.
+  ASSERT_NOK(s);
+  EXPECT_TRUE(s.IsIOError()) << s.ToString();
+  EXPECT_EQ(s.ToString().find("Invalid blob file number"), std::string::npos)
+      << s.ToString();
+}
+
+// When a blob cache is configured, same-file ("embedded") blob reads should go
+// through BlobSource: the first read misses + inserts + does a disk read, and
+// the second read of the same blob is served from the blob cache. This holds on
+// both the Get() and the iterator paths.
+TEST_F(DBBlobIndexTest, EmbeddedBlobBlobCacheHitMiss) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+
+  LRUCacheOptions co;
+  co.capacity = 8 << 20;
+  options.blob_cache = NewLRUCache(co);
+
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_cache.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  Statistics* const stats = options.statistics.get();
+
+  // First Get: blob cache miss -> disk read -> cache insert.
+  ASSERT_OK(stats->Reset());
+  get_perf_context()->Reset();
+  SetPerfLevel(kEnableCount);
+  ASSERT_EQ(Get("k1"), big1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_MISS), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_HIT), 0);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 1);
+  EXPECT_GT(stats->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ), 0);
+  EXPECT_EQ(get_perf_context()->blob_read_count, 1);
+
+  // Second Get of the same key: blob cache hit, no disk read, no insert.
+  ASSERT_OK(stats->Reset());
+  get_perf_context()->Reset();
+  ASSERT_EQ(Get("k1"), big1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_HIT), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_MISS), 0);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ), 0);
+  EXPECT_EQ(get_perf_context()->blob_read_count, 0);
+  EXPECT_EQ(get_perf_context()->blob_cache_hit_count, 1);
+
+  // Iterator path: first read of a fresh key misses + inserts.
+  ASSERT_OK(stats->Reset());
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek("k2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    EXPECT_EQ(iter->value(), big2);
+  }
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_MISS), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  // Iterator path: second read of the same key hits the blob cache.
+  ASSERT_OK(stats->Reset());
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek("k2");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    EXPECT_EQ(iter->value(), big2);
+  }
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_HIT), 1);
+  EXPECT_EQ(stats->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+
+  SetPerfLevel(kDisable);
+}
+
+// With the blob cache and block cache pointing at the same Cache, the SST-like
+// cache-key scheme (offset >> 2 on the SST's base key) keeps embedded blob
+// records disjoint from the SST's data blocks. Reading embedded blobs must not
+// alias or evict data blocks, and values must remain correct.
+TEST_F(DBBlobIndexTest, EmbeddedBlobSharedBlockAndBlobCache) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+
+  LRUCacheOptions co;
+  co.capacity = 16 << 20;
+  auto shared_cache = NewLRUCache(co);
+  options.blob_cache = shared_cache;
+
+  BlockBasedTableOptions bbto;
+  bbto.block_cache = shared_cache;
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_shared.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'x');
+  const std::string big2(1024, 'y');
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.Put("k1", big1));
+  ASSERT_OK(writer.Put("k2", big2));
+  ASSERT_OK(writer.Finish());
+
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  Statistics* const stats = options.statistics.get();
+
+  // Values are correct with a shared cache, and re-reads hit both the block
+  // cache (data blocks) and the blob cache (embedded payloads) independently.
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  ASSERT_EQ(Get("k1"), big1);
+  ASSERT_EQ(Get("k2"), big2);
+  EXPECT_GT(stats->getTickerCount(BLOB_DB_CACHE_HIT), 0);
+  EXPECT_GT(stats->getTickerCount(BLOCK_CACHE_HIT), 0);
+
+  // Iterator yields correct values too.
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k1");
+  EXPECT_EQ(iter->value(), big1);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  EXPECT_EQ(iter->key(), "k2");
+  EXPECT_EQ(iter->value(), big2);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+// Point GetEntity / MultiGetEntity of a wide-column entity whose non-default
+// columns are embedded (same-file) blobs must return the correct columns and
+// resolve them zero-copy: each resolved blob column value points straight at
+// its pinned blob-cache buffer (identical across reads, and in a separate
+// buffer per column), rather than being copied into one re-serialized entity.
+TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityZeroCopy) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  LRUCacheOptions co;
+  co.capacity = 8 << 20;
+  options.blob_cache = NewLRUCache(co);
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_wc_zerocopy.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string small_default = "d";  // inline default column
+  const std::string big1(1024, 'a');      // same-file blob column
+  const std::string big2(2048, 'b');      // same-file blob column
+  const WideColumns columns{
+      {kDefaultWideColumnName, small_default}, {"big1", big1}, {"big2", big2}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  const char* big1_ptr = nullptr;
+  const char* big2_ptr = nullptr;
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k",
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+
+    // columns() is sorted by name -> [default(""), big1, big2].
+    big1_ptr = result.columns()[1].value().data();
+    big2_ptr = result.columns()[2].value().data();
+    // Multi-buffer: each blob column lives in its own backing buffer, so the
+    // two values are not laid out contiguously (as they would be in a single
+    // re-serialized V1 entity).
+    ASSERT_NE(big1_ptr + big1.size(), big2_ptr);
+
+    // Pointer stability across move (address-stable backing nodes).
+    PinnableWideColumns moved(std::move(result));
+    ASSERT_EQ(moved.columns(), columns);
+    ASSERT_EQ(moved.columns()[1].value().data(), big1_ptr);
+    ASSERT_EQ(moved.columns()[2].value().data(), big2_ptr);
+  }
+
+  // A second read serves the same pinned blob-cache buffers (zero-copy): the
+  // resolved column values point at the very same addresses, which a per-read
+  // re-serialization would not.
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k",
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+    ASSERT_EQ(result.columns()[1].value().data(), big1_ptr);
+    ASSERT_EQ(result.columns()[2].value().data(), big2_ptr);
+  }
+
+  // MultiGetEntity: same correctness and zero-copy (cache-hit) guarantee.
+  {
+    const std::array<Slice, 1> keys{Slice("k")};
+    std::array<PinnableWideColumns, 1> results;
+    std::array<Status, 1> statuses;
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                        keys.data(), results.data(), statuses.data());
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), columns);
+    ASSERT_EQ(results[0].columns()[1].value().data(), big1_ptr);
+    ASSERT_EQ(results[0].columns()[2].value().data(), big2_ptr);
+  }
+}
+
+// A wide-column entity whose default column is itself an embedded (same-file)
+// blob must resolve correctly on the plain Get path (default-column
+// extraction) as well as GetEntity, matching the values written.
+TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetDefaultColumn) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_wc_default.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big_default(1024, 'x');  // same-file blob default column
+  const std::string small_attr = "s";        // inline non-default column
+  const WideColumns columns{{kDefaultWideColumnName, big_default},
+                            {"attr", small_attr}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Plain Get returns the (blob-backed) default column value.
+  PinnableSlice value;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "k", &value));
+  ASSERT_EQ(value, big_default);
+
+  // GetEntity returns all columns.
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k", &result));
+  ASSERT_EQ(result.columns(), columns);
+}
+
+// Merge over an embedded-blob wide-column base entity must resolve the base
+// entity's same-file default column before merging, and GetMergeOperands must
+// return the resolved default column as the base operand.
+TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnMergeBase) {
+  Options options = GetTestOptions();  // merge_operator = StringAppend(',')
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_wc_merge.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big_default(1024, 'D');  // same-file blob default column
+  const WideColumns columns{{kDefaultWideColumnName, big_default},
+                            {"attr", "s"}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Newer merge operand lives in the memtable; the embedded entity base lives
+  // in the ingested SST, so the merge resolves the base via the same-file path.
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), "k", "op1"));
+
+  PinnableSlice value;
+  ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "k", &value));
+  ASSERT_EQ(value, big_default + "," + "op1");
+
+  // GetMergeOperands returns the resolved base default column plus the operand.
+  std::array<PinnableSlice, 8> operands;
+  GetMergeOperandsOptions get_merge_opts;
+  get_merge_opts.expected_max_number_of_operands =
+      static_cast<int>(operands.size());
+  int num_operands = 0;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k", operands.data(), &get_merge_opts,
+                                  &num_operands));
+  ASSERT_EQ(num_operands, 2);
+  ASSERT_EQ(operands[0], big_default);
+  ASSERT_EQ(operands[1], "op1");
+}
+
+// With read_tier == kBlockCacheTier, an unresolved same-file blob column of a
+// wide-column entity must surface Incomplete (never a raw same-file BlobIndex).
+TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityBlockCacheTier) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_wc_blockcache.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "d"}, {"big", big1}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Warm the block cache so the data block read succeeds under kBlockCacheTier
+  // and the lookup actually reaches same-file blob column resolution.
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k",
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+  PinnableWideColumns result;
+  Status s =
+      db_->GetEntity(read_options, db_->DefaultColumnFamily(), "k", &result);
+  ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
+}
+
+// A corrupt embedded blob record backing a wide-column column must surface an
+// error on GetEntity, not expose the raw same-file BlobIndex.
+// A failure resolving an embedded blob record backing a wide-column column
+// (e.g. a bad record or blob-region read fault) must surface on GetEntity, not
+// expose the raw same-file BlobIndex. The failure is injected via a sync point
+// so the test is independent of the on-disk byte layout (e.g. encrypted env).
+TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityCorruptionSurfaced) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_wc_corrupt.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big_col(1024, 'Z');
+  const WideColumns columns{{kDefaultWideColumnName, "d"}, {"big", big_col}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  const Status kInjected = Status::Corruption("injected embedded blob error");
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::MaybeResolveEmbeddedValue:InjectError",
+      [&](void* arg) { *static_cast<Status*>(arg) = kInjected; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PinnableWideColumns result;
+  const Status s =
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k", &result);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
 class PlainBlobValueFilterV3 : public CompactionFilter {

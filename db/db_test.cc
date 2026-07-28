@@ -8089,6 +8089,41 @@ INSTANTIATE_TEST_CASE_P(OpenFilesAsync, OpenFilesAsyncTest,
                                            ::testing::Values(-1, 10),
                                            ::testing::Bool()));
 
+TEST_F(DBTest, ReadOnlyCloseDoesNotDeleteWriterFiles) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("before", "value"));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<DB> read_only_db;
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &read_only_db));
+
+  ASSERT_OK(Put("after", "value"));
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+  ASSERT_GE(live_files.size(), 2);
+
+  std::string newest_sst_path;
+  uint64_t newest_file_number = 0;
+  for (const auto& live_file : live_files) {
+    if (live_file.file_number > newest_file_number) {
+      newest_file_number = live_file.file_number;
+      newest_sst_path = live_file.directory + "/" + live_file.relative_filename;
+    }
+  }
+  ASSERT_FALSE(newest_sst_path.empty());
+  ASSERT_OK(env_->FileExists(newest_sst_path));
+
+  read_only_db.reset();
+
+  ASSERT_OK(env_->FileExists(newest_sst_path));
+}
+
 // Test mix of races with async file open, reads, compactions
 TEST_P(OpenFilesAsyncTest, ConcurrentFileAccess) {
   Options options = CurrentOptions();

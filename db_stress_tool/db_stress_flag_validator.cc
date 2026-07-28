@@ -1,8 +1,3 @@
-//  Copyright (c) Meta Platforms, Inc. and affiliates.
-//  This source code is licensed under both the GPLv2 (found in the
-//  COPYING file in the root directory) and Apache 2.0 License
-//  (found in the LICENSE.Apache file in the root directory).
-
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -54,35 +49,7 @@ int ValidateNumDbsFlags() {
 
 }  // namespace
 
-Status ParseDbStressOptionCompatibilityCheckLevel(
-    OptionCompatibilityCheckLevel* level) {
-  if (FLAGS_option_compatibility_check_level == "skip" ||
-      FLAGS_option_compatibility_check_level == "kSkip") {
-    *level = OptionCompatibilityCheckLevel::kSkip;
-    return Status::OK();
-  }
-  if (FLAGS_option_compatibility_check_level == "warn" ||
-      FLAGS_option_compatibility_check_level == "kWarn") {
-    *level = OptionCompatibilityCheckLevel::kWarn;
-    return Status::OK();
-  }
-  if (FLAGS_option_compatibility_check_level == "reject" ||
-      FLAGS_option_compatibility_check_level == "kReject") {
-    *level = OptionCompatibilityCheckLevel::kReject;
-    return Status::OK();
-  }
-  return Status::InvalidArgument(
-      "option_compatibility_check_level must be skip, warn, or reject");
-}
-
 int ValidateDbStressCoreOptionCompatibility() {
-  OptionCompatibilityCheckLevel level;
-  Status s = ParseDbStressOptionCompatibilityCheckLevel(&level);
-  if (!s.ok()) {
-    std::cerr << "Error: " << s.ToString() << '\n';
-    return 1;
-  }
-
   DBOptions db_options;
   db_options.allow_mmap_reads = FLAGS_mmap_read;
   db_options.allow_mmap_writes = FLAGS_mmap_write;
@@ -91,14 +58,15 @@ int ValidateDbStressCoreOptionCompatibility() {
       FLAGS_use_direct_io_for_compaction_reads;
   db_options.use_direct_io_for_flush_and_compaction =
       FLAGS_use_direct_io_for_flush_and_compaction;
-  db_options.option_compatibility_check_level = level;
+  db_options.fail_on_option_compatibility_error =
+      FLAGS_fail_on_option_compatibility_error;
 
   ColumnFamilyOptions cf_options;
   cf_options.inplace_update_support = FLAGS_inplace_update_support;
   cf_options.min_tombstones_for_range_conversion =
       FLAGS_min_tombstones_for_range_conversion;
 
-  s = ValidateOptionCompatibility(db_options, cf_options, level);
+  Status s = ValidateOptionCompatibility(db_options, cf_options);
   if (!s.ok()) {
     std::cerr << "Error: " << s.ToString() << '\n';
     return 1;
@@ -107,18 +75,39 @@ int ValidateDbStressCoreOptionCompatibility() {
 }
 
 int ValidateDbStressFlags() {
-  {
-    OptionCompatibilityCheckLevel level;
-    Status s = ParseDbStressOptionCompatibilityCheckLevel(&level);
-    if (!s.ok()) {
-      std::cerr << "Error: " << s.ToString() << '\n';
-      return 1;
-    }
-  }
-
   int rc = ValidateNumDbsFlags();
   if (rc != 0) {
     return rc;
+  }
+  if (!FLAGS_verify_cpu_corruption_dir.empty()) {
+    if (FLAGS_threads != 1) {
+      fprintf(stderr,
+              "Error: --verify_cpu_corruption_dir requires --threads=1\n");
+      return 1;
+    }
+    if (FLAGS_read_fault_one_in != 0 || FLAGS_write_fault_one_in != 0 ||
+        FLAGS_metadata_read_fault_one_in != 0 ||
+        FLAGS_metadata_write_fault_one_in != 0 ||
+        FLAGS_open_read_fault_one_in != 0 ||
+        FLAGS_open_write_fault_one_in != 0 ||
+        FLAGS_open_metadata_read_fault_one_in != 0 ||
+        FLAGS_open_metadata_write_fault_one_in != 0 ||
+        FLAGS_secondary_cache_fault_one_in != 0 || FLAGS_sync_fault_injection) {
+      fprintf(stderr,
+              "Error: --verify_cpu_corruption_dir requires all fault injection "
+              "off (every *_fault_one_in = 0 and sync_fault_injection = "
+              "false)\n");
+      return 1;
+    }
+    if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency ||
+        FLAGS_test_multi_ops_txns) {
+      fprintf(stderr,
+              "Error: --verify_cpu_corruption_dir requires the default "
+              "state-tracked stress test; it is incompatible with "
+              "--test_batches_snapshots, --test_cf_consistency, and "
+              "--test_multi_ops_txns\n");
+      return 1;
+    }
   }
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
@@ -313,6 +302,22 @@ int ValidateDbStressFlags() {
       fprintf(stdout,
               "Warn: checkpoint won't be validated since column families may "
               "be dropped.\n");
+    }
+  }
+
+  if (FLAGS_open_read_only_one_in > 0) {
+    if (FLAGS_read_only) {
+      fprintf(stderr,
+              "Error: open_read_only_one_in needs a read-write primary and is "
+              "incompatible with read_only\n");
+      return 1;
+    }
+    if (FLAGS_use_txn || FLAGS_use_optimistic_txn || FLAGS_use_blob_db ||
+        FLAGS_ttl != -1) {
+      fprintf(stderr,
+              "Error: open_read_only_one_in is not supported with "
+              "transactions, BlobDB, or TTL\n");
+      return 1;
     }
   }
 

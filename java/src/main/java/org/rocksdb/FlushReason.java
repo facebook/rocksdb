@@ -20,7 +20,8 @@ public enum FlushReason {
   ERROR_RECOVERY((byte) 0x0b),
   ERROR_RECOVERY_RETRY_FLUSH((byte) 0x0c),
   WAL_FULL((byte) 0x0d),
-  CATCH_UP_AFTER_ERROR_RECOVERY((byte) 0x0e);
+  CATCH_UP_AFTER_ERROR_RECOVERY((byte) 0x0e),
+  MEMTABLE_MAX_RANGE_DELETIONS((byte) 0x0f);
 
   private final byte value;
 

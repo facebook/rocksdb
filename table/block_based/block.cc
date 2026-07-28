@@ -636,6 +636,7 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
              value_type == ValueType::kTypeDeletion ||
              value_type == ValueType::kTypeDeletionWithTimestamp ||
              value_type == ValueType::kTypeRangeDeletion ||
+             value_type == ValueType::kTypeBlobIndex ||
              value_type == ValueType::kTypeWideColumnEntity);
       assert(seqno == 0);
     }
@@ -699,6 +700,7 @@ void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
            value_type == ValueType::kTypeMerge ||
            value_type == ValueType::kTypeDeletion ||
            value_type == ValueType::kTypeRangeDeletion ||
+           value_type == ValueType::kTypeBlobIndex ||
            value_type == ValueType::kTypeWideColumnEntity);
 
     first_internal_key.UpdateInternalKey(global_seqno_state_->global_seqno,
@@ -1328,18 +1330,17 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     switch (footer.index_type) {
       case BlockBasedTableOptions::kDataBlockBinarySearch:
         break;
-      case BlockBasedTableOptions::kDataBlockBinaryAndHash:
-        if (input.size() < sizeof(uint16_t) /* NUM_BUCK */) {
-          size = 0;
+      case BlockBasedTableOptions::kDataBlockBinaryAndHash: {
+        uint16_t map_offset;
+        if (!data_block_hash_index_.Initialize(contents_.data.data(),
+                                               input.size(), &map_offset)) {
+          size = 0;  // Corrupted hash index
           break;
         }
-        uint16_t map_offset;
-        data_block_hash_index_.Initialize(contents_.data.data(),
-                                          static_cast<uint16_t>(input.size()),
-                                          &map_offset);
         // Strip the hash index, leaving just data + restarts
         input.remove_suffix(input.size() - map_offset);
         break;
+      }
       default:
         size = 0;  // Error marker
     }
@@ -1355,6 +1356,9 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     // Set up values_section_ from footer if separated KV storage is used
     if (size != 0 && footer.separated_kv) {
       if (footer.values_section_offset > restart_offset_) {
+        // The footer decoded fine; the corruption is a semantic one that
+        // re-decoding cannot rediscover.
+        restart_offset_ = 0;
         size = 0;  // Error marker
       } else {
         values_section_ = data() + footer.values_section_offset;

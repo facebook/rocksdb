@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "description": [
+    "Documented, intentional backward-incompatible changes to the public C API",
+    "(include/rocksdb/c.h), checked by check_api_compatibility.py.",
+    "",
+    "Each entry suppresses one otherwise-failing finding. 'kind' is 'removed'",
+    "(a function that existed in the baseline is gone) or 'changed' (its",
+    "signature changed). Only add entries for changes that are deliberate and",
+    "reviewed; every entry needs a reason."
+  ],
+  "allow": [
+    {
+      "kind": "removed",
+      "function": "rocksdb_writebatch_wi_create_from",
+      "reason": "Declared in c.h but never implemented anywhere in RocksDB (WriteBatchWithIndex has no constructor from a serialized representation). The symbol never existed, so no consumer could have linked against it; the dead declaration was removed."
+    }
+  ]
+}

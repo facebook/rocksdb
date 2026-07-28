@@ -17,6 +17,65 @@
 #include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+
+Tickers RateLimiterBytesTicker(RateLimiter::OpType op_type) {
+  switch (op_type) {
+    case RateLimiter::OpType::kRead:
+      return RATE_LIMITER_BYTES_READ;
+    case RateLimiter::OpType::kWrite:
+      return RATE_LIMITER_BYTES_WRITE;
+  }
+  assert(false);
+  return RATE_LIMITER_BYTES_WRITE;
+}
+
+Tickers RateLimiterRequestsTicker(RateLimiter::OpType op_type) {
+  switch (op_type) {
+    case RateLimiter::OpType::kRead:
+      return RATE_LIMITER_REQUESTS_READ;
+    case RateLimiter::OpType::kWrite:
+      return RATE_LIMITER_REQUESTS_WRITE;
+  }
+  assert(false);
+  return RATE_LIMITER_REQUESTS_WRITE;
+}
+
+Tickers RateLimiterDelayedRequestsTicker(RateLimiter::OpType op_type) {
+  switch (op_type) {
+    case RateLimiter::OpType::kRead:
+      return RATE_LIMITER_DELAYED_REQUESTS_READ;
+    case RateLimiter::OpType::kWrite:
+      return RATE_LIMITER_DELAYED_REQUESTS_WRITE;
+  }
+  assert(false);
+  return RATE_LIMITER_DELAYED_REQUESTS_WRITE;
+}
+
+Tickers RateLimiterTotalWaitTicker(RateLimiter::OpType op_type) {
+  switch (op_type) {
+    case RateLimiter::OpType::kRead:
+      return RATE_LIMITER_TOTAL_WAIT_MICROS_READ;
+    case RateLimiter::OpType::kWrite:
+      return RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE;
+  }
+  assert(false);
+  return RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE;
+}
+
+Histograms RateLimiterWaitHistogram(RateLimiter::OpType op_type) {
+  switch (op_type) {
+    case RateLimiter::OpType::kRead:
+      return RATE_LIMITER_WAIT_MICROS_READ;
+    case RateLimiter::OpType::kWrite:
+      return RATE_LIMITER_WAIT_MICROS_WRITE;
+  }
+  assert(false);
+  return RATE_LIMITER_WAIT_MICROS_WRITE;
+}
+
+}  // namespace
+
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
@@ -121,113 +180,161 @@ Status GenericRateLimiter::SetSingleBurstBytes(int64_t single_burst_bytes) {
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
+  RequestImpl(bytes, pri, stats, RateLimiter::OpType::kWrite);
+}
+
+void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
+                                 Statistics* stats,
+                                 RateLimiter::OpType op_type) {
+  if (!IsRateLimited(op_type)) {
+    return;
+  }
+  RequestImpl(bytes, pri, stats, op_type);
+}
+
+void GenericRateLimiter::RequestImpl(int64_t bytes, const Env::IOPriority pri,
+                                     Statistics* stats,
+                                     RateLimiter::OpType op_type) {
   assert(bytes <= GetSingleBurstBytes());
   bytes = std::max(static_cast<int64_t>(0), bytes);
+  const int64_t requested_bytes = bytes;
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
-  MutexLock g(&request_mutex_);
 
-  if (auto_tuned_) {
-    static const int kRefillsPerTune = 100;
-    std::chrono::microseconds now(NowMicrosMonotonicLocked());
-    if (now - tuned_time_ >=
-        kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
-      Status s = TuneLocked();
-      s.PermitUncheckedError();  //**TODO: What to do on error?
-    }
-  }
+  bool request_granted = false;
+  bool request_delayed = false;
+  int64_t wait_start_us = 0;
+  int64_t wait_micros = 0;
 
-  if (stop_) {
-    // It is now in the clean-up of ~GenericRateLimiter().
-    // Therefore any new incoming request will exit from here
-    // and not get satiesfied.
-    return;
-  }
+  {
+    MutexLock g(&request_mutex_);
 
-  ++total_requests_[pri];
-
-  if (available_bytes_ > 0) {
-    int64_t bytes_through = std::min(available_bytes_, bytes);
-    total_bytes_through_[pri] += bytes_through;
-    available_bytes_ -= bytes_through;
-    bytes -= bytes_through;
-  }
-
-  if (bytes == 0) {
-    return;
-  }
-
-  // Request cannot be satisfied at this moment, enqueue
-  Req r(bytes, &request_mutex_);
-  queue_[pri].push_back(&r);
-  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostEnqueueRequest",
-                           &request_mutex_);
-  // A thread representing a queued request coordinates with other such threads.
-  // There are two main duties.
-  //
-  // (1) Waiting for the next refill time.
-  // (2) Refilling the bytes and granting requests.
-  do {
-    int64_t time_until_refill_us = next_refill_us_ - NowMicrosMonotonicLocked();
-    if (time_until_refill_us > 0) {
-      if (wait_until_refill_pending_) {
-        // Somebody is performing (1). Trust we'll be woken up when our request
-        // is granted or we are needed for future duties.
-        r.cv.Wait();
-      } else {
-        // Whichever thread reaches here first performs duty (1) as described
-        // above.
-        int64_t wait_until = clock_->NowMicros() + time_until_refill_us;
-        RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
-        ++num_drains_;
-        wait_until_refill_pending_ = true;
-        clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
-        TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostTimedWait",
-                                 &time_until_refill_us);
-        wait_until_refill_pending_ = false;
+    if (auto_tuned_) {
+      static const int kRefillsPerTune = 100;
+      std::chrono::microseconds now(NowMicrosMonotonicLocked());
+      if (now - tuned_time_ >=
+          kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
+        Status s = TuneLocked();
+        s.PermitUncheckedError();  //**TODO: What to do on error?
       }
-    } else {
-      // Whichever thread reaches here first performs duty (2) as described
-      // above.
-      RefillBytesAndGrantRequestsLocked();
     }
-    if (r.request_bytes == 0) {
-      // If there is any remaining requests, make sure there exists at least
-      // one candidate is awake for future duties by signaling a front request
-      // of a queue.
-      for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
-        auto& queue = queue_[i];
-        if (!queue.empty()) {
-          queue.front()->cv.Signal();
-          break;
+
+    if (stop_) {
+      // It is now in the clean-up of ~GenericRateLimiter().
+      // Therefore any new incoming request will exit from here
+      // and not get satiesfied.
+      return;
+    }
+
+    ++total_requests_[pri];
+
+    if (available_bytes_ > 0) {
+      int64_t bytes_through = std::min(available_bytes_, bytes);
+      total_bytes_through_[pri] += bytes_through;
+      available_bytes_ -= bytes_through;
+      bytes -= bytes_through;
+    }
+
+    if (bytes == 0) {
+      request_granted = true;
+    } else {
+      // Request cannot be satisfied at this moment, enqueue
+      Req r(bytes, &request_mutex_);
+      queue_[pri].push_back(&r);
+      TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:PostEnqueueRequest",
+                               &request_mutex_);
+      // A thread representing a queued request coordinates with other such
+      // threads. There are two main duties.
+      //
+      // (1) Waiting for the next refill time.
+      // (2) Refilling the bytes and granting requests.
+      do {
+        int64_t now = static_cast<int64_t>(NowMicrosMonotonicLocked());
+        int64_t time_until_refill_us = next_refill_us_ - now;
+        if (time_until_refill_us > 0) {
+          if (!request_delayed) {
+            request_delayed = true;
+            wait_start_us = now;
+          }
+          if (wait_until_refill_pending_) {
+            // Somebody is performing (1). Trust we'll be woken up when our
+            // request is granted or we are needed for future duties.
+            r.cv.Wait();
+          } else {
+            // Whichever thread reaches here first performs duty (1) as
+            // described above.
+            int64_t wait_until = clock_->NowMicros() + time_until_refill_us;
+            RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
+            ++num_drains_;
+            wait_until_refill_pending_ = true;
+            clock_->TimedWait(&r.cv, std::chrono::microseconds(wait_until));
+            TEST_SYNC_POINT_CALLBACK(
+                "GenericRateLimiter::Request:PostTimedWait",
+                &time_until_refill_us);
+            wait_until_refill_pending_ = false;
+          }
+        } else {
+          // Whichever thread reaches here first performs duty (2) as described
+          // above.
+          RefillBytesAndGrantRequestsLocked();
+        }
+        if (r.request_bytes == 0) {
+          // If there is any remaining requests, make sure there exists at least
+          // one candidate is awake for future duties by signaling a front
+          // request of a queue.
+          for (int i = Env::IO_TOTAL - 1; i >= Env::IO_LOW; --i) {
+            auto& queue = queue_[i];
+            if (!queue.empty()) {
+              queue.front()->cv.Signal();
+              break;
+            }
+          }
+        }
+        // Invariant: non-granted request is always in one queue, and granted
+        // request is always in zero queues.
+#ifndef NDEBUG
+        int num_found = 0;
+        for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+          if (std::find(queue_[i].begin(), queue_[i].end(), &r) !=
+              queue_[i].end()) {
+            ++num_found;
+          }
+        }
+        if (r.request_bytes == 0) {
+          assert(num_found == 0);
+        } else {
+          assert(num_found == 1);
+        }
+#endif  // NDEBUG
+      } while (!stop_ && r.request_bytes > 0);
+
+      if (stop_) {
+        // It is now in the clean-up of ~GenericRateLimiter().
+        // Therefore any woken-up request will have come out of the loop and
+        // then exit here. It might or might not have been satisfied.
+        --requests_to_wait_;
+        exit_cv_.Signal();
+      } else {
+        request_granted = true;
+        if (request_delayed) {
+          wait_micros =
+              static_cast<int64_t>(NowMicrosMonotonicLocked()) - wait_start_us;
         }
       }
     }
-    // Invariant: non-granted request is always in one queue, and granted
-    // request is always in zero queues.
-#ifndef NDEBUG
-    int num_found = 0;
-    for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-      if (std::find(queue_[i].begin(), queue_[i].end(), &r) !=
-          queue_[i].end()) {
-        ++num_found;
-      }
-    }
-    if (r.request_bytes == 0) {
-      assert(num_found == 0);
-    } else {
-      assert(num_found == 1);
-    }
-#endif  // NDEBUG
-  } while (!stop_ && r.request_bytes > 0);
+  }
 
-  if (stop_) {
-    // It is now in the clean-up of ~GenericRateLimiter().
-    // Therefore any woken-up request will have come out of the loop and then
-    // exit here. It might or might not have been satisfied.
-    --requests_to_wait_;
-    exit_cv_.Signal();
+  if (request_granted) {
+    RecordTick(stats, RateLimiterRequestsTicker(op_type));
+    RecordTick(stats, RateLimiterBytesTicker(op_type), requested_bytes);
+    if (request_delayed) {
+      RecordTick(stats, RateLimiterDelayedRequestsTicker(op_type));
+      RecordTick(stats, RateLimiterTotalWaitTicker(op_type),
+                 static_cast<uint64_t>(wait_micros));
+      RecordInHistogram(stats, RateLimiterWaitHistogram(op_type),
+                        static_cast<uint64_t>(wait_micros));
+    }
   }
 }
 

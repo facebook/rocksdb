@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <limits>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -1782,27 +1783,19 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsRoundTrip) {
   ASSERT_FALSE(parsed.use_direct_io_for_compaction_reads);
 }
 
-TEST_F(DBOptionsTest, OptionCompatibilityCheckLevelRoundTrip) {
-  ASSERT_EQ(DBOptions().option_compatibility_check_level,
-            OptionCompatibilityCheckLevel::kSkip);
+TEST_F(DBOptionsTest, FailOnOptionCompatibilityErrorRoundTrip) {
+  ASSERT_FALSE(DBOptions().fail_on_option_compatibility_error);
 
   DBOptions parsed;
   ConfigOptions config_options;
   ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
-                                   "option_compatibility_check_level=kWarn",
+                                   "fail_on_option_compatibility_error=true",
                                    &parsed));
-  ASSERT_EQ(parsed.option_compatibility_check_level,
-            OptionCompatibilityCheckLevel::kWarn);
+  ASSERT_TRUE(parsed.fail_on_option_compatibility_error);
   ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
-                                   "option_compatibility_check_level=reject",
+                                   "fail_on_option_compatibility_error=false",
                                    &parsed));
-  ASSERT_EQ(parsed.option_compatibility_check_level,
-            OptionCompatibilityCheckLevel::kReject);
-  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
-                                   "option_compatibility_check_level=skip",
-                                   &parsed));
-  ASSERT_EQ(parsed.option_compatibility_check_level,
-            OptionCompatibilityCheckLevel::kSkip);
+  ASSERT_FALSE(parsed.fail_on_option_compatibility_error);
 }
 
 // Validates that Open rejects the documented incompatible combination.
@@ -1818,24 +1811,35 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsValidation) {
   ASSERT_TRUE(bad_status.IsNotSupported()) << bad_status.ToString();
 }
 
-TEST_F(DBOptionsTest, OptionCompatibilityCheckLevelPolicy) {
+TEST_F(DBOptionsTest, DBOptionCompatibilityRejectsMmapAndDirectIo) {
+  DBOptions options;
+  options.allow_mmap_reads = true;
+  options.use_direct_reads = true;
+  ASSERT_TRUE(ValidateDBOptionCompatibility(options).IsNotSupported());
+
+  options = DBOptions();
+  options.allow_mmap_reads = true;
+  options.use_direct_io_for_compaction_reads = true;
+  ASSERT_TRUE(ValidateDBOptionCompatibility(options).IsNotSupported());
+
+  options = DBOptions();
+  options.allow_mmap_writes = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+  ASSERT_TRUE(ValidateDBOptionCompatibility(options).IsNotSupported());
+}
+
+TEST_F(DBOptionsTest, FailOnOptionCompatibilityErrorPolicy) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.allow_concurrent_memtable_write = false;
   options.inplace_update_support = true;
   options.min_tombstones_for_range_conversion = 2;
 
-  options.option_compatibility_check_level =
-      OptionCompatibilityCheckLevel::kSkip;
-  DestroyAndReopen(options);
-
-  options.option_compatibility_check_level =
-      OptionCompatibilityCheckLevel::kWarn;
+  options.fail_on_option_compatibility_error = false;
   DestroyAndReopen(options);
 
   Destroy(options);
-  options.option_compatibility_check_level =
-      OptionCompatibilityCheckLevel::kReject;
+  options.fail_on_option_compatibility_error = true;
   Status s = TryReopen(options);
   ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
   ASSERT_NE(s.ToString().find("option compatibility check"), std::string::npos)
