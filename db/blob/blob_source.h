@@ -25,6 +25,8 @@ struct MutableCFOptions;
 class Status;
 class FilePrefetchBuffer;
 class Slice;
+class RandomAccessFileReader;
+enum ChecksumType : char;
 
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
@@ -58,6 +60,41 @@ class BlobSource {
                  uint64_t value_size, CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
+
+  // Reads a SimpleGen2Blob payload (see db/blob/blob_gen2_format.h) through the
+  // blob value cache and BLOB_DB_* statistics. This is the counterpart to
+  // GetBlob() for the second-generation blob record format, which is read
+  // directly from a RandomAccessFileReader rather than from a traditional blob
+  // file.
+  //
+  // The cache key is derived from the SimpleGen2Blob format itself, not chosen
+  // by the caller: it is GetSimpleGen2BlobCacheKey(base_cache_key,
+  // record_offset), the same offset scheme block-based SST blocks use. The
+  // caller supplies only its file's `base_cache_key` (db_id / db_session_id /
+  // file_number). This keeps blob records collision-free with the file's data
+  // blocks even when the blob cache and block cache are the same cache.
+  //
+  // `file`, `record_offset`, `payload_size`, `checksum_type`,
+  // `base_context_checksum`, and `expected_compression` are the inputs to the
+  // SimpleGen2Blob reader used on a cache miss (see
+  // ReadAndVerifySimpleGen2BlobRecord). The on-disk record size (payload +
+  // trailer) is reported via `*bytes_read` (when non-null) and the
+  // BLOB_DB_BLOB_FILE_BYTES_READ / blob_read_byte counters, consistently on
+  // both cache hits and misses.
+  //
+  // On a cache hit, pins the cached value into `*value` (no copy). On a miss,
+  // reads + verifies the record into a cache-allocator buffer, records the
+  // per-read stats, inserts it into the cache (when configured and fill_cache
+  // is set), and pins it into `*value`. If blob_cache_ is not configured, the
+  // record is still read and read stats recorded, just without a cache
+  // lookup/insert.
+  Status GetSimpleGen2Blob(const ReadOptions& read_options,
+                           const OffsetableCacheKey& base_cache_key,
+                           RandomAccessFileReader* file, uint64_t record_offset,
+                           uint64_t payload_size, ChecksumType checksum_type,
+                           uint32_t base_context_checksum,
+                           CompressionType expected_compression,
+                           PinnableSlice* value, uint64_t* bytes_read);
 
   // Read multiple blobs from the underlying cache or blob file(s).
   //

@@ -173,6 +173,9 @@ template <typename TUse, typename TBlocklike>
 using WithBlocklikeCheck = std::enable_if_t<
     TBlocklike::kCacheEntryRole == CacheEntryRole::kMisc || true, TUse>;
 
+template <typename TBlocklike>
+using BlocklikeStatus = WithBlocklikeCheck<Status, TBlocklike>;
+
 // Helper for the uncache_aggressiveness option
 class UncacheAggressivenessAdvisor {
  public:

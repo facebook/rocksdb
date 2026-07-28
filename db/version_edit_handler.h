@@ -54,8 +54,10 @@ class VersionEditHandlerBase {
 
   const ReadOptions& read_options_;
 
-  // File offset at the end of the last successfully completed and
-  // decoded logical record.
+  // File offset at the end of the last fully applied logical unit.
+  // For non-atomic edits, this advances after each edit is decoded.
+  // For atomic groups, this only advances after the entire group is
+  // decoded, so an incomplete atomic group at the tail is excluded.
   uint64_t last_valid_record_end_ = 0;
 
  private:

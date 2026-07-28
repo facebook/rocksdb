@@ -25,6 +25,7 @@ jobs:
         name: clang-tidy-result
         run-id: ${{ github.event.workflow_run.id }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: _artifact
       continue-on-error: true
 
     - name: Post or update PR comment
@@ -33,12 +34,19 @@ jobs:
       with:
         script: |
           const fs = require('fs');
-          if (!fs.existsSync('clang-tidy-comment.md') || !fs.existsSync('pr_number.txt')) {
+          if (!fs.existsSync('_artifact/clang-tidy-comment.md') ||
+              !fs.existsSync('_artifact/pr_number.txt')) {
             core.info('No clang-tidy results found; skipping.');
             return;
           }
-          const body = fs.readFileSync('clang-tidy-comment.md', 'utf8');
-          const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim());
+          const body = fs.readFileSync(
+            '_artifact/clang-tidy-comment.md',
+            'utf8'
+          );
+          const prNumber = parseInt(
+            fs.readFileSync('_artifact/pr_number.txt', 'utf8').trim(),
+            10
+          );
           const post = require('./.github/scripts/post-pr-comment.js');
 
           await post({

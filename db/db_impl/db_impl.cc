@@ -8,14 +8,23 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
 
+#if USE_COROUTINES
+#include "folly/Executor.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/io/async/EventBase.h"
+#endif  // USE_COROUTINES
+
 #include <cinttypes>
 #include <cstdio>
 #include <deque>
+#include <forward_list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -60,6 +69,7 @@
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "env/unique_id_gen.h"
@@ -176,6 +186,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                const bool seq_per_batch, const bool batch_per_txn,
                bool read_only)
     : dbname_(dbname),
+      read_only_(read_only),
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options, read_only,
                                           &init_logger_creation_s_)),
@@ -318,12 +329,12 @@ Status DBImpl::Resume() {
 // 4. Schedule compactions if needed for all the CFs. This is needed as the
 //    flush in the prior step might have been a no-op for some CFs, which
 //    means a new super version wouldn't have been installed
-Status DBImpl::ResumeImpl(DBRecoverContext context) {
+Status DBImpl::ResumeImpl(DBRecoverContext context,
+                          Env::IOActivity io_activity) {
   mutex_.AssertHeld();
 
-  // TODO: plumb Env::IOActivity, Env::IOPriority
-  const ReadOptions read_options;
-  const WriteOptions write_options;
+  const ReadOptions read_options(io_activity);
+  const WriteOptions write_options(io_activity);
 
   WaitForBackgroundWork();
 
@@ -681,7 +692,8 @@ void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
 Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
   mutex_.AssertHeld();
   if (!mutable_db_options_.optimize_manifest_for_recovery ||
-      !opened_successfully_ || versions_ == nullptr || logs_.empty()) {
+      !opened_successfully_ || read_only_ || versions_ == nullptr ||
+      logs_.empty()) {
     return Status::OK();
   }
 
@@ -889,7 +901,7 @@ Status DBImpl::CloseHelper() {
   // manifest file), it is not able to identify live files correctly. As a
   // result, all "live" files can get deleted by accident. However, corrupted
   // manifest is recoverable by RepairDB().
-  if (opened_successfully_) {
+  if (opened_successfully_ && !read_only_) {
     JobContext job_context(next_job_id_.fetch_add(1));
     FindObsoleteFiles(&job_context, true);
 
@@ -2167,11 +2179,12 @@ Status DBImpl::ApplyWALToManifest(const ReadOptions& read_options,
 }
 
 Status DBImpl::LockWAL() {
+  const uint64_t thread_id = env_->GetThreadID();
   {
     InstrumentedMutexLock lock(&mutex_);
-    if (lock_wal_count_ > 0) {
+    if (!lock_wal_owner_thread_id_counts_.empty()) {
       assert(lock_wal_write_token_);
-      ++lock_wal_count_;
+      ++lock_wal_owner_thread_id_counts_[thread_id];
     } else {
       // NOTE: this will "unnecessarily" wait for other non-LockWAL() write
       // stalls to clear before LockWAL returns, however fixing that would
@@ -2189,12 +2202,13 @@ Status DBImpl::LockWAL() {
       }
 
       // NOTE: releasing mutex in EnterUnbatched might mean we are actually
-      // now lock_wal_count > 0
-      if (lock_wal_count_ == 0) {
+      // now locked by another thread.
+      if (lock_wal_owner_thread_id_counts_.empty()) {
         assert(!lock_wal_write_token_);
         lock_wal_write_token_ = write_controller_.GetStopToken();
       }
-      ++lock_wal_count_;
+      assert(lock_wal_write_token_);
+      ++lock_wal_owner_thread_id_counts_[thread_id];
 
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
@@ -2205,23 +2219,27 @@ Status DBImpl::LockWAL() {
   // NOTE: avoid I/O holding DB mutex
   Status s = FlushWAL(/*sync=*/false);
   if (!s.ok()) {
-    // Non-OK return should not be in locked state
+    // Undo this LockWAL().
     UnlockWAL().PermitUncheckedError();
   }
   return s;
 }
 
 Status DBImpl::UnlockWAL() {
+  const uint64_t thread_id = env_->GetThreadID();
   bool signal = false;
   uint64_t maybe_stall_begun_count = 0;
   uint64_t nonmem_maybe_stall_begun_count = 0;
   {
     InstrumentedMutexLock lock(&mutex_);
-    if (lock_wal_count_ == 0) {
-      return Status::Aborted("No LockWAL() in effect");
+    const auto owner = lock_wal_owner_thread_id_counts_.find(thread_id);
+    if (owner == lock_wal_owner_thread_id_counts_.end()) {
+      return Status::Aborted("No LockWAL() held by current thread");
     }
-    --lock_wal_count_;
-    if (lock_wal_count_ == 0) {
+    if (--owner->second == 0) {
+      lock_wal_owner_thread_id_counts_.erase(owner);
+    }
+    if (lock_wal_owner_thread_id_counts_.empty()) {
       lock_wal_write_token_.reset();
       signal = true;
       // For the last UnlockWAL, we don't want to return from UnlockWAL()
@@ -2483,8 +2501,6 @@ void DBImpl::BackgroundCallPurge() {
   mutex_.Unlock();
 }
 
-namespace {
-
 // A `SuperVersionHandle` holds a non-null `SuperVersion*` pointing at a
 // `SuperVersion` referenced once for this object. It also contains the state
 // needed to clean up the `SuperVersion` reference from outside of `DBImpl`
@@ -2515,6 +2531,12 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
 }
 
 struct GetMergeOperandsState {
+  GetMergeOperandsState(MergeContext _merge_context,
+                        PinnedIteratorsManager _pinned_iters_mgr)
+      : merge_context(std::move(_merge_context)),
+        pinned_iters_mgr(std::move(_pinned_iters_mgr)),
+        sv_handle(nullptr) {}
+
   MergeContext merge_context;
   PinnedIteratorsManager pinned_iters_mgr;
   SuperVersionHandle* sv_handle;
@@ -2525,8 +2547,6 @@ static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
   CleanupSuperVersionHandle(state->sv_handle /* arg1 */, nullptr /* arg2 */);
   delete state;
 }
-
-}  // namespace
 
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
@@ -2648,47 +2668,6 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 
 ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
   return persist_stats_cf_handle_;
-}
-
-Status DBImpl::GetImpl(const ReadOptions& read_options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value,
-                 /*timestamp=*/nullptr);
-}
-
-Status DBImpl::Get(const ReadOptions& _read_options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableSlice* value, std::string* timestamp) {
-  assert(value != nullptr);
-  value->Reset();
-
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGet) {
-    return Status::InvalidArgument(
-        "Can only call Get with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
-  }
-
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGet;
-  }
-
-  Status s = GetImpl(read_options, column_family, key, value, timestamp);
-  return s;
-}
-
-Status DBImpl::GetImpl(const ReadOptions& read_options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* value, std::string* timestamp) {
-  GetImplOptions get_impl_options;
-  get_impl_options.column_family = column_family;
-  get_impl_options.value = value;
-  get_impl_options.timestamp = timestamp;
-
-  Status s = GetImpl(read_options, key, get_impl_options);
-  return s;
 }
 
 Status DBImpl::GetEntity(const ReadOptions& _read_options,
@@ -2902,19 +2881,20 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
   WideColumns resolved_columns;
   resolved_columns.reserve(unresolved_columns.size());
 
-  // `unresolved_blob_column_indices_` stores sorted column positions whose
-  // values still hold encoded blob indexes. Keep resolved blob payloads alive
-  // in a side array until the rebuilt entity is serialized back into `columns`.
-  std::vector<PinnableSlice> resolved_blob_values(
-      columns->unresolved_blob_column_indices_.size());
+  // These sorted column positions still hold encoded blob indexes. Fetched blob
+  // payloads are held in address-stable backing nodes so the resolved column
+  // Slices can point directly at them -- no re-serialization of the entity is
+  // needed.
+  const std::vector<size_t>& unresolved_blob_column_indices =
+      PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns);
+  std::forward_list<PinnableSlice> extra_buffers;
   size_t unresolved_blob_idx = 0;
 
   for (size_t column_idx = 0; column_idx < unresolved_columns.size();
        ++column_idx) {
     const bool is_unresolved_blob =
-        unresolved_blob_idx < columns->unresolved_blob_column_indices_.size() &&
-        columns->unresolved_blob_column_indices_[unresolved_blob_idx] ==
-            column_idx;
+        unresolved_blob_idx < unresolved_blob_column_indices.size() &&
+        unresolved_blob_column_indices[unresolved_blob_idx] == column_idx;
     if (!is_unresolved_blob) {
       resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
                                     unresolved_columns[column_idx].value());
@@ -2931,18 +2911,24 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     Slice resolved_value;
     if (blob_idx.IsInlined()) {
       // V2 entities can still encode inline blob indexes. In that case the
-      // bytes are already present in the entity, so no blob file read is
-      // needed.
+      // bytes are already present in the entity buffer, so no blob file read is
+      // needed and the resolved value points straight at the entity.
       resolved_value = blob_idx.value();
     } else {
+      extra_buffers.emplace_front();
+      PinnableSlice& blob_value = extra_buffers.front();
       s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
           read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          nullptr /* prefetch_buffer */,
-          &resolved_blob_values[unresolved_blob_idx], nullptr /* bytes_read */);
+          nullptr /* prefetch_buffer */, &blob_value, nullptr /* bytes_read */);
       if (!s.ok()) {
         return s;
       }
-      resolved_value = Slice(resolved_blob_values[unresolved_blob_idx]);
+      resolved_value = blob_value;
+      // Test hook: exposes the freshly fetched blob buffer so tests can assert
+      // the resolved column Slice points directly at it (zero-copy) and stays
+      // stable across moves of the PinnableWideColumns.
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::ResolveDirectWriteWideColumns:BlobFetched", &blob_value);
     }
 
     resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
@@ -2950,27 +2936,24 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     ++unresolved_blob_idx;
   }
 
-  if (unresolved_blob_idx != columns->unresolved_blob_column_indices_.size()) {
+  if (unresolved_blob_idx != unresolved_blob_column_indices.size()) {
     return Status::Corruption("Wide column blob metadata out of sync");
   }
 
-  std::string resolved_entity;
-  Status status =
-      WideColumnSerialization::Serialize(resolved_columns, resolved_entity);
-  if (status.ok()) {
-    status = columns->SetWideColumnValue(std::move(resolved_entity));
-  }
-  return status;
+  PinnableWideColumnsHelper::ResolveColumns(
+      *columns, std::move(resolved_columns), std::move(extra_buffers));
+  return Status::OK();
 }
 
-bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
-                                           const BlobFetcher* blob_fetcher,
-                                           PinnableSlice* value,
-                                           PinnableWideColumns* columns,
-                                           Status* s, bool* is_blob_index,
-                                           bool* value_found) {
-  if (!s->ok() || (!value && !columns)) {
-    return false;
+Status DBImpl::MaybeResolveMemtableBlobValue(
+    const Slice& key, const BlobFetcher* blob_fetcher, PinnableSlice* value,
+    PinnableWideColumns* columns, bool* did_resolve, bool* is_blob_index,
+    bool* value_found) {
+  assert(did_resolve != nullptr);
+  *did_resolve = false;
+
+  if (!value && !columns) {
+    return Status::OK();
   }
 
   auto reset_outputs = [&]() {
@@ -2990,20 +2973,31 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
   const bool needs_plain_value_resolution =
       is_blob_index != nullptr && *is_blob_index;
   const bool needs_wide_column_resolution =
-      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+      columns != nullptr &&
+      !PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns)
+           .empty();
   if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
-    return false;
+    return Status::OK();
   }
 
-  if (blob_fetcher == nullptr) {
-    reset_outputs();
-    *s = Status::NotSupported(
-        "Encountered blob-backed memtable value without blob fetcher.");
-    clear_blob_state();
-    return true;
-  }
+  // There is a blob reference to resolve, so this function now owns finalizing
+  // `value`/`columns`: populated on success, cleared on error.
+  *did_resolve = true;
 
   if (needs_plain_value_resolution) {
+    if (blob_fetcher == nullptr) {
+      reset_outputs();
+      clear_blob_state();
+      // We treat the memtable much like persisted data: prefer detecting and
+      // reporting something potentially caused by corruption rather than
+      // asserting/crashing, though in practice this is most likely to happen
+      // from a programming mistake. (The wide-column entity path below
+      // delegates this same check to ResolveEntityBlobColumnsMultiBuffer; the
+      // plain-value path open-codes the fetch, so it checks here.)
+      return Status::Corruption(
+          "Encountered blob-backed memtable value without blob fetcher.");
+    }
+
     Slice blob_index_slice;
     std::string blob_index_storage;
     if (value != nullptr) {
@@ -3033,76 +3027,90 @@ bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
       value->Reset();
     }
 
-    *s = blob_fetcher->FetchBlob(key, blob_index_slice,
-                                 nullptr /* prefetch_buffer */, target,
-                                 nullptr /* bytes_read */);
-    if (s->ok() && columns != nullptr) {
+    Status s = blob_fetcher->FetchBlob(key, blob_index_slice,
+                                       nullptr /* prefetch_buffer */, target,
+                                       nullptr /* bytes_read */);
+    if (s.ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
-    } else if (!s->ok()) {
+    } else if (!s.ok()) {
       reset_outputs();
-      if (s->IsIncomplete() && value_found != nullptr) {
+      if (s.IsIncomplete() && value_found != nullptr) {
         *value_found = false;
       }
     }
 
     clear_blob_state();
-    return true;
+    return s;
   }
 
   assert(columns != nullptr);
 
-  std::string resolved_entity;
-  bool resolved = false;
-  *s = WideColumnSerialization::ResolveEntityBlobColumns(
-      columns->value_, key, blob_fetcher, nullptr /* prefetch_buffers */,
-      resolved_entity, resolved, nullptr /* total_bytes_read */,
+  // Resolve blob columns into address-stable backing buffers and splice them
+  // into `columns` without re-serializing the entity. Inline columns keep
+  // zero-copy Slices into the original entity buffer (still held in `columns`).
+  WideColumns resolved_columns;
+  std::forward_list<PinnableSlice> extra_buffers;
+  bool entity_resolved = false;
+  Status s = WideColumnSerialization::ResolveEntityBlobColumnsMultiBuffer(
+      PinnableWideColumnsHelper::GetSerializedEntity(*columns), key,
+      blob_fetcher, nullptr /* prefetch_buffers */, resolved_columns,
+      extra_buffers, entity_resolved, nullptr /* total_bytes_read */,
       nullptr /* num_blobs_resolved */);
-  if (s->ok()) {
-    assert(resolved);
-    if (resolved) {
-      *s = columns->SetWideColumnValue(std::move(resolved_entity));
+  if (s.ok()) {
+    assert(entity_resolved);
+    if (entity_resolved) {
+      PinnableWideColumnsHelper::ResolveColumns(
+          *columns, std::move(resolved_columns), std::move(extra_buffers));
     }
-  }
-  if (!s->ok()) {
+  } else {
     reset_outputs();
-    if (s->IsIncomplete() && value_found != nullptr) {
+    if (s.IsIncomplete() && value_found != nullptr) {
       *value_found = false;
     }
   }
 
   clear_blob_state();
-  return true;
+  return s;
 }
 
-void DBImpl::PostprocessMemtableValueRead(
+Status DBImpl::PostprocessMemtableValueRead(
     const Slice& key, const std::string* timestamp,
     bool resolve_blob_backed_memtable_value,
     const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
-    PinnableWideColumns* columns, Status* s, bool* is_blob_index,
-    bool* value_found) {
-  if (resolve_blob_backed_memtable_value) {
+    PinnableWideColumns* columns, Status memtable_read_status,
+    bool* is_blob_index, bool* value_found) {
+  Status status = std::move(memtable_read_status);
+
+  bool outputs_finalized = false;
+  if (status.ok() && resolve_blob_backed_memtable_value) {
     std::string blob_lookup_key_storage;
-    const bool value_resolved = MaybeResolveMemtableBlobValue(
+    bool did_resolve = false;
+    status = MaybeResolveMemtableBlobValue(
         GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-        memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
-    if (!value_resolved && value != nullptr && s->ok()) {
-      value->PinSelf();
-    }
-    return;
+        memtable_blob_fetcher, value, columns, &did_resolve, is_blob_index,
+        value_found);
+    // When there was a blob reference, MaybeResolveMemtableBlobValue has
+    // already finalized the outputs (populated on success, cleared on error).
+    outputs_finalized = did_resolve;
   }
 
-  if (s->ok()) {
-    if (value != nullptr) {
-      value->PinSelf();
-    }
-  } else {
-    if (value != nullptr) {
-      value->Reset();
-    }
-    if (columns != nullptr) {
-      columns->Reset();
+  if (!outputs_finalized) {
+    if (status.ok()) {
+      if (value != nullptr) {
+        value->PinSelf();
+      }
+    } else {
+      // Never leave a half-populated result behind a non-OK status.
+      if (value != nullptr) {
+        value->Reset();
+      }
+      if (columns != nullptr) {
+        columns->Reset();
+      }
     }
   }
+
+  return status;
 }
 
 bool DBImpl::MaybeResolveDirectWriteValue(
@@ -3117,7 +3125,9 @@ bool DBImpl::MaybeResolveDirectWriteValue(
   const bool needs_plain_value_resolution =
       is_blob_index != nullptr && *is_blob_index;
   const bool needs_wide_column_resolution =
-      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+      columns != nullptr &&
+      !PinnableWideColumnsHelper::GetUnresolvedBlobColumnIndices(*columns)
+           .empty();
   if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
     return false;
   }
@@ -3169,353 +3179,28 @@ bool DBImpl::MaybeResolveDirectWriteValue(
   return true;
 }
 
-Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
-                       GetImplOptions& get_impl_options) {
-  assert(get_impl_options.value != nullptr ||
-         get_impl_options.merge_operands != nullptr ||
-         get_impl_options.columns != nullptr);
-
-  assert(get_impl_options.column_family);
-
-  if (read_options.timestamp) {
-    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
-                                        *(read_options.timestamp));
-    if (!s.ok()) {
-      return s;
+void DBImpl::PostprocessDirectWriteValueRead(
+    const ReadOptions& read_options, const Slice& key,
+    const std::string* timestamp, bool resolve_direct_write_value,
+    const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+    PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+    bool* value_found) {
+  if (resolve_direct_write_value) {
+    std::string blob_lookup_key_storage;
+    const bool value_resolved = MaybeResolveDirectWriteValue(
+        read_options,
+        GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
+        resolve_direct_write_value, current, cfd, value, columns, s,
+        is_blob_index, value_found);
+    if (!value_resolved && value != nullptr) {
+      value->PinSelf();
     }
-  } else {
-    const Status s = FailIfCfHasTs(get_impl_options.column_family);
-    if (!s.ok()) {
-      return s;
-    }
+    return;
   }
 
-  // Clear the timestamps for returning results so that we can distinguish
-  // between tombstone or key that has never been written
-  if (get_impl_options.timestamp) {
-    get_impl_options.timestamp->clear();
+  if (value != nullptr) {
+    value->PinSelf();
   }
-
-  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
-
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-  PERF_TIMER_GUARD(get_snapshot_time);
-
-  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
-      get_impl_options.column_family);
-  auto cfd = cfh->cfd();
-
-  if (tracer_) {
-    // TODO: This mutex should be removed later, to improve performance when
-    // tracing is enabled.
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
-      // TODO: maybe handle the tracing status?
-      tracer_->Get(get_impl_options.column_family, key).PermitUncheckedError();
-    }
-  }
-
-  if (get_impl_options.get_merge_operands_options != nullptr) {
-    for (int i = 0; i < get_impl_options.get_merge_operands_options
-                            ->expected_max_number_of_operands;
-         ++i) {
-      get_impl_options.merge_operands[i].Reset();
-    }
-  }
-
-  // Acquire SuperVersion
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
-  if (read_options.timestamp && read_options.timestamp->size() > 0) {
-    const Status s =
-        FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
-    if (!s.ok()) {
-      ReturnAndCleanupSuperVersion(cfd, sv);
-      return s;
-    }
-  }
-
-  TEST_SYNC_POINT_CALLBACK("DBImpl::GetImpl:AfterAcquireSv", nullptr);
-  TEST_SYNC_POINT("DBImpl::GetImpl:1");
-  TEST_SYNC_POINT("DBImpl::GetImpl:2");
-
-  SequenceNumber snapshot;
-  if (read_options.snapshot != nullptr) {
-    if (get_impl_options.callback) {
-      // Already calculated based on read_options.snapshot
-      snapshot = get_impl_options.callback->max_visible_seq();
-    } else {
-      snapshot =
-          static_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
-    }
-  } else {
-    // Note that the snapshot is assigned AFTER referencing the super
-    // version because otherwise a flush happening in between may compact away
-    // data for the snapshot, so the reader would see neither data that was be
-    // visible to the snapshot before compaction nor the newer data inserted
-    // afterwards.
-    snapshot = GetLastPublishedSequence();
-    if (get_impl_options.callback) {
-      // The unprep_seqs are not published for write unprepared, so it could be
-      // that max_visible_seq is larger. Seek to the std::max of the two.
-      // However, we still want our callback to contain the actual snapshot so
-      // that it can do the correct visibility filtering.
-      get_impl_options.callback->Refresh(snapshot);
-
-      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
-      // max_visible_seq = max(max_visible_seq, snapshot)
-      //
-      // Currently, the commented out assert is broken by
-      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
-      // the regular transaction flow, then this special read callback would not
-      // be needed.
-      //
-      // assert(callback->max_visible_seq() >= snapshot);
-      snapshot = get_impl_options.callback->max_visible_seq();
-    }
-  }
-  // If timestamp is used, we use read callback to ensure <key,t,s> is returned
-  // only if t <= read_opts.timestamp and s <= snapshot.
-  // HACK: temporarily overwrite input struct field but restore
-  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
-    assert(!get_impl_options
-                .callback);  // timestamp with callback is not supported
-    read_cb.Refresh(snapshot);
-    get_impl_options.callback = &read_cb;
-  }
-  TEST_SYNC_POINT("DBImpl::GetImpl:3");
-  TEST_SYNC_POINT("DBImpl::GetImpl:4");
-
-  // Prepare to store a list of merge operations if merge occurs.
-  MergeContext merge_context;
-  merge_context.get_merge_operands_options =
-      get_impl_options.get_merge_operands_options;
-  SequenceNumber max_covering_tombstone_seq = 0;
-
-  Status s;
-  // First look in the memtable, then in the immutable memtable (if any).
-  // s is both in/out. When in, s could either be OK or MergeInProgress.
-  // merge_operands will contain the sequence of merges in the latter case.
-  LookupKey lkey(key, snapshot, read_options.timestamp);
-  PERF_TIMER_STOP(get_snapshot_time);
-
-  bool skip_memtable = (read_options.read_tier == kPersistedTier &&
-                        has_unpersisted_data_.load(std::memory_order_relaxed));
-  bool done = false;
-  bool is_blob_index = false;
-  bool* is_blob_ptr = get_impl_options.is_blob_index;
-  auto* partition_mgr = cfd->blob_partition_manager();
-  std::string timestamp_storage;
-  std::string* timestamp = nullptr;
-  if (ucmp->timestamp_size() > 0) {
-    timestamp = get_impl_options.timestamp != nullptr
-                    ? get_impl_options.timestamp
-                    : (partition_mgr != nullptr ? &timestamp_storage : nullptr);
-  }
-  if (partition_mgr != nullptr && !is_blob_ptr && get_impl_options.get_value) {
-    is_blob_ptr = &is_blob_index;
-  }
-  const bool resolve_direct_write_value =
-      partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
-  std::optional<BlobFetcher> memtable_blob_fetcher;
-  if (partition_mgr != nullptr) {
-    memtable_blob_fetcher.emplace(sv->current, read_options,
-                                  cfd->blob_file_cache(),
-                                  /*allow_write_path_fallback=*/true);
-  }
-  const BlobFetcher* memtable_blob_fetcher_ptr =
-      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
-  std::string blob_lookup_key_storage;
-  auto get_blob_lookup_key = [&]() -> Slice {
-    return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
-  };
-  auto maybe_resolve_memtable_value = [&]() {
-    if (resolve_direct_write_value) {
-      const bool value_resolved = MaybeResolveDirectWriteValue(
-          read_options, get_blob_lookup_key(), resolve_direct_write_value,
-          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
-          &s, &is_blob_index, get_impl_options.value_found);
-      if (!value_resolved && get_impl_options.value != nullptr) {
-        get_impl_options.value->PinSelf();
-      }
-    } else if (get_impl_options.value != nullptr) {
-      get_impl_options.value->PinSelf();
-    }
-  };
-  if (!skip_memtable) {
-    // Get value associated with key
-    if (get_impl_options.get_value) {
-      if (sv->mem->Get(lkey,
-                       get_impl_options.value
-                           ? get_impl_options.value->GetSelf()
-                           : nullptr,
-                       get_impl_options.columns, timestamp, &s, &merge_context,
-                       &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */,
-                       get_impl_options.callback, is_blob_ptr,
-                       /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
-        done = true;
-        maybe_resolve_memtable_value();
-
-        RecordTick(stats_, MEMTABLE_HIT);
-      } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
-                              get_impl_options.columns, timestamp, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, get_impl_options.callback,
-                              is_blob_ptr, memtable_blob_fetcher_ptr)) {
-        done = true;
-        maybe_resolve_memtable_value();
-
-        RecordTick(stats_, MEMTABLE_HIT);
-      }
-    } else {
-      // Get Merge Operands associated with key, Merge Operands should not be
-      // merged and raw values should be returned to the user.
-      if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
-                       /*timestamp=*/nullptr, &s, &merge_context,
-                       &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */, nullptr, nullptr, false,
-                       memtable_blob_fetcher_ptr)) {
-        done = true;
-        RecordTick(stats_, MEMTABLE_HIT);
-      } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(
-                     lkey, &s, &merge_context, &max_covering_tombstone_seq,
-                     read_options, memtable_blob_fetcher_ptr)) {
-        done = true;
-        RecordTick(stats_, MEMTABLE_HIT);
-      }
-    }
-    if (!s.ok() && !s.IsMergeInProgress() && !s.IsNotFound()) {
-      assert(done);
-      ReturnAndCleanupSuperVersion(cfd, sv);
-      return s;
-    }
-  }
-  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
-  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
-  PinnedIteratorsManager pinned_iters_mgr;
-  if (!done) {
-    PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(
-        read_options, lkey, get_impl_options.value, get_impl_options.columns,
-        timestamp, &s, &merge_context, &max_covering_tombstone_seq,
-        &pinned_iters_mgr,
-        get_impl_options.get_value ? get_impl_options.value_found : nullptr,
-        nullptr, nullptr,
-        get_impl_options.get_value ? get_impl_options.callback : nullptr,
-        get_impl_options.get_value ? is_blob_ptr : nullptr,
-        get_impl_options.get_value);
-    if (get_impl_options.get_value && resolve_direct_write_value) {
-      MaybeResolveDirectWriteValue(
-          read_options, get_blob_lookup_key(), resolve_direct_write_value,
-          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
-          &s, &is_blob_index, get_impl_options.value_found);
-    }
-    RecordTick(stats_, MEMTABLE_MISS);
-  }
-
-  {
-    PERF_TIMER_GUARD(get_post_process_time);
-
-    RecordTick(stats_, NUMBER_KEYS_READ);
-    size_t size = 0;
-    if (s.ok()) {
-      const auto& merge_threshold = read_options.merge_operand_count_threshold;
-      if (merge_threshold.has_value() &&
-          merge_context.GetNumOperands() > merge_threshold.value()) {
-        s = Status::OkMergeOperandThresholdExceeded();
-      }
-
-      if (get_impl_options.get_value) {
-        if (get_impl_options.value) {
-          size = get_impl_options.value->size();
-        } else if (get_impl_options.columns) {
-          size = get_impl_options.columns->serialized_size();
-        }
-      } else {
-        // Return all merge operands for get_impl_options.key
-        *get_impl_options.number_of_operands =
-            static_cast<int>(merge_context.GetNumOperands());
-        // OK status is returned, some merge operand is found.
-        assert(*get_impl_options.number_of_operands > 0);
-        if (*get_impl_options.number_of_operands >
-            get_impl_options.get_merge_operands_options
-                ->expected_max_number_of_operands) {
-          s = Status::Incomplete(
-              Status::SubCode::KMergeOperandsInsufficientCapacity);
-        } else {
-          // Each operand depends on one of the following resources: `sv`,
-          // `pinned_iters_mgr`, or `merge_context`. It would be crazy expensive
-          // to reference `sv` for each operand relying on it because `sv` is
-          // (un)ref'd in all threads using the DB. Furthermore, we do not track
-          // on which resource each operand depends.
-          //
-          // To solve this, we bundle the resources in a `GetMergeOperandsState`
-          // and manage them with a `SharedCleanablePtr` shared among the
-          // `PinnableSlice`s we return. This bundle includes one `sv` reference
-          // and ownership of the `merge_context` and `pinned_iters_mgr`
-          // objects.
-          bool ref_sv = ShouldReferenceSuperVersion(merge_context);
-          if (ref_sv) {
-            assert(!merge_context.GetOperands().empty());
-            SharedCleanablePtr shared_cleanable;
-            GetMergeOperandsState* state = nullptr;
-            state = new GetMergeOperandsState();
-            state->merge_context = std::move(merge_context);
-            state->pinned_iters_mgr = std::move(pinned_iters_mgr);
-
-            sv->Ref();
-
-            state->sv_handle = new SuperVersionHandle(
-                this, &mutex_, sv,
-                immutable_db_options_.avoid_unnecessary_blocking_io);
-
-            shared_cleanable.Allocate();
-            shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
-                                              state /* arg1 */,
-                                              nullptr /* arg2 */);
-            for (size_t i = 0; i < state->merge_context.GetOperands().size();
-                 ++i) {
-              const Slice& sl = state->merge_context.GetOperands()[i];
-              size += sl.size();
-
-              get_impl_options.merge_operands->PinSlice(
-                  sl, nullptr /* cleanable */);
-              if (i == state->merge_context.GetOperands().size() - 1) {
-                shared_cleanable.MoveAsCleanupTo(
-                    get_impl_options.merge_operands);
-              } else {
-                shared_cleanable.RegisterCopyWith(
-                    get_impl_options.merge_operands);
-              }
-              get_impl_options.merge_operands++;
-            }
-          } else {
-            for (const Slice& sl : merge_context.GetOperands()) {
-              size += sl.size();
-              get_impl_options.merge_operands->PinSelf(sl);
-              get_impl_options.merge_operands++;
-            }
-          }
-        }
-      }
-      RecordTick(stats_, BYTES_READ, size);
-      PERF_COUNTER_ADD(get_read_bytes, size);
-    }
-
-    ReturnAndCleanupSuperVersion(cfd, sv);
-
-    RecordInHistogram(stats_, BYTES_PER_READ, size);
-  }
-  return s;
 }
 
 template <class T, typename IterDerefFuncType>
@@ -3689,187 +3374,6 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
   return s;
 }
 
-void DBImpl::MultiGet(const ReadOptions& _read_options, const size_t num_keys,
-                      ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableSlice* values, std::string* timestamps,
-                      Status* statuses, const bool sorted_input) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kMultiGet) {
-    Status s = Status::InvalidArgument(
-        "Can only call MultiGet with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
-    for (size_t i = 0; i < num_keys; ++i) {
-      if (statuses[i].ok()) {
-        statuses[i] = s;
-      }
-    }
-    return;
-  }
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kMultiGet;
-  }
-  MultiGetCommon(read_options, num_keys, column_families, keys, values,
-                 /* columns */ nullptr, timestamps, statuses, sorted_input);
-}
-
-void DBImpl::MultiGetCommon(const ReadOptions& read_options,
-                            const size_t num_keys,
-                            ColumnFamilyHandle** column_families,
-                            const Slice* keys, PinnableSlice* values,
-                            PinnableWideColumns* columns,
-                            std::string* timestamps, Status* statuses,
-                            const bool sorted_input) {
-  if (num_keys == 0) {
-    return;
-  }
-  bool should_fail = false;
-  for (size_t i = 0; i < num_keys; ++i) {
-    ColumnFamilyHandle* cfh = column_families[i];
-    if (read_options.timestamp) {
-      statuses[i] = FailIfTsMismatchCf(cfh, *(read_options.timestamp));
-      if (!statuses[i].ok()) {
-        should_fail = true;
-      }
-    } else {
-      statuses[i] = FailIfCfHasTs(cfh);
-      if (!statuses[i].ok()) {
-        should_fail = true;
-      }
-    }
-  }
-  if (should_fail) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      if (statuses[i].ok()) {
-        statuses[i] = Status::Incomplete(
-            "DB not queried due to invalid argument(s) in the same MultiGet");
-      }
-    }
-    return;
-  }
-
-  if (tracer_) {
-    // TODO: This mutex should be removed later, to improve performance when
-    // tracing is enabled.
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
-      // TODO: maybe handle the tracing status?
-      tracer_->MultiGet(num_keys, column_families, keys).PermitUncheckedError();
-    }
-  }
-
-  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-  sorted_keys.resize(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    PinnableSlice* val = nullptr;
-    PinnableWideColumns* col = nullptr;
-
-    if (values) {
-      val = &values[i];
-      val->Reset();
-    } else {
-      assert(columns);
-
-      col = &columns[i];
-      col->Reset();
-    }
-
-    key_context.emplace_back(column_families[i], keys[i], val, col,
-                             timestamps ? &timestamps[i] : nullptr,
-                             &statuses[i]);
-  }
-  for (size_t i = 0; i < num_keys; ++i) {
-    sorted_keys[i] = &key_context[i];
-  }
-  PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
-
-  autovector<MultiGetKeyRangePerCf, MultiGetContext::MAX_BATCH_SIZE>
-      key_range_per_cf;
-  autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>
-      cf_sv_pairs;
-  size_t cf_start = 0;
-  ColumnFamilyHandle* cf = sorted_keys[0]->column_family;
-
-  for (size_t i = 0; i < num_keys; ++i) {
-    KeyContext* key_ctx = sorted_keys[i];
-    if (key_ctx->column_family != cf) {
-      key_range_per_cf.emplace_back(cf_start, i - cf_start);
-      cf_sv_pairs.emplace_back(cf, nullptr);
-      cf_start = i;
-      cf = key_ctx->column_family;
-    }
-  }
-
-  key_range_per_cf.emplace_back(cf_start, num_keys - cf_start);
-  cf_sv_pairs.emplace_back(cf, nullptr);
-
-  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
-  bool sv_from_thread_local = false;
-  Status s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
-                                        MultiGetContext::MAX_BATCH_SIZE>>(
-      read_options, nullptr,
-      [](autovector<ColumnFamilySuperVersionPair,
-                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
-        return &(*cf_iter);
-      },
-      &cf_sv_pairs,
-      /* extra_sv_ref */ false, &consistent_seqnum, &sv_from_thread_local);
-
-  if (!s.ok()) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      if (statuses[i].ok()) {
-        statuses[i] = s;
-      }
-    }
-    return;
-  }
-
-  GetWithTimestampReadCallback timestamp_read_callback(0);
-  ReadCallback* read_callback = nullptr;
-  if (read_options.timestamp && read_options.timestamp->size() > 0) {
-    timestamp_read_callback.Refresh(consistent_seqnum);
-    read_callback = &timestamp_read_callback;
-  }
-
-  assert(key_range_per_cf.size() == cf_sv_pairs.size());
-  auto key_range_per_cf_iter = key_range_per_cf.begin();
-  auto cf_sv_pair_iter = cf_sv_pairs.begin();
-  while (key_range_per_cf_iter != key_range_per_cf.end() &&
-         cf_sv_pair_iter != cf_sv_pairs.end()) {
-    s = MultiGetImpl(read_options, key_range_per_cf_iter->start,
-                     key_range_per_cf_iter->num_keys, &sorted_keys,
-                     cf_sv_pair_iter->super_version, consistent_seqnum,
-                     read_callback);
-    if (!s.ok()) {
-      break;
-    }
-    ++key_range_per_cf_iter;
-    ++cf_sv_pair_iter;
-  }
-  if (!s.ok()) {
-    assert(s.IsTimedOut() || s.IsAborted());
-    for (++key_range_per_cf_iter;
-         key_range_per_cf_iter != key_range_per_cf.end();
-         ++key_range_per_cf_iter) {
-      for (size_t i = key_range_per_cf_iter->start;
-           i < key_range_per_cf_iter->start + key_range_per_cf_iter->num_keys;
-           ++i) {
-        *sorted_keys[i]->s = s;
-      }
-    }
-  }
-
-  for (const auto& cf_sv_pair : cf_sv_pairs) {
-    if (sv_from_thread_local) {
-      ReturnAndCleanupSuperVersion(cf_sv_pair.cfd, cf_sv_pair.super_version);
-    } else {
-      TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeLastTryUnRefSV");
-      CleanupSuperVersion(cf_sv_pair.super_version);
-    }
-  }
-}
-
 namespace {
 // Order keys by CF ID, followed by key contents
 struct CompareKeyContext {
@@ -3914,25 +3418,6 @@ void DBImpl::PrepareMultiGetKeys(
             CompareKeyContext());
 }
 
-void DB::MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                  const size_t num_keys, const Slice* keys,
-                  PinnableSlice* values, std::string* timestamps,
-                  Status* statuses, const bool sorted_input) {
-  // Use std::array, if possible, to avoid memory allocation overhead
-  if (num_keys > MultiGetContext::MAX_BATCH_SIZE) {
-    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
-    MultiGet(options, num_keys, column_families.data(), keys, values,
-             timestamps, statuses, sorted_input);
-  } else {
-    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
-        column_families;
-    std::fill(column_families.begin(), column_families.begin() + num_keys,
-              column_family);
-    MultiGet(options, num_keys, column_families.data(), keys, values,
-             timestamps, statuses, sorted_input);
-  }
-}
-
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family,
                             const size_t num_keys, const Slice* keys,
@@ -3949,6 +3434,7 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
     }
   }
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  key_context.reserve(num_keys);
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
@@ -4056,173 +3542,6 @@ void DBImpl::MultiGetWithCallbackImpl(
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(cf_sv_pairs[0].cfd,
                                cf_sv_pairs[0].super_version);
-}
-
-// The actual implementation of batched MultiGet. Parameters -
-// start_key - Index in the sorted_keys vector to start processing from
-// num_keys - Number of keys to lookup, starting with sorted_keys[start_key]
-// sorted_keys - The entire batch of sorted keys for this CF
-//
-// The per key status is returned in the KeyContext structures pointed to by
-// sorted_keys. An overall Status is also returned, with the only possible
-// values being Status::OK() and Status::TimedOut(). The latter indicates
-// that the call exceeded read_options.deadline
-Status DBImpl::MultiGetImpl(
-    const ReadOptions& read_options, size_t start_key, size_t num_keys,
-    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
-    SuperVersion* super_version, SequenceNumber snapshot,
-    ReadCallback* callback) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-  StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
-
-  assert(sorted_keys);
-  assert(start_key + num_keys <= sorted_keys->size());
-  if (num_keys == 0) {
-    return Status::OK();
-  }
-  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
-      (*sorted_keys)[start_key]->column_family);
-  ColumnFamilyData* cfd = cfh->cfd();
-  auto* partition_mgr = cfd->blob_partition_manager();
-  std::optional<BlobFetcher> memtable_blob_fetcher;
-  if (partition_mgr != nullptr) {
-    memtable_blob_fetcher.emplace(super_version->current, read_options,
-                                  cfd->blob_file_cache(),
-                                  /*allow_write_path_fallback=*/true);
-  }
-  const BlobFetcher* memtable_blob_fetcher_ptr =
-      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
-  // Clear the timestamps for returning results so that we can distinguish
-  // between tombstone or key that has never been written
-  for (size_t i = start_key; i < start_key + num_keys; ++i) {
-    KeyContext* kctx = (*sorted_keys)[i];
-    if (kctx->timestamp) {
-      kctx->timestamp->clear();
-    }
-  }
-
-  // For each of the given keys, apply the entire "get" process as follows:
-  // First look in the memtable, then in the immutable memtable (if any).
-  // s is both in/out. When in, s could either be OK or MergeInProgress.
-  // merge_operands will contain the sequence of merges in the latter case.
-  size_t keys_left = num_keys;
-  Status s;
-  uint64_t curr_value_size = 0;
-  while (keys_left) {
-    if (read_options.deadline.count() &&
-        immutable_db_options_.clock->NowMicros() >
-            static_cast<uint64_t>(read_options.deadline.count())) {
-      s = Status::TimedOut();
-      break;
-    }
-
-    size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
-                            ? MultiGetContext::MAX_BATCH_SIZE
-                            : keys_left;
-    MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
-                        batch_size, snapshot, read_options, GetFileSystem(),
-                        stats_);
-    MultiGetRange range = ctx.GetMultiGetRange();
-    range.AddValueSize(curr_value_size);
-    bool lookup_current = true;
-
-    keys_left -= batch_size;
-    for (auto mget_iter = range.begin(); mget_iter != range.end();
-         ++mget_iter) {
-      mget_iter->merge_context.Clear();
-      *mget_iter->s = Status::OK();
-    }
-
-    bool skip_memtable =
-        (read_options.read_tier == kPersistedTier &&
-         has_unpersisted_data_.load(std::memory_order_relaxed));
-    if (!skip_memtable) {
-      super_version->mem->MultiGet(read_options, &range, callback,
-                                   false /* immutable_memtable */,
-                                   memtable_blob_fetcher_ptr);
-      if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback,
-                                     memtable_blob_fetcher_ptr);
-      }
-      if (!range.empty()) {
-        uint64_t left = range.KeysLeft();
-        RecordTick(stats_, MEMTABLE_MISS, left);
-      } else {
-        lookup_current = false;
-      }
-    }
-    if (lookup_current) {
-      PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->MultiGet(read_options, &range, callback);
-    }
-    curr_value_size = range.GetValueSize();
-    if (curr_value_size > read_options.value_size_soft_limit) {
-      s = Status::Aborted();
-      break;
-    }
-
-    // This could be a long-running operation
-    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
-    if (aborted) {
-      s = Status::Aborted("Query abort.");
-      break;
-    }
-  }
-
-  // Post processing (decrement reference counts and record statistics)
-  PERF_TIMER_GUARD(get_post_process_time);
-  size_t num_found = 0;
-  uint64_t bytes_read = 0;
-  for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
-    KeyContext* key = (*sorted_keys)[i];
-    assert(key);
-    assert(key->s);
-
-    if (partition_mgr != nullptr && key->s->ok()) {
-      std::string blob_lookup_key_storage;
-      MaybeResolveDirectWriteValue(
-          read_options,
-          GetBlobLookupUserKey(*key->key, key->timestamp,
-                               &blob_lookup_key_storage),
-          /*resolve_direct_write_value=*/true, super_version->current, cfd,
-          key->value, key->columns, key->s, &key->is_blob_index);
-    }
-
-    if (key->s->ok()) {
-      const auto& merge_threshold = read_options.merge_operand_count_threshold;
-      if (merge_threshold.has_value() &&
-          key->merge_context.GetNumOperands() > merge_threshold) {
-        *(key->s) = Status::OkMergeOperandThresholdExceeded();
-      }
-
-      if (key->value) {
-        bytes_read += key->value->size();
-      } else {
-        assert(key->columns);
-        bytes_read += key->columns->serialized_size();
-      }
-
-      num_found++;
-    }
-  }
-  if (keys_left) {
-    assert(s.IsTimedOut() || s.IsAborted());
-    for (size_t i = start_key + num_keys - keys_left; i < start_key + num_keys;
-         ++i) {
-      KeyContext* key = (*sorted_keys)[i];
-      *key->s = s;
-    }
-  }
-
-  RecordTick(stats_, NUMBER_MULTIGET_CALLS);
-  RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
-  RecordTick(stats_, NUMBER_MULTIGET_KEYS_FOUND, num_found);
-  RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
-  RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
-  PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
-  PERF_TIMER_STOP(get_post_process_time);
-
-  return s;
 }
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
@@ -5444,6 +4763,25 @@ FileSystem* DB::GetFileSystem() const {
   return fs.get();
 }
 
+void DB::MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                  const size_t num_keys, const Slice* keys,
+                  PinnableSlice* values, std::string* timestamps,
+                  Status* statuses, const bool sorted_input) {
+  // Use std::array, if possible, to avoid memory allocation overhead
+  if (num_keys > MultiGetContext::MAX_BATCH_SIZE) {
+    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+    MultiGet(options, num_keys, column_families.data(), keys, values,
+             timestamps, statuses, sorted_input);
+  } else {
+    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        column_families;
+    std::fill(column_families.begin(), column_families.begin() + num_keys,
+              column_family);
+    MultiGet(options, num_keys, column_families.data(), keys, values,
+             timestamps, statuses, sorted_input);
+  }
+}
+
 FileSystem* DBImpl::GetFileSystem() const {
   return immutable_db_options_.fs.get();
 }
@@ -6663,7 +6001,7 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
-  std::optional<BlobFetcher> memtable_blob_fetcher;
+  std::optional<VersionBlobFetcher> memtable_blob_fetcher;
   if (cfd->blob_partition_manager() != nullptr) {
     memtable_blob_fetcher.emplace(sv->current, read_options,
                                   cfd->blob_file_cache(),
@@ -8175,6 +7513,68 @@ void DBImpl::TriggerPeriodicCompaction() {
   }
 }
 
+void DBImpl::GetAsync(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      PinnableSlice* value, std::string* timestamp,
+                      Status& status, AsyncCallback& callback) {
+#if USE_COROUTINES
+  auto* read_executor =
+      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    auto task = [](DBImpl* db, ReadOptions task_options,
+                   ColumnFamilyHandle* task_column_family, Slice task_key,
+                   PinnableSlice* task_value, std::string* task_timestamp,
+                   Status& task_status,
+                   AsyncCallback& task_callback) -> folly::coro::Task<void> {
+      task_status = co_await folly::coro::co_nothrow(
+          db->GetCoroutine(task_options, task_column_family, task_key,
+                           task_value, task_timestamp));
+      task_callback.OnComplete();
+    }(this, options, column_family, key, value, timestamp, status, callback);
+    folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+        .start();
+    return;
+  }
+#endif  // USE_COROUTINES
+  DB::GetAsync(options, column_family, key, value, timestamp, status, callback);
+}
+
+void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
+                           ColumnFamilyHandle** column_families,
+                           const Slice* keys, PinnableSlice* values,
+                           std::string* timestamps, Status* statuses,
+                           const bool sorted_input, AsyncCallback& callback) {
+#if USE_COROUTINES
+  auto* read_executor =
+      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    auto task =
+        [](DBImpl* db, ReadOptions task_options, size_t task_num_keys,
+           ColumnFamilyHandle** task_column_families, const Slice* task_keys,
+           PinnableSlice* task_values, std::string* task_timestamps,
+           Status* task_statuses, bool task_sorted_input,
+           AsyncCallback& task_callback) -> folly::coro::Task<void> {
+      co_await folly::coro::co_nothrow(db->MultiGetCoroutine(
+          task_options, task_num_keys, task_column_families, task_keys,
+          task_values, task_timestamps, task_statuses, task_sorted_input));
+      task_callback.OnComplete();
+    }(this, options, num_keys, column_families, keys, values, timestamps,
+                                         statuses, sorted_input, callback);
+    folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+        .start();
+    return;
+  }
+#endif  // USE_COROUTINES
+  DB::MultiGetAsync(options, num_keys, column_families, keys, values,
+                    timestamps, statuses, sorted_input, callback);
+}
+
 void DBImpl::TrackOrUntrackFiles(
     const std::vector<std::string>& existing_data_files, bool track) {
   auto sfm = static_cast_with_check<SstFileManagerImpl>(
@@ -8232,3 +7632,17 @@ void DBImpl::TrackOrUntrackFiles(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+
+// Generate the regular and coroutine versions of the functions defined in
+// db_impl_sync_and_async.h by including it twice. Included here, after the
+// namespace and all definitions in this file, so the generated bodies see the
+// file-local types and helpers they use. The macros expand differently based on
+// whether WITH_COROUTINES or WITHOUT_COROUTINES is defined.
+// clang-format off
+#define WITHOUT_COROUTINES
+#include "db/db_impl/db_impl_sync_and_async.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
+#include "db/db_impl/db_impl_sync_and_async.h"
+#undef WITH_COROUTINES
+// clang-format on

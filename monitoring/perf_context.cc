@@ -162,7 +162,13 @@ struct PerfContextByLevelInt {
   defCmd(index_block_read_byte)                    \
   defCmd(filter_block_read_byte)                   \
   defCmd(compression_dict_block_read_byte)         \
-  defCmd(metadata_block_read_byte)
+  defCmd(metadata_block_read_byte)                 \
+  defCmd(multiscan_prepare_count)                  \
+  defCmd(multiscan_blocks_prefetched)             \
+  defCmd(multiscan_blocks_from_cache)             \
+  defCmd(multiscan_prefetch_bytes)                \
+  defCmd(multiscan_io_requests)                   \
+  defCmd(multiscan_io_coalesced_nonadjacent)
 // clang-format on
 
 struct PerfContextInt {

@@ -11,10 +11,25 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace trie_index {
+
+int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
+                                    const std::string& /*arg*/) {
+  library.AddFactory<UserDefinedIndexFactory>(
+      TrieIndexFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<UserDefinedIndexFactory>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new TrieIndexFactory());
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
 
 // ============================================================================
 // TrieIndexBuilder
@@ -293,12 +308,13 @@ Status TrieIndexIterator::SeekToLastAndGetResult(IterateResult* result) {
 }
 
 Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
-  // Overflow fast path: key doesn't change within the same run, so
-  // current_key_scratch_ can be passed directly to CheckBounds (no copy).
+  // Upper-bound checks are based on forward movement. While moving backward,
+  // DBIter's lower-bound handling decides when to stop.
+  // Overflow fast path: key doesn't change within the same run.
   if (overflow_run_index_ > 0) {
     overflow_run_index_--;
     result->key = Slice(current_key_scratch_);
-    result->bound_check_result = CheckBounds(Slice(current_key_scratch_));
+    result->bound_check_result = IterBoundCheck::kInbound;
     return Status::OK();
   }
 
@@ -317,7 +333,7 @@ Status TrieIndexIterator::PrevAndGetResult(IterateResult* result) {
 
   CopyTrieKeyToResult(result);
   SetupOverflowForCurrentLeaf(/*position_at_last=*/true);
-  result->bound_check_result = CheckBounds(Slice(prev_key_scratch_));
+  result->bound_check_result = IterBoundCheck::kInbound;
   return Status::OK();
 }
 

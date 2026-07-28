@@ -163,7 +163,7 @@ class BatchedOpsStressTest : public StressTest {
     for (int i = 0; i < 10; i++) {
       keys[i] += key.ToString();
       key_slices[i] = keys[i];
-      s = db_->Get(readoptionscopy, cfh, key_slices[i], &from_db);
+      s = DbStressGet(db_, readoptionscopy, cfh, key_slices[i], &from_db);
       if (!s.ok() && !s.IsNotFound()) {
         fprintf(stderr, "get error: %s\n", s.ToString().c_str());
         values[i] = "";
@@ -235,8 +235,8 @@ class BatchedOpsStressTest : public StressTest {
         key_str.emplace_back(keys[key] + Key(rand_keys[rand_key]));
         key_slices.emplace_back(key_str.back());
       }
-      db_->MultiGet(readoptionscopy, cfh, num_prefixes, key_slices.data(),
-                    values.data(), statuses.data());
+      DbStressMultiGet(db_, readoptionscopy, cfh, num_prefixes,
+                       key_slices.data(), values.data(), statuses.data());
       for (size_t i = 0; i < num_prefixes; i++) {
         Status s = statuses[i];
         if (!s.ok() && !s.IsNotFound()) {

@@ -182,7 +182,8 @@ class NonBatchedOpsStressTest : public StressTest {
           const std::string key = Key(i);
           std::string from_db;
 
-          Status s = db_->Get(options, column_families_[cf], key, &from_db);
+          Status s =
+              DbStressGet(db_, options, column_families_[cf], key, &from_db);
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
                             /* msg_prefix */ "Get verification", s);
@@ -276,7 +277,8 @@ class NonBatchedOpsStressTest : public StressTest {
                   FaultInjectionIOType::kMetadataRead);
             }
 
-            s = secondary_db_->Get(options, secondary_cfhs_[cf], key, &from_db);
+            s = DbStressGet(secondary_db_.get(), options, secondary_cfhs_[cf],
+                            key, &from_db);
 
             // Re-enable error injection after verifying the secondary
             if (db_fault_injection_fs_) {
@@ -351,8 +353,8 @@ class NonBatchedOpsStressTest : public StressTest {
             keys[j] = Slice(key_strs[j]);
           }
 
-          db_->MultiGet(options, column_families_[cf], batch_size, keys.data(),
-                        values.data(), statuses.data());
+          DbStressMultiGet(db_, options, column_families_[cf], batch_size,
+                           keys.data(), values.data(), statuses.data());
 
           for (size_t j = 0; j < batch_size; ++j) {
             const std::string from_db = values[j].ToString();
@@ -545,9 +547,8 @@ class NonBatchedOpsStressTest : public StressTest {
         std::string key_str = Key(key);
         std::string value;
         std::string key_ts;
-        s = secondary_db_->Get(
-            read_opts, handle, key_str, &value,
-            FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
+        s = DbStressGet(secondary_db_.get(), read_opts, handle, key_str, &value,
+                        FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
         s.PermitUncheckedError();
       } else {
         // Use range scan
@@ -702,7 +703,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     const ExpectedValue pre_read_expected_value =
         thread->shared->Get(rand_column_families[0], rand_keys[0]);
-    Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
+    Status s = DbStressGet(db_, read_opts_copy, cfh, key, &from_db);
     const ExpectedValue post_read_expected_value =
         thread->shared->Get(rand_column_families[0], rand_keys[0]);
 
@@ -861,8 +862,8 @@ class NonBatchedOpsStressTest : public StressTest {
             FaultInjectionIOType::kMetadataRead);
         SharedState::ignore_read_error = false;
       }
-      db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
-                    statuses.data());
+      DbStressMultiGet(db_, readoptionscopy, cfh, num_keys, keys.data(),
+                       values.data(), statuses.data());
       if (db_fault_injection_fs_) {
         injected_error_count = GetMinInjectedErrorCount(
             db_fault_injection_fs_->GetAndResetInjectedThreadLocalErrorCount(
@@ -984,7 +985,7 @@ class NonBatchedOpsStressTest : public StressTest {
       } else {
         ThreadStatusUtil::SetThreadOperation(
             ThreadStatus::OperationType::OP_GET);
-        tmp_s = db_->Get(readoptionscopy, cfh, key, &value);
+        tmp_s = DbStressGet(db_, readoptionscopy, cfh, key, &value);
         ThreadStatusUtil::SetThreadOperation(
             ThreadStatus::OperationType::OP_MULTIGET);
       }
@@ -1459,7 +1460,7 @@ class NonBatchedOpsStressTest : public StressTest {
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_GET);
           cmp_value_s =
-              db_->Get(read_opts_copy, cfh, key_slices[i], &cmp_value);
+              DbStressGet(db_, read_opts_copy, cfh, key_slices[i], &cmp_value);
           ran_cmp_get = true;
           fprintf(stderr,
                   "TestMultiGetEntity mismatch details: cf=%s key=%s "
@@ -1892,7 +1893,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       std::string from_db;
-      Status s = db_->Get(read_opts, cfh, k, &from_db);
+      Status s = DbStressGet(db_, read_opts, cfh, k, &from_db);
       bool res = VerifyOrSyncValue(
           rand_column_family, rand_key, read_opts, shared,
           /* msg_prefix */ "Pre-Put Get verification", from_db, s);
@@ -2021,7 +2022,22 @@ class NonBatchedOpsStressTest : public StressTest {
       if (IsErrorInjectedAndRetryable(s)) {
         assert(!initial_wal_write_may_succeed);
         return s;
-      } else if (FLAGS_inject_error_severity == 2) {
+      }
+    } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          raw_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestPut");
+      pending_expected_value.Commit();
+      thread->stats.AddBytesForWrites(1, sz);
+      PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
+                    sz);
+    }
+    // Single write verification point (no_batched owns it): on success a
+    // read-back after Commit; on failure the op status before the fail-fast.
+    // No-op unless CPU-corruption verification is on.
+    MaybeVerifyCpuCorruption(thread, "put", s);
+    if (!s.ok()) {
+      if (FLAGS_inject_error_severity == 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
         } else if (!is_db_stopped_ ||
@@ -2033,14 +2049,6 @@ class NonBatchedOpsStressTest : public StressTest {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();
       }
-    } else {
-      PrintWriteRecoveryWaitTimeIfNeeded(
-          raw_env, initial_write_s, initial_wal_write_may_succeed,
-          wait_for_recover_start_time, "TestPut");
-      pending_expected_value.Commit();
-      thread->stats.AddBytesForWrites(1, sz);
-      PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
-                    sz);
     }
     return s;
   }
@@ -2126,7 +2134,17 @@ class NonBatchedOpsStressTest : public StressTest {
         if (IsErrorInjectedAndRetryable(s)) {
           assert(!initial_wal_write_may_succeed);
           return s;
-        } else if (FLAGS_inject_error_severity == 2) {
+        }
+      } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            raw_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
+        pending_expected_value.Commit();
+        thread->stats.AddDeletes(1);
+      }
+      MaybeVerifyCpuCorruption(thread, "delete", s);
+      if (!s.ok()) {
+        if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -2139,12 +2157,6 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
-      } else {
-        PrintWriteRecoveryWaitTimeIfNeeded(
-            raw_env, initial_write_s, initial_wal_write_may_succeed,
-            wait_for_recover_start_time, "TestDelete");
-        pending_expected_value.Commit();
-        thread->stats.AddDeletes(1);
       }
     } else {
       PendingExpectedValue pending_expected_value =
@@ -2198,7 +2210,17 @@ class NonBatchedOpsStressTest : public StressTest {
         if (IsErrorInjectedAndRetryable(s)) {
           assert(!initial_wal_write_may_succeed);
           return s;
-        } else if (FLAGS_inject_error_severity == 2) {
+        }
+      } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            raw_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
+        pending_expected_value.Commit();
+        thread->stats.AddSingleDeletes(1);
+      }
+      MaybeVerifyCpuCorruption(thread, "singledelete", s);
+      if (!s.ok()) {
+        if (FLAGS_inject_error_severity == 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
             is_db_stopped_ = true;
@@ -2211,12 +2233,6 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
           thread->shared->SafeTerminate();
         }
-      } else {
-        PrintWriteRecoveryWaitTimeIfNeeded(
-            raw_env, initial_write_s, initial_wal_write_may_succeed,
-            wait_for_recover_start_time, "TestDelete");
-        pending_expected_value.Commit();
-        thread->stats.AddSingleDeletes(1);
       }
     }
     return s;
@@ -2292,17 +2308,6 @@ class NonBatchedOpsStressTest : public StressTest {
       if (IsErrorInjectedAndRetryable(s)) {
         assert(!initial_wal_write_may_succeed);
         return s;
-      } else if (FLAGS_inject_error_severity == 2) {
-        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
-          is_db_stopped_ = true;
-        } else if (!is_db_stopped_ ||
-                   s.severity() < Status::Severity::kFatalError) {
-          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-          thread->shared->SafeTerminate();
-        }
-      } else {
-        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-        thread->shared->SafeTerminate();
       }
     } else {
       PrintWriteRecoveryWaitTimeIfNeeded(
@@ -2314,6 +2319,24 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       thread->stats.AddRangeDeletions(1);
       thread->stats.AddCoveredByRangeDeletions(covered);
+    }
+    // Single write verification point (no_batched owns it): on success a
+    // read-back after Commit; on failure the op status before the fail-fast.
+    // No-op unless CPU-corruption verification is on.
+    MaybeVerifyCpuCorruption(thread, "deleterange", s);
+    if (!s.ok()) {
+      if (FLAGS_inject_error_severity == 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+          thread->shared->SafeTerminate();
+        }
+      } else {
+        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+        thread->shared->SafeTerminate();
+      }
     }
     return s;
   }
@@ -2436,11 +2459,27 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     std::vector<ExternalSstFileInfo> file_infos(data_file_count);
+    // Embedded blobs are only supported by block-based table format_version >=
+    // 7 (the default db_stress table factory is block-based).
+    const bool use_embedded_blobs =
+        FLAGS_ingest_external_file_with_embedded_blobs &&
+        FLAGS_format_version >= 7;
+    // Set the embedded-blob threshold so that only the largest values generated
+    // by GenerateValue() (size kRandomValueMaxFactor * value_size_mult) are
+    // written as same-file blob records; smaller values stay inline.
+    SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+    embedded_blob_options.min_blob_size =
+        static_cast<uint64_t>(kRandomValueMaxFactor) * FLAGS_value_size_mult;
     std::deque<SstFileWriter> sst_file_writers;
     for (size_t file_idx = 0; s.ok() && file_idx < data_file_count;
          ++file_idx) {
       sst_file_writers.emplace_back(EnvOptions(options_), options_);
-      s = sst_file_writers.back().Open(data_filenames[file_idx]);
+      if (use_embedded_blobs) {
+        s = sst_file_writers.back().OpenWithEmbeddedBlobs(
+            data_filenames[file_idx], embedded_blob_options);
+      } else {
+        s = sst_file_writers.back().Open(data_filenames[file_idx]);
+      }
     }
     SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
                                                       options_);

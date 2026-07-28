@@ -1,6 +1,29 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.7.0 (07/16/2026)
+### Public API Changes
+* Added `RangeLockManagerHandle::SetIsKilledCallback()`, a `std::function<bool()>` predicate polled during range-lock waits. When it returns true, a blocked `GetRangeLock()` wait returns promptly with `Status::Aborted()` instead of waiting for the lock timeout. Range-lock users that install no callback keep the original wait-until-grant-or-timeout behavior.
+* Added `MultiScanArgs::reverse` to support reverse MultiScan reads over bounded scan ranges.
+
+### Behavior Changes
+* When using `LockWAL()`, live-file capture APIs such as checkpoint and backup now flush WAL-disabled unpersisted data; they can block until `UnlockWAL()` or return `Aborted` when called from the same thread that holds `LockWAL()` to avoid deadlock. `UnlockWAL()` must now also be called from the same thread that called `LockWAL()`.
+
+### Performance Improvements
+* Fixed slow DB open with `best_efforts_recovery`, and slow catch-up of secondary and follower (read-only) instances, in which time and memory grew quadratically with the number of files in the DB (so the slowdown was worst for large DBs with long history).
+
+## 11.6.0 (07/02/2026)
+### New Features
+* Added EXPERIMENTAL embedded blob SST support through `SstFileWriter::OpenWithEmbeddedBlobs()`, storing eligible large values as same-file blob records in block-based SST files and resolving them transparently for reads. This niche feature currently supports uncompressed embedded blobs only; compression options are placeholders and compression support is deferred to follow-up work.
+
+### Public API Changes
+* Expanded the C API (`include/rocksdb/c.h`) with a large set of new `rocksdb_*` functions, mostly option getters/setters plus table-properties, job/event-listener, and metadata accessors, a WAL filter, a ReadOptions table filter, and a backup exclude-files callback. Many are now produced by a new semi-automated generator (`tools/c_api_gen/`) from the C++ headers; `include/rocksdb/c.h` remains a single self-contained header and the signatures of pre-existing functions are unchanged.
+
+### Bug Fixes
+* Reverted PR14831 that made range_lock_manager aware of reverse-order CF
+* Fixed a bug in `RandomAccessFileReader::ReadAsync` where an already-aligned direct-IO read request with a null `scratch` and a caller-provided `aligned_buf` would take the "already aligned" fast path and submit the null buffer to the underlying async read (e.g. a null iovec base to io_uring, failing with EFAULT). This could surface as spurious iterator failures during async prefetch (MultiScan with async IO) on direct-IO databases. The async path now allocates a backing buffer in this case, matching the synchronous `Read` path.
+* Fixed a bug where closing a read-only DB instance could delete live SST files created by a concurrent read-write DB sharing the same directory.
+
 ## 11.5.0 (06/16/2026)
 ### New Features
 * External table readers that open files through `ExternalTableOptions::fs` now update RocksDB SST/file-read statistics and file IO listener callbacks, making external file IO activity visible in existing read metrics.

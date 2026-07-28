@@ -229,7 +229,25 @@ struct AsyncIOState {
   std::vector<size_t> block_indices;
   std::vector<BlockHandle> blocks;
   FSReadRequest read_req;
+  SystemClock* clock = nullptr;
+  Statistics* statistics = nullptr;
+  uint64_t submit_time_us = 0;
 };
+
+static uint64_t GetIODispatcherNowMicros(SystemClock* clock) {
+  return clock != nullptr ? clock->NowMicros() : 0;
+}
+
+static void RecordIODispatcherTime(Statistics* statistics,
+                                   uint32_t histogram_type,
+                                   uint64_t start_time_us,
+                                   uint64_t end_time_us) {
+  if (statistics != nullptr && start_time_us != 0 &&
+      end_time_us >= start_time_us) {
+    RecordTimeToHistogram(statistics, histogram_type,
+                          end_time_us - start_time_us);
+  }
+}
 
 // ReadSet destructor - clean up IO handles
 // Must call AbortIO before deleting handles to avoid use-after-free when
@@ -455,12 +473,20 @@ bool ReadSet::IsBlockAvailable(size_t block_index) const {
 
 // Poll and process async IO for a specific block
 Status ReadSet::PollAndProcessAsyncIO(
-    const std::shared_ptr<AsyncIOState>& async_state) {
+    std::shared_ptr<AsyncIOState> async_state) {
   auto* rep = job_->table->get_rep();
 
   // Poll for IO completion using FileSystem Poll API
   std::vector<void*> io_handles = {async_state->io_handle};
+  const uint64_t poll_start_time_us =
+      GetIODispatcherNowMicros(async_state->clock);
+  RecordIODispatcherTime(async_state->statistics,
+                         IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
+                         async_state->submit_time_us, poll_start_time_us);
   IOStatus io_s = rep->ioptions.env->GetFileSystem()->Poll(io_handles, 1);
+  RecordIODispatcherTime(
+      async_state->statistics, IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
+      poll_start_time_us, GetIODispatcherNowMicros(async_state->clock));
   if (!io_s.ok()) {
     return io_s;
   }
@@ -496,9 +522,7 @@ Status ReadSet::PollAndProcessAsyncIO(
   DeleteAsyncIOHandle(async_state);
 
   // Remove from map - all blocks in this request have been processed
-  // Store indices in a temporary vector to avoid iterator invalidation
-  std::vector<size_t> indices_to_remove = async_state->block_indices;
-  for (const auto idx : indices_to_remove) {
+  for (const auto idx : async_state->block_indices) {
     async_io_map_.erase(idx);
   }
 
@@ -611,7 +635,9 @@ struct IODispatcherImpl::Impl : public IODispatcherImplData,
       const std::vector<size_t>& block_indices_to_read,
       const std::vector<BlockHandle>& block_handles,
       std::vector<FSReadRequest>* read_reqs,
-      std::vector<std::vector<size_t>>* coalesced_block_indices);
+      std::vector<std::vector<size_t>>* coalesced_block_indices,
+      uint64_t* out_prefetch_bytes = nullptr,
+      uint64_t* out_num_coalesced_nonadjacent = nullptr);
 
   // Surface actual async IO errors to caller, but allow fallback for
   // unsupported cases. Returns block indices that need sync fallback.
@@ -806,8 +832,19 @@ void IODispatcherImpl::Impl::DispatchPrefetch(
   // Prepare and execute IO for the given blocks
   std::vector<FSReadRequest> read_reqs;
   std::vector<std::vector<size_t>> coalesced_block_indices;
+  uint64_t dispatched_bytes = 0;
+  uint64_t nonadjacent = 0;
   PrepareIORequests(job, block_indices, job->block_handles, &read_reqs,
-                    &coalesced_block_indices);
+                    &coalesced_block_indices, &dispatched_bytes, &nonadjacent);
+
+  // Account for the prefetch IO issued by this dispatch. Counted here (once per
+  // dispatched block, before the async/sync split) rather than at completion so
+  // async and memory-deferred prefetches are all captured, and so blocks that
+  // fall back from async to sync are not double counted.
+  read_set->num_blocks_prefetched_ += block_indices.size();
+  read_set->num_io_requests_ += read_reqs.size();
+  read_set->prefetch_bytes_ += dispatched_bytes;
+  read_set->num_coalesced_nonadjacent_ += nonadjacent;
 
   if (job->job_options.read_options.async_io) {
     Status async_status;
@@ -987,11 +1024,13 @@ void IODispatcherImpl::Impl::PrepareIORequests(
     const std::vector<size_t>& block_indices_to_read,
     const std::vector<BlockHandle>& block_handles,
     std::vector<FSReadRequest>* read_reqs,
-    std::vector<std::vector<size_t>>* coalesced_block_indices) {
+    std::vector<std::vector<size_t>>* coalesced_block_indices,
+    uint64_t* out_prefetch_bytes, uint64_t* out_num_coalesced_nonadjacent) {
   assert(BlockIndicesAreSortedByOffset(block_handles, block_indices_to_read));
   assert(coalesced_block_indices->empty());
   coalesced_block_indices->resize(1);
 
+  uint64_t nonadjacent = 0;
   for (const auto& block_idx : block_indices_to_read) {
     if (!coalesced_block_indices->back().empty()) {
       // Check if we can coalesce with previous block
@@ -1006,6 +1045,9 @@ void IODispatcherImpl::Impl::PrepareIORequests(
           last_block_end + job->job_options.io_coalesce_threshold) {
         // Gap too large - start new IO request
         coalesced_block_indices->emplace_back();
+      } else if (current_start > last_block_end) {
+        // Within coalesce threshold but not adjacent
+        ++nonadjacent;
       }
     }
     coalesced_block_indices->back().emplace_back(block_idx);
@@ -1015,6 +1057,7 @@ void IODispatcherImpl::Impl::PrepareIORequests(
   assert(read_reqs->empty());
   read_reqs->reserve(coalesced_block_indices->size());
 
+  uint64_t total_bytes = 0;
   for (const auto& block_indices : *coalesced_block_indices) {
     assert(!block_indices.empty());
 
@@ -1034,6 +1077,14 @@ void IODispatcherImpl::Impl::PrepareIORequests(
     read_reqs->back().offset = start_offset;
     read_reqs->back().len = end_offset - start_offset;
     read_reqs->back().scratch = nullptr;
+    total_bytes += read_reqs->back().len;
+  }
+
+  if (out_prefetch_bytes) {
+    *out_prefetch_bytes = total_bytes;
+  }
+  if (out_num_coalesced_nonadjacent) {
+    *out_num_coalesced_nonadjacent = nonadjacent;
   }
 }
 
@@ -1125,6 +1176,9 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
         read_scoped_io.read_buffer_requires_cleanup;
     async_state->block_indices = coalesced_block_indices[i];
     async_state->read_req = std::move(read_reqs[i]);
+    async_state->clock = rep->ioptions.clock;
+    async_state->statistics = rep->ioptions.stats;
+    async_state->submit_time_us = GetIODispatcherNowMicros(async_state->clock);
 
     for (const auto idx : coalesced_block_indices[i]) {
       async_state->blocks.emplace_back(job->block_handles[idx]);
@@ -1174,6 +1228,10 @@ std::vector<size_t> IODispatcherImpl::Impl::ExecuteAsyncIO(
       auto* state = static_cast<AsyncIOState*>(cb_arg);
       state->read_req.result = req.result;
       state->read_req.status = req.status;
+      RecordIODispatcherTime(
+          state->statistics,
+          IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,
+          state->submit_time_us, GetIODispatcherNowMicros(state->clock));
     };
 
     s = rep->file->ReadAsync(

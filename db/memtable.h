@@ -858,6 +858,10 @@ class MemTable final : public ReadOnlyMemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+  // Returns the reason for a flush scheduled because this memtable decided it
+  // should stop accepting more writes.
+  FlushReason GetFlushReason() const;
+
   // Updates `fragmented_range_tombstone_list_` that will be used to serve reads
   // when this memtable becomes an immutable memtable (in some
   // MemtableListVersion::memlist_). Should be called when this memtable is

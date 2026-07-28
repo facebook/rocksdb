@@ -3108,7 +3108,7 @@ AutoHyperClockTable::HandleImpl* AutoHyperClockTable::Lookup(
   HandleImpl* const arr = array_.Get();
   NextWithShift next_with_shift = arr[home].head_next_with_shift.LoadRelaxed();
   for (size_t i = 0; !next_with_shift.IsEnd() && i < 10; ++i) {
-    HandleImpl* h = &arr[next_with_shift.IsEnd()];
+    HandleImpl* h = &arr[next_with_shift.GetNext()];
     // Attempt cheap key match without acquiring a read ref. This could give a
     // false positive, which is re-checked after acquiring read ref, or false
     // negative, which is re-checked in the full Lookup. Also, this is a

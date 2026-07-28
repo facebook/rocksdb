@@ -31,9 +31,36 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/concurrent_task_limiter_impl.h"
+#include "util/defer.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+void RecordAtomicFlushRequestReason(Statistics* stats,
+                                    FlushReason flush_reason) {
+  // Keep this aligned with the existing rocksdb.flush.reason.* counters: they
+  // cover automatic flush triggers used for write-stall debugging. Other
+  // FlushReason values are counted by the catch-all other ticker.
+  switch (flush_reason) {
+    case FlushReason::kWriteBufferFull:
+      RecordTick(stats, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL);
+      break;
+    case FlushReason::kWriteBufferManager:
+      RecordTick(stats, ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER);
+      break;
+    case FlushReason::kMemtableMaxRangeDeletions:
+      RecordTick(stats,
+                 ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS);
+      break;
+    default:
+      RecordTick(stats, ATOMIC_FLUSH_REQUEST_REASON_OTHER);
+      break;
+  }
+}
+
+}  // namespace
 
 bool DBImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
@@ -331,6 +358,34 @@ Status DBImpl::FlushMemTableToOutputFile(
                       &error_handler_);
     need_cancel = false;
   }
+
+  // Reserve a pending flush-completion notification before the DB mutex can be
+  // released, so that a Flush(wait=true, listener_wait=true) caller cannot
+  // observe this flush as finished until NotifyOnFlushCompleted() below has
+  // run. flush_job.Run() removed the memtables from the immutable list (which
+  // is what unblocks the waiter) and the DB mutex has been held continuously
+  // since, so there is no window in which the waiter could see the flush
+  // committed with a zero count. Reserved only when a notification will
+  // actually fire (matches the NotifyOnFlushCompleted call below): flush
+  // committed successfully, not a mempurge, listeners are registered, and this
+  // job committed at least one flush result to report.
+  const bool reserved_flush_notification =
+      s.ok() && !switched_to_mempurge &&
+      !immutable_db_options_.listeners.empty() &&
+      !flush_job.GetCommittedFlushJobsInfo()->empty();
+  if (reserved_flush_notification) {
+    cfd->imm()->AddPendingFlushNotifications(1);
+  }
+  // Release the reservation on every exit path (RAII) so a future early return
+  // cannot leak the count and hang listener_wait waiters. The DB mutex is held
+  // throughout this function, including at scope exit, which
+  // SubPendingFlushNotifications() requires. Runs after
+  // NotifyOnFlushCompleted() below has returned.
+  Defer release_flush_notification([&] {
+    if (reserved_flush_notification) {
+      cfd->imm()->SubPendingFlushNotifications(1);
+    }
+  });
 
   if (cfd->blob_partition_manager() != nullptr &&
       prepared_blob_generations > 0) {
@@ -873,6 +928,42 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         committed_flush_jobs_info, &job_context->memtables_to_free,
         directories_.GetDbDir(), log_buffer);
   }
+
+  // Reserve a pending flush-completion notification for every CF that the
+  // NotifyOnFlushCompleted loop below will service, while the DB mutex is still
+  // held continuously since InstallMemtableAtomicFlushResults removed the
+  // memtables. This closes the window where a
+  // Flush(wait=true, listener_wait=true) waiter could observe an atomic flush
+  // as finished before a later CF's OnFlushCompleted has run, since the notify
+  // loop releases and re-acquires the mutex between CFs. The reservations are
+  // released by a matching pass after the notify loop.
+  autovector<uint8_t> reserved_flush_notification;
+  reserved_flush_notification.reserve(num_cfs);
+  {
+    const bool has_listeners = !immutable_db_options_.listeners.empty();
+    for (int i = 0; i != num_cfs; ++i) {
+      const bool reserve = s.ok() && has_listeners &&
+                           !switched_to_mempurge[i] && !cfds[i]->IsDropped() &&
+                           !jobs[i]->GetCommittedFlushJobsInfo()->empty();
+      if (reserve) {
+        cfds[i]->imm()->AddPendingFlushNotifications(1);
+      }
+      reserved_flush_notification.push_back(reserve ? 1 : 0);
+    }
+  }
+  // Release the reservations on every exit path (RAII) so a future early return
+  // cannot leak the count and hang listener_wait waiters. Done independently of
+  // the notify loop's skips so the count stays balanced even if a CF was
+  // dropped after it was reserved. The DB mutex is held throughout this
+  // function, including at scope exit, which SubPendingFlushNotifications()
+  // requires.
+  Defer release_flush_notifications([&] {
+    for (int i = 0; i != num_cfs; ++i) {
+      if (reserved_flush_notification[i]) {
+        cfds[i]->imm()->SubPendingFlushNotifications(1);
+      }
+    }
+  });
 
   if (!s.ok()) {
     // If the atomic flush's combined MANIFEST write failed, the output files
@@ -1597,16 +1688,16 @@ void DBImpl::PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
     for (size_t i = 0; i < c.num_input_files(l); i++) {
       FileMetaData* f = c.input(l, i);
       c.edit()->DeleteFile(c.level(l), f->fd.GetNumber());
-      c.edit()->AddFile(c.output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
-                        f->fd.GetFileSize(), f->smallest, f->largest,
-                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                        f->marked_for_compaction, f->temperature,
-                        f->oldest_blob_file_number, f->oldest_ancester_time,
-                        f->file_creation_time, f->epoch_number,
-                        f->file_checksum, f->file_checksum_func_name,
-                        f->unique_id, f->compensated_range_deletion_size,
-                        f->tail_size, f->user_defined_timestamps_persisted,
-                        f->min_timestamp, f->max_timestamp);
+      c.edit()->AddFile(
+          c.output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
+          f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
+          f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+          f->oldest_blob_file_number, f->oldest_ancester_time,
+          f->file_creation_time, f->epoch_number, f->file_checksum,
+          f->file_checksum_func_name, f->unique_id,
+          f->compensated_range_deletion_size, f->tail_size,
+          f->user_defined_timestamps_persisted, f->min_timestamp,
+          f->max_timestamp, f->file_open_metadata);
       moved_bytes += static_cast<size_t>(c.input(l, i)->fd.GetFileSize());
       ROCKS_LOG_BUFFER(
           log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
@@ -2183,7 +2274,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->file_checksum, f->file_checksum_func_name, f->unique_id,
           f->compensated_range_deletion_size, f->tail_size,
           f->user_defined_timestamps_persisted, f->min_timestamp,
-          f->max_timestamp);
+          f->max_timestamp, f->file_open_metadata);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -2623,6 +2714,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
   }
+  if (flush_options.wait) {
+    InstrumentedMutexLock lock(&mutex_);
+    if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+      return Status::Aborted(
+          "Likely deadlock as the same thread called LockWAL()");
+    }
+  }
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2761,7 +2859,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
-        flush_reason);
+        flush_reason, flush_options.listener_wait);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2780,6 +2878,13 @@ Status DBImpl::AtomicFlushMemTables(
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
+  }
+  if (flush_options.wait) {
+    InstrumentedMutexLock lock(&mutex_);
+    if (lock_wal_owner_thread_id_counts_.count(env_->GetThreadID()) > 0) {
+      return Status::Aborted(
+          "Likely deadlock as the same thread called LockWAL()");
+    }
   }
   Status s;
   autovector<ColumnFamilyData*> candidate_cfds;
@@ -2909,7 +3014,7 @@ Status DBImpl::AtomicFlushMemTables(
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
-        flush_reason);
+        flush_reason, flush_options.listener_wait);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
@@ -3078,7 +3183,8 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids,
-    bool resuming_from_bg_err, std::optional<FlushReason> flush_reason) {
+    bool resuming_from_bg_err, std::optional<FlushReason> flush_reason,
+    bool wait_for_listener_notifications) {
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
@@ -3123,7 +3229,13 @@ Status DBImpl::WaitForFlushMemTables(
             flush_reason.value() != FlushReason::kExternalFileIngestion ||
             cfds[i]->GetSuperVersion()->imm->GetID() ==
                 cfds[i]->imm()->current()->GetID()) {
-          ++num_finished;
+          // When the caller requested it, also wait for the flush-completion
+          // listener callbacks for this CF to finish before counting it as
+          // finished (see FlushOptions::listener_wait).
+          if (!wait_for_listener_notifications ||
+              cfds[i]->imm()->NumPendingFlushNotifications() == 0) {
+            ++num_finished;
+          }
         }
       }
     }
@@ -3245,7 +3357,7 @@ void DBImpl::ResumeAllCompactions() {
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   TEST_SYNC_POINT("DBImpl::MaybeScheduleFlushOrCompaction:Start");
-  if (!opened_successfully_) {
+  if (!opened_successfully_ || read_only_) {
     // Compaction may introduce data race to DB open
     return;
   }
@@ -3553,6 +3665,7 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
     }
     ++unscheduled_flushes_;
     flush_queue_.push_back(flush_req);
+    RecordAtomicFlushRequestReason(stats_, flush_req.flush_reason);
     enqueued = true;
   }
   return enqueued;

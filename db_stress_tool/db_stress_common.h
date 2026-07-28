@@ -192,6 +192,7 @@ DECLARE_bool(test_backward_scan);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
+DECLARE_int32(open_read_only_one_in);
 DECLARE_string(expected_values_dir);
 DECLARE_int32(num_dbs);
 DECLARE_bool(expected_state_trace_debug);
@@ -231,6 +232,7 @@ DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(ingest_external_file_prepare_commit_one_in);
 DECLARE_int32(ingest_external_file_use_file_info_one_in);
+DECLARE_bool(ingest_external_file_with_embedded_blobs);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
 DECLARE_int32(promote_l0_one_in);
@@ -248,6 +250,7 @@ DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
 DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
+DECLARE_bool(use_async_db_api);
 DECLARE_bool(use_get_entity);
 DECLARE_bool(use_multi_get_entity);
 DECLARE_int32(readpercent);
@@ -352,6 +355,7 @@ DECLARE_int32(prepopulate_blob_cache);
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
+DECLARE_string(verify_cpu_corruption_dir);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint32(memtable_protection_bytes_per_key);
@@ -468,6 +472,7 @@ DECLARE_uint32(min_tombstones_for_range_conversion);
 DECLARE_uint32(ingest_wbwi_one_in);
 DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
+DECLARE_bool(multiscan_reverse);
 DECLARE_bool(multiscan_use_async_io);
 DECLARE_bool(read_scoped_block_buffer_provider);
 DECLARE_uint64(multiscan_max_prefetch_memory_bytes);
@@ -842,6 +847,19 @@ bool VerifyIteratorAttributeGroups(
 AttributeGroups GenerateAttributeGroups(
     const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,
     const Slice& slice);
+
+Status DbStressGet(DB* db, const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value, std::string* timestamp = nullptr);
+Status DbStressGet(DB* db, const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   std::string* value, std::string* timestamp = nullptr);
+Status DbStressGet(DB* db, const ReadOptions& options, const Slice& key,
+                   std::string* value);
+void DbStressMultiGet(DB* db, const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses);
 
 StressTest* CreateCfConsistencyStressTest(int db_index,
                                           const std::string& db_path,

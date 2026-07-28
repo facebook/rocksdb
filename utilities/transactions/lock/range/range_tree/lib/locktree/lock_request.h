@@ -108,13 +108,14 @@ class lock_request {
   int start(void);
 
   // effect: Sleeps until either the request is granted or the wait time
-  // expires. returns: The return code of locktree::acquire_[write,read]_lock()
-  //          or simply DB_LOCK_NOTGRANTED if the wait time expired.
+  // expires. returns: The return code of locktree::acquire_[write,read]_lock(),
+  //          DB_LOCK_NOTGRANTED if the wait time expired, or
+  //          DB_LOCK_INTERRUPTED if killed_callback returned true.
   int wait(uint64_t wait_time_ms);
   int wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
-           int (*killed_callback)(void),
-           void (*lock_wait_callback)(void *, lock_wait_infos *) = nullptr,
-           void *callback_arg = nullptr);
+           int (*killed_callback)(void*), void* killed_callback_arg,
+           void (*lock_wait_callback)(void*, lock_wait_infos*) = nullptr,
+           void* callback_arg = nullptr);
 
   // return: left end-point of the lock range
   const DBT *get_left_key(void) const;
@@ -150,9 +151,6 @@ class lock_request {
   void set_retry_test_callback(void (*f)(void));
 
   void *get_extra(void) const;
-
-  void kill_waiter(void);
-  static void kill_waiter(locktree *lt, void *extra);
 
  private:
   enum state {

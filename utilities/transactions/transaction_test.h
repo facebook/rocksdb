@@ -542,9 +542,9 @@ class MySQLStyleTransactionTest
 };
 
 class WriteCommittedTxnWithTsTest
-    : public TransactionTestBase,
-      public ::testing::WithParamInterface<
-          std::tuple<bool, bool, bool, bool, int64_t>> {
+    : public ::testing::WithParamInterface<
+          std::tuple<bool, bool, bool, bool, int64_t>>,
+      public TransactionTestBase {
  public:
   WriteCommittedTxnWithTsTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
@@ -584,9 +584,9 @@ class WriteCommittedTxnWithTsTest
 };
 
 class TimestampedSnapshotWithTsSanityCheck
-    : public TransactionTestBase,
-      public ::testing::WithParamInterface<std::tuple<
-          bool, bool, TxnDBWritePolicy, WriteOrdering, bool, int64_t>> {
+    : public ::testing::WithParamInterface<std::tuple<
+          bool, bool, TxnDBWritePolicy, WriteOrdering, bool, int64_t>>,
+      public TransactionTestBase {
  public:
   explicit TimestampedSnapshotWithTsSanityCheck()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),

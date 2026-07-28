@@ -7,9 +7,15 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
+#include <forward_list>
+#include <iterator>
 #include <ostream>
+#include <utility>
+#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -60,6 +66,46 @@ class WideColumnsHelper {
     }
 
     return it;
+  }
+};
+
+// Internal helper for mutating the private backing storage of a
+// PinnableWideColumns without exposing these operations on its public API.
+class PinnableWideColumnsHelper {
+ public:
+  // Replaces `columns`'s current columns with an already-resolved set. Every
+  // name/value Slice in `resolved_columns` must point into stable memory:
+  // either a buffer already held by `columns` (e.g. the original entity, for
+  // inline columns) or one of the buffers in `extra_buffers` (e.g. fetched blob
+  // values). Ownership of `extra_buffers` is transferred via splice; its nodes
+  // are individually heap-allocated and never relocate, so Slices into them
+  // stay valid. Clears any unresolved-blob metadata. No serialization occurs.
+  static void ResolveColumns(PinnableWideColumns& columns,
+                             WideColumns&& resolved_columns,
+                             std::forward_list<PinnableSlice>&& extra_buffers) {
+    columns.backing_.splice_after(columns.backing_.before_begin(),
+                                  std::move(extra_buffers));
+    columns.columns_ = std::move(resolved_columns);
+    columns.unresolved_blob_column_indices_.clear();
+  }
+
+  // Sorted positions of the columns whose values still hold encoded BlobIndex
+  // payloads (V2 entities that have not been blob-resolved yet). Empty once
+  // resolved or for entities without blob references.
+  static const std::vector<size_t>& GetUnresolvedBlobColumnIndices(
+      const PinnableWideColumns& columns) {
+    return columns.unresolved_blob_column_indices_;
+  }
+
+  // The backing buffer holding the serialized entity. Valid only before
+  // resolution, when the entity occupies a single backing buffer (the state
+  // right after SetWideColumnValue()); used as the input for blob resolution.
+  static Slice GetSerializedEntity(const PinnableWideColumns& columns) {
+    assert(!columns.backing_.empty());
+    // Exactly one backing buffer: there is a single serialized entity and it
+    // has not been split across resolved blob buffers yet.
+    assert(std::next(columns.backing_.begin()) == columns.backing_.end());
+    return columns.backing_.front();
   }
 };
 

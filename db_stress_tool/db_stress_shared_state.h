@@ -51,6 +51,7 @@ DECLARE_int32(open_write_fault_one_in);
 DECLARE_int32(open_read_fault_one_in);
 
 DECLARE_int32(inject_error_severity);
+DECLARE_bool(tolerate_non_injected_io_errors_for_remote_dbs);
 DECLARE_bool(disable_auto_compactions);
 DECLARE_bool(enable_compaction_filter);
 
@@ -59,7 +60,6 @@ class StressTest;
 
 enum class StressOperationType : uint32_t {
   kNone = 0,
-  kPrepare,
   kReopen,
   kSetOptions,
   kVerifyDb,
@@ -102,8 +102,6 @@ inline const char* StressOperationTypeName(StressOperationType type) {
   switch (type) {
     case StressOperationType::kNone:
       return "none";
-    case StressOperationType::kPrepare:
-      return "prepare";
     case StressOperationType::kReopen:
       return "reopen";
     case StressOperationType::kSetOptions:
@@ -179,22 +177,13 @@ struct ThreadOperationSnapshot {
   uint64_t started_micros;
 };
 
-struct ThreadOperationFrame {
-  ThreadOperationFrame()
+struct ThreadOperationState {
+  ThreadOperationState()
       : active_type(static_cast<uint32_t>(StressOperationType::kNone)),
         started_micros(0) {}
 
   std::atomic<uint32_t> active_type;
   std::atomic<uint64_t> started_micros;
-};
-
-static constexpr size_t kMaxThreadOperationStackDepth = 16;
-
-struct ThreadOperationState {
-  ThreadOperationState() : depth(0) {}
-
-  std::array<ThreadOperationFrame, kMaxThreadOperationStackDepth> frames;
-  std::atomic<uint32_t> depth;
 };
 
 struct RemoteCompactionQueueItem {
@@ -306,7 +295,6 @@ class SharedState {
   void IncCompletedOpForDiagnostics(StressOperationType type) {
     const size_t index = static_cast<size_t>(type);
     if (index == static_cast<size_t>(StressOperationType::kNone) ||
-        index == static_cast<size_t>(StressOperationType::kPrepare) ||
         index >= kStressOperationTypeCount) {
       return;
     }
@@ -356,51 +344,43 @@ class SharedState {
     abort_resume_compactions_running_.store(false, std::memory_order_release);
   }
 
-  bool PushOperation(uint32_t tid, StressOperationType type);
+  bool BeginOperation(uint32_t tid, StressOperationType type);
 
-  bool PopOperation(uint32_t tid, StressOperationType type) {
+  bool EndOperation(uint32_t tid, StressOperationType type) {
     assert(tid < static_cast<uint32_t>(num_threads_));
     ThreadOperationState& state = thread_operation_states_[tid];
-    const uint32_t depth = state.depth.load(std::memory_order_relaxed);
-    assert(depth > 0);
-    if (depth == 0 || depth > kMaxThreadOperationStackDepth) {
-      return false;
-    }
-    const uint32_t top_index = depth - 1;
     const uint32_t active_type =
-        state.frames[top_index].active_type.load(std::memory_order_acquire);
+        state.active_type.load(std::memory_order_acquire);
     assert(active_type == static_cast<uint32_t>(type));
     if (active_type != static_cast<uint32_t>(type)) {
       return false;
     }
-    state.depth.store(top_index, std::memory_order_release);
-    state.frames[top_index].active_type.store(
-        static_cast<uint32_t>(StressOperationType::kNone),
-        std::memory_order_relaxed);
-    state.frames[top_index].started_micros.store(0, std::memory_order_relaxed);
+    state.active_type.store(static_cast<uint32_t>(StressOperationType::kNone),
+                            std::memory_order_release);
+    state.started_micros.store(0, std::memory_order_relaxed);
     return true;
   }
 
   void ClearOperation(uint32_t tid) {
     assert(tid < static_cast<uint32_t>(num_threads_));
     ThreadOperationState& state = thread_operation_states_[tid];
-    state.depth.store(0, std::memory_order_release);
+    state.active_type.store(static_cast<uint32_t>(StressOperationType::kNone),
+                            std::memory_order_release);
+    state.started_micros.store(0, std::memory_order_relaxed);
   }
 
   ThreadOperationSnapshot GetThreadOperationSnapshot(uint32_t tid) const {
     assert(tid < static_cast<uint32_t>(num_threads_));
     const ThreadOperationState& state = thread_operation_states_[tid];
     // This is a diagnostic snapshot, not one atomic value. A concurrent
-    // push/pop/clear can produce a torn pair; timeout checks must treat `kNone`
-    // and `started_micros == 0` as no active operation.
-    const uint32_t depth = state.depth.load(std::memory_order_acquire);
-    if (depth == 0 || depth > kMaxThreadOperationStackDepth) {
+    // begin/end/clear can produce a torn pair; timeout checks must treat
+    // `kNone` and `started_micros == 0` as no active operation.
+    const auto type = static_cast<StressOperationType>(
+        state.active_type.load(std::memory_order_acquire));
+    if (type == StressOperationType::kNone) {
       return {StressOperationType::kNone, 0};
     }
-    const ThreadOperationFrame& frame = state.frames[depth - 1];
-    const auto type = static_cast<StressOperationType>(
-        frame.active_type.load(std::memory_order_acquire));
-    return {type, frame.started_micros.load(std::memory_order_relaxed)};
+    return {type, state.started_micros.load(std::memory_order_relaxed)};
   }
 
   void SetShouldStopTest() { should_stop_test_.store(true); }
@@ -754,16 +734,16 @@ struct ThreadState {
            FLAGS_liveness_no_progress_timeout_sec > 0;
   }
 
-  bool PushOperation(StressOperationType type) {
+  bool BeginOperation(StressOperationType type) {
     if (LivenessTrackingEnabled()) {
-      return shared->PushOperation(tid, type);
+      return shared->BeginOperation(tid, type);
     }
     return false;
   }
 
-  bool PopOperation(StressOperationType type) {
+  bool EndOperation(StressOperationType type) {
     if (LivenessTrackingEnabled()) {
-      return shared->PopOperation(tid, type);
+      return shared->EndOperation(tid, type);
     }
     return false;
   }
@@ -780,7 +760,7 @@ struct ThreadState {
     }
   }
 
-  void FinishSingleOpWhileOperationActive() {
+  void RecordSingleOpFinished() {
     stats.FinishedSingleOp();
     if (LivenessTrackingEnabled()) {
       shared->IncFinishedOps();
@@ -788,7 +768,7 @@ struct ThreadState {
   }
 
   void FinishedSingleOp() {
-    FinishSingleOpWhileOperationActive();
+    RecordSingleOpFinished();
     ClearOperation();
   }
 };

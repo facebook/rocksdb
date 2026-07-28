@@ -5089,6 +5089,22 @@ class TickerTypeJni {
         return 0x75;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x76;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_READ:
+        return -0x71;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_WRITE:
+        return -0x72;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_READ:
+        return -0x73;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_WRITE:
+        return -0x74;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_READ:
+        return -0x75;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_WRITE:
+        return -0x76;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_READ:
+        return -0x77;
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE:
+        return -0x78;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT:
         return 0x77;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE:
@@ -5323,6 +5339,24 @@ class TickerTypeJni {
         return -0x6A;
       case ROCKSDB_NAMESPACE::Tickers::MANIFEST_VALIDATION_FAILURE_COUNT:
         return -0x6B;
+      case ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_FULL:
+        return -0x79;
+      case ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_MANAGER:
+        return -0x7A;
+      case ROCKSDB_NAMESPACE::Tickers::
+          FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS:
+        return -0x7B;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL:
+        return -0x7C;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER:
+        return -0x7D;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS:
+        return -0x7E;
+      case ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER:
+        return -0x7F;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5597,6 +5631,22 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES;
       case 0x76:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS;
+      case -0x71:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_READ;
+      case -0x72:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_BYTES_WRITE;
+      case -0x73:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_READ;
+      case -0x74:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_REQUESTS_WRITE;
+      case -0x75:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_READ;
+      case -0x76:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_DELAYED_REQUESTS_WRITE;
+      case -0x77:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_READ;
+      case -0x78:
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMITER_TOTAL_WAIT_MICROS_WRITE;
       case 0x77:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT;
       case 0x78:
@@ -5836,6 +5886,24 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::READ_PATH_RANGE_TOMBSTONES_DISCARDED;
       case -0x6B:
         return ROCKSDB_NAMESPACE::Tickers::MANIFEST_VALIDATION_FAILURE_COUNT;
+      case -0x79:
+        return ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_FULL;
+      case -0x7A:
+        return ROCKSDB_NAMESPACE::Tickers::FLUSH_REASON_WRITE_BUFFER_MANAGER;
+      case -0x7B:
+        return ROCKSDB_NAMESPACE::Tickers::
+            FLUSH_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
+      case -0x7C:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_FULL;
+      case -0x7D:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ATOMIC_FLUSH_REQUEST_REASON_WRITE_BUFFER_MANAGER;
+      case -0x7E:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
+      case -0x7F:
+        return ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -6002,6 +6070,31 @@ class HistogramTypeJni {
         return 0x43;
       case ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_RUN_TIME:
         return 0x44;
+      case ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_READ:
+        return 0x45;
+      case ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_WRITE:
+        return 0x46;
+      case ROCKSDB_NAMESPACE::Histograms::FLUSH_MEMTABLE_MEMORY_BYTES:
+        return 0x47;
+      case ROCKSDB_NAMESPACE::Histograms::FLUSH_MEMTABLE_TOTAL_DATA_SIZE:
+        return 0x48;
+      case ROCKSDB_NAMESPACE::Histograms::
+          FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES:
+        return 0x49;
+      case ROCKSDB_NAMESPACE::Histograms::
+          FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES:
+        return 0x4A;
+      case ROCKSDB_NAMESPACE::Histograms::OPEN_AND_COMPACT_DB_OPEN_MICROS:
+        return 0x4B;
+      case ROCKSDB_NAMESPACE::Histograms::
+          IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS:
+        return 0x4C;
+      case ROCKSDB_NAMESPACE::Histograms::
+          IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS:
+        return 0x4D;
+      case ROCKSDB_NAMESPACE::Histograms::
+          IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS:
+        return 0x4E;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6159,6 +6252,31 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_PREPARE_TIME;
       case 0x44:
         return ROCKSDB_NAMESPACE::Histograms::INGEST_EXTERNAL_FILE_RUN_TIME;
+      case 0x45:
+        return ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_READ;
+      case 0x46:
+        return ROCKSDB_NAMESPACE::Histograms::RATE_LIMITER_WAIT_MICROS_WRITE;
+      case 0x47:
+        return ROCKSDB_NAMESPACE::Histograms::FLUSH_MEMTABLE_MEMORY_BYTES;
+      case 0x48:
+        return ROCKSDB_NAMESPACE::Histograms::FLUSH_MEMTABLE_TOTAL_DATA_SIZE;
+      case 0x49:
+        return ROCKSDB_NAMESPACE::Histograms::
+            FLUSH_WRITE_BUFFER_FULL_MEMTABLE_MEMORY_BYTES;
+      case 0x4A:
+        return ROCKSDB_NAMESPACE::Histograms::
+            FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES;
+      case 0x4B:
+        return ROCKSDB_NAMESPACE::Histograms::OPEN_AND_COMPACT_DB_OPEN_MICROS;
+      case 0x4C:
+        return ROCKSDB_NAMESPACE::Histograms::
+            IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS;
+      case 0x4D:
+        return ROCKSDB_NAMESPACE::Histograms::
+            IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS;
+      case 0x4E:
+        return ROCKSDB_NAMESPACE::Histograms::
+            IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.

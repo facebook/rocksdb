@@ -212,6 +212,7 @@ default_params = {
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
+    "tolerate_non_injected_io_errors_for_remote_dbs": 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -227,6 +228,7 @@ default_params = {
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
     "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
+    "ingest_external_file_with_embedded_blobs": lambda: random.choice([0, 1]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
@@ -318,6 +320,7 @@ default_params = {
     "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
+    "use_async_db_api": lambda: random.choice([0] * 5 + [1]),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
@@ -706,6 +709,7 @@ simple_default_params = {
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "test_secondary": lambda: random.choice([0, 1]),
+    "open_read_only_one_in": lambda: random.choice([0, 0, 0, 16]),
 }
 
 blackbox_simple_default_params = {
@@ -984,6 +988,7 @@ def finalize_and_sanitize(src_params):
         dest_params["use_direct_reads"] = 0
         dest_params["use_direct_io_for_compaction_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
+        dest_params["open_read_only_one_in"] = 0
     if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
         # SQFC range-query filtering installs ReadOptions::table_filter on
         # iterators. Read-write iterators reject table_filter when read-path
@@ -1017,6 +1022,11 @@ def finalize_and_sanitize(src_params):
     # remote --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
+
+    # Not to accidentally ignore errors on local dbs
+    # (e.g. errors on IO Uring would be categorized as IO error)
+    if not is_remote_db:
+        dest_params["tolerate_non_injected_io_errors_for_remote_dbs"] = 0
 
     if dest_params.get("enable_blob_direct_write", 0) == 1:
         # Keep blob direct write in its reduced-scope crash-test profile.
@@ -1546,6 +1556,13 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+    # Embedded blobs in ingested files require ingestion to be enabled and
+    # block-based table format_version >= 7.
+    if (
+        dest_params.get("ingest_external_file_one_in") == 0
+        or dest_params.get("format_version", 2) < 7
+    ):
+        dest_params["ingest_external_file_with_embedded_blobs"] = 0
     if (
         dest_params.get("use_txn", 0) == 1
         and dest_params.get("commit_bypass_memtable_one_in", 0) > 0
@@ -1568,6 +1585,15 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
+    # Opening a read-only DB on the primary's directory needs a plain read-write
+    # primary; it is not wired up for transactions, BlobDB, or TTL DBs.
+    if (
+        dest_params.get("use_txn", 0) == 1
+        or dest_params.get("use_optimistic_txn", 0) == 1
+        or dest_params.get("use_blob_db", 0) == 1
+        or dest_params.get("ttl", -1) != -1
+    ):
+        dest_params["open_read_only_one_in"] = 0
     if dest_params.get("use_multiscan") == 1:
         dest_params["async_io"] = 0
         dest_params["delpercent"] += dest_params["delrangepercent"]

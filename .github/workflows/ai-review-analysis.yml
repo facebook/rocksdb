@@ -714,8 +714,6 @@ jobs:
           CODEX_HOME: /tmp/codex-home
           CODEX_MODEL: ${{ inputs.default_model }}
           CODEX_REASONING_EFFORT: ${{ steps.budget_codex.outputs.effort }}
-          BASE_SHA: ${{ steps.pr_info.outputs.base_sha }}
-          PR_TITLE: ${{ steps.pr_info.outputs.pr_title }}
         run: |
           if [ -z "${OPENAI_API_KEY}" ]; then
             echo "OPENAI_API_KEY not configured, skipping Codex review"
@@ -723,9 +721,7 @@ jobs:
           fi
           mkdir -p "${CODEX_HOME}"
           set +e
-          codex exec review \
-            --base "${BASE_SHA}" \
-            --title "${PR_TITLE}" \
+          codex exec \
             -m "${CODEX_MODEL}" \
             -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
             --dangerously-bypass-approvals-and-sandbox \
@@ -1340,8 +1336,6 @@ jobs:
           CODEX_HOME: /tmp/codex-home
           CODEX_MODEL: ${{ inputs.selected_model != '' && inputs.selected_model || inputs.default_model }}
           CODEX_REASONING_EFFORT: ${{ steps.manual_budget_codex.outputs.effort }}
-          BASE_SHA: ${{ steps.pr_info.outputs.base_sha }}
-          PR_TITLE: ${{ steps.pr_info.outputs.pr_title }}
           COMMAND_TYPE: ${{ steps.request.outputs.type }}
         run: |
           mkdir -p "${CODEX_HOME}"
@@ -1354,9 +1348,7 @@ jobs:
               --output-last-message codex-review-output.md \
               - < /tmp/prompt.txt > codex-review-execution.log 2>&1
           else
-            codex exec review \
-              --base "${BASE_SHA}" \
-              --title "${PR_TITLE}" \
+            codex exec \
               -m "${CODEX_MODEL}" \
               -c model_reasoning_effort="${CODEX_REASONING_EFFORT}" \
               --dangerously-bypass-approvals-and-sandbox \

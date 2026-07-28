@@ -102,9 +102,14 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   delete txn1;
 }
 
-// CompareDbtEndpoints must honor ReverseBytewiseComparator direction
-// in length-disparity case.
-TEST_F(RangeLockingTest, RangeLockWithReverseComparator) {
+// A point-equality range lock passes [infimum(K), supremum(K)]: the same user
+// key with the infimum endpoint as the left bound and the supremum endpoint as
+// the right bound. The infimum endpoint must sort before the supremum endpoint
+// even under a reverse comparator (the suffix marker is positional, not key
+// content), otherwise the locktree's left <= right invariant is violated and
+// try_acquire_lock aborts. Regression test for a crash on MyRocks equality
+// lookups on a reverse ('rev:') column family.
+TEST_F(RangeLockingTest, PointRangeLockWithReverseComparator) {
   delete db;
   db = nullptr;
   ASSERT_OK(DestroyDB(dbname, options));
@@ -121,19 +126,12 @@ TEST_F(RangeLockingTest, RangeLockWithReverseComparator) {
   auto cf = db->DefaultColumnFamily();
 
   Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
 
-  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("aa"), Endpoint("a")));
-
-  auto s = txn1->GetRangeLock(cf, Endpoint("ab"), Endpoint("a"));
-  ASSERT_TRUE(s.IsTimedOut());
-
-  ASSERT_OK(txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("b")));
+  // [infimum("a"), supremum("a")] : same user key, infimum -> supremum.
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a", false), Endpoint("a", true)));
 
   txn0->Rollback();
-  txn1->Rollback();
   delete txn0;
-  delete txn1;
 }
 
 // CompareDbtEndpoints must use CompareWithoutTimestamp for range lock
@@ -474,6 +472,57 @@ TEST_F(RangeLockingTest, LockWaiteeAccess) {
 
   t.join();
 
+  delete txn1;
+}
+
+// A killed_callback that fires makes a conflicting range-lock wait return
+// Status::Aborted() (DB_LOCK_INTERRUPTED), not a timeout.
+TEST_F(RangeLockingTest, KilledCallbackAbortsWait) {
+  TransactionOptions txn_options;
+  auto cf = db->DefaultColumnFamily();
+  // Large timeout so a timeout cannot masquerade as the interrupt.
+  txn_options.lock_timeout = 100000;
+
+  std::atomic<bool> killed{false};
+  range_lock_mgr->SetIsKilledCallback([&]() { return killed.load(); });
+
+  Transaction* txn0 = db->BeginTransaction(WriteOptions(), txn_options);
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), txn_options);
+
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
+
+  killed.store(true);
+  auto s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("z"));
+  ASSERT_TRUE(s.IsAborted());
+  ASSERT_FALSE(s.IsTimedOut());
+
+  txn0->Rollback();
+  txn1->Rollback();
+  delete txn0;
+  delete txn1;
+}
+
+// With a killed_callback installed that never fires, a conflicting wait still
+// times out: the interrupt path must not disturb timeout behavior.
+TEST_F(RangeLockingTest, KilledCallbackFalseStillTimesOut) {
+  TransactionOptions txn_options;
+  auto cf = db->DefaultColumnFamily();
+  txn_options.lock_timeout = 50;
+
+  range_lock_mgr->SetIsKilledCallback([]() { return false; });
+
+  Transaction* txn0 = db->BeginTransaction(WriteOptions(), txn_options);
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), txn_options);
+
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
+
+  auto s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("z"));
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_FALSE(s.IsAborted());
+
+  txn0->Rollback();
+  txn1->Rollback();
+  delete txn0;
   delete txn1;
 }
 

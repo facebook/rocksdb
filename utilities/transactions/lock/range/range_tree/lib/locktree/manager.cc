@@ -507,19 +507,5 @@ void locktree_manager::get_status(LTM_STATUS statp) {
   *statp = ltm_status;
 }
 
-void locktree_manager::kill_waiter(void *extra) {
-  mutex_lock();
-  int r = 0;
-  uint32_t num_locktrees = m_locktree_map.size();
-  for (uint32_t i = 0; i < num_locktrees; i++) {
-    locktree *lt;
-    r = m_locktree_map.fetch(i, &lt);
-    invariant_zero(r);
-    if (r) continue;  // Get rid of "may be used uninitialized" warning
-    lock_request::kill_waiter(lt, extra);
-  }
-  mutex_unlock();
-}
-
 } /* namespace toku */
 #endif  // OS_WIN

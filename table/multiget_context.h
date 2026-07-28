@@ -110,11 +110,12 @@ class MultiGetContext {
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,
                   size_t begin, size_t num_keys, SequenceNumber snapshot,
                   const ReadOptions& read_opts, FileSystem* fs,
-                  Statistics* stats)
+                  Statistics* stats, bool use_coro_read = false)
       : num_keys_(num_keys),
         value_mask_(0),
         value_size_(0),
-        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf))
+        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)),
+        use_coro_read_(use_coro_read)
 #if USE_COROUTINES
         ,
         reader_(fs, stats),
@@ -159,6 +160,8 @@ class MultiGetContext {
   AsyncFileReader& reader() { return reader_; }
 #endif  // USE_COROUTINES
 
+  bool use_coro_read() const { return use_coro_read_; }
+
  private:
   static const int MAX_LOOKUP_KEYS_ON_STACK = 16;
   alignas(
@@ -170,6 +173,7 @@ class MultiGetContext {
   uint64_t value_size_;
   std::unique_ptr<char[]> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
+  bool use_coro_read_ = false;
 #if USE_COROUTINES
   AsyncFileReader reader_;
   SingleThreadExecutor executor_;

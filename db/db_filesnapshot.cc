@@ -252,7 +252,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
         "capturing live files. Retry with flush enabled.");
   }
   if (flush_memtable) {
-    wal_locked = lock_wal_count_ > 0;
+    wal_locked = !lock_wal_owner_thread_id_counts_.empty();
     if (wal_locked) {
       if (needs_blob_direct_write_flush) {
         mutex_.Unlock();
@@ -260,8 +260,12 @@ Status DBImpl::GetLiveFilesStorageInfo(
             "Blob direct write requires flushing active blob files before "
             "capturing live files. Retry with WAL unlocked.");
       }
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Can't FlushForGetLiveFiles while WAL is locked");
+    }
+    if (wal_locked && !has_unpersisted_data_.load(std::memory_order_relaxed)) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Skipping FlushForGetLiveFiles while WAL is locked and all data is "
+          "already persisted");
     } else {
       Status status = FlushForGetLiveFiles(opts.atomic_flush);
       if (!status.ok()) {

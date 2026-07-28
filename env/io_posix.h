@@ -34,6 +34,7 @@
 #include <atomic>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 
 #include "port/lang.h"
@@ -44,6 +45,14 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
+
+#if USE_COROUTINES
+#include "folly/io/async/Liburing.h"
+
+namespace folly {
+class EventBaseManager;
+}  // namespace folly
+#endif  // USE_COROUTINES
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -407,6 +416,9 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   int fd_;
   bool use_direct_io_;
   size_t logical_sector_size_;
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+  folly::EventBaseManager* read_event_base_manager_;
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 #if defined(ROCKSDB_IOURING_PRESENT)
   ThreadLocalPtr* thread_local_async_read_io_urings_;
   ThreadLocalPtr* thread_local_multi_read_io_urings_;
@@ -414,7 +426,11 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        size_t logical_block_size, const EnvOptions& options
+                        size_t logical_block_size, const FileOptions& options
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+                        ,
+                        folly::EventBaseManager* read_event_base_manager
+#endif
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
                         ThreadLocalPtr* thread_local_async_read_io_urings,
@@ -447,6 +463,12 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                              void* cb_arg, void** io_handle,
                              IOHandleDeleter* del_fn,
                              IODebugContext* dbg) override;
+
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+  void SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
+                       std::function<void(FSReadRequest&)> cb,
+                       IODebugContext* dbg) override;
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
   virtual IOStatus GetFileSize(uint64_t* result) override;
 };

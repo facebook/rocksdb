@@ -28,4 +28,13 @@ public class FlushOptionsTest {
       assertThat(flushOptions.allowWriteStall()).isTrue();
     }
   }
+
+  @Test
+  public void listenerWait() {
+    try (final FlushOptions flushOptions = new FlushOptions()) {
+      assertThat(flushOptions.listenerWait()).isFalse();
+      flushOptions.setListenerWait(true);
+      assertThat(flushOptions.listenerWait()).isTrue();
+    }
+  }
 }

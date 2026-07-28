@@ -10,6 +10,9 @@
 #include <cstring>
 
 #include "db/db_test_util.h"
+#include "db/log_writer.h"
+#include "db/version_edit.h"
+#include "file/writable_file_writer.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/filter_policy.h"
@@ -78,6 +81,7 @@ class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  private:
   const int num_keys_in_block_;
 };
+
 }  // namespace
 
 static bool enable_io_uring = true;
@@ -86,6 +90,15 @@ extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
 class DBBasicTest : public DBTestBase {
  public:
   DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
+};
+
+class DBBasicGetWithParam : public DBBasicTest,
+                            public testing::WithParamInterface<bool> {
+ public:
+  DBBasicGetWithParam() : DBBasicTest(), use_coroutine_(GetParam()) {}
+
+ protected:
+  const bool use_coroutine_;
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -207,8 +220,9 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsPerCFWhenLogAdvances) {
   ASSERT_EQ("v", Get("k"));
 }
 
-// With track_and_verify_wals_in_manifest=true, the wal_deletion edit
-// must STILL be emitted (the DeleteWalsBefore record is required).
+// With track_and_verify_wals_in_manifest=true and a clean close, the
+// close-time code already advances WalSet markers. Recovery's
+// DeleteWalsBefore is redundant and should be skipped.
 TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -224,7 +238,7 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryPreservesWalTracking) {
   Reopen(options);
   counters.Uninstall();
 
-  ASSERT_EQ(0, counters.wal_deletion.load());
+  ASSERT_EQ(1, counters.wal_deletion.load());
 }
 
 // best_efforts_recovery requires a fresh MANIFEST + CURRENT to be
@@ -497,8 +511,57 @@ TEST_F(DBBasicTest, OptimizeManifestForRecoveryEmitsWalDeletionWhenTracking) {
   counters.Uninstall();
 
   ASSERT_GT(counters.per_cf.load(), 0);
-  ASSERT_EQ(1, records.load());
+  ASSERT_EQ(0, records.load());
   ASSERT_GT(dbfull()->GetVersionSet()->GetWalSet().GetMinWalNumberToKeep(), 0u);
+  ASSERT_EQ("v", Get("k"));
+}
+
+// Zero MANIFEST growth on clean reopen with optimize_manifest_for_recovery=1,
+// reuse_manifest_on_open=1, and track_and_verify_wals_in_manifest=1.
+// Regression test for the stress test failure where a redundant
+// DeleteWalsBefore edit was written during recovery.
+TEST_F(DBBasicTest, OptimizeManifestForRecoveryZeroGrowthOnCleanReopen) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.reuse_manifest_on_open = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.avoid_flush_during_recovery = true;
+  options.write_dbid_to_manifest = false;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Get MANIFEST size after close
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  uint64_t manifest_size_before = 0;
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      ASSERT_OK(env_->GetFileSize(dbname_ + "/" + f, &manifest_size_before));
+      break;
+    }
+  }
+  ASSERT_GT(manifest_size_before, 0u);
+
+  // Reopen - should not grow MANIFEST at all
+  Reopen(options);
+
+  // Get MANIFEST size after reopen
+  files.clear();
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  uint64_t manifest_size_after = 0;
+  for (const auto& f : files) {
+    if (f.find("MANIFEST-") == 0) {
+      ASSERT_OK(env_->GetFileSize(dbname_ + "/" + f, &manifest_size_after));
+      break;
+    }
+  }
+
+  ASSERT_EQ(manifest_size_before, manifest_size_after)
+      << "MANIFEST grew by " << (manifest_size_after - manifest_size_before)
+      << " bytes on clean reopen; expected zero growth";
   ASSERT_EQ("v", Get("k"));
 }
 
@@ -958,6 +1021,92 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   ASSERT_EQ("v", Get("k"));
 }
 
+// Regression test for corrupted atomic group when reuse_manifest_on_open
+// appends after an incomplete atomic group at the MANIFEST tail.
+// Before the fix, last_valid_record_end_ included records from an incomplete
+// trailing atomic group, causing ReopenManifestForAppend to append new records
+// after them. On subsequent recovery the incomplete group followed by new
+// records triggers "corrupted atomic group".
+TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.reuse_manifest_on_open = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Find the MANIFEST file.
+  std::string manifest_path;
+  {
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& f : files) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
+        manifest_path = dbname_ + "/" + f;
+        break;
+      }
+    }
+  }
+  ASSERT_FALSE(manifest_path.empty());
+
+  // Append an incomplete atomic group (2 records of a 3-member group) to the
+  // MANIFEST. These are valid log records with correct CRCs but the atomic
+  // group is not complete (missing the third record with remaining_entries=0).
+  {
+    uint64_t file_size;
+    ASSERT_OK(env_->GetFileSize(manifest_path, &file_size));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<FSWritableFile> fs_file;
+    ASSERT_OK(fs->ReopenWritableFile(manifest_path, FileOptions(), &fs_file,
+                                     nullptr));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(fs_file), manifest_path, FileOptions()));
+    log::Writer log_writer(std::move(file_writer), 0, false, false,
+                           kNoCompression, false, file_size % log::kBlockSize);
+
+    // Write 2 records of a 3-member atomic group
+    VersionEdit edit1;
+    edit1.SetLogNumber(0);
+    edit1.SetNextFile(100);
+    edit1.SetLastSequence(100);
+    edit1.MarkAtomicGroup(2);  // remaining_entries=2, expects 3 total
+    std::string record1;
+    ASSERT_TRUE(edit1.EncodeTo(&record1, 0));
+    ASSERT_OK(log_writer.AddRecord(WriteOptions(), record1));
+
+    VersionEdit edit2;
+    edit2.SetLogNumber(0);
+    edit2.SetNextFile(100);
+    edit2.SetLastSequence(100);
+    edit2.MarkAtomicGroup(1);  // remaining_entries=1
+    std::string record2;
+    ASSERT_TRUE(edit2.EncodeTo(&record2, 0));
+    ASSERT_OK(log_writer.AddRecord(WriteOptions(), record2));
+    // Deliberately NOT writing the third record (remaining_entries=0)
+  }
+
+  // Reopen: recovery should succeed (incomplete trailing group is ignored).
+  // With the fix, ReopenManifestForAppend will NOT reuse the MANIFEST because
+  // manifest_last_valid_record_end_ < physical_size (the incomplete group
+  // records are excluded from the valid end).
+  Reopen(options);
+  ASSERT_EQ("v", Get("k"));
+
+  // Write new data to create new MANIFEST records.
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  Close();
+
+  // Final reopen: must NOT fail with "corrupted atomic group".
+  Reopen(options);
+  ASSERT_EQ("v", Get("k"));
+  ASSERT_EQ("v2", Get("k2"));
+  Close();
+}
+
 TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
   if (!IsDirectIOSupported()) {
     ROCKSDB_GTEST_BYPASS("Direct IO not supported");
@@ -1320,27 +1469,36 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 
-TEST_F(DBBasicTest, PutDeleteGet) {
+TEST_P(DBBasicGetWithParam, PutDeleteGet) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
-    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v1", Get(1, "foo", nullptr, use_coroutine_));
     ASSERT_OK(Put(1, "foo", "v2"));
-    ASSERT_EQ("v2", Get(1, "foo"));
+    ASSERT_EQ("v2", Get(1, "foo", nullptr, use_coroutine_));
     ASSERT_OK(Delete(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo", nullptr, use_coroutine_));
+
+    ASSERT_OK(Put("default_foo", "default_v1"));
+    ASSERT_EQ("default_v1",
+              Get("default_foo", static_cast<const Snapshot*>(nullptr),
+                  use_coroutine_));
+
+    PinnableSlice default_pinnable_value;
+    ASSERT_OK(Get("default_foo", &default_pinnable_value, use_coroutine_));
+    ASSERT_EQ("default_v1", default_pinnable_value.ToString());
   } while (ChangeOptions());
 }
 
-TEST_F(DBBasicTest, PutSingleDeleteGet) {
+TEST_P(DBBasicGetWithParam, PutSingleDeleteGet) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
-    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v1", Get(1, "foo", nullptr, use_coroutine_));
     ASSERT_OK(Put(1, "foo2", "v2"));
-    ASSERT_EQ("v2", Get(1, "foo2"));
+    ASSERT_EQ("v2", Get(1, "foo2", nullptr, use_coroutine_));
     ASSERT_OK(SingleDelete(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo", nullptr, use_coroutine_));
     // Ski FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
@@ -1348,40 +1506,40 @@ TEST_F(DBBasicTest, PutSingleDeleteGet) {
                          kSkipMergePut));
 }
 
-TEST_F(DBBasicTest, TimedPutBasic) {
+TEST_P(DBBasicGetWithParam, TimedPutBasic) {
   do {
     Options options = CurrentOptions();
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(TimedPut(1, "foo", "v1", /*write_unix_time=*/0));
     // Read from memtable
-    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v1", Get(1, "foo", nullptr, use_coroutine_));
     ASSERT_OK(TimedPut(1, "foo", "v2.1", /*write_unix_time=*/3));
-    ASSERT_EQ("v2.1", Get(1, "foo"));
+    ASSERT_EQ("v2.1", Get(1, "foo", nullptr, use_coroutine_));
 
     // Read from sst file
     ASSERT_OK(db_->Flush(FlushOptions(), handles_[1]));
     ASSERT_OK(Merge(1, "foo", "v2.2"));
-    ASSERT_EQ("v2.1,v2.2", Get(1, "foo"));
+    ASSERT_EQ("v2.1,v2.2", Get(1, "foo", nullptr, use_coroutine_));
     ASSERT_OK(Delete(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo", nullptr, use_coroutine_));
 
     ASSERT_OK(TimedPut(1, "bar", "bv1", /*write_unix_time=*/0));
-    ASSERT_EQ("bv1", Get(1, "bar"));
+    ASSERT_EQ("bv1", Get(1, "bar", nullptr, use_coroutine_));
     ASSERT_OK(TimedPut(1, "baz", "bzv1", /*write_unix_time=*/0));
-    ASSERT_EQ("bzv1", Get(1, "baz"));
+    ASSERT_EQ("bzv1", Get(1, "baz", nullptr, use_coroutine_));
     if (option_config_ != kRowCache) {
       std::string range_del_begin = "b";
       std::string range_del_end = "baz";
       Slice begin_rdel = range_del_begin, end_rdel = range_del_end;
       ASSERT_OK(
           db_->DeleteRange(WriteOptions(), handles_[1], begin_rdel, end_rdel));
-      ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
+      ASSERT_EQ("NOT_FOUND", Get(1, "bar", nullptr, use_coroutine_));
     }
 
-    ASSERT_EQ("bzv1", Get(1, "baz"));
+    ASSERT_EQ("bzv1", Get(1, "baz", nullptr, use_coroutine_));
     ASSERT_OK(SingleDelete(1, "baz"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "baz"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "baz", nullptr, use_coroutine_));
   } while (ChangeOptions(kSkipPlainTable));
 }
 
@@ -1407,17 +1565,17 @@ TEST_F(DBBasicTest, EmptyFlush) {
                          kSkipMergePut));
 }
 
-TEST_F(DBBasicTest, GetFromVersions) {
+TEST_P(DBBasicGetWithParam, GetFromVersions) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Flush(1));
-    ASSERT_EQ("v1", Get(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
+    ASSERT_EQ("v1", Get(1, "foo", nullptr, use_coroutine_));
+    ASSERT_EQ("NOT_FOUND", Get(0, "foo", nullptr, use_coroutine_));
   } while (ChangeOptions());
 }
 
-TEST_F(DBBasicTest, GetSnapshot) {
+TEST_P(DBBasicGetWithParam, GetSnapshot) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   do {
@@ -1428,11 +1586,11 @@ TEST_F(DBBasicTest, GetSnapshot) {
       ASSERT_OK(Put(1, key, "v1"));
       const Snapshot* s1 = db_->GetSnapshot();
       ASSERT_OK(Put(1, key, "v2"));
-      ASSERT_EQ("v2", Get(1, key));
-      ASSERT_EQ("v1", Get(1, key, s1));
+      ASSERT_EQ("v2", Get(1, key, nullptr, use_coroutine_));
+      ASSERT_EQ("v1", Get(1, key, s1, use_coroutine_));
       ASSERT_OK(Flush(1));
-      ASSERT_EQ("v2", Get(1, key));
-      ASSERT_EQ("v1", Get(1, key, s1));
+      ASSERT_EQ("v2", Get(1, key, nullptr, use_coroutine_));
+      ASSERT_EQ("v1", Get(1, key, s1, use_coroutine_));
       db_->ReleaseSnapshot(s1);
     }
   } while (ChangeOptions());
@@ -1689,7 +1847,7 @@ TEST_F(DBBasicTest, LockFileRecovery) {
   }
 }
 
-TEST_F(DBBasicTest, Snapshot) {
+TEST_P(DBBasicGetWithParam, Snapshot) {
   env_->SetMockSleep();
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
@@ -1723,31 +1881,31 @@ TEST_F(DBBasicTest, Snapshot) {
 
       ASSERT_OK(Put(0, "foo", "0v4"));
       ASSERT_OK(Put(1, "foo", "1v4"));
-      ASSERT_EQ("0v1", Get(0, "foo", s1));
-      ASSERT_EQ("1v1", Get(1, "foo", s1));
-      ASSERT_EQ("0v2", Get(0, "foo", s2));
-      ASSERT_EQ("1v2", Get(1, "foo", s2));
-      ASSERT_EQ("0v3", Get(0, "foo", s3.snapshot()));
-      ASSERT_EQ("1v3", Get(1, "foo", s3.snapshot()));
-      ASSERT_EQ("0v4", Get(0, "foo"));
-      ASSERT_EQ("1v4", Get(1, "foo"));
+      ASSERT_EQ("0v1", Get(0, "foo", s1, use_coroutine_));
+      ASSERT_EQ("1v1", Get(1, "foo", s1, use_coroutine_));
+      ASSERT_EQ("0v2", Get(0, "foo", s2, use_coroutine_));
+      ASSERT_EQ("1v2", Get(1, "foo", s2, use_coroutine_));
+      ASSERT_EQ("0v3", Get(0, "foo", s3.snapshot(), use_coroutine_));
+      ASSERT_EQ("1v3", Get(1, "foo", s3.snapshot(), use_coroutine_));
+      ASSERT_EQ("0v4", Get(0, "foo", nullptr, use_coroutine_));
+      ASSERT_EQ("1v4", Get(1, "foo", nullptr, use_coroutine_));
     }
 
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
-    ASSERT_EQ("0v1", Get(0, "foo", s1));
-    ASSERT_EQ("1v1", Get(1, "foo", s1));
-    ASSERT_EQ("0v2", Get(0, "foo", s2));
-    ASSERT_EQ("1v2", Get(1, "foo", s2));
-    ASSERT_EQ("0v4", Get(0, "foo"));
-    ASSERT_EQ("1v4", Get(1, "foo"));
+    ASSERT_EQ("0v1", Get(0, "foo", s1, use_coroutine_));
+    ASSERT_EQ("1v1", Get(1, "foo", s1, use_coroutine_));
+    ASSERT_EQ("0v2", Get(0, "foo", s2, use_coroutine_));
+    ASSERT_EQ("1v2", Get(1, "foo", s2, use_coroutine_));
+    ASSERT_EQ("0v4", Get(0, "foo", nullptr, use_coroutine_));
+    ASSERT_EQ("1v4", Get(1, "foo", nullptr, use_coroutine_));
 
     db_->ReleaseSnapshot(s1);
-    ASSERT_EQ("0v2", Get(0, "foo", s2));
-    ASSERT_EQ("1v2", Get(1, "foo", s2));
-    ASSERT_EQ("0v4", Get(0, "foo"));
-    ASSERT_EQ("1v4", Get(1, "foo"));
+    ASSERT_EQ("0v2", Get(0, "foo", s2, use_coroutine_));
+    ASSERT_EQ("1v2", Get(1, "foo", s2, use_coroutine_));
+    ASSERT_EQ("0v4", Get(0, "foo", nullptr, use_coroutine_));
+    ASSERT_EQ("1v4", Get(1, "foo", nullptr, use_coroutine_));
     ASSERT_EQ(1U, GetNumSnapshots());
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
@@ -1755,10 +1913,18 @@ TEST_F(DBBasicTest, Snapshot) {
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ(0U, GetNumSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), 0);
-    ASSERT_EQ("0v4", Get(0, "foo"));
-    ASSERT_EQ("1v4", Get(1, "foo"));
+    ASSERT_EQ("0v4", Get(0, "foo", nullptr, use_coroutine_));
+    ASSERT_EQ("1v4", Get(1, "foo", nullptr, use_coroutine_));
   } while (ChangeOptions());
 }
+
+#if USE_COROUTINES
+INSTANTIATE_TEST_CASE_P(DBBasicGetWithParam, DBBasicGetWithParam,
+                        testing::Bool());
+#else
+INSTANTIATE_TEST_CASE_P(DBBasicGetWithParam, DBBasicGetWithParam,
+                        testing::Values(false));
+#endif  // USE_COROUTINES
 
 class DBBasicMultiConfigs : public DBBasicTest,
                             public ::testing::WithParamInterface<int> {
@@ -3708,11 +3874,15 @@ INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 #if USE_COROUTINES
-class DBMultiGetAsyncIOTest : public DBBasicTest,
-                              public ::testing::WithParamInterface<bool> {
+class DBMultiGetAsyncIOTest
+    : public DBBasicTest,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBMultiGetAsyncIOTest()
-      : DBBasicTest(), statistics_(ROCKSDB_NAMESPACE::CreateDBStatistics()) {
+      : DBBasicTest(),
+        optimize_multiget_for_io_(std::get<0>(GetParam())),
+        use_coroutine_(std::get<1>(GetParam())),
+        statistics_(ROCKSDB_NAMESPACE::CreateDBStatistics()) {
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10));
     options_ = CurrentOptions();
@@ -3786,6 +3956,20 @@ class DBMultiGetAsyncIOTest : public DBBasicTest,
   const std::shared_ptr<Statistics>& statistics() { return statistics_; }
 
  protected:
+  void AssertMultiGetIOBatchSize(uint64_t expected_count,
+                                 uint64_t expected_max) {
+    HistogramData multiget_io_batch_size;
+    statistics()->histogramData(MULTIGET_IO_BATCH_SIZE,
+                                &multiget_io_batch_size);
+    ASSERT_EQ(multiget_io_batch_size.count, expected_count);
+    ASSERT_EQ(multiget_io_batch_size.max, expected_max);
+  }
+
+  bool UseCoroutineRead() const {
+    return use_coroutine_ &&
+           options_.env->GetFileSystem()->GetReadExecutor() != nullptr;
+  }
+
   void PrepareDBForTest() {
 #ifdef ROCKSDB_IOURING_PRESENT
     Reopen(options_);
@@ -3801,6 +3985,9 @@ class DBMultiGetAsyncIOTest : public DBBasicTest,
 
   void ReopenDB() { Reopen(options_); }
 
+  const bool optimize_multiget_for_io_;
+  const bool use_coroutine_;
+
  private:
   std::shared_ptr<Statistics> statistics_;
   Options options_;
@@ -3809,39 +3996,28 @@ class DBMultiGetAsyncIOTest : public DBBasicTest,
 TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   // All 3 keys in L0. The L0 files should be read serially.
   std::vector<std::string> key_strs{Key(0), Key(40), Key(80)};
-  std::vector<Slice> keys{key_strs[0], key_strs[1], key_strs[2]};
-  std::vector<PinnableSlice> values(key_strs.size());
-  std::vector<Status> statuses(key_strs.size());
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 3);
-  ASSERT_OK(statuses[0]);
-  ASSERT_OK(statuses[1]);
-  ASSERT_OK(statuses[2]);
   ASSERT_EQ(values[0], "val_l0_" + std::to_string(0));
   ASSERT_EQ(values[1], "val_l0_" + std::to_string(40));
   ASSERT_EQ(values[2], "val_l0_" + std::to_string(80));
 
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
-  // With async IO, lookups will happen in parallel for each key
 #ifdef ROCKSDB_IOURING_PRESENT
-  if (GetParam()) {
-    ASSERT_EQ(multiget_io_batch_size.count, 1);
-    ASSERT_EQ(multiget_io_batch_size.max, 3);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  } else if (optimize_multiget_for_io_) {
+    AssertMultiGetIOBatchSize(1, 3);
     ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
   } else {
     // Without Async IO, MultiGet will call MultiRead 3 times, once for each
     // L0 file
-    ASSERT_EQ(multiget_io_batch_size.count, 3);
+    AssertMultiGetIOBatchSize(3, 1);
   }
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
@@ -3849,64 +4025,58 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
-  key_strs.push_back(Key(33));
-  key_strs.push_back(Key(54));
-  key_strs.push_back(Key(102));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  keys.emplace_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(33), Key(54), Key(102)};
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::OK());
-  ASSERT_EQ(statuses[1], Status::OK());
-  ASSERT_EQ(statuses[2], Status::OK());
   ASSERT_EQ(values[0], "val_l1_" + std::to_string(33));
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
 #ifdef ROCKSDB_IOURING_PRESENT
-  // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 3);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+  } else {
+    // A batch of 3 async IOs is expected, one for each overlapping file in L1.
+    AssertMultiGetIOBatchSize(1, 3);
+  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 6 : 3);
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
+TEST_P(DBMultiGetAsyncIOTest, SingleGetFromL1UsesCoroutineRead) {
+  int coroutine_read_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync",
+      [&](void*) { ++coroutine_read_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PrepareDBForTest();
+
+  ASSERT_EQ(
+      "val_l1_" + std::to_string(33),
+      Get(Key(33), static_cast<const Snapshot*>(nullptr), use_coroutine_));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  if (UseCoroutineRead()) {
+    ASSERT_GT(coroutine_read_count, 0);
+  } else {
+    ASSERT_EQ(coroutine_read_count, 0);
+  }
+}
+
 #ifdef ROCKSDB_IOURING_PRESENT
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
-  key_strs.push_back(Key(33));
-  key_strs.push_back(Key(54));
-  key_strs.push_back(Key(102));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  keys.emplace_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(33), Key(54), Key(102)};
 
   int count = 0;
   SyncPoint::GetInstance()->SetCallBack(
@@ -3935,147 +4105,100 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::OK());
-  ASSERT_EQ(statuses[1], Status::OK());
-  ASSERT_EQ(statuses[2], Status::IOError());
+  ASSERT_EQ(values[0], "val_l1_" + std::to_string(33));
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
+  ASSERT_EQ(values[2], Status::IOError().ToString());
 
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
-  // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(2, 1);
+  } else {
+    // A batch of 3 async IOs is expected, one for each overlapping file in L1.
+    AssertMultiGetIOBatchSize(1, 2);
+  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 5 : 2);
 }
 #endif  // ROCKSDB_IOURING_PRESENT
 
 TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
   // 21 is the last key in the first L1 file
-  key_strs.push_back(Key(21));
-  key_strs.push_back(Key(54));
-  key_strs.push_back(Key(102));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  keys.emplace_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(21), Key(54), Key(102)};
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::OK());
-  ASSERT_EQ(statuses[1], Status::OK());
-  ASSERT_EQ(statuses[2], Status::OK());
   ASSERT_EQ(values[0], "val_l1_" + std::to_string(21));
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
 #ifdef ROCKSDB_IOURING_PRESENT
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
   // Since the first MultiGet key is the last key in a file, the MultiGet is
   // expected to lookup in that file first, before moving on to other files.
   // So the first file lookup will issue one async read, and the next lookup
   // will lookup 2 files in parallel and issue 2 async reads
-  ASSERT_EQ(multiget_io_batch_size.count, 2);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+  } else {
+    AssertMultiGetIOBatchSize(2, 2);
+  }
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
   // 33 and 102 are in L1, and 56 is in L2
-  key_strs.push_back(Key(33));
-  key_strs.push_back(Key(56));
-  key_strs.push_back(Key(102));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  keys.emplace_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(33), Key(56), Key(102)};
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::OK());
-  ASSERT_EQ(statuses[1], Status::OK());
-  ASSERT_EQ(statuses[2], Status::OK());
   ASSERT_EQ(values[0], "val_l1_" + std::to_string(33));
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(56));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
 #ifdef ROCKSDB_IOURING_PRESENT
-  HistogramData multiget_io_batch_size;
-
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
-
   // There are 2 keys in L1 in twp separate files, and 1 in L2. With
   // optimize_multiget_for_io, all three lookups will happen in parallel.
   // Otherwise, the L2 lookup will happen after L1.
-  ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
-  ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
+  if (UseCoroutineRead()) {
+    AssertMultiGetIOBatchSize(3, 1);
+  } else {
+    AssertMultiGetIOBatchSize(optimize_multiget_for_io_ ? 1 : 2,
+                              optimize_multiget_for_io_ ? 3 : 2);
+  }
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
   // 19 and 26 are in L2, but overlap with L0 and L1 file ranges
-  key_strs.push_back(Key(19));
-  key_strs.push_back(Key(26));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(19), Key(26)};
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 2);
-  ASSERT_EQ(statuses[0], Status::OK());
-  ASSERT_EQ(statuses[1], Status::OK());
   ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
 
 #ifdef ROCKSDB_IOURING_PRESENT
-  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+  // Bloom filters in L0/L1 avoid the coroutine calls in those levels. The
+  // coroutine path counts every per-file MultiGetFromSST coroutine (including
+  // serial reads), whereas the async_io path counts only the parallel overlap
+  // batch, so the coroutine path observes one more.
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 3 : 2);
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 #endif  // ROCKSDB_IOURING_PRESENT
@@ -4083,62 +4206,35 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
 
 #ifdef ROCKSDB_IOURING_PRESENT
 TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
   // 139 and 163 are in L2, but overlap with a range deletes in L1
-  key_strs.push_back(Key(139));
-  key_strs.push_back(Key(163));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(139), Key(163)};
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 2);
-  ASSERT_EQ(statuses[0], Status::NotFound());
-  ASSERT_EQ(statuses[1], Status::NotFound());
+  ASSERT_EQ(values[0], "NOT_FOUND");
+  ASSERT_EQ(values[1], "NOT_FOUND");
 
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
   // 139 and 163 are in L2, but overlap with a range deletes in L1
-  key_strs.push_back(Key(139));
-  key_strs.push_back(Key(144));
-  key_strs.push_back(Key(163));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  keys.emplace_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(139), Key(144), Key(163)};
 
   PrepareDBForTest();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
-  ASSERT_EQ(values.size(), keys.size());
-  ASSERT_EQ(statuses[0], Status::NotFound());
-  ASSERT_EQ(statuses[1], Status::OK());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(values[0], "NOT_FOUND");
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(144));
-  ASSERT_EQ(statuses[2], Status::NotFound());
+  ASSERT_EQ(values[2], "NOT_FOUND");
 
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
@@ -4146,32 +4242,18 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
 #endif  // ROCKSDB_IOURING_PRESENT
 
 TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
-  key_strs.push_back(Key(33));
-  key_strs.push_back(Key(54));
-  key_strs.push_back(Key(102));
-  keys.emplace_back(key_strs[0]);
-  keys.emplace_back(key_strs[1]);
-  keys.emplace_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(33), Key(54), Key(102)};
 
   enable_io_uring = false;
   ReopenDB();
 
-  ReadOptions ro;
-  ro.async_io = true;
-  ro.optimize_multiget_for_io = GetParam();
-  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-                     keys.data(), values.data(), statuses.data());
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::OK());
-  ASSERT_EQ(statuses[1], Status::OK());
-  ASSERT_EQ(statuses[2], Status::OK());
+  ASSERT_EQ(values[0], "val_l1_" + std::to_string(33));
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
+  ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
   HistogramData async_read_bytes;
 
@@ -4179,11 +4261,17 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
 
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(async_read_bytes.count, 0);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  const uint64_t coroutine_count =
+      statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT);
+  if (UseCoroutineRead()) {
+    ASSERT_GT(coroutine_count, 0);
+  } else {
+    ASSERT_EQ(coroutine_count, 0);
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
-                        testing::Bool());
+                        testing::Combine(testing::Bool(), testing::Bool()));
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {
@@ -5459,9 +5547,9 @@ class DBBasicTestMultiGet : public DBTestBase {
   std::vector<std::string> cf_names_;
 };
 
-class DBBasicTestWithParallelIO : public DBBasicTestMultiGet,
-                                  public testing::WithParamInterface<
-                                      std::tuple<bool, bool, bool, uint32_t>> {
+class DBBasicTestWithParallelIO : public testing::WithParamInterface<
+                                      std::tuple<bool, bool, bool, uint32_t>>,
+                                  public DBBasicTestMultiGet {
  public:
   DBBasicTestWithParallelIO()
       : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,

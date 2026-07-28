@@ -179,20 +179,22 @@ Status TableCache::GetTableReader(
     } else {
       expected_unique_id = kNullUniqueId64x2;  // null ID == no verification
     }
+    TableReaderOptions table_reader_options(
+        ioptions_, mutable_cf_options.prefix_extractor,
+        mutable_cf_options.compression_manager.get(), file_options,
+        internal_comparator, mutable_cf_options.block_protection_bytes_per_key,
+        skip_filters, immortal_tables_, false /* force_direct_prefetch */,
+        level, block_cache_tracer_, max_file_size_for_l0_meta_pin,
+        db_session_id_, file_meta.fd.GetNumber(), expected_unique_id,
+        file_meta.fd.largest_seqno, file_meta.tail_size,
+        file_meta.user_defined_timestamps_persisted,
+        avoid_shared_metadata_cache);
+    // Route same-file ("embedded") blob reads through the CFD's BlobSource for
+    // caching + stats. nullptr in non-DB contexts (e.g. repair).
+    table_reader_options.blob_source = blob_source_;
     s = mutable_cf_options.table_factory->NewTableReader(
-        ro,
-        TableReaderOptions(
-            ioptions_, mutable_cf_options.prefix_extractor,
-            mutable_cf_options.compression_manager.get(), file_options,
-            internal_comparator,
-            mutable_cf_options.block_protection_bytes_per_key, skip_filters,
-            immortal_tables_, false /* force_direct_prefetch */, level,
-            block_cache_tracer_, max_file_size_for_l0_meta_pin, db_session_id_,
-            file_meta.fd.GetNumber(), expected_unique_id,
-            file_meta.fd.largest_seqno, file_meta.tail_size,
-            file_meta.user_defined_timestamps_persisted,
-            avoid_shared_metadata_cache),
-        std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
+        ro, table_reader_options, std::move(file_reader),
+        file_meta.fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }
@@ -589,93 +591,6 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
     RecordTick(ioptions_.stats, ROW_CACHE_MISS);
   }
   return found;
-}
-
-Status TableCache::Get(const ReadOptions& options,
-                       const InternalKeyComparator& internal_comparator,
-                       const FileMetaData& file_meta, const Slice& k,
-                       GetContext* get_context,
-                       const MutableCFOptions& mutable_cf_options,
-                       HistogramImpl* file_read_hist, bool skip_filters,
-                       int level, size_t max_file_size_for_l0_meta_pin) {
-  auto& fd = file_meta.fd;
-  std::string* row_cache_entry = nullptr;
-  bool done = false;
-  IterKey row_cache_key;
-  std::string row_cache_entry_buffer;
-
-  // Check row cache if enabled.
-  // Reuse row_cache_key sequence number when row cache hits.
-  Status s;
-  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
-    auto user_key = ExtractUserKey(k);
-    uint64_t cache_entry_seq_no =
-        CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
-    done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
-                           get_context, &s, cache_entry_seq_no);
-    if (!done) {
-      row_cache_entry = &row_cache_entry_buffer;
-    }
-  }
-  TEST_SYNC_POINT_CALLBACK("TableCache::Get::BeforeFindTable",
-                           const_cast<FileDescriptor*>(&fd));
-  TableReader* t = nullptr;
-  TypedHandle* handle = nullptr;
-  if (s.ok() && !done) {
-    s = FindTable(options, file_options_, internal_comparator, file_meta,
-                  &handle, mutable_cf_options, &t,
-                  options.read_tier == kBlockCacheTier /* no_io */,
-                  file_read_hist, skip_filters, level,
-                  true /* prefetch_index_and_filter_in_cache */,
-                  max_file_size_for_l0_meta_pin, file_meta.temperature,
-                  should_pin_table_handles_);
-    SequenceNumber* max_covering_tombstone_seq =
-        get_context->max_covering_tombstone_seq();
-    if (s.ok() && max_covering_tombstone_seq != nullptr &&
-        !options.ignore_range_deletions) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          t->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        SequenceNumber seq =
-            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k));
-        if (seq > *max_covering_tombstone_seq) {
-          *max_covering_tombstone_seq = seq;
-          if (get_context->NeedTimestamp()) {
-            get_context->SetTimestampFromRangeTombstone(
-                range_del_iter->timestamp());
-          }
-        }
-      }
-    }
-    if (s.ok()) {
-      get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      s = t->Get(options, k, get_context,
-                 mutable_cf_options.prefix_extractor.get(), skip_filters);
-      get_context->SetReplayLog(nullptr);
-    } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
-      // Couldn't find table in cache and couldn't open it because of no_io.
-      get_context->MarkKeyMayExist();
-      done = true;
-    }
-  }
-
-  // Put the replay log in row cache only if something was found.
-  if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
-    RowCacheInterface row_cache{ioptions_.row_cache.get()};
-    size_t charge = row_cache_entry->capacity() + sizeof(std::string);
-    auto row_ptr = new std::string(std::move(*row_cache_entry));
-    Status rcs = row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge);
-    if (!rcs.ok()) {
-      // If row cache is full, it's OK to continue, but we keep ownership of
-      // row_ptr.
-      delete row_ptr;
-    }
-  }
-
-  if (handle != nullptr) {
-    cache_.Release(handle);
-  }
-  return s;
 }
 
 void TableCache::UpdateRangeTombstoneSeqnums(

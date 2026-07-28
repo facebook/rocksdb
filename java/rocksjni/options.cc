@@ -8799,6 +8799,31 @@ jboolean Java_org_rocksdb_FlushOptions_allowWriteStall(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_FlushOptions
+ * Method:    setListenerWait
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_FlushOptions_setListenerWait(JNIEnv*, jclass,
+                                                   jlong jhandle,
+                                                   jboolean jlistener_wait) {
+  auto* flush_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::FlushOptions*>(jhandle);
+  flush_options->listener_wait = jlistener_wait == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    listenerWait
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_FlushOptions_listenerWait(JNIEnv*, jclass,
+                                                    jlong jhandle) {
+  auto* flush_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::FlushOptions*>(jhandle);
+  return static_cast<jboolean>(flush_options->listener_wait);
+}
+
+/*
+ * Class:     org_rocksdb_FlushOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */

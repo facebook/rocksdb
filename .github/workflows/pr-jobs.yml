@@ -314,6 +314,23 @@ jobs:
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
     - run: make clean
     - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - name: Install clang-format-21 for C API gen checks
+      run: apt-get update && apt-get install -y clang-format-21
+    - name: Check C API codegen (link-complete, backward-compatible, up to date)
+      # Run the make target in STRICT mode so this core CI job HARD-FAILS rather
+      # than silently skipping if a prerequisite (clang++, clang-format, or the
+      # compat baseline ref) is ever missing. See `make check-c-api-gen`.
+      run: |
+        # The container checkout is owned by a different user, so git refuses to
+        # operate on it ("dubious ownership") -- mark it safe for the `git fetch`
+        # and the `git show` the compat checker runs.
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        git config --global --add safe.directory '*'
+        git fetch --no-tags --depth=1 origin main
+        CXX=clang++-21 make check-c-api-gen \
+          CHECK_C_API_GEN_STRICT=1 \
+          API_COMPAT_REF=FETCH_HEAD \
+          CLANG_FORMAT_BINARY=clang-format-21
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -602,7 +619,6 @@ jobs:
     needs: config
     runs-on: macos-15-xlarge
     env:
-      JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
       ROCKSDB_DISABLE_JEMALLOC: 1
     steps:
     - uses: actions/checkout@v4.1.0
@@ -614,7 +630,7 @@ jobs:
         cache-key-prefix: macos-java
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
-    - uses: "./.github/actions/install-jdk8-on-macos"
+    - uses: "./.github/actions/setup-jdk-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: Set Java Environment
       run: |-
@@ -630,8 +646,6 @@ jobs:
     if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
-    env:
-      JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: maxim-lobanov/setup-xcode@v1.6.0
@@ -642,7 +656,7 @@ jobs:
         cache-key-prefix: macos-java-static
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
-    - uses: "./.github/actions/install-jdk8-on-macos"
+    - uses: "./.github/actions/setup-jdk-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: Set Java Environment
       run: |-
@@ -658,8 +672,6 @@ jobs:
     if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
-    env:
-      JAVA_HOME: "/Library/Java/JavaVirtualMachines/liberica-jdk-8.jdk/Contents/Home"
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: maxim-lobanov/setup-xcode@v1.6.0
@@ -670,7 +682,7 @@ jobs:
         cache-key-prefix: macos-java-static-universal
     - uses: "./.github/actions/increase-max-open-files-on-macos"
     - uses: "./.github/actions/install-gflags-on-macos"
-    - uses: "./.github/actions/install-jdk8-on-macos"
+    - uses: "./.github/actions/setup-jdk-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: Set Java Environment
       run: |-

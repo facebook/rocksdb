@@ -123,19 +123,18 @@ SharedState::SharedState(Env* env, StressTest* stress_test)
   }
 }
 
-bool SharedState::PushOperation(uint32_t tid, StressOperationType type) {
+bool SharedState::BeginOperation(uint32_t tid, StressOperationType type) {
   assert(tid < static_cast<uint32_t>(num_threads_));
   ThreadOperationState& state = thread_operation_states_[tid];
-  const uint32_t depth = state.depth.load(std::memory_order_relaxed);
-  assert(depth < kMaxThreadOperationStackDepth);
-  if (depth >= kMaxThreadOperationStackDepth) {
+  const uint32_t active_type =
+      state.active_type.load(std::memory_order_acquire);
+  assert(active_type == static_cast<uint32_t>(StressOperationType::kNone));
+  if (active_type != static_cast<uint32_t>(StressOperationType::kNone)) {
     return false;
   }
-  ThreadOperationFrame& frame = state.frames[depth];
-  frame.started_micros.store(env_->NowMicros(), std::memory_order_relaxed);
-  frame.active_type.store(static_cast<uint32_t>(type),
+  state.started_micros.store(env_->NowMicros(), std::memory_order_relaxed);
+  state.active_type.store(static_cast<uint32_t>(type),
                           std::memory_order_release);
-  state.depth.store(depth + 1, std::memory_order_release);
   return true;
 }
 
