@@ -139,10 +139,7 @@ int db_stress_tool(int argc, char** argv) {
     if (rc != 0) {
       return rc;
     }
-    if (FLAGS_validate_flags_only) {
-      return ValidateDbStressCoreOptionCompatibility();
-    }
-    return 0;
+    return ValidateDbStressCoreOptionCompatibility();
   };
   if (FLAGS_validate_flags_only) {
     return validate_flags();

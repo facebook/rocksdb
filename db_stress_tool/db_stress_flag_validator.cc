@@ -11,11 +11,15 @@
 
 #include "db_stress_tool/db_stress_flag_validator.h"
 
+#include <cassert>
 #include <iostream>
+#include <vector>
 
 #include "db_stress_tool/db_stress_common.h"
 #include "options/options_helper.h"
 #include "rocksdb/options.h"
+#include "rocksdb/utilities/options_util.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -47,26 +51,89 @@ int ValidateNumDbsFlags() {
   return 0;
 }
 
+void ApplyFlagOptionsForCompatibility(DBOptions* db_options,
+                                      ColumnFamilyOptions* cf_options) {
+  assert(db_options);
+  assert(cf_options);
+
+  db_options->allow_mmap_reads = FLAGS_mmap_read;
+  db_options->allow_mmap_writes = FLAGS_mmap_write;
+  db_options->use_direct_reads = FLAGS_use_direct_reads;
+  db_options->use_direct_io_for_compaction_reads =
+      FLAGS_use_direct_io_for_compaction_reads;
+  db_options->use_direct_io_for_flush_and_compaction =
+      FLAGS_use_direct_io_for_flush_and_compaction;
+  db_options->fail_on_option_compatibility_error =
+      FLAGS_fail_on_option_compatibility_error;
+  db_options->enable_pipelined_write = FLAGS_enable_pipelined_write;
+  db_options->unordered_write = FLAGS_unordered_write;
+  db_options->allow_concurrent_memtable_write =
+      FLAGS_allow_concurrent_memtable_write;
+  db_options->two_write_queues = FLAGS_two_write_queues;
+  db_options->best_efforts_recovery = FLAGS_best_efforts_recovery;
+
+  cf_options->enable_blob_files = FLAGS_enable_blob_files;
+  cf_options->enable_blob_direct_write = FLAGS_enable_blob_direct_write;
+  cf_options->enable_blob_garbage_collection =
+      FLAGS_enable_blob_garbage_collection;
+  cf_options->experimental_mempurge_threshold =
+      FLAGS_experimental_mempurge_threshold;
+  cf_options->inplace_update_support = FLAGS_inplace_update_support;
+  cf_options->min_tombstones_for_range_conversion =
+      FLAGS_min_tombstones_for_range_conversion;
+  if (FLAGS_user_timestamp_size > 0) {
+    cf_options->comparator = test::BytewiseComparatorWithU64TsWrapper();
+  }
+}
+
+Status BuildOptionsFileOptionsForCompatibility(
+    DBOptions* db_options, ColumnFamilyOptions* cf_options) {
+  assert(db_options);
+  assert(cf_options);
+
+  ConfigOptions config_options;
+  config_options.ignore_unknown_options = false;
+  config_options.input_strings_escaped = true;
+  config_options.env = raw_env;
+
+  std::vector<ColumnFamilyDescriptor> cf_descriptors;
+  Status s = LoadOptionsFromFile(config_options, FLAGS_options_file, db_options,
+                                 &cf_descriptors);
+  if (!s.ok()) {
+    return Status::InvalidArgument(
+        "Unable to load options file " + FLAGS_options_file, s.ToString());
+  }
+  if (cf_descriptors.empty()) {
+    return Status::InvalidArgument("Options file has no column families",
+                                   FLAGS_options_file);
+  }
+
+  *cf_options = cf_descriptors[0].options;
+  return Status::OK();
+}
+
+Status BuildOptionsForCompatibility(DBOptions* db_options,
+                                    ColumnFamilyOptions* cf_options) {
+  if (!FLAGS_options_file.empty()) {
+    Status s = BuildOptionsFileOptionsForCompatibility(db_options, cf_options);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  ApplyFlagOptionsForCompatibility(db_options, cf_options);
+  return Status::OK();
+}
+
 }  // namespace
 
 int ValidateDbStressCoreOptionCompatibility() {
   DBOptions db_options;
-  db_options.allow_mmap_reads = FLAGS_mmap_read;
-  db_options.allow_mmap_writes = FLAGS_mmap_write;
-  db_options.use_direct_reads = FLAGS_use_direct_reads;
-  db_options.use_direct_io_for_compaction_reads =
-      FLAGS_use_direct_io_for_compaction_reads;
-  db_options.use_direct_io_for_flush_and_compaction =
-      FLAGS_use_direct_io_for_flush_and_compaction;
-  db_options.fail_on_option_compatibility_error =
-      FLAGS_fail_on_option_compatibility_error;
-
   ColumnFamilyOptions cf_options;
-  cf_options.inplace_update_support = FLAGS_inplace_update_support;
-  cf_options.min_tombstones_for_range_conversion =
-      FLAGS_min_tombstones_for_range_conversion;
 
-  Status s = ValidateOptionCompatibility(db_options, cf_options);
+  Status s = BuildOptionsForCompatibility(&db_options, &cf_options);
+  if (s.ok()) {
+    s = ValidateOptionCompatibility(db_options, cf_options);
+  }
   if (!s.ok()) {
     std::cerr << "Error: " << s.ToString() << '\n';
     return 1;
@@ -180,32 +247,10 @@ int ValidateDbStressFlags() {
   if (FLAGS_enable_blob_direct_write) {
     // Blob direct write is intentionally validated as a reduced-scope stress
     // feature. We allow the WAL-disabled crash-test profile, including
-    // wide-column PutEntity/GetEntity coverage, but reject best-efforts
-    // recovery, parallel memtable/write-queue variants, transactions, remote
-    // compaction, and APIs/features that depend on active-file snapshotting or
-    // unsupported blob option transitions.
-    if (!FLAGS_enable_blob_files) {
-      return ReturnFlagValidationError(
-          "enable_blob_direct_write requires enable_blob_files");
-    }
-    if (FLAGS_allow_concurrent_memtable_write) {
-      return ReturnFlagValidationError(
-          "blob direct write stress requires "
-          "allow_concurrent_memtable_write=0");
-    }
-    if (FLAGS_enable_pipelined_write) {
-      return ReturnFlagValidationError(
-          "blob direct write stress does not support "
-          "enable_pipelined_write");
-    }
-    if (FLAGS_unordered_write) {
-      return ReturnFlagValidationError(
-          "blob direct write stress does not support unordered_write");
-    }
-    if (FLAGS_two_write_queues) {
-      return ReturnFlagValidationError(
-          "blob direct write stress does not support two_write_queues");
-    }
+    // wide-column PutEntity/GetEntity coverage, but reject transactions,
+    // remote compaction, and APIs/features that depend on active-file
+    // snapshotting or unsupported blob option transitions. Core RocksDB option
+    // compatibility checks cover product-level blob direct write constraints.
     if (FLAGS_use_blob_db) {
       return ReturnFlagValidationError(
           "blob direct write is only supported with integrated BlobDB");
@@ -214,24 +259,13 @@ int ValidateDbStressFlags() {
       return ReturnFlagValidationError(
           "blob direct write stress does not support merge");
     }
-    if (FLAGS_experimental_mempurge_threshold > 0.0) {
-      return ReturnFlagValidationError(
-          "blob direct write stress does not support MemPurge");
-    }
     if (FLAGS_user_timestamp_size > 0) {
       return ReturnFlagValidationError(
           "blob direct write stress does not support user-defined timestamps");
     }
-    if (FLAGS_allow_setting_blob_options_dynamically ||
-        FLAGS_enable_blob_garbage_collection) {
+    if (FLAGS_allow_setting_blob_options_dynamically) {
       return ReturnFlagValidationError(
-          "blob direct write stress does not support dynamic blob options or "
-          "blob GC");
-    }
-    if (FLAGS_best_efforts_recovery) {
-      return ReturnFlagValidationError(
-          "blob direct write stress supports disable_wal-based crash "
-          "testing, not best-efforts recovery");
+          "blob direct write stress does not support dynamic blob options");
     }
     if (FLAGS_remote_compaction_worker_threads > 0) {
       return ReturnFlagValidationError(

@@ -36,11 +36,11 @@ namespace {
 Status ReportOptionCompatibilityIssue(const DBOptions& db_opts,
                                       const std::string& message) {
   std::string full_message = "RocksDB option compatibility check: " + message;
+  ROCKS_LOG_WARN(db_opts.info_log, "%s", full_message.c_str());
   if (db_opts.fail_on_option_compatibility_error) {
     return Status::InvalidArgument(full_message);
   }
 
-  ROCKS_LOG_WARN(db_opts.info_log, "%s", full_message.c_str());
   return Status::OK();
 }
 
@@ -106,6 +106,51 @@ Status ValidateOptionCompatibility(const DBOptions& db_opts,
 
 Status ValidateColumnFamilyOptionCompatibility(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) {
+  const auto* ucmp = cf_opts.comparator;
+
+  if (cf_opts.enable_blob_direct_write) {
+    if (!cf_opts.enable_blob_files) {
+      return ReportOptionCompatibilityIssue(
+          db_opts, "enable_blob_direct_write requires enable_blob_files=true");
+    }
+    if (db_opts.enable_pipelined_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support pipelined writes.");
+    }
+    if (db_opts.allow_concurrent_memtable_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support concurrent memtable writes.");
+    }
+    if (db_opts.unordered_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support unordered writes.");
+    }
+    if (db_opts.two_write_queues) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support two write queues.");
+    }
+    if (cf_opts.experimental_mempurge_threshold > 0.0) {
+      return Status::NotSupported(
+          "Blob direct write does not support MemPurge.");
+    }
+    if (ucmp != nullptr && ucmp->timestamp_size() > 0) {
+      return Status::NotSupported(
+          "Blob direct write does not support user-defined timestamps.");
+    }
+    if (cf_opts.enable_blob_garbage_collection) {
+      return ReportOptionCompatibilityIssue(
+          db_opts,
+          "enable_blob_direct_write is incompatible with "
+          "enable_blob_garbage_collection");
+    }
+    if (db_opts.best_efforts_recovery) {
+      return ReportOptionCompatibilityIssue(
+          db_opts,
+          "enable_blob_direct_write is incompatible with "
+          "best_efforts_recovery");
+    }
+  }
+
   if (cf_opts.inplace_update_support &&
       cf_opts.min_tombstones_for_range_conversion > 0) {
     return ReportOptionCompatibilityIssue(
