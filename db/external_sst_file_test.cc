@@ -2496,34 +2496,78 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
 
   Status get_live_files_status[2];
   std::vector<LiveFileStorageInfo> live_files[2];
-  port::Thread get_live_files_thread_1([&] {
+  ThreadGuard get_live_files_thread_1(port::Thread([&] {
     LiveFilesStorageInfoOptions lfsi_opts;
     lfsi_opts.wal_size_for_flush = 0;
     lfsi_opts.atomic_flush = true;
     get_live_files_status[0] =
         db_->GetLiveFilesStorageInfo(lfsi_opts, &live_files[0]);
     get_live_files_done.fetch_add(1, std::memory_order_acq_rel);
-  });
-  port::Thread get_live_files_thread_2([&] {
+  }));
+  ThreadGuard get_live_files_thread_2(port::Thread([&] {
     LiveFilesStorageInfoOptions lfsi_opts;
     lfsi_opts.wal_size_for_flush = 0;
     lfsi_opts.atomic_flush = true;
     get_live_files_status[1] =
         db_->GetLiveFilesStorageInfo(lfsi_opts, &live_files[1]);
     get_live_files_done.fetch_add(1, std::memory_order_acq_rel);
-  });
+  }));
+  ThreadGuard ingest_thread;
 
   auto get_live_files_finished = [&] {
     return get_live_files_done.load(std::memory_order_acquire) == 2;
+  };
+  auto ingest_finished = [&] {
+    return ingest_done.load(std::memory_order_acquire);
   };
   auto wait_for_get_live_files_finished = [&] {
     return wait_or_cancel_background_work(get_live_files_finished,
                                           kSetupWaitMicros);
   };
-  auto join_get_live_files_threads = [&] {
-    get_live_files_thread_1.join();
-    get_live_files_thread_2.join();
+  auto wait_for_ingest_finished = [&](uint64_t timeout_micros) {
+    return wait_or_cancel_background_work(ingest_finished, timeout_micros);
   };
+  auto join_get_live_files_threads = [&] {
+    if (get_live_files_thread_1.GetThread().joinable()) {
+      get_live_files_thread_1.GetThread().join();
+    }
+    if (get_live_files_thread_2.GetThread().joinable()) {
+      get_live_files_thread_2.GetThread().join();
+    }
+  };
+  auto join_ingest_thread = [&] {
+    if (ingest_thread.GetThread().joinable()) {
+      ingest_thread.GetThread().join();
+    }
+  };
+
+  class CleanupGuard {
+   public:
+    explicit CleanupGuard(const std::function<void()>& cleanup)
+        : cleanup_(cleanup) {}
+
+    ~CleanupGuard() {
+      if (armed_) {
+        cleanup_();
+      }
+    }
+
+    void Disarm() { armed_ = false; }
+
+   private:
+    std::function<void()> cleanup_;
+    bool armed_ = true;
+  };
+
+  CleanupGuard cleanup_guard([&] {
+    wake_sleeping_task();
+    wait_for_get_live_files_finished();
+    if (ingest_thread.GetThread().joinable()) {
+      wait_for_ingest_finished(kSetupWaitMicros);
+    }
+    join_get_live_files_threads();
+    join_ingest_thread();
+  });
 
   const bool saw_both_atomic_flushes = wait_until(
       [&] {
@@ -2551,18 +2595,11 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
   ASSERT_OK(Put("ingest_key", "memtable_value"));
 
   Status ingest_status;
-  port::Thread ingest_thread([&] {
+  ingest_thread = ThreadGuard(port::Thread([&] {
     IngestExternalFileOptions ifo;
     ingest_status = db_->IngestExternalFile({external_file_path}, ifo);
     ingest_done.store(true, std::memory_order_release);
-  });
-
-  auto ingest_finished = [&] {
-    return ingest_done.load(std::memory_order_acquire);
-  };
-  auto wait_for_ingest_finished = [&](uint64_t timeout_micros) {
-    return wait_or_cancel_background_work(ingest_finished, timeout_micros);
-  };
+  }));
 
   const bool saw_ingest_wait = wait_until(
       [&] {
@@ -2580,7 +2617,7 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
     join_get_live_files_threads();
     const bool ingest_finished_after_cleanup =
         wait_for_ingest_finished(kSetupWaitMicros);
-    ingest_thread.join();
+    join_ingest_thread();
     EXPECT_OK(get_live_files_status[0]);
     EXPECT_OK(get_live_files_status[1]);
     EXPECT_OK(ingest_status);
@@ -2606,7 +2643,7 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
     const Status unblock_flush_status = db_->Flush(unblock_flush_options);
     const bool ingest_finished_after_unblock =
         wait_for_ingest_finished(kIngestWaitMicros);
-    ingest_thread.join();
+    join_ingest_thread();
     ASSERT_TRUE(sleeping_task_done);
     ASSERT_OK(get_live_files_status[0]);
     ASSERT_OK(get_live_files_status[1]);
@@ -2616,12 +2653,13 @@ TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
               "was deduped behind an older queued flush request";
   }
 
-  ingest_thread.join();
+  join_ingest_thread();
   ASSERT_TRUE(sleeping_task_done);
   ASSERT_OK(get_live_files_status[0]);
   ASSERT_OK(get_live_files_status[1]);
   ASSERT_OK(ingest_status);
   ASSERT_EQ("ingested_value", Get("ingest_key"));
+  cleanup_guard.Disarm();
 }
 
 TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
