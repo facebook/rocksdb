@@ -5835,7 +5835,7 @@ void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
 }
 }  // namespace
 
-Status DBImpl::DeleteObsoleteOptionsFiles() {
+Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
   std::vector<std::string> filenames;
   // use ordered map to store keep the filenames sorted from the newest
   // to the oldest.
@@ -5860,8 +5860,23 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
 
   // Keeps the latest 2 Options file
   const size_t kNumOptionsFilesKept = 2;
-  DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
-                           immutable_db_options_.info_log, GetEnv());
+  if (options_filenames.size() > kNumOptionsFilesKept) {
+    if (schedule_only) {
+      InstrumentedMutexLock l(&mutex_);
+      for (auto iter =
+               std::next(options_filenames.begin(), kNumOptionsFilesKept);
+           iter != options_filenames.end(); ++iter) {
+        const uint64_t file_number =
+            std::numeric_limits<uint64_t>::max() - iter->first;
+        SchedulePendingPurge(iter->second, GetName(), kOptionsFile, file_number,
+                             /*job_id=*/0);
+      }
+      SchedulePurge();
+    } else {
+      DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
+                               immutable_db_options_.info_log, GetEnv());
+    }
+  }
   return Status::OK();
 }
 
@@ -5901,18 +5916,42 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   }
 
   if (s.ok()) {
-    int my_disable_delete_obsolete_files;
+    enum class ObsoleteOptionsFileCleanup {
+      kSkip,
+      kDeleteNow,
+      kSchedule,
+    };
+    ObsoleteOptionsFileCleanup obsolete_options_file_cleanup =
+        ObsoleteOptionsFileCleanup::kSkip;
 
     {
       InstrumentedMutexLock l(&mutex_);
       versions_->options_file_number_ = options_file_number;
       versions_->options_file_size_ = options_file_size;
-      my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+      if (!disable_delete_obsolete_files_ && !is_remote_compaction_enabled) {
+        if (immutable_db_options_.avoid_unnecessary_blocking_io &&
+            !reject_new_background_jobs_) {
+          // DB::Open() sets `opened_successfully_` after WriteOptionsFile()
+          // returns, then schedules the deferred OPTIONS-file purge.
+          obsolete_options_file_cleanup =
+              opened_successfully_ ? ObsoleteOptionsFileCleanup::kSchedule
+                                   : ObsoleteOptionsFileCleanup::kSkip;
+        } else {
+          obsolete_options_file_cleanup =
+              ObsoleteOptionsFileCleanup::kDeleteNow;
+        }
+      }
     }
 
-    if (!my_disable_delete_obsolete_files && !is_remote_compaction_enabled) {
-      // TODO: Should we check for errors here?
-      DeleteObsoleteOptionsFiles().PermitUncheckedError();
+    if (obsolete_options_file_cleanup != ObsoleteOptionsFileCleanup::kSkip) {
+      Status obsolete_options_status =
+          DeleteObsoleteOptionsFiles(obsolete_options_file_cleanup ==
+                                     ObsoleteOptionsFileCleanup::kSchedule);
+      if (!obsolete_options_status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Unable to delete obsolete OPTIONS files: %s",
+                       obsolete_options_status.ToString().c_str());
+      }
     }
   }
 
