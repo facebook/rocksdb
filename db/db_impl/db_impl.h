@@ -1562,7 +1562,7 @@ class DBImpl : public DB {
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name,
                                      bool is_remote_compaction_enabled);
-  Status DeleteObsoleteOptionsFiles();
+  Status DeleteObsoleteOptionsFiles(bool schedule_only);
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
                                     FlushReason flush_reason);
