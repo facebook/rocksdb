@@ -1,0 +1,1 @@
+Fixed a bug where `BlobFileBuilder` passed an SST path to `OnBlobFileCompleted()` instead of the completed blob path during BlobDB garbage-collection compactions, causing incorrect `SstFileManager` accounting and compaction failures on filesystems where the SST was not yet pathname-visible.
