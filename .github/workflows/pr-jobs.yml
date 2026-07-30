@@ -86,7 +86,7 @@ jobs:
         SANITY_CHECK=1 LONG_TEST=1 tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #
   build-linux:
-    timeout-minutes: 2
+    timeout-minutes: 10
     if: needs.config.outputs.only_job == 'build-linux' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -100,10 +100,18 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: build-linux
-    - run: make V=1 J=32 -j32 check
+    - id: build_and_test
+      timeout-minutes: 2
+      continue-on-error: true
+      run: make V=1 J=32 -j32 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
+    - name: Convert build or test timeout to failure
+      if: always() && steps.build_and_test.outcome == 'failure'
+      run: |
+        echo "::error::The build and test step failed or timed out."
+        exit 1
   build-linux-cmake-mingw:
     timeout-minutes: 2
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
