@@ -13,7 +13,6 @@
 ### Performance Improvements
 * Reduced copying when reading wide-column entities that have blob-referenced columns, whether stored in separate blob files or embedded (same-file) as blob records in the same SST. On the point-lookup (`GetEntity`/`MultiGetEntity`) and blob-backed memtable/direct-write read paths, resolving these columns no longer re-serializes the whole entity into a fresh buffer: inline columns are referenced in place in the pinned entity and each resolved blob value is referenced in place from its fetched buffer. This is enabled by an internal change to `PinnableWideColumns` that lets its columns reference multiple backing buffers.
 
-
 ## 11.7.0 (07/16/2026)
 ### Public API Changes
 * Added `RangeLockManagerHandle::SetIsKilledCallback()`, a `std::function<bool()>` predicate polled during range-lock waits. When it returns true, a blocked `GetRangeLock()` wait returns promptly with `Status::Aborted()` instead of waiting for the lock timeout. Range-lock users that install no callback keep the original wait-until-grant-or-timeout behavior.
