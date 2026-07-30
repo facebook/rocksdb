@@ -7,7 +7,7 @@ inputs:
   timeout-seconds:
     description: Maximum time for the folly build command
     required: false
-    default: '21600'
+    default: '3600'
 runs:
   using: composite
   steps:
