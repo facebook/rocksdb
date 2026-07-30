@@ -244,6 +244,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
                      immutable_db_options_.listeners, dbname_) {
+#if USE_COROUTINES
+  immutable_db_options_.fs->SetReadIOExecutorThreads(
+      immutable_db_options_.read_io_executor_threads);
+#endif  // USE_COROUTINES
+
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -7568,8 +7573,7 @@ void DBImpl::GetAsync(const ReadOptions& options,
                       Status& status, AsyncCallback& callback) {
   const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
@@ -7620,8 +7624,7 @@ void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
                            const bool sorted_input, AsyncCallback& callback) {
   const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);

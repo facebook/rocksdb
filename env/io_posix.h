@@ -77,6 +77,10 @@ std::string IOErrorMsg(const std::string& context,
 // file_name can be left empty if it is not unkown.
 IOStatus IOError(const std::string& context, const std::string& file_name,
                  int err_number);
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+void SetCurrentThreadReadIOUringBackendAvailable();
+bool IsCurrentThreadReadIOUringBackendAvailable();
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 #if !defined(OS_WIN)
 bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset);
 #endif
@@ -465,7 +469,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                              IODebugContext* dbg) override;
 
 #if USE_COROUTINES && FOLLY_HAS_LIBURING
-  void SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
+  bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
                        std::function<void(FSReadRequest&)> cb,
                        IODebugContext* dbg) override;
 #endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
