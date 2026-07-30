@@ -9107,6 +9107,15 @@ int rocksdb_options_get_max_file_opening_threads(rocksdb_options_t* opt) {
   return opt->rep.max_file_opening_threads;
 }
 
+void rocksdb_options_set_read_io_executor_threads(rocksdb_options_t* opt,
+                                                  int v) {
+  opt->rep.read_io_executor_threads = v;
+}
+
+int rocksdb_options_get_read_io_executor_threads(rocksdb_options_t* opt) {
+  return opt->rep.read_io_executor_threads;
+}
+
 void rocksdb_options_set_open_files_async(rocksdb_options_t* opt,
                                           unsigned char v) {
   opt->rep.open_files_async = v;

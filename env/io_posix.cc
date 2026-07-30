@@ -87,6 +87,20 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
   }
 }
 
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+namespace {
+thread_local bool current_thread_read_io_uring_backend_available = false;
+}  // namespace
+
+void SetCurrentThreadReadIOUringBackendAvailable() {
+  current_thread_read_io_uring_backend_available = true;
+}
+
+bool IsCurrentThreadReadIOUringBackendAvailable() {
+  return current_thread_read_io_uring_backend_available;
+}
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
+
 // A wrapper for fadvise, if the platform doesn't support fadvise,
 // it will simply return 0.
 int Fadvise(int fd, off_t offset, size_t len, int advice) {
@@ -701,15 +715,23 @@ struct PosixSubmitReadAsyncState {
 
 }  // namespace
 
-void PosixRandomAccessFile::SubmitReadAsync(
-    FSReadRequest& req, const IOOptions& /*opts*/,
-    std::function<void(FSReadRequest&)> cb, IODebugContext* /*dbg*/) {
+bool PosixRandomAccessFile::SubmitReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&)> cb, IODebugContext* dbg) {
   if (use_direct_io()) {
     assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
     assert(IsSectorAligned(req.len, GetRequiredBufferAlignment()));
     assert(IsSectorAligned(req.scratch, GetRequiredBufferAlignment()));
   }
   assert(req.len == 0 || req.scratch != nullptr);
+
+  // Workers using the default EventBase backend read synchronously.
+  if (!IsCurrentThreadReadIOUringBackendAvailable()) {
+    req.status =
+        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    cb(req);
+    return false;
+  }
 
   assert(read_event_base_manager_);
   folly::EventBase* event_base =
@@ -735,6 +757,7 @@ void PosixRandomAccessFile::SubmitReadAsync(
   } else {
     state->Queue();
   }
+  return true;
 }
 #endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 

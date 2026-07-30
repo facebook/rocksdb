@@ -1113,7 +1113,9 @@ class DB {
   // is available, RocksDB can run an internal read coroutine on the read
   // executor, suspend while async file IO is outstanding, and resume when the
   // filesystem signals completion. The callback is invoked after the requested
-  // statuses and output buffers have been populated.
+  // statuses and output buffers have been populated. Applications can set
+  // `DBOptions::read_io_executor_threads` before opening the DB to configure
+  // executor parallelism for their workload.
   //
   // Callers must keep the DB, callback, inputs, and output buffers alive until
   // the callback returns. The callback may run inline before the async method
