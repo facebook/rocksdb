@@ -108,10 +108,15 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
     - name: Convert build or test timeout to failure
-      if: always() && steps.build_and_test.outcome == 'failure'
+      if: always()
+      env:
+        BUILD_AND_TEST_OUTCOME: ${{ steps.build_and_test.outcome }}
       run: |
-        echo "::error::The build and test step failed or timed out."
-        exit 1
+        echo "Build and test outcome: $BUILD_AND_TEST_OUTCOME"
+        if [[ "$BUILD_AND_TEST_OUTCOME" != "success" ]]; then
+          echo "::error::The build and test step failed or timed out."
+          exit 1
+        fi
   build-linux-cmake-mingw:
     timeout-minutes: 2
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
