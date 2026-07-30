@@ -205,7 +205,9 @@ WriteBatch::WriteBatch(std::string&& rep)
       rep_(std::move(rep)) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
-    : wal_term_point_(src.wal_term_point_),
+    : sg_entries_(src.sg_entries_),
+      sg_bytes_pending_(src.sg_bytes_pending_),
+      wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
       default_cf_ts_sz_(src.default_cf_ts_sz_),
@@ -221,13 +223,17 @@ WriteBatch::WriteBatch(const WriteBatch& src)
 }
 
 WriteBatch::WriteBatch(WriteBatch&& src) noexcept
-    : save_points_(std::move(src.save_points_)),
+    : sg_entries_(std::move(src.sg_entries_)),
+      sg_bytes_pending_(src.sg_bytes_pending_),
+      save_points_(std::move(src.save_points_)),
       wal_term_point_(std::move(src.wal_term_point_)),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
       prot_info_(std::move(src.prot_info_)),
       default_cf_ts_sz_(src.default_cf_ts_sz_),
-      rep_(std::move(src.rep_)) {}
+      rep_(std::move(src.rep_)) {
+  src.sg_bytes_pending_ = 0;
+}
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
   if (&src != this) {
@@ -273,6 +279,8 @@ void WriteBatch::Clear() {
   }
   wal_term_point_.clear();
   default_cf_ts_sz_ = 0;
+  sg_entries_.clear();
+  sg_bytes_pending_ = 0;
 }
 
 uint32_t WriteBatch::Count() const { return WriteBatchInternal::Count(this); }
@@ -308,6 +316,11 @@ size_t WriteBatch::GetProtectionBytesPerKey() const {
 }
 
 std::string WriteBatch::Release() {
+  // Flush any pending scatter-gather entries into rep_ before moving it
+  // out. An assert-only check would compile away in release builds and
+  // leave the SG entries to be silently dropped by Clear(); the branch
+  // is a no-op on the common (SG-free) path.
+  MaybeMaterializeSG();
   std::string ret = std::move(rep_);
   Clear();
   return ret;
@@ -515,17 +528,60 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 }
 
 Status WriteBatch::Iterate(Handler* handler) const {
+  // When protection info is enabled we rely on materialization to
+  // compute per-entry checksums; take the simple path.
+  if (prot_info_ != nullptr) {
+    MaybeMaterializeSG();
+  }
   if (rep_.size() < WriteBatchInternal::kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
   }
 
-  return WriteBatchInternal::Iterate(this, handler, WriteBatchInternal::kHeader,
-                                     rep_.size());
+  Status s = WriteBatchInternal::Iterate(this, handler,
+                                         WriteBatchInternal::kHeader,
+                                         rep_.size());
+  if (!s.ok() || sg_entries_.empty()) {
+    return s;
+  }
+  // Emit pending scatter-gather entries as synthetic Handler callbacks.
+  // This preserves zero-copy semantics: key/value slices still
+  // reference the caller-owned buffers, not a materialized rep_ copy.
+  for (const SGEntry& e : sg_entries_) {
+    if (!handler->Continue()) {
+      break;
+    }
+    switch (e.type_byte) {
+      case kTypeValue:
+        s = handler->PutCF(e.cf_id, e.key, e.value);
+        break;
+      case kTypeDeletion:
+        s = handler->DeleteCF(e.cf_id, e.key);
+        break;
+      case kTypeSingleDeletion:
+        s = handler->SingleDeleteCF(e.cf_id, e.key);
+        break;
+      case kTypeMerge:
+        s = handler->MergeCF(e.cf_id, e.key, e.value);
+        break;
+      default:
+        assert(false);
+        s = Status::Corruption("unknown SG entry type");
+    }
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return s;
 }
 
 Status WriteBatchInternal::Iterate(const WriteBatch* wb,
                                    WriteBatch::Handler* handler, size_t begin,
                                    size_t end) {
+  // Callers pass bounds into rep_. WriteBatch::Iterate handles pending
+  // scatter-gather entries separately (after walking rep_). External
+  // callers of this bounded form operate on batches that do not use
+  // the scatter-gather API, so we deliberately do not materialize
+  // here.
   if (begin > wb->rep_.size() || end > wb->rep_.size() || end < begin) {
     return Status::Corruption("Invalid start/end bounds for Iterate");
   }
@@ -763,8 +819,11 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
   if (!s.ok()) {
     return s;
   }
+  // SG entries are counted in the header but live outside rep_; they are
+  // emitted by WriteBatch::Iterate after this rep_ walk returns. Subtract
+  // them so the rep_-only `found` matches the rep_-only portion of Count.
   if (handler_continue && whole_batch &&
-      found != WriteBatchInternal::Count(wb)) {
+      found != WriteBatchInternal::Count(wb) - wb->sg_entries_.size()) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
@@ -1188,6 +1247,13 @@ Status WriteBatch::PutEntity(const Slice& key,
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
+  // Transaction marker insertions (InsertNoop, MarkBeginPrepare,
+  // MarkEndPrepare, MarkCommit*, MarkRollback) are produced by the
+  // transactions/ subsystem, which this fork does not use, and they
+  // do not legitimately interleave with caller-issued PutSG/etc.
+  // Asserting empty here flags any future mix-up rather than silently
+  // flushing SG state into rep_ on every (no-op) call.
+  assert(b->sg_entries_.empty());
   b->rep_.push_back(static_cast<char>(kTypeNoop));
   return Status::OK();
 }
@@ -1203,6 +1269,7 @@ ValueType WriteBatchInternal::GetBeginPrepareType(bool write_after_commit,
 Status WriteBatchInternal::InsertBeginPrepare(WriteBatch* b,
                                               bool write_after_commit,
                                               bool unprepared_batch) {
+  assert(b->sg_entries_.empty());  // see InsertNoop comment
   b->rep_.push_back(static_cast<char>(
       GetBeginPrepareType(write_after_commit, unprepared_batch)));
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -1212,6 +1279,7 @@ Status WriteBatchInternal::InsertBeginPrepare(WriteBatch* b,
 }
 
 Status WriteBatchInternal::InsertEndPrepare(WriteBatch* b, const Slice& xid) {
+  assert(b->sg_entries_.empty());  // see InsertNoop comment
   b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -1223,6 +1291,7 @@ Status WriteBatchInternal::InsertEndPrepare(WriteBatch* b, const Slice& xid) {
 Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
                                           bool write_after_commit,
                                           bool unprepared_batch) {
+  assert(b->sg_entries_.empty());  // see InsertNoop comment
   // a manually constructed batch can only contain one prepare section
   assert(b->rep_[12] == static_cast<char>(kTypeNoop));
 
@@ -1248,6 +1317,7 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
 }
 
 Status WriteBatchInternal::MarkCommit(WriteBatch* b, const Slice& xid) {
+  assert(b->sg_entries_.empty());  // see InsertNoop comment
   b->rep_.push_back(static_cast<char>(kTypeCommitXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -1260,6 +1330,7 @@ Status WriteBatchInternal::MarkCommitWithTimestamp(WriteBatch* b,
                                                    const Slice& xid,
                                                    const Slice& commit_ts) {
   assert(!commit_ts.empty());
+  assert(b->sg_entries_.empty());  // see InsertNoop comment
   b->rep_.push_back(static_cast<char>(kTypeCommitXIDAndTimestamp));
   PutLengthPrefixedSlice(&b->rep_, commit_ts);
   PutLengthPrefixedSlice(&b->rep_, xid);
@@ -1270,6 +1341,7 @@ Status WriteBatchInternal::MarkCommitWithTimestamp(WriteBatch* b,
 }
 
 Status WriteBatchInternal::MarkRollback(WriteBatch* b, const Slice& xid) {
+  assert(b->sg_entries_.empty());  // see InsertNoop comment
   b->rep_.push_back(static_cast<char>(kTypeRollbackXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -1864,6 +1936,279 @@ Status WriteBatch::PutLogData(const Slice& blob) {
   return save.commit();
 }
 
+size_t WriteBatch::SGEntrySerializedSize(const WriteBatch::SGEntry& e) {
+  size_t n = 1;  // type byte
+  if (e.cf_id != 0) {
+    n += VarintLength(e.cf_id);
+  }
+  n += VarintLength(e.key.size()) + e.key.size();
+  if (e.type_byte == kTypeValue || e.type_byte == kTypeMerge) {
+    n += VarintLength(e.value.size()) + e.value.size();
+  }
+  return n;
+}
+
+Status WriteBatch::AppendSGEntry(WriteBatch* b, uint8_t type_byte,
+                                 uint32_t cf_id, const Slice& key,
+                                 const Slice& value, uint32_t content_flag) {
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("key is too large");
+  }
+  if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("value is too large");
+  }
+
+  WriteBatch::SGEntry entry;
+  entry.type_byte = type_byte;
+  entry.cf_id = cf_id;
+  entry.key = key;
+  entry.value = (type_byte == kTypeValue || type_byte == kTypeMerge)
+                    ? value
+                    : Slice();
+
+  const size_t delta = SGEntrySerializedSize(entry);
+
+  if (b->max_bytes_ != 0 &&
+      b->rep_.size() + b->sg_bytes_pending_ + delta > b->max_bytes_) {
+    return Status::MemoryLimit();
+  }
+
+  // Reserve once on the first SG append to skip the 1->2->4->8->16
+  // geometric growth sequence for the common small-batch case. Batches
+  // that reuse via Clear() already retain capacity on their own.
+  if (b->sg_entries_.empty()) {
+    b->sg_entries_.reserve(16);
+  }
+  b->sg_entries_.push_back(std::move(entry));
+  b->sg_bytes_pending_ += delta;
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  b->content_flags_.store(
+      b->content_flags_.load(std::memory_order_relaxed) | content_flag,
+      std::memory_order_relaxed);
+  return Status::OK();
+}
+
+Status WriteBatch::PutSG(ColumnFamilyHandle* column_family, const Slice& key,
+                         const Slice& value) {
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+  if (!s.ok()) {
+    return s;
+  }
+  if (ts_sz != 0) {
+    return Status::InvalidArgument(
+        "PutSG is not supported on a column family with user-defined "
+        "timestamps");
+  }
+  return AppendSGEntry(this, kTypeValue, cf_id, key, value,
+                       ContentFlags::HAS_PUT);
+}
+
+Status WriteBatch::DeleteSG(ColumnFamilyHandle* column_family,
+                            const Slice& key) {
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+  if (!s.ok()) {
+    return s;
+  }
+  if (ts_sz != 0) {
+    return Status::InvalidArgument(
+        "DeleteSG is not supported on a column family with user-defined "
+        "timestamps");
+  }
+  return AppendSGEntry(this, kTypeDeletion, cf_id, key, Slice(),
+                       ContentFlags::HAS_DELETE);
+}
+
+Status WriteBatch::SingleDeleteSG(ColumnFamilyHandle* column_family,
+                                  const Slice& key) {
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+  if (!s.ok()) {
+    return s;
+  }
+  if (ts_sz != 0) {
+    return Status::InvalidArgument(
+        "SingleDeleteSG is not supported on a column family with "
+        "user-defined timestamps");
+  }
+  return AppendSGEntry(this, kTypeSingleDeletion, cf_id, key, Slice(),
+                       ContentFlags::HAS_SINGLE_DELETE);
+}
+
+Status WriteBatch::MergeSG(ColumnFamilyHandle* column_family, const Slice& key,
+                           const Slice& value) {
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+  if (!s.ok()) {
+    return s;
+  }
+  if (ts_sz != 0) {
+    return Status::InvalidArgument(
+        "MergeSG is not supported on a column family with user-defined "
+        "timestamps");
+  }
+  return AppendSGEntry(this, kTypeMerge, cf_id, key, value,
+                       ContentFlags::HAS_MERGE);
+}
+
+void WriteBatch::MaterializeSG() {
+  if (sg_entries_.empty()) {
+    sg_bytes_pending_ = 0;
+    return;
+  }
+  rep_.reserve(rep_.size() + sg_bytes_pending_);
+  for (const SGEntry& e : sg_entries_) {
+    uint8_t type = e.type_byte;
+    if (e.cf_id == 0) {
+      rep_.push_back(static_cast<char>(type));
+    } else {
+      uint8_t cf_type = type;
+      switch (type) {
+        case kTypeValue:
+          cf_type = kTypeColumnFamilyValue;
+          break;
+        case kTypeDeletion:
+          cf_type = kTypeColumnFamilyDeletion;
+          break;
+        case kTypeSingleDeletion:
+          cf_type = kTypeColumnFamilySingleDeletion;
+          break;
+        case kTypeMerge:
+          cf_type = kTypeColumnFamilyMerge;
+          break;
+        default:
+          assert(false);
+      }
+      rep_.push_back(static_cast<char>(cf_type));
+      PutVarint32(&rep_, e.cf_id);
+    }
+    PutLengthPrefixedSlice(&rep_, e.key);
+    if (type == kTypeValue || type == kTypeMerge) {
+      PutLengthPrefixedSlice(&rep_, e.value);
+    }
+    if (prot_info_ != nullptr) {
+      // Match the convention in the regular append path: store the
+      // ValueType *without* the kTypeColumnFamily* suffix; the column
+      // family id is protected separately via ProtectC().
+      const Slice value_for_protection =
+          (type == kTypeValue || type == kTypeMerge) ? e.value : Slice();
+      prot_info_->entries_.emplace_back(
+          ProtectionInfo64()
+              .ProtectKVO(e.key, value_for_protection,
+                          static_cast<ValueType>(type))
+              .ProtectC(e.cf_id));
+    }
+  }
+  sg_entries_.clear();
+  sg_bytes_pending_ = 0;
+}
+
+void WriteBatchInternal::GatherForWAL(const WriteBatch* wb, WalGather* out) {
+  out->scratch.clear();
+  out->slices.clear();
+  out->total_bytes = 0;
+
+  // If protection info is enabled, fall back to materialization so that
+  // prot_info_ stays consistent with rep_. The gather then degenerates
+  // to a single-slice view of rep_.
+  if (wb->prot_info_ != nullptr) {
+    wb->MaybeMaterializeSG();
+  }
+
+  if (wb->sg_entries_.empty()) {
+    out->slices.emplace_back(wb->rep_.data(), wb->rep_.size());
+    out->total_bytes = wb->rep_.size();
+    return;
+  }
+
+  // Pre-compute scratch capacity exactly so the buffer never reallocates
+  // mid-build (Slices taken into it would otherwise be invalidated).
+  size_t scratch_needed = 0;
+  for (const WriteBatch::SGEntry& e : wb->sg_entries_) {
+    scratch_needed += 1;  // type byte
+    if (e.cf_id != 0) {
+      scratch_needed += VarintLength(e.cf_id);
+    }
+    scratch_needed += VarintLength(e.key.size());
+    if (e.type_byte == kTypeValue || e.type_byte == kTypeMerge) {
+      scratch_needed += VarintLength(e.value.size());
+    }
+  }
+  out->scratch.reserve(scratch_needed);
+  // Worst case: 4 slices per SG entry (header-scratch, key, valuelen-scratch,
+  // value) plus one for the existing rep_.
+  out->slices.reserve(1 + wb->sg_entries_.size() * 4);
+
+  out->slices.emplace_back(wb->rep_.data(), wb->rep_.size());
+  out->total_bytes += wb->rep_.size();
+
+  for (const WriteBatch::SGEntry& e : wb->sg_entries_) {
+    const size_t hdr_start = out->scratch.size();
+    uint8_t type = e.type_byte;
+    if (e.cf_id != 0) {
+      switch (type) {
+        case kTypeValue:
+          type = kTypeColumnFamilyValue;
+          break;
+        case kTypeDeletion:
+          type = kTypeColumnFamilyDeletion;
+          break;
+        case kTypeSingleDeletion:
+          type = kTypeColumnFamilySingleDeletion;
+          break;
+        case kTypeMerge:
+          type = kTypeColumnFamilyMerge;
+          break;
+        default:
+          assert(false);
+      }
+    }
+    out->scratch.push_back(static_cast<char>(type));
+    if (e.cf_id != 0) {
+      PutVarint32(&out->scratch, e.cf_id);
+    }
+    PutVarint32(&out->scratch, static_cast<uint32_t>(e.key.size()));
+    const size_t hdr_end = out->scratch.size();
+    out->slices.emplace_back(out->scratch.data() + hdr_start,
+                             hdr_end - hdr_start);
+    out->slices.emplace_back(e.key);
+    out->total_bytes += (hdr_end - hdr_start) + e.key.size();
+    if (e.type_byte == kTypeValue || e.type_byte == kTypeMerge) {
+      const size_t vlen_start = out->scratch.size();
+      PutVarint32(&out->scratch, static_cast<uint32_t>(e.value.size()));
+      const size_t vlen_end = out->scratch.size();
+      out->slices.emplace_back(out->scratch.data() + vlen_start,
+                               vlen_end - vlen_start);
+      out->slices.emplace_back(e.value);
+      out->total_bytes += (vlen_end - vlen_start) + e.value.size();
+    }
+  }
+
+  // Sanity: we reserved the exact scratch capacity.
+  assert(out->scratch.size() == scratch_needed);
+}
+
 void WriteBatch::SetSavePoint() {
   if (save_points_ == nullptr) {
     save_points_.reset(new SavePoints());
@@ -1877,6 +2222,10 @@ Status WriteBatch::RollbackToSavePoint() {
   if (save_points_ == nullptr || save_points_->stack.size() == 0) {
     return Status::NotFound();
   }
+
+  // Pending SG entries must be materialized before we can compare
+  // rep_.size() against the saved `savepoint.size`.
+  MaybeMaterializeSG();
 
   // Pop the most recent savepoint off the stack
   SavePoint savepoint = save_points_->stack.top();
@@ -1928,6 +2277,7 @@ Status WriteBatch::VerifyChecksum() const {
   if (prot_info_ == nullptr) {
     return Status::OK();
   }
+  MaybeMaterializeSG();
   Slice input(rep_.data() + WriteBatchInternal::kHeader,
               rep_.size() - WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
@@ -3451,6 +3801,10 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
   assert(b->prot_info_ == nullptr);
 
+  // Any pending scatter-gather entries are about to be superseded by the
+  // incoming serialized contents; drop them.
+  b->sg_entries_.clear();
+  b->sg_bytes_pending_ = 0;
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
   return Status::OK();
@@ -3458,6 +3812,43 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
 
 Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
+  // Scatter-gather fast path: when neither batch carries protection
+  // info and the wal-termination-point path is not in use, we can move
+  // src's pending SG entries into dst without materializing them. The
+  // fast path requires that the ordering we end up with after the
+  // append matches insertion order. That holds when: src's pending SG
+  // entries (if any) have no rep-body content following them in src,
+  // and dst has no pending SG entries when src still has rep-body
+  // content to contribute (otherwise src's body would land after dst's
+  // SG, inverting the call order).
+  const bool wal_term_blocks =
+      wal_only && !src->GetWalTerminationPoint().is_cleared();
+  const bool needs_materialize_both =
+      dst->prot_info_ != nullptr || src->prot_info_ != nullptr ||
+      wal_term_blocks;
+
+  if (needs_materialize_both) {
+    src->MaybeMaterializeSG();
+    dst->MaybeMaterializeSG();
+  } else {
+    const bool src_rep_body_empty =
+        src->rep_.size() == WriteBatchInternal::kHeader;
+    // If src has any rep-body content, that content needs to land
+    // immediately after dst's current logical end. If dst has pending
+    // SG, flatten dst first so src's body is appended past it.
+    if (!src_rep_body_empty && !dst->sg_entries_.empty()) {
+      dst->MaybeMaterializeSG();
+    }
+    // If src has both rep-body and pending SG, those must stay in
+    // their original order relative to each other. Flatten src.
+    if (!src->sg_entries_.empty() && !src_rep_body_empty) {
+      src->MaybeMaterializeSG();
+    }
+    // Otherwise src is either pure rep-body (sg_entries empty) or pure
+    // SG (rep body empty) — both are safe to append without
+    // materialization.
+  }
+
   assert(dst->Count() == 0 ||
          (dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
   if ((src->prot_info_ != nullptr &&
@@ -3500,6 +3891,12 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   SetCount(dst, Count(dst) + src_count);
   assert(src->rep_.size() >= WriteBatchInternal::kHeader);
   dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader, src_len);
+  if (!src->sg_entries_.empty()) {
+    assert(src->rep_.size() == WriteBatchInternal::kHeader);
+    dst->sg_entries_.insert(dst->sg_entries_.end(), src->sg_entries_.begin(),
+                            src->sg_entries_.end());
+    dst->sg_bytes_pending_ += src->sg_bytes_pending_;
+  }
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) | src_flags,
       std::memory_order_relaxed);
@@ -3518,6 +3915,7 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
 Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
                                                 size_t bytes_per_key,
                                                 uint64_t* checksum) {
+  wb->MaybeMaterializeSG();
   if (bytes_per_key == 0) {
     if (wb->prot_info_ != nullptr) {
       wb->prot_info_.reset();
