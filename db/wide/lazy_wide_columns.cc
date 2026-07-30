@@ -284,8 +284,14 @@ Status LazyWideColumnsBatch::MultiResolve(const ReadOptions& read_options,
     single.force_verify = read.force_verify;
     single.result = read.result;
     single.status = read.status;
-    rep_->entities[read.entity_index].MultiResolve(read_options,
-                                                   /*num_reads=*/1, &single);
+    // Per-read outcomes are reported via single.status (aliased to
+    // read.status); the return only signals a whole-batch failure. Surface that
+    // on this read.
+    const Status s = rep_->entities[read.entity_index].MultiResolve(
+        read_options, /*num_reads=*/1, &single);
+    if (!s.ok() && read.status) {
+      *read.status = s;
+    }
   }
   return Status::OK();
 }
