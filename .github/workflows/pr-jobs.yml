@@ -100,23 +100,20 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: build-linux
-    - id: build_and_test
-      timeout-minutes: 2
-      continue-on-error: true
-      run: make V=1 J=32 -j32 check
+    - name: Build and test with timeout
+      run: |
+        set +e
+        timeout --signal=TERM --kill-after=30s 2m make V=1 J=32 -j32 check
+        exit_code=$?
+        set -e
+        if [[ "$exit_code" -eq 124 || "$exit_code" -eq 137 ]]; then
+          echo "::error::The build and test command timed out."
+          exit 1
+        fi
+        exit "$exit_code"
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
-    - name: Convert build or test timeout to failure
-      if: always()
-      env:
-        BUILD_AND_TEST_OUTCOME: ${{ steps.build_and_test.outcome }}
-      run: |
-        echo "Build and test outcome: $BUILD_AND_TEST_OUTCOME"
-        if [[ "$BUILD_AND_TEST_OUTCOME" != "success" ]]; then
-          echo "::error::The build and test step failed or timed out."
-          exit 1
-        fi
   build-linux-cmake-mingw:
     timeout-minutes: 2
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
