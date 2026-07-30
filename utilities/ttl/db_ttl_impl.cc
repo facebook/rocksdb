@@ -166,8 +166,8 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
   }
 
   if (options->merge_operator) {
-    options->merge_operator.reset(
-        new TtlMergeOperator(options->merge_operator, clock));
+    options->merge_operator =
+        std::make_shared<TtlMergeOperator>(options->merge_operator, clock);
   }
 }
 
