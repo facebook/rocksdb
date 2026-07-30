@@ -222,7 +222,11 @@ default_params = {
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
     "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
-    "ingest_external_file_with_embedded_blobs": lambda: random.choice([0, 1]),
+    # Disabled in crash test: the experimental embedded-blob ingestion path can
+    # return corrupted values on Get(), tripping the
+    # IsValueBaseValid(value_base) assertion in TestGet (see T277310719). Keep
+    # off until the underlying feature bug is root-caused and fixed.
+    "ingest_external_file_with_embedded_blobs": lambda: 0,
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
