@@ -649,6 +649,10 @@ enum Tickers : uint32_t {
   // dedicated atomic flush request reason ticker.
   ATOMIC_FLUSH_REQUEST_REASON_OTHER,
 
+  // Bytes read/written while creating checkpoints
+  CHECKPOINT_READ_BYTES,
+  CHECKPOINT_WRITE_BYTES,
+
   TICKER_ENUM_MAX
 };
 

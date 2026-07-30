@@ -11,7 +11,37 @@
 #include "env/io_posix.h"
 #include "rocksdb/file_system.h"
 
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+#include "folly/ScopeGuard.h"
+#include "folly/executors/IOThreadPoolExecutor.h"
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
+
 namespace ROCKSDB_NAMESPACE {
+
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+class PosixFileSystemTest : public testing::Test {};
+
+TEST_F(PosixFileSystemTest, SetsReadIOExecutorThreads) {
+  auto fs = FileSystem::Default();
+  auto* read_executor = fs->GetReadExecutor();
+  if (read_executor == nullptr) {
+    return;
+  }
+  auto* thread_pool = dynamic_cast<folly::IOThreadPoolExecutor*>(read_executor);
+  ASSERT_NE(thread_pool, nullptr);
+  ASSERT_NE(read_executor->getEventBase(), nullptr);
+  const auto original_threads = thread_pool->numThreads();
+  auto restore_threads = folly::makeGuard([&] {
+    fs->SetReadIOExecutorThreads(static_cast<int>(original_threads));
+  });
+
+  fs->SetReadIOExecutorThreads(1);
+  ASSERT_EQ(thread_pool->numThreads(), static_cast<size_t>(1));
+  fs->SetReadIOExecutorThreads(2);
+  ASSERT_EQ(thread_pool->numThreads(), static_cast<size_t>(2));
+}
+
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 #ifdef OS_LINUX
 class LogicalBlockSizeCacheTest : public testing::Test {};

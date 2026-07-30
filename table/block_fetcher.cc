@@ -301,6 +301,9 @@ inline void BlockFetcher::GetBlockContents() {
 #define WITHOUT_COROUTINES
 #include "table/block_fetcher_sync_and_async.h"
 #undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
+#include "table/block_fetcher_sync_and_async.h"
+#undef WITH_COROUTINES
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {

@@ -29,6 +29,7 @@
 #include "rocksdb/metadata.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -1640,6 +1641,47 @@ TEST_F(CheckpointTest, CheckpointEngineParallelCopy) {
         checkpoint_db->Get(ReadOptions(), "key" + std::to_string(id), &value));
     ASSERT_EQ("value" + std::to_string(id), value);
   }
+}
+
+TEST_F(CheckpointTest, CheckpointEngineParallelCopyRecordsCheckpointBytes) {
+  // Force copies (NoLinkFileSystem) so the parallel path actually moves bytes;
+  // hard links move no data and record nothing.
+  auto no_link_fs = std::make_shared<NoLinkFileSystem>(FileSystem::Default());
+  std::unique_ptr<Env> no_link_env(NewCompositeEnv(no_link_fs));
+
+  Options options = CurrentOptions();
+  options.env = no_link_env.get();
+  options.statistics = CreateDBStatistics();
+  Reopen(options);
+
+  constexpr int kNumFiles = 4;
+  constexpr int kKeysPerFile = 50;
+  for (int f = 0; f < kNumFiles; ++f) {
+    for (int k = 0; k < kKeysPerFile; ++k) {
+      int id = f * kKeysPerFile + k;
+      ASSERT_OK(Put("key" + std::to_string(id), "value" + std::to_string(id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_));
+
+  // Copied bytes are attributed to the checkpoint tickers, and never to the
+  // backup tickers -- this verifies both the ticker wiring and that a live
+  // Statistics* reaches the CopyEngine WorkItems.
+  EXPECT_GT(options.statistics->getTickerCount(CHECKPOINT_READ_BYTES), 0U);
+  EXPECT_GT(options.statistics->getTickerCount(CHECKPOINT_WRITE_BYTES), 0U);
+  EXPECT_EQ(options.statistics->getTickerCount(BACKUP_READ_BYTES), 0U);
+  EXPECT_EQ(options.statistics->getTickerCount(BACKUP_WRITE_BYTES), 0U);
+
+  Close();  // before tearing down the env the DB was opened with
 }
 
 }  // namespace ROCKSDB_NAMESPACE

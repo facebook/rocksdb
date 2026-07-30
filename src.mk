@@ -254,6 +254,7 @@ LIB_SOURCES =                                                   \
   util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
+  util/coro_stats_util.cc                                       \
   util/crc32c.cc                                                \
   util/crc32c_arm64.cc                                          \
   util/data_structure.cc                                        \

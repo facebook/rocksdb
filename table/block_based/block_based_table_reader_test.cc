@@ -1160,7 +1160,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
   std::shared_ptr<FileSystem> fs = options_.env->GetFileSystem();
   int64_t supported_ops = 0;
   fs->SupportedOps(supported_ops);
-  const bool async_supported =
+  const bool use_async_io_for_test =
       use_async_io && ((supported_ops & (1 << FSSupportedOps::kAsyncIO)) != 0);
   ReadOptions read_opts;
   read_opts.fill_cache = fill_cache;
@@ -1249,7 +1249,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     // 1. Should coalesce into a single I/O
     std::unique_ptr<InternalIterator> iter = new_iter(table.get());
     MultiScanArgs scan_options(comparator_);
-    scan_options.use_async_io = use_async_io;
+    scan_options.use_async_io = use_async_io_for_test;
     scan_options.reverse = reverse;
     add_range(&scan_options, 30, 31);
     add_range(&scan_options, 32, 33);
@@ -1266,7 +1266,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     // 2. No IO coalesce, should do MultiRead/ReadAsync with 2 read requests.
     iter = new_iter(table.get());
     scan_options = MultiScanArgs(comparator_);
-    scan_options.use_async_io = use_async_io;
+    scan_options.use_async_io = use_async_io_for_test;
     scan_options.reverse = reverse;
     add_range(&scan_options, 40, 45);
     add_range(&scan_options, 70, 75);
@@ -1287,7 +1287,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     // two I/Os. If fill_cache is false, then we'll do one giant I/O.
     iter = new_iter(table.get());
     scan_options = MultiScanArgs(comparator_);
-    scan_options.use_async_io = use_async_io;
+    scan_options.use_async_io = use_async_io_for_test;
     scan_options.reverse = reverse;
     add_range(&scan_options, 40, 80);
     read_count_before =
@@ -1296,7 +1296,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     read_count_after =
         options_.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
     const uint64_t expected_prepare_reads =
-        async_supported ? 0 : (fill_cache ? 2 : 1);
+        use_async_io_for_test ? 0 : (fill_cache ? 2 : 1);
     ASSERT_EQ(read_count_before + expected_prepare_reads, read_count_after);
 
     scan_block_range(iter.get(), 40, 80, reverse);
@@ -1311,7 +1311,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     // 4. Check cases when seek key does not match scan range boundary.
     iter = new_iter(table.get());
     scan_options = MultiScanArgs(comparator_);
-    scan_options.use_async_io = use_async_io;
+    scan_options.use_async_io = use_async_io_for_test;
     scan_options.reverse = reverse;
     add_range(&scan_options, 30, 40);
     add_range(&scan_options, 50, 60);
@@ -1327,7 +1327,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
     // Test prefetch limit reached.
     iter = new_iter(table.get());
     scan_options = MultiScanArgs(comparator_);
-    scan_options.use_async_io = use_async_io;
+    scan_options.use_async_io = use_async_io_for_test;
     scan_options.reverse = reverse;
     scan_options.max_prefetch_size = 1024;  // less than block size
     add_range(&scan_options, 30, 40);
@@ -1345,7 +1345,7 @@ TEST_P(BlockBasedTableReaderMultiScanAsyncIOTest, MultiScanPrepare) {
       for (int i = 0; i < 100; i++) {
         iter = new_iter(table.get());
         scan_options = MultiScanArgs(comparator_);
-        scan_options.use_async_io = use_async_io;
+        scan_options.use_async_io = use_async_io_for_test;
         add_range(&scan_options, 5, 10);
         add_range(&scan_options, 25, 35);
         add_range(&scan_options, 35, 40);

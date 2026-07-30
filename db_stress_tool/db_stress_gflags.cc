@@ -955,10 +955,13 @@ DEFINE_uint64(snapshot_hold_ops, 0,
 DEFINE_bool(long_running_snapshots, false,
             "If set, hold on some some snapshots for much longer time.");
 
-// The following three options affect both regular read operations during the
+// The following four options affect both regular read operations during the
 // test and initial/final database verification through VerifyDB.
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads.");
+
+DEFINE_bool(use_async_db_api, false,
+            "If set, use DB::GetAsync and DB::MultiGetAsync for reads.");
 
 DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads.");
 

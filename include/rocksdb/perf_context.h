@@ -60,6 +60,7 @@ struct PerfContextByLevelBase {
 // PerfContextByLevel
 struct PerfContextByLevel : public PerfContextByLevelBase {
   void Reset();  // reset all performance counters to zero
+  void Merge(const PerfContextByLevel& other);
 };
 
 /*
@@ -76,7 +77,8 @@ struct PerfContextBase {
   uint64_t block_read_count;           // total number of block reads (with IO)
   uint64_t block_read_byte;            // total number of bytes from block reads
   uint64_t block_read_time;            // total nanos spent on block reads
-  // total cpu time in nanos spent on block reads
+  // total cpu time in nanos spent on block reads. Not supported for async read
+  // requests.
   uint64_t block_read_cpu_time;
   uint64_t block_cache_index_hit_count;  // total number of index block hits
   // total number of standalone handles lookup from secondary cache
@@ -105,8 +107,8 @@ struct PerfContextBase {
   // bytes for vals after compression in secondary cache
   uint64_t compressed_sec_cache_compressed_bytes;
 
-  uint64_t block_checksum_time;    // total nanos spent on block checksum
-  uint64_t block_decompress_time;  // total nanos spent on block decompression
+  uint64_t block_checksum_time;     // total nanos spent on block checksum
+  uint64_t block_decompress_time;   // total nanos spent on block decompression
   uint64_t block_decompress_count;  // total number of block decompressions
 
   uint64_t get_read_bytes;       // bytes for vals returned by Get
@@ -328,8 +330,10 @@ struct PerfContext : public PerfContextBase {
   PerfContext(const PerfContext&);
   PerfContext& operator=(const PerfContext&);
   PerfContext(PerfContext&&) noexcept;
+  PerfContext& operator=(PerfContext&&) noexcept;
 
   void Reset();  // reset all performance counters to zero
+  void Merge(const PerfContext& other);
 
   std::string ToString(bool exclude_zero_counters = false) const;
 

@@ -1346,7 +1346,7 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   PinnableSlice exp_v(&snap_state.value);
   exp_v.PinSelf();
   PinnableSlice v;
-  s = db->Get(ropt, cf, snap_state.key, &v);
+  s = DbStressGet(db, ropt, cf, snap_state.key, &v);
   if (!s.ok() && !s.IsNotFound()) {
     // When `persist_user_defined_timestamps` is false, a repeated read with
     // both a read timestamp and an explicitly taken snapshot cannot guarantee
@@ -1525,8 +1525,8 @@ void StressTest::MaybeVerifyCpuCorruption(ThreadState* thread,
     for (int64_t key = 0; key < max_key; ++key) {
       const ExpectedValue expected = shared->Get(cf, key);
       db_value.clear();
-      const Status s =
-          db_->Get(read_opts, column_families_[cf], Key(key), &db_value);
+      const Status s = DbStressGet(db_, read_opts, column_families_[cf],
+                                   Key(key), &db_value);
       const std::optional<DataCorruption> corruption =
           ClassifyReadBack(s, db_value, expected, expected_scratch);
       if (corruption.has_value()) {
@@ -3794,9 +3794,9 @@ Status StressTest::TestBackupRestore(
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
-    Status get_status = restored_db->Get(
-        read_opts, restored_cf_handles[rand_column_families[i]], key,
-        &restored_value);
+    Status get_status = DbStressGet(
+        restored_db.get(), read_opts,
+        restored_cf_handles[rand_column_families[i]], key, &restored_value);
     bool exists = thread->shared->Exists(rand_column_families[i], rand_keys[0]);
     if (get_status.ok()) {
       if (!exists && from_latest && ShouldAcquireMutexOnKey()) {
@@ -4096,8 +4096,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
         read_opts.timestamp = &ts;
       }
       std::string value;
-      Status get_status = checkpoint_db->Get(
-          read_opts, cf_handles[rand_column_families[i]], key, &value);
+      Status get_status =
+          DbStressGet(checkpoint_db.get(), read_opts,
+                      cf_handles[rand_column_families[i]], key, &value);
       bool exists =
           thread->shared->Exists(rand_column_families[i], rand_keys[0]);
       if (get_status.ok()) {
@@ -4431,7 +4432,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   // When taking a snapshot, we also read a key from that snapshot. We
   // will later read the same key before releasing the snapshot and
   // verify that the results are the same.
-  Status status_at = db_->Get(ropt, column_family, key, &value_at);
+  Status status_at = DbStressGet(db_, ropt, column_family, key, &value_at);
   if (!status_at.ok() && IsErrorInjectedAndRetryable(status_at)) {
     db_->ReleaseSnapshot(snapshot);
     return;
@@ -4767,6 +4768,8 @@ void StressTest::PrintEnv() const {
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
           FLAGS_use_multiget ? "true" : "false");
+  fprintf(stdout, "Use async DB API          : %s\n",
+          FLAGS_use_async_db_api ? "true" : "false");
   fprintf(stdout, "Use GetEntity             : %s\n",
           FLAGS_use_get_entity ? "true" : "false");
   fprintf(stdout, "Use MultiGetEntity        : %s\n",

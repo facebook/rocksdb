@@ -41,7 +41,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
     get_impl_options.timestamp->clear();
   }
 
+#if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+#endif
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -120,13 +122,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
-    CO_AWAIT(super_version->current->Get)(
-        read_options, lkey, get_impl_options.value, get_impl_options.columns,
-        ts, &s, &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
-        /*value_found*/ nullptr,
-        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
-        /*is_blob*/ nullptr,
-        /*do_merge=*/get_impl_options.get_value);
+    CO_AWAIT(super_version->current->Get, read_options, lkey,
+             get_impl_options.value, get_impl_options.columns, ts, &s,
+             &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+             /*value_found*/ nullptr,
+             /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
+             /*is_blob*/ nullptr,
+             /*do_merge=*/get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {

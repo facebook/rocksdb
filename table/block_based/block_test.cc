@@ -2119,6 +2119,51 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
   ASSERT_TRUE(iter->status().IsCorruption());
 }
 
+TEST_F(BlockTest, SeparatedKVInvalidValuesSectionOffset) {
+  BlockBuilder builder(16 /* restart_interval */, true /* use_delta_encoding */,
+                       false /* use_value_delta_encoding */,
+                       BlockBasedTableOptions::kDataBlockBinaryAndHash,
+                       0.75 /* hash_ratio */, 0 /* ts_sz */,
+                       true /* persist_user_defined_timestamps */,
+                       false /* is_user_key */, true /* separate_key_value */);
+
+  for (int i = 0; i < 5; i++) {
+    std::string key = "key" + std::to_string(i);
+    AppendInternalKeyFooter(&key, 100 - i, kTypeValue);
+    builder.Add(key, "value" + std::to_string(i));
+  }
+
+  Slice raw_block = builder.Finish();
+  std::string block_data = raw_block.ToString();
+
+  Slice footer_input(block_data);
+  DataBlockFooter footer;
+  ASSERT_OK(footer.DecodeFrom(&footer_input));
+  ASSERT_TRUE(footer.separated_kv);
+  footer.values_section_offset = static_cast<uint32_t>(block_data.size());
+
+  std::string encoded_footer;
+  footer.EncodeTo(&encoded_footer);
+  ASSERT_GE(block_data.size(), encoded_footer.size());
+  block_data.replace(block_data.size() - encoded_footer.size(),
+                     encoded_footer.size(), encoded_footer);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+
+  Block block(std::move(contents), 0 /* read_amp_bytes_per_bit */,
+              nullptr /* statistics */, 0 /* restart_interval */);
+
+  ASSERT_EQ(block.size(), 0);
+
+  std::unique_ptr<DataBlockIter> iter(
+      block.NewDataIterator(BytewiseComparator(), kDisableGlobalSequenceNumber,
+                            nullptr, nullptr, false, true));
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  ASSERT_EQ(iter->status().ToString(), "Corruption: bad block contents");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

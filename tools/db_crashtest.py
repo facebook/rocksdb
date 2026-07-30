@@ -314,6 +314,7 @@ default_params = {
     "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
+    "use_async_db_api": lambda: random.choice([0] * 5 + [1]),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     # NOTE: only takes effect when open_files == -1 (required by the lazy API)
@@ -946,6 +947,7 @@ def finalize_and_sanitize(src_params):
         dest_params["use_direct_reads"] = 0
         dest_params["use_direct_io_for_compaction_reads"] = 0
         dest_params["multiscan_use_async_io"] = 0
+        dest_params["open_read_only_one_in"] = 0
     if dest_params.get("min_tombstones_for_range_conversion", 0) > 0:
         # SQFC range-query filtering installs ReadOptions::table_filter on
         # iterators. Read-write iterators reject table_filter when read-path
