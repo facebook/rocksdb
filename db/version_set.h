@@ -1684,6 +1684,16 @@ class VersionSet {
     return manifest_preallocation_size_;
   }
 
+  // Appends a kColumnFamilyDrop record for each id in cf_ids to the MANIFEST
+  // file at manifest_path, whose valid content length is manifest_size bytes.
+  // Intended for post-processing a checkpoint's copied MANIFEST so that column
+  // families whose SST/blob files were not copied are recorded as dropped and
+  // thus not opened during recovery.
+  Status AppendColumnFamilyDropsToManifest(
+      const std::string& manifest_path, uint64_t manifest_size,
+      const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
+      uint64_t manifest_preallocation_size);
+
  protected:
   struct ManifestWriter;
 

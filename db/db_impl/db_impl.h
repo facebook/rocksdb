@@ -589,6 +589,35 @@ class DBImpl : public DB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
 
+  // Variant of GetLiveFilesStorageInfo used by subset-CF Checkpoint. Only
+  // table/blob files of the given column families are captured; the rest are
+  // reported in excluded_cf_ids so the caller can reconcile the copied
+  // MANIFEST (typically via AppendColumnFamilyDropsToManifest below). Caller
+  // must supply a non-empty include_cf_ids containing the default CF id and a
+  // non-null excluded_cf_ids; both are internal-contract preconditions.
+  Status GetLiveFilesStorageInfoForSubsetCheckpoint(
+      const LiveFilesStorageInfoOptions& opts,
+      const std::vector<uint32_t>& include_cf_ids,
+      std::vector<LiveFileStorageInfo>* files,
+      std::vector<uint32_t>* excluded_cf_ids);
+
+  // Shared body of GetLiveFilesStorageInfo and its subset-checkpoint variant.
+  // include_cf_ids empty -> no filter; otherwise records skipped CF ids in
+  // *excluded_cf_ids (which must be non-null in that case).
+  Status GetLiveFilesStorageInfoImpl(
+      const LiveFilesStorageInfoOptions& opts,
+      const std::vector<uint32_t>& include_cf_ids,
+      std::vector<LiveFileStorageInfo>* files,
+      std::vector<uint32_t>* excluded_cf_ids);
+
+  // Appends kColumnFamilyDrop records to the MANIFEST file at manifest_path for
+  // the given column family ids. Used by Checkpoint to make a subset-CF
+  // checkpoint's copied MANIFEST consistent with the reduced file set. Operates
+  // only on the given file; does not mutate this DB's live state.
+  Status AppendColumnFamilyDropsToManifest(const std::string& manifest_path,
+                                           uint64_t manifest_size,
+                                           const std::vector<uint32_t>& cf_ids);
+
   Status GetPreparedFileInfoForExternalSstIngestion(
       const std::string& file_path,
       std::shared_ptr<const PreparedFileInfo>* file_info) override;
