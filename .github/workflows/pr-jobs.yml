@@ -2,9 +2,9 @@ name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
 permissions: {}
 env:
-  # Commands fail explicitly after 115 minutes. The 120-minute job timeout is
-  # retained as a final safety net for setup and cleanup steps.
-  CI_COMMAND_TIMEOUT_SECONDS: '6900'
+  # Commands fail explicitly before the job timeout, which is retained as a
+  # final safety net for setup and cleanup steps.
+  CI_COMMAND_TIMEOUT_SECONDS: '120'
   # Set to a job name to run only that job (on any repo), or leave empty for
   # normal behavior (all jobs on facebook repo only).
   ONLY_JOB: ''
