@@ -21,8 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 class ColumnFamilyHandle;
 class PinnableWideColumnsHelper;
 
-// Class representing a wide column, which is defined as a pair of column name
-// and column value.
+// Class representing a non-owning view of a wide column, which is defined as a
+// pair of column name and column value.
 //
 // WideColumn is a non-owning view. Both the column name and column value are
 // stored as Slices that reference caller-managed memory. The backing storage
@@ -34,7 +34,7 @@ class WideColumn {
  public:
   WideColumn() = default;
 
-  // Initializes a WideColumn object by forwarding the name and value
+  // Initializes a WideColumn object by forwarding the non-owning name and value
   // arguments to the corresponding member Slices without copying the bytes.
   // The resulting WideColumn does not own the referenced data. Construction is
   // decoupled from the eventual PutEntity() call, but lifetime is not: any
@@ -117,7 +117,9 @@ inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
   return os;
 }
 
-// A collection of wide columns.
+// A collection of wide columns. Like WideColumn, this is a *non-owning view*
+// of names and values that must be kept alive elsewhere. See also
+// PinnableWideColumns.
 using WideColumns = std::vector<WideColumn>;
 
 // The anonymous default wide column (an empty Slice).

@@ -353,8 +353,8 @@ TEST_F(DBLazyEntityTest, RequiresMaxOpenFilesMinusOne) {
   DestroyAndReopen(options);
 
   constexpr char key[] = "entity";
-  const WideColumns columns{{kDefaultWideColumnName, "inline"},
-                            {"data", std::string(200, 'a')}};
+  const std::string data(200, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", data}};
   ASSERT_OK(
       db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
   ASSERT_OK(Flush());
@@ -399,8 +399,8 @@ TEST_F(DBLazyEntityTest, OutOfRangeColumnIndexIsInvalidArgument) {
   DestroyAndReopen(options);
 
   constexpr char key[] = "entity";
-  const WideColumns columns{{kDefaultWideColumnName, "inline"},
-                            {"data", std::string(200, 'a')}};
+  const std::string data(200, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", data}};
   ASSERT_OK(
       db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
   ASSERT_OK(Flush());

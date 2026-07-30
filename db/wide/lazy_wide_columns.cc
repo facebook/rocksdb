@@ -33,22 +33,6 @@
 // fills the batch key-by-key.
 
 namespace ROCKSDB_NAMESPACE {
-
-// Per-column enumeration metadata, precomputed at finalize time so the
-// (no-I/O) accessors are trivial. Slices (name/inline_value) point into the
-// entity's backing buffer, which this result owns.
-namespace {
-struct ColumnInfo {
-  Slice name;
-  bool is_reference = false;
-  bool logical_size_known = false;
-  uint64_t logical_size = 0;
-  CompressionType compression = kNoCompression;
-  // Valid only when !is_reference.
-  Slice inline_value;
-};
-}  // namespace
-
 // Internal representation. Owns the serialized-entity backing buffer + inline
 // columns (via `entity_`), the decoded blob references, the enumeration
 // metadata, the on-demand blob resolver, and the SuperVersion pin that keeps
@@ -66,6 +50,20 @@ class LazyWideColumns::Rep {
   // Decoded blob references (column_index -> BlobIndex), for the columns whose
   // value is a blob reference. Empty for a fully inline entity.
   std::vector<std::pair<size_t, BlobIndex>> blob_columns_;
+
+  // Per-column enumeration metadata (no I/O). Nested (rather than in an
+  // anonymous namespace) so it has the enclosing class's linkage -- an
+  // internal-linkage subobject type in this external-linkage class trips
+  // -Wsubobject-linkage in unity builds.
+  struct ColumnInfo {
+    Slice name;
+    bool is_reference = false;
+    bool logical_size_known = false;
+    uint64_t logical_size = 0;
+    CompressionType compression = kNoCompression;
+    // Valid only when !is_reference.
+    Slice inline_value;
+  };
 
   // Enumeration metadata, one entry per column in `entity_.columns()`.
   std::vector<ColumnInfo> column_infos_;
@@ -159,7 +157,7 @@ Status LazyWideColumns::MultiResolve(const ReadOptions& /* read_options */,
     // bytes from storage (skipping checksum and cache-fill) instead of the
     // whole column; a further phase (TODO(lazy-blob-resolution-phase2)) does
     // the same for embedded (same-file) blobs.
-    const ColumnInfo& info = rep_->column_infos_[read.column_index];
+    const Rep::ColumnInfo& info = rep_->column_infos_[read.column_index];
     Slice whole;
     Status s;
     if (!info.is_reference) {
@@ -334,7 +332,7 @@ Status LazyWideColumnsHelper::Finalize(
   rep.column_infos_.clear();
   rep.column_infos_.reserve(columns.size());
   for (size_t i = 0; i < columns.size(); ++i) {
-    ColumnInfo info;
+    LazyWideColumns::Rep::ColumnInfo info;
     info.name = columns[i].name();
     const BlobIndex* blob_index =
         blob_resolver_util::FindBlobColumn(&rep.blob_columns_, i);
