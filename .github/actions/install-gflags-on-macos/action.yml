@@ -2,6 +2,6 @@ name: install-gflags-on-macos
 runs:
   using: composite
   steps:
-  - name: Install gflags on macos
-    run: HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
+  - name: Install CI dependencies on macos
+    run: HOMEBREW_NO_AUTO_UPDATE=1 brew install coreutils gflags
     shell: bash

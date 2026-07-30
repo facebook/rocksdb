@@ -2,12 +2,15 @@ name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
 permissions: {}
 env:
+  # Commands fail explicitly after 115 minutes. The 120-minute job timeout is
+  # retained as a final safety net for setup and cleanup steps.
+  CI_COMMAND_TIMEOUT_SECONDS: '6900'
   # Set to a job name to run only that job (on any repo), or leave empty for
   # normal behavior (all jobs on facebook repo only).
   ONLY_JOB: ''
 jobs:
   config:
-    timeout-minutes: 2
+    timeout-minutes: 120
     runs-on: ubuntu-latest
     outputs:
       only_job: ${{ steps.set.outputs.only_job }}
@@ -46,7 +49,7 @@ jobs:
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'check-format-and-targets' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: ubuntu-24.04
@@ -69,13 +72,13 @@ jobs:
     - name: Download clang-format-diff.py
       run: wget https://rocksdb-deps.s3.us-west-2.amazonaws.com/llvm/llvm-project/release/12.x/clang/tools/clang-format/clang-format-diff.py
     - name: Check format
-      run: VERBOSE_CHECK=1 make check-format
+      run: .github/scripts/run-with-timeout.sh env VERBOSE_CHECK=1 make check-format
     - name: Compare buckify output
-      run: make check-buck-targets
+      run: .github/scripts/run-with-timeout.sh make check-buck-targets
     - name: Simple source code checks
-      run: make check-sources
+      run: .github/scripts/run-with-timeout.sh make check-sources
     - name: Validate GitHub Actions YAML
-      run: make check-workflow-yaml
+      run: .github/scripts/run-with-timeout.sh make check-workflow-yaml
     - name: Sanity check check_format_compatible.sh
       run: |-
         export TEST_TMPDIR=/dev/shm/rocksdb
@@ -83,10 +86,11 @@ jobs:
         mkdir /dev/shm/rocksdb
         git reset --hard
         git config --global --add safe.directory /__w/rocksdb/rocksdb
-        SANITY_CHECK=1 LONG_TEST=1 tools/check_format_compatible.sh
+        .github/scripts/run-with-timeout.sh env SANITY_CHECK=1 LONG_TEST=1 \
+          tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #
   build-linux:
-    timeout-minutes: 10
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -101,21 +105,12 @@ jobs:
       with:
         cache-key-prefix: build-linux
     - name: Build and test with timeout
-      run: |
-        set +e
-        timeout --signal=TERM --kill-after=30s 2m make V=1 J=32 -j32 check
-        exit_code=$?
-        set -e
-        if [[ "$exit_code" -eq 124 || "$exit_code" -eq 137 ]]; then
-          echo "::error::The build and test command timed out."
-          exit 1
-        fi
-        exit "$exit_code"
+      run: .github/scripts/run-with-timeout.sh make V=1 J=32 -j32 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -136,12 +131,19 @@ jobs:
         echo "JAVA_HOME=${JAVA_HOME}"
         which java && java -version
         which javac && javac -version
-        mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
+        .github/scripts/run-with-timeout.sh bash -euo pipefail -c '
+          mkdir build && cd build
+          cmake -DJNI=1 -DWITH_GFLAGS=OFF .. \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DCMAKE_SYSTEM_NAME=Windows
+          make -j4 rocksdb rocksdbjni
+        '
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -162,12 +164,13 @@ jobs:
     - uses: "./.github/actions/build-folly"
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: USE_FOLLY=1 LIB_MODE=static V=1 make -j64 check
+        timeout-seconds: ${{ env.CI_COMMAND_TIMEOUT_SECONDS }}
+    - run: .github/scripts/run-with-timeout.sh env USE_FOLLY=1 LIB_MODE=static V=1 make -j64 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly-lite-no-test:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -183,12 +186,12 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: make-folly-lite
-    - run: USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
+    - run: .github/scripts/run-with-timeout.sh env USE_FOLLY_LITE=1 EXTRA_CXXFLAGS=-DGLOG_USE_GLOG_EXPORT V=1 make -j32 all
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -209,12 +212,20 @@ jobs:
     - uses: "./.github/actions/build-folly"
       with:
         cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
-    - run: "(mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON .. && make VERBOSE=1 -j64 && ctest -j64)"
+        timeout-seconds: ${{ env.CI_COMMAND_TIMEOUT_SECONDS }}
+    - run: |-
+        .github/scripts/run-with-timeout.sh bash -euo pipefail -c '
+          mkdir build && cd build
+          cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 \
+            -DROCKSDB_BUILD_SHARED=0 -DPORTABLE=ON ..
+          make VERBOSE=1 -j64
+          ctest -j64
+        '
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -233,16 +244,22 @@ jobs:
       with:
         cache-key-prefix: cmake-benchmark
     - name: Build
-      run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DPORTABLE=ON -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS .. && make VERBOSE=1 -j20
+      run: |-
+        .github/scripts/run-with-timeout.sh bash -euo pipefail -c '
+          mkdir build && cd build
+          cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 -DPORTABLE=ON \
+            -DCMAKE_CXX_FLAGS=-DNROCKSDB_THREAD_STATUS ..
+          make VERBOSE=1 -j20
+        '
     - name: Test shard ${{ matrix.shard }} of 4
-      run: cd build && ctest -j20 -I ${{ matrix.shard }},,4
+      run: .github/scripts/run-with-timeout.sh bash -c 'cd build && ctest -j20 -I ${{ matrix.shard }},,4'
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-encrypted_env-no_compression:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -256,14 +273,14 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: encrypted-env-no-compression
-    - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
+    - run: .github/scripts/run-with-timeout.sh env ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
     - run: "./sst_dump --help | grep -E -q 'Supported built-in compression types: kNoCompression$' # Verify no compiled in compression\n"
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-release' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -276,27 +293,27 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: release
-    - run: make V=1 -j32 LIB_MODE=shared release
+    - run: .github/scripts/run-with-timeout.sh make V=1 -j32 LIB_MODE=shared release
     - run: ls librocksdb.so
     - run: "./trace_analyzer --version" # A tool dependent on gflags that can run in release build
-    - run: make clean
-    - run: USE_RTTI=1 make V=1 -j32 release
+    - run: .github/scripts/run-with-timeout.sh make clean
+    - run: .github/scripts/run-with-timeout.sh env USE_RTTI=1 make V=1 -j32 release
     - run: ls librocksdb.a
     - run: "./trace_analyzer --version"
-    - run: make clean
+    - run: .github/scripts/run-with-timeout.sh make clean
     - run: apt-get remove -y libgflags-dev
-    - run: make V=1 -j32 LIB_MODE=shared release
+    - run: .github/scripts/run-with-timeout.sh make V=1 -j32 LIB_MODE=shared release
     - run: ls librocksdb.so
     - run: if ./trace_analyzer --version; then false; else true; fi
-    - run: make clean
-    - run: USE_RTTI=1 make V=1 -j32 release
+    - run: .github/scripts/run-with-timeout.sh make clean
+    - run: .github/scripts/run-with-timeout.sh env USE_RTTI=1 make V=1 -j32 release
     - run: ls librocksdb.a
     - run: if ./trace_analyzer --version; then false; else true; fi
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -311,15 +328,15 @@ jobs:
       with:
         cache-key-prefix: clang-13
     # FIXME: get back to "all microbench" targets
-    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ make -j32 shared_lib
-    - run: make clean
+    - run: .github/scripts/run-with-timeout.sh env CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ make -j32 shared_lib
+    - run: .github/scripts/run-with-timeout.sh make clean
     # FIXME: get back to "release" target
-    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
+    - run: .github/scripts/run-with-timeout.sh env CC=clang-13 CXX=clang++-13 USE_CLANG=1 EXTRA_CXXFLAGS=-stdlib=libc++ EXTRA_LDFLAGS=-stdlib=libc++ DEBUG_LEVEL=0 make -j32 shared_lib
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-clang-21-no_test_run:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-clang-21-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -333,9 +350,9 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang-21
-    - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
-    - run: make clean
-    - run: CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
+    - run: .github/scripts/run-with-timeout.sh env CC=clang-21 CXX=clang++-21 USE_CLANG=1 make -j32 all microbench
+    - run: .github/scripts/run-with-timeout.sh make clean
+    - run: .github/scripts/run-with-timeout.sh env CC=clang-21 CXX=clang++-21 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
     - name: Install clang-format-21 for C API gen checks
       run: apt-get update && apt-get install -y clang-format-21
     - name: Check C API codegen (link-complete, backward-compatible, up to date)
@@ -349,7 +366,8 @@ jobs:
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
         git config --global --add safe.directory '*'
         git fetch --no-tags --depth=1 origin main
-        CXX=clang++-21 make check-c-api-gen \
+        .github/scripts/run-with-timeout.sh env CXX=clang++-21 \
+          make check-c-api-gen \
           CHECK_C_API_GEN_STRICT=1 \
           API_COMPAT_REF=FETCH_HEAD \
           CLANG_FORMAT_BINARY=clang-format-21
@@ -357,7 +375,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-14-no_test_run:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -371,7 +389,7 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: gcc-14
-    - run: CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
+    - run: .github/scripts/run-with-timeout.sh env CC=gcc-14 CXX=g++-14 V=1 make -j32 all microbench
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -379,7 +397,7 @@ jobs:
   # ======================== Linux Other Checks ======================= #
 
   build-linux-unity-and-headers:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-unity-and-headers' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -394,13 +412,13 @@ jobs:
       with:
         cache-key-prefix: unity-headers
     - name: Unity build
-      run: make V=1 -j8 unity_test
-    - run: make V=1 -j8 -k check-headers
+      run: .github/scripts/run-with-timeout.sh make V=1 -j8 unity_test
+    - run: .github/scripts/run-with-timeout.sh make V=1 -j8 -k check-headers
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -425,7 +443,9 @@ jobs:
     - run: |
         ulimit -S -n $(ulimit -Hn) # Raise open files soft limit to hard limit
         echo "Updated ulimit -Hn: $(ulimit -Hn) -Sn: $(ulimit -Sn)"
-        make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
+        .github/scripts/run-with-timeout.sh env \
+          CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' \
+          make V=1 -j8 ${{ matrix.crash_test_target }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
@@ -433,7 +453,7 @@ jobs:
         artifact-prefix: "${{ github.job }}-${{ matrix.crash_test_target }}"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang21-asan-ubsan:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-clang21-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -451,7 +471,7 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang21-asan-ubsan
-    - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-21 CXX=clang++-21 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
+    - run: .github/scripts/run-with-timeout.sh env COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-21 CXX=clang++-21 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
       env:
         CI_SHARD_INDEX: ${{ matrix.shard }}
         CI_TOTAL_SHARDS: 3
@@ -461,7 +481,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-clang21-mini-tsan:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-clang21-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -479,7 +499,7 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: clang21-tsan
-    - run: COMPILE_WITH_TSAN=1 CC=clang-21 CXX=clang++-21 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
+    - run: .github/scripts/run-with-timeout.sh env COMPILE_WITH_TSAN=1 CC=clang-21 CXX=clang++-21 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       env:
         CI_SHARD_INDEX: ${{ matrix.shard }}
         CI_TOTAL_SHARDS: 3
@@ -489,7 +509,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-static_lib-alt_namespace-status_checked:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-static_lib-alt_namespace-status_checked' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -503,13 +523,13 @@ jobs:
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: static-alt-namespace
-    - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
+    - run: .github/scripts/run-with-timeout.sh env ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_USE_STD_SEMAPHORES -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j24 check
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
   build-macos:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-macos' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -527,13 +547,13 @@ jobs:
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: Build
-      run: ulimit -S -n `ulimit -H -n` && make V=1 J=16 -j8 all
+      run: ulimit -S -n `ulimit -H -n` && .github/scripts/run-with-timeout.sh make V=1 J=16 -j8 all
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-macos-cmake' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -552,20 +572,20 @@ jobs:
     - uses: "./.github/actions/install-gflags-on-macos"
     - uses: "./.github/actions/pre-steps-macos"
     - name: cmake generate project file
-      run: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
+      run: ulimit -S -n `ulimit -H -n` && .github/scripts/run-with-timeout.sh bash -c 'mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..'
     - name: Build tests
-      run: cd build && make VERBOSE=1 -j8
+      run: .github/scripts/run-with-timeout.sh bash -c 'cd build && make VERBOSE=1 -j8'
     - name: Run shard 0 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 0,,4
+      run: ulimit -S -n `ulimit -H -n` && .github/scripts/run-with-timeout.sh bash -c 'cd build && ctest -j8 -I 0,,4'
       if: ${{ matrix.run_sharded_tests == 0 }}
     - name: Run shard 1 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 1,,4
+      run: ulimit -S -n `ulimit -H -n` && .github/scripts/run-with-timeout.sh bash -c 'cd build && ctest -j8 -I 1,,4'
       if: ${{ matrix.run_sharded_tests == 1 }}
     - name: Run shard 2 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 2,,4
+      run: ulimit -S -n `ulimit -H -n` && .github/scripts/run-with-timeout.sh bash -c 'cd build && ctest -j8 -I 2,,4'
       if: ${{ matrix.run_sharded_tests == 2 }}
     - name: Run shard 3 out of 4 test shards
-      run: ulimit -S -n `ulimit -H -n` && cd build && ctest -j8 -I 3,,4
+      run: ulimit -S -n `ulimit -H -n` && .github/scripts/run-with-timeout.sh bash -c 'cd build && ctest -j8 -I 3,,4'
       if: ${{ matrix.run_sharded_tests == 3 }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
@@ -573,7 +593,7 @@ jobs:
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-msvc:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-windows-msvc' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: windows-8-core
@@ -598,9 +618,10 @@ jobs:
       with:
         suite-run: ${{ matrix.suite_run }}
         run-java: ${{ matrix.run_java }}
+        timeout-seconds: ${{ env.CI_COMMAND_TIMEOUT_SECONDS }}
   # ============================ Java Jobs ============================ #
   build-linux-java:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -620,11 +641,11 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Test RocksDBJava
-      run: make V=1 J=8 -j8 jtest
+      run: .github/scripts/run-with-timeout.sh make V=1 J=8 -j8 jtest
     - uses: "./.github/actions/teardown-ccache"
       if: always()
   build-linux-java-static:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -644,11 +665,11 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Build RocksDBJava Static Library
-      run: make V=1 J=8 -j8 rocksdbjavastatic
+      run: .github/scripts/run-with-timeout.sh make V=1 J=8 -j8 rocksdbjavastatic
     - uses: "./.github/actions/teardown-ccache"
       if: always()
   build-macos-java:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -672,12 +693,12 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Test RocksDBJava
-      run: make V=1 J=16 -j16 jtest
+      run: .github/scripts/run-with-timeout.sh make V=1 J=16 -j16 jtest
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -699,12 +720,12 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Build RocksDBJava x86 and ARM Static Libraries
-      run: make V=1 J=16 -j16 rocksdbjavastaticosx
+      run: .github/scripts/run-with-timeout.sh make V=1 J=16 -j16 rocksdbjavastaticosx
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -726,12 +747,12 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: Build RocksDBJava Universal Binary Static Library
-      run: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
+      run: .github/scripts/run-with-timeout.sh make V=1 J=16 -j16 rocksdbjavastaticosx_ub
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -749,7 +770,7 @@ jobs:
         which java && java -version
         which javac && javac -version
     - name: PMD RocksDBJava
-      run: make V=1 J=8 -j8 jpmd
+      run: .github/scripts/run-with-timeout.sh make V=1 J=8 -j8 jpmd
     - uses: actions/upload-artifact@v4.0.0
       with:
         name: pmd-report
@@ -759,7 +780,7 @@ jobs:
         name: maven-site
         path: "${{ github.workspace }}/java/target/site"
   build-linux-arm:
-    timeout-minutes: 2
+    timeout-minutes: 120
     if: needs.config.outputs.only_job == 'build-linux-arm' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -771,7 +792,7 @@ jobs:
       - uses: "./.github/actions/setup-ccache"
         with:
           cache-key-prefix: arm
-      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
+      - run: .github/scripts/run-with-timeout.sh env ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
       - name: Print ccache stats
         run: ccache -s
         if: always()
@@ -809,7 +830,7 @@ jobs:
     - build-linux-java-pmd
     - build-linux-arm
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 120
     steps:
     - name: Fail if a PR job did not complete successfully
       env:
