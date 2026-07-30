@@ -179,7 +179,7 @@ Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
   TrackKey(cfh_id, key_str, seq, read_only, exclusive);
 
-  // Always return OK. Confilct checking will happen at commit time.
+  // Always return OK. Conflict checking will happen at commit time.
   return Status::OK();
 }
 
