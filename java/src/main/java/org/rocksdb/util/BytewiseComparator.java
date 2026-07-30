@@ -5,11 +5,12 @@
 
 package org.rocksdb.util;
 
-import org.rocksdb.*;
+import static org.rocksdb.util.ByteUtil.memcmp;
 
 import java.nio.ByteBuffer;
-
-import static org.rocksdb.util.ByteUtil.memcmp;
+import org.rocksdb.AbstractComparator;
+import org.rocksdb.ComparatorOptions;
+import org.rocksdb.Slice;
 
 /**
  * This is a Java Native implementation of the C++
