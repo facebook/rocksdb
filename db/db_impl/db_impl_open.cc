@@ -243,6 +243,11 @@ Status DBImpl::ValidateOptions(
 }
 
 Status DBImpl::ValidateOptions(const DBOptions& db_options) {
+  if (db_options.read_io_executor_threads <= 0) {
+    return Status::InvalidArgument(
+        "read_io_executor_threads must be greater than zero");
+  }
+
   if (db_options.db_paths.size() > 4) {
     return Status::NotSupported(
         "More than four DB paths are not supported yet. ");

@@ -466,8 +466,9 @@ class FileSystem : public Customizable {
   // coroutine read execution is not supported.
   virtual folly::IOExecutor* GetReadExecutor() { return nullptr; }
 
-  // Set the maximum number of threads used by the FileSystem-owned read IO
-  // executor. The number must be positive.
+  // Increase the maximum number of threads used by the FileSystem-owned read
+  // IO executor to at least the requested number. The executor is not reduced
+  // when its current maximum is larger. The number must be positive.
   virtual void SetReadIOExecutorThreads(int /*number*/) {}
 
   // Create a brand new sequentially-readable file with the specified name.
@@ -1133,14 +1134,18 @@ class FSRandomAccessFile {
   // completion executor and must update req.status and invoke cb(req) exactly
   // once.
   //
+  // Returns true when the asynchronous path is used and false when the request
+  // is completed using the synchronous Read fallback.
+  //
   // Default implementation is to read the data synchronously and invoke the
   // callback before returning.
-  virtual void SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
+  virtual bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
                                std::function<void(FSReadRequest&)> cb,
                                IODebugContext* dbg) {
     req.status =
         Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
     cb(req);
+    return false;
   }
 
   // EXPERIMENTAL
@@ -1919,10 +1924,10 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
                      IODebugContext* dbg) override {
     return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
   }
-  void SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
+  bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
                        std::function<void(FSReadRequest&)> cb,
                        IODebugContext* dbg) override {
-    target()->SubmitReadAsync(req, opts, std::move(cb), dbg);
+    return target()->SubmitReadAsync(req, opts, std::move(cb), dbg);
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
