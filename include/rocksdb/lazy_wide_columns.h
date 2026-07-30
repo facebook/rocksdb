@@ -50,18 +50,25 @@ struct LazyColumnReadRequest {
   size_t column_index = 0;
 
   // Starting byte offset within the column's logical value. An offset at or
-  // past the end of the value yields an empty result (not an error).
+  // past the end of the value yields an empty result (not an error). A nonzero
+  // offset makes this a partial read; see `force_verify` for checksums.
   uint64_t offset = 0;
 
   // Number of bytes to read starting at `offset`, clamped to the end of the
-  // value. kLazyWholeColumn reads the entire remainder from `offset`.
+  // value. kLazyWholeColumn reads the entire remainder from `offset`. Anything
+  // less (or a nonzero `offset`) is a partial read: it returns only the
+  // requested bytes and by default skips whole-record checksum verification
+  // (see `force_verify`).
   size_t length = kLazyWholeColumn;
 
-  // Force a full, CRC-checked read (and, for a cache hit, use the cached full
-  // value) even when a partial read would otherwise suffice. When false, an
-  // uncompressed blob on a cache miss may be read as a bare byte range,
-  // skipping CRC verification and cache population (the documented tradeoff).
-  bool verify = false;
+  // Extra lever to prioritize checksum verification over I/O efficiency, mainly
+  // for partial reads. Partial reads normally skip checksum verification (they
+  // read less than a checksum covers); set this to verify anyway, reading and
+  // checking as much as the checksum requires (today the whole record) even
+  // when that exceeds the requested range or ReadOptions::verify_checksums is
+  // off. No effect where verification already happens (e.g. a whole-column read
+  // under verify_checksums) or where the format has no usable checksum.
+  bool force_verify = false;
 
   // Output: on OK status, a zero-copy view of the requested bytes.
   PinnableSlice* result = nullptr;
@@ -80,6 +87,14 @@ struct LazyColumnReadRequest {
 // in a batch shares one SuperVersion (see LazyWideColumnsBatch), so an
 // index-based read cannot smuggle in an entity from a different batch /
 // Version, and there is no dangling-pointer hazard if results are moved around.
+//
+// NOTE: this derives publicly from LazyColumnReadRequest (for field reuse), so
+// a LazyBatchColumnReadRequest* implicitly converts to LazyColumnReadRequest*.
+// Do NOT pass an array of these to the single-entity
+// LazyWideColumns::MultiResolve()
+// -- entity_index would be silently ignored and the array stride would be
+// wrong. Always resolve batch requests via
+// LazyWideColumnsBatch::MultiResolve().
 struct LazyBatchColumnReadRequest : public LazyColumnReadRequest {
   // Which entity in the batch to read (index into
   // LazyWideColumnsBatch::num_entities()).

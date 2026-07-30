@@ -19,6 +19,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/lazy_wide_columns.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
 
@@ -205,15 +206,15 @@ TEST_F(DBLazyEntityTest, MultiResolveMixesRangesAndColumns) {
 
   reads[0] = LazyColumnReadRequest{
       /*column_index=*/1, /*offset=*/0,
-      /*length=*/50,      /*verify=*/false,
+      /*length=*/50,      /*force_verify=*/false,
       &results[0],        &statuses[0]};
   reads[1] = LazyColumnReadRequest{
       /*column_index=*/1, /*offset=*/300,
-      /*length=*/100,     /*verify=*/false,
+      /*length=*/100,     /*force_verify=*/false,
       &results[1],        &statuses[1]};
   reads[2] = LazyColumnReadRequest{
-      /*column_index=*/2, /*offset=*/0, kLazyWholeColumn,
-      /*verify=*/false,   &results[2],  &statuses[2]};
+      /*column_index=*/2,     /*offset=*/0, kLazyWholeColumn,
+      /*force_verify=*/false, &results[2],  &statuses[2]};
 
   ASSERT_OK(lazy.MultiResolve(ReadOptions(), reads.size(), reads.data()));
 
@@ -368,8 +369,8 @@ TEST_F(DBLazyEntityTest, RequiresMaxOpenFilesMinusOne) {
 // yields Incomplete instead of doing I/O.
 // TODO(lazy-blob-resolution-phase1): enable once resolve-time ReadOptions are
 // honored. The current phase resolves through the read options captured at
-// GetEntityLazy() time; per-read read_tier / verify semantics land with the
-// partial-read work.
+// GetEntityLazy() time; per-resolve read_tier / verify_checksums semantics land
+// with the partial-read work.
 TEST_F(DBLazyEntityTest, DISABLED_BlockCacheTierYieldsIncompleteOnMiss) {
   Options options = GetLazyTestOptions();
   DestroyAndReopen(options);
@@ -469,6 +470,73 @@ TEST_F(DBLazyEntityTest, UserTimestampParityWithGetEntity) {
   ASSERT_OK(lazy.GetColumn(read_opts, /*column_index=*/0, &value));
   ASSERT_EQ(Slice(value), eager.columns()[0].value());
   ASSERT_EQ(Slice(value), "plain");
+}
+
+// The lazy read API must be forwarded through StackableDB wrappers (e.g.
+// TransactionDB) to the underlying DB, not fall through to the DB base class
+// default (Status::NotSupported). Exercises committed data read outside a
+// transaction, including resolving a blob-backed column through the wrapper.
+TEST_F(DBLazyEntityTest, StackableDBForwardsLazyReads) {
+  Options options = GetLazyTestOptions();
+  const std::string txn_dbname = dbname_ + "_txn";
+  ASSERT_OK(DestroyDB(txn_dbname, options));
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_OK(TransactionDB::Open(options, TransactionDBOptions(), txn_dbname,
+                                &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  std::unique_ptr<TransactionDB> txn_db_guard(txn_db);
+
+  ColumnFamilyHandle* const cfh = txn_db->DefaultColumnFamily();
+
+  constexpr char key[] = "entity";
+  const std::string small = "inline";  // < min_blob_size: stays inline
+  const std::string big(200, 'a');     // >= min_blob_size: blob reference
+  const WideColumns columns{{kDefaultWideColumnName, small}, {"attr", big}};
+
+  // Commit the entity via a transaction, then read it back as committed data.
+  {
+    std::unique_ptr<Transaction> txn(
+        txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn->PutEntity(cfh, key, columns));
+    ASSERT_OK(txn->Commit());
+  }
+  ASSERT_OK(txn_db->Flush(FlushOptions()));
+
+  // Single-key: forwards to the underlying DB (not NotSupported), and the
+  // blob-backed column resolves through the wrapper.
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(txn_db->GetEntityLazy(ReadOptions(), cfh, key, &lazy));
+    ASSERT_EQ(lazy.num_columns(), 2U);
+
+    PinnableSlice default_value;
+    ASSERT_OK(
+        lazy.GetColumn(ReadOptions(), /*column_index=*/0, &default_value));
+    ASSERT_EQ(Slice(default_value), small);
+
+    PinnableSlice attr_value;
+    ASSERT_OK(lazy.GetColumn(ReadOptions(), /*column_index=*/1, &attr_value));
+    ASSERT_EQ(Slice(attr_value), big);
+  }
+
+  // Batch analogue via the wrapper.
+  {
+    const std::array<Slice, 1> keys{Slice(key)};
+    LazyWideColumnsBatch batch;
+    std::array<Status, 1> statuses;
+    txn_db->MultiGetEntityLazy(ReadOptions(), cfh, keys.size(), keys.data(),
+                               &batch, statuses.data(),
+                               /*sorted_input=*/false);
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(batch.num_entities(), 1U);
+    ASSERT_EQ(batch.entity(0).num_columns(), 2U);
+
+    PinnableSlice attr_value;
+    ASSERT_OK(batch.entity(0).GetColumn(ReadOptions(), /*column_index=*/1,
+                                        &attr_value));
+    ASSERT_EQ(Slice(attr_value), big);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

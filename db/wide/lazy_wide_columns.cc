@@ -26,10 +26,11 @@
 // Current implementation of the lazy blob resolution API. Enumeration and
 // whole-column resolution are functional; a byte range is served by resolving
 // the whole column and slicing it. A future phase reads only the requested
-// bytes from storage (skipping CRC/cache-fill for uncompressed blobs) instead
-// of the whole column. Cross-key coalescing and async execution are also future
-// work; here LazyWideColumnsBatch::MultiResolve simply routes each read to its
-// owning per-key result, and MultiGetEntityLazy fills the batch key-by-key.
+// bytes from storage (skipping checksum verification and cache-fill for
+// uncompressed blobs) instead of the whole column. Cross-key coalescing and
+// async execution are also future work; here LazyWideColumnsBatch::MultiResolve
+// simply routes each read to its owning per-key result, and MultiGetEntityLazy
+// fills the batch key-by-key.
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -155,9 +156,9 @@ Status LazyWideColumns::MultiResolve(const ReadOptions& /* read_options */,
     //
     // TODO(lazy-blob-resolution-phase1): for a strict sub-range of an
     // uncompressed separate-file blob on a cache miss, read only the requested
-    // bytes from storage (skipping CRC and cache-fill) instead of the whole
-    // column; a further phase (TODO(lazy-blob-resolution-phase2)) does the same
-    // for embedded (same-file) blobs.
+    // bytes from storage (skipping checksum and cache-fill) instead of the
+    // whole column; a further phase (TODO(lazy-blob-resolution-phase2)) does
+    // the same for embedded (same-file) blobs.
     const ColumnInfo& info = rep_->column_infos_[read.column_index];
     Slice whole;
     Status s;
@@ -282,7 +283,7 @@ Status LazyWideColumnsBatch::MultiResolve(const ReadOptions& read_options,
     single.column_index = read.column_index;
     single.offset = read.offset;
     single.length = read.length;
-    single.verify = read.verify;
+    single.force_verify = read.force_verify;
     single.result = read.result;
     single.status = read.status;
     rep_->entities[read.entity_index].MultiResolve(read_options,

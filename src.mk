@@ -102,8 +102,8 @@ LIB_SOURCES =                                                   \
   db/version_util.cc                                            \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
-  db/wide/lazy_wide_columns.cc                                   \
-  db/wide/read_path_blob_resolver.cc                             \
+  db/wide/lazy_wide_columns.cc                                  \
+  db/wide/read_path_blob_resolver.cc                            \
   db/wide/wide_column_serialization.cc                          \
   db/wide/wide_columns.cc                                       \
   db/wide/wide_columns_helper.cc                                \
