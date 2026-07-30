@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
@@ -195,13 +196,63 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) {
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_wal_file);
 }
 
+Status DBImpl::AppendColumnFamilyDropsToManifest(
+    const std::string& manifest_path, uint64_t manifest_size,
+    const std::vector<uint32_t>& cf_ids) {
+  const WriteOptions write_options;
+  // Snapshot manifest_preallocation_size_ under the DB mutex per VersionSet's
+  // contract (the field is mutated by SetDBOptions under this mutex).
+  uint64_t preallocation_size = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    preallocation_size = versions_->manifest_preallocation_size_;
+  }
+  return versions_->AppendColumnFamilyDropsToManifest(
+      manifest_path, manifest_size, cf_ids, write_options, preallocation_size);
+}
+
 Status DBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
     std::vector<LiveFileStorageInfo>* files) {
+  return GetLiveFilesStorageInfoImpl(opts, /*include_cf_ids=*/{}, files,
+                                     /*excluded_cf_ids=*/nullptr);
+}
+
+Status DBImpl::GetLiveFilesStorageInfoForSubsetCheckpoint(
+    const LiveFilesStorageInfoOptions& opts,
+    const std::vector<uint32_t>& include_cf_ids,
+    std::vector<LiveFileStorageInfo>* files,
+    std::vector<uint32_t>* excluded_cf_ids) {
+  // Internal contract: caller must coalesce ids and always include the default
+  // CF (it cannot be dropped, so a subset checkpoint without it would produce
+  // an unopenable DB). CheckpointImpl enforces this before calling here.
+  assert(!include_cf_ids.empty());
+  assert(std::find(include_cf_ids.begin(), include_cf_ids.end(),
+                   default_cf_handle_->GetID()) != include_cf_ids.end());
+  assert(excluded_cf_ids != nullptr);
+  return GetLiveFilesStorageInfoImpl(opts, include_cf_ids, files,
+                                     excluded_cf_ids);
+}
+
+Status DBImpl::GetLiveFilesStorageInfoImpl(
+    const LiveFilesStorageInfoOptions& opts,
+    const std::vector<uint32_t>& include_cf_ids,
+    std::vector<LiveFileStorageInfo>* files,
+    std::vector<uint32_t>* excluded_cf_ids) {
   // To avoid returning partial results, only move results to files on success.
   assert(files);
   files->clear();
   std::vector<LiveFileStorageInfo> results;
+
+  const bool cf_subset = !include_cf_ids.empty();
+  assert(!cf_subset || excluded_cf_ids != nullptr);
+  const std::unordered_set<uint32_t> include_cf_id_set(include_cf_ids.begin(),
+                                                       include_cf_ids.end());
+  // Tracks which requested ids remain to be observed as live under the DB
+  // mutex; any id still present after the enumeration was either dropped
+  // before or during the checkpoint (race) and must not silently disappear
+  // from the checkpoint.
+  std::unordered_set<uint32_t> unseen_include_cf_ids = include_cf_id_set;
 
   // NOTE: This implementation was largely migrated from Checkpoint.
 
@@ -282,6 +333,14 @@ Status DBImpl::GetLiveFilesStorageInfo(
     if (cfd->IsDropped()) {
       continue;
     }
+    if (cf_subset &&
+        include_cf_id_set.find(cfd->GetID()) == include_cf_id_set.end()) {
+      excluded_cf_ids->push_back(cfd->GetID());
+      continue;
+    }
+    if (cf_subset) {
+      unseen_include_cf_ids.erase(cfd->GetID());
+    }
     VersionStorageInfo& vsi = *cfd->current()->storage_info();
     auto& cf_paths = cfd->ioptions().cf_paths;
 
@@ -341,6 +400,17 @@ Status DBImpl::GetLiveFilesStorageInfo(
       }
       // TODO?: info.temperature
     }
+  }
+
+  // Release-build validation: every id the subset-checkpoint caller asked for
+  // must have been observed as live under the mutex. If any is missing, it was
+  // dropped before we ran (stale handle) or lost a race with a concurrent
+  // drop; either way the checkpoint would silently omit it, violating the
+  // caller's contract that the checkpoint contains the requested CFs.
+  if (cf_subset && !unseen_include_cf_ids.empty()) {
+    mutex_.Unlock();
+    return Status::InvalidArgument(
+        "Requested column family id was not live at checkpoint time");
   }
 
   // Capture some final info before releasing mutex
