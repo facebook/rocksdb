@@ -422,6 +422,21 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     // Still 1 file, it won't be deleted while ColumnFamilyHandle is alive.
     CheckFileTypeCounts(dbname_, 0, 1, 1);
 
+    if (bg_purge) {
+      // Under avoid_unnecessary_blocking_io, the CreateColumnFamily and
+      // DropColumnFamily calls above schedule background purges of obsolete
+      // OPTIONS files onto the HIGH pool. Drain those before arming the
+      // dependency below so it only parks the dropped-CF file purge triggered
+      // by `delete cfh`. Otherwise an OPTIONS-file purge parks at
+      // BGWorkPurge:start and, sharing the single HIGH thread with flushes,
+      // deadlocks the Flush() earlier in this lambda.
+      ASSERT_OK(dbfull()->TEST_WaitForPurge());
+      SyncPoint::GetInstance()->LoadDependency(
+          {{"DeleteFileTest::BackgroundPurgeCFDropTest:1",
+            "DBImpl::BGWorkPurge:start"}});
+      SyncPoint::GetInstance()->EnableProcessing();
+    }
+
     delete cfh;
     test::SleepingBackgroundTask sleeping_task_after;
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
@@ -449,15 +464,14 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"DeleteFileTest::BackgroundPurgeCFDropTest:1",
-        "DBImpl::BGWorkPurge:start"}});
-  SyncPoint::GetInstance()->EnableProcessing();
 
   {
     SCOPED_TRACE("avoid_unnecessary_blocking_io = true");
     do_test(true);
   }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // This test is to reproduce a bug that read invalid ReadOption in iterator
