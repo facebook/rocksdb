@@ -6262,6 +6262,11 @@ void InitializeOptionsGeneral(
     Options& options) {
   options.create_missing_column_families = true;
   options.create_if_missing = true;
+#if USE_COROUTINES
+  if (FLAGS_use_async_db_api) {
+    options.read_io_executor_threads = 8;
+  }
+#endif  // USE_COROUTINES
 
   if (FLAGS_statistics) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();

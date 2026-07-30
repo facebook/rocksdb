@@ -418,6 +418,15 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     // Expect 1 sst file.
     CheckFileTypeCounts(dbname_, 0, 1, 1);
 
+    if (bg_purge) {
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      SyncPoint::GetInstance()->LoadDependency(
+          {{"DeleteFileTest::BackgroundPurgeCFDropTest:1",
+            "DBImpl::BGWorkPurge:start"}});
+      SyncPoint::GetInstance()->EnableProcessing();
+    }
+
     ASSERT_OK(db_->DropColumnFamily(cfh));
     // Still 1 file, it won't be deleted while ColumnFamilyHandle is alive.
     CheckFileTypeCounts(dbname_, 0, 1, 1);
@@ -446,13 +455,6 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   options.create_if_missing = false;
   Reopen(options);
   ASSERT_OK(dbfull()->TEST_WaitForPurge());
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"DeleteFileTest::BackgroundPurgeCFDropTest:1",
-        "DBImpl::BGWorkPurge:start"}});
-  SyncPoint::GetInstance()->EnableProcessing();
 
   {
     SCOPED_TRACE("avoid_unnecessary_blocking_io = true");

@@ -653,6 +653,9 @@ enum Tickers : uint32_t {
   CHECKPOINT_READ_BYTES,
   CHECKPOINT_WRITE_BYTES,
 
+  // Number of SubmitReadAsync calls that fell back to a synchronous read
+  FILE_SUBMIT_ASYNC_READ_FALLBACK,
+
   TICKER_ENUM_MAX
 };
 

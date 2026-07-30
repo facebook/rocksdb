@@ -42,8 +42,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
   }
 
 #ifdef WITH_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
@@ -827,8 +826,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 #ifdef WITH_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
