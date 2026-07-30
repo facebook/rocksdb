@@ -2,15 +2,16 @@ name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
 permissions: {}
 env:
-  # Commands fail explicitly before the job timeout, which is retained as a
-  # final safety net for setup and cleanup steps.
-  CI_COMMAND_TIMEOUT_SECONDS: '120'
+  # Commands fail before the outer job timeout, leaving time for failure
+  # reporting and cleanup steps.
+  CI_COMMAND_TIMEOUT_SECONDS: '6900'
+  WINDOWS_CI_COMMAND_TIMEOUT_SECONDS: '10500'
   # Set to a job name to run only that job (on any repo), or leave empty for
   # normal behavior (all jobs on facebook repo only).
   ONLY_JOB: ''
 jobs:
   config:
-    timeout-minutes: 120
+    timeout-minutes: 135
     runs-on: ubuntu-latest
     outputs:
       only_job: ${{ steps.set.outputs.only_job }}
@@ -49,7 +50,7 @@ jobs:
 
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'check-format-and-targets' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: ubuntu-24.04
@@ -90,7 +91,7 @@ jobs:
           tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #
   build-linux:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -110,7 +111,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-mingw:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-cmake-mingw' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -143,7 +144,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -170,7 +171,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly-lite-no-test:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-make-with-folly-lite-no-test' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -191,7 +192,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-folly-coroutines' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -225,7 +226,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-benchmark-no-thread-status:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-cmake-with-benchmark-no-thread-status' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -259,7 +260,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-encrypted_env-no_compression:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-encrypted_env-no_compression' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -280,7 +281,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-release' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -313,7 +314,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-clang-13-no_test_run:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-clang-13-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -336,7 +337,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-clang-21-no_test_run:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-clang-21-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -375,7 +376,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-14-no_test_run:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-gcc-14-no_test_run' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -397,7 +398,7 @@ jobs:
   # ======================== Linux Other Checks ======================= #
 
   build-linux-unity-and-headers:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-unity-and-headers' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -418,7 +419,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-mini-crashtest:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-mini-crashtest' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -453,7 +454,7 @@ jobs:
         artifact-prefix: "${{ github.job }}-${{ matrix.crash_test_target }}"
   # ======================= Linux with Sanitizers ===================== #
   build-linux-clang21-asan-ubsan:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-clang21-asan-ubsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -481,7 +482,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-clang21-mini-tsan:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-clang21-mini-tsan' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -509,7 +510,7 @@ jobs:
       with:
         artifact-prefix: "${{ github.job }}-shard${{ matrix.shard }}"
   build-linux-static_lib-alt_namespace-status_checked:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-static_lib-alt_namespace-status_checked' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -529,7 +530,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS build only ======================== #
   build-macos:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-macos' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -553,7 +554,7 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ========================= MacOS with Tests ======================== #
   build-macos-cmake:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-macos-cmake' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -593,7 +594,7 @@ jobs:
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
   build-windows-msvc:
-    timeout-minutes: 120
+    timeout-minutes: 195
     if: needs.config.outputs.only_job == 'build-windows-msvc' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: windows-8-core
@@ -618,10 +619,10 @@ jobs:
       with:
         suite-run: ${{ matrix.suite_run }}
         run-java: ${{ matrix.run_java }}
-        timeout-seconds: ${{ env.CI_COMMAND_TIMEOUT_SECONDS }}
+        timeout-seconds: ${{ env.WINDOWS_CI_COMMAND_TIMEOUT_SECONDS }}
   # ============================ Java Jobs ============================ #
   build-linux-java:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -645,7 +646,7 @@ jobs:
     - uses: "./.github/actions/teardown-ccache"
       if: always()
   build-linux-java-static:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -669,7 +670,7 @@ jobs:
     - uses: "./.github/actions/teardown-ccache"
       if: always()
   build-macos-java:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-macos-java' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -698,7 +699,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-macos-java-static:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-macos-java-static' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -725,7 +726,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-macos-java-static-universal:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-macos-java-static-universal' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on: macos-15-xlarge
@@ -752,7 +753,7 @@ jobs:
       if: always()
     - uses: "./.github/actions/post-steps"
   build-linux-java-pmd:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-java-pmd' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -780,7 +781,7 @@ jobs:
         name: maven-site
         path: "${{ github.workspace }}/java/target/site"
   build-linux-arm:
-    timeout-minutes: 120
+    timeout-minutes: 135
     if: needs.config.outputs.only_job == 'build-linux-arm' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
     needs: config
     runs-on:
@@ -830,7 +831,7 @@ jobs:
     - build-linux-java-pmd
     - build-linux-arm
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 135
     steps:
     - name: Fail if a PR job did not complete successfully
       env:
