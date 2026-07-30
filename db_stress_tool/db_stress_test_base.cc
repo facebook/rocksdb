@@ -512,14 +512,15 @@ void StressTest::MaybeTestGetEntityLazy(ThreadState* thread,
 void StressTest::MaybeTestMultiGetEntityLazy(
     ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
     size_t num_keys, const Slice* keys,
-    const std::vector<const WideColumns*>* eager_references) {
+    const std::vector<EagerEntityRef>* eager_references) {
   assert(thread);
   if (num_keys == 0 || !LazyEntityReadEnabled() ||
       !thread->rand.OneIn(FLAGS_lazy_entity_read_one_in)) {
     return;
   }
   // When the caller supplies per-key references, they were read (and verified)
-  // under read_opts.snapshot; a null entry means that key was NotFound eagerly.
+  // under read_opts.snapshot; each carries the eager status (and columns when
+  // found) so we can distinguish a clean NotFound from an injected/other error.
   assert(eager_references == nullptr || (read_opts.snapshot != nullptr &&
                                          eager_references->size() == num_keys));
 
@@ -562,24 +563,25 @@ void StressTest::MaybeTestMultiGetEntityLazy(
                         own_eager_statuses.data());
   }
 
+  auto eager_status = [&](size_t i) -> const Status& {
+    return eager_references != nullptr ? (*eager_references)[i].status
+                                       : own_eager_statuses[i];
+  };
   auto eager_presence = [&](size_t i) -> EagerPresence {
     if (!verify) {
       return EagerPresence::kUnknown;
     }
-    if (eager_references != nullptr) {
-      return (*eager_references)[i] != nullptr ? EagerPresence::kFound
-                                               : EagerPresence::kNotFound;
-    }
-    const Status& es = own_eager_statuses[i];
+    const Status& es = eager_status(i);
     if (es.ok()) return EagerPresence::kFound;
     if (es.IsNotFound()) return EagerPresence::kNotFound;
     return EagerPresence::kUnknown;  // e.g. injected error
   };
   auto eager_columns = [&](size_t i) -> const WideColumns* {
-    if (eager_references != nullptr) {
-      return (*eager_references)[i];
+    if (!eager_status(i).ok()) {
+      return nullptr;
     }
-    return own_eager_statuses[i].ok() ? &own_eager[i].columns() : nullptr;
+    return eager_references != nullptr ? (*eager_references)[i].columns
+                                       : &own_eager[i].columns();
   };
 
   // Per entity: reconcile presence vs the eager reference, verify enumeration,

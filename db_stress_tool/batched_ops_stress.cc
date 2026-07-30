@@ -499,10 +499,12 @@ class BatchedOpsStressTest : public StressTest {
           }
         }
 
-        std::vector<const WideColumns*> eager_refs(num_prefixes);
+        std::vector<EagerEntityRef> eager_refs(num_prefixes);
         for (size_t j = 0; j < num_prefixes; ++j) {
-          eager_refs[j] =
-              results[j][0].status().ok() ? &results[j][0].columns() : nullptr;
+          eager_refs[j].status = results[j][0].status();
+          if (eager_refs[j].status.ok()) {
+            eager_refs[j].columns = &results[j][0].columns();
+          }
         }
         MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_prefixes,
                                     key_slices.data(), &eager_refs);
@@ -568,9 +570,12 @@ class BatchedOpsStressTest : public StressTest {
           }
         }
 
-        std::vector<const WideColumns*> eager_refs(num_prefixes);
+        std::vector<EagerEntityRef> eager_refs(num_prefixes);
         for (size_t j = 0; j < num_prefixes; ++j) {
-          eager_refs[j] = statuses[j].ok() ? &results[j].columns() : nullptr;
+          eager_refs[j].status = statuses[j];
+          if (statuses[j].ok()) {
+            eager_refs[j].columns = &results[j].columns();
+          }
         }
         MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_prefixes,
                                     key_slices.data(), &eager_refs);

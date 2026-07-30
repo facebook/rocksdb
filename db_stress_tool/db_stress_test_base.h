@@ -268,19 +268,29 @@ class StressTest {
                               ColumnFamilyHandle* cfh, const Slice& key,
                               const WideColumns* eager_reference = nullptr);
 
+  // Per-key eager reference for the MultiGetEntityLazy differential below: the
+  // caller's eager status for the key plus, when found, a pointer to its
+  // columns (all read under read_opts.snapshot). Carrying the status -- rather
+  // than just a columns-or-null pointer -- lets the differential tell a clean
+  // NotFound apart from an injected/other eager error, which must be skipped
+  // rather than compared against the lazy result.
+  struct EagerEntityRef {
+    Status status;
+    const WideColumns* columns = nullptr;  // valid iff status.ok()
+  };
+
   // Batch analogue of MaybeTestGetEntityLazy for TestMultiGetEntity: always
   // exercises MultiGetEntityLazy + LazyWideColumnsBatch::MultiResolve on a
   // random cross-entity column subset, and (when !skip_verifydb) verifies
   // against an eager reference. If the caller already read these keys under
-  // read_opts.snapshot, it should pass `eager_references` (size == num_keys; a
-  // null entry means that key was NotFound eagerly) to reuse those verified
-  // results and skip a redundant eager MultiGetEntity; otherwise
-  // (eager_references == nullptr) we read the reference here. Single column
-  // family.
+  // read_opts.snapshot, it should pass `eager_references` (size == num_keys,
+  // one EagerEntityRef per key) to reuse those verified results and skip a
+  // redundant eager MultiGetEntity; otherwise (eager_references == nullptr) we
+  // read the reference here. Single column family.
   void MaybeTestMultiGetEntityLazy(
       ThreadState* thread, const ReadOptions& read_opts,
       ColumnFamilyHandle* cfh, size_t num_keys, const Slice* keys,
-      const std::vector<const WideColumns*>* eager_references = nullptr);
+      const std::vector<EagerEntityRef>* eager_references = nullptr);
 
   // Exercises a lazily-read entity's no-I/O enumeration accessors, and (when
   // `reference` is non-null) checks column count / names / known logical sizes

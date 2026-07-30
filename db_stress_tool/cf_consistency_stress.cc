@@ -749,10 +749,12 @@ class CfConsistencyStressTest : public StressTest {
         }
       }
 
-      std::vector<const WideColumns*> eager_refs(num_keys);
+      std::vector<EagerEntityRef> eager_refs(num_keys);
       for (size_t i = 0; i < num_keys; ++i) {
-        eager_refs[i] =
-            results[i][0].status().ok() ? &results[i][0].columns() : nullptr;
+        eager_refs[i].status = results[i][0].status();
+        if (eager_refs[i].status.ok()) {
+          eager_refs[i].columns = &results[i][0].columns();
+        }
       }
       MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfhs[0], num_keys,
                                   key_slices.data(), &eager_refs);
