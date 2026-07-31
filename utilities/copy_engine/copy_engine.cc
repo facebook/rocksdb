@@ -78,9 +78,10 @@ void CopyEngine::ThreadBody() {
       result.io_status = CopyOrCreateFile(
           work_item.src_path, work_item.dst_path, work_item.contents,
           work_item.size_limit, work_item.src_env, work_item.dst_env,
-          work_item.src_env_options, work_item.sync, work_item.rate_limiter,
-          work_item.progress_callback, &temp, work_item.dst_temperature,
-          &bytes_toward_next_callback, &result.size, &result.checksum_hex);
+          work_item.src_env_options, work_item.sync, work_item.use_fsync,
+          work_item.rate_limiter, work_item.progress_callback, &temp,
+          work_item.dst_temperature, &bytes_toward_next_callback, &result.size,
+          &result.checksum_hex);
 
       RecordTick(work_item.stats, options_.read_bytes_ticker,
                  IOSTATS(bytes_read) - prev_bytes_read);
@@ -140,8 +141,8 @@ void CopyEngine::ThreadBody() {
 IOStatus CopyEngine::CopyOrCreateFile(
     const std::string& src, const std::string& dst, const std::string& contents,
     uint64_t size_limit, Env* src_env, Env* dst_env,
-    const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
-    const std::function<void()>& progress_callback,
+    const EnvOptions& src_env_options, bool sync, bool use_fsync,
+    RateLimiter* rate_limiter, const std::function<void()>& progress_callback,
     Temperature* src_temperature, Temperature dst_temperature,
     uint64_t* bytes_toward_next_callback, uint64_t* size,
     std::string* checksum_hex) {
@@ -278,8 +279,8 @@ IOStatus CopyEngine::CopyOrCreateFile(
     checksum_hex->assign(ChecksumInt32ToHex(checksum_value));
   }
 
-  if (io_s.ok() && sync) {
-    io_s = dest_writer->Sync(opts, false);
+  if (io_s.ok() && (sync || use_fsync)) {
+    io_s = dest_writer->Sync(opts, use_fsync);
   }
   if (io_s.ok()) {
     io_s = dest_writer->Close(opts);
