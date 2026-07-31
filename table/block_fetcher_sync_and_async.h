@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 // Read a block from the file and verify its checksum. Upon return, io_status_
 // will be updated with the status of the read, and slice_ will be
 // updated with a pointer to the data.
-void BlockFetcher::ReadBlock(bool retry) {
+DEFINE_SYNC_AND_ASYNC(void, BlockFetcher::ReadBlock)(bool retry) {
   FSReadRequest read_req;
   IOOptions opts;
   IODebugContext dbg;
@@ -36,26 +36,30 @@ void BlockFetcher::ReadBlock(bool retry) {
           &direct_io_buffer_,
           direct_io_allocator ? &direct_io_allocator : nullptr};
       PERF_TIMER_GUARD(block_read_time);
+#if defined(WITHOUT_COROUTINES)
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
-      io_status_ =
-          file_->Read(opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      /*scratch=*/nullptr, &direct_io_context, &dbg);
+#endif
+      io_status_ = CO_AWAIT(file_->Read, opts, handle_.offset(),
+                            block_size_with_trailer_, &slice_,
+                            /*scratch=*/nullptr, &direct_io_context, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
       PERF_TIMER_GUARD(block_read_time);
+#if defined(WITHOUT_COROUTINES)
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+#endif
       read_req.offset = handle_.offset();
       read_req.len = block_size_with_trailer_;
       read_req.scratch = nullptr;
       AlignedBuffer direct_io_buffer;
       AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
-      io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                    &direct_io_context, &dbg);
+      io_status_ = CO_AWAIT(file_->MultiRead, opts, &read_req, /*num_reqs=*/1,
+                            &direct_io_context, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 
       slice_ = Slice(read_req.result.data(), read_req.result.size());
@@ -64,18 +68,20 @@ void BlockFetcher::ReadBlock(bool retry) {
       // It allocates/assign used_buf_
       PrepareBufferForBlockFromFile();
       if (!io_status_.ok()) {
-        return;
+        CO_RETURN;
       }
 
       PERF_TIMER_GUARD(block_read_time);
+#if defined(WITHOUT_COROUTINES)
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
+#endif
 
-      io_status_ =
-          file_->Read(opts, handle_.offset(), /*size*/ block_size_with_trailer_,
-                      /*result*/ &slice_, /*scratch*/ used_buf_,
-                      /*direct_io_buffer=*/nullptr, &dbg);
+      io_status_ = CO_AWAIT(file_->Read, opts, handle_.offset(),
+                            /*size*/ block_size_with_trailer_,
+                            /*result*/ &slice_, /*scratch*/ used_buf_,
+                            /*direct_io_buffer=*/nullptr, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
       if (slice_.data() == &stack_buf_[0]) {
@@ -146,33 +152,33 @@ void BlockFetcher::ReadBlock(bool retry) {
   }
 }
 
-IOStatus BlockFetcher::ReadBlockContents() {
+DEFINE_SYNC_AND_ASYNC(IOStatus, BlockFetcher::ReadBlockContents)() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type() = kNoCompression;
 #ifndef NDEBUG
     contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif  // NDEBUG
-    return IOStatus::OK();
+    CO_RETURN IOStatus::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
     if (io_status_.IsCorruption() && retry_corrupt_read_) {
-      ReadBlock(/*retry=*/true);
+      CO_AWAIT(ReadBlock, /*retry=*/true);
     }
     if (!io_status_.ok()) {
       assert(!fs_buf_);
-      return io_status_;
+      CO_RETURN io_status_;
     }
   } else if (!TryGetSerializedBlockFromPersistentCache()) {
-    ReadBlock(/*retry =*/false);
+    CO_AWAIT(ReadBlock, /*retry =*/false);
     // If the file system supports retry after corruption, then try to
     // re-read the block and see if it succeeds.
     if (io_status_.IsCorruption() && retry_corrupt_read_) {
       assert(!fs_buf_);
-      ReadBlock(/*retry=*/true);
+      CO_AWAIT(ReadBlock, /*retry=*/true);
     }
     if (!io_status_.ok()) {
       assert(!fs_buf_);
-      return io_status_;
+      CO_RETURN io_status_;
     }
   }
 
@@ -194,7 +200,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
 
-  return io_status_;
+  CO_RETURN io_status_;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

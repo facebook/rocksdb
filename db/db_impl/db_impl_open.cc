@@ -243,6 +243,11 @@ Status DBImpl::ValidateOptions(
 }
 
 Status DBImpl::ValidateOptions(const DBOptions& db_options) {
+  if (db_options.read_io_executor_threads <= 0) {
+    return Status::InvalidArgument(
+        "read_io_executor_threads must be greater than zero");
+  }
+
   if (db_options.db_paths.size() > 4) {
     return Status::NotSupported(
         "More than four DB paths are not supported yet. ");
@@ -2872,11 +2877,16 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   TEST_SYNC_POINT("DBImpl::Open:Opened");
   Status persist_options_status;
+  bool cleanup_obsolete_options_files = false;
   if (s.ok()) {
     // Persist RocksDB Options before scheduling the compaction.
     // The WriteOptionsFile() will release and lock the mutex internally.
     persist_options_status =
         impl->WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
+    cleanup_obsolete_options_files =
+        impl->immutable_db_options_.avoid_unnecessary_blocking_io &&
+        impl->immutable_db_options_.compaction_service == nullptr &&
+        !impl->disable_delete_obsolete_files_;
     impl->opened_successfully_ = true;
   } else {
     persist_options_status.PermitUncheckedError();
@@ -2966,6 +2976,17 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->RegisterRecordSeqnoTimeWorker();
   }
   impl->options_mutex_.Unlock();
+  if (cleanup_obsolete_options_files) {
+    Status obsolete_options_status =
+        impl->DeleteObsoleteOptionsFiles(/*schedule_only=*/s.ok());
+    if (!obsolete_options_status.ok()) {
+      ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
+                     "Unable to %s obsolete OPTIONS files%s: %s",
+                     s.ok() ? "schedule deletion of" : "delete",
+                     s.ok() ? "" : " after DB open failure",
+                     obsolete_options_status.ToString().c_str());
+    }
+  }
   if (s.ok()) {
     *dbptr = std::move(impl);
   } else {

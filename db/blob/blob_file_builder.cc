@@ -41,14 +41,14 @@ BlobFileBuilder::BlobFileBuilder(
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
-    std::vector<std::string>* blob_file_paths,
+    std::vector<std::string>* output_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
                       write_options, db_id, db_session_id, job_id,
                       column_family_id, column_family_name, write_hint,
                       io_tracer, blob_callback, creation_reason,
-                      blob_file_paths, blob_file_additions) {}
+                      output_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
@@ -60,7 +60,7 @@ BlobFileBuilder::BlobFileBuilder(
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
-    std::vector<std::string>* blob_file_paths,
+    std::vector<std::string>* output_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
       fs_(fs),
@@ -88,7 +88,7 @@ BlobFileBuilder::BlobFileBuilder(
       io_tracer_(io_tracer),
       blob_callback_(blob_callback),
       creation_reason_(creation_reason),
-      blob_file_paths_(blob_file_paths),
+      output_file_paths_(output_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
       blob_bytes_(0) {
@@ -97,13 +97,20 @@ BlobFileBuilder::BlobFileBuilder(
   assert(immutable_options_);
   assert(file_options_);
   assert(write_options_);
-  assert(blob_file_paths_);
-  assert(blob_file_paths_->empty());
+  assert(output_file_paths_);
+  assert(output_file_paths_->empty());
   assert(blob_file_additions_);
   assert(blob_file_additions_->empty());
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
+
+std::string BlobFileBuilder::GetBlobFilePath(uint64_t blob_file_number) const {
+  assert(immutable_options_);
+  assert(!immutable_options_->cf_paths.empty());
+  return BlobFileName(immutable_options_->cf_paths.front().path,
+                      blob_file_number);
+}
 
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
                             std::string* blob_index) {
@@ -186,10 +193,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   assert(file_number_generator_);
   const uint64_t blob_file_number = file_number_generator_();
 
-  assert(immutable_options_);
-  assert(!immutable_options_->cf_paths.empty());
-  std::string blob_file_path =
-      BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
+  std::string blob_file_path = GetBlobFilePath(blob_file_number);
 
   if (blob_callback_) {
     blob_callback_->OnBlobFileCreationStarted(
@@ -214,11 +218,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
     }
   }
 
-  // Note: files get added to blob_file_paths_ right after the open, so they
-  // can be cleaned up upon failure. Contrast this with blob_file_additions_,
-  // which only contains successfully written files.
-  assert(blob_file_paths_);
-  blob_file_paths_->emplace_back(std::move(blob_file_path));
+  // Note: blob files get added to output_file_paths_ right after the open, so
+  // they can be cleaned up upon failure. Contrast this with
+  // blob_file_additions_, which only contains successfully written files.
+  assert(output_file_paths_);
+  output_file_paths_->emplace_back(std::move(blob_file_path));
 
   assert(file);
   file->SetIOPriority(write_options_->rate_limiter_priority);
@@ -228,7 +232,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_paths_->back(), *file_options_,
+      std::move(file), output_file_paths_->back(), *file_options_,
       immutable_options_->clock, io_tracer_, statistics,
       Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, immutable_options_->listeners,
       immutable_options_->file_checksum_gen_factory.get(),
@@ -341,7 +345,7 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(
-        blob_file_paths_->back(), column_family_name_, job_id_,
+        GetBlobFilePath(blob_file_number), column_family_name_, job_id_,
         blob_file_number, creation_reason_, s, checksum_value, checksum_method,
         blob_count_, blob_bytes_);
   }
@@ -385,9 +389,10 @@ void BlobFileBuilder::Abandon(const Status& s) {
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
+    const uint64_t blob_file_number = writer_->get_log_number();
     blob_callback_
-        ->OnBlobFileCompleted(blob_file_paths_->back(), column_family_name_,
-                              job_id_, writer_->get_log_number(),
+        ->OnBlobFileCompleted(GetBlobFilePath(blob_file_number),
+                              column_family_name_, job_id_, blob_file_number,
                               creation_reason_, s, "", "", blob_count_,
                               blob_bytes_)
         .PermitUncheckedError();

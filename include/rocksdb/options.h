@@ -780,6 +780,11 @@ struct DBOptions {
   // Default: 16
   int max_file_opening_threads = 16;
 
+  // Requested maximum number of threads in the shared read I/O executor. A DB
+  // open can increase the executor to this size but cannot reduce it. Used
+  // exclusively for asynchronous read requests (e.g. GetAsync, MultiGetAsync).
+  int read_io_executor_threads = 1;
+
   // If true, SST files are opened and validated asynchronously in the
   // background after DB::Open returns. This reduces DB open time for
   // databases with many SST files and high latency file systems. Mostly useful

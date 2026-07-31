@@ -6,6 +6,11 @@
 
 #include "util/coro_utils.h"
 
+#if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
+#include "folly/executors/IOExecutor.h"
+#include "folly/io/async/EventBase.h"
+#endif  // USE_COROUTINES && WITH_COROUTINES
+
 #if defined(WITHOUT_COROUTINES) || \
     (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 
@@ -14,8 +19,8 @@ namespace ROCKSDB_NAMESPACE {
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 (const ReadOptions& read_options, ColumnFamilyHandle* column_family,
  const Slice& key, PinnableSlice* value) {
-  CO_RETURN CO_AWAIT(GetImpl)(read_options, column_family, key, value,
-                              /*timestamp=*/nullptr);
+  CO_RETURN CO_AWAIT(GetImpl, read_options, column_family, key, value,
+                     /*timestamp=*/nullptr);
 }
 
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
@@ -36,9 +41,18 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
     read_options.io_activity = Env::IOActivity::kGet;
   }
 
-  Status s =
-      CO_AWAIT(GetImpl)(read_options, column_family, key, value, timestamp);
-  CO_RETURN s;
+#ifdef WITH_COROUTINES
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    Status s = co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base),
+        GetImplCoroutine(read_options, column_family, key, value, timestamp)));
+    co_return s;
+  }
+#endif
+  CO_RETURN GetImpl(read_options, column_family, key, value, timestamp);
 }
 
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
@@ -49,7 +63,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   get_impl_options.value = value;
   get_impl_options.timestamp = timestamp;
 
-  Status s = CO_AWAIT(GetImpl)(read_options, key, get_impl_options);
+  Status s = CO_AWAIT(GetImpl, read_options, key, get_impl_options);
   CO_RETURN s;
 }
 
@@ -83,7 +97,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
 
+#if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+#endif
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -110,12 +126,17 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   }
 
   // Acquire SuperVersion
+#if defined(WITH_COROUTINES)
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  Defer sv_cleanup([&] { CleanupSuperVersion(sv); });
+#else
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  Defer sv_cleanup([&] { ReturnAndCleanupSuperVersion(cfd, sv); });
+#endif
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
         FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
     if (!s.ok()) {
-      ReturnAndCleanupSuperVersion(cfd, sv);
       CO_RETURN s;
     }
   }
@@ -269,7 +290,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
     }
     if (!s.ok() && !s.IsMergeInProgress() && !s.IsNotFound()) {
       assert(done);
-      ReturnAndCleanupSuperVersion(cfd, sv);
       CO_RETURN s;
     }
   }
@@ -278,10 +298,10 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    CO_AWAIT(sv->current->Get)(
-        read_options, lkey, get_impl_options.value, get_impl_options.columns,
-        timestamp, &s, &merge_context, &max_covering_tombstone_seq,
-        &pinned_iters_mgr,
+    CO_AWAIT(
+        sv->current->Get, read_options, lkey, get_impl_options.value,
+        get_impl_options.columns, timestamp, &s, &merge_context,
+        &max_covering_tombstone_seq, &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
@@ -344,10 +364,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
           if (ref_sv) {
             assert(!merge_context.GetOperands().empty());
             SharedCleanablePtr shared_cleanable;
-            GetMergeOperandsState* state = nullptr;
-            state = new GetMergeOperandsState();
-            state->merge_context = std::move(merge_context);
-            state->pinned_iters_mgr = std::move(pinned_iters_mgr);
+            GetMergeOperandsState* state = new GetMergeOperandsState(
+                std::move(merge_context), std::move(pinned_iters_mgr));
 
             sv->Ref();
 
@@ -388,8 +406,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
 
-    ReturnAndCleanupSuperVersion(cfd, sv);
-
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
   CO_RETURN s;
@@ -408,7 +424,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
 (const ReadOptions& read_options, size_t start_key, size_t num_keys,
  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
  SuperVersion* super_version, SequenceNumber snapshot, ReadCallback* callback) {
+#if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+#endif  // defined(WITHOUT_COROUTINES)
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
 
   assert(sorted_keys);
@@ -428,6 +446,12 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
   }
   const BlobFetcher* memtable_blob_fetcher_ptr =
       memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
+
+#ifdef WITH_COROUTINES
+  constexpr bool kUseCoroRead = true;
+#else
+  constexpr bool kUseCoroRead = false;
+#endif
 
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
@@ -458,7 +482,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
                             : keys_left;
     MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
                         batch_size, snapshot, read_options, GetFileSystem(),
-                        stats_);
+                        stats_, kUseCoroRead);
     MultiGetRange range = ctx.GetMultiGetRange();
     range.AddValueSize(curr_value_size);
     bool lookup_current = true;
@@ -490,8 +514,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
     }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
-      CO_AWAIT(super_version->current->MultiGet)(read_options, &range,
-                                                 callback);
+      CO_AWAIT(super_version->current->MultiGet, read_options, &range,
+               callback);
     }
     curr_value_size = range.GetValueSize();
     if (curr_value_size > read_options.value_size_soft_limit) {
@@ -688,6 +712,17 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
 
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local = false;
+#ifdef WITH_COROUTINES
+  // The coroutine read path may suspend mid-MultiGet and resume on a shared
+  // executor thread, which is incompatible with the thread-local SuperVersion
+  // cache: it marks the thread's slot kSVInUse for the duration of the read, so
+  // a second coroutine resuming on the same thread would trip the kSVInUse
+  // assertion. Take an independent reference instead, which releases the
+  // thread-local slot before any suspension point.
+  constexpr bool kExtraSvRef = true;
+#else
+  constexpr bool kExtraSvRef = false;
+#endif
   Status s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
                                         MultiGetContext::MAX_BATCH_SIZE>>(
       read_options, nullptr,
@@ -695,8 +730,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
                     MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
         return &(*cf_iter);
       },
-      &cf_sv_pairs,
-      /* extra_sv_ref */ false, &consistent_seqnum, &sv_from_thread_local);
+      &cf_sv_pairs, kExtraSvRef, &consistent_seqnum, &sv_from_thread_local);
 
   if (!s.ok()) {
     for (size_t i = 0; i < num_keys; ++i) {
@@ -719,10 +753,10 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
   auto cf_sv_pair_iter = cf_sv_pairs.begin();
   while (key_range_per_cf_iter != key_range_per_cf.end() &&
          cf_sv_pair_iter != cf_sv_pairs.end()) {
-    s = CO_AWAIT(MultiGetImpl)(read_options, key_range_per_cf_iter->start,
-                               key_range_per_cf_iter->num_keys, &sorted_keys,
-                               cf_sv_pair_iter->super_version,
-                               consistent_seqnum, read_callback);
+    s = CO_AWAIT(MultiGetImpl, read_options, key_range_per_cf_iter->start,
+                 key_range_per_cf_iter->num_keys, &sorted_keys,
+                 cf_sv_pair_iter->super_version, consistent_seqnum,
+                 read_callback);
     if (!s.ok()) {
       break;
     }
@@ -743,7 +777,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
   }
 
   for (const auto& cf_sv_pair : cf_sv_pairs) {
-    if (sv_from_thread_local) {
+    if (sv_from_thread_local && !kExtraSvRef) {
       ReturnAndCleanupSuperVersion(cf_sv_pair.cfd, cf_sv_pair.super_version);
     } else {
       TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeLastTryUnRefSV");
@@ -772,9 +806,21 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-  CO_AWAIT(MultiGetCommon)
-  (read_options, num_keys, column_families, keys, values, /* columns */ nullptr,
-   timestamps, statuses, sorted_input);
+#ifdef WITH_COROUTINES
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
+  if (read_executor != nullptr) {
+    auto* read_event_base = read_executor->getEventBase();
+    assert(read_event_base != nullptr);
+    co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base),
+        MultiGetCommonCoroutine(
+            read_options, num_keys, column_families, keys, values,
+            /* columns */ nullptr, timestamps, statuses, sorted_input)));
+    co_return;
+  }
+#endif
+  MultiGetCommon(read_options, num_keys, column_families, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

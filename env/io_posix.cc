@@ -13,6 +13,7 @@
 #include <fcntl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
@@ -37,9 +38,18 @@
 #include "port/stack_trace.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
+#include "util/aligned_buffer.h"
 #include "util/autovector.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
+
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+#include "folly/Executor.h"
+#include "folly/io/async/EventBase.h"
+#include "folly/io/async/EventBaseManager.h"
+#include "folly/io/async/IoUringBackend.h"
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 #if defined(OS_LINUX) && !defined(F_SET_RW_HINT)
 #define F_LINUX_SPECIFIC_BASE 1024
@@ -76,6 +86,20 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
                                errnoStr(err_number).c_str());
   }
 }
+
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+namespace {
+thread_local bool current_thread_read_io_uring_backend_available = false;
+}  // namespace
+
+void SetCurrentThreadReadIOUringBackendAvailable() {
+  current_thread_read_io_uring_backend_available = true;
+}
+
+bool IsCurrentThreadReadIOUringBackendAvailable() {
+  return current_thread_read_io_uring_backend_available;
+}
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
 // it will simply return 0.
@@ -594,7 +618,11 @@ size_t PosixHelper::GetQueueSysfsFileValueOfFd(
  */
 PosixRandomAccessFile::PosixRandomAccessFile(
     const std::string& fname, int fd, size_t logical_block_size,
-    const EnvOptions& options
+    const FileOptions& options
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+    ,
+    folly::EventBaseManager* read_event_base_manager
+#endif
 #if defined(ROCKSDB_IOURING_PRESENT)
     ,
     ThreadLocalPtr* thread_local_async_read_io_urings,
@@ -605,6 +633,10 @@ PosixRandomAccessFile::PosixRandomAccessFile(
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
       logical_sector_size_(logical_block_size)
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+      ,
+      read_event_base_manager_(read_event_base_manager)
+#endif
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
       thread_local_async_read_io_urings_(thread_local_async_read_io_urings),
@@ -616,6 +648,118 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 }
 
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
+
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
+namespace {
+
+struct PosixSubmitReadAsyncState {
+  int fd;
+  FSReadRequest* req;
+  char* cur;
+  size_t remaining;
+  uint64_t off;
+  size_t total = 0;
+  std::function<void(FSReadRequest&)> cb;
+  folly::Executor::KeepAlive<folly::EventBase> event_base;
+  size_t alignment = 0;
+
+  void Complete(IOStatus status) {
+    req->status = std::move(status);
+    req->result = req->status.ok() ? Slice(req->scratch, total) : Slice();
+    cb(*req);
+    delete this;
+  }
+
+  void Queue() {
+    auto* backend =
+        static_cast_with_check<folly::IoUringBackend>(event_base->getBackend());
+    backend->queueRead(
+        fd, cur, remaining, static_cast<off_t>(off), [this](int res) {
+          if (res == -EINTR || res == -EAGAIN) {
+            event_base->add([this] { Queue(); });
+            return;
+          }
+          IOStatus status;
+          if (res < 0) {
+            status = IOStatus::IOError("io_uring read failed",
+                                       errnoStr(-res).c_str());
+          } else if (res == 0) {
+            status = IOStatus::OK();
+          } else {
+            const size_t bytes_read = static_cast<size_t>(res);
+            if (bytes_read > remaining) {
+              status = IOStatus::IOError(
+                  "io_uring read returned " + std::to_string(bytes_read) +
+                  " bytes for a " + std::to_string(remaining) +
+                  " byte request");
+            } else {
+              total += bytes_read;
+              if (bytes_read == remaining ||
+                  // If direct io enabled, then it is possible to have a short
+                  // read, which would indicate EOF.
+                  (alignment != 0 && bytes_read % alignment != 0)) {
+                status = IOStatus::OK();
+              } else {
+                remaining -= bytes_read;
+                cur += bytes_read;
+                off += bytes_read;
+                event_base->add([this] { Queue(); });
+                return;
+              }
+            }
+          }
+          Complete(std::move(status));
+        });
+  }
+};
+
+}  // namespace
+
+bool PosixRandomAccessFile::SubmitReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&)> cb, IODebugContext* dbg) {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.len, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.scratch, GetRequiredBufferAlignment()));
+  }
+  assert(req.len == 0 || req.scratch != nullptr);
+
+  // Workers using the default EventBase backend read synchronously.
+  if (!IsCurrentThreadReadIOUringBackendAvailable()) {
+    req.status =
+        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    cb(req);
+    return false;
+  }
+
+  assert(read_event_base_manager_);
+  folly::EventBase* event_base =
+      read_event_base_manager_->getExistingEventBase();
+  assert(event_base != nullptr && event_base->inRunningEventBaseThread());
+
+  // Keep the event base alive so that cb is guaranteed to be run on it
+  auto event_base_keep_alive = folly::Executor::getKeepAliveToken(event_base);
+
+  auto* state = new PosixSubmitReadAsyncState{
+      fd_,
+      &req,
+      req.scratch,
+      req.len,
+      req.offset,
+      0,
+      std::move(cb),
+      std::move(event_base_keep_alive),
+      use_direct_io() ? GetRequiredBufferAlignment() : 0};
+
+  if (req.len == 0) {
+    state->Complete(IOStatus::OK());
+  } else {
+    state->Queue();
+  }
+  return true;
+}
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 IOStatus PosixRandomAccessFile::GetFileSize(uint64_t* result) {
   struct stat sbuf{};

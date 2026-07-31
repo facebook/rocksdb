@@ -271,9 +271,9 @@ class ReadSet {
   std::atomic<uint64_t> prefetch_bytes_ = 0;
   std::atomic<uint64_t> num_coalesced_nonadjacent_ = 0;
 
-  // Poll and process a specific async IO request
-  Status PollAndProcessAsyncIO(
-      const std::shared_ptr<AsyncIOState>& async_state);
+  // Poll and process a specific async IO request. Takes ownership by value so
+  // async_io_map_ entries can be erased without destroying the state mid-loop.
+  Status PollAndProcessAsyncIO(std::shared_ptr<AsyncIOState> async_state);
 
   // Release memory budget acquired for a prefetched block.
   void ReleasePrefetchMemory(size_t block_index);

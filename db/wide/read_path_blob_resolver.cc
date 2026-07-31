@@ -12,30 +12,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-ReadOptions BuildReadPathBlobResolverReadOptions(ReadTier read_tier,
-                                                 bool verify_checksums,
-                                                 bool fill_cache,
-                                                 Env::IOActivity io_activity) {
-  ReadOptions read_options;
-  read_options.read_tier = read_tier;
-  read_options.verify_checksums = verify_checksums;
-  read_options.fill_cache = fill_cache;
-  read_options.io_activity = io_activity;
-  return read_options;
-}
-
-}  // namespace
-
-ReadPathBlobResolver::ReadPathBlobResolver(
-    const Version* version, ReadTier read_tier, bool verify_checksums,
-    bool fill_cache, Env::IOActivity io_activity,
-    BlobFileCache* blob_file_cache, bool allow_write_path_fallback)
-    : blob_fetcher_(version,
-                    BuildReadPathBlobResolverReadOptions(
-                        read_tier, verify_checksums, fill_cache, io_activity),
-                    blob_file_cache, allow_write_path_fallback) {}
+ReadPathBlobResolver::ReadPathBlobResolver(const Version* version,
+                                           const ReadOptions& read_options,
+                                           BlobFileCache* blob_file_cache,
+                                           bool allow_write_path_fallback)
+    : blob_fetcher_(version, ReadOptions(read_options), blob_file_cache,
+                    allow_write_path_fallback) {}
 
 void ReadPathBlobResolver::Reset(
     const Slice& user_key, const std::vector<WideColumn>* columns,

@@ -5357,6 +5357,8 @@ class TickerTypeJni {
         return -0x7E;
       case ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER:
         return -0x7F;
+      case ROCKSDB_NAMESPACE::Tickers::FILE_SUBMIT_ASYNC_READ_FALLBACK:
+        return -0x80;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5904,6 +5906,8 @@ class TickerTypeJni {
             ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
       case -0x7F:
         return ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER;
+      case -0x80:
+        return ROCKSDB_NAMESPACE::Tickers::FILE_SUBMIT_ASYNC_READ_FALLBACK;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -6086,6 +6090,15 @@ class HistogramTypeJni {
         return 0x4A;
       case ROCKSDB_NAMESPACE::Histograms::OPEN_AND_COMPACT_DB_OPEN_MICROS:
         return 0x4B;
+      case ROCKSDB_NAMESPACE::Histograms::
+          IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS:
+        return 0x4C;
+      case ROCKSDB_NAMESPACE::Histograms::
+          IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS:
+        return 0x4D;
+      case ROCKSDB_NAMESPACE::Histograms::
+          IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS:
+        return 0x4E;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.
@@ -6259,6 +6272,15 @@ class HistogramTypeJni {
             FLUSH_WRITE_BUFFER_MANAGER_MEMTABLE_MEMORY_BYTES;
       case 0x4B:
         return ROCKSDB_NAMESPACE::Histograms::OPEN_AND_COMPACT_DB_OPEN_MICROS;
+      case 0x4C:
+        return ROCKSDB_NAMESPACE::Histograms::
+            IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS;
+      case 0x4D:
+        return ROCKSDB_NAMESPACE::Histograms::
+            IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS;
+      case 0x4E:
+        return ROCKSDB_NAMESPACE::Histograms::
+            IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS;
       case 0x3E:
         // 0x3E is reserved for backwards compatibility on current minor
         // version.

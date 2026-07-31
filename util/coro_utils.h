@@ -6,6 +6,7 @@
 
 #if defined(USE_COROUTINES)
 #include "folly/coro/Coroutine.h"
+#include "folly/coro/Nothrow.h"
 #include "folly/coro/Task.h"
 #endif
 #include "rocksdb/rocksdb_namespace.h"
@@ -106,12 +107,16 @@ constexpr bool using_coroutines() { return false; }
 // This macro should be used to call a function that might be a
 // coroutine. It expands to the correct function name and prefixes
 // the co_await operator if necessary. For example -
-// s = CO_AWAIT(foo)(true);
+// s = CO_AWAIT(foo, true);
 // if the code is compiled WITH_COROUTINES, would expand to
-// s = co_await fooCoroutine(true);
+// s = co_await folly::coro::co_nothrow(fooCoroutine(true));
 // if compiled WITHOUT_COROUTINES, would expand to
 // s = foo(true);
-#define CO_AWAIT(__func_name__) co_await __func_name__##Coroutine
+// co_nothrow drops folly's per-await exception-rethrow scaffolding (RocksDB
+// uses Status, not exceptions). The call args are passed into CO_AWAIT (not
+// appended after it) so co_nothrow can wrap the whole call.
+#define CO_AWAIT(__func_name__, ...) \
+  co_await folly::coro::co_nothrow(__func_name__##Coroutine(__VA_ARGS__))
 
 #define CO_RETURN co_return
 
@@ -130,12 +135,12 @@ constexpr bool using_coroutines() { return false; }
 // This macro should be used to call a function that might be a
 // coroutine. It expands to the correct function name and prefixes
 // the co_await operator if necessary. For example -
-// s = CO_AWAIT(foo)(true);
+// s = CO_AWAIT(foo, true);
 // if the code is compiled WITH_COROUTINES, would expand to
-// s = co_await fooCoroutine(true);
+// s = co_await folly::coro::co_nothrow(fooCoroutine(true));
 // if compiled WITHOUT_COROUTINES, would expand to
 // s = foo(true);
-#define CO_AWAIT(__func_name__) __func_name__
+#define CO_AWAIT(__func_name__, ...) __func_name__(__VA_ARGS__)
 
 #define CO_RETURN return
 

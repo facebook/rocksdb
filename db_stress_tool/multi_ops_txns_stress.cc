@@ -1184,7 +1184,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       std::reverse(sk_buf + 2 * sizeof(uint32_t), sk_buf + sizeof(sk_buf));
       Slice sk(sk_buf, sizeof(sk_buf));
       std::string value;
-      s = db_->Get(ropts, sk, &value);
+      s = DbStressGet(db_, ropts, sk, &value);
       if (!s.ok()) {
         oss << "Cannot find secondary index entry " << sk.ToString(true)
             << ". Status is " << s.ToString();
@@ -1229,7 +1229,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       // Form a primary key and search in the primary index.
       std::string pk = Record::EncodePrimaryKey(record.a_value());
       std::string value;
-      s = db_->Get(ropts, pk, &value);
+      s = DbStressGet(db_, ropts, pk, &value);
       if (!s.ok()) {
         oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
             << s.ToString() << ". sk " << it->key().ToString(true);
@@ -1327,7 +1327,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
     // Form a primary key and search in the primary index.
     std::string pk = Record::EncodePrimaryKey(record.a_value());
     std::string value;
-    s = db->Get(ropts, pk, &value);
+    s = DbStressGet(db, ropts, pk, &value);
     if (!s.ok()) {
       oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
           << s.ToString() << ". sk " << it->key().ToString(true);

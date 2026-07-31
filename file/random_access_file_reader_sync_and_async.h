@@ -5,11 +5,53 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "util/coro_utils.h"
+#include "util/defer.h"
+
+#if defined(USE_COROUTINES)
+#include <atomic>
+
+#include "folly/coro/Baton.h"
+#include "folly/coro/Coroutine.h"
+#endif
 
 #if defined(WITHOUT_COROUTINES) || \
     (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 
 namespace ROCKSDB_NAMESPACE {
+
+#if defined(WITH_COROUTINES)
+inline folly::coro::Task<void> SubmitMultiReadAsync(
+    FSRandomAccessFile* file, FSReadRequest* fs_reqs, size_t num_fs_reqs,
+    const IOOptions& opts, Statistics* stats, IODebugContext* dbg) {
+  if (num_fs_reqs == 0) {
+    co_return;
+  }
+  folly::Executor* executor = co_await folly::coro::co_current_executor;
+  assert(executor != nullptr);
+  folly::coro::Baton baton;
+  std::atomic<size_t> pending{num_fs_reqs};
+#ifndef NDEBUG
+  // DB async reads are internally driven to completion; exiting while
+  // filesystem callbacks are outstanding would invalidate this stack state.
+  Defer assert_no_pending_reads(
+      [&] { assert(pending.load(std::memory_order_acquire) == 0); });
+#endif  // NDEBUG
+  for (size_t i = 0; i < num_fs_reqs; ++i) {
+    if (!file->SubmitReadAsync(
+            fs_reqs[i], opts,
+            [executor, &baton, &pending](FSReadRequest& /*req*/) {
+              if (pending.fetch_sub(1) == 1) {
+                executor->add([&baton] { baton.post(); });
+              }
+            },
+            dbg)) {
+      RecordTick(stats, FILE_SUBMIT_ASYNC_READ_FALLBACK, 1);
+    }
+  }
+
+  co_await baton;
+}
+#endif  // WITH_COROUTINES
 
 DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
 (const IOOptions& opts, uint64_t offset, size_t n, Slice* result, char* scratch,
@@ -52,7 +94,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
-    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
@@ -91,16 +132,30 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
           orig_offset = aligned_offset + current_size;
         }
 
+        // Only user reads are expected to specify a timeout. And user reads
+        // are not subjected to rate_limiter and should go through only
+        // one iteration of this loop, so we don't need to check and adjust
+        // the opts.timeout before calling file_->Read.
+        assert(!opts.timeout.count() || allowed == read_size);
+#if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
+        FSReadRequest fs_req;
+        fs_req.offset = aligned_offset + current_size;
+        fs_req.len = allowed;
+        fs_req.scratch = aligned_scratch + current_size;
+        fs_req.status.PermitUncheckedError();
+        TEST_SYNC_POINT_CALLBACK(
+            "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", &fs_req);
+        co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, stats_,
+                                      dbg);
+        io_s = fs_req.status;
+        tmp = fs_req.result;
+#else
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
-          // Only user reads are expected to specify a timeout. And user reads
-          // are not subjected to rate_limiter and should go through only
-          // one iteration of this loop, so we don't need to check and adjust
-          // the opts.timeout before calling file_->Read
-          assert(!opts.timeout.count() || allowed == read_size);
           io_s = file_->Read(aligned_offset + current_size, allowed, opts, &tmp,
                              aligned_scratch + current_size, dbg);
         }
+#endif
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
@@ -156,16 +211,35 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
           start_ts = FileOperationInfo::StartNow();
         }
 
+        // Only user reads are expected to specify a timeout. And user reads
+        // are not subjected to rate_limiter and should go through only
+        // one iteration of this loop, so we don't need to check and adjust
+        // the opts.timeout before calling file_->Read.
+        assert(!opts.timeout.count() || allowed == n);
+#if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
+        FSReadRequest fs_req;
+        fs_req.offset = offset + pos;
+        fs_req.len = allowed;
+        fs_req.scratch = scratch != nullptr ? scratch + pos : nullptr;
+        fs_req.status.PermitUncheckedError();
+        if (fs_req.scratch != nullptr) {
+          TEST_SYNC_POINT_CALLBACK(
+              "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", &fs_req);
+          co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, stats_,
+                                        dbg);
+          io_s = fs_req.status;
+          tmp_result = fs_req.result;
+        } else {
+          io_s = file_->Read(offset + pos, allowed, opts, &tmp_result, nullptr,
+                             dbg);
+        }
+#else
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
-          // Only user reads are expected to specify a timeout. And user reads
-          // are not subjected to rate_limiter and should go through only
-          // one iteration of this loop, so we don't need to check and adjust
-          // the opts.timeout before calling file_->Read
-          assert(!opts.timeout.count() || allowed == n);
           io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
                              scratch + pos, dbg);
         }
+#endif
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
@@ -192,7 +266,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
     RecordIOStats(stats_, file_temperature_, is_last_level_, result->size());
-    SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
@@ -247,7 +320,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
-    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
 
     FSReadRequest* fs_reqs = read_reqs;
@@ -255,7 +327,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
     std::vector<FSReadRequest> aligned_reqs;
     if (use_direct_io()) {
       // num_reqs is the max possible size,
-      // this can reduce std::vecector's internal resize operations.
+      // this can reduce std::vector's internal resize operations.
       aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
@@ -306,7 +378,9 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
     }
 
     if (io_s.ok()) {
+#if defined(WITHOUT_COROUTINES)
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+#endif
       if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
         // TODO: ideally we should call `RateLimiter::RequestToken()` for
         // allowed bytes to multi-read and then consume those bytes by
@@ -334,7 +408,12 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
       TEST_SYNC_POINT_CALLBACK(
           "RandomAccessFileReader::MultiRead:IODebugContext",
           const_cast<void*>(static_cast<void*>(dbg)));
+#if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
+      co_await SubmitMultiReadAsync(file_.get(), fs_reqs, num_fs_reqs, opts,
+                                    stats_, dbg);
+#else
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, dbg);
+#endif
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
@@ -379,7 +458,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
       }
       RecordIOStats(stats_, file_temperature_, is_last_level_, result_size);
     }
-    SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
@@ -387,6 +465,5 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
 
   CO_RETURN io_s;
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 #endif

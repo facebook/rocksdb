@@ -649,6 +649,13 @@ enum Tickers : uint32_t {
   // dedicated atomic flush request reason ticker.
   ATOMIC_FLUSH_REQUEST_REASON_OTHER,
 
+  // Bytes read/written while creating checkpoints
+  CHECKPOINT_READ_BYTES,
+  CHECKPOINT_WRITE_BYTES,
+
+  // Number of SubmitReadAsync calls that fell back to a synchronous read
+  FILE_SUBMIT_ASYNC_READ_FALLBACK,
+
   TICKER_ENUM_MAX
 };
 
@@ -795,6 +802,15 @@ enum Histograms : uint32_t {
   MULTISCAN_PREPARE_MICROS,
   // Distribution of blocks prefetched per MultiScan Prepare()
   MULTISCAN_BLOCKS_PER_PREPARE,
+
+  // Time (microseconds) from IODispatcher async read submission until
+  // completion callback execution.
+  IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,
+  // Time (microseconds) IODispatcher spends waiting in FileSystem::Poll().
+  IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
+  // Time (microseconds) from async read submission until the block consumer
+  // starts polling for completion.
+  IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
 
   // Coefficient of variation of key gaps in blocks, scaled by 10000
   // (e.g., CV of 0.4532 is recorded as 4532). Currently only used by index

@@ -218,7 +218,7 @@ class CfConsistencyStressTest : public StressTest {
           column_families_[rand_column_families[thread->rand.Next() %
                                                 rand_column_families.size()]];
       std::string from_db;
-      s = db_->Get(readoptions, cfh, key, &from_db);
+      s = DbStressGet(db_, readoptions, cfh, key, &from_db);
     } else {
       // 1/2 chance, comparing one key is the same across all CFs
       const Snapshot* snapshot = db_->GetSnapshot();
@@ -226,8 +226,8 @@ class CfConsistencyStressTest : public StressTest {
       readoptionscopy.snapshot = snapshot;
 
       std::string value0;
-      s = db_->Get(readoptionscopy, column_families_[rand_column_families[0]],
-                   key, &value0);
+      s = DbStressGet(db_, readoptionscopy,
+                      column_families_[rand_column_families[0]], key, &value0);
 
       // Temporarily disable error injection for verification
       if (db_fault_injection_fs_) {
@@ -241,8 +241,9 @@ class CfConsistencyStressTest : public StressTest {
         bool found = s.ok();
         for (size_t i = 1; i < rand_column_families.size(); i++) {
           std::string value1;
-          s = db_->Get(readoptionscopy,
-                       column_families_[rand_column_families[i]], key, &value1);
+          s = DbStressGet(db_, readoptionscopy,
+                          column_families_[rand_column_families[i]], key,
+                          &value1);
           if (!s.ok() && !s.IsNotFound()) {
             break;
           }
@@ -326,8 +327,8 @@ class CfConsistencyStressTest : public StressTest {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
     }
-    db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
-                  statuses.data());
+    DbStressMultiGet(db_, readoptionscopy, cfh, num_keys, keys.data(),
+                     values.data(), statuses.data());
     for (const auto& s : statuses) {
       if (s.ok()) {
         // found case
@@ -1479,14 +1480,14 @@ class CfConsistencyStressTest : public StressTest {
           db_->GetEntity(snapshot_read_opts, cfh, key, &snapshot_entity);
       std::string snapshot_value;
       const Status snapshot_value_status =
-          db_->Get(snapshot_read_opts, cfh, key, &snapshot_value);
+          DbStressGet(db_, snapshot_read_opts, cfh, key, &snapshot_value);
 
       PinnableWideColumns latest_entity;
       const Status latest_entity_status =
           db_->GetEntity(latest_read_opts, cfh, key, &latest_entity);
       std::string latest_value;
       const Status latest_value_status =
-          db_->Get(latest_read_opts, cfh, key, &latest_value);
+          DbStressGet(db_, latest_read_opts, cfh, key, &latest_value);
 
       std::string snapshot_verify = "n/a";
       if (snapshot_entity_status.ok()) {

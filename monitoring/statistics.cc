@@ -334,6 +334,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.atomic_flush.request.reason.memtable_max_range_deletions"},
     {ATOMIC_FLUSH_REQUEST_REASON_OTHER,
      "rocksdb.atomic_flush.request.reason.other"},
+    {CHECKPOINT_READ_BYTES, "rocksdb.checkpoint.read.bytes"},
+    {CHECKPOINT_WRITE_BYTES, "rocksdb.checkpoint.write.bytes"},
+    {FILE_SUBMIT_ASYNC_READ_FALLBACK,
+     "rocksdb.file.submit.async.read.fallback"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -410,6 +414,12 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.multiscan.op.prepare.iterators.micros"},
     {MULTISCAN_PREPARE_MICROS, "rocksdb.multiscan.prepare.micros"},
     {MULTISCAN_BLOCKS_PER_PREPARE, "rocksdb.multiscan.blocks.per.prepare"},
+    {IO_DISPATCHER_ASYNC_READ_OBSERVED_COMPLETION_MICROS,
+     "rocksdb.iodispatcher.async.read.observed.completion.micros"},
+    {IO_DISPATCHER_ASYNC_READ_POLL_WAIT_MICROS,
+     "rocksdb.iodispatcher.async.read.poll.wait.micros"},
+    {IO_DISPATCHER_ASYNC_READ_PREFETCH_LEAD_MICROS,
+     "rocksdb.iodispatcher.async.read.prefetch.lead.micros"},
     {BLOCK_KEY_DISTRIBUTION_CV, "rocksdb.block.key.distribution.cv"},
     {INGEST_EXTERNAL_FILE_PREPARE_TIME,
      "rocksdb.ingest.external.file.prepare.micros"},

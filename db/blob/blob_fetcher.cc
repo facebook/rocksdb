@@ -26,20 +26,21 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
   return status;
 }
 
-Status VersionBlobFetcher::FetchBlob(const Slice& user_key,
-                                     const BlobIndex& blob_index,
-                                     FilePrefetchBuffer* prefetch_buffer,
-                                     PinnableSlice* blob_value,
-                                     uint64_t* bytes_read) const {
+Status VersionBlobFetcherBase::FetchBlob(const Slice& user_key,
+                                         const BlobIndex& blob_index,
+                                         FilePrefetchBuffer* prefetch_buffer,
+                                         PinnableSlice* blob_value,
+                                         uint64_t* bytes_read) const {
+  const ReadOptions& read_options = this->read_options();
   if (!allow_write_path_fallback_) {
     assert(version_);
 
-    return version_->GetBlob(read_options_, user_key, blob_index,
+    return version_->GetBlob(read_options, user_key, blob_index,
                              prefetch_buffer, blob_value, bytes_read);
   }
 
   return BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-      read_options_, user_key, blob_index, version_, blob_file_cache_,
+      read_options, user_key, blob_index, version_, blob_file_cache_,
       prefetch_buffer, blob_value, bytes_read);
 }
 

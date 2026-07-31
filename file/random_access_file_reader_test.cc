@@ -16,6 +16,14 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
+#if defined(USE_COROUTINES)
+#include "folly/Executor.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Task.h"
+#include "folly/executors/IOThreadPoolExecutor.h"
+#include "rocksdb/statistics.h"
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFileReaderTest : public testing::Test {
@@ -101,7 +109,38 @@ class ScratchObservingRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  private:
   bool* saw_null_scratch_;
 };
+
 }  // namespace
+
+#if defined(USE_COROUTINES)
+TEST_F(RandomAccessFileReaderTest, CountsCoroutineReadSyncFallback) {
+  const std::string fname = "async-read-fallback";
+  const std::string content = "async read fallback";
+  Write(fname, content);
+
+  const std::string fpath = Path(fname);
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(fs_->NewRandomAccessFile(fpath, FileOptions(), &file, nullptr));
+
+  auto statistics = CreateDBStatistics();
+  RandomAccessFileReader reader(std::move(file), fpath,
+                                env_->GetSystemClock().get(), nullptr,
+                                statistics.get());
+  std::string scratch(content.size(), '\0');
+  Slice result;
+
+  folly::IOThreadPoolExecutor executor(1);
+  folly::EventBase* event_base = executor.getEventBase();
+  ASSERT_NE(event_base, nullptr);
+  ASSERT_OK(folly::coro::blockingWait(folly::coro::co_withExecutor(
+      folly::Executor::getKeepAliveToken(event_base),
+      reader.ReadCoroutine(IOOptions(), 0, content.size(), &result,
+                           scratch.data(), nullptr, nullptr))));
+
+  ASSERT_EQ(content, result.ToString());
+  EXPECT_EQ(1, statistics->getTickerCount(FILE_SUBMIT_ASYNC_READ_FALLBACK));
+}
+#endif  // USE_COROUTINES
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
 
