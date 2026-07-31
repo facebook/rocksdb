@@ -3978,7 +3978,8 @@ static std::vector<std::string> RangeQueryKeys(
   ReadOptions ro;
   ro.iterate_lower_bound = &lb;
   ro.iterate_upper_bound = &ub;
-  ro.table_filter = factory.GetTableFilterForRangeQuery(lb, ub);
+  auto filter = factory.GetTableFilterForRangeQuery(lb, ub);
+  ro.table_filter = &filter;
   auto it = db.NewIterator(ro);
   std::vector<std::string> ret;
   for (it->Seek(lb); it->Valid(); it->Next()) {

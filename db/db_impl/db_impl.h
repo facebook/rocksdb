@@ -53,6 +53,7 @@
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
@@ -3799,7 +3800,7 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
 inline Status DBImpl::FailIfTableFilterWithRangeConversion(
     const ReadOptions& read_options,
     const MutableCFOptions& mutable_cf_options) const {
-  if (read_options.table_filter &&
+  if (HasTableFilter(read_options) &&
       mutable_cf_options.min_tombstones_for_range_conversion > 0) {
     return Status::InvalidArgument(
         "ReadOptions::table_filter is not supported when "
