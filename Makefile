@@ -1149,8 +1149,8 @@ endif
 # Any non-empty value other than 0/no/false enables strict mode.
 CLANG_FORMAT_BINARY ?=
 # Backward-compatibility baseline for the C API (signature-level) check. CI
-# overrides this with the PR's merge target; locally it falls back to main /
-# origin/main and is skipped if neither resolves.
+# overrides this with the PR's merge target or the branch's pre-push tip;
+# locally it falls back to main / origin/main and is skipped if neither resolves.
 API_COMPAT_REF ?= main
 CHECK_C_API_GEN_STRICT ?=
 check-c-api-gen:
