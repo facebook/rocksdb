@@ -163,6 +163,7 @@ IOStatus CopyEngine::CopyOrCreateFile(
   }
   uint32_t checksum_value = 0;
 
+  const uint64_t dbg_requested_limit = size_limit;  // [CKPT-DBG] before remap
   // Check if size limit is set. if not, set it to very big number
   if (size_limit == 0) {
     size_limit = std::numeric_limits<uint64_t>::max();
@@ -283,6 +284,23 @@ IOStatus CopyEngine::CopyOrCreateFile(
   }
   if (io_s.ok()) {
     io_s = dest_writer->Close(opts);
+  }
+  // [CKPT-DBG] anomaly-only: only pay for GetFileSize/fprintf when a MANIFEST
+  // copy actually came up short, so steady-state timing (and the race) is
+  // preserved.
+  if (size != nullptr && dbg_requested_limit != 0 &&
+      *size < dbg_requested_limit && !src.empty() &&
+      src.find("MANIFEST") != std::string::npos) {
+    uint64_t dbg_src_size = 0;
+    src_env->GetFileSystem()
+        ->GetFileSize(src, IOOptions(), &dbg_src_size, nullptr)
+        .PermitUncheckedError();
+    fprintf(stderr,
+            "[CKPT-DBG] SHORT-COPY src=%s requested=%llu copied=%llu "
+            "src_size_at_read=%llu status=%s\n",
+            src.c_str(), (unsigned long long)dbg_requested_limit,
+            (unsigned long long)*size, (unsigned long long)dbg_src_size,
+            io_s.ToString().c_str());
   }
   return io_s;
 }
