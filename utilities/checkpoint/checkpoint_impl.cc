@@ -192,8 +192,9 @@ class ParallelFileMover : public CheckpointFileMover {
               uint64_t size_limit, Temperature temperature) override {
     ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
     WorkItem w(src, dst, temperature, temperature, /*contents=*/"", env_, env_,
-               EnvOptions(), use_fsync_, copy_rate_limiter_, size_limit,
+               EnvOptions(), /*sync=*/true, copy_rate_limiter_, size_limit,
                stats_);
+    w.use_fsync = use_fsync_;
     copy_futures_.push_back(w.result.get_future());
     engine_->Submit(std::move(w));
     return Status::OK();
@@ -223,8 +224,9 @@ class ParallelFileMover : public CheckpointFileMover {
         // size_limit 0 copies the whole file; only immutable (non-trim_to_size)
         // files are linked, so this matches the serial path's info.size bound.
         WorkItem w(p.src, p.dst, p.temperature, p.temperature,
-                   /*contents=*/"", env_, env_, EnvOptions(), use_fsync_,
+                   /*contents=*/"", env_, env_, EnvOptions(), /*sync=*/true,
                    copy_rate_limiter_, /*size_limit=*/0, stats_);
+        w.use_fsync = use_fsync_;
         fallback_copies.push_back(w.result.get_future());
         engine_->Submit(std::move(w));
       } else {

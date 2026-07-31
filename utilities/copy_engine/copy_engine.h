@@ -85,6 +85,7 @@ struct WorkItem {
   Env* dst_env = nullptr;
   EnvOptions src_env_options;
   bool sync = false;
+  bool use_fsync = false;
   RateLimiter* rate_limiter = nullptr;
   uint64_t size_limit = 0;
   Statistics* stats = nullptr;
@@ -113,6 +114,7 @@ struct WorkItem {
     dst_env = o.dst_env;
     src_env_options = std::move(o.src_env_options);
     sync = o.sync;
+    use_fsync = o.use_fsync;
     rate_limiter = o.rate_limiter;
     size_limit = o.size_limit;
     stats = o.stats;
@@ -201,7 +203,7 @@ class CopyEngine {
                             const std::string& contents, uint64_t size_limit,
                             Env* src_env, Env* dst_env,
                             const EnvOptions& src_env_options, bool sync,
-                            RateLimiter* rate_limiter,
+                            bool use_fsync, RateLimiter* rate_limiter,
                             const std::function<void()>& progress_callback,
                             Temperature* src_temperature,
                             Temperature dst_temperature,
