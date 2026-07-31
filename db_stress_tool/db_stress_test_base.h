@@ -16,6 +16,7 @@
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/user_defined_index.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -528,6 +529,8 @@ class StressTest {
   std::unique_ptr<DB> secondary_db_;
   std::vector<ColumnFamilyHandle*> secondary_cfhs_;
   bool is_db_stopped_;
+
+  std::unique_ptr<CheckpointEngine> checkpoint_engine_;
 
   // MANIFEST verification state for reopen
   ManifestVerifyMode manifest_verify_mode_;
