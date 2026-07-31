@@ -119,7 +119,8 @@ class CheckpointFileMover {
                       Temperature temperature) = 0;
 
   virtual Status Copy(const std::string& src, const std::string& dst,
-                      uint64_t size_limit, Temperature temperature) = 0;
+                      uint64_t size_limit, Temperature temperature,
+                      FileType type) = 0;
 
   virtual Status Finish() = 0;
 };
@@ -139,7 +140,8 @@ class SerialFileMover : public CheckpointFileMover {
   }
 
   Status Copy(const std::string& src, const std::string& dst,
-              uint64_t size_limit, Temperature temperature) override {
+              uint64_t size_limit, Temperature temperature,
+              FileType /*type*/) override {
     ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
     return CopyFile(fs_, src, temperature, dst, temperature, size_limit,
                     use_fsync_, /*io_tracer=*/nullptr);
@@ -189,7 +191,18 @@ class ParallelFileMover : public CheckpointFileMover {
   }
 
   Status Copy(const std::string& src, const std::string& dst,
-              uint64_t size_limit, Temperature temperature) override {
+              uint64_t size_limit, Temperature temperature,
+              FileType type) override {
+    // trim_to_size files (MANIFEST, in-flight WALs) are only valid up to the
+    // size captured at enumeration; a deferred read on the pool can observe a
+    // different (e.g. truncated-to-synced) tail. Copy them inline so the read
+    // happens at capture time, matching the serial path.
+    if (type == kDescriptorFile || type == kWalFile) {
+      ROCKS_LOG_INFO(info_log_, "Copying (sync) %s", dst.c_str());
+      return CopyFile(env_->GetFileSystem().get(), src, temperature, dst,
+                      temperature, size_limit, use_fsync_,
+                      /*io_tracer=*/nullptr);
+    }
     ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
     WorkItem w(src, dst, temperature, temperature, /*contents=*/"", env_, env_,
                EnvOptions(), use_fsync_, copy_rate_limiter_, size_limit,
@@ -456,13 +469,13 @@ Status CheckpointImpl::CreateCheckpointImpl(
                                full_private_path + "/" + fname, temperature);
           } /* link_file_cb */,
           [&](const std::string& src_dirname, const std::string& fname,
-              uint64_t size_limit_bytes, FileType,
+              uint64_t size_limit_bytes, FileType type,
               const std::string& /* checksum_func_name */,
               const std::string& /* checksum_val */,
               const Temperature temperature) -> Status {
             return mover->Copy(src_dirname + "/" + fname,
                                full_private_path + "/" + fname,
-                               size_limit_bytes, temperature);
+                               size_limit_bytes, temperature, type);
           } /* copy_file_cb */,
           [&](const std::string& fname, const std::string& contents, FileType) {
             ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
