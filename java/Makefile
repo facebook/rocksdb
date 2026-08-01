@@ -319,9 +319,10 @@ ifneq ($(DEBUG_LEVEL),0)
 	JAVAC_ARGS += -Xlint:deprecation -Xlint:unchecked
 endif
 
-# Using a Facebook AWS account for S3 storage. (maven.org has a history
-# of failing in Travis builds.)
-DEPS_URL?=https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars
+# Hosted as assets on the "third-party-deps" GitHub release. (maven.org has a
+# history of failing in CI builds.) To add or update a jar, upload it here
+# (intentionally unlisted): https://github.com/facebook/rocksdb/releases/edit/third-party-deps
+DEPS_URL?=https://github.com/facebook/rocksdb/releases/download/third-party-deps
 
 java-version:
 ifneq ($(JAVAC_VERSION_GE_MIN),true)
