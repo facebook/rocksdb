@@ -323,6 +323,8 @@ endif
 # history of failing in CI builds.) To add or update a jar, upload it here
 # (intentionally unlisted): https://github.com/facebook/rocksdb/releases/edit/third-party-deps
 DEPS_URL?=https://github.com/facebook/rocksdb/releases/download/third-party-deps
+# curl with the common options used to fetch the jars below
+CURL_DOWNLOAD = curl --fail --insecure --location --retry 3 --retry-all-errors
 
 java-version:
 ifneq ($(JAVAC_VERSION_GE_MIN),true)
@@ -388,7 +390,7 @@ $(JAVA_JUNIT_JAR_PATH): $(JAVA_TEST_LIBDIR)
 ifneq (,$(wildcard $(MVN_LOCAL)/junit/junit/$(JAVA_JUNIT_VER)/$(JAVA_JUNIT_JAR)))
 	cp -v $(MVN_LOCAL)/junit/junit/$(JAVA_JUNIT_VER)/$(JAVA_JUNIT_JAR) $(JAVA_TEST_LIBDIR)
 else
-	curl --fail --insecure --output $(JAVA_JUNIT_JAR_PATH) --location $(DEPS_URL)/$(JAVA_JUNIT_JAR)
+	$(CURL_DOWNLOAD) --output $(JAVA_JUNIT_JAR_PATH) $(DEPS_URL)/$(JAVA_JUNIT_JAR)
 	JAVA_JUNIT_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_JUNIT_JAR_PATH) | cut -d ' ' -f 1`; \
 	if [ "$(JAVA_JUNIT_SHA256)" != "$$JAVA_JUNIT_SHA256_ACTUAL" ]; then \
 		echo $(JAVA_JUNIT_JAR_PATH) checksum mismatch, expected=\"$(JAVA_JUNIT_SHA256)\" actual=\"$$JAVA_JUNIT_SHA256_ACTUAL\"; \
@@ -400,7 +402,7 @@ $(JAVA_HAMCREST_JAR_PATH): $(JAVA_TEST_LIBDIR)
 ifneq (,$(wildcard $(MVN_LOCAL)/org/hamcrest/hamcrest/$(JAVA_HAMCREST_VER)/$(JAVA_HAMCREST_JAR)))
 	cp -v $(MVN_LOCAL)/org/hamcrest/hamcrest/$(JAVA_HAMCREST_VER)/$(JAVA_HAMCREST_JAR) $(JAVA_TEST_LIBDIR)
 else
-	curl --fail --insecure --output $(JAVA_HAMCREST_JAR_PATH) --location $(DEPS_URL)/$(JAVA_HAMCREST_JAR)
+	$(CURL_DOWNLOAD) --output $(JAVA_HAMCREST_JAR_PATH) $(DEPS_URL)/$(JAVA_HAMCREST_JAR)
 	JAVA_HAMCREST_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_HAMCREST_JAR_PATH) | cut -d ' ' -f 1`; \
 	if [ "$(JAVA_HAMCREST_SHA256)" != "$$JAVA_HAMCREST_SHA256_ACTUAL" ]; then \
 		echo $(JAVA_HAMCREST_JAR_PATH) checksum mismatch, expected=\"$(JAVA_HAMCREST_SHA256)\" actual=\"$$JAVA_HAMCREST_SHA256_ACTUAL\"; \
@@ -412,7 +414,7 @@ $(JAVA_MOCKITO_JAR_PATH): $(JAVA_TEST_LIBDIR)
 ifneq (,$(wildcard $(MVN_LOCAL)/org/mockito/mockito-all/$(JAVA_MOCKITO_VER)/$(JAVA_MOCKITO_JAR)))
 	cp -v $(MVN_LOCAL)/org/mockito/mockito-all/$(JAVA_MOCKITO_VER)/$(JAVA_MOCKITO_JAR) $(JAVA_TEST_LIBDIR)
 else
-	curl --fail --insecure --output "$(JAVA_MOCKITO_JAR_PATH)" --location $(DEPS_URL)/$(JAVA_MOCKITO_JAR)
+	$(CURL_DOWNLOAD) --output "$(JAVA_MOCKITO_JAR_PATH)" $(DEPS_URL)/$(JAVA_MOCKITO_JAR)
 	JAVA_MOCKITO_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_MOCKITO_JAR_PATH) | cut -d ' ' -f 1`; \
 	if [ "$(JAVA_MOCKITO_SHA256)" != "$$JAVA_MOCKITO_SHA256_ACTUAL" ]; then \
 		echo $(JAVA_MOCKITO_JAR_PATH) checksum mismatch, expected=\"$(JAVA_MOCKITO_SHA256)\" actual=\"$$JAVA_MOCKITO_SHA256_ACTUAL\"; \
@@ -424,7 +426,7 @@ $(JAVA_CGLIB_JAR_PATH): $(JAVA_TEST_LIBDIR)
 ifneq (,$(wildcard $(MVN_LOCAL)/cglib/cglib/$(JAVA_CGLIB_VER)/$(JAVA_CGLIB_JAR)))
 	cp -v $(MVN_LOCAL)/cglib/cglib/$(JAVA_CGLIB_VER)/$(JAVA_CGLIB_JAR) $(JAVA_TEST_LIBDIR)
 else
-	curl --fail --insecure --output "$(JAVA_CGLIB_JAR_PATH)" --location $(DEPS_URL)/$(JAVA_CGLIB_JAR)
+	$(CURL_DOWNLOAD) --output "$(JAVA_CGLIB_JAR_PATH)" $(DEPS_URL)/$(JAVA_CGLIB_JAR)
 	JAVA_CGLIB_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_CGLIB_JAR_PATH) | cut -d ' ' -f 1`; \
 	if [ "$(JAVA_CGLIB_SHA256)" != "$$JAVA_CGLIB_SHA256_ACTUAL" ]; then \
 		echo $(JAVA_CGLIB_JAR_PATH) checksum mismatch, expected=\"$(JAVA_CGLIB_SHA256)\" actual=\"$$JAVA_CGLIB_SHA256_ACTUAL\"; \
@@ -436,7 +438,7 @@ $(JAVA_ASSERTJ_JAR_PATH): $(JAVA_TEST_LIBDIR)
 ifneq (,$(wildcard $(MVN_LOCAL)/org/assertj/assertj-core/$(JAVA_ASSERTJ_VER)/$(JAVA_ASSERTJ_JAR)))
 	cp -v $(MVN_LOCAL)/org/assertj/assertj-core/$(JAVA_ASSERTJ_VER)/$(JAVA_ASSERTJ_JAR) $(JAVA_TEST_LIBDIR)
 else
-	curl --fail --insecure --output "$(JAVA_ASSERTJ_JAR_PATH)" --location $(DEPS_URL)/$(JAVA_ASSERTJ_JAR)
+	$(CURL_DOWNLOAD) --output "$(JAVA_ASSERTJ_JAR_PATH)" $(DEPS_URL)/$(JAVA_ASSERTJ_JAR)
 	JAVA_ASSERTJ_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_ASSERTJ_JAR_PATH) | cut -d ' ' -f 1`; \
 	if [ "$(JAVA_ASSERTJ_SHA256)" != "$$JAVA_ASSERTJ_SHA256_ACTUAL" ]; then \
 		echo $(JAVA_ASSERTJ_JAR_PATH) checksum mismatch, expected=\"$(JAVA_ASSERTJ_SHA256)\" actual=\"$$JAVA_ASSERTJ_SHA256_ACTUAL\"; \
