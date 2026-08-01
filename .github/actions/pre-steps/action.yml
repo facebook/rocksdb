@@ -20,9 +20,15 @@ runs:
       echo "GTEST_COLOR=1" >> "$GITHUB_ENV"
       echo "CTEST_OUTPUT_ON_FAILURE=1" >> "$GITHUB_ENV"
       echo "CTEST_TEST_TIMEOUT=300" >> "$GITHUB_ENV"
-      echo "ZLIB_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zlib" >> "$GITHUB_ENV"
-      echo "BZIP2_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/bzip2" >> "$GITHUB_ENV"
-      echo "SNAPPY_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/snappy" >> "$GITHUB_ENV"
-      echo "LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/lz4" >> "$GITHUB_ENV"
-      echo "ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zstd" >> "$GITHUB_ENV"
+      # These third-party sources are mirrored on the "third-party-deps" GitHub
+      # release. To add one, upload the asset here (intentionally hidden):
+      # https://github.com/facebook/rocksdb/releases/edit/third-party-deps
+      # Note how file names are generated below (vs. from the original source)
+      # before uploading. Removing or modifying files will break builds for
+      # older releases/revisions (not found or checksum mismatch).
+      echo "ZLIB_DOWNLOAD_PREFIX=https://github.com/facebook/rocksdb/releases/download/third-party-deps/zlib-" >> "$GITHUB_ENV"
+      echo "BZIP2_DOWNLOAD_PREFIX=https://github.com/facebook/rocksdb/releases/download/third-party-deps/bzip2-" >> "$GITHUB_ENV"
+      echo "SNAPPY_DOWNLOAD_PREFIX=https://github.com/facebook/rocksdb/releases/download/third-party-deps/snappy-" >> "$GITHUB_ENV"
+      echo "LZ4_DOWNLOAD_PREFIX=https://github.com/facebook/rocksdb/releases/download/third-party-deps/lz4-" >> "$GITHUB_ENV"
+      echo "ZSTD_DOWNLOAD_PREFIX=https://github.com/facebook/rocksdb/releases/download/third-party-deps/zstd-" >> "$GITHUB_ENV"
     shell: bash
