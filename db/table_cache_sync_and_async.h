@@ -40,9 +40,9 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::Get)
   TableReader* t = nullptr;
   TypedHandle* handle = nullptr;
   if (s.ok() && !done) {
+    const bool no_io = options.read_tier == kBlockCacheTier;
     s = FindTable(options, file_options_, internal_comparator, file_meta,
-                  &handle, mutable_cf_options, &t,
-                  options.read_tier == kBlockCacheTier /* no_io */,
+                  &handle, mutable_cf_options, &t, no_io /* no_io */,
                   file_read_hist, skip_filters, level,
                   true /* prefetch_index_and_filter_in_cache */,
                   max_file_size_for_l0_meta_pin, file_meta.temperature,
@@ -70,7 +70,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::Get)
       s = CO_AWAIT(t->Get, options, k, get_context,
                    mutable_cf_options.prefix_extractor.get(), skip_filters);
       get_context->SetReplayLog(nullptr);
-    } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
+    } else if (no_io && s.IsIncomplete()) {
       // Couldn't find table in cache and couldn't open it because of no_io.
       get_context->MarkKeyMayExist();
       done = true;
