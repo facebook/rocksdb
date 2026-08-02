@@ -3194,6 +3194,110 @@ TEST_F(VersionSetAtomicGroupTest,
             edit_with_incorrect_group_size_.DebugString());
 }
 
+class ReactiveVersionSetRecoverTest : public VersionSetTestBase,
+                                      public testing::Test {
+ public:
+  ReactiveVersionSetRecoverTest()
+      : VersionSetTestBase("reactive_version_set_recover_test") {}
+
+  void SetUp() override {
+    PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
+    CreateCurrentFile();
+  }
+
+  void AddFileEdit(const FileMetaData& file_meta) {
+    VersionEdit edit;
+    edit.SetColumnFamily(0);
+    edit.SetLogNumber(0);
+    edit.SetNextFile(12);
+    edit.SetLastSequence(++last_seqno_);
+    edit.AddFile(0 /* level */, file_meta);
+
+    std::string record;
+    ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+  }
+
+  void AddValidFileThenMissingFileEdits() {
+    std::vector<SstInfo> file_infos;
+    file_infos.emplace_back(10, kDefaultColumnFamilyName, "" /* key */,
+                            0 /* level */, 10 /* epoch_number */);
+    file_infos.emplace_back(11, kDefaultColumnFamilyName, "" /* key */,
+                            0 /* level */, 11 /* epoch_number */,
+                            true /* file_missing */);
+
+    std::vector<FileMetaData> file_metas;
+    CreateDummyTableFiles(file_infos, &file_metas);
+    ASSERT_EQ(2, file_metas.size());
+
+    AddFileEdit(file_metas[0]);
+    AddFileEdit(file_metas[1]);
+  }
+
+  void TearDown() override { log_writer_.reset(); }
+
+ protected:
+  SequenceNumber last_seqno_;
+  std::unique_ptr<log::Writer> log_writer_;
+};
+
+TEST_F(ReactiveVersionSetRecoverTest,
+       FastRecoverReturnsTryAgainForMissingFinalFile) {
+  AddValidFileThenMissingFileEdits();
+
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+  std::unique_ptr<Status> manifest_reader_status;
+  Status s = reactive_versions_->Recover(column_families_, &manifest_reader,
+                                         &manifest_reporter,
+                                         &manifest_reader_status);
+  ASSERT_TRUE(s.IsTryAgain()) << s.ToString();
+}
+
+TEST_F(ReactiveVersionSetRecoverTest,
+       FastRecoverChecksLiveFilesWhenTableLoadingIsSkipped) {
+  AddValidFileThenMissingFileEdits();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Defer cleanup_sync_point([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEditHandler::LoadTables:skip_load_table_files", [](void* arg) {
+        *static_cast<bool*>(arg) = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+  std::unique_ptr<Status> manifest_reader_status;
+  Status s = reactive_versions_->Recover(column_families_, &manifest_reader,
+                                         &manifest_reporter,
+                                         &manifest_reader_status);
+  ASSERT_TRUE(s.IsTryAgain()) << s.ToString();
+}
+
+TEST_F(ReactiveVersionSetRecoverTest,
+       BestEffortsRecoverUsesPreviousValidPointInTimeVersion) {
+  AddValidFileThenMissingFileEdits();
+  imm_db_options_.best_efforts_recovery = true;
+
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+  std::unique_ptr<Status> manifest_reader_status;
+  ASSERT_OK(reactive_versions_->Recover(column_families_, &manifest_reader,
+                                        &manifest_reporter,
+                                        &manifest_reader_status));
+
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  reactive_versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(1, all_table_files.size());
+  ASSERT_EQ(10, all_table_files[0]);
+}
+
 class AtomicGroupBestEffortRecoveryTest : public VersionSetAtomicGroupTest {
  public:
   AtomicGroupBestEffortRecoveryTest()
