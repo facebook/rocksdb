@@ -63,7 +63,7 @@ When integrated BlobDB is enabled, values exceeding `min_blob_size` (see `Advanc
 
 **Phase 1 -- During SST scan (lazy):** When `GetContext::SaveValue()` encounters `kTypeBlobIndex` in the common case (`kNotFound` state), it stores the raw blob index bytes in `pinnable_val_` and sets `is_blob_index = true`. The blob is NOT fetched yet. However, in the merge case (`kMerge` state), the blob IS fetched eagerly via `GetContext::GetBlobValue()` because the merge operator needs the actual value as a base.
 
-**Phase 2 -- Post-scan resolution:** After the SST scan completes with `kFound` state, `Version::Get()` checks `is_blob_index`. If true, it calls `Version::GetBlob()` which decodes the `BlobIndex` (containing file number, offset, size, and compression type), validates the blob file exists, and calls `BlobSource::GetBlob()`. The blob source checks the blob cache first, and on miss reads from the blob file.
+**Phase 2 -- Post-scan resolution:** After the SST scan completes with `kFound` state, `Version::Get()` checks `is_blob_index`. If true, it resolves the encoded index through its `VersionBlobFetcher`. The fetcher decodes the `BlobIndex` (containing file number, offset, size, and compression type) and delegates manifest-visible blobs to `Version::GetBlob()`, which validates that the blob file exists and calls `BlobSource::GetBlob()`. The blob source checks the blob cache first, and on miss reads from the blob file.
 
 This lazy two-phase design avoids reading blob data for keys that would be filtered out by tombstones or superseded by newer versions.
 

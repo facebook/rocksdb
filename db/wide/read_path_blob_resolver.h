@@ -25,9 +25,9 @@ class Version;
 // TODO: ReadPathBlobResolver and CompactionBlobResolver (in
 // compaction_iterator.h) share significant logic for blob column resolution
 // and caching. A refactoring into a common base class or shared utility
-// could reduce duplication. The two classes differ in their blob-fetching
-// backends (Version::GetBlob vs BlobFetcher::FetchBlob) and contexts
-// (read path vs compaction path with stats tracking).
+// could reduce duplication. The two classes differ in fetcher ownership and
+// their surrounding contexts (read path vs compaction path with stats
+// tracking).
 //
 // Enables lazy (on-demand) resolution of blob column values in the read path.
 // When a wide-column entity contains blob references (V2 format), the resolver
