@@ -53,6 +53,7 @@
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
@@ -588,6 +589,35 @@ class DBImpl : public DB {
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
+
+  // Variant of GetLiveFilesStorageInfo used by subset-CF Checkpoint. Only
+  // table/blob files of the given column families are captured; the rest are
+  // reported in excluded_cf_ids so the caller can reconcile the copied
+  // MANIFEST (typically via AppendColumnFamilyDropsToManifest below). Caller
+  // must supply a non-empty include_cf_ids containing the default CF id and a
+  // non-null excluded_cf_ids; both are internal-contract preconditions.
+  Status GetLiveFilesStorageInfoForSubsetCheckpoint(
+      const LiveFilesStorageInfoOptions& opts,
+      const std::vector<uint32_t>& include_cf_ids,
+      std::vector<LiveFileStorageInfo>* files,
+      std::vector<uint32_t>* excluded_cf_ids);
+
+  // Shared body of GetLiveFilesStorageInfo and its subset-checkpoint variant.
+  // include_cf_ids empty -> no filter; otherwise records skipped CF ids in
+  // *excluded_cf_ids (which must be non-null in that case).
+  Status GetLiveFilesStorageInfoImpl(
+      const LiveFilesStorageInfoOptions& opts,
+      const std::vector<uint32_t>& include_cf_ids,
+      std::vector<LiveFileStorageInfo>* files,
+      std::vector<uint32_t>* excluded_cf_ids);
+
+  // Appends kColumnFamilyDrop records to the MANIFEST file at manifest_path for
+  // the given column family ids. Used by Checkpoint to make a subset-CF
+  // checkpoint's copied MANIFEST consistent with the reduced file set. Operates
+  // only on the given file; does not mutate this DB's live state.
+  Status AppendColumnFamilyDropsToManifest(const std::string& manifest_path,
+                                           uint64_t manifest_size,
+                                           const std::vector<uint32_t>& cf_ids);
 
   Status GetPreparedFileInfoForExternalSstIngestion(
       const std::string& file_path,
@@ -1562,7 +1592,7 @@ class DBImpl : public DB {
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name,
                                      bool is_remote_compaction_enabled);
-  Status DeleteObsoleteOptionsFiles();
+  Status DeleteObsoleteOptionsFiles(bool schedule_only);
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
                                     FlushReason flush_reason);
@@ -3084,39 +3114,34 @@ class DBImpl : public DB {
   // Resolves a plain value whose current payload is an encoded direct-write
   // blob index, either through `value` directly or through the default-column
   // view layered on `columns`.
-  static Status ResolveDirectWritePlainValue(const ReadOptions& read_options,
-                                             const Slice& key,
-                                             const Version* current,
-                                             ColumnFamilyData* cfd,
+  static Status ResolveDirectWritePlainValue(const Slice& key,
+                                             const BlobFetcher& blob_fetcher,
                                              PinnableSlice* value,
                                              PinnableWideColumns* columns);
   // Resolves each unresolved direct-write blob-valued column in `columns` and
   // rebuilds the serialized wide-column entity in place.
-  static Status ResolveDirectWriteWideColumns(const ReadOptions& read_options,
-                                              const Slice& key,
-                                              const Version* current,
-                                              ColumnFamilyData* cfd,
+  static Status ResolveDirectWriteWideColumns(const Slice& key,
+                                              const BlobFetcher& blob_fetcher,
                                               PinnableWideColumns* columns);
   // Dispatches between plain-value and wide-column direct-write resolution for
   // read results observed before flush makes the corresponding blob file
   // visible through normal Version metadata.
   static bool MaybeResolveDirectWriteValue(
       const ReadOptions& read_options, const Slice& key,
-      bool resolve_direct_write_value, const Version* current,
-      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-      Status* s, bool* is_blob_index, bool* value_found = nullptr);
+      bool resolve_direct_write_value, const BlobFetcher& blob_fetcher,
+      PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+      bool* is_blob_index, bool* value_found = nullptr);
   // Completes primary memtable hits that can still carry direct-write blob
   // references before the blob file is visible in Version metadata.
   static void PostprocessDirectWriteValueRead(
       const ReadOptions& read_options, const Slice& key,
       const std::string* timestamp, bool resolve_direct_write_value,
-      const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+      const BlobFetcher* blob_fetcher, PinnableSlice* value,
       PinnableWideColumns* columns, Status* s, bool* is_blob_index,
       bool* value_found = nullptr);
   // Resolves memtable read results that still carry blob references through
   // either a raw blob-index payload in `value` or unresolved blob columns in
-  // `columns`. Unlike the direct-write helper above, this path only depends on
-  // a BlobFetcher and therefore works for read-only/secondary DBs. Sets
+  // `columns`. This generic path is also used by read-only/secondary DBs. Sets
   // *did_resolve to true iff there was a reference to resolve -- in which case
   // this function has finalized `value`/`columns` (populated on success,
   // cleared on error) -- and false iff there was nothing to resolve (the caller
@@ -3777,7 +3802,7 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
 inline Status DBImpl::FailIfTableFilterWithRangeConversion(
     const ReadOptions& read_options,
     const MutableCFOptions& mutable_cf_options) const {
-  if (read_options.table_filter &&
+  if (HasTableFilter(read_options) &&
       mutable_cf_options.min_tombstones_for_range_conversion > 0) {
     return Status::InvalidArgument(
         "ReadOptions::table_filter is not supported when "

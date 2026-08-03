@@ -84,6 +84,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.max_open_files = mutable_db_options.max_open_files;
   options.max_file_opening_threads =
       immutable_db_options.max_file_opening_threads;
+  options.read_io_executor_threads =
+      immutable_db_options.read_io_executor_threads;
   options.max_total_wal_size = mutable_db_options.max_total_wal_size;
   options.statistics = immutable_db_options.statistics;
   options.use_fsync = immutable_db_options.use_fsync;

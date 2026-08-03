@@ -772,6 +772,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   std::string old_sk_prefix = Record::EncodeSecondaryKey(old_c);
   std::string iter_ub_str = Record::EncodeSecondaryKey(old_c + 1);
   Slice iter_ub = iter_ub_str;
+  std::function<bool(const TableProperties&)> table_filter;
   ReadOptions ropts;
   ropts.snapshot = txn->GetSnapshot();
   ropts.auto_refresh_iterator_with_snapshot =
@@ -781,8 +782,9 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   ropts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   if (FLAGS_use_sqfc_for_range_queries) {
-    ropts.table_filter =
+    table_filter =
         sqfc_factory_->GetTableFilterForRangeQuery(old_sk_prefix, iter_ub);
+    ropts.table_filter = &table_filter;
   }
   it = txn->GetIterator(ropts);
 
@@ -1149,9 +1151,11 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
         FLAGS_auto_refresh_iterator_with_snapshot;
     ropts.total_order_seek = true;
     ropts.iterate_upper_bound = &iter_ub;
+    std::function<bool(const TableProperties&)> table_filter;
     if (FLAGS_use_sqfc_for_range_queries) {
-      ropts.table_filter =
+      table_filter =
           sqfc_factory_->GetTableFilterForRangeQuery(start_key, iter_ub);
+      ropts.table_filter = &table_filter;
     }
 
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
@@ -1674,12 +1678,13 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
         Record::EncodePrimaryKey(std::numeric_limits<uint32_t>::max());
     Slice pk_lb = pk_lb_str;
     Slice pk_ub = pk_ub_str;
+    std::function<bool(const TableProperties&)> table_filter;
     ropts.iterate_lower_bound = &pk_lb;
     ropts.iterate_upper_bound = &pk_ub;
     ropts.total_order_seek = true;
     if (FLAGS_use_sqfc_for_range_queries) {
-      ropts.table_filter =
-          sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
+      table_filter = sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
+      ropts.table_filter = &table_filter;
     }
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 

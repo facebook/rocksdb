@@ -336,6 +336,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.atomic_flush.request.reason.other"},
     {CHECKPOINT_READ_BYTES, "rocksdb.checkpoint.read.bytes"},
     {CHECKPOINT_WRITE_BYTES, "rocksdb.checkpoint.write.bytes"},
+    {FILE_SUBMIT_ASYNC_READ_FALLBACK,
+     "rocksdb.file.submit.async.read.fallback"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

@@ -574,6 +574,8 @@ class BatchedOpsStressTest : public StressTest {
     std::array<ReadOptions, num_prefixes> ro_copies;
     std::array<std::string, num_prefixes> upper_bounds;
     std::array<Slice, num_prefixes> ub_slices;
+    std::array<std::function<bool(const TableProperties&)>, num_prefixes>
+        table_filters;
     std::array<std::unique_ptr<Iterator>, num_prefixes> iters;
 
     const Snapshot* const snapshot = db_->GetSnapshot();
@@ -597,9 +599,9 @@ class BatchedOpsStressTest : public StressTest {
         ub_slices[i] = upper_bounds[i];
         ro_copies[i].iterate_upper_bound = &(ub_slices[i]);
         if (FLAGS_use_sqfc_for_range_queries) {
-          ro_copies[i].table_filter =
-              sqfc_factory_->GetTableFilterForRangeQuery(prefix_slices[i],
-                                                         ub_slices[i]);
+          table_filters[i] = sqfc_factory_->GetTableFilterForRangeQuery(
+              prefix_slices[i], ub_slices[i]);
+          ro_copies[i].table_filter = &table_filters[i];
         }
       } else {
         // Otherwise, bound by prefix

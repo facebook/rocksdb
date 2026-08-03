@@ -85,6 +85,7 @@ struct WorkItem {
   Env* dst_env = nullptr;
   EnvOptions src_env_options;
   bool sync = false;
+  bool use_fsync = false;
   RateLimiter* rate_limiter = nullptr;
   uint64_t size_limit = 0;
   Statistics* stats = nullptr;
@@ -113,6 +114,7 @@ struct WorkItem {
     dst_env = o.dst_env;
     src_env_options = std::move(o.src_env_options);
     sync = o.sync;
+    use_fsync = o.use_fsync;
     rate_limiter = o.rate_limiter;
     size_limit = o.size_limit;
     stats = o.stats;
@@ -130,8 +132,8 @@ struct WorkItem {
       std::string _src_path, std::string _dst_path,
       const Temperature _src_temperature, const Temperature _dst_temperature,
       std::string _contents, Env* _src_env, Env* _dst_env,
-      EnvOptions _src_env_options, bool _sync, RateLimiter* _rate_limiter,
-      uint64_t _size_limit, Statistics* _stats,
+      EnvOptions _src_env_options, bool _sync, bool _use_fsync,
+      RateLimiter* _rate_limiter, uint64_t _size_limit, Statistics* _stats,
       std::function<void()> _progress_callback = {},
       const std::string& _src_checksum_func_name = kUnknownFileChecksumFuncName,
       const std::string& _src_checksum_hex = "", const std::string& _db_id = "",
@@ -146,6 +148,7 @@ struct WorkItem {
         dst_env(_dst_env),
         src_env_options(std::move(_src_env_options)),
         sync(_sync),
+        use_fsync(_use_fsync),
         rate_limiter(_rate_limiter),
         size_limit(_size_limit),
         stats(_stats),
@@ -201,7 +204,7 @@ class CopyEngine {
                             const std::string& contents, uint64_t size_limit,
                             Env* src_env, Env* dst_env,
                             const EnvOptions& src_env_options, bool sync,
-                            RateLimiter* rate_limiter,
+                            bool use_fsync, RateLimiter* rate_limiter,
                             const std::function<void()>& progress_callback,
                             Temperature* src_temperature,
                             Temperature dst_temperature,

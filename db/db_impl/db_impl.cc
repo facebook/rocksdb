@@ -244,6 +244,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
                      immutable_db_options_.listeners, dbname_) {
+#if USE_COROUTINES
+  immutable_db_options_.fs->SetReadIOExecutorThreads(
+      immutable_db_options_.read_io_executor_threads);
+#endif  // USE_COROUTINES
+
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -2822,9 +2827,10 @@ static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
   return status;
 }
 
-Status DBImpl::ResolveDirectWritePlainValue(
-    const ReadOptions& read_options, const Slice& key, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns) {
+Status DBImpl::ResolveDirectWritePlainValue(const Slice& key,
+                                            const BlobFetcher& blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns) {
   Slice blob_index_slice;
   std::string blob_index_storage;
   if (value != nullptr) {
@@ -2862,9 +2868,9 @@ Status DBImpl::ResolveDirectWritePlainValue(
   BlobIndex blob_idx;
   Status status = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
   if (status.ok()) {
-    status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-        read_options, key, blob_idx, current, cfd->blob_file_cache(),
-        nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
+    status =
+        blob_fetcher.FetchBlob(key, blob_idx, nullptr /* prefetch_buffer */,
+                               target, nullptr /* bytes_read */);
     if (status.ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
     }
@@ -2872,10 +2878,8 @@ Status DBImpl::ResolveDirectWritePlainValue(
   return status;
 }
 
-Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
-                                             const Slice& key,
-                                             const Version* current,
-                                             ColumnFamilyData* cfd,
+Status DBImpl::ResolveDirectWriteWideColumns(const Slice& key,
+                                             const BlobFetcher& blob_fetcher,
                                              PinnableWideColumns* columns) {
   assert(columns != nullptr);
 
@@ -2919,9 +2923,8 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     } else {
       extra_buffers.emplace_front();
       PinnableSlice& blob_value = extra_buffers.front();
-      s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-          read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          nullptr /* prefetch_buffer */, &blob_value, nullptr /* bytes_read */);
+      s = blob_fetcher.FetchBlob(key, blob_idx, nullptr /* prefetch_buffer */,
+                                 &blob_value, nullptr /* bytes_read */);
       if (!s.ok()) {
         return s;
       }
@@ -3117,9 +3120,9 @@ Status DBImpl::PostprocessMemtableValueRead(
 
 bool DBImpl::MaybeResolveDirectWriteValue(
     const ReadOptions& read_options, const Slice& key,
-    bool resolve_direct_write_value, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-    Status* s, bool* is_blob_index, bool* value_found) {
+    bool resolve_direct_write_value, const BlobFetcher& blob_fetcher,
+    PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+    bool* is_blob_index, bool* value_found) {
   if (!s->ok() || !resolve_direct_write_value || (!value && !columns)) {
     return false;
   }
@@ -3164,15 +3167,14 @@ bool DBImpl::MaybeResolveDirectWriteValue(
   }
 
   if (needs_plain_value_resolution) {
-    *s = ResolveDirectWritePlainValue(read_options, key, current, cfd, value,
-                                      columns);
+    *s = ResolveDirectWritePlainValue(key, blob_fetcher, value, columns);
     assert(is_blob_index != nullptr);
     *is_blob_index = false;
     return true;
   }
 
   assert(columns != nullptr);
-  *s = ResolveDirectWriteWideColumns(read_options, key, current, cfd, columns);
+  *s = ResolveDirectWriteWideColumns(key, blob_fetcher, columns);
 
   if (is_blob_index != nullptr) {
     *is_blob_index = false;
@@ -3184,15 +3186,16 @@ bool DBImpl::MaybeResolveDirectWriteValue(
 void DBImpl::PostprocessDirectWriteValueRead(
     const ReadOptions& read_options, const Slice& key,
     const std::string* timestamp, bool resolve_direct_write_value,
-    const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+    const BlobFetcher* blob_fetcher, PinnableSlice* value,
     PinnableWideColumns* columns, Status* s, bool* is_blob_index,
     bool* value_found) {
   if (resolve_direct_write_value) {
+    assert(blob_fetcher != nullptr);
     std::string blob_lookup_key_storage;
     const bool value_resolved = MaybeResolveDirectWriteValue(
         read_options,
         GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-        resolve_direct_write_value, current, cfd, value, columns, s,
+        resolve_direct_write_value, *blob_fetcher, value, columns, s,
         is_blob_index, value_found);
     if (!value_resolved && value != nullptr) {
       value->PinSelf();
@@ -5858,7 +5861,7 @@ void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
 }
 }  // namespace
 
-Status DBImpl::DeleteObsoleteOptionsFiles() {
+Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
   std::vector<std::string> filenames;
   // use ordered map to store keep the filenames sorted from the newest
   // to the oldest.
@@ -5883,8 +5886,23 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
 
   // Keeps the latest 2 Options file
   const size_t kNumOptionsFilesKept = 2;
-  DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
-                           immutable_db_options_.info_log, GetEnv());
+  if (options_filenames.size() > kNumOptionsFilesKept) {
+    if (schedule_only) {
+      InstrumentedMutexLock l(&mutex_);
+      for (auto iter =
+               std::next(options_filenames.begin(), kNumOptionsFilesKept);
+           iter != options_filenames.end(); ++iter) {
+        const uint64_t file_number =
+            std::numeric_limits<uint64_t>::max() - iter->first;
+        SchedulePendingPurge(iter->second, GetName(), kOptionsFile, file_number,
+                             /*job_id=*/0);
+      }
+      SchedulePurge();
+    } else {
+      DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
+                               immutable_db_options_.info_log, GetEnv());
+    }
+  }
   return Status::OK();
 }
 
@@ -5924,18 +5942,42 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   }
 
   if (s.ok()) {
-    int my_disable_delete_obsolete_files;
+    enum class ObsoleteOptionsFileCleanup {
+      kSkip,
+      kDeleteNow,
+      kSchedule,
+    };
+    ObsoleteOptionsFileCleanup obsolete_options_file_cleanup =
+        ObsoleteOptionsFileCleanup::kSkip;
 
     {
       InstrumentedMutexLock l(&mutex_);
       versions_->options_file_number_ = options_file_number;
       versions_->options_file_size_ = options_file_size;
-      my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+      if (!disable_delete_obsolete_files_ && !is_remote_compaction_enabled) {
+        if (immutable_db_options_.avoid_unnecessary_blocking_io &&
+            !reject_new_background_jobs_) {
+          // DB::Open() sets `opened_successfully_` after WriteOptionsFile()
+          // returns, then schedules the deferred OPTIONS-file purge.
+          obsolete_options_file_cleanup =
+              opened_successfully_ ? ObsoleteOptionsFileCleanup::kSchedule
+                                   : ObsoleteOptionsFileCleanup::kSkip;
+        } else {
+          obsolete_options_file_cleanup =
+              ObsoleteOptionsFileCleanup::kDeleteNow;
+        }
+      }
     }
 
-    if (!my_disable_delete_obsolete_files && !is_remote_compaction_enabled) {
-      // TODO: Should we check for errors here?
-      DeleteObsoleteOptionsFiles().PermitUncheckedError();
+    if (obsolete_options_file_cleanup != ObsoleteOptionsFileCleanup::kSkip) {
+      Status obsolete_options_status =
+          DeleteObsoleteOptionsFiles(obsolete_options_file_cleanup ==
+                                     ObsoleteOptionsFileCleanup::kSchedule);
+      if (!obsolete_options_status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Unable to delete obsolete OPTIONS files: %s",
+                       obsolete_options_status.ToString().c_str());
+      }
     }
   }
 
@@ -7596,8 +7638,7 @@ void DBImpl::GetAsync(const ReadOptions& options,
                       Status& status, AsyncCallback& callback) {
   const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
@@ -7648,8 +7689,7 @@ void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
                            const bool sorted_input, AsyncCallback& callback) {
   const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);

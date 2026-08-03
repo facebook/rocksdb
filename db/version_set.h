@@ -975,15 +975,6 @@ class Version {
                          MultiGetRange* range,
                          ReadCallback* callback = nullptr);
 
-  // Interprets blob_index_slice as a blob reference, and (assuming the
-  // corresponding blob file is part of this Version) retrieves the blob and
-  // saves it in *value.
-  // REQUIRES: blob_index_slice stores an encoded blob reference
-  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const Slice& blob_index_slice,
-                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
-                 uint64_t* bytes_read) const;
-
   // Retrieves a blob using a blob reference and saves it in *value,
   // assuming the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
@@ -1683,6 +1674,16 @@ class VersionSet {
   size_t TEST_GetManifestPreallocationSize() {
     return manifest_preallocation_size_;
   }
+
+  // Appends a kColumnFamilyDrop record for each id in cf_ids to the MANIFEST
+  // file at manifest_path, whose valid content length is manifest_size bytes.
+  // Intended for post-processing a checkpoint's copied MANIFEST so that column
+  // families whose SST/blob files were not copied are recorded as dropped and
+  // thus not opened during recovery.
+  Status AppendColumnFamilyDropsToManifest(
+      const std::string& manifest_path, uint64_t manifest_size,
+      const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
+      uint64_t manifest_preallocation_size);
 
  protected:
   struct ManifestWriter;

@@ -1077,6 +1077,11 @@ public enum TickerType {
      */
     ATOMIC_FLUSH_REQUEST_REASON_OTHER((byte) -0x7F),
 
+    /**
+     * Number of SubmitReadAsync calls that fell back to a synchronous read
+     */
+    FILE_SUBMIT_ASYNC_READ_FALLBACK((byte) -0x80),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

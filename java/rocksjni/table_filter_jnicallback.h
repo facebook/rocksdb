@@ -22,7 +22,11 @@ namespace ROCKSDB_NAMESPACE {
 class TableFilterJniCallback : public JniCallback {
  public:
   TableFilterJniCallback(JNIEnv* env, jobject jtable_filter);
-  std::function<bool(const ROCKSDB_NAMESPACE::TableProperties&)>
+  // Returns a pointer to the owned table filter function. The pointer is valid
+  // for the lifetime of this callback object. ReadOptions::table_filter is a
+  // pointer to a caller-owned std::function, so callers must keep this callback
+  // object alive for as long as any read using the filter.
+  const std::function<bool(const ROCKSDB_NAMESPACE::TableProperties&)>*
   GetTableFilterFunction();
 
  private:

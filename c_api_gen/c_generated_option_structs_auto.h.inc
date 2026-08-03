@@ -57,6 +57,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_verify_sst_unique_id_in_mani
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_verify_sst_unique_id_in_manifest(
     rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_read_io_executor_threads(
+    rocksdb_options_t* opt, int v);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_read_io_executor_threads(
+    rocksdb_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API const char* rocksdb_options_get_db_log_dir(
     rocksdb_options_t* opt,
     size_t* size);

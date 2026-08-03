@@ -53,7 +53,8 @@ class CopyEngineTest : public testing::Test {
   WorkItem MakeCopyItem(int i) {
     return WorkItem(SrcPath(i), DstPath(i), Temperature::kUnknown,
                     Temperature::kUnknown, /*contents=*/"", env_, env_,
-                    EnvOptions(), /*sync=*/false, /*rate_limiter=*/nullptr,
+                    EnvOptions(), /*sync=*/false, /*use_fsync=*/false,
+                    /*rate_limiter=*/nullptr,
                     /*size_limit=*/0, /*stats=*/nullptr);
   }
 
