@@ -1443,6 +1443,23 @@ class DBImpl : public DB {
     State state_;
   };
 
+  // Adapter that lets a WriteBufferManager shared across DBs (under the
+  // kFlushLargestAcrossDBs policy) query this DB's memtable memory and initiate
+  // a flush on it. Owned by DBImpl; forwards to DBImpl methods.
+  class WBMFlushInitiator : public FlushInitiator {
+   public:
+    explicit WBMFlushInitiator(DBImpl* db) : db_(db) {}
+
+    size_t GetFlushableMemUsage() override {
+      return db_->GetFlushableMemUsage();
+    }
+
+    void ScheduleFlush() override { db_->ScheduleWriteBufferManagerFlush(); }
+
+   private:
+    DBImpl* const db_;
+  };
+
   static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
@@ -2634,6 +2651,23 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferManagerFlush(WriteContext* write_context);
 
+  // Support for the kFlushLargestAcrossDBs WriteBufferManager policy. These are
+  // invoked by the shared WriteBufferManager (via WBMFlushInitiator) so it can
+  // pick the highest-memory DB and flush it, possibly from another DB's thread.
+
+  // Sum of the flushable mutable memtable memory across this DB's column
+  // families. Returns 0 for DBs that cannot participate (read-only, not yet
+  // opened, or atomic_flush). Acquires mutex_ internally.
+  size_t GetFlushableMemUsage();
+
+  // Schedules a background job that flushes this DB's largest flushable column
+  // family without waiting. Safe to call from another DB's thread.
+  void ScheduleWriteBufferManagerFlush();
+
+  static void BGWorkWBMFlush(void* arg);
+  static void UnscheduleWBMFlushCallback(void* arg);
+  void BackgroundCallWBMFlush();
+
   // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options,
                          WalContext* log_context, WriteContext* write_context);
@@ -3475,6 +3509,11 @@ class DBImpl : public DB {
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
 
+  // number of outstanding background jobs scheduled by a shared
+  // WriteBufferManager (kFlushLargestAcrossDBs) to flush this DB's largest CF.
+  // Tracked so DB shutdown drains them just like bg_flush_scheduled_.
+  int bg_wbm_flush_scheduled_ = 0;
+
   // stores the number of flushes are currently running
   int num_running_flushes_ = 0;
 
@@ -3661,6 +3700,10 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  // Registered with the WriteBufferManager for the kFlushLargestAcrossDBs
+  // policy so a shared WBM can flush this DB when it holds the most memory.
+  std::unique_ptr<FlushInitiator> wbm_flush_initiator_;
 
   // seqno_to_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.
