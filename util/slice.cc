@@ -238,7 +238,7 @@ std::string SliceTransform::AsString() const {
   return GetId();
 }
 
-// a small internal utility function, for efficient hex conversion
+// A small internal utility function, for efficient hex conversion
 // and no need for snprintf, toupper etc...
 // Originally from wdt/util/EncryptionUtils.cpp - for
 // DecodeHex:
