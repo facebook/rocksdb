@@ -980,6 +980,20 @@ DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
 
+DEFINE_bool(wal_iterator_tail_rotations,
+            ROCKSDB_NAMESPACE::Options().wal_iterator_tail_rotations,
+            "See Options::wal_iterator_tail_rotations. When enabled, the "
+            "TransactionLogIterator returned by GetUpdatesSince continues into "
+            "the successor WAL at a rotation instead of returning TryAgain.");
+
+DEFINE_bool(tail_wal_updates, false,
+            "If true, run a background thread that continuously tails WAL "
+            "updates via GetUpdatesSince, holding a single "
+            "TransactionLogIterator open across WAL rotations, and verifies "
+            "that the delivered sequence numbers are contiguous. Requires "
+            "wal_iterator_tail_rotations and a nonzero WAL_ttl_seconds or "
+            "WAL_size_limit_MB so WALs are not purged before being tailed.");
+
 DEFINE_int32(
     remote_compaction_worker_threads, 2,
     "Remote Compaction Worker Thread count. If 0, remote compaction is "
