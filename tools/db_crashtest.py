@@ -441,6 +441,8 @@ default_params = {
     "advise_random_on_open": lambda: random.choice([0] + [1] * 3),
     "WAL_ttl_seconds": lambda: random.choice([0, 60]),
     "WAL_size_limit_MB": lambda: random.choice([0, 1]),
+    "wal_iterator_tail_rotations": lambda: random.choice([0, 0, 0, 1]),
+    "tail_wal_updates": lambda: random.choice([0, 1]),
     "strict_bytes_per_sync": lambda: random.choice([0, 1]),
     "avoid_flush_during_shutdown": lambda: random.choice([0, 1]),
     "fill_cache": lambda: random.choice([0, 1]),
@@ -1246,6 +1248,20 @@ def finalize_and_sanitize(src_params):
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
         dest_params["recycle_log_file_num"] = 0
+        # With no WAL there is nothing for GetUpdatesSince to tail.
+        dest_params["tail_wal_updates"] = 0
+        dest_params["wal_iterator_tail_rotations"] = 0
+    if dest_params.get("tail_wal_updates", 0) == 1:
+        # The WAL-tailing workload only exercises the feature when it is on, and
+        # GetUpdatesSince needs WALs retained long enough to be tailed (see the
+        # DB::GetUpdatesSince contract), so ensure a nonzero WAL_ttl_seconds or
+        # WAL_size_limit_MB.
+        dest_params["wal_iterator_tail_rotations"] = 1
+        if (
+            dest_params.get("WAL_ttl_seconds", 0) == 0
+            and dest_params.get("WAL_size_limit_MB", 0) == 0
+        ):
+            dest_params["WAL_ttl_seconds"] = 60
     if dest_params.get("open_files", 1) != -1:
         # Compaction TTL and periodic compactions are only compatible
         # with open_files = -1
