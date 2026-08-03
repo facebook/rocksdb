@@ -322,16 +322,46 @@ jobs:
       # Run the make target in STRICT mode so this core CI job HARD-FAILS rather
       # than silently skipping if a prerequisite (clang++, clang-format, or the
       # compat baseline ref) is ever missing. See `make check-c-api-gen`.
+      env:
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PUSH_BEFORE_SHA: ${{ github.event.before }}
       run: |
         # The container checkout is owned by a different user, so git refuses to
         # operate on it ("dubious ownership") -- mark it safe for the `git fetch`
         # and the `git show` the compat checker runs.
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
         git config --global --add safe.directory '*'
-        git fetch --no-tags --depth=1 origin main
+
+        # A PR must preserve the API of its merge target, while a push must
+        # preserve the API of the branch before the push. Comparing every event
+        # with main produces false removals when a release branch predates APIs
+        # added to main.
+        case "$GITHUB_EVENT_NAME" in
+          pull_request) api_compat_ref="$PR_BASE_SHA" ;;
+          push) api_compat_ref="$PUSH_BEFORE_SHA" ;;
+          *)
+            echo "ERROR: unsupported event for C API compatibility: $GITHUB_EVENT_NAME" >&2
+            exit 1
+            ;;
+        esac
+
+        if [ -z "$api_compat_ref" ]; then
+          echo "ERROR: C API compatibility baseline is empty" >&2
+          exit 1
+        fi
+
+        zero_sha=0000000000000000000000000000000000000000
+        if [ "$api_compat_ref" = "$zero_sha" ]; then
+          # A newly created branch or tag has no prior ref state to preserve.
+          api_compat_ref=HEAD
+        else
+          git fetch --no-tags --depth=1 origin "$api_compat_ref"
+          api_compat_ref=FETCH_HEAD
+        fi
+
         CXX=clang++-21 make check-c-api-gen \
           CHECK_C_API_GEN_STRICT=1 \
-          API_COMPAT_REF=FETCH_HEAD \
+          API_COMPAT_REF="$api_compat_ref" \
           CLANG_FORMAT_BINARY=clang-format-21
     - uses: "./.github/actions/teardown-ccache"
       if: always()
