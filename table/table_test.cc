@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -43,6 +44,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
@@ -88,6 +90,61 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+static_assert(
+    std::is_same<IndexFactoryIterator, UserDefinedIndexIterator>::value);
+static_assert(std::is_same<IndexFactoryReader, UserDefinedIndexReader>::value);
+
+TEST(IndexFactoryCompatibilityTest, NewNamesPreserveOldSubclassShape) {
+  class LegacyOnlyBuilder : public IndexFactoryBuilder {
+   public:
+    Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                        const Slice* /*first_key_in_next_block*/,
+                        const BlockHandle& /*block_handle*/,
+                        std::string* /*separator_scratch*/,
+                        const IndexEntryContext& /*context*/) override {
+      return last_key_in_current_block;
+    }
+
+    Status Finish(Slice* index_contents) override {
+      *index_contents = Slice();
+      return Status::OK();
+    }
+
+    uint64_t EstimatedSize() const override { return 0; }
+  };
+
+  class LegacyOnlyFactory : public IndexFactory {
+   public:
+    using IndexFactory::NewBuilder;
+    using IndexFactory::NewReader;
+
+    const char* Name() const override { return "legacy_index"; }
+
+    IndexFactoryBuilder* NewBuilder() const override {
+      return new LegacyOnlyBuilder();
+    }
+
+    std::unique_ptr<IndexFactoryReader> NewReader(
+        Slice& /*index_block*/) const override {
+      return nullptr;
+    }
+  };
+
+  LegacyOnlyFactory factory;
+  const IndexFactory* index_factory = &factory;
+  IndexFactoryOptions options;
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_OK(index_factory->NewBuilder(options, builder));
+  ASSERT_NE(builder, nullptr);
+
+  Slice index_contents;
+  ASSERT_OK(builder->Finish(&index_contents));
+  ASSERT_TRUE(index_contents.empty());
+  ASSERT_EQ(UserDefinedIndexBuilder::kValue,
+            UserDefinedIndexBuilder::ValueType::kValue);
+  ASSERT_STREQ(kIndexFactoryMetaPrefix, kUserDefinedIndexPrefix);
+}
 
 const std::string kDummyValue(10000, 'o');
 constexpr auto kVerbose = false;
@@ -7974,6 +8031,9 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
  public:
   class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
    public:
+    using IndexFactory::NewBuilder;
+    using IndexFactory::NewReader;
+
     const char* Name() const override { return "test_index"; }
     Status NewBuilder(
         const UserDefinedIndexOption& /*option*/,
@@ -8003,14 +8063,6 @@ class UserDefinedIndexTestBase : public BlockBasedTableTestBase {
         return comparator->Compare(lhs, rhs) < 0;
       }
     };
-
-    // Deprecated API
-    UserDefinedIndexBuilder* NewBuilder() const override { return nullptr; }
-
-    std::unique_ptr<UserDefinedIndexReader> NewReader(
-        Slice& /*index_block*/) const override {
-      return nullptr;
-    }
 
     Status NewReader(
         const UserDefinedIndexOption& option, Slice& index_block,
@@ -8819,19 +8871,23 @@ TEST_P(UserDefinedIndexTest, ValueTypeMappingViaDBFlush) {
 
   // Verify each mapping.
   ASSERT_EQ(type_map.count("key_01_put"), 1u);
-  EXPECT_EQ(type_map["key_01_put"], UserDefinedIndexBuilder::kValue);
+  EXPECT_EQ(type_map["key_01_put"], UserDefinedIndexBuilder::ValueType::kValue);
 
   ASSERT_EQ(type_map.count("key_02_merge"), 1u);
-  EXPECT_EQ(type_map["key_02_merge"], UserDefinedIndexBuilder::kMerge);
+  EXPECT_EQ(type_map["key_02_merge"],
+            UserDefinedIndexBuilder::ValueType::kMerge);
 
   ASSERT_EQ(type_map.count("key_03_del"), 1u);
-  EXPECT_EQ(type_map["key_03_del"], UserDefinedIndexBuilder::kDelete);
+  EXPECT_EQ(type_map["key_03_del"],
+            UserDefinedIndexBuilder::ValueType::kDelete);
 
   ASSERT_EQ(type_map.count("key_04_sdel"), 1u);
-  EXPECT_EQ(type_map["key_04_sdel"], UserDefinedIndexBuilder::kDelete);
+  EXPECT_EQ(type_map["key_04_sdel"],
+            UserDefinedIndexBuilder::ValueType::kDelete);
 
   ASSERT_EQ(type_map.count("key_05_entity"), 1u);
-  EXPECT_EQ(type_map["key_05_entity"], UserDefinedIndexBuilder::kOther);
+  EXPECT_EQ(type_map["key_05_entity"],
+            UserDefinedIndexBuilder::ValueType::kOther);
 
   ASSERT_OK(db->Close());
   ASSERT_OK(DestroyDB(dbname, options_));
