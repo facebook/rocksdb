@@ -238,16 +238,11 @@ std::string SliceTransform::AsString() const {
   return GetId();
 }
 
-// 2 small internal utility functions, for efficient hex conversions
+// a small internal utility function, for efficient hex conversion
 // and no need for snprintf, toupper etc...
 // Originally from wdt/util/EncryptionUtils.cpp - for
-// std::to_string(true)/DecodeHex:
-char toHex(unsigned char v) {
-  if (v <= 9) {
-    return '0' + v;
-  }
-  return 'A' + v - 10;
-}
+// DecodeHex:
+
 // most of the code is for validation/error check
 int fromHex(char c) {
   // toupper:
@@ -280,19 +275,21 @@ Slice::Slice(const SliceParts& parts, std::string* buf) {
 
 // Return a string that contains the copy of the referenced data.
 std::string Slice::ToString(bool hex) const {
-  std::string result;  // RVO/NRVO/move
-  if (hex) {
-    result.reserve(2 * size_);
-    for (size_t i = 0; i < size_; ++i) {
-      unsigned char c = data_[i];
-      result.push_back(toHex(c >> 4));
-      result.push_back(toHex(c & 0xf));
-    }
-    return result;
-  } else {
-    result.assign(data_, size_);
-    return result;
+  if (!hex) {
+    return {data_, size_};
   }
+  static constexpr char kHexChars[] = "0123456789ABCDEF";
+  std::string result(2 * size_, '\0');
+  char* p = result.data();
+  const unsigned char* src = reinterpret_cast<const unsigned char*>(data_);
+  const unsigned char* end = src + size_;
+
+  while (src != end) {
+    const unsigned char c = *src++;
+    *p++ = kHexChars[c >> 4];
+    *p++ = kHexChars[c & 0xF];
+  }
+  return result;
 }
 
 // Originally from rocksdb/utilities/ldb_cmd.h
