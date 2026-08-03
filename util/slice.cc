@@ -240,8 +240,7 @@ std::string SliceTransform::AsString() const {
 
 // A small internal utility function, for efficient hex conversion
 // and no need for snprintf, toupper etc...
-// Originally from wdt/util/EncryptionUtils.cpp - for
-// DecodeHex:
+// Originally from wdt/util/EncryptionUtils.cpp - for DecodeHex:
 
 // most of the code is for validation/error check
 int fromHex(char c) {
