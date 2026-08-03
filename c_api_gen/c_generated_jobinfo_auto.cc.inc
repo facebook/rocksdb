@@ -24,14 +24,16 @@ uint32_t rocksdb_flushjobinfo_cf_id(const rocksdb_flushjobinfo_t* info) {
   return info->rep.cf_id;
 }
 
-const char* rocksdb_flushjobinfo_cf_name(const rocksdb_flushjobinfo_t* info,
-                                         size_t* size) {
+const char* rocksdb_flushjobinfo_cf_name(
+    const rocksdb_flushjobinfo_t* info,
+    size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
-const char* rocksdb_flushjobinfo_file_path(const rocksdb_flushjobinfo_t* info,
-                                           size_t* size) {
+const char* rocksdb_flushjobinfo_file_path(
+    const rocksdb_flushjobinfo_t* info,
+    size_t* size) {
   *size = info->rep.file_path.size();
   return info->rep.file_path.data();
 }
@@ -90,13 +92,15 @@ uint32_t rocksdb_compactionjobinfo_cf_id(
 }
 
 const char* rocksdb_compactionjobinfo_cf_name(
-    const rocksdb_compactionjobinfo_t* info, size_t* size) {
+    const rocksdb_compactionjobinfo_t* info,
+    size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
-void rocksdb_compactionjobinfo_status(const rocksdb_compactionjobinfo_t* info,
-                                      char** errptr) {
+void rocksdb_compactionjobinfo_status(
+    const rocksdb_compactionjobinfo_t* info,
+    char** errptr) {
   SaveError(errptr, info->rep.status);
 }
 
@@ -152,13 +156,15 @@ uint32_t rocksdb_subcompactionjobinfo_cf_id(
 }
 
 const char* rocksdb_subcompactionjobinfo_cf_name(
-    const rocksdb_subcompactionjobinfo_t* info, size_t* size) {
+    const rocksdb_subcompactionjobinfo_t* info,
+    size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
 void rocksdb_subcompactionjobinfo_status(
-    const rocksdb_subcompactionjobinfo_t* info, char** errptr) {
+    const rocksdb_subcompactionjobinfo_t* info,
+    char** errptr) {
   SaveError(errptr, info->rep.status);
 }
 
@@ -205,19 +211,22 @@ uint32_t rocksdb_subcompactionjobinfo_blob_compression_type(
 /* ExternalFileIngestionInfo */
 
 const char* rocksdb_externalfileingestioninfo_cf_name(
-    const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
+    const rocksdb_externalfileingestioninfo_t* info,
+    size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
 const char* rocksdb_externalfileingestioninfo_external_file_path(
-    const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
+    const rocksdb_externalfileingestioninfo_t* info,
+    size_t* size) {
   *size = info->rep.external_file_path.size();
   return info->rep.external_file_path.data();
 }
 
 const char* rocksdb_externalfileingestioninfo_internal_file_path(
-    const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
+    const rocksdb_externalfileingestioninfo_t* info,
+    size_t* size) {
   *size = info->rep.internal_file_path.size();
   return info->rep.internal_file_path.data();
 }
@@ -229,8 +238,9 @@ uint64_t rocksdb_externalfileingestioninfo_global_seqno(
 
 /* MemTableInfo */
 
-const char* rocksdb_memtableinfo_cf_name(const rocksdb_memtableinfo_t* info,
-                                         size_t* size) {
+const char* rocksdb_memtableinfo_cf_name(
+    const rocksdb_memtableinfo_t* info,
+    size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
@@ -252,8 +262,9 @@ uint64_t rocksdb_memtableinfo_num_deletes(const rocksdb_memtableinfo_t* info) {
   return info->rep.num_deletes;
 }
 
-const char* rocksdb_memtableinfo_newest_udt(const rocksdb_memtableinfo_t* info,
-                                            size_t* size) {
+const char* rocksdb_memtableinfo_newest_udt(
+    const rocksdb_memtableinfo_t* info,
+    size_t* size) {
   *size = info->rep.newest_udt.size();
   return info->rep.newest_udt.data();
 }

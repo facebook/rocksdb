@@ -11,104 +11,71 @@
 // -----------------------------------------------------------------------------
 
 static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
-  rocksdb_block_based_table_options_t* obj =
-      rocksdb_block_based_options_create();
+  rocksdb_block_based_table_options_t* obj = rocksdb_block_based_options_create();
   rocksdb_block_based_options_set_block_align(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_block_align(obj) == 1);
   rocksdb_block_based_options_set_block_align(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_block_align(obj) == 0);
   rocksdb_block_based_options_set_block_restart_interval(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_block_restart_interval(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_block_restart_interval(obj) == 1);
   rocksdb_block_based_options_set_block_restart_interval(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_block_restart_interval(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_block_restart_interval(obj) == 0);
   rocksdb_block_based_options_set_block_size(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_block_size(obj) == 1);
   rocksdb_block_based_options_set_block_size(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_block_size(obj) == 0);
   rocksdb_block_based_options_set_block_size_deviation(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_block_size_deviation(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_block_size_deviation(obj) == 1);
   rocksdb_block_based_options_set_block_size_deviation(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_block_size_deviation(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_block_size_deviation(obj) == 0);
   rocksdb_block_based_options_set_cache_index_and_filter_blocks(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_cache_index_and_filter_blocks(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_cache_index_and_filter_blocks(obj) == 1);
   rocksdb_block_based_options_set_cache_index_and_filter_blocks(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_cache_index_and_filter_blocks(obj) == 0);
-  rocksdb_block_based_options_set_cache_index_and_filter_blocks_with_high_priority(
-      obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_cache_index_and_filter_blocks_with_high_priority(
-          obj) == 1);
-  rocksdb_block_based_options_set_cache_index_and_filter_blocks_with_high_priority(
-      obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_cache_index_and_filter_blocks_with_high_priority(
-          obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_cache_index_and_filter_blocks(obj) == 0);
+  rocksdb_block_based_options_set_cache_index_and_filter_blocks_with_high_priority(obj, 1);
+  CheckCondition(rocksdb_block_based_options_get_cache_index_and_filter_blocks_with_high_priority(obj) == 1);
+  rocksdb_block_based_options_set_cache_index_and_filter_blocks_with_high_priority(obj, 0);
+  CheckCondition(rocksdb_block_based_options_get_cache_index_and_filter_blocks_with_high_priority(obj) == 0);
   rocksdb_block_based_options_set_checksum(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_checksum(obj) == 1);
   rocksdb_block_based_options_set_checksum(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_checksum(obj) == 0);
   rocksdb_block_based_options_set_data_block_hash_table_util_ratio(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_data_block_hash_table_util_ratio(obj) ==
-      1);
+  CheckCondition(rocksdb_block_based_options_get_data_block_hash_table_util_ratio(obj) == 1);
   rocksdb_block_based_options_set_data_block_hash_table_util_ratio(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_data_block_hash_table_util_ratio(obj) ==
-      0);
+  CheckCondition(rocksdb_block_based_options_get_data_block_hash_table_util_ratio(obj) == 0);
   rocksdb_block_based_options_set_data_block_index_type(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_data_block_index_type(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_data_block_index_type(obj) == 1);
   rocksdb_block_based_options_set_data_block_index_type(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_data_block_index_type(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_data_block_index_type(obj) == 0);
   rocksdb_block_based_options_set_decouple_partitioned_filters(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_decouple_partitioned_filters(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_decouple_partitioned_filters(obj) == 1);
   rocksdb_block_based_options_set_decouple_partitioned_filters(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_decouple_partitioned_filters(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_decouple_partitioned_filters(obj) == 0);
   rocksdb_block_based_options_set_detect_filter_construct_corruption(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_detect_filter_construct_corruption(obj) ==
-      1);
+  CheckCondition(rocksdb_block_based_options_get_detect_filter_construct_corruption(obj) == 1);
   rocksdb_block_based_options_set_detect_filter_construct_corruption(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_detect_filter_construct_corruption(obj) ==
-      0);
+  CheckCondition(rocksdb_block_based_options_get_detect_filter_construct_corruption(obj) == 0);
   rocksdb_block_based_options_set_enable_index_compression(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_enable_index_compression(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_enable_index_compression(obj) == 1);
   rocksdb_block_based_options_set_enable_index_compression(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_enable_index_compression(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_enable_index_compression(obj) == 0);
   rocksdb_block_based_options_set_fail_if_no_udi_on_open(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) == 1);
   rocksdb_block_based_options_set_fail_if_no_udi_on_open(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_fail_if_no_udi_on_open(obj) == 0);
   rocksdb_block_based_options_set_format_version(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_format_version(obj) == 1);
   rocksdb_block_based_options_set_format_version(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_format_version(obj) == 0);
   rocksdb_block_based_options_set_index_block_restart_interval(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_index_block_restart_interval(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_index_block_restart_interval(obj) == 1);
   rocksdb_block_based_options_set_index_block_restart_interval(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_index_block_restart_interval(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_index_block_restart_interval(obj) == 0);
   rocksdb_block_based_options_set_index_block_search_type(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_index_block_search_type(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_index_block_search_type(obj) == 1);
   rocksdb_block_based_options_set_index_block_search_type(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_index_block_search_type(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_index_block_search_type(obj) == 0);
   rocksdb_block_based_options_set_index_shortening(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_index_shortening(obj) == 1);
   rocksdb_block_based_options_set_index_shortening(obj, 0);
@@ -118,17 +85,13 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   rocksdb_block_based_options_set_index_type(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_index_type(obj) == 0);
   rocksdb_block_based_options_set_initial_auto_readahead_size(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_initial_auto_readahead_size(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_initial_auto_readahead_size(obj) == 1);
   rocksdb_block_based_options_set_initial_auto_readahead_size(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_initial_auto_readahead_size(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_initial_auto_readahead_size(obj) == 0);
   rocksdb_block_based_options_set_max_auto_readahead_size(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_max_auto_readahead_size(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_max_auto_readahead_size(obj) == 1);
   rocksdb_block_based_options_set_max_auto_readahead_size(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_max_auto_readahead_size(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_max_auto_readahead_size(obj) == 0);
   rocksdb_block_based_options_set_metadata_block_size(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_metadata_block_size(obj) == 1);
   rocksdb_block_based_options_set_metadata_block_size(obj, 0);
@@ -138,91 +101,57 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   rocksdb_block_based_options_set_no_block_cache(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_no_block_cache(obj) == 0);
   rocksdb_block_based_options_set_num_file_reads_for_auto_readahead(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_num_file_reads_for_auto_readahead(obj) ==
-      1);
+  CheckCondition(rocksdb_block_based_options_get_num_file_reads_for_auto_readahead(obj) == 1);
   rocksdb_block_based_options_set_num_file_reads_for_auto_readahead(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_num_file_reads_for_auto_readahead(obj) ==
-      0);
+  CheckCondition(rocksdb_block_based_options_get_num_file_reads_for_auto_readahead(obj) == 0);
   rocksdb_block_based_options_set_optimize_filters_for_memory(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_optimize_filters_for_memory(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_optimize_filters_for_memory(obj) == 1);
   rocksdb_block_based_options_set_optimize_filters_for_memory(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_optimize_filters_for_memory(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_optimize_filters_for_memory(obj) == 0);
   rocksdb_block_based_options_set_partition_filters(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_partition_filters(obj) == 1);
   rocksdb_block_based_options_set_partition_filters(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_partition_filters(obj) == 0);
-  rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(obj,
-                                                                          1);
-  CheckCondition(
-      rocksdb_block_based_options_get_pin_l0_filter_and_index_blocks_in_cache(
-          obj) == 1);
-  rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(obj,
-                                                                          0);
-  CheckCondition(
-      rocksdb_block_based_options_get_pin_l0_filter_and_index_blocks_in_cache(
-          obj) == 0);
+  rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(obj, 1);
+  CheckCondition(rocksdb_block_based_options_get_pin_l0_filter_and_index_blocks_in_cache(obj) == 1);
+  rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(obj, 0);
+  CheckCondition(rocksdb_block_based_options_get_pin_l0_filter_and_index_blocks_in_cache(obj) == 0);
   rocksdb_block_based_options_set_pin_top_level_index_and_filter(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_pin_top_level_index_and_filter(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_pin_top_level_index_and_filter(obj) == 1);
   rocksdb_block_based_options_set_pin_top_level_index_and_filter(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_pin_top_level_index_and_filter(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_pin_top_level_index_and_filter(obj) == 0);
   rocksdb_block_based_options_set_prepopulate_block_cache(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_prepopulate_block_cache(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_prepopulate_block_cache(obj) == 1);
   rocksdb_block_based_options_set_prepopulate_block_cache(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_prepopulate_block_cache(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_prepopulate_block_cache(obj) == 0);
   rocksdb_block_based_options_set_read_amp_bytes_per_bit(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_read_amp_bytes_per_bit(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_read_amp_bytes_per_bit(obj) == 1);
   rocksdb_block_based_options_set_read_amp_bytes_per_bit(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_read_amp_bytes_per_bit(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_read_amp_bytes_per_bit(obj) == 0);
   rocksdb_block_based_options_set_separate_key_value_in_data_block(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_separate_key_value_in_data_block(obj) ==
-      1);
+  CheckCondition(rocksdb_block_based_options_get_separate_key_value_in_data_block(obj) == 1);
   rocksdb_block_based_options_set_separate_key_value_in_data_block(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_separate_key_value_in_data_block(obj) ==
-      0);
+  CheckCondition(rocksdb_block_based_options_get_separate_key_value_in_data_block(obj) == 0);
   rocksdb_block_based_options_set_super_block_alignment_size(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_super_block_alignment_size(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_super_block_alignment_size(obj) == 1);
   rocksdb_block_based_options_set_super_block_alignment_size(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_super_block_alignment_size(obj) == 0);
-  rocksdb_block_based_options_set_super_block_alignment_space_overhead_ratio(
-      obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_super_block_alignment_space_overhead_ratio(
-          obj) == 1);
-  rocksdb_block_based_options_set_super_block_alignment_space_overhead_ratio(
-      obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_super_block_alignment_space_overhead_ratio(
-          obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_super_block_alignment_size(obj) == 0);
+  rocksdb_block_based_options_set_super_block_alignment_space_overhead_ratio(obj, 1);
+  CheckCondition(rocksdb_block_based_options_get_super_block_alignment_space_overhead_ratio(obj) == 1);
+  rocksdb_block_based_options_set_super_block_alignment_space_overhead_ratio(obj, 0);
+  CheckCondition(rocksdb_block_based_options_get_super_block_alignment_space_overhead_ratio(obj) == 0);
   rocksdb_block_based_options_set_uniform_cv_threshold(obj, 1);
-  CheckCondition(rocksdb_block_based_options_get_uniform_cv_threshold(obj) ==
-                 1);
+  CheckCondition(rocksdb_block_based_options_get_uniform_cv_threshold(obj) == 1);
   rocksdb_block_based_options_set_uniform_cv_threshold(obj, 0);
-  CheckCondition(rocksdb_block_based_options_get_uniform_cv_threshold(obj) ==
-                 0);
+  CheckCondition(rocksdb_block_based_options_get_uniform_cv_threshold(obj) == 0);
   rocksdb_block_based_options_set_use_delta_encoding(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_use_delta_encoding(obj) == 1);
   rocksdb_block_based_options_set_use_delta_encoding(obj, 0);
   CheckCondition(rocksdb_block_based_options_get_use_delta_encoding(obj) == 0);
   rocksdb_block_based_options_set_use_udi_as_primary_index(obj, 1);
-  CheckCondition(
-      rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 1);
+  CheckCondition(rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 1);
   rocksdb_block_based_options_set_use_udi_as_primary_index(obj, 0);
-  CheckCondition(
-      rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 0);
+  CheckCondition(rocksdb_block_based_options_get_use_udi_as_primary_index(obj) == 0);
   rocksdb_block_based_options_set_verify_compression(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_verify_compression(obj) == 1);
   rocksdb_block_based_options_set_verify_compression(obj, 0);
@@ -235,36 +164,25 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
 }
 
 static void rocksdb_roundtrip_test_rocksdb_block_cache_trace_options(void) {
-  rocksdb_block_cache_trace_options_t* obj =
-      rocksdb_block_cache_trace_options_create();
+  rocksdb_block_cache_trace_options_t* obj = rocksdb_block_cache_trace_options_create();
   rocksdb_block_cache_trace_options_set_sampling_frequency(obj, 1);
-  CheckCondition(
-      rocksdb_block_cache_trace_options_get_sampling_frequency(obj) == 1);
+  CheckCondition(rocksdb_block_cache_trace_options_get_sampling_frequency(obj) == 1);
   rocksdb_block_cache_trace_options_set_sampling_frequency(obj, 0);
-  CheckCondition(
-      rocksdb_block_cache_trace_options_get_sampling_frequency(obj) == 0);
+  CheckCondition(rocksdb_block_cache_trace_options_get_sampling_frequency(obj) == 0);
   rocksdb_block_cache_trace_options_destroy(obj);
 }
 
-static void rocksdb_roundtrip_test_rocksdb_block_cache_trace_writer_options(
-    void) {
-  rocksdb_block_cache_trace_writer_options_t* obj =
-      rocksdb_block_cache_trace_writer_options_create();
+static void rocksdb_roundtrip_test_rocksdb_block_cache_trace_writer_options(void) {
+  rocksdb_block_cache_trace_writer_options_t* obj = rocksdb_block_cache_trace_writer_options_create();
   rocksdb_block_cache_trace_writer_options_set_max_trace_file_size(obj, 1);
-  CheckCondition(
-      rocksdb_block_cache_trace_writer_options_get_max_trace_file_size(obj) ==
-      1);
+  CheckCondition(rocksdb_block_cache_trace_writer_options_get_max_trace_file_size(obj) == 1);
   rocksdb_block_cache_trace_writer_options_set_max_trace_file_size(obj, 0);
-  CheckCondition(
-      rocksdb_block_cache_trace_writer_options_get_max_trace_file_size(obj) ==
-      0);
+  CheckCondition(rocksdb_block_cache_trace_writer_options_get_max_trace_file_size(obj) == 0);
   rocksdb_block_cache_trace_writer_options_destroy(obj);
 }
 
-static void rocksdb_roundtrip_test_rocksdb_column_family_metadata_options(
-    void) {
-  rocksdb_column_family_metadata_options_t* obj =
-      rocksdb_column_family_metadata_options_create();
+static void rocksdb_roundtrip_test_rocksdb_column_family_metadata_options(void) {
+  rocksdb_column_family_metadata_options_t* obj = rocksdb_column_family_metadata_options_create();
   rocksdb_column_family_metadata_options_set_level(obj, 1);
   CheckCondition(rocksdb_column_family_metadata_options_get_level(obj) == 1);
   rocksdb_column_family_metadata_options_set_level(obj, 0);
@@ -287,34 +205,26 @@ static void rocksdb_roundtrip_test_rocksdb_compaction_options(void) {
   rocksdb_compaction_options_set_max_subcompactions(obj, 0);
   CheckCondition(rocksdb_compaction_options_get_max_subcompactions(obj) == 0);
   rocksdb_compaction_options_set_output_file_size_limit(obj, 1);
-  CheckCondition(rocksdb_compaction_options_get_output_file_size_limit(obj) ==
-                 1);
+  CheckCondition(rocksdb_compaction_options_get_output_file_size_limit(obj) == 1);
   rocksdb_compaction_options_set_output_file_size_limit(obj, 0);
-  CheckCondition(rocksdb_compaction_options_get_output_file_size_limit(obj) ==
-                 0);
+  CheckCondition(rocksdb_compaction_options_get_output_file_size_limit(obj) == 0);
   rocksdb_compaction_options_set_output_temperature_override(obj, 1);
-  CheckCondition(
-      rocksdb_compaction_options_get_output_temperature_override(obj) == 1);
+  CheckCondition(rocksdb_compaction_options_get_output_temperature_override(obj) == 1);
   rocksdb_compaction_options_set_output_temperature_override(obj, 0);
-  CheckCondition(
-      rocksdb_compaction_options_get_output_temperature_override(obj) == 0);
+  CheckCondition(rocksdb_compaction_options_get_output_temperature_override(obj) == 0);
   rocksdb_compaction_options_destroy(obj);
 }
 
 static void rocksdb_roundtrip_test_rocksdb_compactoptions(void) {
   rocksdb_compactoptions_t* obj = rocksdb_compactoptions_create();
   rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(obj, 1);
-  CheckCondition(
-      rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(obj) == 1);
+  CheckCondition(rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(obj) == 1);
   rocksdb_compactoptions_set_blob_garbage_collection_age_cutoff(obj, 0);
-  CheckCondition(
-      rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(obj) == 0);
+  CheckCondition(rocksdb_compactoptions_get_blob_garbage_collection_age_cutoff(obj) == 0);
   rocksdb_compactoptions_set_blob_garbage_collection_policy(obj, 1);
-  CheckCondition(
-      rocksdb_compactoptions_get_blob_garbage_collection_policy(obj) == 1);
+  CheckCondition(rocksdb_compactoptions_get_blob_garbage_collection_policy(obj) == 1);
   rocksdb_compactoptions_set_blob_garbage_collection_policy(obj, 0);
-  CheckCondition(
-      rocksdb_compactoptions_get_blob_garbage_collection_policy(obj) == 0);
+  CheckCondition(rocksdb_compactoptions_get_blob_garbage_collection_policy(obj) == 0);
   rocksdb_compactoptions_destroy(obj);
 }
 
@@ -325,29 +235,17 @@ static void rocksdb_roundtrip_test_rocksdb_create_backup_options(void) {
   rocksdb_create_backup_options_set_atomic_flush(obj, 0);
   CheckCondition(rocksdb_create_backup_options_get_atomic_flush(obj) == 0);
   rocksdb_create_backup_options_set_background_thread_cpu_priority(obj, 1);
-  CheckCondition(
-      rocksdb_create_backup_options_get_background_thread_cpu_priority(obj) ==
-      1);
+  CheckCondition(rocksdb_create_backup_options_get_background_thread_cpu_priority(obj) == 1);
   rocksdb_create_backup_options_set_background_thread_cpu_priority(obj, 0);
-  CheckCondition(
-      rocksdb_create_backup_options_get_background_thread_cpu_priority(obj) ==
-      0);
-  rocksdb_create_backup_options_set_decrease_background_thread_cpu_priority(obj,
-                                                                            1);
-  CheckCondition(
-      rocksdb_create_backup_options_get_decrease_background_thread_cpu_priority(
-          obj) == 1);
-  rocksdb_create_backup_options_set_decrease_background_thread_cpu_priority(obj,
-                                                                            0);
-  CheckCondition(
-      rocksdb_create_backup_options_get_decrease_background_thread_cpu_priority(
-          obj) == 0);
+  CheckCondition(rocksdb_create_backup_options_get_background_thread_cpu_priority(obj) == 0);
+  rocksdb_create_backup_options_set_decrease_background_thread_cpu_priority(obj, 1);
+  CheckCondition(rocksdb_create_backup_options_get_decrease_background_thread_cpu_priority(obj) == 1);
+  rocksdb_create_backup_options_set_decrease_background_thread_cpu_priority(obj, 0);
+  CheckCondition(rocksdb_create_backup_options_get_decrease_background_thread_cpu_priority(obj) == 0);
   rocksdb_create_backup_options_set_flush_before_backup(obj, 1);
-  CheckCondition(rocksdb_create_backup_options_get_flush_before_backup(obj) ==
-                 1);
+  CheckCondition(rocksdb_create_backup_options_get_flush_before_backup(obj) == 1);
   rocksdb_create_backup_options_set_flush_before_backup(obj, 0);
-  CheckCondition(rocksdb_create_backup_options_get_flush_before_backup(obj) ==
-                 0);
+  CheckCondition(rocksdb_create_backup_options_get_flush_before_backup(obj) == 0);
   rocksdb_create_backup_options_destroy(obj);
 }
 
@@ -419,37 +317,26 @@ static void rocksdb_roundtrip_test_rocksdb_envoptions(void) {
   rocksdb_envoptions_set_use_mmap_writes(obj, 0);
   CheckCondition(rocksdb_envoptions_get_use_mmap_writes(obj) == 0);
   rocksdb_envoptions_set_writable_file_max_buffer_size(obj, 1);
-  CheckCondition(rocksdb_envoptions_get_writable_file_max_buffer_size(obj) ==
-                 1);
+  CheckCondition(rocksdb_envoptions_get_writable_file_max_buffer_size(obj) == 1);
   rocksdb_envoptions_set_writable_file_max_buffer_size(obj, 0);
-  CheckCondition(rocksdb_envoptions_get_writable_file_max_buffer_size(obj) ==
-                 0);
+  CheckCondition(rocksdb_envoptions_get_writable_file_max_buffer_size(obj) == 0);
   rocksdb_envoptions_destroy(obj);
 }
 
 static void rocksdb_roundtrip_test_rocksdb_fifo_compaction_options(void) {
-  rocksdb_fifo_compaction_options_t* obj =
-      rocksdb_fifo_compaction_options_create();
+  rocksdb_fifo_compaction_options_t* obj = rocksdb_fifo_compaction_options_create();
   rocksdb_fifo_compaction_options_set_age_for_warm(obj, 1);
   CheckCondition(rocksdb_fifo_compaction_options_get_age_for_warm(obj) == 1);
   rocksdb_fifo_compaction_options_set_age_for_warm(obj, 0);
   CheckCondition(rocksdb_fifo_compaction_options_get_age_for_warm(obj) == 0);
-  rocksdb_fifo_compaction_options_set_allow_trivial_copy_when_change_temperature(
-      obj, 1);
-  CheckCondition(
-      rocksdb_fifo_compaction_options_get_allow_trivial_copy_when_change_temperature(
-          obj) == 1);
-  rocksdb_fifo_compaction_options_set_allow_trivial_copy_when_change_temperature(
-      obj, 0);
-  CheckCondition(
-      rocksdb_fifo_compaction_options_get_allow_trivial_copy_when_change_temperature(
-          obj) == 0);
+  rocksdb_fifo_compaction_options_set_allow_trivial_copy_when_change_temperature(obj, 1);
+  CheckCondition(rocksdb_fifo_compaction_options_get_allow_trivial_copy_when_change_temperature(obj) == 1);
+  rocksdb_fifo_compaction_options_set_allow_trivial_copy_when_change_temperature(obj, 0);
+  CheckCondition(rocksdb_fifo_compaction_options_get_allow_trivial_copy_when_change_temperature(obj) == 0);
   rocksdb_fifo_compaction_options_set_trivial_copy_buffer_size(obj, 1);
-  CheckCondition(
-      rocksdb_fifo_compaction_options_get_trivial_copy_buffer_size(obj) == 1);
+  CheckCondition(rocksdb_fifo_compaction_options_get_trivial_copy_buffer_size(obj) == 1);
   rocksdb_fifo_compaction_options_set_trivial_copy_buffer_size(obj, 0);
-  CheckCondition(
-      rocksdb_fifo_compaction_options_get_trivial_copy_buffer_size(obj) == 0);
+  CheckCondition(rocksdb_fifo_compaction_options_get_trivial_copy_buffer_size(obj) == 0);
   rocksdb_fifo_compaction_options_destroy(obj);
 }
 
@@ -488,28 +375,19 @@ static void rocksdb_roundtrip_test_rocksdb_flushwaloptions(void) {
 }
 
 static void rocksdb_roundtrip_test_rocksdb_ingestexternalfileoptions(void) {
-  rocksdb_ingestexternalfileoptions_t* obj =
-      rocksdb_ingestexternalfileoptions_create();
+  rocksdb_ingestexternalfileoptions_t* obj = rocksdb_ingestexternalfileoptions_create();
   rocksdb_ingestexternalfileoptions_set_allow_db_generated_files(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_allow_db_generated_files(obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_allow_db_generated_files(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_allow_db_generated_files(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_allow_db_generated_files(obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_allow_db_generated_files(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_failed_move_fall_back_to_copy(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_failed_move_fall_back_to_copy(
-          obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_failed_move_fall_back_to_copy(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_failed_move_fall_back_to_copy(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_failed_move_fall_back_to_copy(
-          obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_failed_move_fall_back_to_copy(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_file_opening_threads(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_file_opening_threads(obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_file_opening_threads(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_file_opening_threads(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_file_opening_threads(obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_file_opening_threads(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_fill_cache(obj, 1);
   CheckCondition(rocksdb_ingestexternalfileoptions_get_fill_cache(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_fill_cache(obj, 0);
@@ -518,90 +396,56 @@ static void rocksdb_roundtrip_test_rocksdb_ingestexternalfileoptions(void) {
   CheckCondition(rocksdb_ingestexternalfileoptions_get_link_files(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_link_files(obj, 0);
   CheckCondition(rocksdb_ingestexternalfileoptions_get_link_files(obj) == 0);
-  rocksdb_ingestexternalfileoptions_set_prefetch_lmax_index_and_filter_blocks(
-      obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_prefetch_lmax_index_and_filter_blocks(
-          obj) == 1);
-  rocksdb_ingestexternalfileoptions_set_prefetch_lmax_index_and_filter_blocks(
-      obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_prefetch_lmax_index_and_filter_blocks(
-          obj) == 0);
+  rocksdb_ingestexternalfileoptions_set_prefetch_lmax_index_and_filter_blocks(obj, 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_prefetch_lmax_index_and_filter_blocks(obj) == 1);
+  rocksdb_ingestexternalfileoptions_set_prefetch_lmax_index_and_filter_blocks(obj, 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_prefetch_lmax_index_and_filter_blocks(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_verify_checksums_before_ingest(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_verify_checksums_before_ingest(
-          obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_verify_checksums_before_ingest(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_verify_checksums_before_ingest(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_verify_checksums_before_ingest(
-          obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_verify_checksums_before_ingest(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_verify_checksums_readahead_size(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_verify_checksums_readahead_size(
-          obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_verify_checksums_readahead_size(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_verify_checksums_readahead_size(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_verify_checksums_readahead_size(
-          obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_verify_checksums_readahead_size(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_verify_file_checksum(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_verify_file_checksum(obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_verify_file_checksum(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_verify_file_checksum(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_verify_file_checksum(obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_verify_file_checksum(obj) == 0);
   rocksdb_ingestexternalfileoptions_set_write_global_seqno(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_write_global_seqno(obj) == 1);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_write_global_seqno(obj) == 1);
   rocksdb_ingestexternalfileoptions_set_write_global_seqno(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_write_global_seqno(obj) == 0);
+  CheckCondition(rocksdb_ingestexternalfileoptions_get_write_global_seqno(obj) == 0);
   rocksdb_ingestexternalfileoptions_destroy(obj);
 }
 
-static void rocksdb_roundtrip_test_rocksdb_livefiles_storage_info_options(
-    void) {
-  rocksdb_livefiles_storage_info_options_t* obj =
-      rocksdb_livefiles_storage_info_options_create();
+static void rocksdb_roundtrip_test_rocksdb_livefiles_storage_info_options(void) {
+  rocksdb_livefiles_storage_info_options_t* obj = rocksdb_livefiles_storage_info_options_create();
   rocksdb_livefiles_storage_info_options_set_atomic_flush(obj, 1);
-  CheckCondition(rocksdb_livefiles_storage_info_options_get_atomic_flush(obj) ==
-                 1);
+  CheckCondition(rocksdb_livefiles_storage_info_options_get_atomic_flush(obj) == 1);
   rocksdb_livefiles_storage_info_options_set_atomic_flush(obj, 0);
-  CheckCondition(rocksdb_livefiles_storage_info_options_get_atomic_flush(obj) ==
-                 0);
+  CheckCondition(rocksdb_livefiles_storage_info_options_get_atomic_flush(obj) == 0);
   rocksdb_livefiles_storage_info_options_set_include_checksum_info(obj, 1);
-  CheckCondition(
-      rocksdb_livefiles_storage_info_options_get_include_checksum_info(obj) ==
-      1);
+  CheckCondition(rocksdb_livefiles_storage_info_options_get_include_checksum_info(obj) == 1);
   rocksdb_livefiles_storage_info_options_set_include_checksum_info(obj, 0);
-  CheckCondition(
-      rocksdb_livefiles_storage_info_options_get_include_checksum_info(obj) ==
-      0);
+  CheckCondition(rocksdb_livefiles_storage_info_options_get_include_checksum_info(obj) == 0);
   rocksdb_livefiles_storage_info_options_set_wal_size_for_flush(obj, 1);
-  CheckCondition(
-      rocksdb_livefiles_storage_info_options_get_wal_size_for_flush(obj) == 1);
+  CheckCondition(rocksdb_livefiles_storage_info_options_get_wal_size_for_flush(obj) == 1);
   rocksdb_livefiles_storage_info_options_set_wal_size_for_flush(obj, 0);
-  CheckCondition(
-      rocksdb_livefiles_storage_info_options_get_wal_size_for_flush(obj) == 0);
+  CheckCondition(rocksdb_livefiles_storage_info_options_get_wal_size_for_flush(obj) == 0);
   rocksdb_livefiles_storage_info_options_destroy(obj);
 }
 
-static void rocksdb_roundtrip_test_rocksdb_optimistictransactiondb_options(
-    void) {
-  rocksdb_optimistictransactiondb_options_t* obj =
-      rocksdb_optimistictransactiondb_options_create();
+static void rocksdb_roundtrip_test_rocksdb_optimistictransactiondb_options(void) {
+  rocksdb_optimistictransactiondb_options_t* obj = rocksdb_optimistictransactiondb_options_create();
   rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(obj, 1);
-  CheckCondition(
-      rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(obj) == 1);
+  CheckCondition(rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(obj) == 1);
   rocksdb_optimistictransactiondb_options_set_occ_lock_buckets(obj, 0);
-  CheckCondition(
-      rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(obj) == 0);
+  CheckCondition(rocksdb_optimistictransactiondb_options_get_occ_lock_buckets(obj) == 0);
   rocksdb_optimistictransactiondb_options_set_validate_policy(obj, 1);
-  CheckCondition(
-      rocksdb_optimistictransactiondb_options_get_validate_policy(obj) == 1);
+  CheckCondition(rocksdb_optimistictransactiondb_options_get_validate_policy(obj) == 1);
   rocksdb_optimistictransactiondb_options_set_validate_policy(obj, 0);
-  CheckCondition(
-      rocksdb_optimistictransactiondb_options_get_validate_policy(obj) == 0);
+  CheckCondition(rocksdb_optimistictransactiondb_options_get_validate_policy(obj) == 0);
   rocksdb_optimistictransactiondb_options_destroy(obj);
 }
 
@@ -652,11 +496,9 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_block_protection_bytes_per_key(obj, 0);
   CheckCondition(rocksdb_options_get_block_protection_bytes_per_key(obj) == 0);
   rocksdb_options_set_bottommost_file_compaction_delay(obj, 1);
-  CheckCondition(rocksdb_options_get_bottommost_file_compaction_delay(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_bottommost_file_compaction_delay(obj) == 1);
   rocksdb_options_set_bottommost_file_compaction_delay(obj, 0);
-  CheckCondition(rocksdb_options_get_bottommost_file_compaction_delay(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_bottommost_file_compaction_delay(obj) == 0);
   rocksdb_options_set_cf_allow_ingest_behind(obj, 1);
   CheckCondition(rocksdb_options_get_cf_allow_ingest_behind(obj) == 1);
   rocksdb_options_set_cf_allow_ingest_behind(obj, 0);
@@ -666,29 +508,21 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_compaction_verify_record_count(obj, 0);
   CheckCondition(rocksdb_options_get_compaction_verify_record_count(obj) == 0);
   rocksdb_options_set_compression_options_max_dict_buffer_bytes(obj, 1);
-  CheckCondition(
-      rocksdb_options_get_compression_options_max_dict_buffer_bytes(obj) == 1);
+  CheckCondition(rocksdb_options_get_compression_options_max_dict_buffer_bytes(obj) == 1);
   rocksdb_options_set_compression_options_max_dict_buffer_bytes(obj, 0);
-  CheckCondition(
-      rocksdb_options_get_compression_options_max_dict_buffer_bytes(obj) == 0);
+  CheckCondition(rocksdb_options_get_compression_options_max_dict_buffer_bytes(obj) == 0);
   rocksdb_options_set_compression_options_parallel_threads(obj, 1);
-  CheckCondition(
-      rocksdb_options_get_compression_options_parallel_threads(obj) == 1);
+  CheckCondition(rocksdb_options_get_compression_options_parallel_threads(obj) == 1);
   rocksdb_options_set_compression_options_parallel_threads(obj, 0);
-  CheckCondition(
-      rocksdb_options_get_compression_options_parallel_threads(obj) == 0);
+  CheckCondition(rocksdb_options_get_compression_options_parallel_threads(obj) == 0);
   rocksdb_options_set_compression_options_use_zstd_dict_trainer(obj, 1);
-  CheckCondition(
-      rocksdb_options_get_compression_options_use_zstd_dict_trainer(obj) == 1);
+  CheckCondition(rocksdb_options_get_compression_options_use_zstd_dict_trainer(obj) == 1);
   rocksdb_options_set_compression_options_use_zstd_dict_trainer(obj, 0);
-  CheckCondition(
-      rocksdb_options_get_compression_options_use_zstd_dict_trainer(obj) == 0);
+  CheckCondition(rocksdb_options_get_compression_options_use_zstd_dict_trainer(obj) == 0);
   rocksdb_options_set_compression_options_zstd_max_train_bytes(obj, 1);
-  CheckCondition(
-      rocksdb_options_get_compression_options_zstd_max_train_bytes(obj) == 1);
+  CheckCondition(rocksdb_options_get_compression_options_zstd_max_train_bytes(obj) == 1);
   rocksdb_options_set_compression_options_zstd_max_train_bytes(obj, 0);
-  CheckCondition(
-      rocksdb_options_get_compression_options_zstd_max_train_bytes(obj) == 0);
+  CheckCondition(rocksdb_options_get_compression_options_zstd_max_train_bytes(obj) == 0);
   rocksdb_options_set_daily_offpeak_time_utc(obj, "test");
   {
     size_t rt_len = 0;
@@ -730,13 +564,9 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_enforce_single_del_contracts(obj, 0);
   CheckCondition(rocksdb_options_get_enforce_single_del_contracts(obj) == 0);
   rocksdb_options_set_enforce_write_buffer_manager_during_recovery(obj, 1);
-  CheckCondition(
-      rocksdb_options_get_enforce_write_buffer_manager_during_recovery(obj) ==
-      1);
+  CheckCondition(rocksdb_options_get_enforce_write_buffer_manager_during_recovery(obj) == 1);
   rocksdb_options_set_enforce_write_buffer_manager_during_recovery(obj, 0);
-  CheckCondition(
-      rocksdb_options_get_enforce_write_buffer_manager_during_recovery(obj) ==
-      0);
+  CheckCondition(rocksdb_options_get_enforce_write_buffer_manager_during_recovery(obj) == 0);
   rocksdb_options_set_fast_sst_open(obj, 1);
   CheckCondition(rocksdb_options_get_fast_sst_open(obj) == 1);
   rocksdb_options_set_fast_sst_open(obj, 0);
@@ -754,11 +584,9 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_follower_catchup_retry_wait_ms(obj, 0);
   CheckCondition(rocksdb_options_get_follower_catchup_retry_wait_ms(obj) == 0);
   rocksdb_options_set_follower_refresh_catchup_period_ms(obj, 1);
-  CheckCondition(rocksdb_options_get_follower_refresh_catchup_period_ms(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_follower_refresh_catchup_period_ms(obj) == 1);
   rocksdb_options_set_follower_refresh_catchup_period_ms(obj, 0);
-  CheckCondition(rocksdb_options_get_follower_refresh_catchup_period_ms(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_follower_refresh_catchup_period_ms(obj) == 0);
   rocksdb_options_set_force_consistency_checks(obj, 1);
   CheckCondition(rocksdb_options_get_force_consistency_checks(obj) == 1);
   rocksdb_options_set_force_consistency_checks(obj, 0);
@@ -784,33 +612,25 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_max_manifest_space_amp_pct(obj, 0);
   CheckCondition(rocksdb_options_get_max_manifest_space_amp_pct(obj) == 0);
   rocksdb_options_set_max_write_batch_group_size_bytes(obj, 1);
-  CheckCondition(rocksdb_options_get_max_write_batch_group_size_bytes(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_max_write_batch_group_size_bytes(obj) == 1);
   rocksdb_options_set_max_write_batch_group_size_bytes(obj, 0);
-  CheckCondition(rocksdb_options_get_max_write_batch_group_size_bytes(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_max_write_batch_group_size_bytes(obj) == 0);
   rocksdb_options_set_memtable_batch_lookup_optimization(obj, 1);
-  CheckCondition(rocksdb_options_get_memtable_batch_lookup_optimization(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_memtable_batch_lookup_optimization(obj) == 1);
   rocksdb_options_set_memtable_batch_lookup_optimization(obj, 0);
-  CheckCondition(rocksdb_options_get_memtable_batch_lookup_optimization(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_memtable_batch_lookup_optimization(obj) == 0);
   rocksdb_options_set_memtable_max_range_deletions(obj, 1);
   CheckCondition(rocksdb_options_get_memtable_max_range_deletions(obj) == 1);
   rocksdb_options_set_memtable_max_range_deletions(obj, 0);
   CheckCondition(rocksdb_options_get_memtable_max_range_deletions(obj) == 0);
   rocksdb_options_set_memtable_protection_bytes_per_key(obj, 1);
-  CheckCondition(rocksdb_options_get_memtable_protection_bytes_per_key(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_memtable_protection_bytes_per_key(obj) == 1);
   rocksdb_options_set_memtable_protection_bytes_per_key(obj, 0);
-  CheckCondition(rocksdb_options_get_memtable_protection_bytes_per_key(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_memtable_protection_bytes_per_key(obj) == 0);
   rocksdb_options_set_memtable_verify_per_key_checksum_on_seek(obj, 1);
-  CheckCondition(
-      rocksdb_options_get_memtable_verify_per_key_checksum_on_seek(obj) == 1);
+  CheckCondition(rocksdb_options_get_memtable_verify_per_key_checksum_on_seek(obj) == 1);
   rocksdb_options_set_memtable_verify_per_key_checksum_on_seek(obj, 0);
-  CheckCondition(
-      rocksdb_options_get_memtable_verify_per_key_checksum_on_seek(obj) == 0);
+  CheckCondition(rocksdb_options_get_memtable_verify_per_key_checksum_on_seek(obj) == 0);
   rocksdb_options_set_metadata_write_temperature(obj, 1);
   CheckCondition(rocksdb_options_get_metadata_write_temperature(obj) == 1);
   rocksdb_options_set_metadata_write_temperature(obj, 0);
@@ -836,11 +656,9 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_persist_user_defined_timestamps(obj, 0);
   CheckCondition(rocksdb_options_get_persist_user_defined_timestamps(obj) == 0);
   rocksdb_options_set_preclude_last_level_data_seconds(obj, 1);
-  CheckCondition(rocksdb_options_get_preclude_last_level_data_seconds(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_preclude_last_level_data_seconds(obj) == 1);
   rocksdb_options_set_preclude_last_level_data_seconds(obj, 0);
-  CheckCondition(rocksdb_options_get_preclude_last_level_data_seconds(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_preclude_last_level_data_seconds(obj) == 0);
   rocksdb_options_set_prefix_seek_opt_in_only(obj, 1);
   CheckCondition(rocksdb_options_get_prefix_seek_opt_in_only(obj) == 1);
   rocksdb_options_set_prefix_seek_opt_in_only(obj, 0);
@@ -886,31 +704,29 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   rocksdb_options_set_uncache_aggressiveness(obj, 0);
   CheckCondition(rocksdb_options_get_uncache_aggressiveness(obj) == 0);
   rocksdb_options_set_use_direct_io_for_compaction_reads(obj, 1);
-  CheckCondition(rocksdb_options_get_use_direct_io_for_compaction_reads(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_use_direct_io_for_compaction_reads(obj) == 1);
   rocksdb_options_set_use_direct_io_for_compaction_reads(obj, 0);
-  CheckCondition(rocksdb_options_get_use_direct_io_for_compaction_reads(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_use_direct_io_for_compaction_reads(obj) == 0);
   rocksdb_options_set_use_fsync(obj, 1);
   CheckCondition(rocksdb_options_get_use_fsync(obj) == 1);
   rocksdb_options_set_use_fsync(obj, 0);
   CheckCondition(rocksdb_options_get_use_fsync(obj) == 0);
   rocksdb_options_set_verify_manifest_content_on_close(obj, 1);
-  CheckCondition(rocksdb_options_get_verify_manifest_content_on_close(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_verify_manifest_content_on_close(obj) == 1);
   rocksdb_options_set_verify_manifest_content_on_close(obj, 0);
-  CheckCondition(rocksdb_options_get_verify_manifest_content_on_close(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_verify_manifest_content_on_close(obj) == 0);
   rocksdb_options_set_verify_output_flags(obj, 1);
   CheckCondition(rocksdb_options_get_verify_output_flags(obj) == 1);
   rocksdb_options_set_verify_output_flags(obj, 0);
   CheckCondition(rocksdb_options_get_verify_output_flags(obj) == 0);
   rocksdb_options_set_verify_sst_unique_id_in_manifest(obj, 1);
-  CheckCondition(rocksdb_options_get_verify_sst_unique_id_in_manifest(obj) ==
-                 1);
+  CheckCondition(rocksdb_options_get_verify_sst_unique_id_in_manifest(obj) == 1);
   rocksdb_options_set_verify_sst_unique_id_in_manifest(obj, 0);
-  CheckCondition(rocksdb_options_get_verify_sst_unique_id_in_manifest(obj) ==
-                 0);
+  CheckCondition(rocksdb_options_get_verify_sst_unique_id_in_manifest(obj) == 0);
+  rocksdb_options_set_wal_iterator_tail_rotations(obj, 1);
+  CheckCondition(rocksdb_options_get_wal_iterator_tail_rotations(obj) == 1);
+  rocksdb_options_set_wal_iterator_tail_rotations(obj, 0);
+  CheckCondition(rocksdb_options_get_wal_iterator_tail_rotations(obj) == 0);
   rocksdb_options_set_wal_write_temperature(obj, 1);
   CheckCondition(rocksdb_options_get_wal_write_temperature(obj) == 1);
   rocksdb_options_set_wal_write_temperature(obj, 0);
@@ -949,17 +765,13 @@ static void rocksdb_roundtrip_test_rocksdb_readoptions(void) {
   rocksdb_readoptions_set_auto_readahead_size(obj, 0);
   CheckCondition(rocksdb_readoptions_get_auto_readahead_size(obj) == 0);
   rocksdb_readoptions_set_auto_refresh_iterator_with_snapshot(obj, 1);
-  CheckCondition(
-      rocksdb_readoptions_get_auto_refresh_iterator_with_snapshot(obj) == 1);
+  CheckCondition(rocksdb_readoptions_get_auto_refresh_iterator_with_snapshot(obj) == 1);
   rocksdb_readoptions_set_auto_refresh_iterator_with_snapshot(obj, 0);
-  CheckCondition(
-      rocksdb_readoptions_get_auto_refresh_iterator_with_snapshot(obj) == 0);
+  CheckCondition(rocksdb_readoptions_get_auto_refresh_iterator_with_snapshot(obj) == 0);
   rocksdb_readoptions_set_background_purge_on_iterator_cleanup(obj, 1);
-  CheckCondition(
-      rocksdb_readoptions_get_background_purge_on_iterator_cleanup(obj) == 1);
+  CheckCondition(rocksdb_readoptions_get_background_purge_on_iterator_cleanup(obj) == 1);
   rocksdb_readoptions_set_background_purge_on_iterator_cleanup(obj, 0);
-  CheckCondition(
-      rocksdb_readoptions_get_background_purge_on_iterator_cleanup(obj) == 0);
+  CheckCondition(rocksdb_readoptions_get_background_purge_on_iterator_cleanup(obj) == 0);
   rocksdb_readoptions_set_deadline(obj, 1);
   CheckCondition(rocksdb_readoptions_get_deadline(obj) == 1);
   rocksdb_readoptions_set_deadline(obj, 0);
@@ -1041,32 +853,23 @@ static void rocksdb_roundtrip_test_rocksdb_restore_options(void) {
 }
 
 static void rocksdb_roundtrip_test_rocksdb_size_approximation_options(void) {
-  rocksdb_size_approximation_options_t* obj =
-      rocksdb_size_approximation_options_create();
+  rocksdb_size_approximation_options_t* obj = rocksdb_size_approximation_options_create();
   rocksdb_size_approximation_options_set_files_size_error_margin(obj, 1);
-  CheckCondition(
-      rocksdb_size_approximation_options_get_files_size_error_margin(obj) == 1);
+  CheckCondition(rocksdb_size_approximation_options_get_files_size_error_margin(obj) == 1);
   rocksdb_size_approximation_options_set_files_size_error_margin(obj, 0);
-  CheckCondition(
-      rocksdb_size_approximation_options_get_files_size_error_margin(obj) == 0);
+  CheckCondition(rocksdb_size_approximation_options_get_files_size_error_margin(obj) == 0);
   rocksdb_size_approximation_options_set_include_blob_files(obj, 1);
-  CheckCondition(
-      rocksdb_size_approximation_options_get_include_blob_files(obj) == 1);
+  CheckCondition(rocksdb_size_approximation_options_get_include_blob_files(obj) == 1);
   rocksdb_size_approximation_options_set_include_blob_files(obj, 0);
-  CheckCondition(
-      rocksdb_size_approximation_options_get_include_blob_files(obj) == 0);
+  CheckCondition(rocksdb_size_approximation_options_get_include_blob_files(obj) == 0);
   rocksdb_size_approximation_options_set_include_files(obj, 1);
-  CheckCondition(rocksdb_size_approximation_options_get_include_files(obj) ==
-                 1);
+  CheckCondition(rocksdb_size_approximation_options_get_include_files(obj) == 1);
   rocksdb_size_approximation_options_set_include_files(obj, 0);
-  CheckCondition(rocksdb_size_approximation_options_get_include_files(obj) ==
-                 0);
+  CheckCondition(rocksdb_size_approximation_options_get_include_files(obj) == 0);
   rocksdb_size_approximation_options_set_include_memtables(obj, 1);
-  CheckCondition(
-      rocksdb_size_approximation_options_get_include_memtables(obj) == 1);
+  CheckCondition(rocksdb_size_approximation_options_get_include_memtables(obj) == 1);
   rocksdb_size_approximation_options_set_include_memtables(obj, 0);
-  CheckCondition(
-      rocksdb_size_approximation_options_get_include_memtables(obj) == 0);
+  CheckCondition(rocksdb_size_approximation_options_get_include_memtables(obj) == 0);
   rocksdb_size_approximation_options_destroy(obj);
 }
 
@@ -1094,21 +897,17 @@ static void rocksdb_roundtrip_test_rocksdb_trace_options(void) {
 static void rocksdb_roundtrip_test_rocksdb_transaction_options(void) {
   rocksdb_transaction_options_t* obj = rocksdb_transaction_options_create();
   rocksdb_transaction_options_set_commit_bypass_memtable(obj, 1);
-  CheckCondition(rocksdb_transaction_options_get_commit_bypass_memtable(obj) ==
-                 1);
+  CheckCondition(rocksdb_transaction_options_get_commit_bypass_memtable(obj) == 1);
   rocksdb_transaction_options_set_commit_bypass_memtable(obj, 0);
-  CheckCondition(rocksdb_transaction_options_get_commit_bypass_memtable(obj) ==
-                 0);
+  CheckCondition(rocksdb_transaction_options_get_commit_bypass_memtable(obj) == 0);
   rocksdb_transaction_options_set_deadlock_detect(obj, 1);
   CheckCondition(rocksdb_transaction_options_get_deadlock_detect(obj) == 1);
   rocksdb_transaction_options_set_deadlock_detect(obj, 0);
   CheckCondition(rocksdb_transaction_options_get_deadlock_detect(obj) == 0);
   rocksdb_transaction_options_set_deadlock_detect_depth(obj, 1);
-  CheckCondition(rocksdb_transaction_options_get_deadlock_detect_depth(obj) ==
-                 1);
+  CheckCondition(rocksdb_transaction_options_get_deadlock_detect_depth(obj) == 1);
   rocksdb_transaction_options_set_deadlock_detect_depth(obj, 0);
-  CheckCondition(rocksdb_transaction_options_get_deadlock_detect_depth(obj) ==
-                 0);
+  CheckCondition(rocksdb_transaction_options_get_deadlock_detect_depth(obj) == 0);
   rocksdb_transaction_options_set_deadlock_timeout_us(obj, 1);
   CheckCondition(rocksdb_transaction_options_get_deadlock_timeout_us(obj) == 1);
   rocksdb_transaction_options_set_deadlock_timeout_us(obj, 0);
@@ -1117,93 +916,59 @@ static void rocksdb_roundtrip_test_rocksdb_transaction_options(void) {
   CheckCondition(rocksdb_transaction_options_get_expiration(obj) == 1);
   rocksdb_transaction_options_set_expiration(obj, 0);
   CheckCondition(rocksdb_transaction_options_get_expiration(obj) == 0);
-  rocksdb_transaction_options_set_large_txn_commit_optimize_byte_threshold(obj,
-                                                                           1);
-  CheckCondition(
-      rocksdb_transaction_options_get_large_txn_commit_optimize_byte_threshold(
-          obj) == 1);
-  rocksdb_transaction_options_set_large_txn_commit_optimize_byte_threshold(obj,
-                                                                           0);
-  CheckCondition(
-      rocksdb_transaction_options_get_large_txn_commit_optimize_byte_threshold(
-          obj) == 0);
+  rocksdb_transaction_options_set_large_txn_commit_optimize_byte_threshold(obj, 1);
+  CheckCondition(rocksdb_transaction_options_get_large_txn_commit_optimize_byte_threshold(obj) == 1);
+  rocksdb_transaction_options_set_large_txn_commit_optimize_byte_threshold(obj, 0);
+  CheckCondition(rocksdb_transaction_options_get_large_txn_commit_optimize_byte_threshold(obj) == 0);
   rocksdb_transaction_options_set_large_txn_commit_optimize_threshold(obj, 1);
-  CheckCondition(
-      rocksdb_transaction_options_get_large_txn_commit_optimize_threshold(
-          obj) == 1);
+  CheckCondition(rocksdb_transaction_options_get_large_txn_commit_optimize_threshold(obj) == 1);
   rocksdb_transaction_options_set_large_txn_commit_optimize_threshold(obj, 0);
-  CheckCondition(
-      rocksdb_transaction_options_get_large_txn_commit_optimize_threshold(
-          obj) == 0);
+  CheckCondition(rocksdb_transaction_options_get_large_txn_commit_optimize_threshold(obj) == 0);
   rocksdb_transaction_options_set_lock_timeout(obj, 1);
   CheckCondition(rocksdb_transaction_options_get_lock_timeout(obj) == 1);
   rocksdb_transaction_options_set_lock_timeout(obj, 0);
   CheckCondition(rocksdb_transaction_options_get_lock_timeout(obj) == 0);
   rocksdb_transaction_options_set_max_write_batch_size(obj, 1);
-  CheckCondition(rocksdb_transaction_options_get_max_write_batch_size(obj) ==
-                 1);
+  CheckCondition(rocksdb_transaction_options_get_max_write_batch_size(obj) == 1);
   rocksdb_transaction_options_set_max_write_batch_size(obj, 0);
-  CheckCondition(rocksdb_transaction_options_get_max_write_batch_size(obj) ==
-                 0);
+  CheckCondition(rocksdb_transaction_options_get_max_write_batch_size(obj) == 0);
   rocksdb_transaction_options_set_skip_concurrency_control(obj, 1);
-  CheckCondition(
-      rocksdb_transaction_options_get_skip_concurrency_control(obj) == 1);
+  CheckCondition(rocksdb_transaction_options_get_skip_concurrency_control(obj) == 1);
   rocksdb_transaction_options_set_skip_concurrency_control(obj, 0);
-  CheckCondition(
-      rocksdb_transaction_options_get_skip_concurrency_control(obj) == 0);
+  CheckCondition(rocksdb_transaction_options_get_skip_concurrency_control(obj) == 0);
   rocksdb_transaction_options_set_skip_prepare(obj, 1);
   CheckCondition(rocksdb_transaction_options_get_skip_prepare(obj) == 1);
   rocksdb_transaction_options_set_skip_prepare(obj, 0);
   CheckCondition(rocksdb_transaction_options_get_skip_prepare(obj) == 0);
-  rocksdb_transaction_options_set_use_only_the_last_commit_time_batch_for_recovery(
-      obj, 1);
-  CheckCondition(
-      rocksdb_transaction_options_get_use_only_the_last_commit_time_batch_for_recovery(
-          obj) == 1);
-  rocksdb_transaction_options_set_use_only_the_last_commit_time_batch_for_recovery(
-      obj, 0);
-  CheckCondition(
-      rocksdb_transaction_options_get_use_only_the_last_commit_time_batch_for_recovery(
-          obj) == 0);
+  rocksdb_transaction_options_set_use_only_the_last_commit_time_batch_for_recovery(obj, 1);
+  CheckCondition(rocksdb_transaction_options_get_use_only_the_last_commit_time_batch_for_recovery(obj) == 1);
+  rocksdb_transaction_options_set_use_only_the_last_commit_time_batch_for_recovery(obj, 0);
+  CheckCondition(rocksdb_transaction_options_get_use_only_the_last_commit_time_batch_for_recovery(obj) == 0);
   rocksdb_transaction_options_set_write_batch_flush_threshold(obj, 1);
-  CheckCondition(
-      rocksdb_transaction_options_get_write_batch_flush_threshold(obj) == 1);
+  CheckCondition(rocksdb_transaction_options_get_write_batch_flush_threshold(obj) == 1);
   rocksdb_transaction_options_set_write_batch_flush_threshold(obj, 0);
-  CheckCondition(
-      rocksdb_transaction_options_get_write_batch_flush_threshold(obj) == 0);
+  CheckCondition(rocksdb_transaction_options_get_write_batch_flush_threshold(obj) == 0);
   rocksdb_transaction_options_set_write_batch_track_timestamp_size(obj, 1);
-  CheckCondition(
-      rocksdb_transaction_options_get_write_batch_track_timestamp_size(obj) ==
-      1);
+  CheckCondition(rocksdb_transaction_options_get_write_batch_track_timestamp_size(obj) == 1);
   rocksdb_transaction_options_set_write_batch_track_timestamp_size(obj, 0);
-  CheckCondition(
-      rocksdb_transaction_options_get_write_batch_track_timestamp_size(obj) ==
-      0);
+  CheckCondition(rocksdb_transaction_options_get_write_batch_track_timestamp_size(obj) == 0);
   rocksdb_transaction_options_destroy(obj);
 }
 
 static void rocksdb_roundtrip_test_rocksdb_transactiondb_options(void) {
   rocksdb_transactiondb_options_t* obj = rocksdb_transactiondb_options_create();
   rocksdb_transactiondb_options_set_default_lock_timeout(obj, 1);
-  CheckCondition(rocksdb_transactiondb_options_get_default_lock_timeout(obj) ==
-                 1);
+  CheckCondition(rocksdb_transactiondb_options_get_default_lock_timeout(obj) == 1);
   rocksdb_transactiondb_options_set_default_lock_timeout(obj, 0);
-  CheckCondition(rocksdb_transactiondb_options_get_default_lock_timeout(obj) ==
-                 0);
+  CheckCondition(rocksdb_transactiondb_options_get_default_lock_timeout(obj) == 0);
   rocksdb_transactiondb_options_set_default_write_batch_flush_threshold(obj, 1);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_default_write_batch_flush_threshold(
-          obj) == 1);
+  CheckCondition(rocksdb_transactiondb_options_get_default_write_batch_flush_threshold(obj) == 1);
   rocksdb_transactiondb_options_set_default_write_batch_flush_threshold(obj, 0);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_default_write_batch_flush_threshold(
-          obj) == 0);
+  CheckCondition(rocksdb_transactiondb_options_get_default_write_batch_flush_threshold(obj) == 0);
   rocksdb_transactiondb_options_set_enable_udt_validation(obj, 1);
-  CheckCondition(rocksdb_transactiondb_options_get_enable_udt_validation(obj) ==
-                 1);
+  CheckCondition(rocksdb_transactiondb_options_get_enable_udt_validation(obj) == 1);
   rocksdb_transactiondb_options_set_enable_udt_validation(obj, 0);
-  CheckCondition(rocksdb_transactiondb_options_get_enable_udt_validation(obj) ==
-                 0);
+  CheckCondition(rocksdb_transactiondb_options_get_enable_udt_validation(obj) == 0);
   rocksdb_transactiondb_options_set_max_num_deadlocks(obj, 1);
   CheckCondition(rocksdb_transactiondb_options_get_max_num_deadlocks(obj) == 1);
   rocksdb_transactiondb_options_set_max_num_deadlocks(obj, 0);
@@ -1217,39 +982,25 @@ static void rocksdb_roundtrip_test_rocksdb_transactiondb_options(void) {
   rocksdb_transactiondb_options_set_num_stripes(obj, 0);
   CheckCondition(rocksdb_transactiondb_options_get_num_stripes(obj) == 0);
   rocksdb_transactiondb_options_set_rollback_merge_operands(obj, 1);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_rollback_merge_operands(obj) == 1);
+  CheckCondition(rocksdb_transactiondb_options_get_rollback_merge_operands(obj) == 1);
   rocksdb_transactiondb_options_set_rollback_merge_operands(obj, 0);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_rollback_merge_operands(obj) == 0);
+  CheckCondition(rocksdb_transactiondb_options_get_rollback_merge_operands(obj) == 0);
   rocksdb_transactiondb_options_set_skip_concurrency_control(obj, 1);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_skip_concurrency_control(obj) == 1);
+  CheckCondition(rocksdb_transactiondb_options_get_skip_concurrency_control(obj) == 1);
   rocksdb_transactiondb_options_set_skip_concurrency_control(obj, 0);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_skip_concurrency_control(obj) == 0);
+  CheckCondition(rocksdb_transactiondb_options_get_skip_concurrency_control(obj) == 0);
   rocksdb_transactiondb_options_set_transaction_lock_timeout(obj, 1);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_transaction_lock_timeout(obj) == 1);
+  CheckCondition(rocksdb_transactiondb_options_get_transaction_lock_timeout(obj) == 1);
   rocksdb_transactiondb_options_set_transaction_lock_timeout(obj, 0);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_transaction_lock_timeout(obj) == 0);
-  rocksdb_transactiondb_options_set_txn_commit_bypass_memtable_threshold(obj,
-                                                                         1);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_txn_commit_bypass_memtable_threshold(
-          obj) == 1);
-  rocksdb_transactiondb_options_set_txn_commit_bypass_memtable_threshold(obj,
-                                                                         0);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_txn_commit_bypass_memtable_threshold(
-          obj) == 0);
+  CheckCondition(rocksdb_transactiondb_options_get_transaction_lock_timeout(obj) == 0);
+  rocksdb_transactiondb_options_set_txn_commit_bypass_memtable_threshold(obj, 1);
+  CheckCondition(rocksdb_transactiondb_options_get_txn_commit_bypass_memtable_threshold(obj) == 1);
+  rocksdb_transactiondb_options_set_txn_commit_bypass_memtable_threshold(obj, 0);
+  CheckCondition(rocksdb_transactiondb_options_get_txn_commit_bypass_memtable_threshold(obj) == 0);
   rocksdb_transactiondb_options_set_use_per_key_point_lock_mgr(obj, 1);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_use_per_key_point_lock_mgr(obj) == 1);
+  CheckCondition(rocksdb_transactiondb_options_get_use_per_key_point_lock_mgr(obj) == 1);
   rocksdb_transactiondb_options_set_use_per_key_point_lock_mgr(obj, 0);
-  CheckCondition(
-      rocksdb_transactiondb_options_get_use_per_key_point_lock_mgr(obj) == 0);
+  CheckCondition(rocksdb_transactiondb_options_get_use_per_key_point_lock_mgr(obj) == 0);
   rocksdb_transactiondb_options_set_write_policy(obj, 1);
   CheckCondition(rocksdb_transactiondb_options_get_write_policy(obj) == 1);
   rocksdb_transactiondb_options_set_write_policy(obj, 0);
@@ -1258,38 +1009,28 @@ static void rocksdb_roundtrip_test_rocksdb_transactiondb_options(void) {
 }
 
 static void rocksdb_roundtrip_test_rocksdb_universal_compaction_options(void) {
-  rocksdb_universal_compaction_options_t* obj =
-      rocksdb_universal_compaction_options_create();
+  rocksdb_universal_compaction_options_t* obj = rocksdb_universal_compaction_options_create();
   rocksdb_universal_compaction_options_set_allow_trivial_move(obj, 1);
-  CheckCondition(
-      rocksdb_universal_compaction_options_get_allow_trivial_move(obj) == 1);
+  CheckCondition(rocksdb_universal_compaction_options_get_allow_trivial_move(obj) == 1);
   rocksdb_universal_compaction_options_set_allow_trivial_move(obj, 0);
-  CheckCondition(
-      rocksdb_universal_compaction_options_get_allow_trivial_move(obj) == 0);
+  CheckCondition(rocksdb_universal_compaction_options_get_allow_trivial_move(obj) == 0);
   rocksdb_universal_compaction_options_set_incremental(obj, 1);
-  CheckCondition(rocksdb_universal_compaction_options_get_incremental(obj) ==
-                 1);
+  CheckCondition(rocksdb_universal_compaction_options_get_incremental(obj) == 1);
   rocksdb_universal_compaction_options_set_incremental(obj, 0);
-  CheckCondition(rocksdb_universal_compaction_options_get_incremental(obj) ==
-                 0);
+  CheckCondition(rocksdb_universal_compaction_options_get_incremental(obj) == 0);
   rocksdb_universal_compaction_options_set_max_read_amp(obj, 1);
-  CheckCondition(rocksdb_universal_compaction_options_get_max_read_amp(obj) ==
-                 1);
+  CheckCondition(rocksdb_universal_compaction_options_get_max_read_amp(obj) == 1);
   rocksdb_universal_compaction_options_set_max_read_amp(obj, 0);
-  CheckCondition(rocksdb_universal_compaction_options_get_max_read_amp(obj) ==
-                 0);
+  CheckCondition(rocksdb_universal_compaction_options_get_max_read_amp(obj) == 0);
   rocksdb_universal_compaction_options_set_reduce_file_locking(obj, 1);
-  CheckCondition(
-      rocksdb_universal_compaction_options_get_reduce_file_locking(obj) == 1);
+  CheckCondition(rocksdb_universal_compaction_options_get_reduce_file_locking(obj) == 1);
   rocksdb_universal_compaction_options_set_reduce_file_locking(obj, 0);
-  CheckCondition(
-      rocksdb_universal_compaction_options_get_reduce_file_locking(obj) == 0);
+  CheckCondition(rocksdb_universal_compaction_options_get_reduce_file_locking(obj) == 0);
   rocksdb_universal_compaction_options_destroy(obj);
 }
 
 static void rocksdb_roundtrip_test_rocksdb_wait_for_compact_options(void) {
-  rocksdb_wait_for_compact_options_t* obj =
-      rocksdb_wait_for_compact_options_create();
+  rocksdb_wait_for_compact_options_t* obj = rocksdb_wait_for_compact_options_create();
   rocksdb_wait_for_compact_options_set_wait_for_purge(obj, 1);
   CheckCondition(rocksdb_wait_for_compact_options_get_wait_for_purge(obj) == 1);
   rocksdb_wait_for_compact_options_set_wait_for_purge(obj, 0);
@@ -1300,11 +1041,9 @@ static void rocksdb_roundtrip_test_rocksdb_wait_for_compact_options(void) {
 static void rocksdb_roundtrip_test_rocksdb_writeoptions(void) {
   rocksdb_writeoptions_t* obj = rocksdb_writeoptions_create();
   rocksdb_writeoptions_set_ignore_missing_column_families(obj, 1);
-  CheckCondition(rocksdb_writeoptions_get_ignore_missing_column_families(obj) ==
-                 1);
+  CheckCondition(rocksdb_writeoptions_get_ignore_missing_column_families(obj) == 1);
   rocksdb_writeoptions_set_ignore_missing_column_families(obj, 0);
-  CheckCondition(rocksdb_writeoptions_get_ignore_missing_column_families(obj) ==
-                 0);
+  CheckCondition(rocksdb_writeoptions_get_ignore_missing_column_families(obj) == 0);
   rocksdb_writeoptions_set_io_activity(obj, 1);
   CheckCondition(rocksdb_writeoptions_get_io_activity(obj) == 1);
   rocksdb_writeoptions_set_io_activity(obj, 0);
@@ -1314,11 +1053,9 @@ static void rocksdb_roundtrip_test_rocksdb_writeoptions(void) {
   rocksdb_writeoptions_set_low_pri(obj, 0);
   CheckCondition(rocksdb_writeoptions_get_low_pri(obj) == 0);
   rocksdb_writeoptions_set_memtable_insert_hint_per_batch(obj, 1);
-  CheckCondition(rocksdb_writeoptions_get_memtable_insert_hint_per_batch(obj) ==
-                 1);
+  CheckCondition(rocksdb_writeoptions_get_memtable_insert_hint_per_batch(obj) == 1);
   rocksdb_writeoptions_set_memtable_insert_hint_per_batch(obj, 0);
-  CheckCondition(rocksdb_writeoptions_get_memtable_insert_hint_per_batch(obj) ==
-                 0);
+  CheckCondition(rocksdb_writeoptions_get_memtable_insert_hint_per_batch(obj) == 0);
   rocksdb_writeoptions_set_no_slowdown(obj, 1);
   CheckCondition(rocksdb_writeoptions_get_no_slowdown(obj) == 1);
   rocksdb_writeoptions_set_no_slowdown(obj, 0);
