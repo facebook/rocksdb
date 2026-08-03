@@ -164,6 +164,14 @@ DEFINE_bool(use_write_buffer_manager, false,
             "Charge WriteBufferManager memory to the block cache");
 
 DEFINE_int32(
+    wbm_flush_policy,
+    static_cast<int32_t>(
+        ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushOldest),
+    "Which memtable the WriteBufferManager flushes to free memory (see `enum "
+    "class WriteBufferFlushPolicy` in write_buffer_manager.h): 0 = oldest, 1 = "
+    "largest in the same DB, 2 = largest across all DBs sharing the manager");
+
+DEFINE_int32(
     write_buffer_size,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::Options().write_buffer_size),
     "Number of bytes to buffer in memtable before compacting");

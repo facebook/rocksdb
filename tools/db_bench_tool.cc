@@ -511,6 +511,19 @@ DEFINE_bool(verify_manifest_content_on_close,
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
 
+DEFINE_bool(write_buffer_manager_allow_stall, false,
+            "If true, the WriteBufferManager stalls writes when total memtable "
+            "memory exceeds db_write_buffer_size");
+
+DEFINE_string(
+    write_buffer_manager_flush_policy, "oldest",
+    "Which memtable the WriteBufferManager flushes when it needs to free "
+    "memory. Allowed values are oldest, largest, and largest_across_dbs. "
+    "Requires db_write_buffer_size or cost_write_buffer_to_cache to be set, "
+    "since otherwise no WriteBufferManager is created. largest_across_dbs is "
+    "only meaningful with num_multi_db > 1, which shares one "
+    "WriteBufferManager across all DBs.");
+
 DEFINE_int64(arena_block_size, ROCKSDB_NAMESPACE::Options().arena_block_size,
              "The size, in bytes, of one block in arena memory allocation.");
 
@@ -1552,6 +1565,23 @@ static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
     return ROCKSDB_NAMESPACE::kAdmPolicyAllowAll;
   } else {
     fprintf(stderr, "Cannot parse admission policy %s\n", policy);
+    db_bench_exit(1);
+  }
+}
+
+static enum ROCKSDB_NAMESPACE::WriteBufferFlushPolicy
+StringToWriteBufferFlushPolicy(const char* policy) {
+  assert(policy);
+
+  if (!strcasecmp(policy, "oldest")) {
+    return ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushOldest;
+  } else if (!strcasecmp(policy, "largest")) {
+    return ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushLargest;
+  } else if (!strcasecmp(policy, "largest_across_dbs")) {
+    return ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushLargestAcrossDBs;
+  } else {
+    fprintf(stderr, "Cannot parse write buffer manager flush policy %s\n",
+            policy);
     db_bench_exit(1);
   }
 }
@@ -5168,8 +5198,11 @@ class Benchmark {
 
     options.max_open_files = FLAGS_open_files;
     if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
-      options.write_buffer_manager.reset(
-          new WriteBufferManager(FLAGS_db_write_buffer_size, cache_));
+      options.write_buffer_manager.reset(new WriteBufferManager(
+          FLAGS_db_write_buffer_size, cache_,
+          FLAGS_write_buffer_manager_allow_stall,
+          StringToWriteBufferFlushPolicy(
+              FLAGS_write_buffer_manager_flush_policy.c_str())));
     }
     options.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;

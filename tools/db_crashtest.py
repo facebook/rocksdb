@@ -360,6 +360,9 @@ default_params = {
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
     "use_write_buffer_manager": lambda: random.randint(0, 1),
+    # 0 = flush oldest memtable, 1 = flush largest in the same DB,
+    # 2 = flush largest across all DBs sharing the WriteBufferManager.
+    "wbm_flush_policy": lambda: random.choice([0, 1, 2]),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "write_identity_file": random.randint(0, 1),
@@ -1382,6 +1385,9 @@ def finalize_and_sanitize(src_params):
     if dest_params["use_write_buffer_manager"]:
         if dest_params["cache_size"] <= 0 or dest_params["db_write_buffer_size"] <= 0:
             dest_params["use_write_buffer_manager"] = 0
+    if not dest_params["use_write_buffer_manager"]:
+        # No WriteBufferManager is created, so the policy would be a no-op.
+        dest_params["wbm_flush_policy"] = 0
     if (
         dest_params["user_timestamp_size"] > 0
         and dest_params["persist_user_defined_timestamps"] == 0
