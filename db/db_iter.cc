@@ -79,8 +79,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
       // Enable the direct-write blob fallback only when this CF has a
-      // write-path partition manager; otherwise the fetcher stays on the plain
-      // Version::GetBlob fast path.
+      // write-path partition manager; otherwise the fetcher stays on the
+      // version-backed path.
       blob_state_(version, read_options, cfd ? cfd->blob_file_cache() : nullptr,
                   cfd != nullptr && cfd->blob_partition_manager() != nullptr),
       read_callback_(read_callback),

@@ -143,8 +143,9 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
 
           constexpr uint64_t* bytes_read = nullptr;
 
-          *status = GetBlob(read_options, get_context.ukey_to_get_blob_value(),
-                            blob_index, prefetch_buffer, &result, bytes_read);
+          *status = blob_fetcher.FetchBlob(get_context.ukey_to_get_blob_value(),
+                                           blob_index, prefetch_buffer, &result,
+                                           bytes_read);
           if (!status->ok()) {
             if (status->IsIncomplete()) {
               get_context.MarkKeyMayExist();

@@ -2827,9 +2827,10 @@ static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
   return status;
 }
 
-Status DBImpl::ResolveDirectWritePlainValue(
-    const ReadOptions& read_options, const Slice& key, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns) {
+Status DBImpl::ResolveDirectWritePlainValue(const Slice& key,
+                                            const BlobFetcher& blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns) {
   Slice blob_index_slice;
   std::string blob_index_storage;
   if (value != nullptr) {
@@ -2867,9 +2868,9 @@ Status DBImpl::ResolveDirectWritePlainValue(
   BlobIndex blob_idx;
   Status status = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
   if (status.ok()) {
-    status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-        read_options, key, blob_idx, current, cfd->blob_file_cache(),
-        nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
+    status =
+        blob_fetcher.FetchBlob(key, blob_idx, nullptr /* prefetch_buffer */,
+                               target, nullptr /* bytes_read */);
     if (status.ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
     }
@@ -2877,10 +2878,8 @@ Status DBImpl::ResolveDirectWritePlainValue(
   return status;
 }
 
-Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
-                                             const Slice& key,
-                                             const Version* current,
-                                             ColumnFamilyData* cfd,
+Status DBImpl::ResolveDirectWriteWideColumns(const Slice& key,
+                                             const BlobFetcher& blob_fetcher,
                                              PinnableWideColumns* columns) {
   assert(columns != nullptr);
 
@@ -2924,9 +2923,8 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     } else {
       extra_buffers.emplace_front();
       PinnableSlice& blob_value = extra_buffers.front();
-      s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-          read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          nullptr /* prefetch_buffer */, &blob_value, nullptr /* bytes_read */);
+      s = blob_fetcher.FetchBlob(key, blob_idx, nullptr /* prefetch_buffer */,
+                                 &blob_value, nullptr /* bytes_read */);
       if (!s.ok()) {
         return s;
       }
@@ -3122,9 +3120,9 @@ Status DBImpl::PostprocessMemtableValueRead(
 
 bool DBImpl::MaybeResolveDirectWriteValue(
     const ReadOptions& read_options, const Slice& key,
-    bool resolve_direct_write_value, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-    Status* s, bool* is_blob_index, bool* value_found) {
+    bool resolve_direct_write_value, const BlobFetcher& blob_fetcher,
+    PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+    bool* is_blob_index, bool* value_found) {
   if (!s->ok() || !resolve_direct_write_value || (!value && !columns)) {
     return false;
   }
@@ -3169,15 +3167,14 @@ bool DBImpl::MaybeResolveDirectWriteValue(
   }
 
   if (needs_plain_value_resolution) {
-    *s = ResolveDirectWritePlainValue(read_options, key, current, cfd, value,
-                                      columns);
+    *s = ResolveDirectWritePlainValue(key, blob_fetcher, value, columns);
     assert(is_blob_index != nullptr);
     *is_blob_index = false;
     return true;
   }
 
   assert(columns != nullptr);
-  *s = ResolveDirectWriteWideColumns(read_options, key, current, cfd, columns);
+  *s = ResolveDirectWriteWideColumns(key, blob_fetcher, columns);
 
   if (is_blob_index != nullptr) {
     *is_blob_index = false;
@@ -3189,15 +3186,16 @@ bool DBImpl::MaybeResolveDirectWriteValue(
 void DBImpl::PostprocessDirectWriteValueRead(
     const ReadOptions& read_options, const Slice& key,
     const std::string* timestamp, bool resolve_direct_write_value,
-    const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+    const BlobFetcher* blob_fetcher, PinnableSlice* value,
     PinnableWideColumns* columns, Status* s, bool* is_blob_index,
     bool* value_found) {
   if (resolve_direct_write_value) {
+    assert(blob_fetcher != nullptr);
     std::string blob_lookup_key_storage;
     const bool value_resolved = MaybeResolveDirectWriteValue(
         read_options,
         GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-        resolve_direct_write_value, current, cfd, value, columns, s,
+        resolve_direct_write_value, *blob_fetcher, value, columns, s,
         is_blob_index, value_found);
     if (!value_resolved && value != nullptr) {
       value->PinSelf();

@@ -3114,39 +3114,34 @@ class DBImpl : public DB {
   // Resolves a plain value whose current payload is an encoded direct-write
   // blob index, either through `value` directly or through the default-column
   // view layered on `columns`.
-  static Status ResolveDirectWritePlainValue(const ReadOptions& read_options,
-                                             const Slice& key,
-                                             const Version* current,
-                                             ColumnFamilyData* cfd,
+  static Status ResolveDirectWritePlainValue(const Slice& key,
+                                             const BlobFetcher& blob_fetcher,
                                              PinnableSlice* value,
                                              PinnableWideColumns* columns);
   // Resolves each unresolved direct-write blob-valued column in `columns` and
   // rebuilds the serialized wide-column entity in place.
-  static Status ResolveDirectWriteWideColumns(const ReadOptions& read_options,
-                                              const Slice& key,
-                                              const Version* current,
-                                              ColumnFamilyData* cfd,
+  static Status ResolveDirectWriteWideColumns(const Slice& key,
+                                              const BlobFetcher& blob_fetcher,
                                               PinnableWideColumns* columns);
   // Dispatches between plain-value and wide-column direct-write resolution for
   // read results observed before flush makes the corresponding blob file
   // visible through normal Version metadata.
   static bool MaybeResolveDirectWriteValue(
       const ReadOptions& read_options, const Slice& key,
-      bool resolve_direct_write_value, const Version* current,
-      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-      Status* s, bool* is_blob_index, bool* value_found = nullptr);
+      bool resolve_direct_write_value, const BlobFetcher& blob_fetcher,
+      PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+      bool* is_blob_index, bool* value_found = nullptr);
   // Completes primary memtable hits that can still carry direct-write blob
   // references before the blob file is visible in Version metadata.
   static void PostprocessDirectWriteValueRead(
       const ReadOptions& read_options, const Slice& key,
       const std::string* timestamp, bool resolve_direct_write_value,
-      const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+      const BlobFetcher* blob_fetcher, PinnableSlice* value,
       PinnableWideColumns* columns, Status* s, bool* is_blob_index,
       bool* value_found = nullptr);
   // Resolves memtable read results that still carry blob references through
   // either a raw blob-index payload in `value` or unresolved blob columns in
-  // `columns`. Unlike the direct-write helper above, this path only depends on
-  // a BlobFetcher and therefore works for read-only/secondary DBs. Sets
+  // `columns`. This generic path is also used by read-only/secondary DBs. Sets
   // *did_resolve to true iff there was a reference to resolve -- in which case
   // this function has finalized `value`/`columns` (populated on success,
   // cleared on error) -- and false iff there was nothing to resolve (the caller
