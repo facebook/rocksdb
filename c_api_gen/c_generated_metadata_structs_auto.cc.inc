@@ -213,73 +213,85 @@ uint64_t rocksdb_table_properties_separate_key_value_in_data_block(
 }
 
 const char* rocksdb_table_properties_db_id(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.db_id.size();
   return props->rep.db_id.data();
 }
 
 const char* rocksdb_table_properties_db_session_id(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.db_session_id.size();
   return props->rep.db_session_id.data();
 }
 
 const char* rocksdb_table_properties_db_host_id(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.db_host_id.size();
   return props->rep.db_host_id.data();
 }
 
 const char* rocksdb_table_properties_column_family_name(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.column_family_name.size();
   return props->rep.column_family_name.data();
 }
 
 const char* rocksdb_table_properties_filter_policy_name(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.filter_policy_name.size();
   return props->rep.filter_policy_name.data();
 }
 
 const char* rocksdb_table_properties_comparator_name(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.comparator_name.size();
   return props->rep.comparator_name.data();
 }
 
 const char* rocksdb_table_properties_merge_operator_name(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.merge_operator_name.size();
   return props->rep.merge_operator_name.data();
 }
 
 const char* rocksdb_table_properties_prefix_extractor_name(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.prefix_extractor_name.size();
   return props->rep.prefix_extractor_name.data();
 }
 
 const char* rocksdb_table_properties_property_collectors_names(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.property_collectors_names.size();
   return props->rep.property_collectors_names.data();
 }
 
 const char* rocksdb_table_properties_compression_name(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.compression_name.size();
   return props->rep.compression_name.data();
 }
 
 const char* rocksdb_table_properties_compression_options(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.compression_options.size();
   return props->rep.compression_options.data();
 }
 
 const char* rocksdb_table_properties_seqno_to_time_mapping(
-    const rocksdb_table_properties_t* props, size_t* size) {
+    const rocksdb_table_properties_t* props,
+    size_t* size) {
   *size = props->rep.seqno_to_time_mapping.size();
   return props->rep.seqno_to_time_mapping.data();
 }
@@ -442,13 +454,15 @@ uint64_t rocksdb_compaction_job_stats_file_prepare_write_nanos(
 }
 
 const char* rocksdb_compaction_job_stats_smallest_output_key_prefix(
-    const rocksdb_compaction_job_stats_t* stats, size_t* size) {
+    const rocksdb_compaction_job_stats_t* stats,
+    size_t* size) {
   *size = stats->rep.smallest_output_key_prefix.size();
   return stats->rep.smallest_output_key_prefix.data();
 }
 
 const char* rocksdb_compaction_job_stats_largest_output_key_prefix(
-    const rocksdb_compaction_job_stats_t* stats, size_t* size) {
+    const rocksdb_compaction_job_stats_t* stats,
+    size_t* size) {
   *size = stats->rep.largest_output_key_prefix.size();
   return stats->rep.largest_output_key_prefix.data();
 }
@@ -483,7 +497,8 @@ uint64_t rocksdb_compaction_file_info_oldest_blob_file_number(
 /* BlobFileAdditionInfo */
 
 const char* rocksdb_blob_file_addition_info_blob_file_path(
-    const rocksdb_blob_file_addition_info_t* info, size_t* size) {
+    const rocksdb_blob_file_addition_info_t* info,
+    size_t* size) {
   *size = info->rep.blob_file_path.size();
   return info->rep.blob_file_path.data();
 }
@@ -506,7 +521,8 @@ uint64_t rocksdb_blob_file_addition_info_total_blob_bytes(
 /* BlobFileGarbageInfo */
 
 const char* rocksdb_blob_file_garbage_info_blob_file_path(
-    const rocksdb_blob_file_garbage_info_t* info, size_t* size) {
+    const rocksdb_blob_file_garbage_info_t* info,
+    size_t* size) {
   *size = info->rep.blob_file_path.size();
   return info->rep.blob_file_path.data();
 }

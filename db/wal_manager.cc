@@ -103,7 +103,7 @@ Status WalManager::GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos,
 Status WalManager::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options,
-    VersionSet* version_set) {
+    VersionSet* version_set, NextLiveWalFn next_live_wal_fn) {
   if (seq_per_batch_) {
     return Status::NotSupported();
   }
@@ -125,8 +125,39 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       wal_dir_, &db_options_, read_options, file_options_, seq,
-      std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_,
+      std::move(next_live_wal_fn)));
   return (*iter)->status();
+}
+
+Status WalManager::PrepareWalForTail(uint64_t wal_number,
+                                     std::unique_ptr<WalFile>* next_wal,
+                                     SequenceNumber* first_seq) {
+  Status s = GetLiveWalFile(wal_number, next_wal);
+  if (!s.ok()) {
+    return Status::TryAgain("Could not open WAL file");
+  }
+
+  // Read the first sequence directly from disk (bypassing
+  // read_first_record_cache_). The cache uses insert-not-overwrite semantics,
+  // so if the WAL was probed while still empty (e.g. with wal_compression
+  // returning the sentinel value 1), the stale entry would permanently block
+  // the fast path for this WAL number. Reading fresh avoids that.
+  *first_seq = 0;
+  std::string fname = LogFileName(wal_dir_, wal_number);
+  Status read_s = ReadFirstLine(fname, wal_number, first_seq);
+  TEST_SYNC_POINT_CALLBACK("WalManager::PrepareWalForTail:AfterReadFirst",
+                           first_seq);
+  if (!read_s.ok() && env_->FileExists(fname).ok()) {
+    next_wal->reset();
+    return Status::TryAgain("WAL unreadable");
+  }
+  if (*first_seq == 0) {
+    next_wal->reset();
+    return Status::TryAgain("WAL is empty");
+  }
+
+  return Status::OK();
 }
 
 // 1. Go through all archived files and

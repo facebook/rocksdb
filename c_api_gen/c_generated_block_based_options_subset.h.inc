@@ -19,18 +19,18 @@
 
 /* BlockBasedOptions simple */
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_data_block_hash_ratio(
-    rocksdb_block_based_table_options_t* options, double v);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_data_block_hash_ratio(
+    rocksdb_block_based_table_options_t* options,
+    double v);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_top_level_index_pinning_tier(
-    rocksdb_block_based_table_options_t* options, int v);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_top_level_index_pinning_tier(
+    rocksdb_block_based_table_options_t* options,
+    int v);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_partition_pinning_tier(
-    rocksdb_block_based_table_options_t* options, int v);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_partition_pinning_tier(
+    rocksdb_block_based_table_options_t* options,
+    int v);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_unpartitioned_pinning_tier(
-    rocksdb_block_based_table_options_t* options, int v);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_unpartitioned_pinning_tier(
+    rocksdb_block_based_table_options_t* options,
+    int v);

@@ -19,53 +19,52 @@
 
 /* Options simple */
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_compression_options_zstd_max_train_bytes(
-    rocksdb_options_t* opt, int zstd_max_train_bytes);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt,
+    int zstd_max_train_bytes);
 
-extern ROCKSDB_LIBRARY_API int
-rocksdb_options_get_compression_options_zstd_max_train_bytes(
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_compression_options_zstd_max_train_bytes(
     rocksdb_options_t* opt);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_compression_options_use_zstd_dict_trainer(
-    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt,
+    unsigned char use_zstd_dict_trainer);
 
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_options_get_compression_options_use_zstd_dict_trainer(
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_compression_options_use_zstd_dict_trainer(
     rocksdb_options_t* opt);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_compression_options_parallel_threads(rocksdb_options_t* opt,
-                                                         int value);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options_parallel_threads(
+    rocksdb_options_t* opt,
+    int value);
 
-extern ROCKSDB_LIBRARY_API int
-rocksdb_options_get_compression_options_parallel_threads(
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_compression_options_parallel_threads(
     rocksdb_options_t* opt);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_compression_options_max_dict_buffer_bytes(
-    rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt,
+    uint64_t max_dict_buffer_bytes);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_options_get_compression_options_max_dict_buffer_bytes(
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_options_get_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t* opt);
 
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
     rocksdb_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_use_fsync(
-    rocksdb_options_t* opt, int use_fsync);
+    rocksdb_options_t* opt,
+    int use_fsync);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_use_fsync(
     rocksdb_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_disable_auto_compactions(
-    rocksdb_options_t* opt, int disable);
+    rocksdb_options_t* opt,
+    int disable);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_optimize_filters_for_hits(
-    rocksdb_options_t* opt, int v);
+    rocksdb_options_t* opt,
+    int v);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
-    rocksdb_options_t* opt, int v);
+    rocksdb_options_t* opt,
+    int v);

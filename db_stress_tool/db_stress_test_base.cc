@@ -41,6 +41,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -2826,6 +2827,125 @@ Status StressTest::TestGetSortedWalFiles() const {
 Status StressTest::TestGetCurrentWalFile() const {
   std::unique_ptr<WalFile> cur_wal_file;
   return db_->GetCurrentWalFile(&cur_wal_file);
+}
+
+void StressTest::TailWalUpdates(ThreadState* thread) {
+  assert(FLAGS_tail_wal_updates);
+  // The workload only makes sense with the feature under test enabled; the
+  // crash-test harness forces this, and the assertion guards direct db_stress
+  // invocations.
+  assert(FLAGS_wal_iterator_tail_rotations);
+  SharedState* shared = thread->shared;
+
+  // Seed at the DB's current sequence so we tail the updates the worker threads
+  // are about to produce. `expected_seq` is the sequence we expect the next
+  // delivered WriteBatch to start at.
+  SequenceNumber expected_seq = db_->GetLatestSequenceNumber() + 1;
+  std::unique_ptr<TransactionLogIterator> iter;
+
+  // (Re)open the iterator at `from`. After any (re)seek the next delivered
+  // batch re-establishes the baseline (see `need_baseline`), because
+  // GetUpdatesSince may legitimately position before/after the requested
+  // sequence (e.g. a straddling batch, or resync past purged WALs).
+  bool need_baseline = true;
+  auto reseek = [&](SequenceNumber from) -> Status {
+    iter.reset();
+    need_baseline = true;
+    return db_->GetUpdatesSince(from, &iter);
+  };
+
+  Status s = reseek(expected_seq);
+
+  while (true) {
+    // `should_stop_bg_thread_` is a plain bool written under the shared mutex
+    // (see db_stress_driver.cc), so it must be read under the same mutex to
+    // avoid a data race, matching PoolSizeChangeThread/DbVerificationThread.
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        return;
+      }
+    }
+    if (shared->HasVerificationFailedYet()) {
+      return;
+    }
+
+    if (!s.ok()) {
+      if (s.IsNotSupported()) {
+        // GetUpdatesSince is not available in this DB configuration (e.g.
+        // write-prepared/write-unprepared transactions, which set
+        // seq_per_batch). There is nothing to tail; exit the workload
+        // gracefully rather than treating it as a failure.
+        return;
+      }
+      // GetUpdatesSince can otherwise legitimately fail: the requested sequence
+      // may have been purged (NotFound), no data is available yet (TryAgain),
+      // or a fault was injected. Tolerate these by resyncing from the DB's
+      // latest sequence; abort only on a genuine, non-retryable error.
+      if (s.IsNotFound() || s.IsTryAgain() || IsErrorInjectedAndRetryable(s)) {
+        raw_env->SleepForMicroseconds(1000);
+        expected_seq = db_->GetLatestSequenceNumber() + 1;
+        s = reseek(expected_seq);
+        continue;
+      }
+      ProcessStatus(shared, "TailWalUpdates:GetUpdatesSince", s);
+      return;
+    }
+
+    if (!iter->Valid()) {
+      const Status iter_s = iter->status();
+      if (!iter_s.ok() && !iter_s.IsTryAgain() &&
+          !IsErrorInjectedAndRetryable(iter_s)) {
+        // A real read/corruption error surfaced by the iterator is a failure;
+        // the feature must propagate such errors rather than mask them.
+        ProcessStatus(shared, "TailWalUpdates:iterator", iter_s);
+        return;
+      }
+      // The iterator reached the end of currently-available updates. A
+      // mid-stream TryAgain is deliberately treated as normal end-of-data
+      // (resync from where we left off) rather than a wal_iterator_tail_rotations
+      // failure, even though the feature is enabled. It cannot be soundly
+      // flagged as a violation here:
+      //   - Catching up to the live WAL's tail legitimately returns TryAgain
+      //     (no successor exists to continue into yet), and that is
+      //     indistinguishable from a failure to continue across a rotation.
+      //   - TryAgain is also the feature's correct fallback when the successor
+      //     WAL was purged, is empty, or starts at a non-contiguous sequence.
+      //   - The live WAL's start sequence is not available race-free
+      //     (GetCurrentWalFile reports StartSequence()==0), so we cannot cheaply
+      //     prove a contiguous successor existed at the instant of TryAgain.
+      // Treating TryAgain as fatal would therefore make the stress test flaky.
+      // The correctness this workload does enforce is the strict cross-rotation
+      // sequence contiguity checked below while the iterator is Valid (which
+      // catches the feature continuing into the wrong WAL); the deterministic
+      // "continues in-place instead of returning TryAgain" guarantee is covered
+      // by the feature's unit tests in db/db_log_iter_test.cc.
+      raw_env->SleepForMicroseconds(1000);
+      s = reseek(expected_seq);
+      continue;
+    }
+
+    BatchResult res = iter->GetBatch();
+    if (need_baseline) {
+      // Accept whatever sequence the fresh iterator starts at as the baseline.
+      expected_seq = res.sequence;
+      need_baseline = false;
+    } else if (res.sequence != expected_seq) {
+      // Core invariant: a single iterator must deliver strictly contiguous
+      // sequences, including across WAL rotations handled in-place by
+      // wal_iterator_tail_rotations. A mismatch mid-stream means the iterator
+      // skipped or repeated records -- a correctness violation.
+      std::ostringstream oss;
+      oss << "TailWalUpdates: non-contiguous sequence across WAL: expected "
+          << expected_seq << " but got " << res.sequence;
+      VerificationAbort(shared, oss.str());
+      return;
+    }
+
+    assert(res.writeBatchPtr);
+    expected_seq = res.sequence + res.writeBatchPtr->Count();
+    iter->Next();
+  }
 }
 
 void StressTest::DumpIteratorDivergenceDiagnostics(
@@ -5835,6 +5955,7 @@ void InitializeOptionsFromFlags(
   // `WAL_size_limit_MB` i.e, `GetUpdatesSince()`
   options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
   options.WAL_size_limit_MB = FLAGS_WAL_size_limit_MB;
+  options.wal_iterator_tail_rotations = FLAGS_wal_iterator_tail_rotations;
   options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
   options.strict_bytes_per_sync = FLAGS_strict_bytes_per_sync;
   options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;

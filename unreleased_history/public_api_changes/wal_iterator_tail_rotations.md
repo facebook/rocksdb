@@ -1,0 +1,1 @@
+Add new DBOptions::wal_iterator_tail_rotations (default false). When enabled, the TransactionLogIterator attempts to seamlessly continue across WAL rotations instead of returning TryAgain; falls back to TryAgain on sequence validation failure.

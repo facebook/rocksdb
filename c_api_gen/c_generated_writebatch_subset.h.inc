@@ -22,30 +22,42 @@
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_clear(
     rocksdb_writebatch_t* b);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put(rocksdb_writebatch_t* b,
-                                                       const char* key,
-                                                       size_t klen,
-                                                       const char* val,
-                                                       size_t vlen);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put(
+    rocksdb_writebatch_t* b,
+    const char* key,
+    size_t klen,
+    const char* val,
+    size_t vlen);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put_cf(
-    rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
-    const char* key, size_t klen, const char* val, size_t vlen);
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key,
+    size_t klen,
+    const char* val,
+    size_t vlen);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_delete(
-    rocksdb_writebatch_t* b, const char* key, size_t klen);
+    rocksdb_writebatch_t* b,
+    const char* key,
+    size_t klen);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_put_log_data(
-    rocksdb_writebatch_t* b, const char* blob, size_t len);
+    rocksdb_writebatch_t* b,
+    const char* blob,
+    size_t len);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
     rocksdb_writebatch_t* b);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_rollback_to_save_point(
-    rocksdb_writebatch_t* b, char** errptr);
+    rocksdb_writebatch_t* b,
+    char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_pop_save_point(
-    rocksdb_writebatch_t* b, char** errptr);
+    rocksdb_writebatch_t* b,
+    char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_verify_checksum(
-    rocksdb_writebatch_t* b, char** errptr);
+    rocksdb_writebatch_t* b,
+    char** errptr);

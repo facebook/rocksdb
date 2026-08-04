@@ -69,20 +69,19 @@ size_t rocksdb_compactionjobinfo_num_input_files_at_output_level(
   return info->rep.stats.num_input_files_at_output_level;
 }
 
-const char* rocksdb_writestallinfo_cf_name(const rocksdb_writestallinfo_t* info,
-                                           size_t* size) {
+const char* rocksdb_writestallinfo_cf_name(
+    const rocksdb_writestallinfo_t* info,
+    size_t* size) {
   *size = info->rep.cf_name.size();
   return info->rep.cf_name.data();
 }
 
 const rocksdb_writestallcondition_t* rocksdb_writestallinfo_cur(
     const rocksdb_writestallinfo_t* info) {
-  return reinterpret_cast<const rocksdb_writestallcondition_t*>(
-      &info->rep.condition.cur);
+  return reinterpret_cast<const rocksdb_writestallcondition_t*>(&info->rep.condition.cur);
 }
 
 const rocksdb_writestallcondition_t* rocksdb_writestallinfo_prev(
     const rocksdb_writestallinfo_t* info) {
-  return reinterpret_cast<const rocksdb_writestallcondition_t*>(
-      &info->rep.condition.prev);
+  return reinterpret_cast<const rocksdb_writestallcondition_t*>(&info->rep.condition.prev);
 }
