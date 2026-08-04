@@ -5,6 +5,9 @@
 ### Public API Changes
 * Add `DBOptions::read_io_executor_threads` to increase the maximum thread count of the shared filesystem read I/O executor used for asynchronous reads when opening a DB. Opening a DB never reduces the shared executor thread count. Change the experimental `FSRandomAccessFile::SubmitReadAsync()` API to return whether the asynchronous path was used, and add the `FILE_SUBMIT_ASYNC_READ_FALLBACK` ticker to count calls that fall back to synchronous reads.
 
+### Performance Improvements
+* When `DBOptions::avoid_unnecessary_blocking_io` is true, obsolete `OPTIONS-*` files found during DB open are deleted by background purge instead of synchronously on the opening thread.
+
 ## 11.8.0 (07/28/2026)
 ### Public API Changes
 * Add callback-based asynchronous read APIs, `DB::GetAsync()` and `DB::MultiGetAsync()`. The idea is that when IO is required, RocksDB can suspend its internal coroutine read path, allowing the read executor thread to do other work. When the IO is complete, RocksDB invokes the user callback. This requires filesystem support for full performance benefits. A new filesystem API `FSRandomAccessFile::SubmitReadAsync()` is introduced for this. Unlike `ReadAsync`, the filesystem is responsible for eventually calling the callback. `FileSystem::GetReadExecutor()` returns the IO executor whose EventBases run coroutine read processing. In the Posix filesystem, an IO-uring based event loop is used to complete the IO.
