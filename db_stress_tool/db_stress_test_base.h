@@ -408,6 +408,8 @@ class StressTest {
 
   Status TestAbortAndResumeCompactions(ThreadState* thread);
 
+  Status TestAbortAndResumeCfCompactions(ThreadState* thread);
+
   void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,
                            const std::string& keystr, uint64_t i);
 

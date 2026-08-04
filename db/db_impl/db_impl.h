@@ -21,6 +21,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "db/column_family.h"
@@ -478,6 +479,8 @@ class DBImpl : public DB {
   void DisableManualCompaction() override;
   void AbortAllCompactions() override;
   void ResumeAllCompactions() override;
+  void AbortCompactions(ColumnFamilyHandle* column_family) override;
+  void ResumeCompactions(ColumnFamilyHandle* column_family) override;
 
   using DB::SetOptions;
   Status SetOptions(
@@ -2831,9 +2834,24 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   FlushRequest PopFirstFromFlushQueue();
 
+  struct CompactionQueueThrottled {};
+  struct CompactionQueueParked {};
+  struct CompactionQueuePicked {
+    ColumnFamilyData* cfd;
+  };
+  using CompactionQueuePickResult =
+      std::variant<CompactionQueuePicked, CompactionQueueThrottled,
+                   CompactionQueueParked>;
+
   // Pick the first unthrottled compaction with task token from queue.
-  ColumnFamilyData* PickCompactionFromQueue(
+  CompactionQueuePickResult PickCompactionFromQueue(
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
+  bool IsCompactionAborted(ColumnFamilyData* cfd) const;
+  bool MustWaitForCompaction(ColumnFamilyData* cfd);
+  bool HasPendingManualCompaction(ColumnFamilyData* cfd);
+  bool RestoreParkedCompaction(ColumnFamilyData* cfd);
+  void BeginInFlightCompaction(ColumnFamilyData* cfd);
+  bool EndInFlightCompaction(ColumnFamilyData* cfd);
 
   IOStatus SyncWalImpl(bool include_current_wal,
                        const WriteOptions& write_options,
@@ -3215,6 +3233,10 @@ class DBImpl : public DB {
   // DB mutex in compaction code paths.
   std::atomic<int> compaction_aborted_ = 0;
 
+  // Number of AbortCompactions() callers waiting for a targeted compaction to
+  // finish. Protected by the DB mutex.
+  int per_cf_compaction_abort_waiters_ = 0;
+
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
   // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't
@@ -3424,7 +3446,7 @@ class DBImpl : public DB {
   // cfd->imm()->IsFlushPending()
   // A column family is inserted into compaction_queue_ when it satisfied
   // condition cfd->NeedsCompaction()
-  // Column families in this list are all Ref()-erenced
+  // Column families in these collections are all Ref()-erenced.
   // TODO(icanadi) Provide some kind of ReferencedColumnFamily class that will
   // do RAII on ColumnFamilyData
   // Column families are in this queue when they need to be flushed or
@@ -3439,9 +3461,23 @@ class DBImpl : public DB {
   // invariant(column family present in flush_queue_ <==>
   // ColumnFamilyData::pending_flush_ == true)
   std::deque<FlushRequest> flush_queue_;
-  // invariant(column family present in compaction_queue_ <==>
-  // ColumnFamilyData::pending_compaction_ == true)
+  // invariant((column family in compaction_queue_ or
+  //            column family in parked_compaction_cfds_)
+  //           <=> queued_for_compaction() == true)
+  //
+  // "Parked" means a column family whose compaction was aborted via
+  // AbortCompactions() while it was queued. When an aborted CF reaches the
+  // front of compaction_queue_, PickCompactionFromQueue() moves it to
+  // parked_compaction_cfds_ instead of scheduling it. The CF does not
+  // immediately lose its place -- only when it reaches the front of the
+  // queue is it parked. This preserves fairness for CFs behind it and
+  // avoids restoring the scheduler credit (which would cause a hot re-pick
+  // loop). On the final ResumeCompactions(), RestoreParkedCompaction()
+  // re-enqueues the CF (or releases its ref if it no longer needs
+  // compaction). Each parked CF carries exactly one Ref() from the
+  // original AddToCompactionQueue() call.
   std::deque<ColumnFamilyData*> compaction_queue_;
+  std::unordered_set<ColumnFamilyData*> parked_compaction_cfds_;
 
   // A map to store file numbers and filenames of the files to be purged
   std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;

@@ -357,6 +357,13 @@ int db_stress_tool(int argc, char** argv) {
     return ReturnValidationError(
         "clear_column_family_one_in must be 0 when using backup");
   }
+  if (FLAGS_clear_column_family_one_in > 0 &&
+      FLAGS_abort_and_resume_cf_compactions_one_in > 0) {
+    fprintf(stderr,
+            "Error: clear_column_family_one_in must be 0 when using "
+            "per-column-family compaction abort\n");
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
+  }
   if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
   }
