@@ -131,19 +131,14 @@ Status DBImplFollower::TryCatchUpWithLeader() {
       for (auto cfd : cfds_changed) {
         if (cfd->mem()->GetEarliestSequenceNumber() <
             versions_->LastSequence()) {
-          // Construct a new memtable with earliest sequence number set to the
-          // last sequence number in the VersionSet. This matters when
-          // DBImpl::MultiCFSnapshot tries to get consistent references
-          // to super versions in a lock free manner, it checks the earliest
-          // sequence number to detect if there was a change in version in
-          // the meantime.
-          MemTable* new_mem = cfd->ConstructNewMemtable(
-              cfd->GetLatestMutableCFOptions(), versions_->LastSequence());
-          cfd->mem()->SetNextLogNumber(cfd->GetLogNumber());
-          cfd->mem()->ConstructFragmentedRangeTombstones();
-          cfd->imm()->Add(cfd->mem(), &job_context.memtables_to_free);
-          new_mem->Ref();
-          cfd->SetMemtable(new_mem);
+          // Seal the active memtable so that its replacement gets its earliest
+          // sequence number set to the last sequence number in the VersionSet.
+          // This matters when DBImpl::MultiCFSnapshot tries to get consistent
+          // references to super versions in a lock free manner, it checks the
+          // earliest sequence number to detect if there was a change in
+          // version in the meantime.
+          SealActiveMemtable(cfd, cfd->GetLogNumber(),
+                             versions_->LastSequence(), &job_context);
         }
 
         // This will check if the old memtable is still referenced

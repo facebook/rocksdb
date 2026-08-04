@@ -1,0 +1,1 @@
+Fixed stale reads on secondary instances: entries replayed from a WAL that the primary has since flushed were left behind in the secondary's active memtable, where they shadowed the newer values in the flushed files, so a key could keep returning an old value across any number of `TryCatchUpWithPrimary()` calls.
