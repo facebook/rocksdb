@@ -39,7 +39,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
+      ts_str = GetReadTimestamp();
       ts = ts_str;
       options.timestamp = &ts;
     }
@@ -515,7 +515,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
+      ts_str = GetReadTimestamp();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -648,7 +648,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
@@ -686,7 +686,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
@@ -1136,7 +1136,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
@@ -2836,7 +2836,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts = read_ts_str;
       ro.timestamp = &read_ts;
     }
