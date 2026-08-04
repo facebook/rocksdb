@@ -1895,9 +1895,50 @@ class DB {
   // ResumeAllCompactions().
   virtual void ResumeAllCompactions() = 0;
 
+  // Abort compaction work for `column_family`. Running compactions for the
+  // column family are signaled to abort, and new compactions for it are
+  // rejected until ResumeCompactions() is called. Compactions for other column
+  // families are unaffected. This function blocks until the column family's
+  // running compactions complete or abort, or DB shutdown begins.
+  // Unless DB shutdown has begun, `column_family` must be a live handle owned
+  // by this DB.
+  //
+  // This is the per-column-family counterpart to AbortAllCompactions(). The
+  // global and per-column-family abort counts compose: compaction resumes for
+  // this column family only after matching ResumeAllCompactions() and
+  // ResumeCompactions() calls clear both. Unlike DisableManualCompaction(),
+  // this aborts automatic and manual compactions for the column family. Unlike
+  // PauseBackgroundWork(), it does not pause flushes or work for other column
+  // families.
+  //
+  // Calls are reference counted independently for each column family. The
+  // caller must retain the live handle through all matching
+  // ResumeCompactions() calls while the DB is live, even if the column family
+  // is dropped in the meantime. Flushes and external-ingestion reservations
+  // are unaffected. An already-running level refit is neither signaled nor
+  // waited on; new CompactRange() calls are rejected at entry. Remote
+  // compaction-service work is not actively aborted.
+  // If DB shutdown has begun, this is a no-op and does not inspect
+  // `column_family`.
+  virtual void AbortCompactions(ColumnFamilyHandle* column_family) = 0;
+
+  // Resume compactions for `column_family`. This must be called as many times
+  // as AbortCompactions() for the same column family before work is
+  // rescheduled. While the DB is live, `column_family` must be the live handle
+  // passed to AbortCompactions(). Extra calls log a warning and otherwise have
+  // no effect.
+  // If DB shutdown has begun, this is a no-op and does not inspect
+  // `column_family`.
+  virtual void ResumeCompactions(ColumnFamilyHandle* column_family) = 0;
+
   // Wait for all flush and compactions jobs to finish. Jobs to wait include the
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,
   // Status::ShutdownInProgress will be returned.
+  //
+  // Compaction work parked by AbortCompactions() remains pending. Without a
+  // timeout, this function will not return until matching ResumeCompactions()
+  // calls restore that work and it finishes, the column family is dropped, or
+  // the DB starts shutting down.
   //
   // NOTE: This may also never return if there's sufficient ongoing writes that
   // keeps flush and compaction going without stopping. The user would have to

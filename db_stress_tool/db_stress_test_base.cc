@@ -1848,6 +1848,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_cf_compactions_one_in)) {
+        Status status = TestAbortAndResumeCfCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCfCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
@@ -4001,6 +4006,17 @@ Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   // Resume compactions
   db_->ResumeAllCompactions();
+  return Status::OK();
+}
+
+Status StressTest::TestAbortAndResumeCfCompactions(ThreadState* thread) {
+  int rand_cf = thread->rand.Uniform(static_cast<int>(column_families_.size()));
+  auto* cfh = column_families_[rand_cf];
+  db_->AbortCompactions(cfh);
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  db_->ResumeCompactions(cfh);
   return Status::OK();
 }
 
