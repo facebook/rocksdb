@@ -16,6 +16,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -280,7 +281,7 @@ std::string Slice::ToString(bool hex) const {
   static constexpr char kHexChars[] = "0123456789ABCDEF";
   std::string result(2 * size_, '\0');
   char* p = result.data();
-  const unsigned char* src = reinterpret_cast<const unsigned char*>(data_);
+  const unsigned char* src = lossless_cast<const unsigned char*>(data_);
   const unsigned char* end = src + size_;
 
   while (src != end) {
