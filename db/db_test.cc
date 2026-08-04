@@ -3804,11 +3804,10 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status GetUpdatesSince(
-      ROCKSDB_NAMESPACE::SequenceNumber,
-      std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator>*,
-      const TransactionLogIterator::ReadOptions& /*read_options*/ =
-          TransactionLogIterator::ReadOptions()) override {
+  Status GetUpdatesSince(ROCKSDB_NAMESPACE::SequenceNumber,
+                         std::unique_ptr<ROCKSDB_NAMESPACE::WalIterator>*,
+                         const WalIterator::ReadOptions& /*read_options*/ =
+                             WalIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
   }
 

@@ -845,7 +845,6 @@ set(SOURCES
         db/snapshot_impl.cc
         db/table_cache.cc
         db/table_properties_collector.cc
-        db/transaction_log_impl.cc
         db/trim_history_scheduler.cc
         db/version_builder.cc
         db/version_edit.cc
@@ -853,6 +852,7 @@ set(SOURCES
         db/version_set.cc
         db/version_util.cc
         db/wal_edit.cc
+        db/wal_iterator_impl.cc
         db/wal_manager.cc
         db/wide/read_path_blob_resolver.cc
         db/wide/wide_column_serialization.cc

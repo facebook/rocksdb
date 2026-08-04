@@ -27,12 +27,12 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wal_iterator.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -2074,22 +2074,33 @@ class DB {
   // is closed while files are still being opened in the background.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
-  // Note: this API is not yet consistent with WritePrepared transactions.
+  // Sets *iter to a WalIterator over the WriteBatches recorded in the
+  // write-ahead log, starting from the one whose sequence number range
+  // [start_seq, end_seq] covers seq_number.
   //
-  // Sets iter to an iterator that is positioned at a write-batch whose
-  // sequence number range [start_seq, end_seq] covers seq_number. If no such
-  // write-batch exists, then iter is positioned at the next write-batch whose
-  // start_seq > seq_number.
+  // Only writes that reached the WAL are returned. Writes made with
+  // WriteOptions::disableWAL, and sequence numbers consumed by
+  // IngestExternalFile(), are absent and leave permanent holes in the
+  // sequence numbers seen here. Set WAL_ttl_seconds and/or WAL_size_limit_MB
+  // large enough to cover how far behind a consumer may fall, or the WAL will
+  // be cleared before the consumer reads it.
   //
-  // Returns Status::OK if iterator is valid
-  // Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
-  // use this api, else the WAL files will get
-  // cleared aggressively and the iterator might keep getting invalid before
-  // an update is read.
-  virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options =
-          TransactionLogIterator::ReadOptions()) = 0;
+  // Returns Status::NotSupported() for TransactionDB with the WritePrepared
+  // or WriteUnprepared write policies.
+  //
+  // WARNING: if seq_number itself is no longer available, this positions at
+  // the next available write-batch (start_seq > seq_number) and still returns
+  // Status::OK -- data is skipped silently. Since recovering from a spent
+  // iterator means calling this function again, that recovery is where data
+  // loss can slip in unnoticed. Callers resuming a previous iterator should
+  // check that the first batch continues from where that one stopped; see
+  // WalIterator for details.
+  //
+  // Returns Status::OK if the iterator is valid.
+  virtual Status GetUpdatesSince(SequenceNumber seq_number,
+                                 std::unique_ptr<WalIterator>* iter,
+                                 const WalIterator::ReadOptions& read_options =
+                                     WalIterator::ReadOptions()) = 0;
 
   // Obtains a list of all live table (SST) files and how they fit into the
   // LSM-trees, such as column family, level, key range, etc.

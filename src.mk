@@ -93,7 +93,6 @@ LIB_SOURCES =                                                   \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
-  db/transaction_log_impl.cc                                    \
   db/trim_history_scheduler.cc                                  \
   db/version_builder.cc                                         \
   db/version_edit.cc                                            \
@@ -101,6 +100,7 @@ LIB_SOURCES =                                                   \
   db/version_set.cc                                             \
   db/version_util.cc                                            \
   db/wal_edit.cc                                                \
+  db/wal_iterator_impl.cc                                       \
   db/wal_manager.cc                                             \
   db/wide/read_path_blob_resolver.cc                             \
   db/wide/wide_column_serialization.cc                          \
@@ -774,13 +774,13 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/transaction_db.cc                             \
   java/rocksjni/transaction_options.cc                        \
   java/rocksjni/transaction_db_options.cc                     \
-  java/rocksjni/transaction_log.cc                            \
   java/rocksjni/transaction_notifier.cc                       \
   java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
   java/rocksjni/testable_event_listener.cc                    \
   java/rocksjni/wal_filter.cc                                 \
   java/rocksjni/wal_filter_jnicallback.cc                     \
+  java/rocksjni/wal_iterator.cc                               \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \

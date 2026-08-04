@@ -8,7 +8,7 @@ import org.junit.rules.TemporaryFolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class TransactionLogIteratorTest {
+public class WalIteratorTest {
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
       new RocksNativeLibraryResource();
@@ -17,13 +17,10 @@ public class TransactionLogIteratorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void transactionLogIterator() throws RocksDBException {
-    try (final Options options = new Options()
-        .setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath());
-         final TransactionLogIterator transactionLogIterator =
-             db.getUpdatesSince(0)) {
+  public void walIterator() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WalIterator walIterator = db.getUpdatesSince(0)) {
       //no-op
     }
   }
@@ -62,14 +59,12 @@ public class TransactionLogIteratorTest {
             isEqualTo(numberOfPuts + numberOfPuts);
 
         // Get updates since the beginning
-        try (final TransactionLogIterator transactionLogIterator =
-                 db.getUpdatesSince(0)) {
-          assertThat(transactionLogIterator.isValid()).isTrue();
-          transactionLogIterator.status();
+        try (final WalIterator walIterator = db.getUpdatesSince(0)) {
+          assertThat(walIterator.isValid()).isTrue();
+          walIterator.status();
 
           // The first sequence number is 1
-          final TransactionLogIterator.BatchResult batchResult =
-              transactionLogIterator.getBatch();
+          final WalIterator.BatchResult batchResult = walIterator.getBatch();
           assertThat(batchResult.sequenceNumber()).isEqualTo(1);
         }
       }
@@ -77,8 +72,7 @@ public class TransactionLogIteratorTest {
   }
 
   @Test
-  public void transactionLogIteratorStallAtLastRecord()
-      throws RocksDBException {
+  public void walIteratorStallAtLastRecord() throws RocksDBException {
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setWalTtlSeconds(1000)
@@ -88,24 +82,24 @@ public class TransactionLogIteratorTest {
 
       db.put("key1".getBytes(), "value1".getBytes());
       // Get updates since the beginning
-      try (final TransactionLogIterator transactionLogIterator =
-               db.getUpdatesSince(0)) {
-        transactionLogIterator.status();
-        assertThat(transactionLogIterator.isValid()).isTrue();
-        transactionLogIterator.next();
-        assertThat(transactionLogIterator.isValid()).isFalse();
-        transactionLogIterator.status();
+      try (final WalIterator walIterator = db.getUpdatesSince(0)) {
+        walIterator.status();
+        assertThat(walIterator.isValid()).isTrue();
+        walIterator.next();
+        // Caught up, but not spent: a later write is picked up by calling
+        // next() again.
+        assertThat(walIterator.isValid()).isFalse();
+        walIterator.status();
         db.put("key2".getBytes(), "value2".getBytes());
-        transactionLogIterator.next();
-        transactionLogIterator.status();
-        assertThat(transactionLogIterator.isValid()).isTrue();
+        walIterator.next();
+        walIterator.status();
+        assertThat(walIterator.isValid()).isTrue();
       }
     }
   }
 
   @Test
-  public void transactionLogIteratorCheckAfterRestart()
-      throws RocksDBException {
+  public void walIteratorCheckAfterRestart() throws RocksDBException {
     final int numberOfKeys = 2;
     try (final Options options = new Options()
         .setCreateIfMissing(true)
@@ -125,12 +119,11 @@ public class TransactionLogIteratorTest {
           dbFolder.getRoot().getAbsolutePath())) {
         assertThat(db.getLatestSequenceNumber()).isEqualTo(numberOfKeys);
 
-        try (final TransactionLogIterator transactionLogIterator =
-                 db.getUpdatesSince(0)) {
+        try (final WalIterator walIterator = db.getUpdatesSince(0)) {
           for (int i = 0; i < numberOfKeys; i++) {
-            transactionLogIterator.status();
-            assertThat(transactionLogIterator.isValid()).isTrue();
-            transactionLogIterator.next();
+            walIterator.status();
+            assertThat(walIterator.isValid()).isTrue();
+            walIterator.next();
           }
         }
       }

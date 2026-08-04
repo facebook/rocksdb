@@ -78,7 +78,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.TransactionDB\
 	org.rocksdb.TransactionDBOptions\
 	org.rocksdb.TransactionOptions\
-	org.rocksdb.TransactionLogIterator\
+	org.rocksdb.WalIterator\
 	org.rocksdb.TtlDB\
 	org.rocksdb.VectorMemTableConfig\
 	org.rocksdb.Snapshot\
@@ -196,7 +196,7 @@ JAVA_TESTS = \
 	org.rocksdb.TransactionDBTest\
 	org.rocksdb.TransactionOptionsTest\
 	org.rocksdb.TransactionDBOptionsTest\
-	org.rocksdb.TransactionLogIteratorTest\
+	org.rocksdb.WalIteratorTest\
 	org.rocksdb.TtlDBTest\
 	org.rocksdb.StatisticsTest\
 	org.rocksdb.StatisticsCollectorTest\
