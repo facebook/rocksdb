@@ -41,6 +41,7 @@
 #include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "db_stress_tool/db_stress_status.h"
 #include "db_stress_tool/db_stress_test_base.h"
 #include "logging/logging.h"
 #include "monitoring/histogram.h"

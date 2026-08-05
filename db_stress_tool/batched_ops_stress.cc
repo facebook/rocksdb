@@ -687,7 +687,7 @@ class BatchedOpsStressTest : public StressTest {
       // if the first iterator finished, they should have all finished
       assert(!iters[i]->Valid() ||
              !iters[i]->key().starts_with(prefix_slices[i]));
-      assert(iters[i]->status().ok());
+      DB_STRESS_ASSERT_OK(iters[i]->status());
     }
 
     db_->ReleaseSnapshot(snapshot);

@@ -680,7 +680,7 @@ class CfConsistencyStressTest : public StressTest {
             continue;
           }
 
-          assert(s.ok());
+          DB_STRESS_ASSERT_OK(s);
           if (cmp_s.IsNotFound()) {
             fprintf(stderr,
                     "MultiGetEntity (AttributeGroup) returns different results "
@@ -793,7 +793,7 @@ class CfConsistencyStressTest : public StressTest {
             continue;
           }
 
-          assert(s.ok());
+          DB_STRESS_ASSERT_OK(s);
           if (cmp_s.IsNotFound()) {
             fprintf(
                 stderr,

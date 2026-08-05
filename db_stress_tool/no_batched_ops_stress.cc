@@ -491,10 +491,7 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(secondary_db_);
     assert(!secondary_cfhs_.empty());
     Status s = secondary_db_->TryCatchUpWithPrimary();
-    if (!s.ok()) {
-      assert(false);
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "TryCatchUpWithPrimary failed");
 
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
@@ -1427,7 +1424,7 @@ class NonBatchedOpsStressTest : public StressTest {
                 is_consistent = false;
               }
             } else {
-              assert(cmp_s.ok());
+              DB_STRESS_ASSERT_OK(cmp_s);
 
               if (s.IsNotFound()) {
                 fprintf(
@@ -1437,7 +1434,7 @@ class NonBatchedOpsStressTest : public StressTest {
                     StringToHex(keys[i]).c_str());
                 is_consistent = false;
               } else {
-                assert(s.ok());
+                DB_STRESS_ASSERT_OK(s);
 
                 const WideColumns& cmp_columns = cmp_result.columns();
 
@@ -3133,7 +3130,7 @@ class NonBatchedOpsStressTest : public StressTest {
       if (!rs.ok() && IsErrorInjectedAndRetryable(rs)) {
         return rs;
       }
-      assert(rs.ok());
+      DB_STRESS_ASSERT_OK(rs);
       op_logs += "Refresh ";
       for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
         post_read_expected_values.push_back(
