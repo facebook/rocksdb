@@ -239,6 +239,7 @@ std::string SliceTransform::AsString() const {
   return GetId();
 }
 
+namespace {
 // A small internal utility function, for efficient hex conversion
 // and no need for snprintf, toupper etc...
 // Originally from wdt/util/EncryptionUtils.cpp - for DecodeHex:
@@ -257,6 +258,7 @@ int fromHex(char c) {
   }
   return c - 'A' + 10;
 }
+}  // end namespace
 
 Slice::Slice(const SliceParts& parts, std::string* buf) {
   size_t length = 0;
