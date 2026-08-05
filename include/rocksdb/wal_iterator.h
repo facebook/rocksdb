@@ -145,18 +145,35 @@ struct BatchResult {
 //      iterator in this same state, so the consumer chooses its own retry
 //      interval.
 //
+//      Conversely, a later Next() may end the run (state 3) instead of
+//      returning more data -- notably when the DB has moved on to a new WAL
+//      file, as on a rotation. Whether the iterator ends the run at a
+//      rotation or continues across it is not guaranteed either way, so a
+//      consumer tailing a DB must be prepared to build a new iterator
+//      whenever the run ends.
+//
 //   3. Valid() == false, status() is not OK
 //      The run is over and the iterator is spent. status() will not change
 //      and Next() has no effect. To continue, discard this iterator and call
 //      DB::GetUpdatesSince() again -- but see GAPS below first.
 //
 // Statuses that end a run:
-//   * Status::TryAgain -- not an error. The set of WAL files this iterator
-//     was built over has been exhausted while the DB has moved on (typically
-//     the WAL was rotated). Build a new iterator to pick up the rest.
-//   * Status::NotFound("Gap in sequence numbers") -- a discontinuity was
-//     found in the WAL. See GAPS.
+//   * Status::TryAgain -- not an error in itself. The iterator has reached
+//     the end of the WAL data it can currently see while the DB has moved on,
+//     e.g. after a WAL rotation or when newer writes are not yet readable
+//     from the WAL. A new iterator may be able to continue from here.
+//   * Status::NotFound("Gap in sequence numbers") -- the batch just read is
+//     not contiguous with the previous one, i.e. a discontinuity in the WAL
+//     (see SOURCE OF DATA and GAPS).
 //   * Status::Corruption and I/O errors -- the WAL could not be read.
+//
+// These are hints, not a classification to branch on. The same underlying
+// cause can surface as different statuses: a hole from disableWAL or
+// IngestExternalFile() ends the run with NotFound when a later batch is still
+// visible past it, but with TryAgain when it falls at the end of what the
+// iterator can currently see. Do not infer from the status whether the
+// missing data is recoverable; treat any non-OK status as "the run has
+// ended," build a new iterator, and verify continuity (see GAPS).
 //
 // GAPS AND RESUMING A RUN
 //
