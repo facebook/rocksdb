@@ -47,8 +47,14 @@ class LazyWideColumnsHelper {
                          Cleanable&& pin);
 
   // Prepares `batch` to hold `num_entities` empty per-key results (creating the
-  // batch's representation). Use batch->entity(i) to access each for filling.
+  // batch's representation). Use (*batch)[i] to access each for filling, then
+  // call FinalizeBatch() once all entities are populated.
   static void InitBatch(LazyWideColumnsBatch* batch, size_t num_entities);
+
+  // Links every populated entity of `batch` back to the batch, so a batch read
+  // can validate that a column belongs to this batch. Call after all entities
+  // have been filled (and individually Finalize()d).
+  static void FinalizeBatch(LazyWideColumnsBatch* batch);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

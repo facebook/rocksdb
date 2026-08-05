@@ -965,7 +965,7 @@ class DB {
   //
   // Lazy, batched peer of MultiGetEntity() (see GetEntityLazy() for the lazy
   // semantics, the required pin, and the max_open_files == -1 requirement).
-  // "*result" is filled with "num_keys" per-key entities: "result->entity(i)"
+  // "*result" is filled with "num_keys" per-key entities: "(*result)[i]"
   // is the LazyWideColumns for "keys[i]" (blob-backed columns left as
   // unresolved references), and "statuses[i]" is set to OK / NotFound / an
   // error as in MultiGetEntity(). The per-key entities are owned by "*result"

@@ -34,10 +34,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 // Internal representation. Owns the serialized-entity backing buffer + inline
-// columns (via `entity_`), the decoded blob references, the enumeration
-// metadata, the on-demand blob resolver, and the SuperVersion pin that keeps
-// all of it (blob files, immortal table readers) valid after the producing DB
-// call returns.
+// columns (via `entity_`), the decoded blob references, the per-column views,
+// the on-demand blob resolver, and the SuperVersion pin that keeps all of it
+// (blob files, immortal table readers) valid after the producing DB call
+// returns. The Rep is heap-allocated and never relocated (it lives behind a
+// unique_ptr that only ever transfers ownership), so pointers to it and to its
+// `columns_` elements stay stable across LazyWideColumns/Batch moves -- which
+// is what lets a LazyColumnReadRequest identify its column (and owning result)
+// by pointer without any move-time fix-ups.
 class LazyWideColumns::Rep {
  public:
   // Holds the serialized entity as a single backing buffer and, after
@@ -51,22 +55,33 @@ class LazyWideColumns::Rep {
   // value is a blob reference. Empty for a fully inline entity.
   std::vector<std::pair<size_t, BlobIndex>> blob_columns_;
 
-  // Per-column enumeration metadata (no I/O). Nested (rather than in an
-  // anonymous namespace) so it has the enclosing class's linkage -- an
-  // internal-linkage subobject type in this external-linkage class trips
+  // Per-column view returned by LazyWideColumns::operator[]. Derives from the
+  // public LazyWideColumn (its ctor sets the protected base fields) and adds a
+  // back-pointer to this Rep, used to validate that a read's column belongs to
+  // this result (and, via owning_batch_rep_, to this batch). Nested (rather
+  // than in an anonymous namespace) so it shares the enclosing class's linkage
+  // -- an internal-linkage subobject type in this external-linkage class trips
   // -Wsubobject-linkage in unity builds.
-  struct ColumnInfo {
-    Slice name;
-    bool is_reference = false;
-    bool logical_size_known = false;
-    uint64_t logical_size = 0;
-    CompressionType compression = kNoCompression;
-    // Valid only when !is_reference.
-    Slice inline_value;
+  struct ColumnImpl : public LazyWideColumn {
+    ColumnImpl(Rep* parent, size_t index, Slice name, const char* inline_data,
+               std::optional<uint64_t> size)
+        : parent_rep_(parent) {
+      name_ = name;
+      inline_data_ = inline_data;
+      size_ = size;
+      index_ = index;
+    }
+    Rep* parent_rep_ = nullptr;
   };
 
-  // Enumeration metadata, one entry per column in `entity_.columns()`.
-  std::vector<ColumnInfo> column_infos_;
+  // One entry per column in `entity_.columns()`, in sorted order.
+  std::vector<ColumnImpl> columns_;
+
+  // Identity of the owning batch's Rep (stable across batch move), or null for
+  // a standalone result. Used to validate that a batch read targets an entity
+  // of that batch. Stored as void* to avoid naming LazyWideColumnsBatch::Rep
+  // here (it is only an identity token, never dereferenced).
+  const void* owning_batch_rep_ = nullptr;
 
   // Stable copy of the user key, referenced by the resolver for blob
   // verification (the originating key argument does not outlive the call).
@@ -81,70 +96,13 @@ class LazyWideColumns::Rep {
   // Emplaced at finalize time (needs the Version). Absent for an unpopulated
   // (e.g. NotFound) result.
   std::optional<ReadPathBlobResolver> resolver_;
-};
 
-LazyWideColumns::LazyWideColumns() = default;
-LazyWideColumns::~LazyWideColumns() = default;
-LazyWideColumns::LazyWideColumns(LazyWideColumns&&) noexcept = default;
-LazyWideColumns& LazyWideColumns::operator=(LazyWideColumns&&) noexcept =
-    default;
-
-size_t LazyWideColumns::num_columns() const {
-  return rep_ ? rep_->column_infos_.size() : 0;
-}
-
-const Slice& LazyWideColumns::name(size_t column_index) const {
-  assert(rep_);
-  assert(column_index < rep_->column_infos_.size());
-  return rep_->column_infos_[column_index].name;
-}
-
-bool LazyWideColumns::is_reference(size_t column_index) const {
-  assert(rep_);
-  assert(column_index < rep_->column_infos_.size());
-  return rep_->column_infos_[column_index].is_reference;
-}
-
-bool LazyWideColumns::logical_size_known(size_t column_index) const {
-  assert(rep_);
-  assert(column_index < rep_->column_infos_.size());
-  return rep_->column_infos_[column_index].logical_size_known;
-}
-
-uint64_t LazyWideColumns::logical_size(size_t column_index) const {
-  assert(rep_);
-  assert(column_index < rep_->column_infos_.size());
-  return rep_->column_infos_[column_index].logical_size;
-}
-
-CompressionType LazyWideColumns::compression(size_t column_index) const {
-  assert(rep_);
-  assert(column_index < rep_->column_infos_.size());
-  return rep_->column_infos_[column_index].compression;
-}
-
-const Slice& LazyWideColumns::inline_value(size_t column_index) const {
-  assert(rep_);
-  assert(column_index < rep_->column_infos_.size());
-  assert(!rep_->column_infos_[column_index].is_reference);
-  return rep_->column_infos_[column_index].inline_value;
-}
-
-Status LazyWideColumns::MultiResolve(size_t num_reads,
-                                     LazyColumnReadRequest* reads) {
-  const size_t num_cols = num_columns();
-  for (size_t i = 0; i < num_reads; ++i) {
-    LazyColumnReadRequest& read = reads[i];
+  // Resolve one read against column `index` of this result (index < size()),
+  // writing the per-read outcome to read.status / read.result. Shared by the
+  // single-entity and batch MultiResolve paths.
+  void ResolveOneRead(size_t index, LazyColumnReadRequest& read) {
     if (read.status) {
       *read.status = Status::OK();
-    }
-
-    if (read.column_index >= num_cols) {
-      if (read.status) {
-        *read.status =
-            Status::InvalidArgument("Column index out of range for lazy read");
-      }
-      continue;
     }
 
     // Resolve the whole column (inline value directly, blob reference via the
@@ -156,21 +114,21 @@ Status LazyWideColumns::MultiResolve(size_t num_reads,
     // bytes from storage (skipping checksum and cache-fill) instead of the
     // whole column; a further phase (TODO(lazy-blob-resolution-phase2)) does
     // the same for embedded (same-file) blobs.
-    const Rep::ColumnInfo& info = rep_->column_infos_[read.column_index];
+    const LazyWideColumn& info = columns_[index];
     Slice whole;
     Status s;
-    if (!info.is_reference) {
-      whole = info.inline_value;
+    if (!info.is_reference()) {
+      whole = *info.inline_value();
     } else {
-      assert(rep_->resolver_);
-      s = rep_->resolver_->ResolveColumn(read.column_index, &whole);
+      assert(resolver_);
+      s = resolver_->ResolveColumn(index, &whole);
     }
 
     if (!s.ok()) {
       if (read.status) {
         *read.status = s;
       }
-      continue;
+      return;
     }
 
     if (read.result != nullptr) {
@@ -190,18 +148,57 @@ Status LazyWideColumns::MultiResolve(size_t num_reads,
     }
     // read.status already OK.
   }
+};
+
+LazyWideColumns::LazyWideColumns() = default;
+LazyWideColumns::~LazyWideColumns() = default;
+LazyWideColumns::LazyWideColumns(LazyWideColumns&&) noexcept = default;
+LazyWideColumns& LazyWideColumns::operator=(LazyWideColumns&&) noexcept =
+    default;
+
+size_t LazyWideColumns::size() const {
+  return rep_ ? rep_->columns_.size() : 0;
+}
+
+const LazyWideColumn& LazyWideColumns::operator[](size_t i) const {
+  assert(rep_);
+  assert(i < rep_->columns_.size());
+  return rep_->columns_[i];
+}
+
+Status LazyWideColumns::MultiResolve(size_t num_reads,
+                                     LazyColumnReadRequest* reads) {
+  for (size_t i = 0; i < num_reads; ++i) {
+    LazyColumnReadRequest& read = reads[i];
+    if (read.status) {
+      *read.status = Status::OK();
+    }
+    // The column must belong to this result (it carries a back-pointer to the
+    // Rep that owns it).
+    if (read.column == nullptr ||
+        static_cast<const Rep::ColumnImpl*>(read.column)->parent_rep_ !=
+            rep_.get()) {
+      if (read.status) {
+        *read.status = Status::InvalidArgument(
+            "Column does not belong to this LazyWideColumns");
+      }
+      continue;
+    }
+    rep_->ResolveOneRead(read.column->index(), read);
+  }
   // Every read was dispatched synchronously; per-read outcomes are in
   // read.status.
   return Status::OK();
 }
 
-Status LazyWideColumns::GetColumnRange(size_t column_index, uint64_t offset,
-                                       size_t length, PinnableSlice* result) {
+Status LazyWideColumns::ResolveColumnRange(const LazyWideColumn& column,
+                                           uint64_t offset, size_t length,
+                                           PinnableSlice* result) {
   // Sugar over a one-entry batch, so the batch path is the single real,
   // optimizable (coalescing/async) code path.
   Status status;
   LazyColumnReadRequest read;
-  read.column_index = column_index;
+  read.column = &column;
   read.offset = offset;
   read.length = length;
   read.result = result;
@@ -211,8 +208,9 @@ Status LazyWideColumns::GetColumnRange(size_t column_index, uint64_t offset,
   return batch_status.ok() ? status : batch_status;
 }
 
-Status LazyWideColumns::GetColumn(size_t column_index, PinnableSlice* result) {
-  return GetColumnRange(column_index, /*offset=*/0, kLazyWholeColumn, result);
+Status LazyWideColumns::ResolveColumn(const LazyWideColumn& column,
+                                      PinnableSlice* result) {
+  return ResolveColumnRange(column, /*offset=*/0, kLazyWholeColumn, result);
 }
 
 void LazyWideColumns::Reset() { rep_.reset(); }
@@ -240,45 +238,51 @@ LazyWideColumnsBatch::LazyWideColumnsBatch(LazyWideColumnsBatch&&) noexcept =
 LazyWideColumnsBatch& LazyWideColumnsBatch::operator=(
     LazyWideColumnsBatch&&) noexcept = default;
 
-size_t LazyWideColumnsBatch::num_entities() const {
+size_t LazyWideColumnsBatch::size() const {
   return rep_ ? rep_->entities.size() : 0;
 }
 
-const LazyWideColumns& LazyWideColumnsBatch::entity(size_t entity_index) const {
+const LazyWideColumns& LazyWideColumnsBatch::operator[](size_t i) const {
   assert(rep_);
-  assert(entity_index < rep_->entities.size());
-  return rep_->entities[entity_index];
+  assert(i < rep_->entities.size());
+  return rep_->entities[i];
 }
 
-LazyWideColumns& LazyWideColumnsBatch::entity(size_t entity_index) {
+LazyWideColumns& LazyWideColumnsBatch::operator[](size_t i) {
   assert(rep_);
-  assert(entity_index < rep_->entities.size());
-  return rep_->entities[entity_index];
+  assert(i < rep_->entities.size());
+  return rep_->entities[i];
 }
 
-Status LazyWideColumnsBatch::MultiResolve(
-    size_t num_reads, std::pair<size_t, LazyColumnReadRequest>* reads) {
-  const size_t num_entities = rep_ ? rep_->entities.size() : 0;
+Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
+                                          LazyColumnReadRequest* reads) {
+  const void* this_rep = rep_.get();
   for (size_t i = 0; i < num_reads; ++i) {
-    const size_t entity_index = reads[i].first;
-    LazyColumnReadRequest& read = reads[i].second;
-    if (entity_index >= num_entities) {
+    LazyColumnReadRequest& read = reads[i];
+    if (read.status) {
+      *read.status = Status::OK();
+    }
+    if (read.column == nullptr) {
       if (read.status) {
-        *read.status =
-            Status::InvalidArgument("Entity index out of range for batch read");
+        *read.status = Status::InvalidArgument("Null column in batch read");
       }
       continue;
     }
-    // Route the read to its owning entity.
+    // Route the read to the entity that owns its column, and require that
+    // entity to belong to this batch.
     // TODO(lazy-blob-resolution-phase3): group reads per (CF, Version, blob
     // file) across entities and coalesce them; the request shape is unchanged.
-    const Status s =
-        rep_->entities[entity_index].MultiResolve(/*num_reads=*/1, &read);
-    // Per-read outcomes are reported via read.status; the return only signals a
-    // whole-batch failure. Surface that on this read.
-    if (!s.ok() && read.status) {
-      *read.status = s;
+    LazyWideColumns::Rep* entity_rep =
+        static_cast<const LazyWideColumns::Rep::ColumnImpl*>(read.column)
+            ->parent_rep_;
+    if (entity_rep == nullptr || entity_rep->owning_batch_rep_ != this_rep) {
+      if (read.status) {
+        *read.status =
+            Status::InvalidArgument("Column does not belong to this batch");
+      }
+      continue;
     }
+    entity_rep->ResolveOneRead(read.column->index(), read);
   }
   return Status::OK();
 }
@@ -320,43 +324,31 @@ Status LazyWideColumnsHelper::Finalize(
     }
   }
 
-  // Build enumeration metadata from the (sorted) column set + blob references.
+  // Build the per-column views from the (sorted) column set + blob references.
   const WideColumns& columns = rep.entity_.columns();
-  rep.column_infos_.clear();
-  rep.column_infos_.reserve(columns.size());
+  rep.columns_.clear();
+  rep.columns_.reserve(columns.size());
   for (size_t i = 0; i < columns.size(); ++i) {
-    LazyWideColumns::Rep::ColumnInfo info;
-    info.name = columns[i].name();
     const BlobIndex* blob_index =
         blob_resolver_util::FindBlobColumn(&rep.blob_columns_, i);
+    const char* inline_data = nullptr;
+    std::optional<uint64_t> size;
     if (blob_index == nullptr) {
-      // Inline column: bytes available with no I/O.
-      info.is_reference = false;
-      info.inline_value = columns[i].value();
-      info.logical_size_known = true;
-      info.logical_size = columns[i].value().size();
-      info.compression = kNoCompression;
-    } else {
-      info.is_reference = true;
-      if (blob_index->IsInlined()) {
-        // TTL-inlined blob: value lives in the index; no I/O and size known.
-        info.logical_size_known = true;
-        info.logical_size = blob_index->value().size();
-        info.compression = kNoCompression;
-      } else {
-        info.compression = blob_index->compression();
-        if (blob_index->compression() == kNoCompression) {
-          // Uncompressed: on-disk size equals logical size.
-          info.logical_size_known = true;
-          info.logical_size = blob_index->size();
-        } else {
-          // Compressed: BlobIndex records on-disk (compressed) size only.
-          info.logical_size_known = false;
-          info.logical_size = 0;
-        }
-      }
+      // Inline column: bytes available with no I/O. Slice guarantees a non-null
+      // data(), so a non-null inline_data marks this as inline (not a
+      // reference) even for an empty value.
+      inline_data = columns[i].value().data();
+      size = columns[i].value().size();
+    } else if (blob_index->IsInlined()) {
+      // TTL-inlined blob: an unresolved reference whose logical size is known
+      // (the value lives in the index).
+      size = blob_index->value().size();
+    } else if (blob_index->compression() == kNoCompression) {
+      // Uncompressed reference: on-disk size equals logical size.
+      size = blob_index->size();
     }
-    rep.column_infos_.push_back(info);
+    // else: compressed reference -- logical size unknown until resolved.
+    rep.columns_.emplace_back(&rep, i, columns[i].name(), inline_data, size);
   }
 
   // Take ownership of the SuperVersion pin and stand up the resolver bound to
@@ -379,6 +371,21 @@ void LazyWideColumnsHelper::InitBatch(LazyWideColumnsBatch* batch,
   }
   batch->rep_->entities.clear();
   batch->rep_->entities.resize(num_entities);
+}
+
+void LazyWideColumnsHelper::FinalizeBatch(LazyWideColumnsBatch* batch) {
+  assert(batch);
+  if (!batch->rep_) {
+    return;
+  }
+  // Link each populated entity to this batch (by the batch Rep's stable
+  // identity) so batch reads can validate that a column belongs to this batch.
+  const void* batch_rep = batch->rep_.get();
+  for (LazyWideColumns& entity : batch->rep_->entities) {
+    if (entity.rep_) {
+      entity.rep_->owning_batch_rep_ = batch_rep;
+    }
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

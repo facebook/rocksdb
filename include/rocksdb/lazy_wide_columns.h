@@ -12,15 +12,16 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <utility>
+#include <optional>
+#include <vector>
 
-#include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+class LazyWideColumn;
 class LazyWideColumnsHelper;
 
 // Sentinel `length` for a column read: read from `offset` to the end of the
@@ -30,16 +31,21 @@ inline constexpr size_t kLazyWholeColumn = std::numeric_limits<size_t>::max();
 // EXPERIMENTAL and subject to change
 //
 // A single byte-range read against one column of a LazyWideColumns result, used
-// by LazyWideColumns::MultiResolve (and its GetColumn/GetColumnRange sugar).
+// by both LazyWideColumns::MultiResolve and LazyWideColumnsBatch::MultiResolve
+// (and the ResolveColumn/ResolveColumnRange sugar).
 //
-// `result` and `status` are effectively out-params, filled by the resolve call,
-// so both pointed-to objects must outlive that call. Zero-copy: on success
-// `*result` is a view into a stable backing buffer owned by the
+// `column` names the target column, obtained from the result via operator[] or
+// iteration. Because a column identifies its owning result, a batch resolve
+// routes each read to the right entity and both resolves reject a column that
+// does not belong to the target (InvalidArgument) -- there are no untyped
+// indices to mix up. `result` and `status` are out-params filled by the resolve
+// call, so both pointed-to objects must outlive it. Zero-copy: on success
+// `*result` is a view into a stable backing buffer owned by the owning
 // LazyWideColumns.
 struct LazyColumnReadRequest {
-  // Which column of the target LazyWideColumns to read (index into the in-order
-  // column set; see LazyWideColumns::num_columns()).
-  size_t column_index = 0;
+  // The column to read (from the target result's operator[] / iteration). Must
+  // belong to the result being resolved.
+  const LazyWideColumn* column = nullptr;
 
   // Starting byte offset within the column's logical value. An offset at or
   // past the end of the value yields an empty result (not an error). A nonzero
@@ -74,11 +80,55 @@ struct LazyColumnReadRequest {
   // Output: on OK status, a zero-copy view of the requested bytes.
   PinnableSlice* result = nullptr;
 
-  // Output: per-request status. InvalidArgument for an out-of-range
-  // column_index; Incomplete for a cache miss when the originating
-  // GetEntityLazy()/MultiGetEntityLazy() call used ReadTier::kBlockCacheTier;
-  // otherwise the I/O status of the (possibly partial) read.
+  // Output: per-request status. InvalidArgument for a null `column` or one that
+  // does not belong to the target result; Incomplete for a cache miss when the
+  // originating GetEntityLazy()/MultiGetEntityLazy() call used
+  // ReadTier::kBlockCacheTier; otherwise the I/O status of the (possibly
+  // partial) read.
   Status* status = nullptr;
+};
+
+// EXPERIMENTAL and subject to change
+//
+// One column of a LazyWideColumns result (the lazy analogue of WideColumn): its
+// name, its inline bytes when materialized, and its logical size when known
+// without I/O. A blob-backed column that has not been resolved is a
+// "reference": it has no inline_value(); resolve it by naming it in a
+// LazyColumnReadRequest passed to the owning result's read APIs. Accessors
+// return references to this base; the implementation extends it internally.
+class LazyWideColumn {
+ public:
+  const Slice& name() const { return name_; }
+
+  // Position of this column within its owning LazyWideColumns.
+  size_t index() const { return index_; }
+
+  // The column's inline bytes, or no value if this is an unresolved blob
+  // reference. Equivalent: is_reference() == !inline_value().has_value().
+  OptSlice inline_value() const {
+    return inline_data_ == nullptr ? OptSlice()
+                                   : OptSlice(Slice(inline_data_, *size_));
+  }
+  bool is_reference() const { return inline_data_ == nullptr; }
+
+  // The column's logical (post-decompression) size in bytes when known without
+  // I/O: always for inline columns and uncompressed references, empty for
+  // compressed references.
+  std::optional<uint64_t> logical_size() const { return size_; }
+
+ protected:
+  LazyWideColumn() = default;
+
+  Slice name_;
+  // Points at the inline bytes (length is `*size_`), or null when this column
+  // is an unresolved blob reference. Non-null even for an empty inline value
+  // (Slice guarantees a non-null data()).
+  const char* inline_data_ = nullptr;
+  // Logical size when known (see logical_size()); also the inline value length
+  // when inline_data_ is non-null.
+  std::optional<uint64_t> size_;
+  // Position within the owning result.
+  size_t index_ = 0;
 };
 
 // EXPERIMENTAL and subject to change
@@ -115,39 +165,38 @@ class LazyWideColumns {
   LazyWideColumns(LazyWideColumns&&) noexcept;
   LazyWideColumns& operator=(LazyWideColumns&&) noexcept;
 
-  // ---- Enumeration (no I/O) ----
-  // Columns are presented in sorted (by name) order, matching GetEntity. All of
-  // the accessors below require column_index < num_columns().
+  // ---- Columns (enumeration; no I/O) ----
+  //
+  // Indexable and iterable like a vector of LazyWideColumn, in sorted (by name)
+  // order (matching GetEntity). A column's position is its index(); pass the
+  // column itself (not an index) to the resolution APIs below.
+  size_t size() const;
+  bool empty() const { return size() == 0; }
 
-  // Number of columns in the entity.
-  size_t num_columns() const;
+  // The column at `i` (requires i < size()). The reference is valid until this
+  // result is moved, Reset(), or destroyed.
+  const LazyWideColumn& operator[](size_t i) const;
 
-  // Name of the column at `column_index`.
-  const Slice& name(size_t column_index) const;
+  // Read-only forward iteration over the columns.
+  class Iterator {
+   public:
+    Iterator(const LazyWideColumns* owner, size_t pos)
+        : owner_(owner), pos_(pos) {}
+    const LazyWideColumn& operator*() const { return (*owner_)[pos_]; }
+    const LazyWideColumn* operator->() const { return &(*owner_)[pos_]; }
+    Iterator& operator++() {
+      ++pos_;
+      return *this;
+    }
+    bool operator==(const Iterator& other) const { return pos_ == other.pos_; }
+    bool operator!=(const Iterator& other) const { return pos_ != other.pos_; }
 
-  // True if the column is stored as a blob reference, false if it is an inline
-  // column whose bytes are already available via inline_value(). This reflects
-  // how the column is stored and does NOT change when the column is later
-  // resolved: resolved bytes come from the read APIs below (which cache them),
-  // never from inline_value().
-  bool is_reference(size_t column_index) const;
-
-  // Whether the column's exact logical size is known without any I/O. True for
-  // inline columns and for uncompressed blob references; false for compressed
-  // blob references (BlobIndex records on-disk size, not logical size).
-  bool logical_size_known(size_t column_index) const;
-
-  // The column's logical (post-decompression) size in bytes. Only meaningful
-  // when logical_size_known(column_index) is true.
-  uint64_t logical_size(size_t column_index) const;
-
-  // The compression used for a blob-referenced column (kNoCompression for
-  // inline columns).
-  CompressionType compression(size_t column_index) const;
-
-  // Zero-copy view of an inline column's value. Valid only when
-  // !is_reference(column_index); resolve references via the read APIs below.
-  const Slice& inline_value(size_t column_index) const;
+   private:
+    const LazyWideColumns* owner_;
+    size_t pos_;
+  };
+  Iterator begin() const { return Iterator(this, 0); }
+  Iterator end() const { return Iterator(this, size()); }
 
   // ---- Resolution: batch-first, async-ready ----
   //
@@ -173,16 +222,21 @@ class LazyWideColumns {
   // outcomes are in each request's `status`).
   Status MultiResolve(size_t num_reads, LazyColumnReadRequest* reads);
 
+  // Sugar over the pointer+count form for a std::vector of reads.
+  Status MultiResolve(std::vector<LazyColumnReadRequest>& reads) {
+    return MultiResolve(reads.size(), reads.data());
+  }
+
   // ---- Per-column convenience (sugar over a one-entry batch) ----
 
   // Resolve a single byte range [offset, offset+length) of one column.
   // Equivalent to a one-entry MultiResolve; prefer MultiResolve when pulling
   // several ranges so they can be coalesced.
-  Status GetColumnRange(size_t column_index, uint64_t offset, size_t length,
-                        PinnableSlice* result);
+  Status ResolveColumnRange(const LazyWideColumn& column, uint64_t offset,
+                            size_t length, PinnableSlice* result);
 
   // Resolve a whole column (offset 0, kLazyWholeColumn).
-  Status GetColumn(size_t column_index, PinnableSlice* result);
+  Status ResolveColumn(const LazyWideColumn& column, PinnableSlice* result);
 
   // Release all buffers and (for a standalone result) the pin.
   void Reset();
@@ -203,10 +257,10 @@ class LazyWideColumns {
 // A batch of lazy wide-column results produced by one MultiGetEntityLazy call.
 //
 // The batch owns the pin(s) that keep its entities resolvable and holds the N
-// per-key results. Cross-key resolution is a method on this batch, and each of
-// its reads names its target entity by index into the batch, so a read always
-// resolves through its owning entity and cannot mix results from a different
-// batch.
+// per-key results (indexable/iterable like a vector of LazyWideColumns).
+// Cross-key resolution is a method on this batch; each read names its target
+// column (which identifies its owning entity), so a read always resolves
+// through its owning entity and cannot mix results from a different batch.
 //
 // Move-only, like LazyWideColumns. The contained entities are valid only while
 // the batch is alive; destroy the batch promptly to release the pin(s).
@@ -221,25 +275,49 @@ class LazyWideColumnsBatch {
   LazyWideColumnsBatch(LazyWideColumnsBatch&&) noexcept;
   LazyWideColumnsBatch& operator=(LazyWideColumnsBatch&&) noexcept;
 
-  // Number of per-key results (matches the num_keys passed to
+  // Vector-like access to the per-key results (in the key order passed to
   // MultiGetEntityLazy). Entities whose corresponding status was not OK are
-  // present but empty.
-  size_t num_entities() const;
+  // present but empty. References are valid until the batch is moved, Reset(),
+  // or destroyed.
+  size_t size() const;
+  bool empty() const { return size() == 0; }
+  const LazyWideColumns& operator[](size_t i) const;
+  LazyWideColumns& operator[](size_t i);
 
-  // The per-key result at `entity_index` (< num_entities()). The returned
-  // reference is valid until the batch is moved, Reset(), or destroyed.
-  const LazyWideColumns& entity(size_t entity_index) const;
-  LazyWideColumns& entity(size_t entity_index);
+  // Read-only forward iteration over the per-key results.
+  class Iterator {
+   public:
+    Iterator(const LazyWideColumnsBatch* owner, size_t pos)
+        : owner_(owner), pos_(pos) {}
+    const LazyWideColumns& operator*() const { return (*owner_)[pos_]; }
+    const LazyWideColumns* operator->() const { return &(*owner_)[pos_]; }
+    Iterator& operator++() {
+      ++pos_;
+      return *this;
+    }
+    bool operator==(const Iterator& other) const { return pos_ == other.pos_; }
+    bool operator!=(const Iterator& other) const { return pos_ != other.pos_; }
+
+   private:
+    const LazyWideColumnsBatch* owner_;
+    size_t pos_;
+  };
+  Iterator begin() const { return Iterator(this, 0); }
+  Iterator end() const { return Iterator(this, size()); }
 
   // Cross-key batch resolution: resolve a set of byte-range reads that may span
-  // any entities in this batch, in one call. Each read is a
-  // std::pair<size_t, LazyColumnReadRequest>: `first` is the target entity's
-  // index (< num_entities()) and `second` is the read. This is the cross-key
-  // analogue of LazyWideColumns::MultiResolve. Per-read outcomes are reported
-  // in each request's `status`; the returned Status is OK if the batch was
-  // dispatched.
-  Status MultiResolve(size_t num_reads,
-                      std::pair<size_t, LazyColumnReadRequest>* reads);
+  // any entities in this batch, in one call, using the same
+  // LazyColumnReadRequest as LazyWideColumns::MultiResolve. Each read's
+  // `column` names its target entity (which must belong to this batch); a
+  // foreign or null column yields InvalidArgument on that read. Per-read
+  // outcomes are reported in each request's `status`; the returned Status is OK
+  // if the batch was dispatched.
+  Status MultiResolve(size_t num_reads, LazyColumnReadRequest* reads);
+
+  // Sugar over the pointer+count form for a std::vector of reads.
+  Status MultiResolve(std::vector<LazyColumnReadRequest>& reads) {
+    return MultiResolve(reads.size(), reads.data());
+  }
 
   // Release all entities and the pin(s).
   void Reset();

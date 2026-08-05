@@ -2864,9 +2864,12 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
   }
 
   for (size_t i = 0; i < num_keys; ++i) {
-    statuses[i] = GetEntityLazyImpl(read_options, column_family, keys[i],
-                                    &result->entity(i));
+    statuses[i] =
+        GetEntityLazyImpl(read_options, column_family, keys[i], &(*result)[i]);
   }
+  // Link the populated entities back to the batch so batch reads can validate
+  // column ownership.
+  LazyWideColumnsHelper::FinalizeBatch(result);
 
   if (own_snapshot) {
     ReleaseSnapshot(snapshot);

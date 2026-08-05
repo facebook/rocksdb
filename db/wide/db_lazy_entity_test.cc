@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "db/db_test_util.h"
 #include "db/wide/wide_column_test_util.h"
@@ -71,25 +72,24 @@ TEST_F(DBLazyEntityTest, EnumerateColumnsWithoutResolvingBlobs) {
   ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
                                &lazy));
 
-  ASSERT_EQ(lazy.num_columns(), 3U);
+  ASSERT_EQ(lazy.size(), 3U);
 
   // Column 0: the inline default column -- bytes available with no I/O.
-  ASSERT_EQ(lazy.name(0), kDefaultWideColumnName);
-  ASSERT_FALSE(lazy.is_reference(0));
-  ASSERT_EQ(lazy.inline_value(0), small);
+  ASSERT_EQ(lazy[0].name(), kDefaultWideColumnName);
+  ASSERT_FALSE(lazy[0].is_reference());
+  ASSERT_EQ(*lazy[0].inline_value(), small);
 
   // Columns 1 and 2: unresolved blob references with known logical sizes
   // (uncompressed), reported without reading the blob payloads.
-  ASSERT_EQ(lazy.name(1), "attr1");
-  ASSERT_TRUE(lazy.is_reference(1));
-  ASSERT_TRUE(lazy.logical_size_known(1));
-  ASSERT_EQ(lazy.logical_size(1), big1.size());
-  ASSERT_EQ(lazy.compression(1), kNoCompression);
+  ASSERT_EQ(lazy[1].name(), "attr1");
+  ASSERT_TRUE(lazy[1].is_reference());
+  ASSERT_TRUE(lazy[1].logical_size().has_value());
+  ASSERT_EQ(*lazy[1].logical_size(), big1.size());
 
-  ASSERT_EQ(lazy.name(2), "attr2");
-  ASSERT_TRUE(lazy.is_reference(2));
-  ASSERT_TRUE(lazy.logical_size_known(2));
-  ASSERT_EQ(lazy.logical_size(2), big2.size());
+  ASSERT_EQ(lazy[2].name(), "attr2");
+  ASSERT_TRUE(lazy[2].is_reference());
+  ASSERT_TRUE(lazy[2].logical_size().has_value());
+  ASSERT_EQ(*lazy[2].logical_size(), big2.size());
 
   // Nothing was pulled, so no blob payload was read.
   ASSERT_EQ(BlobBytesRead(options), 0U);
@@ -119,14 +119,14 @@ TEST_F(DBLazyEntityTest, ResolveSingleColumnRange) {
 
   // Read the 50 bytes at offset 100 of the "data" column (index 1).
   PinnableSlice range;
-  ASSERT_OK(lazy.GetColumnRange(/*column_index=*/1, /*offset=*/100,
-                                /*length=*/50, &range));
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/100,
+                                    /*length=*/50, &range));
   ASSERT_EQ(range, Slice(big).ToString().substr(100, 50));
 
   // An offset at/past the end clamps to empty (not an error).
   PinnableSlice past_end;
-  ASSERT_OK(lazy.GetColumnRange(/*column_index=*/1, /*offset=*/big.size(),
-                                /*length=*/10, &past_end));
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/big.size(),
+                                    /*length=*/10, &past_end));
   ASSERT_TRUE(past_end.empty());
 }
 
@@ -158,16 +158,16 @@ TEST_F(DBLazyEntityTest, MultiResolveResolvesManyBlobsInOneCall) {
   // single call. Each read points at its own result/status out-params.
   std::array<PinnableSlice, 3> results;
   std::array<Status, 3> statuses;
-  std::array<LazyColumnReadRequest, 3> reads;
+  std::vector<LazyColumnReadRequest> reads(3);
   for (size_t i = 0; i < reads.size(); ++i) {
-    reads[i].column_index = i + 1;  // columns 1..3 are the blob columns
+    reads[i].column = &lazy[i + 1];  // columns 1..3 are the blob columns
     reads[i].offset = 0;
     reads[i].length = kLazyWholeColumn;
     reads[i].result = &results[i];
     reads[i].status = &statuses[i];
   }
 
-  ASSERT_OK(lazy.MultiResolve(reads.size(), reads.data()));
+  ASSERT_OK(lazy.MultiResolve(reads));  // std::vector sugar overload
 
   ASSERT_OK(statuses[0]);
   ASSERT_EQ(results[0], v1);
@@ -203,17 +203,18 @@ TEST_F(DBLazyEntityTest, MultiResolveMixesRangesAndColumns) {
   std::array<Status, 3> statuses;
   std::array<LazyColumnReadRequest, 3> reads;
 
-  reads[0] = LazyColumnReadRequest{
-      /*column_index=*/1, /*offset=*/0,
-      /*length=*/50,      /*force_verify=*/false,
-      &results[0],        &statuses[0]};
-  reads[1] = LazyColumnReadRequest{
-      /*column_index=*/1, /*offset=*/300,
-      /*length=*/100,     /*force_verify=*/false,
-      &results[1],        &statuses[1]};
-  reads[2] = LazyColumnReadRequest{
-      /*column_index=*/2,     /*offset=*/0, kLazyWholeColumn,
-      /*force_verify=*/false, &results[2],  &statuses[2]};
+  reads[0] = LazyColumnReadRequest{&lazy[1],      /*offset=*/0,
+                                   /*length=*/50, /*force_verify=*/false,
+                                   &results[0],   &statuses[0]};
+  reads[1] = LazyColumnReadRequest{&lazy[1],       /*offset=*/300,
+                                   /*length=*/100, /*force_verify=*/false,
+                                   &results[1],    &statuses[1]};
+  reads[2] = LazyColumnReadRequest{&lazy[2],
+                                   /*offset=*/0,
+                                   kLazyWholeColumn,
+                                   /*force_verify=*/false,
+                                   &results[2],
+                                   &statuses[2]};
 
   ASSERT_OK(lazy.MultiResolve(reads.size(), reads.data()));
 
@@ -255,21 +256,20 @@ TEST_F(DBLazyEntityTest, BatchResolveAcrossKeysInOneCall) {
                           get_statuses.data());
   ASSERT_OK(get_statuses[0]);
   ASSERT_OK(get_statuses[1]);
-  ASSERT_EQ(batch.num_entities(), 2U);
+  ASSERT_EQ(batch.size(), 2U);
 
   // No blobs read yet -- only inline columns + references were materialized.
   ASSERT_EQ(BlobBytesRead(options), 0U);
 
   // One batch resolves the "data" blob column of both keys together. Each read
-  // is paired with its target entity's index in the batch.
+  // names its target column, which identifies the owning entity.
   std::array<PinnableSlice, 2> results;
   std::array<Status, 2> statuses;
-  std::array<std::pair<size_t, LazyColumnReadRequest>, 2> reads;
+  std::array<LazyColumnReadRequest, 2> reads;
   for (size_t i = 0; i < reads.size(); ++i) {
-    reads[i].first = i;
-    reads[i].second.column_index = 1;  // "data"
-    reads[i].second.result = &results[i];
-    reads[i].second.status = &statuses[i];
+    reads[i].column = &batch[i][1];  // "data" column of entity i
+    reads[i].result = &results[i];
+    reads[i].status = &statuses[i];
   }
 
   ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
@@ -306,7 +306,7 @@ TEST_F(DBLazyEntityTest, ResultOutlivesGetEntityLazyCall) {
   }
 
   PinnableSlice value;
-  ASSERT_OK(moved.GetColumn(/*column_index=*/1, &value));
+  ASSERT_OK(moved.ResolveColumn(moved[1], &value));
   ASSERT_EQ(value, big);
 }
 
@@ -333,7 +333,7 @@ TEST_F(DBLazyEntityTest, UnpulledColumnsAreNeverRead) {
 
   // Sorted order: ["", "unwanted", "wanted"] -> pull only index 2.
   PinnableSlice value;
-  ASSERT_OK(lazy.GetColumn(/*column_index=*/2, &value));
+  ASSERT_OK(lazy.ResolveColumn(lazy[2], &value));
   ASSERT_EQ(value, wanted);
 
   // Only ~200 bytes (the "wanted" blob) should have been read, never the 5000
@@ -394,12 +394,14 @@ TEST_F(DBLazyEntityTest, BlockCacheTierYieldsIncompleteOnMiss) {
                                key, &lazy));
 
   PinnableSlice value;
-  const Status s = lazy.GetColumn(/*column_index=*/1, &value);
+  const Status s = lazy.ResolveColumn(lazy[1], &value);
   ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
 }
 
-// Out-of-range column index is an InvalidArgument on the per-read status.
-TEST_F(DBLazyEntityTest, OutOfRangeColumnIndexIsInvalidArgument) {
+// A column that belongs to a different result is rejected with InvalidArgument
+// on the per-read status (columns identify their owning result, so there is no
+// untyped index to run out of range).
+TEST_F(DBLazyEntityTest, ForeignColumnIsInvalidArgument) {
   Options options = GetLazyTestOptions();
   DestroyAndReopen(options);
 
@@ -413,10 +415,71 @@ TEST_F(DBLazyEntityTest, OutOfRangeColumnIndexIsInvalidArgument) {
   LazyWideColumns lazy;
   ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
                                &lazy));
+  LazyWideColumns other;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &other));
 
+  // Resolving `other`'s column through `lazy` is rejected.
   PinnableSlice value;
-  const Status s = lazy.GetColumn(/*column_index=*/99, &value);
+  const Status s = lazy.ResolveColumn(other[0], &value);
   ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+
+  // A null column is likewise rejected, reported on the per-read status.
+  PinnableSlice null_value;
+  Status null_status;
+  LazyColumnReadRequest read;
+  read.column = nullptr;
+  read.result = &null_value;
+  read.status = &null_status;
+  ASSERT_OK(lazy.MultiResolve(/*num_reads=*/1, &read));
+  ASSERT_TRUE(null_status.IsInvalidArgument()) << null_status.ToString();
+}
+
+// LazyWideColumnsBatch::MultiResolve rejects a null column and a column that
+// belongs to a different result (not this batch), each on its per-read status,
+// while still resolving the valid reads in the same call.
+TEST_F(DBLazyEntityTest, BatchRejectsForeignAndNullColumns) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(200, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  const std::array<Slice, 1> keys{Slice(key)};
+  LazyWideColumnsBatch batch;
+  std::array<Status, 1> get_statuses;
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
+                          keys.size(), keys.data(), &batch,
+                          get_statuses.data());
+  ASSERT_OK(get_statuses[0]);
+
+  // A standalone result whose column does not belong to this batch.
+  LazyWideColumns standalone;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &standalone));
+
+  PinnableSlice v_null, v_foreign, v_ok;
+  Status s_null, s_foreign, s_ok;
+  std::vector<LazyColumnReadRequest> reads(3);
+  reads[0].column = nullptr;  // null
+  reads[0].result = &v_null;
+  reads[0].status = &s_null;
+  reads[1].column = &standalone[1];  // foreign: belongs to `standalone`
+  reads[1].result = &v_foreign;
+  reads[1].status = &s_foreign;
+  reads[2].column = &batch[0][1];  // valid: "data" of this batch's entity
+  reads[2].result = &v_ok;
+  reads[2].status = &s_ok;
+
+  ASSERT_OK(batch.MultiResolve(reads));  // std::vector sugar overload
+  ASSERT_TRUE(s_null.IsInvalidArgument()) << s_null.ToString();
+  ASSERT_TRUE(s_foreign.IsInvalidArgument()) << s_foreign.ToString();
+  ASSERT_OK(s_ok);
+  ASSERT_EQ(Slice(v_ok), big);
 }
 
 // Wide-column entities do not support user-defined timestamps: PutEntity()
@@ -467,12 +530,12 @@ TEST_F(DBLazyEntityTest, UserTimestampParityWithGetEntity) {
 
   LazyWideColumns lazy;
   ASSERT_OK(db_->GetEntityLazy(read_opts, cfh, key, &lazy));
-  ASSERT_EQ(lazy.num_columns(), eager.columns().size());
-  ASSERT_EQ(lazy.num_columns(), 1U);
-  ASSERT_EQ(lazy.name(0), kDefaultWideColumnName);
+  ASSERT_EQ(lazy.size(), eager.columns().size());
+  ASSERT_EQ(lazy.size(), 1U);
+  ASSERT_EQ(lazy[0].name(), kDefaultWideColumnName);
 
   PinnableSlice value;
-  ASSERT_OK(lazy.GetColumn(/*column_index=*/0, &value));
+  ASSERT_OK(lazy.ResolveColumn(lazy[0], &value));
   ASSERT_EQ(Slice(value), eager.columns()[0].value());
   ASSERT_EQ(Slice(value), "plain");
 }
@@ -513,14 +576,14 @@ TEST_F(DBLazyEntityTest, StackableDBForwardsLazyReads) {
   {
     LazyWideColumns lazy;
     ASSERT_OK(txn_db->GetEntityLazy(ReadOptions(), cfh, key, &lazy));
-    ASSERT_EQ(lazy.num_columns(), 2U);
+    ASSERT_EQ(lazy.size(), 2U);
 
     PinnableSlice default_value;
-    ASSERT_OK(lazy.GetColumn(/*column_index=*/0, &default_value));
+    ASSERT_OK(lazy.ResolveColumn(lazy[0], &default_value));
     ASSERT_EQ(Slice(default_value), small);
 
     PinnableSlice attr_value;
-    ASSERT_OK(lazy.GetColumn(/*column_index=*/1, &attr_value));
+    ASSERT_OK(lazy.ResolveColumn(lazy[1], &attr_value));
     ASSERT_EQ(Slice(attr_value), big);
   }
 
@@ -533,11 +596,11 @@ TEST_F(DBLazyEntityTest, StackableDBForwardsLazyReads) {
                                &batch, statuses.data(),
                                /*sorted_input=*/false);
     ASSERT_OK(statuses[0]);
-    ASSERT_EQ(batch.num_entities(), 1U);
-    ASSERT_EQ(batch.entity(0).num_columns(), 2U);
+    ASSERT_EQ(batch.size(), 1U);
+    ASSERT_EQ(batch[0].size(), 2U);
 
     PinnableSlice attr_value;
-    ASSERT_OK(batch.entity(0).GetColumn(/*column_index=*/1, &attr_value));
+    ASSERT_OK(batch[0].ResolveColumn(batch[0][1], &attr_value));
     ASSERT_EQ(Slice(attr_value), big);
   }
 }
@@ -566,17 +629,17 @@ TEST_F(DBLazyEntityTest, ReadOnlyInstance) {
   LazyWideColumns lazy;
   ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
                                &lazy));
-  ASSERT_EQ(lazy.num_columns(), 2U);
-  ASSERT_FALSE(lazy.is_reference(0));
-  ASSERT_EQ(lazy.inline_value(0), small);
-  ASSERT_TRUE(lazy.is_reference(1));
-  ASSERT_EQ(lazy.name(1), "data");
+  ASSERT_EQ(lazy.size(), 2U);
+  ASSERT_FALSE(lazy[0].is_reference());
+  ASSERT_EQ(*lazy[0].inline_value(), small);
+  ASSERT_TRUE(lazy[1].is_reference());
+  ASSERT_EQ(lazy[1].name(), "data");
 
   // Enumeration alone reads no blob bytes.
   ASSERT_EQ(BlobBytesRead(options), 0U);
 
   PinnableSlice value;
-  ASSERT_OK(lazy.GetColumn(/*column_index=*/1, &value));
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &value));
   ASSERT_EQ(Slice(value), big);
   ASSERT_GT(BlobBytesRead(options), 0U);
 }
@@ -605,12 +668,12 @@ TEST_F(DBLazyEntityTest, SecondaryInstance) {
   LazyWideColumns lazy;
   ASSERT_OK(secondary->GetEntityLazy(
       ReadOptions(), secondary->DefaultColumnFamily(), key, &lazy));
-  ASSERT_EQ(lazy.num_columns(), 2U);
-  ASSERT_TRUE(lazy.is_reference(1));
+  ASSERT_EQ(lazy.size(), 2U);
+  ASSERT_TRUE(lazy[1].is_reference());
   ASSERT_EQ(BlobBytesRead(options), 0U);
 
   PinnableSlice value;
-  ASSERT_OK(lazy.GetColumn(/*column_index=*/1, &value));
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &value));
   ASSERT_EQ(Slice(value), big);
 }
 

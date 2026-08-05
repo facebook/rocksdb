@@ -547,12 +547,12 @@ void StressTest::MaybeTestMultiGetEntityLazy(
 
   SharedState* const shared = thread->shared;
 
-  if (batch.num_entities() != num_keys) {
+  if (batch.size() != num_keys) {
     if (verify) {
       shared->SetVerificationFailure();
       fprintf(stderr,
               "MultiGetEntityLazy returned %zu entities, expected %zu\n",
-              batch.num_entities(), num_keys);
+              batch.size(), num_keys);
     }
     return;
   }
@@ -638,7 +638,7 @@ void StressTest::MaybeTestMultiGetEntityLazy(
     }
 
     // Lazy read found this entity.
-    const LazyWideColumns& entity = batch.entity(i);
+    const LazyWideColumns& entity = batch[i];
     const WideColumns* reference =
         (presence == EagerPresence::kFound) ? eager_columns(i) : nullptr;
     if (!CheckLazyEntityEnumeration(thread, keys[i].ToString(), reference,
@@ -646,7 +646,7 @@ void StressTest::MaybeTestMultiGetEntityLazy(
       continue;
     }
     entity_ref[i] = reference;
-    const size_t num_columns = entity.num_columns();
+    const size_t num_columns = entity.size();
     for (size_t c = 0; c < num_columns; ++c) {
       if (thread->rand.OneIn(2)) {
         chosen.emplace_back(i, c);
@@ -661,17 +661,16 @@ void StressTest::MaybeTestMultiGetEntityLazy(
   // Reserve up front so the out-param pointers stored in `reads` stay valid.
   std::vector<PinnableSlice> results(chosen.size());
   std::vector<Status> statuses(chosen.size());
-  std::vector<std::pair<size_t, LazyColumnReadRequest>> reads(chosen.size());
+  std::vector<LazyColumnReadRequest> reads(chosen.size());
   for (size_t j = 0; j < chosen.size(); ++j) {
-    reads[j].first = chosen[j].first;
-    reads[j].second.column_index = chosen[j].second;
-    reads[j].second.offset = 0;
-    reads[j].second.length = kLazyWholeColumn;
-    reads[j].second.result = &results[j];
-    reads[j].second.status = &statuses[j];
+    reads[j].column = &batch[chosen[j].first][chosen[j].second];
+    reads[j].offset = 0;
+    reads[j].length = kLazyWholeColumn;
+    reads[j].result = &results[j];
+    reads[j].status = &statuses[j];
   }
 
-  const Status ms = batch.MultiResolve(reads.size(), reads.data());
+  const Status ms = batch.MultiResolve(reads);
   if (!ms.ok()) {
     if (verify && !IsErrorInjectedAndRetryable(ms)) {
       shared->SetVerificationFailure();
@@ -714,7 +713,7 @@ bool StressTest::CheckLazyEntityEnumeration(ThreadState* thread,
                                             const std::string& key,
                                             const WideColumns* reference,
                                             const LazyWideColumns& lazy) const {
-  const size_t num_columns = lazy.num_columns();
+  const size_t num_columns = lazy.size();
   if (reference && num_columns != reference->size()) {
     thread->shared->SetVerificationFailure();
     fprintf(stderr,
@@ -727,13 +726,12 @@ bool StressTest::CheckLazyEntityEnumeration(ThreadState* thread,
     if (reference == nullptr) {
       // Exercise the no-I/O enumeration accessors for crash coverage even when
       // there is nothing to compare against.
-      lazy.name(c);
-      if (lazy.logical_size_known(c)) {
-        lazy.logical_size(c);
-      }
+      const LazyWideColumn& col = lazy[c];
+      col.name();
+      col.logical_size();
       continue;
     }
-    if (lazy.name(c) != (*reference)[c].name()) {
+    if (lazy[c].name() != (*reference)[c].name()) {
       thread->shared->SetVerificationFailure();
       fprintf(stderr, "GetEntityLazy column name mismatch for key %s at %zu\n",
               StringToHex(key).c_str(), c);
@@ -741,13 +739,13 @@ bool StressTest::CheckLazyEntityEnumeration(ThreadState* thread,
     }
     // Logical size is known (and must be exact) for inline and uncompressed
     // blob columns; unknown for compressed blob columns (skip those).
-    if (lazy.logical_size_known(c) &&
-        lazy.logical_size(c) != (*reference)[c].value().size()) {
+    if (lazy[c].logical_size().has_value() &&
+        *lazy[c].logical_size() != (*reference)[c].value().size()) {
       thread->shared->SetVerificationFailure();
       fprintf(stderr,
               "GetEntityLazy logical size mismatch for key %s column %zu: lazy "
               "%" PRIu64 ", reference %zu\n",
-              StringToHex(key).c_str(), c, lazy.logical_size(c),
+              StringToHex(key).c_str(), c, *lazy[c].logical_size(),
               (*reference)[c].value().size());
       return false;
     }
@@ -766,7 +764,7 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   // MultiResolve call. This exercises the resolver for crash coverage; when a
   // reference is available it also verifies the resolved bytes.
   std::vector<size_t> chosen;
-  const size_t num_columns = lazy.num_columns();
+  const size_t num_columns = lazy.size();
   for (size_t c = 0; c < num_columns; ++c) {
     if (thread->rand.OneIn(2)) {
       chosen.push_back(c);
@@ -780,7 +778,7 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   std::vector<Status> statuses(chosen.size());
   std::vector<LazyColumnReadRequest> reads(chosen.size());
   for (size_t j = 0; j < chosen.size(); ++j) {
-    reads[j].column_index = chosen[j];
+    reads[j].column = &lazy[chosen[j]];
     reads[j].offset = 0;
     reads[j].length = kLazyWholeColumn;
     reads[j].result = &results[j];
@@ -788,7 +786,7 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   }
 
   SharedState* const shared = thread->shared;
-  const Status ms = lazy.MultiResolve(reads.size(), reads.data());
+  const Status ms = lazy.MultiResolve(reads);
   if (!ms.ok()) {
     if (reference && !IsErrorInjectedAndRetryable(ms)) {
       shared->SetVerificationFailure();
