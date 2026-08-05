@@ -265,9 +265,15 @@ class StressTest {
   // reference here. Reports failures via thread->shared; tolerates
   // injected/retryable read errors. No-op if not triggered. Meant to be called
   // from the modes' TestGetEntity implementations.
+  //
+  // By default the read targets the primary `db_`. Pass `db` (with a `cfh` from
+  // that instance) to exercise a read-only or secondary instance instead; such
+  // a target has a stable view for the call (and secondary intentionally
+  // disallows snapshot reads), so it is read at latest with no pinned snapshot.
   void MaybeTestGetEntityLazy(ThreadState* thread, const ReadOptions& read_opts,
                               ColumnFamilyHandle* cfh, const Slice& key,
-                              const WideColumns* eager_reference = nullptr);
+                              const WideColumns* eager_reference = nullptr,
+                              DB* db = nullptr) const;
 
   // Per-key eager reference for the MultiGetEntityLazy differential below: the
   // caller's eager status for the key plus, when found, a pointer to its
@@ -300,14 +306,14 @@ class StressTest {
   // reference == nullptr).
   bool CheckLazyEntityEnumeration(ThreadState* thread, const std::string& key,
                                   const WideColumns* reference,
-                                  const LazyWideColumns& lazy);
+                                  const LazyWideColumns& lazy) const;
 
   // Resolves a random subset of `lazy`'s columns (possibly none) via
   // LazyWideColumns::MultiResolve to exercise the resolver; when `reference` is
   // non-null, also verifies the resolved bytes against it.
-  void ResolveLazyEntity(ThreadState* thread, const ReadOptions& read_opts,
-                         const std::string& key, const WideColumns* reference,
-                         LazyWideColumns& lazy);
+  void ResolveLazyEntity(ThreadState* thread, const std::string& key,
+                         const WideColumns* reference,
+                         LazyWideColumns& lazy) const;
 
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,

@@ -2546,6 +2546,17 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
   delete sv_handle;
 }
 
+void DBImpl::TransferSuperVersionPin(SuperVersion* super_version,
+                                     Cleanable* pin) {
+  assert(super_version != nullptr);
+  assert(pin != nullptr);
+  super_version->Ref();
+  SuperVersionHandle* sv_handle = new SuperVersionHandle(
+      this, &mutex_, super_version,
+      immutable_db_options_.avoid_unnecessary_blocking_io);
+  pin->RegisterCleanup(CleanupSuperVersionHandle, sv_handle, nullptr);
+}
+
 struct GetMergeOperandsState {
   GetMergeOperandsState(MergeContext _merge_context,
                         PinnedIteratorsManager _pinned_iters_mgr)
@@ -2793,6 +2804,9 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
                                 size_t num_keys, const Slice* keys,
                                 LazyWideColumnsBatch* result, Status* statuses,
                                 bool /* sorted_input */) {
+  if (num_keys == 0) {
+    return;
+  }
   Status arg_status;
   if (!column_family) {
     arg_status = Status::InvalidArgument(

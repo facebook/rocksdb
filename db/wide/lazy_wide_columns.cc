@@ -130,8 +130,7 @@ const Slice& LazyWideColumns::inline_value(size_t column_index) const {
   return rep_->column_infos_[column_index].inline_value;
 }
 
-Status LazyWideColumns::MultiResolve(const ReadOptions& /* read_options */,
-                                     size_t num_reads,
+Status LazyWideColumns::MultiResolve(size_t num_reads,
                                      LazyColumnReadRequest* reads) {
   const size_t num_cols = num_columns();
   for (size_t i = 0; i < num_reads; ++i) {
@@ -196,8 +195,7 @@ Status LazyWideColumns::MultiResolve(const ReadOptions& /* read_options */,
   return Status::OK();
 }
 
-Status LazyWideColumns::GetColumnRange(const ReadOptions& read_options,
-                                       size_t column_index, uint64_t offset,
+Status LazyWideColumns::GetColumnRange(size_t column_index, uint64_t offset,
                                        size_t length, PinnableSlice* result) {
   // Sugar over a one-entry batch, so the batch path is the single real,
   // optimizable (coalescing/async) code path.
@@ -209,15 +207,12 @@ Status LazyWideColumns::GetColumnRange(const ReadOptions& read_options,
   read.result = result;
   read.status = &status;
 
-  const Status batch_status =
-      MultiResolve(read_options, /*num_reads=*/1, &read);
+  const Status batch_status = MultiResolve(/*num_reads=*/1, &read);
   return batch_status.ok() ? status : batch_status;
 }
 
-Status LazyWideColumns::GetColumn(const ReadOptions& read_options,
-                                  size_t column_index, PinnableSlice* result) {
-  return GetColumnRange(read_options, column_index, /*offset=*/0,
-                        kLazyWholeColumn, result);
+Status LazyWideColumns::GetColumn(size_t column_index, PinnableSlice* result) {
+  return GetColumnRange(column_index, /*offset=*/0, kLazyWholeColumn, result);
 }
 
 void LazyWideColumns::Reset() { rep_.reset(); }
@@ -261,34 +256,26 @@ LazyWideColumns& LazyWideColumnsBatch::entity(size_t entity_index) {
   return rep_->entities[entity_index];
 }
 
-Status LazyWideColumnsBatch::MultiResolve(const ReadOptions& read_options,
-                                          size_t num_reads,
-                                          LazyBatchColumnReadRequest* reads) {
+Status LazyWideColumnsBatch::MultiResolve(
+    size_t num_reads, std::pair<size_t, LazyColumnReadRequest>* reads) {
   const size_t num_entities = rep_ ? rep_->entities.size() : 0;
   for (size_t i = 0; i < num_reads; ++i) {
-    LazyBatchColumnReadRequest& read = reads[i];
-    if (read.entity_index >= num_entities) {
+    const size_t entity_index = reads[i].first;
+    LazyColumnReadRequest& read = reads[i].second;
+    if (entity_index >= num_entities) {
       if (read.status) {
         *read.status =
             Status::InvalidArgument("Entity index out of range for batch read");
       }
       continue;
     }
-    // Route to the owning entity.
+    // Route the read to its owning entity.
     // TODO(lazy-blob-resolution-phase3): group reads per (CF, Version, blob
     // file) across entities and coalesce them; the request shape is unchanged.
-    LazyColumnReadRequest single;
-    single.column_index = read.column_index;
-    single.offset = read.offset;
-    single.length = read.length;
-    single.force_verify = read.force_verify;
-    single.result = read.result;
-    single.status = read.status;
-    // Per-read outcomes are reported via single.status (aliased to
-    // read.status); the return only signals a whole-batch failure. Surface that
-    // on this read.
-    const Status s = rep_->entities[read.entity_index].MultiResolve(
-        read_options, /*num_reads=*/1, &single);
+    const Status s =
+        rep_->entities[entity_index].MultiResolve(/*num_reads=*/1, &read);
+    // Per-read outcomes are reported via read.status; the return only signals a
+    // whole-batch failure. Surface that on this read.
     if (!s.ok() && read.status) {
       *read.status = s;
     }

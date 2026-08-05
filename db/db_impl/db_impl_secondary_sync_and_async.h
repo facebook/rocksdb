@@ -185,11 +185,22 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
              /*value_found*/ nullptr,
              /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
              /*is_blob*/ nullptr,
-             /*do_merge=*/get_impl_options.get_value);
+             /*do_merge=*/get_impl_options.get_value,
+             get_impl_options.lazy_columns_same_file_reader);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
     PERF_TIMER_GUARD(get_post_process_time);
+    if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
+      // Lazy result (GetEntityLazy): hand back the resolution Version and take
+      // a SuperVersion pin for the result before the borrowed reference below
+      // is released, so the result -- and deferred blob reads -- stay valid
+      // after this call (as an iterator's pin does).
+      if (get_impl_options.lazy_columns_version != nullptr) {
+        *get_impl_options.lazy_columns_version = super_version->current;
+      }
+      TransferSuperVersionPin(super_version, get_impl_options.lazy_columns_pin);
+    }
 #if defined(WITH_COROUTINES)
     CleanupSuperVersion(super_version);
 #else

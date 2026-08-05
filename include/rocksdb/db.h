@@ -732,8 +732,8 @@ class DB {
   // never pulled are never read from storage.
   //
   // Unlike GetEntity(), "*result" may be used after this call returns: it holds
-  // a pin on the SuperVersion (like an iterator) so deferred reads stay
-  // resolvable. Destroy it promptly to release that pin.
+  // a pin (like an iterator) so deferred reads stay resolvable. Destroy it
+  // promptly to release that pin.
   //
   // Requires the DB's max_open_files == -1 (so table readers are immortal and
   // same-file/embedded blob references stay resolvable lazily); returns
@@ -964,15 +964,13 @@ class DB {
   // EXPERIMENTAL and subject to change
   //
   // Lazy, batched peer of MultiGetEntity() (see GetEntityLazy() for the lazy
-  // semantics, the SuperVersion pin, and the max_open_files == -1 requirement).
+  // semantics, the required pin, and the max_open_files == -1 requirement).
   // "*result" is filled with "num_keys" per-key entities: "result->entity(i)"
   // is the LazyWideColumns for "keys[i]" (blob-backed columns left as
   // unresolved references), and "statuses[i]" is set to OK / NotFound / an
-  // error as in MultiGetEntity(). Unlike the array form, the SuperVersion pin
-  // is owned by "*result" (one pin for this single-CF call), not per entity;
-  // the per-key entities are valid only while "*result" is. Resolve references
-  // across keys together via LazyWideColumnsBatch::MultiResolve, which
-  // coalesces reads per blob file across keys.
+  // error as in MultiGetEntity(). The per-key entities are owned by "*result"
+  // and are valid only while it is. Resolve references across keys together via
+  // LazyWideColumnsBatch::MultiResolve.
   //
   // The caller must ensure "keys" and "statuses" point to "num_keys" contiguous
   // objects.

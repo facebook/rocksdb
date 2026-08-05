@@ -421,12 +421,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       if (get_impl_options.lazy_columns_version != nullptr) {
         *get_impl_options.lazy_columns_version = sv->current;
       }
-      sv->Ref();
-      SuperVersionHandle* sv_handle = new SuperVersionHandle(
-          this, &mutex_, sv,
-          immutable_db_options_.avoid_unnecessary_blocking_io);
-      get_impl_options.lazy_columns_pin->RegisterCleanup(
-          CleanupSuperVersionHandle, sv_handle, nullptr);
+      TransferSuperVersionPin(sv, get_impl_options.lazy_columns_pin);
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }

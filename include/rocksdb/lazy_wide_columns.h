@@ -3,28 +3,24 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// Supporting structs and definitions for lazy blob resolution and wide column
+// projection / partial reads.
+
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <utility>
 
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
-// NOTE: This is scaffolding for the "lazy blob resolution + partial
-// (byte-range) column reads" work. The types below define the intended public
-// surface; the implementation is stubbed (see db/wide/lazy_wide_columns.cc) and
-// the DB-side entry points (DB::GetEntityLazy et al.) currently return
-// NotSupported. Names (LazyWideColumns / GetEntityLazy / ...) are working names
-// and may change.
-
 namespace ROCKSDB_NAMESPACE {
 
-struct ReadOptions;
 class LazyWideColumnsHelper;
 
 // Sentinel `length` for a column read: read from `offset` to the end of the
@@ -33,25 +29,24 @@ inline constexpr size_t kLazyWholeColumn = std::numeric_limits<size_t>::max();
 
 // EXPERIMENTAL and subject to change
 //
-// A single byte-range read against one column of a LazyWideColumns result.
+// A single byte-range read against one column of a LazyWideColumns result, used
+// by LazyWideColumns::MultiResolve (and its GetColumn/GetColumnRange sugar).
 //
-// This intentionally mirrors the internal BlobReadRequest so a batch of these
-// maps directly onto the engine's coalescing/async blob-read machinery. The
-// result and status are *out-params* (filled by the resolve call) rather than
-// return-by-value, so an asynchronous batch can complete them after the call
-// that submitted them returns -- without changing this request type.
-//
-// The referenced `result` and `status` must outlive the resolve call (and any
-// async completion of it). Zero-copy: on success, `*result` is a view into a
-// stable backing buffer owned by the LazyWideColumns (see class comment).
+// `result` and `status` are effectively out-params, filled by the resolve call,
+// so both pointed-to objects must outlive that call. Zero-copy: on success
+// `*result` is a view into a stable backing buffer owned by the
+// LazyWideColumns.
 struct LazyColumnReadRequest {
-  // Which column of the owning LazyWideColumns to read (index into the
-  // in-order column set; see LazyWideColumns::num_columns()).
+  // Which column of the target LazyWideColumns to read (index into the in-order
+  // column set; see LazyWideColumns::num_columns()).
   size_t column_index = 0;
 
   // Starting byte offset within the column's logical value. An offset at or
   // past the end of the value yields an empty result (not an error). A nonzero
   // offset makes this a partial read; see `force_verify` for checksums.
+  //
+  // Not yet optimized: a partial read currently resolves the whole column and
+  // slices it, so for now it saves no I/O and skips no checksum.
   uint64_t offset = 0;
 
   // Number of bytes to read starting at `offset`, clamped to the end of the
@@ -59,6 +54,9 @@ struct LazyColumnReadRequest {
   // less (or a nonzero `offset`) is a partial read: it returns only the
   // requested bytes and by default skips whole-record checksum verification
   // (see `force_verify`).
+  //
+  // Not yet optimized: a partial read currently resolves the whole column and
+  // slices it, so for now it saves no I/O and skips no checksum.
   size_t length = kLazyWholeColumn;
 
   // Extra lever to prioritize checksum verification over I/O efficiency, mainly
@@ -68,37 +66,19 @@ struct LazyColumnReadRequest {
   // when that exceeds the requested range or ReadOptions::verify_checksums is
   // off. No effect where verification already happens (e.g. a whole-column read
   // under verify_checksums) or where the format has no usable checksum.
+  //
+  // Not yet honored: because reads currently resolve the whole column, this
+  // flag has no effect for now.
   bool force_verify = false;
 
   // Output: on OK status, a zero-copy view of the requested bytes.
   PinnableSlice* result = nullptr;
 
   // Output: per-request status. InvalidArgument for an out-of-range
-  // column_index; Incomplete for a cache miss under ReadTier::kBlockCacheTier;
+  // column_index; Incomplete for a cache miss when the originating
+  // GetEntityLazy()/MultiGetEntityLazy() call used ReadTier::kBlockCacheTier;
   // otherwise the I/O status of the (possibly partial) read.
   Status* status = nullptr;
-};
-
-// EXPERIMENTAL and subject to change
-//
-// The batch (cross-key) form used by LazyWideColumnsBatch::MultiResolve: the
-// same read as above, plus which entity within the batch it targets, referenced
-// *by index* rather than by pointer. The index form is deliberate: every entity
-// in a batch shares one SuperVersion (see LazyWideColumnsBatch), so an
-// index-based read cannot smuggle in an entity from a different batch /
-// Version, and there is no dangling-pointer hazard if results are moved around.
-//
-// NOTE: this derives publicly from LazyColumnReadRequest (for field reuse), so
-// a LazyBatchColumnReadRequest* implicitly converts to LazyColumnReadRequest*.
-// Do NOT pass an array of these to the single-entity
-// LazyWideColumns::MultiResolve()
-// -- entity_index would be silently ignored and the array stride would be
-// wrong. Always resolve batch requests via
-// LazyWideColumnsBatch::MultiResolve().
-struct LazyBatchColumnReadRequest : public LazyColumnReadRequest {
-  // Which entity in the batch to read (index into
-  // LazyWideColumnsBatch::num_entities()).
-  size_t entity_index = 0;
 };
 
 // EXPERIMENTAL and subject to change
@@ -111,19 +91,16 @@ struct LazyBatchColumnReadRequest : public LazyColumnReadRequest {
 // are never read.
 //
 // Unlike PinnableWideColumns (the eager result type), a LazyWideColumns can
-// outlive the DB call that produced it: the referenced SuperVersion is pinned
-// for its whole lifetime (as an iterator does), which keeps the referenced blob
-// files / SST readers valid so deferred reads remain resolvable. For a
-// standalone result from GetEntityLazy() the pin is held by the result itself;
-// for a result obtained via MultiGetEntityLazy() the pin is held by the
-// enclosing LazyWideColumnsBatch (which pins one SuperVersion per column family
-// it spans), so the individual entities stay valid only as long as that batch
-// does.
+// outlive the DB call that produced it: it holds a pin (as an iterator does)
+// that keeps the referenced blob files / SST readers valid so deferred reads
+// stay resolvable. A standalone result from GetEntityLazy() holds its own pin;
+// a result from MultiGetEntityLazy() is kept alive by its enclosing
+// LazyWideColumnsBatch, so it is valid only as long as that batch is.
 //
-// Zero-copy & lifetime: every enumerated inline value and every resolved range
-// is a Slice into a stable backing buffer owned or pinned by this object, so
-// results stay valid across move without the caller retaining other state. Like
-// PinnableSlice / PinnableWideColumns, this type is move-only.
+// Zero-copy: every enumerated inline value and every resolved range is a Slice
+// into a stable backing buffer owned or pinned by this object, so results stay
+// valid across move. Like PinnableSlice / PinnableWideColumns, this type is
+// move-only.
 //
 // Thread safety: not thread-safe; use a single result from one thread at a
 // time. Distinct results may be resolved concurrently.
@@ -148,8 +125,11 @@ class LazyWideColumns {
   // Name of the column at `column_index`.
   const Slice& name(size_t column_index) const;
 
-  // True if the column is a (not-yet-resolved) blob reference; false if it is
-  // an inline column whose bytes are already available via inline_value().
+  // True if the column is stored as a blob reference, false if it is an inline
+  // column whose bytes are already available via inline_value(). This reflects
+  // how the column is stored and does NOT change when the column is later
+  // resolved: resolved bytes come from the read APIs below (which cache them),
+  // never from inline_value().
   bool is_reference(size_t column_index) const;
 
   // Whether the column's exact logical size is known without any I/O. True for
@@ -170,39 +150,45 @@ class LazyWideColumns {
   const Slice& inline_value(size_t column_index) const;
 
   // ---- Resolution: batch-first, async-ready ----
+  //
+  // Resolution uses the ReadOptions from the originating
+  // GetEntityLazy()/MultiGetEntityLazy() call (e.g. read_tier,
+  // verify_checksums); these methods intentionally take no ReadOptions of their
+  // own (only a handful of ReadOptions fields are meaningful once the entity's
+  // references are fixed).
 
   // Primary single-entity API: resolve a batch of byte-range reads against this
-  // entity's columns in one call. Reads are grouped and issued so this maps
-  // onto the engine's coalesced (and, later, asynchronous) blob-read path --
-  // this is what lets a single call resolve many blobs/fragments efficiently.
-  // Each entry's `result`/`status` out-params are filled independently;
-  // multiple ranges from one column and reads spanning multiple columns are all
-  // just more entries. (To resolve across many keys, use LazyWideColumnsBatch.)
+  // entity's columns in one call. Each entry's `result`/`status` out-params are
+  // filled independently; multiple ranges from one column and reads spanning
+  // multiple columns are all just more entries. (To resolve across many keys,
+  // use LazyWideColumnsBatch.)
+  //
+  // A column's blob is fetched from storage at most once over this result's
+  // lifetime: its resolved bytes are cached in the result (which is why these
+  // methods are non-const), so repeated reads of the same column -- several
+  // entries in one call or across separate calls -- reuse that one fetch and do
+  // no further I/O.
   //
   // Returns an overall Status (OK if every read was dispatched; per-read
   // outcomes are in each request's `status`).
-  Status MultiResolve(const ReadOptions& read_options, size_t num_reads,
-                      LazyColumnReadRequest* reads);
+  Status MultiResolve(size_t num_reads, LazyColumnReadRequest* reads);
 
   // ---- Per-column convenience (sugar over a one-entry batch) ----
 
   // Resolve a single byte range [offset, offset+length) of one column.
   // Equivalent to a one-entry MultiResolve; prefer MultiResolve when pulling
   // several ranges so they can be coalesced.
-  Status GetColumnRange(const ReadOptions& read_options, size_t column_index,
-                        uint64_t offset, size_t length, PinnableSlice* result);
+  Status GetColumnRange(size_t column_index, uint64_t offset, size_t length,
+                        PinnableSlice* result);
 
   // Resolve a whole column (offset 0, kLazyWholeColumn).
-  Status GetColumn(const ReadOptions& read_options, size_t column_index,
-                   PinnableSlice* result);
+  Status GetColumn(size_t column_index, PinnableSlice* result);
 
-  // Release all buffers and (for a standalone result) the SuperVersion pin.
+  // Release all buffers and (for a standalone result) the pin.
   void Reset();
 
-  // Internal representation (owns backing buffers, the blob resolver, and, for
-  // a standalone result, the SuperVersion pin). Defined in
-  // db/wide/lazy_wide_columns.cc; opaque here so the public header stays free
-  // of internal (db/wide, db/blob) dependencies.
+  // Opaque internal representation (pimpl), so this header stays free of
+  // internal dependencies.
   class Rep;
 
  private:
@@ -216,19 +202,11 @@ class LazyWideColumns {
 //
 // A batch of lazy wide-column results produced by one MultiGetEntityLazy call.
 //
-// The batch owns the SuperVersion pin(s) for all of its entities, rather than
-// one pin per key: it pins one SuperVersion per distinct column family it spans
-// (a single pin for the common single-CF call; the API is shaped so a future
-// cross-CF MultiGetEntityLazy pins one per CF). Cross-key resolution is a
-// method on this batch, and its reads reference entities by index
-// (LazyBatchColumnReadRequest::entity_index), so every read resolves through
-// the Version its owning entity was read against. That matters because the
-// coalescing/async blob-read machinery (Version::MultiGetBlob, per-CF
-// BlobSource) is only valid within a single (column family, Version): making
-// the batch the unit of resolution -- and routing each read by index to its
-// owner -- turns that invariant into something structural rather than a caller
-// responsibility, and removes the hazard of mixing results from different
-// MultiGetEntityLazy calls (or, later, different column families).
+// The batch owns the pin(s) that keep its entities resolvable and holds the N
+// per-key results. Cross-key resolution is a method on this batch, and each of
+// its reads names its target entity by index into the batch, so a read always
+// resolves through its owning entity and cannot mix results from a different
+// batch.
 //
 // Move-only, like LazyWideColumns. The contained entities are valid only while
 // the batch is alive; destroy the batch promptly to release the pin(s).
@@ -254,23 +232,19 @@ class LazyWideColumnsBatch {
   LazyWideColumns& entity(size_t entity_index);
 
   // Cross-key batch resolution: resolve a set of byte-range reads that may span
-  // any entities in this batch, in one call. Each read names its target entity
-  // by index (LazyBatchColumnReadRequest::entity_index) plus a column index and
-  // byte range. Reads are grouped per (column family, Version, blob file) and
-  // each group is issued together (and, later, asynchronously) -- for a
-  // single-CF batch that is one Version; a future cross-CF batch simply forms
-  // one group per CF. This is the cross-key analogue of
-  // LazyWideColumns::MultiResolve. Per-read outcomes are reported in each
-  // request's `status`; the returned Status is OK if the batch was dispatched.
-  Status MultiResolve(const ReadOptions& read_options, size_t num_reads,
-                      LazyBatchColumnReadRequest* reads);
+  // any entities in this batch, in one call. Each read is a
+  // std::pair<size_t, LazyColumnReadRequest>: `first` is the target entity's
+  // index (< num_entities()) and `second` is the read. This is the cross-key
+  // analogue of LazyWideColumns::MultiResolve. Per-read outcomes are reported
+  // in each request's `status`; the returned Status is OK if the batch was
+  // dispatched.
+  Status MultiResolve(size_t num_reads,
+                      std::pair<size_t, LazyColumnReadRequest>* reads);
 
-  // Release all entities and the SuperVersion pin(s).
+  // Release all entities and the pin(s).
   void Reset();
 
-  // Internal representation (owns one SuperVersion pin per column family
-  // spanned and the per-key LazyWideColumns). Defined in
-  // db/wide/lazy_wide_columns.cc.
+  // Opaque internal representation (pimpl).
   class Rep;
 
  private:

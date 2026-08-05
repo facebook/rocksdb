@@ -280,6 +280,14 @@ class NonBatchedOpsStressTest : public StressTest {
             s = DbStressGet(secondary_db_.get(), options, secondary_cfhs_[cf],
                             key, &from_db);
 
+            // Also exercise the lazy wide-column read path on the secondary
+            // (self-checks lazy vs eager on the secondary, read at latest). A
+            // no-op unless the lazy API is enabled (open_files == -1, no
+            // UDT/txn) and sampled.
+            MaybeTestGetEntityLazy(thread, ReadOptions(), secondary_cfhs_[cf],
+                                   key, /*eager_reference=*/nullptr,
+                                   secondary_db_.get());
+
             // Re-enable error injection after verifying the secondary
             if (db_fault_injection_fs_) {
               db_fault_injection_fs_->EnableThreadLocalErrorInjection(

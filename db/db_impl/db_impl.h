@@ -974,6 +974,13 @@ class DBImpl : public DB {
   void CleanupIteratorSuperVersion(SuperVersion* super_version,
                                    bool background_purge);
 
+  // Transfer an extra reference to `super_version` into `pin` (via a cleanup
+  // callback), so `pin`'s owner keeps the SuperVersion -- and thus the data it
+  // references -- alive after the current call returns, as an iterator does.
+  // Shared by the lazy wide-column read path (GetEntityLazy) across the
+  // primary, read-only, and secondary GetImpl overrides.
+  void TransferSuperVersionPin(SuperVersion* super_version, Cleanable* pin);
+
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
   }
