@@ -87,13 +87,13 @@ set(JNI_NATIVE_SOURCES
         rocksjni/transaction.cc
         rocksjni/transaction_db.cc
         rocksjni/transaction_db_options.cc
-        rocksjni/transaction_log.cc
         rocksjni/transaction_notifier.cc
         rocksjni/transaction_notifier_jnicallback.cc
         rocksjni/transaction_options.cc
         rocksjni/ttl.cc
         rocksjni/wal_filter.cc
         rocksjni/wal_filter_jnicallback.cc
+        rocksjni/wal_iterator.cc
         rocksjni/write_batch.cc
         rocksjni/write_batch_test.cc
         rocksjni/write_batch_with_index.cc
@@ -286,6 +286,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WBWIRocksIterator.java
   src/main/java/org/rocksdb/WalFileType.java
   src/main/java/org/rocksdb/WalFilter.java
+  src/main/java/org/rocksdb/WalIterator.java
   src/main/java/org/rocksdb/WalProcessingOption.java
   src/main/java/org/rocksdb/WriteBatch.java
   src/main/java/org/rocksdb/WriteBatchInterface.java
@@ -398,7 +399,6 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/TimedEnvTest.java
   src/test/java/org/rocksdb/TransactionDBOptionsTest.java
   src/test/java/org/rocksdb/TransactionDBTest.java
-  src/test/java/org/rocksdb/TransactionLogIteratorTest.java
   src/test/java/org/rocksdb/TransactionOptionsTest.java
   src/test/java/org/rocksdb/TransactionTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
@@ -406,6 +406,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/VerifyChecksumsTest.java
   src/test/java/org/rocksdb/WALRecoveryModeTest.java
   src/test/java/org/rocksdb/WalFilterTest.java
+  src/test/java/org/rocksdb/WalIteratorTest.java
   src/test/java/org/rocksdb/WriteBatchHandlerTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
   src/test/java/org/rocksdb/WriteBatchWithIndexTest.java
@@ -516,13 +517,13 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.TimedEnvTest
   org.rocksdb.TransactionDBOptionsTest
   org.rocksdb.TransactionDBTest
-  org.rocksdb.TransactionLogIteratorTest
   org.rocksdb.TransactionOptionsTest
   org.rocksdb.TransactionTest
   org.rocksdb.TtlDBTest
   org.rocksdb.VerifyChecksumsTest
   org.rocksdb.WALRecoveryModeTest
   org.rocksdb.WalFilterTest
+  org.rocksdb.WalIteratorTest
   org.rocksdb.WriteBatchHandlerTest
   org.rocksdb.WriteBatchTest
   org.rocksdb.WriteBatchThreadedTest
@@ -759,8 +760,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.Transaction
           org.rocksdb.TransactionDB
           org.rocksdb.TransactionDBOptions
-          org.rocksdb.TransactionLogIterator
           org.rocksdb.TransactionOptions
+          org.rocksdb.WalIterator
           org.rocksdb.TtlDB
           org.rocksdb.UInt64AddOperator
           org.rocksdb.VectorMemTableConfig

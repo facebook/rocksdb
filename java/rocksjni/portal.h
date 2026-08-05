@@ -4547,11 +4547,11 @@ class LoggerJni
   }
 };
 
-// The portal class for org.rocksdb.TransactionLogIterator.BatchResult
+// The portal class for org.rocksdb.WalIterator.BatchResult
 class BatchResultJni : public JavaClass {
  public:
   /**
-   * Get the Java Class org.rocksdb.TransactionLogIterator.BatchResult
+   * Get the Java Class org.rocksdb.WalIterator.BatchResult
    *
    * @param env A pointer to the Java environment
    *
@@ -4560,12 +4560,11 @@ class BatchResultJni : public JavaClass {
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(
-        env, "org/rocksdb/TransactionLogIterator$BatchResult");
+    return JavaClass::getJClass(env, "org/rocksdb/WalIterator$BatchResult");
   }
 
   /**
-   * Create a new Java org.rocksdb.TransactionLogIterator.BatchResult object
+   * Create a new Java org.rocksdb.WalIterator.BatchResult object
    * with the same properties as the provided C++ ROCKSDB_NAMESPACE::BatchResult
    * object
    *
@@ -4573,7 +4572,7 @@ class BatchResultJni : public JavaClass {
    * @param batch_result The ROCKSDB_NAMESPACE::BatchResult object
    *
    * @return A reference to a Java
-   *     org.rocksdb.TransactionLogIterator.BatchResult object,
+   *     org.rocksdb.WalIterator.BatchResult object,
    *     or nullptr if an an exception occurs
    */
   static jobject construct(JNIEnv* env,

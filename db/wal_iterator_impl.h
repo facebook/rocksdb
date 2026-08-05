@@ -14,8 +14,8 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -54,14 +54,14 @@ class WalFileImpl : public WalFile {
   uint64_t sizeFileBytes_;
 };
 
-class TransactionLogIteratorImpl : public TransactionLogIterator {
+class WalIteratorImpl : public WalIterator {
  public:
-  TransactionLogIteratorImpl(
-      const std::string& dir, const ImmutableDBOptions* options,
-      const TransactionLogIterator::ReadOptions& read_options,
-      const EnvOptions& soptions, const SequenceNumber seqNum,
-      std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
-      const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
+  WalIteratorImpl(const std::string& dir, const ImmutableDBOptions* options,
+                  const WalIterator::ReadOptions& read_options,
+                  const EnvOptions& soptions, const SequenceNumber seqNum,
+                  std::unique_ptr<VectorWalPtr> files,
+                  VersionSet const* const versions, const bool seq_per_batch,
+                  const std::shared_ptr<IOTracer>& io_tracer);
 
   bool Valid() override;
 
@@ -74,19 +74,20 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
  private:
   const std::string& dir_;
   const ImmutableDBOptions* options_;
-  const TransactionLogIterator::ReadOptions read_options_;
+  const WalIterator::ReadOptions read_options_;
   const EnvOptions& soptions_;
   SequenceNumber starting_sequence_number_;
   std::unique_ptr<VectorWalPtr> files_;
   // Used only to get latest seq. num
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
-  const bool seq_per_batch_;
   std::shared_ptr<IOTracer> io_tracer_;
 
   // State variables
   bool started_;
   bool is_valid_;  // not valid when it starts of.
+  // Once this is set to a non-OK status the iterator is spent: Next() is a
+  // no-op and the status never changes again.
   Status current_status_;
   size_t current_file_index_;
   std::unique_ptr<WriteBatch> current_batch_;
@@ -126,4 +127,5 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const WalFile* file);
 };
+
 }  // namespace ROCKSDB_NAMESPACE

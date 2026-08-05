@@ -62,10 +62,10 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/wal_iterator.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -588,10 +588,10 @@ class DBImpl : public DB {
   Status GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) override;
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override;
 
-  Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options =
-          TransactionLogIterator::ReadOptions()) override;
+  Status GetUpdatesSince(SequenceNumber seq_number,
+                         std::unique_ptr<WalIterator>* iter,
+                         const WalIterator::ReadOptions& read_options =
+                             WalIterator::ReadOptions()) override;
   Status DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                              const RangeOpt* ranges, size_t n,
                              bool include_end = true);

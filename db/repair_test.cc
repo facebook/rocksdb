@@ -14,7 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "rocksdb/transaction_log.h"
+#include "rocksdb/wal_iterator.h"
 #include "table/unique_id_impl.h"
 #include "util/string_util.h"
 

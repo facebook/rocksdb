@@ -2,56 +2,16 @@
 package org.rocksdb;
 
 /**
- * <p>A TransactionLogIterator is used to iterate over the transactions in a db.
- * One run of the iterator is continuous, i.e. the iterator will stop at the
- * beginning of any gap in sequences.</p>
+ * <p>Old name for {@link WalIterator}, retained for compatibility. This API
+ * reads the write-ahead log and is unrelated to
+ * {@link org.rocksdb.TransactionDB}; "transaction log" is an old synonym for
+ * WAL. Prefer declaring {@link WalIterator} in new code.</p>
+ *
+ * <p>Note that this class is not annotated {@code @Deprecated} so that
+ * existing callers do not start failing builds that treat warnings as
+ * errors, matching how the equivalent C++ name is retired.</p>
  */
-public class TransactionLogIterator extends RocksObject {
-
-  /**
-   * <p>An iterator is either positioned at a WriteBatch
-   * or not valid. This method returns true if the iterator
-   * is valid. Can read data from a valid iterator.</p>
-   *
-   * @return true if iterator position is valid.
-   */
-  public boolean isValid() {
-    return isValid(nativeHandle_);
-  }
-
-  /**
-   * <p>Moves the iterator to the next WriteBatch.
-   * <strong>REQUIRES</strong>: Valid() to be true.</p>
-   */
-  public void next() {
-    next(nativeHandle_);
-  }
-
-  /**
-   * <p>Throws RocksDBException if something went wrong.</p>
-   *
-   * @throws org.rocksdb.RocksDBException if something went
-   *     wrong in the underlying C++ code.
-   */
-  public void status() throws RocksDBException {
-    status(nativeHandle_);
-  }
-
-  /**
-   * <p>If iterator position is valid, return the current
-   * write_batch and the sequence number of the earliest
-   * transaction contained in the batch.</p>
-   *
-   * <p>ONLY use if Valid() is true and status() is OK.</p>
-   *
-   * @return {@link org.rocksdb.TransactionLogIterator.BatchResult}
-   *     instance.
-   */
-  public BatchResult getBatch() {
-    assert(isValid());
-    return getBatch(nativeHandle_);
-  }
-
+public class TransactionLogIterator extends WalIterator {
   /**
    * <p>TransactionLogIterator constructor.</p>
    *
@@ -60,56 +20,4 @@ public class TransactionLogIterator extends RocksObject {
   TransactionLogIterator(final long nativeHandle) {
     super(nativeHandle);
   }
-
-  /**
-   * <p>BatchResult represents a data structure returned
-   * by a TransactionLogIterator containing a sequence
-   * number and a {@link WriteBatch} instance.</p>
-   */
-  public static final class BatchResult {
-    /**
-     * <p>Constructor of BatchResult class.</p>
-     *
-     * @param sequenceNumber related to this BatchResult instance.
-     * @param nativeHandle to {@link org.rocksdb.WriteBatch}
-     *     native instance.
-     */
-    public BatchResult(final long sequenceNumber,
-        final long nativeHandle) {
-      sequenceNumber_ = sequenceNumber;
-      writeBatch_ = new WriteBatch(nativeHandle, true);
-    }
-
-    /**
-     * <p>Return sequence number related to this BatchResult.</p>
-     *
-     * @return Sequence number.
-     */
-    public long sequenceNumber() {
-      return sequenceNumber_;
-    }
-
-    /**
-     * <p>Return contained {@link org.rocksdb.WriteBatch}
-     * instance</p>
-     *
-     * @return {@link org.rocksdb.WriteBatch} instance.
-     */
-    public WriteBatch writeBatch() {
-      return writeBatch_;
-    }
-
-    private final long sequenceNumber_;
-    private final WriteBatch writeBatch_;
-  }
-
-  @Override
-  protected final void disposeInternal(final long handle) {
-    disposeInternalJni(handle);
-  }
-  private static native void disposeInternalJni(final long handle);
-  private static native boolean isValid(long handle);
-  private static native void next(long handle);
-  private static native void status(long handle) throws RocksDBException;
-  private static native BatchResult getBatch(long handle);
 }
