@@ -725,7 +725,7 @@ TEST_F(SliceHexTest, HexAndToStringRoundTrip) {
   {
     Slice single_byte_slice("A");
     ASSERT_EQ(single_byte_slice.ToString(false), "A");
-    ASSERT_EQ(single_byte_slice.ToString(true), "41"); // Hex for 'A'
+    ASSERT_EQ(single_byte_slice.ToString(true), "41");  // Hex for 'A'
     Slice hex_slice("41");
     std::string decoded;
     ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
@@ -739,15 +739,15 @@ TEST_F(SliceHexTest, HexAndToStringRoundTrip) {
       all_bytes.push_back(static_cast<char>(i));
     }
     Slice all_bytes_slice(all_bytes);
-    
+
     // Verify non-hex ToString matches original binary data
     std::string non_hex_out = all_bytes_slice.ToString(false);
     ASSERT_EQ(non_hex_out, all_bytes);
-    
+
     // Verify hex ToString output length (2 hex chars per byte)
     std::string hex_out = all_bytes_slice.ToString(true);
     ASSERT_EQ(hex_out.size(), 512);
-    
+
     // Round-trip: Wrap the hex string in a Slice, then decode it
     Slice hex_slice(hex_out);
     std::string decoded_bytes;
