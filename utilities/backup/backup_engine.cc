@@ -40,7 +40,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/transaction_log.h"
+#include "rocksdb/wal_iterator.h"
 #include "table/sst_file_dumper.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"

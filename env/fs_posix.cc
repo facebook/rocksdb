@@ -1032,7 +1032,7 @@ class PosixFileSystem : public FileSystem {
     optimized.use_direct_writes = false;
     optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
-    // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
+    // breaks DBWalIteratorTest.StallAtLastRecord unit test. Fix the unit
     // test and make this false
     optimized.fallocate_with_keep_size = true;
     optimized.writable_file_max_buffer_size =

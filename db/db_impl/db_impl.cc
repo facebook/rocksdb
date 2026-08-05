@@ -67,8 +67,8 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
-#include "db/transaction_log_impl.h"
 #include "db/version_set.h"
+#include "db/wal_iterator_impl.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
@@ -5220,9 +5220,9 @@ void DBImpl::ReleaseOptionsFileNumber(
   }
 }
 
-Status DBImpl::GetUpdatesSince(
-    SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
-    const TransactionLogIterator::ReadOptions& read_options) {
+Status DBImpl::GetUpdatesSince(SequenceNumber seq,
+                               std::unique_ptr<WalIterator>* iter,
+                               const WalIterator::ReadOptions& read_options) {
   RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
   if (seq_per_batch_) {
     return Status::NotSupported(

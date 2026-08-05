@@ -23,8 +23,8 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wal_iterator.h"
 #include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -51,12 +51,12 @@ class WalManager {
   Status GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos = true,
                            bool include_archived = true);
 
-  // Allow user to tail transaction log to find all recent changes to the
+  // Allow user to tail the WAL to find all recent changes to the
   // database that are newer than `seq_number`.
-  Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options,
-      VersionSet* version_set);
+  Status GetUpdatesSince(SequenceNumber seq_number,
+                         std::unique_ptr<WalIterator>* iter,
+                         const WalIterator::ReadOptions& read_options,
+                         VersionSet* version_set);
 
   void PurgeObsoleteWALFiles();
 

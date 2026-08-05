@@ -613,8 +613,8 @@ class StackableDB : public DB {
   }
 
   Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options) override {
+      SequenceNumber seq_number, std::unique_ptr<WalIterator>* iter,
+      const WalIterator::ReadOptions& read_options) override {
     return db_->GetUpdatesSince(seq_number, iter, read_options);
   }
 

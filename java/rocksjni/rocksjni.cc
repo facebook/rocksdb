@@ -3281,7 +3281,7 @@ jlong Java_org_rocksdb_RocksDB_getUpdatesSince(JNIEnv* env, jclass,
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   ROCKSDB_NAMESPACE::SequenceNumber sequence_number =
       static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(jsequence_number);
-  std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator> iter;
+  std::unique_ptr<ROCKSDB_NAMESPACE::WalIterator> iter;
   ROCKSDB_NAMESPACE::Status s = db->GetUpdatesSince(sequence_number, &iter);
   if (s.ok()) {
     return GET_CPLUSPLUS_POINTER(iter.release());

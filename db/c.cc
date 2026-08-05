@@ -183,7 +183,6 @@ using ROCKSDB_NAMESPACE::TraceReader;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
-using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::UserCollectedProperties;
 using ROCKSDB_NAMESPACE::UserDefinedIndexFactory;
@@ -191,6 +190,7 @@ using ROCKSDB_NAMESPACE::VectorWalPtr;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WalFile;
 using ROCKSDB_NAMESPACE::WalFilter;
+using ROCKSDB_NAMESPACE::WalIterator;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
@@ -486,10 +486,10 @@ struct rocksdb_writablefile_t {
   WritableFile* rep;
 };
 struct rocksdb_wal_iterator_t {
-  TransactionLogIterator* rep;
+  WalIterator* rep;
 };
 struct rocksdb_wal_readoptions_t {
-  TransactionLogIterator::ReadOptions rep;
+  WalIterator::ReadOptions rep;
 };
 
 struct rocksdb_wal_files_t {
@@ -3022,8 +3022,8 @@ rocksdb_iterator_t* rocksdb_create_iterator(
 rocksdb_wal_iterator_t* rocksdb_get_updates_since(
     rocksdb_t* db, uint64_t seq_number,
     const rocksdb_wal_readoptions_t* options, char** errptr) {
-  std::unique_ptr<TransactionLogIterator> iter;
-  TransactionLogIterator::ReadOptions ro;
+  std::unique_ptr<WalIterator> iter;
+  WalIterator::ReadOptions ro;
   if (options != nullptr) {
     ro = options->rep;
   }
