@@ -1376,6 +1376,12 @@ class DB {
     //      compaction abort counter.
     static const std::string kCompactionAbortCount;
 
+    //  "rocksdb.num-unscheduled-compactions" - returns the number of
+    //      compactions waiting in the DB's internal compaction queue but not
+    //      yet assigned to a background job. This is a DB-wide value, not
+    //      per-column family.
+    static const std::string kNumUnscheduledCompactions;
+
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
     static const std::string kBackgroundErrors;
@@ -1618,6 +1624,7 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-flushes"
+  //  "rocksdb.num-unscheduled-compactions"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
   //  "rocksdb.estimate-oldest-key-time"
