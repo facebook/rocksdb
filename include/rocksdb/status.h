@@ -493,8 +493,8 @@ class Status {
     return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
   }
 
-  // Returns true iff the status indicates compaction aborted. This
-  // is caused by a call to AbortAllCompactions
+  // Returns true iff the status indicates compaction aborted by
+  // AbortAllCompactions() or AbortCompactions().
   bool IsCompactionAborted() const {
     MarkChecked();
     return (code() == kIncomplete) && (subcode() == kCompactionAborted);

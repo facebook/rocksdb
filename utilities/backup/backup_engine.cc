@@ -1877,8 +1877,8 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
         absolute_file, dst, Temperature::kUnknown /* src_temp */,
         file_info->temp, "" /* contents */, src_env, db_env_,
         EnvOptions() /* src_env_options */, options_.sync,
-        options_.restore_rate_limiter.get(), file_info->size,
-        nullptr /* stats */);
+        false /* use_fsync */, options_.restore_rate_limiter.get(),
+        file_info->size, nullptr /* stats */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
         file_info->checksum_hex);
@@ -2007,8 +2007,8 @@ IOStatus BackupEngineImpl::VerifyBackup(BackupID backup_id,
           abs_path, "" /* dst_path */, Temperature::kUnknown,
           Temperature::kUnknown /* dst_temperature */, "" /* contents */,
           backup_env_, nullptr /* dst_env */, EnvOptions(), false /* sync */,
-          options_.backup_rate_limiter.get(), 0 /* size_limit */,
-          nullptr /* stats */, {} /* progress_callback */,
+          false /* use_fsync */, options_.backup_rate_limiter.get(),
+          0 /* size_limit */, nullptr /* stats */, {} /* progress_callback */,
           kUnknownFileChecksumFuncName /* src_checksum_func_name */,
           "" /* src_checksum_hex */, "" /* db_id */, "" /* db_session_id*/,
           WorkItemType::ComputeChecksum);
@@ -2297,9 +2297,9 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     WorkItem copy_or_create_work_item(
         src_dir.empty() ? "" : src_path, *copy_dest_path, src_temperature,
         Temperature::kUnknown /*dst_temp*/, contents, db_env_, backup_env_,
-        src_env_options, options_.sync, rate_limiter, size_limit, stats,
-        progress_callback, src_checksum_func_name, checksum_hex, db_id,
-        db_session_id);
+        src_env_options, options_.sync, false /* use_fsync */, rate_limiter,
+        size_limit, stats, progress_callback, src_checksum_func_name,
+        checksum_hex, db_id, db_session_id);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
         backup_env_, temp_dest_path, final_dest_path, dst_relative);
@@ -2559,7 +2559,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
             backup_file_path, "" /* dst_path */, backup_file_info->temp,
             Temperature::kUnknown /* dst_temperature */, "" /* contents */,
             backup_engine_impl->backup_env_, nullptr /* dst_env */,
-            backup_env_options, false /* sync */,
+            backup_env_options, false /* sync */, false /* use_fsync */,
             options_.restore_rate_limiter.get(), 0 /* size_limit */,
             nullptr /* stats */, {} /* progress_callback */,
             kUnknownFileChecksumFuncName /* src_checksum_func_name */,
@@ -2594,8 +2594,8 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
           db_file_path, "" /* dst_path */, backup_file_info->temp,
           Temperature::kUnknown /* dst_temperature */, "" /* contents */,
           db_env_, nullptr /* dst_env */, db_env_options, false /* sync */,
-          options_.restore_rate_limiter.get(), 0 /* size_limit */,
-          nullptr /* stats */, {} /* progress_callback */,
+          false /* use_fsync */, options_.restore_rate_limiter.get(),
+          0 /* size_limit */, nullptr /* stats */, {} /* progress_callback */,
           kUnknownFileChecksumFuncName /* src_checksum_func_name */,
           "" /* src_checksum_hex */, "" /* db_id */, "" /* db_session_id*/,
           WorkItemType::ComputeChecksum);

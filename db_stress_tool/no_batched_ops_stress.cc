@@ -1737,6 +1737,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     std::string upper_bound;
     Slice ub_slice;
+    std::function<bool(const TableProperties&)> table_filter;
     ReadOptions ro_copy = read_opts;
 
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
@@ -1748,8 +1749,9 @@ class NonBatchedOpsStressTest : public StressTest {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
       if (FLAGS_use_sqfc_for_range_queries) {
-        ro_copy.table_filter =
+        table_filter =
             sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+        ro_copy.table_filter = &table_filter;
       }
     } else if (options_.prefix_extractor && thread->rand.OneIn(2)) {
       ro_copy.prefix_same_as_start = true;
@@ -2872,11 +2874,12 @@ class NonBatchedOpsStressTest : public StressTest {
       ro.iterate_upper_bound = &max_key_slice;
     }
     std::string ub_str, lb_str;
+    std::function<bool(const TableProperties&)> table_filter;
     if (FLAGS_use_sqfc_for_range_queries) {
       ub_str = Key(ub);
       lb_str = Key(lb);
-      ro.table_filter =
-          sqfc_factory_->GetTableFilterForRangeQuery(lb_str, ub_str);
+      table_filter = sqfc_factory_->GetTableFilterForRangeQuery(lb_str, ub_str);
+      ro.table_filter = &table_filter;
     }
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_family];

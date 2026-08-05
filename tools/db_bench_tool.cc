@@ -7960,16 +7960,10 @@ class Benchmark {
 
   void MultiScan(ThreadState* thread) {
     const int64_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
-    const int64_t readahead =
-        FLAGS_readahead_size ? FLAGS_readahead_size : 1024 * 24;
     const int64_t multiscan_size = FLAGS_multiscan_size;
     auto count_hist = std::make_shared<HistogramImpl>();
-    ReadOptions options = read_options_;
 
     int64_t multiscans_done = 0;
-
-    options.async_io = true;
-    options.readahead_size = readahead;
 
     auto io_dispatcher = MaybeCreateIODispatcher();
 

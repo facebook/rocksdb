@@ -2771,23 +2771,6 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
 }
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const Slice& blob_index_slice,
-                        FilePrefetchBuffer* prefetch_buffer,
-                        PinnableSlice* value, uint64_t* bytes_read) const {
-  BlobIndex blob_index;
-
-  {
-    Status s = blob_index.DecodeFrom(blob_index_slice);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  return GetBlob(read_options, user_key, blob_index, prefetch_buffer, value,
-                 bytes_read);
-}
-
-Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
                         FilePrefetchBuffer* prefetch_buffer,
                         PinnableSlice* value, uint64_t* bytes_read) const {

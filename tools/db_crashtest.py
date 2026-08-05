@@ -155,6 +155,9 @@ default_params = {
     "charge_table_reader": lambda: random.choice([0, 1]),
     "charge_file_metadata": lambda: random.choice([0, 1]),
     "checkpoint_one_in": lambda: random.choice([0, 0, 10000, 1000000]),
+    "checkpoint_engine_max_background_operations": lambda: random.choice([4, 8]),
+    "checkpoint_engine_use_link_file_when_available": lambda: random.randint(0, 1),
+    "parallel_checkpoint_one_in": lambda: random.choice([0, 1, 2]),
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
     ),
@@ -251,6 +254,7 @@ default_params = {
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
     "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
     "abort_and_resume_compactions_one_in": lambda: random.choice([10000, 1000000]),
+    "abort_and_resume_cf_compactions_one_in": lambda: random.choice([10000, 1000000]),
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,

@@ -861,6 +861,19 @@ DEFINE_int32(checkpoint_one_in, 0,
              "every N operations on average.  0 indicates CreateCheckpoint() "
              "is disabled.");
 
+DEFINE_int32(checkpoint_engine_max_background_operations, 1,
+             "Background-thread parallelism of the shared CheckpointEngine "
+             "(always opened). Values <= 0 are treated as 1.");
+
+DEFINE_bool(checkpoint_engine_use_link_file_when_available, true,
+            "Whether the parallel CheckpointEngine may hard-link data files "
+            "instead of copying them. False forces the parallel copy path.");
+
+DEFINE_int32(parallel_checkpoint_one_in, 0,
+             "Each checkpoint uses the parallel CheckpointEngine with "
+             "probability 1/N, else the legacy serial API (0 = always serial, "
+             "1 = always parallel).");
+
 DEFINE_int32(ingest_external_file_one_in, 0,
              "If non-zero, then IngestExternalFile() will be called once for "
              "every N operations on average.  0 indicates IngestExternalFile() "
@@ -936,6 +949,11 @@ DEFINE_int32(
 DEFINE_int32(abort_and_resume_compactions_one_in, 0,
              "If non-zero, then AbortAllCompactions()+Resume will be called "
              "once for every N ops on average. 0 disables.");
+
+DEFINE_int32(abort_and_resume_cf_compactions_one_in, 0,
+             "If non-zero, then AbortCompactions(cf)+ResumeCompactions(cf) "
+             "will be called on a random column family once for every N ops "
+             "on average. 0 disables.");
 
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");

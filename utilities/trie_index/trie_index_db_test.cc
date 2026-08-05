@@ -1730,6 +1730,11 @@ TEST_P(TrieIndexDBTest,
   const Snapshot* snap = db_->GetSnapshot();
   const std::string lb = MakeStressKey(kRangeStart);
   const std::string ub = MakeStressKey(kRangeEnd);
+  // Owns the table filter for as long as any iterator created by make_iter (and
+  // returned to the caller) uses it. ReadOptions::table_filter is a pointer to
+  // a caller-owned std::function.
+  const std::function<bool(const TableProperties&)> range_filter =
+      sqfc_factory->GetTableFilterForRangeQuery(lb, ub);
 
   auto expected_value = [&](int key_num) {
     return MakePaddedValue(kFinalVersion, key_num);
@@ -1740,7 +1745,7 @@ TEST_P(TrieIndexDBTest,
     ro.snapshot = snap;
     ro.allow_unprepared_value = true;
     ro.auto_refresh_iterator_with_snapshot = true;
-    ro.table_filter = sqfc_factory->GetTableFilterForRangeQuery(lb, ub);
+    ro.table_filter = &range_filter;
     if (use_trie) {
       ro.table_index_factory = trie_factory_.get();
     }

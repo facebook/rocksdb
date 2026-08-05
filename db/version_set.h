@@ -977,15 +977,6 @@ class Version {
                          MultiGetRange* range,
                          ReadCallback* callback = nullptr);
 
-  // Interprets blob_index_slice as a blob reference, and (assuming the
-  // corresponding blob file is part of this Version) retrieves the blob and
-  // saves it in *value.
-  // REQUIRES: blob_index_slice stores an encoded blob reference
-  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const Slice& blob_index_slice,
-                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
-                 uint64_t* bytes_read) const;
-
   // Retrieves a blob using a blob reference and saves it in *value,
   // assuming the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,

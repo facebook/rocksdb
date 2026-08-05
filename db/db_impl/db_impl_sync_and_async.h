@@ -249,8 +249,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
-            sv->current, cfd, get_impl_options.value, get_impl_options.columns,
-            &s, &is_blob_index, get_impl_options.value_found);
+            memtable_blob_fetcher_ptr, get_impl_options.value,
+            get_impl_options.columns, &s, &is_blob_index,
+            get_impl_options.value_found);
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -265,8 +266,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
-            sv->current, cfd, get_impl_options.value, get_impl_options.columns,
-            &s, &is_blob_index, get_impl_options.value_found);
+            memtable_blob_fetcher_ptr, get_impl_options.value,
+            get_impl_options.columns, &s, &is_blob_index,
+            get_impl_options.value_found);
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -309,12 +311,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         get_impl_options.get_value,
         get_impl_options.lazy_columns_same_file_reader);
     if (get_impl_options.get_value && resolve_direct_write_value) {
+      assert(memtable_blob_fetcher_ptr != nullptr);
       std::string blob_lookup_key_storage;
       MaybeResolveDirectWriteValue(
           read_options,
           GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-          resolve_direct_write_value, sv->current, cfd, get_impl_options.value,
-          get_impl_options.columns, &s, &is_blob_index,
+          resolve_direct_write_value, *memtable_blob_fetcher_ptr,
+          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
           get_impl_options.value_found);
     }
     RecordTick(stats_, MEMTABLE_MISS);
@@ -592,12 +595,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
         key->is_blob_index = false;
         *key->s = Status::Aborted();
       } else {
+        assert(memtable_blob_fetcher_ptr != nullptr);
         std::string blob_lookup_key_storage;
         MaybeResolveDirectWriteValue(
             read_options,
             GetBlobLookupUserKey(*key->key, key->timestamp,
                                  &blob_lookup_key_storage),
-            /*resolve_direct_write_value=*/true, super_version->current, cfd,
+            /*resolve_direct_write_value=*/true, *memtable_blob_fetcher_ptr,
             key->value, key->columns, key->s, &key->is_blob_index);
       }
     }

@@ -19,6 +19,7 @@
 #include "logging/logging.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -391,8 +392,8 @@ InternalIterator* TableCache::NewIterator(
       open_options);
   InternalIterator* result = nullptr;
   if (s.ok()) {
-    if (options.table_filter &&
-        !options.table_filter(*table_reader->GetTableProperties())) {
+    if (HasTableFilter(options) &&
+        !(*options.table_filter)(*table_reader->GetTableProperties())) {
       result = NewEmptyInternalIterator<Slice>(arena);
     } else {
       result = table_reader->NewIterator(

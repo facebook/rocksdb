@@ -883,6 +883,18 @@ StressTest::StressTest(int db_index, const std::string& db_path,
             s.ToString().c_str());
     exit(1);
   }
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations =
+      FLAGS_checkpoint_engine_max_background_operations;
+  engine_options.use_link_file_when_available =
+      FLAGS_checkpoint_engine_use_link_file_when_available;
+  s = CheckpointEngine::Open(engine_options, &checkpoint_engine_);
+  if (!s.ok()) {
+    fprintf(stderr, "Error opening CheckpointEngine: %s\n",
+            s.ToString().c_str());
+    exit(1);
+  }
 }
 
 void StressTest::CleanUp() {
@@ -2257,6 +2269,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_cf_compactions_one_in)) {
+        Status status = TestAbortAndResumeCfCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCfCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
@@ -3005,10 +3022,12 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     ro.iterate_lower_bound = &lower_bound;
   }
 
+  std::function<bool(const TableProperties&)> table_filter;
   if (FLAGS_use_sqfc_for_range_queries && ro.iterate_upper_bound &&
       ro.iterate_lower_bound) {
-    ro.table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
+    table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
         *ro.iterate_lower_bound, *ro.iterate_upper_bound);
+    ro.table_filter = &table_filter;
   }
 
   std::unique_ptr<IterType> iter = new_iter_func(ro);
@@ -4025,36 +4044,45 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_fault_injection_fs_) {
     db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
   }
+  const bool use_parallel_engine =
+      thread->rand.OneInOpt(FLAGS_parallel_checkpoint_one_in);
   Checkpoint* checkpoint = nullptr;
-  Status s = Checkpoint::Create(db_, &checkpoint);
-  if (s.ok()) {
-    s = checkpoint->CreateCheckpoint(checkpoint_dir);
-    if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
-      fprintf(stderr, "Fail to create checkpoint to %s\n",
-              checkpoint_dir.c_str());
-      std::vector<std::string> files;
+  Status s;
+  if (use_parallel_engine) {
+    const IOStatus io_s =
+        checkpoint_engine_->CreateCheckpoint(db_, checkpoint_dir);
+    s = io_s;
+  } else {
+    s = Checkpoint::Create(db_, &checkpoint);
+    if (s.ok()) {
+      s = checkpoint->CreateCheckpoint(checkpoint_dir);
+    }
+  }
+  if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
+    fprintf(stderr, "Fail to create checkpoint to %s\n",
+            checkpoint_dir.c_str());
+    std::vector<std::string> files;
 
-      // Temporarily disable error injection to print debugging information
-      if (db_fault_injection_fs_) {
-        db_fault_injection_fs_->DisableThreadLocalErrorInjection(
-            FaultInjectionIOType::kMetadataRead);
-      }
+    // Temporarily disable error injection to print debugging information
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+    }
 
-      Status my_s = GetDbEnv()->GetChildren(checkpoint_dir, &files);
+    Status my_s = GetDbEnv()->GetChildren(checkpoint_dir, &files);
 
-      // Enable back disable error injection disabled for printing debugging
-      // information
-      if (db_fault_injection_fs_) {
-        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kMetadataRead);
-      }
-      if (!my_s.ok()) {
-        fprintf(stderr, "Fail to GetChildren under %s due to %s\n",
-                checkpoint_dir.c_str(), my_s.ToString().c_str());
-      } else {
-        for (const auto& f : files) {
-          fprintf(stderr, " %s\n", f.c_str());
-        }
+    // Enable back disable error injection disabled for printing debugging
+    // information
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+    }
+    if (!my_s.ok()) {
+      fprintf(stderr, "Fail to GetChildren under %s due to %s\n",
+              checkpoint_dir.c_str(), my_s.ToString().c_str());
+    } else {
+      for (const auto& f : files) {
+        fprintf(stderr, " %s\n", f.c_str());
       }
     }
   }
@@ -4399,6 +4427,17 @@ Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
   clock_->SleepForMicroseconds(1 << pwr2_micros);
   // Resume compactions
   db_->ResumeAllCompactions();
+  return Status::OK();
+}
+
+Status StressTest::TestAbortAndResumeCfCompactions(ThreadState* thread) {
+  int rand_cf = thread->rand.Uniform(static_cast<int>(column_families_.size()));
+  auto* cfh = column_families_[rand_cf];
+  db_->AbortCompactions(cfh);
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  db_->ResumeCompactions(cfh);
   return Status::OK();
 }
 

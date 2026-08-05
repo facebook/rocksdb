@@ -3725,6 +3725,8 @@ class ModelDB : public DB {
   void DisableManualCompaction() override {}
   void AbortAllCompactions() override {}
   void ResumeAllCompactions() override {}
+  void AbortCompactions(ColumnFamilyHandle* /*column_family*/) override {}
+  void ResumeCompactions(ColumnFamilyHandle* /*column_family*/) override {}
 
   Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) override {
