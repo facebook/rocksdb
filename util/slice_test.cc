@@ -707,6 +707,56 @@ TEST(BitFieldsTest, BitFields) {
   }
 }
 
+class SliceHexTest : public testing::Test {};
+
+TEST_F(SliceHexTest, HexAndToStringRoundTrip) {
+  {
+    Slice empty_slice("");
+    std::string normal_str = empty_slice.ToString(false);
+    std::string hex_str = empty_slice.ToString(true);
+    ASSERT_TRUE(normal_str.empty());
+    ASSERT_TRUE(hex_str.empty());
+    Slice hex_slice(hex_str);
+    std::string decoded;
+    ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+    ASSERT_TRUE(decoded.empty());
+  }
+
+  {
+    Slice single_byte_slice("A");
+    ASSERT_EQ(single_byte_slice.ToString(false), "A");
+    ASSERT_EQ(single_byte_slice.ToString(true), "41"); // Hex for 'A'
+    Slice hex_slice("41");
+    std::string decoded;
+    ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+    ASSERT_EQ(decoded, "A");
+  }
+
+  {
+    std::string all_bytes;
+    all_bytes.reserve(256);
+    for (int i = 0; i < 256; ++i) {
+      all_bytes.push_back(static_cast<char>(i));
+    }
+    Slice all_bytes_slice(all_bytes);
+    
+    // Verify non-hex ToString matches original binary data
+    std::string non_hex_out = all_bytes_slice.ToString(false);
+    ASSERT_EQ(non_hex_out, all_bytes);
+    
+    // Verify hex ToString output length (2 hex chars per byte)
+    std::string hex_out = all_bytes_slice.ToString(true);
+    ASSERT_EQ(hex_out.size(), 512);
+    
+    // Round-trip: Wrap the hex string in a Slice, then decode it
+    Slice hex_slice(hex_out);
+    std::string decoded_bytes;
+    ASSERT_TRUE(hex_slice.DecodeHex(&decoded_bytes));
+    ASSERT_EQ(decoded_bytes, all_bytes);
+    ASSERT_EQ(decoded_bytes.size(), 256);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
