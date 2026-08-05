@@ -81,7 +81,6 @@ class WalIteratorImpl : public WalIterator {
   // Used only to get latest seq. num
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
-  const bool seq_per_batch_;
   std::shared_ptr<IOTracer> io_tracer_;
 
   // State variables

@@ -17,7 +17,7 @@ WalIteratorImpl::WalIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const WalIterator::ReadOptions& read_options, const EnvOptions& soptions,
     const SequenceNumber seq, std::unique_ptr<VectorWalPtr> files,
-    VersionSet const* const versions, const bool seq_per_batch,
+    VersionSet const* const versions, [[maybe_unused]] const bool seq_per_batch,
     const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
       options_(options),
@@ -26,7 +26,6 @@ WalIteratorImpl::WalIteratorImpl(
       starting_sequence_number_(seq),
       files_(std::move(files)),
       versions_(versions),
-      seq_per_batch_(seq_per_batch),
       io_tracer_(io_tracer),
       started_(false),
       is_valid_(false),
@@ -35,7 +34,9 @@ WalIteratorImpl::WalIteratorImpl(
       current_last_seq_(0) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
-  assert(!seq_per_batch_);
+  // WalManager::GetUpdatesSince() rejects seq_per_batch before we get here, so
+  // one update always consumes exactly one sequence number below.
+  assert(!seq_per_batch);
   current_status_.PermitUncheckedError();  // Clear on start
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
@@ -264,7 +265,6 @@ void WalIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   }
 
   current_batch_seq_ = WriteBatchInternal::Sequence(batch.get());
-  assert(!seq_per_batch_);
   current_last_seq_ =
       current_batch_seq_ + WriteBatchInternal::Count(batch.get()) - 1;
   // currentBatchSeq_ can only change here
