@@ -66,6 +66,8 @@ class WalManager {
 
   Status GetLiveWalFile(uint64_t number, std::unique_ptr<WalFile>* log_file);
 
+  Status GetLiveWalFiles(SequenceNumber seq_start, VectorWalPtr& live_log_files);
+
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {
     return ReadFirstRecord(type, number, sequence);
