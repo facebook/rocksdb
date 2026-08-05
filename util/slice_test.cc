@@ -707,23 +707,56 @@ TEST(BitFieldsTest, BitFields) {
   }
 }
 
-TEST(SliceHexTest, HexAndToStringRoundTrip) {
-  {
-    Slice empty_slice("");
-    std::string normal_str = empty_slice.ToString(false);
-    std::string hex_str = empty_slice.ToString(true);
-    ASSERT_TRUE(normal_str.empty());
-    ASSERT_TRUE(hex_str.empty());
+void VerifyHexRoundTrip(const std::string& input) {
+    Slice slice(input);
+
+    // Verify non-hex ToString matches original input
+    std::string normal_str = slice.ToString(false);
+    ASSERT_EQ(normal_str, input);
+
+    // Encode to hex
+    std::string hex_str = slice.ToString(true);
+
+    // Hex string should be exactly twice the length of the input
+    ASSERT_EQ(hex_str.size(), input.size() * 2);
+
+    // Verify all characters in hex string are valid hex digits
+    for (char c : hex_str) {
+        ASSERT_TRUE(
+            (c >= '0' && c <= '9') ||
+            (c >= 'A' && c <= 'F')
+        ) << "Invalid hex character: " << c;
+    }
+
+    // Decode hex back to original
     Slice hex_slice(hex_str);
     std::string decoded;
     ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+
+    // Verify decoded output matches original input
+    ASSERT_EQ(decoded, input);
+    ASSERT_EQ(decoded.size(), input.size());
+}
+
+TEST(SliceHexTest, HexAndToStringRoundTrip) {
+  {
+    VerifyHexRoundTrip("");
+
+    // Additionally verify that decoding an empty hex string yields empty output
+    Slice empty_hex("");
+    std::string decoded;
+    ASSERT_TRUE(empty_hex.DecodeHex(&decoded));
     ASSERT_TRUE(decoded.empty());
   }
 
   {
+    VerifyHexRoundTrip("A");
+
+    // Additionally verify the specific hex encoding of 'A'
     Slice single_byte_slice("A");
-    ASSERT_EQ(single_byte_slice.ToString(false), "A");
-    ASSERT_EQ(single_byte_slice.ToString(true), "41");  // Hex for 'A'
+    ASSERT_EQ(single_byte_slice.ToString(true), "41");
+
+    // Verify decoding the known hex value yields the original character
     Slice hex_slice("41");
     std::string decoded;
     ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
@@ -731,27 +764,39 @@ TEST(SliceHexTest, HexAndToStringRoundTrip) {
   }
 
   {
+    Slice hex_slice("deadbeef");
+    std::string decoded;
+    ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+    ASSERT_EQ(decoded.size(), 4);
+
+    // Verify the decoded bytes match expected values
+    ASSERT_EQ(static_cast<unsigned char>(decoded[0]), 0xDE);
+    ASSERT_EQ(static_cast<unsigned char>(decoded[1]), 0xAD);
+    ASSERT_EQ(static_cast<unsigned char>(decoded[2]), 0xBE);
+    ASSERT_EQ(static_cast<unsigned char>(decoded[3]), 0xEF);
+
+    // Round-trip the decoded bytes back through VerifyHexRoundTrip
+    VerifyHexRoundTrip(decoded);
+
+    // Verify uppercase hex input also decodes correctly
+    Slice upper_hex_slice("DEADBEEF");
+    std::string upper_decoded;
+    ASSERT_TRUE(upper_hex_slice.DecodeHex(&upper_decoded));
+    ASSERT_EQ(upper_decoded, decoded);
+  }
+
+  {
     std::string all_bytes;
     all_bytes.reserve(256);
     for (int i = 0; i < 256; ++i) {
-      all_bytes.push_back(static_cast<char>(i));
+        all_bytes.push_back(static_cast<char>(i));
     }
+
+    VerifyHexRoundTrip(all_bytes);
+
+    // Additionally verify the exact output size for all-bytes case
     Slice all_bytes_slice(all_bytes);
-
-    // Verify non-hex ToString matches original binary data
-    std::string non_hex_out = all_bytes_slice.ToString(false);
-    ASSERT_EQ(non_hex_out, all_bytes);
-
-    // Verify hex ToString output length (2 hex chars per byte)
-    std::string hex_out = all_bytes_slice.ToString(true);
-    ASSERT_EQ(hex_out.size(), 512);
-
-    // Round-trip: Wrap the hex string in a Slice, then decode it
-    Slice hex_slice(hex_out);
-    std::string decoded_bytes;
-    ASSERT_TRUE(hex_slice.DecodeHex(&decoded_bytes));
-    ASSERT_EQ(decoded_bytes, all_bytes);
-    ASSERT_EQ(decoded_bytes.size(), 256);
+    ASSERT_EQ(all_bytes_slice.ToString(true).size(), 512);
   }
 }
 
