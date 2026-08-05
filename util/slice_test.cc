@@ -708,34 +708,32 @@ TEST(BitFieldsTest, BitFields) {
 }
 
 void VerifyHexRoundTrip(const std::string& input) {
-    Slice slice(input);
+  Slice slice(input);
 
-    // Verify non-hex ToString matches original input
-    std::string normal_str = slice.ToString(false);
-    ASSERT_EQ(normal_str, input);
+  // Verify non-hex ToString matches original input
+  std::string normal_str = slice.ToString(false);
+  ASSERT_EQ(normal_str, input);
 
-    // Encode to hex
-    std::string hex_str = slice.ToString(true);
+  // Encode to hex
+  std::string hex_str = slice.ToString(true);
 
-    // Hex string should be exactly twice the length of the input
-    ASSERT_EQ(hex_str.size(), input.size() * 2);
+  // Hex string should be exactly twice the length of the input
+  ASSERT_EQ(hex_str.size(), input.size() * 2);
 
-    // Verify all characters in hex string are valid hex digits
-    for (char c : hex_str) {
-        ASSERT_TRUE(
-            (c >= '0' && c <= '9') ||
-            (c >= 'A' && c <= 'F')
-        ) << "Invalid hex character: " << c;
-    }
+  // Verify all characters in hex string are valid hex digits
+  for (char c : hex_str) {
+    ASSERT_TRUE((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))
+        << "Invalid hex character: " << c;
+  }
 
-    // Decode hex back to original
-    Slice hex_slice(hex_str);
-    std::string decoded;
-    ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+  // Decode hex back to original
+  Slice hex_slice(hex_str);
+  std::string decoded;
+  ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
 
-    // Verify decoded output matches original input
-    ASSERT_EQ(decoded, input);
-    ASSERT_EQ(decoded.size(), input.size());
+  // Verify decoded output matches original input
+  ASSERT_EQ(decoded, input);
+  ASSERT_EQ(decoded.size(), input.size());
 }
 
 TEST(SliceHexTest, HexAndToStringRoundTrip) {
@@ -789,7 +787,7 @@ TEST(SliceHexTest, HexAndToStringRoundTrip) {
     std::string all_bytes;
     all_bytes.reserve(256);
     for (int i = 0; i < 256; ++i) {
-        all_bytes.push_back(static_cast<char>(i));
+      all_bytes.push_back(static_cast<char>(i));
     }
 
     VerifyHexRoundTrip(all_bytes);
