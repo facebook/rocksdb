@@ -707,9 +707,7 @@ TEST(BitFieldsTest, BitFields) {
   }
 }
 
-class SliceHexTest : public testing::Test {};
-
-TEST_F(SliceHexTest, HexAndToStringRoundTrip) {
+TEST(SliceHexTest, HexAndToStringRoundTrip) {
   {
     Slice empty_slice("");
     std::string normal_str = empty_slice.ToString(false);
