@@ -941,13 +941,6 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   PinnableSlice v;
   s = DbStressGet(db, ropt, cf, snap_state.key, &v);
   if (!s.ok() && !s.IsNotFound()) {
-    // When `persist_user_defined_timestamps` is false, a repeated read with
-    // both a read timestamp and an explicitly taken snapshot cannot guarantee
-    // consistent result all the time. When it cannot return consistent result,
-    // it will return an `InvalidArgument` status.
-    if (s.IsInvalidArgument() && !FLAGS_persist_user_defined_timestamps) {
-      return Status::OK();
-    }
     return s;
   }
   if (snap_state.status != s) {
@@ -1107,7 +1100,7 @@ void StressTest::MaybeVerifyCpuCorruption(ThreadState* thread,
   std::string read_ts_str;
   Slice read_ts;
   if (FLAGS_user_timestamp_size > 0) {
-    read_ts_str = GetNowNanos();
+    read_ts_str = GetReadTimestamp();
     read_ts = read_ts_str;
     read_opts.timestamp = &read_ts;
   }
@@ -1946,7 +1939,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::string read_ts_str;
       Slice read_ts;
       if (FLAGS_user_timestamp_size > 0) {
-        read_ts_str = GetNowNanos();
+        read_ts_str = GetReadTimestamp();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
       }
@@ -3390,7 +3383,7 @@ Status StressTest::TestBackupRestore(
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
+      ts_str = GetReadTimestamp();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -3700,7 +3693,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       Slice ts;
       ReadOptions read_opts;
       if (FLAGS_user_timestamp_size > 0) {
-        ts_str = GetNowNanos();
+        ts_str = GetReadTimestamp();
         ts = ts_str;
         read_opts.timestamp = &ts;
       }
@@ -4043,7 +4036,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GetNowNanos();
+    ts_str = GetReadTimestamp();
     ts = ts_str;
     ropt.timestamp = &ts;
   }
@@ -4247,7 +4240,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GetNowNanos();
+    ts_str = GetReadTimestamp();
     ts = ts_str;
     ro.timestamp = &ts;
   }
