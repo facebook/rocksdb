@@ -128,7 +128,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
              /*value_found*/ nullptr,
              /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
              /*is_blob*/ nullptr,
-             /*do_merge=*/get_impl_options.get_value);
+             /*do_merge=*/get_impl_options.get_value,
+             get_impl_options.lazy_columns_same_file_reader);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -155,6 +156,17 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
       RecordInHistogram(stats_, BYTES_PER_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
+  }
+  if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
+    // Lazy result (GetEntityLazy): hand back the Version the entity's blob
+    // references must be resolved against, and transfer a SuperVersion pin into
+    // the result so it -- and deferred blob reads -- stay valid after this call
+    // (as an iterator's pin does). Read-only borrows the current SuperVersion
+    // without a reference, so the pin takes its own.
+    if (get_impl_options.lazy_columns_version != nullptr) {
+      *get_impl_options.lazy_columns_version = super_version->current;
+    }
+    TransferSuperVersionPin(super_version, get_impl_options.lazy_columns_pin);
   }
   CO_RETURN s;
 }

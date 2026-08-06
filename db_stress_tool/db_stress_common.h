@@ -258,6 +258,7 @@ DECLARE_bool(use_multiget);
 DECLARE_bool(use_async_db_api);
 DECLARE_bool(use_get_entity);
 DECLARE_bool(use_multi_get_entity);
+DECLARE_int32(lazy_entity_read_one_in);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
 DECLARE_int32(writepercent);

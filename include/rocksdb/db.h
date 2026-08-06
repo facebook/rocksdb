@@ -54,6 +54,8 @@ struct WaitForCompactOptions;
 class Env;
 class EventListener;
 class FileSystem;
+class LazyWideColumns;
+class LazyWideColumnsBatch;
 class MultiScan;
 class Replayer;
 class StatsHistoryIterator;
@@ -719,6 +721,43 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
+  // EXPERIMENTAL and subject to change
+  //
+  // Lazy variant of GetEntity(). If the column family contains an entry for
+  // "key", returns it in "*result" as a LazyWideColumns: inline columns are
+  // materialized zero-copy, but blob-backed columns are left as *unresolved
+  // references* whose bytes are read only when explicitly pulled (by byte
+  // range) via the LazyWideColumns read APIs (or, across keys,
+  // LazyWideColumnsBatch). Columns that are
+  // never pulled are never read from storage.
+  //
+  // Unlike GetEntity(), "*result" may be used after this call returns: it holds
+  // a pin (like an iterator) so deferred reads stay resolvable. Destroy it
+  // promptly to release that pin.
+  //
+  // Requires the DB's max_open_files == -1 (so table readers are immortal and
+  // same-file/embedded blob references stay resolvable lazily); returns
+  // InvalidArgument otherwise. Returns OK on success, NotFound (with an empty
+  // "*result") if there is no entry for "key", or another non-OK status on
+  // error.
+  //
+  // Limitations (in addition to being a wide-column API):
+  //   * User-defined timestamps: wide-column entities do not support UDT --
+  //     PutEntity() returns InvalidArgument on a column family with a
+  //     user-defined-timestamp comparator, so no entity can exist there. This
+  //     method performs the same read-timestamp validation as GetEntity() (both
+  //     go through the same internal read path), so on such a column family it
+  //     behaves exactly as GetEntity() would.
+  //   * Transactions: there is no Transaction counterpart of this method; the
+  //     lazy read APIs are available only directly on DB. Use GetEntity()
+  //     (which Transaction does provide) for reads within a transaction.
+  virtual Status GetEntityLazy(const ReadOptions& /* options */,
+                               ColumnFamilyHandle* /* column_family */,
+                               const Slice& /* key */,
+                               LazyWideColumns* /* result */) {
+    return Status::NotSupported("GetEntityLazy not supported");
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`, or a customizable suffix of merge operands when
   // `GetMergeOperandsOptions::continue_cb` is set. The `merge_operands` array
@@ -919,6 +958,30 @@ class DB {
                               bool /* sorted_input */ = false) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
+  // EXPERIMENTAL and subject to change
+  //
+  // Lazy, batched peer of MultiGetEntity() (see GetEntityLazy() for the lazy
+  // semantics, the required pin, and the max_open_files == -1 requirement).
+  // "*result" is filled with "num_keys" per-key entities: "(*result)[i]"
+  // is the LazyWideColumns for "keys[i]" (blob-backed columns left as
+  // unresolved references), and "statuses[i]" is set to OK / NotFound / an
+  // error as in MultiGetEntity(). The per-key entities are owned by "*result"
+  // and are valid only while it is. Resolve references across keys together via
+  // LazyWideColumnsBatch::MultiResolve.
+  //
+  // The caller must ensure "keys" and "statuses" point to "num_keys" contiguous
+  // objects.
+  virtual void MultiGetEntityLazy(const ReadOptions& /* options */,
+                                  ColumnFamilyHandle* /* column_family */,
+                                  size_t num_keys, const Slice* /* keys */,
+                                  LazyWideColumnsBatch* /* result */,
+                                  Status* statuses,
+                                  bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntityLazy not supported");
     }
   }
 

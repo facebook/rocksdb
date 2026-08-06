@@ -1,0 +1,1 @@
+Added an experimental lazy wide-column read API, `DB::GetEntityLazy()` / `DB::MultiGetEntityLazy()` (see `include/rocksdb/lazy_wide_columns.h`): the returned `LazyWideColumns` leaves blob-backed columns as unresolved references so the caller resolves only the columns it needs, and (like an iterator) it can be used after the call returns. Requires `max_open_files == -1`.

@@ -280,6 +280,14 @@ class NonBatchedOpsStressTest : public StressTest {
             s = DbStressGet(secondary_db_.get(), options, secondary_cfhs_[cf],
                             key, &from_db);
 
+            // Also exercise the lazy wide-column read path on the secondary
+            // (self-checks lazy vs eager on the secondary, read at latest). A
+            // no-op unless the lazy API is enabled (open_files == -1, no
+            // UDT/txn) and sampled.
+            MaybeTestGetEntityLazy(thread, ReadOptions(), secondary_cfhs_[cf],
+                                   key, /*eager_reference=*/nullptr,
+                                   secondary_db_.get());
+
             // Re-enable error injection after verifying the secondary
             if (db_fault_injection_fs_) {
               db_fault_injection_fs_->EnableThreadLocalErrorInjection(
@@ -1252,6 +1260,8 @@ class NonBatchedOpsStressTest : public StressTest {
               s.ToString().c_str(), StringToHex(key_str).c_str(), rand_keys[0]);
       thread->shared->SetVerificationFailure();
     }
+
+    MaybeTestGetEntityLazy(thread, read_opts, cfh, key_str);
   }
 
   void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
@@ -1667,6 +1677,16 @@ class NonBatchedOpsStressTest : public StressTest {
                     [&](const Slice& key, PinnableWideColumns* result) {
                       return db_->GetEntity(read_opts_copy, cfh, key, result);
                     });
+
+      std::vector<EagerEntityRef> eager_refs(num_keys);
+      for (size_t i = 0; i < num_keys; ++i) {
+        eager_refs[i].status = results[i][0].status();
+        if (eager_refs[i].status.ok()) {
+          eager_refs[i].columns = &results[i][0].columns();
+        }
+      }
+      MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
+                                  key_slices.data(), &eager_refs);
     } else {
       // Non-AttributeGroup MultiGetEntity verification
 
@@ -1695,6 +1715,16 @@ class NonBatchedOpsStressTest : public StressTest {
                     [&](const Slice& key, PinnableWideColumns* result) {
                       return db_->GetEntity(read_opts_copy, cfh, key, result);
                     });
+
+      std::vector<EagerEntityRef> eager_refs(num_keys);
+      for (size_t i = 0; i < num_keys; ++i) {
+        eager_refs[i].status = statuses[i];
+        if (statuses[i].ok()) {
+          eager_refs[i].columns = &results[i].columns();
+        }
+      }
+      MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
+                                  key_slices.data(), &eager_refs);
     }
   }
 

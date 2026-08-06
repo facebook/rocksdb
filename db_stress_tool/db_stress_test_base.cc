@@ -37,6 +37,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
+#include "rocksdb/lazy_wide_columns.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table.h"
@@ -384,6 +385,437 @@ bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
           (FLAGS_tolerate_non_injected_io_errors_for_remote_dbs &&
            (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) &&
            error_s.IsIOError()));
+}
+
+bool StressTest::LazyEntityReadEnabled() const {
+  // Exercising the lazy wide-column read API requires the DB to be opened with
+  // max_open_files == -1 (the API returns InvalidArgument otherwise).
+  //
+  // Two combinations are excluded here, both matching documented limitations of
+  // the API (see DB::GetEntityLazy() in include/rocksdb/db.h) rather than being
+  // silent omissions:
+  //
+  //   * User-defined timestamps. Wide-column entities do not support UDT at
+  //   all:
+  //     PutEntity() returns InvalidArgument on a UDT column family (tested by
+  //     DBWideBasicTest.PutEntityTimestampError; the lazy read is at parity
+  //     with GetEntity() via the shared read path -- see
+  //     DBLazyEntityTest.UserTimestampParityWithGetEntity). So no entity exists
+  //     to read under UDT, and this harness does not supply the read timestamp
+  //     a UDT column family requires; running it there would just hit the same
+  //     InvalidArgument the eager path does. Nothing entity-specific to cover.
+  //
+  //   * Transactions. Transaction provides GetEntity()/MultiGetEntity() but has
+  //     no lazy counterpart, so there is no in-transaction lazy read to
+  //     exercise or to compare against the eager txn read (which also sees the
+  //     txn's own uncommitted writes). Adding a Transaction-level lazy API is
+  //     the tracked follow-up; until then this is a documented API limitation.
+  return FLAGS_lazy_entity_read_one_in > 0 && FLAGS_open_files == -1 &&
+         FLAGS_user_timestamp_size == 0 && !FLAGS_use_txn;
+}
+
+namespace {
+// Tri-state presence of the eager reference in the lazy read differential.
+enum class EagerPresence { kFound, kNotFound, kUnknown };
+}  // namespace
+
+void StressTest::MaybeTestGetEntityLazy(
+    ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
+    const Slice& key, const WideColumns* eager_reference, DB* db) const {
+  assert(thread);
+  if (!LazyEntityReadEnabled() ||
+      !thread->rand.OneIn(FLAGS_lazy_entity_read_one_in)) {
+    return;
+  }
+
+  // Default to the primary; a caller may target a read-only or secondary
+  // instance instead (see below).
+  DB* target = db != nullptr ? db : db_;
+
+  // The crash test's first goal is to exercise code (find crashes/asserts/UB),
+  // which does not require data-consistency verification. So the lazy read and
+  // resolution below always run; the eager-reference comparison is additionally
+  // done only when DB verification is enabled.
+  const bool verify = !FLAGS_skip_verifydb;
+
+  // When the caller supplies `eager_reference`, it is the entity the caller
+  // already read (and verified) under read_opts.snapshot; reuse that snapshot
+  // so the lazy read observes the same view and skip issuing a redundant eager
+  // read. Otherwise pin our own snapshot and read the reference here.
+  assert(eager_reference == nullptr || read_opts.snapshot != nullptr);
+  ReadOptions ro = read_opts;
+  std::unique_ptr<ManagedSnapshot> local_snapshot;
+  if (ro.snapshot == nullptr && target == db_) {
+    // Pin a snapshot so the lazy and eager reads observe the same view of the
+    // concurrently-mutated primary. A read-only/secondary target has a stable
+    // view for this call and (secondary) disallows snapshot reads, so it is
+    // read at latest without a snapshot.
+    local_snapshot = std::make_unique<ManagedSnapshot>(target);
+    ro.snapshot = local_snapshot->snapshot();
+  }
+  ro.timestamp = nullptr;  // gated on FLAGS_user_timestamp_size == 0
+
+  LazyWideColumns lazy;
+  const Status lazy_s = target->GetEntityLazy(ro, cfh, key, &lazy);
+  if (!lazy_s.ok() && !lazy_s.IsNotFound()) {
+    if (verify && !IsErrorInjectedAndRetryable(lazy_s)) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr, "GetEntityLazy error for key %s: %s\n",
+              StringToHex(key.ToString()).c_str(), lazy_s.ToString().c_str());
+    }
+    return;
+  }
+
+  // Establish the eager reference (caller-supplied or read here) and its
+  // presence, for comparison when verifying.
+  PinnableWideColumns own_eager;
+  const WideColumns* reference = nullptr;
+  EagerPresence presence = EagerPresence::kUnknown;
+  if (verify) {
+    if (eager_reference != nullptr) {
+      reference = eager_reference;
+      presence = EagerPresence::kFound;
+    } else {
+      const Status eager_s = target->GetEntity(ro, cfh, key, &own_eager);
+      if (eager_s.ok()) {
+        reference = &own_eager.columns();
+        presence = EagerPresence::kFound;
+      } else if (eager_s.IsNotFound()) {
+        presence = EagerPresence::kNotFound;
+      }
+      // else: eager errored (e.g. injected fault) -> presence stays kUnknown.
+    }
+  }
+
+  // Presence cross-check (only when the eager presence is known).
+  if (presence != EagerPresence::kUnknown) {
+    const bool eager_found = (presence == EagerPresence::kFound);
+    const bool lazy_found = lazy_s.ok();
+    if (eager_found != lazy_found) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr,
+              "GetEntityLazy presence mismatch for key %s: eager %s, lazy %s\n",
+              StringToHex(key.ToString()).c_str(),
+              eager_found ? "found" : "NotFound",
+              lazy_found ? "found" : "NotFound");
+      return;
+    }
+  }
+
+  if (lazy_s.IsNotFound()) {
+    return;  // consistent NotFound (or exercise-only): nothing to resolve
+  }
+
+  // Lazy read found the entity: exercise the resolver, comparing against the
+  // eager reference when we have one.
+  ResolveLazyEntity(thread, key.ToString(), reference, lazy);
+}
+
+void StressTest::MaybeTestMultiGetEntityLazy(
+    ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
+    size_t num_keys, const Slice* keys,
+    const std::vector<EagerEntityRef>* eager_references) {
+  assert(thread);
+  if (num_keys == 0 || !LazyEntityReadEnabled() ||
+      !thread->rand.OneIn(FLAGS_lazy_entity_read_one_in)) {
+    return;
+  }
+  // When the caller supplies per-key references, they were read (and verified)
+  // under read_opts.snapshot; each carries the eager status (and columns when
+  // found) so we can distinguish a clean NotFound from an injected/other error.
+  assert(eager_references == nullptr || (read_opts.snapshot != nullptr &&
+                                         eager_references->size() == num_keys));
+
+  const bool verify = !FLAGS_skip_verifydb;
+
+  ReadOptions ro = read_opts;
+  std::unique_ptr<ManagedSnapshot> local_snapshot;
+  if (ro.snapshot == nullptr) {
+    local_snapshot = std::make_unique<ManagedSnapshot>(db_);
+    ro.snapshot = local_snapshot->snapshot();
+  }
+  ro.timestamp = nullptr;
+
+  LazyWideColumnsBatch batch;
+  std::vector<Status> lazy_statuses(num_keys);
+  db_->MultiGetEntityLazy(ro, cfh, num_keys, keys, &batch,
+                          lazy_statuses.data());
+
+  SharedState* const shared = thread->shared;
+
+  if (batch.size() != num_keys) {
+    if (verify) {
+      shared->SetVerificationFailure();
+      fprintf(stderr,
+              "MultiGetEntityLazy returned %zu entities, expected %zu\n",
+              batch.size(), num_keys);
+    }
+    return;
+  }
+
+  // Reference source: caller-supplied per-key columns (already read and
+  // verified under the caller's snapshot) or, absent that, an eager
+  // MultiGetEntity we issue here. Only needed when verifying.
+  std::vector<PinnableWideColumns> own_eager;
+  std::vector<Status> own_eager_statuses;
+  if (verify && eager_references == nullptr) {
+    own_eager.resize(num_keys);
+    own_eager_statuses.resize(num_keys);
+    db_->MultiGetEntity(ro, cfh, num_keys, keys, own_eager.data(),
+                        own_eager_statuses.data());
+  }
+
+  // When eager_references == nullptr the fallbacks (own_eager_statuses /
+  // own_eager) are populated only in the verify path; guard against a future
+  // caller reaching these lambdas outside it.
+  auto eager_status = [&](size_t i) -> const Status& {
+    assert(verify || eager_references != nullptr);
+    return eager_references != nullptr ? (*eager_references)[i].status
+                                       : own_eager_statuses[i];
+  };
+  auto eager_presence = [&](size_t i) -> EagerPresence {
+    if (!verify) {
+      return EagerPresence::kUnknown;
+    }
+    const Status& es = eager_status(i);
+    if (es.ok()) {
+      return EagerPresence::kFound;
+    }
+    if (es.IsNotFound()) {
+      return EagerPresence::kNotFound;
+    }
+    return EagerPresence::kUnknown;  // e.g. injected error
+  };
+  auto eager_columns = [&](size_t i) -> const WideColumns* {
+    assert(verify || eager_references != nullptr);
+    if (!eager_status(i).ok()) {
+      return nullptr;
+    }
+    return eager_references != nullptr ? (*eager_references)[i].columns
+                                       : &own_eager[i].columns();
+  };
+
+  // Per entity: reconcile presence vs the eager reference, verify enumeration,
+  // then collect a random cross-entity subset of columns to resolve together.
+  // entity_ref[i] is non-null only when entity i has a usable reference to
+  // verify against.
+  std::vector<const WideColumns*> entity_ref(num_keys, nullptr);
+  std::vector<std::pair<size_t, size_t>>
+      chosen;  // (entity_index, column_index)
+  for (size_t i = 0; i < num_keys; ++i) {
+    const Status& ls = lazy_statuses[i];
+    if (!ls.ok() && !ls.IsNotFound()) {
+      if (verify && !IsErrorInjectedAndRetryable(ls)) {
+        shared->SetVerificationFailure();
+        fprintf(stderr, "MultiGetEntityLazy error for key %s: %s\n",
+                StringToHex(keys[i].ToString()).c_str(), ls.ToString().c_str());
+      }
+      continue;
+    }
+
+    const EagerPresence presence = eager_presence(i);
+    if (presence != EagerPresence::kUnknown) {
+      const bool eager_found = (presence == EagerPresence::kFound);
+      const bool lazy_found = ls.ok();
+      if (eager_found != lazy_found) {
+        shared->SetVerificationFailure();
+        fprintf(stderr,
+                "MultiGetEntityLazy presence mismatch for key %s: eager %s, "
+                "lazy %s\n",
+                StringToHex(keys[i].ToString()).c_str(),
+                eager_found ? "found" : "NotFound",
+                lazy_found ? "found" : "NotFound");
+        continue;
+      }
+    }
+
+    if (ls.IsNotFound()) {
+      continue;
+    }
+
+    // Lazy read found this entity.
+    const LazyWideColumns& entity = batch[i];
+    const WideColumns* reference =
+        (presence == EagerPresence::kFound) ? eager_columns(i) : nullptr;
+    if (!CheckLazyEntityEnumeration(thread, keys[i].ToString(), reference,
+                                    entity)) {
+      continue;
+    }
+    entity_ref[i] = reference;
+    const size_t num_columns = entity.size();
+    for (size_t c = 0; c < num_columns; ++c) {
+      if (thread->rand.OneIn(2)) {
+        chosen.emplace_back(i, c);
+      }
+    }
+  }
+
+  if (chosen.empty()) {
+    return;  // resolved "none" this time; enumeration was still exercised above
+  }
+
+  // Reserve up front so the out-param pointers stored in `reads` stay valid.
+  std::vector<PinnableSlice> results(chosen.size());
+  std::vector<Status> statuses(chosen.size());
+  std::vector<LazyColumnReadRequest> reads(chosen.size());
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    reads[j].column = &batch[chosen[j].first][chosen[j].second];
+    reads[j].offset = 0;
+    reads[j].length = kLazyWholeColumn;
+    reads[j].result = &results[j];
+    reads[j].status = &statuses[j];
+  }
+
+  const Status ms = batch.MultiResolve(reads);
+  if (!ms.ok()) {
+    if (verify && !IsErrorInjectedAndRetryable(ms)) {
+      shared->SetVerificationFailure();
+      fprintf(stderr, "LazyWideColumnsBatch::MultiResolve error: %s\n",
+              ms.ToString().c_str());
+    }
+    return;
+  }
+
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    const WideColumns* reference = entity_ref[chosen[j].first];
+    if (reference == nullptr) {
+      continue;  // exercise-only entity: resolved for crash coverage, no
+                 // compare
+    }
+    if (!statuses[j].ok()) {
+      if (!IsErrorInjectedAndRetryable(statuses[j])) {
+        shared->SetVerificationFailure();
+        fprintf(stderr,
+                "MultiGetEntityLazy column resolve error for key %s: %s\n",
+                StringToHex(keys[chosen[j].first].ToString()).c_str(),
+                statuses[j].ToString().c_str());
+      }
+      continue;
+    }
+    const Slice& expected = (*reference)[chosen[j].second].value();
+    if (Slice(results[j]) != expected) {
+      shared->SetVerificationFailure();
+      fprintf(stderr,
+              "MultiGetEntityLazy value mismatch for key %s column %zu: lazy "
+              "%s, reference %s\n",
+              StringToHex(keys[chosen[j].first].ToString()).c_str(),
+              chosen[j].second, Slice(results[j]).ToString(true).c_str(),
+              expected.ToString(true).c_str());
+    }
+  }
+}
+
+bool StressTest::CheckLazyEntityEnumeration(ThreadState* thread,
+                                            const std::string& key,
+                                            const WideColumns* reference,
+                                            const LazyWideColumns& lazy) const {
+  const size_t num_columns = lazy.size();
+  if (reference && num_columns != reference->size()) {
+    thread->shared->SetVerificationFailure();
+    fprintf(stderr,
+            "GetEntityLazy column count mismatch for key %s: lazy %zu, "
+            "reference %zu\n",
+            StringToHex(key).c_str(), num_columns, reference->size());
+    return false;
+  }
+  for (size_t c = 0; c < num_columns; ++c) {
+    if (reference == nullptr) {
+      // Exercise the no-I/O enumeration accessors for crash coverage even when
+      // there is nothing to compare against.
+      const LazyWideColumn& col = lazy[c];
+      col.name();
+      col.logical_size();
+      continue;
+    }
+    if (lazy[c].name() != (*reference)[c].name()) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr, "GetEntityLazy column name mismatch for key %s at %zu\n",
+              StringToHex(key).c_str(), c);
+      return false;
+    }
+    // Logical size is known (and must be exact) for inline and uncompressed
+    // blob columns; unknown for compressed blob columns (skip those).
+    if (lazy[c].logical_size().has_value() &&
+        *lazy[c].logical_size() != (*reference)[c].value().size()) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr,
+              "GetEntityLazy logical size mismatch for key %s column %zu: lazy "
+              "%" PRIu64 ", reference %zu\n",
+              StringToHex(key).c_str(), c, *lazy[c].logical_size(),
+              (*reference)[c].value().size());
+      return false;
+    }
+  }
+  return true;
+}
+
+void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
+                                   const WideColumns* reference,
+                                   LazyWideColumns& lazy) const {
+  if (!CheckLazyEntityEnumeration(thread, key, reference, lazy)) {
+    return;
+  }
+
+  // Resolve a random subset of columns (possibly none, possibly all) in one
+  // MultiResolve call. This exercises the resolver for crash coverage; when a
+  // reference is available it also verifies the resolved bytes.
+  std::vector<size_t> chosen;
+  const size_t num_columns = lazy.size();
+  for (size_t c = 0; c < num_columns; ++c) {
+    if (thread->rand.OneIn(2)) {
+      chosen.push_back(c);
+    }
+  }
+  if (chosen.empty()) {
+    return;
+  }
+
+  std::vector<PinnableSlice> results(chosen.size());
+  std::vector<Status> statuses(chosen.size());
+  std::vector<LazyColumnReadRequest> reads(chosen.size());
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    reads[j].column = &lazy[chosen[j]];
+    reads[j].offset = 0;
+    reads[j].length = kLazyWholeColumn;
+    reads[j].result = &results[j];
+    reads[j].status = &statuses[j];
+  }
+
+  SharedState* const shared = thread->shared;
+  const Status ms = lazy.MultiResolve(reads);
+  if (!ms.ok()) {
+    if (reference && !IsErrorInjectedAndRetryable(ms)) {
+      shared->SetVerificationFailure();
+      fprintf(stderr, "LazyWideColumns::MultiResolve error for key %s: %s\n",
+              StringToHex(key).c_str(), ms.ToString().c_str());
+    }
+    return;
+  }
+  if (reference == nullptr) {
+    return;  // exercise-only (e.g. skip_verifydb): nothing to compare
+  }
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    if (!statuses[j].ok()) {
+      if (!IsErrorInjectedAndRetryable(statuses[j])) {
+        shared->SetVerificationFailure();
+        fprintf(
+            stderr,
+            "GetEntityLazy column resolve error for key %s column %zu: %s\n",
+            StringToHex(key).c_str(), chosen[j],
+            statuses[j].ToString().c_str());
+      }
+      continue;
+    }
+    if (Slice(results[j]) != (*reference)[chosen[j]].value()) {
+      shared->SetVerificationFailure();
+      fprintf(stderr,
+              "GetEntityLazy value mismatch for key %s column %zu: lazy %s, "
+              "reference %s\n",
+              StringToHex(key).c_str(), chosen[j],
+              Slice(results[j]).ToString(true).c_str(),
+              (*reference)[chosen[j]].value().ToString(true).c_str());
+    }
+  }
 }
 
 const std::string& StressTest::GetDbLabel() const { return db_label_; }
@@ -4916,6 +5348,16 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
   // Opening read-only while the primary mutates the same directory is
   // best-effort; a transient failure here is expected and not a bug.
   if (s.ok()) {
+    // Exercise the lazy wide-column read path on the read-only instance: the
+    // differential self-checks lazy vs eager on this same reader. No-op unless
+    // the lazy API is enabled (open_files == -1, no UDT/txn) and sampled.
+    {
+      const size_t cf = thread->rand.Next() % ro_cfhs.size();
+      const std::string key_str = Key(thread->rand.Next() % FLAGS_max_key);
+      MaybeTestGetEntityLazy(thread, ReadOptions(), ro_cfhs[cf], key_str,
+                             /*eager_reference=*/nullptr, ro_db.get());
+    }
+
     // Create new SST files in the primary that are absent from the reader's
     // frozen live-file snapshot, so that a read-only close wrongly running
     // obsolete-file cleanup would delete these live files. Flush all column

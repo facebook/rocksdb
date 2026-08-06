@@ -69,6 +69,7 @@
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/wal_iterator_impl.h"
+#include "db/wide/lazy_wide_columns_helper.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
@@ -91,6 +92,7 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "rocksdb/lazy_wide_columns.h"
 #include "util/udt_util.h"
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
@@ -2544,6 +2546,17 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
   delete sv_handle;
 }
 
+void DBImpl::TransferSuperVersionPin(SuperVersion* super_version,
+                                     Cleanable* pin) {
+  assert(super_version != nullptr);
+  assert(pin != nullptr);
+  super_version->Ref();
+  SuperVersionHandle* sv_handle = new SuperVersionHandle(
+      this, &mutex_, super_version,
+      immutable_db_options_.avoid_unnecessary_blocking_io);
+  pin->RegisterCleanup(CleanupSuperVersionHandle, sv_handle, nullptr);
+}
+
 struct GetMergeOperandsState {
   GetMergeOperandsState(MergeContext _merge_context,
                         PinnedIteratorsManager _pinned_iters_mgr)
@@ -2712,6 +2725,163 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   get_impl_options.columns = columns;
 
   return GetImpl(read_options, key, get_impl_options);
+}
+
+Status DBImpl::GetEntityLazyImpl(const ReadOptions& read_options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, LazyWideColumns* result) {
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Point-lookup output: the entity buffer owned by the result. GetImpl fills
+  // it with the (unresolved) entity and hands back the resolution context.
+  PinnableWideColumns* entity_buffer =
+      LazyWideColumnsHelper::EntityBuffer(result);
+
+  const SameFileBlobReader* same_file_reader = nullptr;
+  const Version* version = nullptr;
+  Cleanable pin;
+
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns = entity_buffer;
+  get_impl_options.lazy_columns_pin = &pin;
+  get_impl_options.lazy_columns_version = &version;
+  get_impl_options.lazy_columns_same_file_reader = &same_file_reader;
+
+  Status s = GetImpl(read_options, key, get_impl_options);
+  if (!s.ok()) {
+    result->Reset();
+    return s;
+  }
+
+  s = LazyWideColumnsHelper::Finalize(
+      result, key, version, read_options, cfd->blob_file_cache(),
+      /*allow_write_path_fallback=*/cfd->blob_partition_manager() != nullptr,
+      same_file_reader, std::move(pin));
+  if (!s.ok()) {
+    result->Reset();
+  }
+  return s;
+}
+
+Status DBImpl::GetEntityLazy(const ReadOptions& _read_options,
+                             ColumnFamilyHandle* column_family,
+                             const Slice& key, LazyWideColumns* result) {
+  // Start from an empty result so a reused LazyWideColumns is left empty (not
+  // stale) on every early-return / error path below.
+  if (result != nullptr) {
+    result->Reset();
+  }
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityLazy without a column family handle");
+  }
+  if (!result) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityLazy without a LazyWideColumns object");
+  }
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityLazy with `ReadOptions::io_activity` set to "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+  // Lazy resolution keeps blob references (including same-file/embedded ones)
+  // resolvable after the call returns; that relies on immortal, pinned table
+  // readers, which the DB only guarantees when max_open_files == -1.
+  if (mutable_db_options_.max_open_files != -1) {
+    return Status::InvalidArgument(
+        "GetEntityLazy requires the DB to be opened with max_open_files == -1");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+
+  return GetEntityLazyImpl(read_options, column_family, key, result);
+}
+
+void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
+                                ColumnFamilyHandle* column_family,
+                                size_t num_keys, const Slice* keys,
+                                LazyWideColumnsBatch* result, Status* statuses,
+                                bool /* sorted_input */) {
+  // Start from an empty batch so a reused LazyWideColumnsBatch is left empty
+  // (not stale) on every early-return / error path below.
+  if (result != nullptr) {
+    result->Reset();
+  }
+  if (num_keys == 0) {
+    return;
+  }
+  Status arg_status;
+  if (!column_family) {
+    arg_status = Status::InvalidArgument(
+        "Cannot call MultiGetEntityLazy without a column family handle");
+  } else if (!result) {
+    arg_status = Status::InvalidArgument(
+        "Cannot call MultiGetEntityLazy without a LazyWideColumnsBatch object");
+  } else if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+             _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    arg_status = Status::InvalidArgument(
+        "Can only call MultiGetEntityLazy with `ReadOptions::io_activity` set "
+        "to `Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+  } else if (mutable_db_options_.max_open_files != -1) {
+    arg_status = Status::InvalidArgument(
+        "MultiGetEntityLazy requires the DB to be opened with max_open_files "
+        "== "
+        "-1");
+  }
+  if (!arg_status.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = arg_status;
+    }
+    return;
+  }
+
+  LazyWideColumnsHelper::InitBatch(result, num_keys);
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  // The current phase implements MultiGetEntityLazy as a loop of single-key
+  // lazy lookups. Each iteration acquires (and hands back to the result) its
+  // own SuperVersion reference, and each single-key lookup independently
+  // derives its read sequence number. To still present one consistent
+  // point-in-time view across all keys (as MultiGet guarantees), pin an
+  // explicit snapshot for the duration of the loop when the caller did not
+  // supply one: it fixes the read sequence number for every key and prevents
+  // compaction from dropping a version some later key still needs to observe.
+  //
+  // TODO(lazy-blob-resolution-phase3): replace this loop with a genuinely
+  // batched read that acquires a single SuperVersion and one consistent
+  // (implicit) sequence number for the whole batch -- the mechanism batched
+  // MultiGet already uses -- and holds one shared pin per column family instead
+  // of one per key. That removes the need for an explicit snapshot here (which
+  // takes the DB mutex and adds a snapshot list entry) and enables
+  // coalescing/parallelizing the per-key work.
+  const Snapshot* snapshot = read_options.snapshot;
+  const bool own_snapshot = snapshot == nullptr;
+  if (own_snapshot) {
+    snapshot = GetSnapshot();
+    read_options.snapshot = snapshot;
+  }
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    statuses[i] =
+        GetEntityLazyImpl(read_options, column_family, keys[i], &(*result)[i]);
+  }
+  // Link the populated entities back to the batch so batch reads can validate
+  // column ownership.
+  LazyWideColumnsHelper::FinalizeBatch(result);
+
+  if (own_snapshot) {
+    ReleaseSnapshot(snapshot);
+  }
 }
 
 Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,

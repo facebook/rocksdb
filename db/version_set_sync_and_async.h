@@ -16,7 +16,8 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
  PinnableWideColumns* columns, std::string* timestamp, Status* status,
  MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
  PinnedIteratorsManager* pinned_iters_mgr, bool* value_found, bool* key_exists,
- SequenceNumber* seq, ReadCallback* callback, bool* is_blob, bool do_merge) {
+ SequenceNumber* seq, ReadCallback* callback, bool* is_blob, bool do_merge,
+ const SameFileBlobReader** lazy_columns_same_file_reader) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -48,7 +49,7 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
       do_merge ? timestamp : nullptr, value_found, merge_context, do_merge,
       max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? pinned_iters_mgr : nullptr, callback, is_blob_to_use,
-      tracing_get_id, &blob_fetcher);
+      tracing_get_id, &blob_fetcher, lazy_columns_same_file_reader);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {

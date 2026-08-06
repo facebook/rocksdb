@@ -21,6 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Version;
+class SameFileBlobReader;
 
 // TODO: ReadPathBlobResolver and CompactionBlobResolver (in
 // compaction_iterator.h) share significant logic for blob column resolution
@@ -50,8 +51,17 @@ class ReadPathBlobResolver {
   // Reset the resolver for a new entity. Clears all cached values.
   // The columns and blob_columns pointers must remain valid for the lifetime
   // of the resolver (or until the next Reset call).
+  //
+  // same_file_reader: when non-null, same-file ("embedded") blob references are
+  // resolved against it (the SST that held the entity) via an
+  // EmbeddedAwareBlobFetcher; it must outlive the resolver (ensured, on the
+  // lazy read path, by the same SuperVersion pin that keeps the Version alive,
+  // combined with immortal table readers when max_open_files == -1). When null
+  // (e.g. the DBIter path, which resolves embedded refs separately), only
+  // separate-file references are resolvable.
   void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
-             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
+             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+             const SameFileBlobReader* same_file_reader = nullptr);
 
   // Resolve the value for the column at the given index.
   // For blob columns, fetches the blob value from the blob file (or returns
@@ -99,6 +109,9 @@ class ReadPathBlobResolver {
   Slice user_key_;
   const std::vector<WideColumn>* columns_ = nullptr;
   const std::vector<std::pair<size_t, BlobIndex>>* blob_columns_ = nullptr;
+  // Non-null on the lazy read path for entities with same-file blob references;
+  // see Reset().
+  const SameFileBlobReader* same_file_reader_ = nullptr;
 
   // Cache for resolved blob values to avoid re-fetching.
   // Uses a vector of (column_index, PinnableSlice) pairs. Typical entities

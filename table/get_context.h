@@ -102,26 +102,38 @@ class GetContext {
   // and false if all the merge operands associated with user_key has to be
   // returned. Id do_merge=false then all the merge operands are stored in
   // merge_context and they are never merged. The value pointer is untouched.
-  GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
-             Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, PinnableSlice* value,
-             PinnableWideColumns* columns, bool* value_found,
-             MergeContext* merge_context, bool do_merge,
-             SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
-             SequenceNumber* seq = nullptr,
-             PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
-             ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
-  GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
-             Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, PinnableSlice* value,
-             PinnableWideColumns* columns, std::string* timestamp,
-             bool* value_found, MergeContext* merge_context, bool do_merge,
-             SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
-             SequenceNumber* seq = nullptr,
-             PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
-             ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
+  //
+  // TODO(get-context-args-struct): these telescoping positional constructors
+  // (two overloads that differ only by `timestamp`, plus a growing tail of
+  // defaulted params) require a multi-site edit for every new read-path input
+  // -- e.g. adding `lazy_columns_same_file_reader` here also touched both
+  // definitions, the delegation between them, and a ~20-argument positional
+  // call site whose correctness depends on counting commas. Replace them with a
+  // single constructor taking a defaulted parameter struct (as GetImplOptions
+  // already does one layer up), so future inputs are a one-field addition and
+  // call sites become self-documenting.
+  GetContext(
+      const Comparator* ucmp, const MergeOperator* merge_operator,
+      Logger* logger, Statistics* statistics, GetState init_state,
+      const Slice& user_key, PinnableSlice* value, PinnableWideColumns* columns,
+      bool* value_found, MergeContext* merge_context, bool do_merge,
+      SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
+      SequenceNumber* seq = nullptr,
+      PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
+      ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+      uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr,
+      const SameFileBlobReader** lazy_columns_same_file_reader = nullptr);
+  GetContext(
+      const Comparator* ucmp, const MergeOperator* merge_operator,
+      Logger* logger, Statistics* statistics, GetState init_state,
+      const Slice& user_key, PinnableSlice* value, PinnableWideColumns* columns,
+      std::string* timestamp, bool* value_found, MergeContext* merge_context,
+      bool do_merge, SequenceNumber* max_covering_tombstone_seq,
+      SystemClock* clock, SequenceNumber* seq = nullptr,
+      PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
+      ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+      uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr,
+      const SameFileBlobReader** lazy_columns_same_file_reader = nullptr);
   // emplace-only; default construction and move assignment are intentionally
   // disabled.
   GetContext(GetContext&&) noexcept = default;
@@ -279,6 +291,12 @@ class GetContext {
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
   BlobFetcher* blob_fetcher_;
+  // Non-null => "lazy columns" mode (GetEntityLazy): a wide-column entity saved
+  // to columns_ is left with its blob references unresolved, and the
+  // SameFileBlobReader for the SST that held it (if any) is stored here so the
+  // caller can resolve same-file/embedded references on demand later. Only the
+  // SST read path (Version::Get) sets this; memtable hits are unaffected.
+  const SameFileBlobReader** lazy_columns_same_file_reader_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

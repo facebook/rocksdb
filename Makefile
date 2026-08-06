@@ -1730,6 +1730,9 @@ db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o
 db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_lazy_entity_test: $(OBJ_DIR)/db/wide/db_lazy_entity_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_wide_blob_direct_write_test: $(OBJ_DIR)/db/wide/db_wide_blob_direct_write_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

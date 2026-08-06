@@ -72,6 +72,7 @@ class Compaction;
 class LogBuffer;
 class LookupKey;
 class MemTable;
+class SameFileBlobReader;
 class Version;
 class VersionSet;
 class WriteBufferManager;
@@ -969,7 +970,8 @@ class Version {
       PinnedIteratorsManager* pinned_iters_mgr, bool* value_found = nullptr,
       bool* key_exists = nullptr, SequenceNumber* seq = nullptr,
       ReadCallback* callback = nullptr, bool* is_blob = nullptr,
-      bool do_merge = true);
+      bool do_merge = true,
+      const SameFileBlobReader** lazy_columns_same_file_reader = nullptr);
 
   DECLARE_SYNC_AND_ASYNC(void, MultiGet, const ReadOptions&,
                          MultiGetRange* range,

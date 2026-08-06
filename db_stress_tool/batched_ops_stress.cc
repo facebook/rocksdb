@@ -381,6 +381,19 @@ class BatchedOpsStressTest : public StressTest {
         }
       }
     }
+
+    // Reuse one of the sibling entities we just read (under read_opts_copy's
+    // snapshot, and cross-checked above) as the lazy read's reference, rather
+    // than issuing another eager read.
+    const size_t lazy_idx = thread->rand.Uniform(static_cast<int>(num_keys));
+    const std::string lazy_key = std::to_string(lazy_idx) + key_suffix;
+    const WideColumns& eager_ref_columns =
+        FLAGS_use_attribute_group
+            ? attribute_group_results[lazy_idx].front().columns()
+            : column_results[lazy_idx].columns();
+    const WideColumns* const eager_ref =
+        eager_ref_columns.empty() ? nullptr : &eager_ref_columns;
+    MaybeTestGetEntityLazy(thread, read_opts_copy, cfh, lazy_key, eager_ref);
   }
 
   void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
@@ -485,6 +498,16 @@ class BatchedOpsStressTest : public StressTest {
             }
           }
         }
+
+        std::vector<EagerEntityRef> eager_refs(num_prefixes);
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          eager_refs[j].status = results[j][0].status();
+          if (eager_refs[j].status.ok()) {
+            eager_refs[j].columns = &results[j][0].columns();
+          }
+        }
+        MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_prefixes,
+                                    key_slices.data(), &eager_refs);
       } else {
         // Non-AttributeGroup MultiGetEntity verification
 
@@ -546,6 +569,16 @@ class BatchedOpsStressTest : public StressTest {
             }
           }
         }
+
+        std::vector<EagerEntityRef> eager_refs(num_prefixes);
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          eager_refs[j].status = statuses[j];
+          if (statuses[j].ok()) {
+            eager_refs[j].columns = &results[j].columns();
+          }
+        }
+        MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_prefixes,
+                                    key_slices.data(), &eager_refs);
       }
     }
   }

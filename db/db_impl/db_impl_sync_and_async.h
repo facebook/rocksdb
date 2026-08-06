@@ -308,7 +308,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
-        get_impl_options.get_value);
+        get_impl_options.get_value,
+        get_impl_options.lazy_columns_same_file_reader);
     if (get_impl_options.get_value && resolve_direct_write_value) {
       assert(memtable_blob_fetcher_ptr != nullptr);
       std::string blob_lookup_key_storage;
@@ -409,6 +410,19 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
 
+    if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
+      // Lazy result (GetEntityLazy): the entity's blob references were left
+      // unresolved. Hand back the Version they must be resolved against and
+      // transfer an extra SuperVersion reference into the result's pin, so the
+      // result -- and thus deferred blob reads -- stay valid after this call
+      // returns (as an iterator's SuperVersion pin does). The reference is
+      // released when the pin's cleanup runs (result destruction); the
+      // borrowed reference for this call is dropped by the sv_cleanup Defer.
+      if (get_impl_options.lazy_columns_version != nullptr) {
+        *get_impl_options.lazy_columns_version = sv->current;
+      }
+      TransferSuperVersionPin(sv, get_impl_options.lazy_columns_pin);
+    }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
   CO_RETURN s;

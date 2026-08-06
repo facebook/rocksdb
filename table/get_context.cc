@@ -35,7 +35,8 @@ GetContext::GetContext(
     bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
     SystemClock* clock, SequenceNumber* seq,
     PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
+    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher,
+    const SameFileBlobReader** lazy_columns_same_file_reader)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -56,7 +57,8 @@ GetContext::GetContext(
       do_merge_(do_merge),
       is_blob_index_(is_blob_index),
       tracing_get_id_(tracing_get_id),
-      blob_fetcher_(blob_fetcher) {
+      blob_fetcher_(blob_fetcher),
+      lazy_columns_same_file_reader_(lazy_columns_same_file_reader) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -73,12 +75,13 @@ GetContext::GetContext(const Comparator* ucmp,
                        SystemClock* clock, SequenceNumber* seq,
                        PinnedIteratorsManager* _pinned_iters_mgr,
                        ReadCallback* callback, bool* is_blob_index,
-                       uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
+                       uint64_t tracing_get_id, BlobFetcher* blob_fetcher,
+                       const SameFileBlobReader** lazy_columns_same_file_reader)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
                  pinnable_val, columns, /*timestamp=*/nullptr, value_found,
                  merge_context, do_merge, _max_covering_tombstone_seq, clock,
                  seq, _pinned_iters_mgr, callback, is_blob_index,
-                 tracing_get_id, blob_fetcher) {}
+                 tracing_get_id, blob_fetcher, lazy_columns_same_file_reader) {}
 
 void GetContext::appendToReplayLog(ValueType type, Slice value, Slice ts) {
   if (replay_log_) {
@@ -149,6 +152,16 @@ Status GetContext::SaveWideColumnEntityToColumns(
   // parses it and records any blob-valued columns that still need resolving.
   Status status = columns_->SetWideColumnValue(entity, value_pinner);
   if (!status.ok()) {
+    return status;
+  }
+
+  if (lazy_columns_same_file_reader_ != nullptr) {
+    // Lazy mode (GetEntityLazy): leave blob references unresolved so the caller
+    // can resolve them on demand (by column / byte range). Capture the
+    // SameFileBlobReader (the SST that held this entity, if it has embedded
+    // blobs) so same-file references stay resolvable later; it is null for an
+    // entity with only separate-file (or no) blob references.
+    *lazy_columns_same_file_reader_ = same_file_reader;
     return status;
   }
 
