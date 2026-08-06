@@ -85,6 +85,7 @@ enum class LevelStatType {
   KEY_DROP,
   R_BLOB_GB,
   W_BLOB_GB,
+  COMP_QUEUE_WAIT_SEC,
   TOTAL  // total number of types
 };
 
@@ -223,6 +224,9 @@ class InternalStats {
     // Number of compactions done
     int count;
 
+    // Time spent waiting in the compaction queue (microseconds)
+    uint64_t queue_wait_micros;
+
     // Number of compactions done per CompactionReason
     int counts[static_cast<int>(CompactionReason::kNumOfReasons)]{};
 
@@ -247,7 +251,8 @@ class InternalStats {
           num_input_records(0),
           num_dropped_records(0),
           num_output_records(0),
-          count(0) {
+          count(0),
+          queue_wait_micros(0) {
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
@@ -275,7 +280,8 @@ class InternalStats {
           num_input_records(0),
           num_dropped_records(0),
           num_output_records(0),
-          count(c) {
+          count(c),
+          queue_wait_micros(0) {
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
@@ -312,7 +318,8 @@ class InternalStats {
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
           num_output_records(c.num_output_records),
-          count(c.count) {
+          count(c.count),
+          queue_wait_micros(c.queue_wait_micros) {
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = c.counts[i];
@@ -344,6 +351,7 @@ class InternalStats {
       num_dropped_records = c.num_dropped_records;
       num_output_records = c.num_output_records;
       count = c.count;
+      queue_wait_micros = c.queue_wait_micros;
 
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
@@ -374,6 +382,7 @@ class InternalStats {
       this->num_dropped_records = 0;
       this->num_output_records = 0;
       this->count = 0;
+      this->queue_wait_micros = 0;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] = 0;
@@ -407,6 +416,7 @@ class InternalStats {
       this->num_dropped_records += c.num_dropped_records;
       this->num_output_records += c.num_output_records;
       this->count += c.count;
+      this->queue_wait_micros += c.queue_wait_micros;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] += c.counts[i];
@@ -440,6 +450,7 @@ class InternalStats {
       this->num_dropped_records -= c.num_dropped_records;
       this->num_output_records -= c.num_output_records;
       this->count -= c.count;
+      this->queue_wait_micros -= c.queue_wait_micros;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] -= c.counts[i];
@@ -582,6 +593,10 @@ class InternalStats {
 
   void IncBytesMoved(int level, uint64_t amount) {
     comp_stats_[level].bytes_moved += amount;
+  }
+
+  void AddCompactionQueueWaitMicros(int level, uint64_t micros) {
+    comp_stats_[level].queue_wait_micros += micros;
   }
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {
@@ -734,6 +749,7 @@ class InternalStats {
     uint64_t compact_bytes_write;
     uint64_t compact_bytes_read;
     uint64_t compact_micros;
+    uint64_t compact_queue_wait_micros;
     double seconds_up;
 
     // AddFile specific stats
@@ -748,6 +764,7 @@ class InternalStats {
           compact_bytes_write(0),
           compact_bytes_read(0),
           compact_micros(0),
+          compact_queue_wait_micros(0),
           seconds_up(0),
           ingest_bytes_addfile(0),
           ingest_files_addfile(0),
@@ -761,6 +778,7 @@ class InternalStats {
       compact_bytes_write = 0;
       compact_bytes_read = 0;
       compact_micros = 0;
+      compact_queue_wait_micros = 0;
       seconds_up = 0;
       ingest_bytes_addfile = 0;
       ingest_files_addfile = 0;
