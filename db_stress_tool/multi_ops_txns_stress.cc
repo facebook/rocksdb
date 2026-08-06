@@ -1479,10 +1479,10 @@ void MultiOpsTxnsStressTest::PersistKeySpacesDesc(
   std::unique_ptr<WritableFile> wfile;
   Status s1 =
       Env::Default()->NewWritableFile(key_spaces_path, &wfile, EnvOptions());
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
   assert(wfile);
   s1 = wfile->Append(key_spaces_rep);
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
 }
 
 MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
@@ -1491,12 +1491,12 @@ MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
   std::unique_ptr<SequentialFile> sfile;
   Status s1 =
       Env::Default()->NewSequentialFile(key_spaces_path, &sfile, EnvOptions());
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
   assert(sfile);
   char buf[16];
   Slice result;
   s1 = sfile->Read(sizeof(buf), &result, buf);
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
   if (!key_spaces.DecodeFrom(result)) {
     assert(false);
   }
@@ -1585,7 +1585,7 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     s = txn_db_->Write(wopts, &wb);
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
     ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     // TODO (yanqin): make the following check optional, especially when data
@@ -1691,12 +1691,9 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot decode primary index entry (%s => %s): %s\n",
-                it->key().ToString(true).c_str(),
-                it->value().ToString(true).c_str(), s.ToString().c_str());
-        assert(false);
-      }
+      DB_STRESS_ASSERT_OK_MSG(s, "Cannot decode primary index entry (%s => %s)",
+                              it->key().ToString(true).c_str(),
+                              it->value().ToString(true).c_str());
       uint32_t a = record.a_value();
       assert(a >= lb_a);
       assert(a < ub_a);

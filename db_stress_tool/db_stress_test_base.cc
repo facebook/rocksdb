@@ -278,11 +278,7 @@ std::string GetFaultInjectionLogPath(const std::string& db_label) {
   const std::string log_dir =
       GetFaultInjectionLogBaseDir() + "/fault_injection_logs";
   Status s = Env::Default()->CreateDirIfMissing(log_dir);
-  if (!s.ok()) {
-    fprintf(stderr, "Failed to create directory %s: %s\n", log_dir.c_str(),
-            s.ToString().c_str());
-    exit(1);
-  }
+  DB_STRESS_ASSERT_OK_MSG(s, "Failed to create directory %s", log_dir.c_str());
   return log_dir + "/fault_injection_" + std::to_string(port::GetProcessID()) +
          "_" + std::to_string(Env::Default()->NowMicros()) + "_" + db_label +
          ".bin";
@@ -449,19 +445,12 @@ StressTest::StressTest(int db_index, const std::string& db_path,
 
   if (FLAGS_destroy_db_initially) {
     const Status s = DbStressDestroyDb(GetDbPath());
-    if (!s.ok()) {
-      fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "Cannot destroy original db");
   }
 
   Status s = DbStressSqfcManager().MakeSharedFactory(
       FLAGS_sqfc_name, FLAGS_sqfc_version, &sqfc_factory_);
-  if (!s.ok()) {
-    fprintf(stderr, "Error initializing SstQueryFilterConfig: %s\n",
-            s.ToString().c_str());
-    exit(1);
-  }
+  DB_STRESS_ASSERT_OK_MSG(s, "Error initializing SstQueryFilterConfig");
 
   CheckpointEngineOptions engine_options;
   engine_options.max_background_operations =
@@ -469,11 +458,7 @@ StressTest::StressTest(int db_index, const std::string& db_path,
   engine_options.use_link_file_when_available =
       FLAGS_checkpoint_engine_use_link_file_when_available;
   s = CheckpointEngine::Open(engine_options, &checkpoint_engine_);
-  if (!s.ok()) {
-    fprintf(stderr, "Error opening CheckpointEngine: %s\n",
-            s.ToString().c_str());
-    exit(1);
-  }
+  DB_STRESS_ASSERT_OK_MSG(s, "Error opening CheckpointEngine");
 }
 
 void StressTest::CleanUp() {
@@ -503,11 +488,9 @@ void StressTest::InitializeListenersForOpen(
     Status listener_status =
         ObjectRegistry::Default()->NewSharedObject<EventListener>(
             FLAGS_listener_uri, &listener);
-    if (!listener_status.ok()) {
-      fprintf(stderr, "Failed to create listener from URI '%s': %s\n",
-              FLAGS_listener_uri.c_str(), listener_status.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(listener_status,
+                            "Failed to create listener from URI '%s'",
+                            FLAGS_listener_uri.c_str());
     options_.listeners.emplace_back(std::move(listener));
   }
 }
@@ -1257,8 +1240,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     // Reopen as read-only, can ignore all options related to updates
     Open(shared);
   } else {
-    fprintf(stderr, "Failed to preload db");
-    exit(1);
+    DB_STRESS_ASSERT_OK_MSG(s, "Failed to preload db");
   }
 }
 
@@ -1320,10 +1302,10 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
   }
   if (rand.OneIn(2)) {
     Status s = txn->Commit();
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
   } else {
     Status s = txn->Rollback();
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
   }
 }
 
@@ -2689,7 +2671,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       if (!s.ok() && IsErrorInjectedAndRetryable(s)) {
         return s;
       }
-      assert(s.ok());
+      DB_STRESS_ASSERT_OK(s);
       op_logs += "Refresh ";
     }
 
@@ -4516,11 +4498,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         true /* delete_existing_trash */, &status,
         0.25 /* max_trash_db_ratio */,
         FLAGS_sst_file_manager_bytes_per_truncate));
-    if (!status.ok()) {
-      fprintf(stderr, "SstFileManager creation failed: %s\n",
-              status.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(status, "SstFileManager creation failed");
   }
   DbStressCustomCompressionManager::Register();
 
@@ -4785,12 +4763,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         s = OptimisticTransactionDB::Open(
             options_, optimistic_txn_db_options, GetDbPath(), cf_descriptors,
             &column_families_, &optimistic_txn_db_);
-        if (!s.ok()) {
-          fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
-                  s.ToString().c_str());
-          fflush(stderr);
-        }
-        assert(s.ok());
+        DB_STRESS_ASSERT_OK_MSG(s,
+                                "Error in opening the OptimisticTransactionDB");
         {
           db_owner_.reset(optimistic_txn_db_);
           db_ = optimistic_txn_db_;
@@ -4823,12 +4797,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         PrepareTxnDbOptions(shared, txn_db_options);
         s = TransactionDB::Open(options_, txn_db_options, GetDbPath(),
                                 cf_descriptors, &column_families_, &txn_db_);
-        if (!s.ok()) {
-          fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
-                  s.ToString().c_str());
-          fflush(stderr);
-        }
-        assert(s.ok());
+        DB_STRESS_ASSERT_OK_MSG(s, "Error in opening the TransactionDB");
 
         // Do not swap the order of the following.
         {
@@ -4838,11 +4807,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
       }
     }
-    if (!s.ok()) {
-      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
-      fflush(stderr);
-    }
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK_MSG(s, "Error in opening the DB");
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
     // Clear statistics reference from options_ to intentionally shorten the
@@ -4864,7 +4829,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       const std::string& secondary_path = GetSecondariesBase();
       s = DB::OpenAsSecondary(tmp_opts, GetDbPath(), secondary_path,
                               cf_descriptors, &secondary_cfhs_, &secondary_db_);
-      assert(s.ok());
+      DB_STRESS_ASSERT_OK(s);
       assert(secondary_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
     }
@@ -5251,22 +5216,13 @@ void StressTest::Reopen(ThreadState* thread) {
     } else {
       s = db_->SyncWAL();
     }
-    if (!s.ok()) {
-      fprintf(stderr,
-              "Error persisting WAL data which is needed before reopening the "
-              "DB: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(
+        s, "Error persisting WAL data which is needed before reopening the DB");
   }
 
   if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
-    if (!s.ok()) {
-      fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());
-      fflush(stderr);
-    }
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK_MSG(s, "Non-ok close status");
   }
   assert((txn_db_ == nullptr && optimistic_txn_db_ == nullptr) ||
          (db_ == txn_db_ || db_ == optimistic_txn_db_));
@@ -5292,11 +5248,7 @@ void StressTest::Reopen(ThreadState* thread) {
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
-    if (!s.ok()) {
-      fprintf(stderr, "Error enabling history tracing: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "Error enabling history tracing");
   }
 }
 
@@ -5424,11 +5376,8 @@ bool InitializeOptionsFromFile(Options& options) {
   if (!FLAGS_options_file.empty()) {
     Status s = LoadOptionsFromFile(config_options, FLAGS_options_file,
                                    &db_options, &cf_descriptors);
-    if (!s.ok()) {
-      fprintf(stderr, "Unable to load options file %s --- %s\n",
-              FLAGS_options_file.c_str(), s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "Unable to load options file %s",
+                            FLAGS_options_file.c_str());
     db_options.env = new CompositeEnvWrapper(raw_env);
     options = Options(db_options, cf_descriptors[0].options);
     return true;
@@ -5768,11 +5717,7 @@ void InitializeOptionsFromFlags(
             ";allow_trivial_copy_when_change_temperature=" +
             allowTrivialCopyBoolStr + "}",
         &options);
-    if (!s.ok()) {
-      fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "While setting file_temperature_age_thresholds");
   }
   // NOTE: allow -1 to mean starting disabled but dynamically changing
   options.preclude_last_level_data_seconds =
@@ -5941,11 +5886,7 @@ void InitializeOptionsGeneral(
         true /* delete_existing_trash */, &status,
         0.25 /* max_trash_db_ratio */,
         FLAGS_sst_file_manager_bytes_per_truncate));
-    if (!status.ok()) {
-      fprintf(stderr, "SstFileManager creation failed: %s\n",
-              status.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(status, "SstFileManager creation failed");
   }
 
   options.table_properties_collector_factories.clear();
