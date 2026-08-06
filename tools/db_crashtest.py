@@ -1610,46 +1610,6 @@ def finalize_and_sanitize(src_params):
         dest_params["clear_column_family_one_in"] = 0
         dest_params["test_multi_ops_txns"] = 0
 
-    # ======================== TEMPORARY (D113792365) ========================
-    # Amplify coverage of the lazy wide-column read API (GetEntityLazy /
-    # MultiGetEntityLazy), and especially its read-only and secondary instance
-    # paths, for manual crash-test runs. REVERT THIS BLOCK BEFORE LANDING
-    # (grep for "TEMPORARY (D113792365)").
-    #
-    # Gated to modes the feature is compatible with (mirroring the guards above)
-    # so it force-sets values without producing an invalid db_stress config.
-    _lazy_amp_ok = (
-        dest_params.get("use_txn", 0) == 0
-        and dest_params.get("use_optimistic_txn", 0) == 0
-        and dest_params.get("use_blob_db", 0) == 0
-        and dest_params.get("ttl", -1) == -1
-        and dest_params.get("best_efforts_recovery", 0) == 0
-        and dest_params.get("test_batches_snapshots", 0) == 0
-        and dest_params.get("enable_blob_direct_write", 0) == 0
-        and dest_params.get("user_timestamp_size", 0) == 0
-        and dest_params.get("num_dbs", 1) == 1
-    )
-    if _lazy_amp_ok:
-        # Required by / central to the lazy API: -1 open files, and try the lazy
-        # read on essentially every entity read.
-        dest_params["open_files"] = -1
-        dest_params["lazy_entity_read_one_in"] = 1
-        # Ensure blob-backed columns exist (the interesting lazy path). Blob
-        # files are incompatible with remote compaction, and min_blob_size=0
-        # makes even small values blob references.
-        dest_params["remote_compaction_worker_threads"] = 0
-        dest_params["enable_blob_files"] = 1
-        dest_params["min_blob_size"] = 0
-        # Read-only path: MaybeOpenReadOnlyOnPrimary runs during ops (any run).
-        # (Incompatible with mmap_read, which the guard above zeroes.)
-        if not dest_params.get("mmap_read", 0):
-            dest_params["open_read_only_one_in"] = 2
-        # Secondary path: exercised by DB verification when a secondary is open.
-        # test_secondary requires continuous_verification_interval == 0.
-        dest_params["test_secondary"] = 1
-        dest_params["continuous_verification_interval"] = 0
-    # ====================== END TEMPORARY (D113792365) ======================
-
     return dest_params
 
 
