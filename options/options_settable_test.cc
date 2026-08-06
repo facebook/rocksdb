@@ -686,6 +686,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "enable_blob_direct_write=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
+      "blob_file_writable_file_max_buffer_size=131072;"
       "blob_compression_type=kBZip2Compression;"
       "blob_compression_opts={window_bits=-14;level=1;strategy=0;max_dict_"
       "bytes=0;"
@@ -736,6 +737,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // kColumnFamilyOptionsExcluded
   ASSERT_TRUE(new_options->enable_blob_direct_write);
   ASSERT_EQ(new_options->blob_direct_write_partitions, 3U);
+  ASSERT_EQ(new_options->blob_file_writable_file_max_buffer_size, 131072U);
   ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
   ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
   ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds

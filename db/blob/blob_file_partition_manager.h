@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -61,6 +62,7 @@ class BlobFilePartitionManager {
       SystemClock* clock, Statistics* statistics,
       const FileOptions& file_options, std::string db_path,
       std::string column_family_name, uint64_t blob_file_size, bool use_fsync,
+      uint64_t blob_writer_max_buffer_size,
       BlobFileCache* blob_file_cache, BlobFileCompletionCallback* blob_callback,
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       FileChecksumGenFactory* file_checksum_gen_factory,
@@ -128,6 +130,11 @@ class BlobFilePartitionManager {
   // Returns true when the blob file is still owned by the write path or
   // protected by a live memtable / old SuperVersion.
   bool IsTrackedBlobFileNumber(uint64_t file_number) const;
+
+  void SetBlobWriterMaxBufferSize(uint64_t blob_writer_max_buffer_size) {
+    blob_writer_max_buffer_size_.store(blob_writer_max_buffer_size,
+                                       std::memory_order_relaxed);
+  }
 
   // Increments / decrements memtable-held protection on sealed blob files.
   void ProtectSealedBlobFileNumbers(const std::vector<uint64_t>& file_numbers);
@@ -260,6 +267,7 @@ class BlobFilePartitionManager {
   // File creation policy and shared blob-file infrastructure.
   uint64_t blob_file_size_;
   bool use_fsync_;
+  std::atomic<uint64_t> blob_writer_max_buffer_size_;
   BlobFileCache* blob_file_cache_;
   BlobFileCompletionCallback* blob_callback_;
   std::vector<std::shared_ptr<EventListener>> listeners_;

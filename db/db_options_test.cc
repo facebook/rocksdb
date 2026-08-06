@@ -566,6 +566,26 @@ TEST_F(DBOptionsTest, SetOptionsAndReopen) {
   ASSERT_OK(TryReopen(options));
 }
 
+TEST_F(DBOptionsTest, SetBlobFileWritableFileMaxBufferSize) {
+  constexpr uint64_t kBlobWriterBufferSize = 128 * 1024;
+
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  Reopen(options);
+
+  ASSERT_EQ(db_->GetOptions().blob_file_writable_file_max_buffer_size, 0U);
+
+  ASSERT_OK(db_->SetOptions(
+      {{"blob_file_writable_file_max_buffer_size",
+        std::to_string(kBlobWriterBufferSize)}}));
+
+  ASSERT_EQ(db_->GetOptions().blob_file_writable_file_max_buffer_size,
+            kBlobWriterBufferSize);
+}
+
 TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
   const std::string kValue(1024, 'v');
   for (int method_type = 0; method_type < 2; method_type++) {
