@@ -32,6 +32,15 @@ class CheckpointImpl : public Checkpoint {
       const std::vector<ColumnFamilyHandle*>& column_families,
       uint64_t log_size_for_flush, uint64_t* sequence_number_ptr) override;
 
+  // Validates column_families against db and turns it into the coalesced,
+  // default-CF-inclusive id list that CreateCheckpointImpl expects. An empty
+  // column_families yields an empty *include_cf_ids, which means "all column
+  // families". Rejects null handles, handles from another DB, and handles for
+  // already-dropped column families.
+  static Status ResolveIncludeColumnFamilyIds(
+      DB* db, const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<uint32_t>* include_cf_ids);
+
   // Shared by the legacy Checkpoint API and CheckpointEngine. engine == nullptr
   // links/copies serially; otherwise work runs on the pool, awaited before the
   // staging dir is committed. include_cf_ids, when non-empty, restricts the
