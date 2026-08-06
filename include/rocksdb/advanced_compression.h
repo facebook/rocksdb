@@ -708,11 +708,6 @@ const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
 // lead to unexpected schema changes for user CompressionManagers building on
 // the built-in schema, in the unlikely/rare case of a new built-in schema.
 
-// Creates CompressionManager designed for the automated compression strategy.
-// This may include deciding to compress or not.
-// EXPERIMENTAL
-std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped = nullptr);
 // Creates CompressionManager designed for the CPU and IO cost aware compression
 // strategy
 // EXPERIMENTAL

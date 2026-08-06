@@ -1937,207 +1937,161 @@ TEST_F(DBCompressionTest, FailWhenCompressionNotSupportedTest) {
   }
 }
 
-class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
+// ===================== AutoSkip compression tests =====================
+// AutoSkip is a first-class CompressionOptions feature (see
+// CompressionOptions::auto_skip). These end-to-end tests drive it through the
+// block-based table builder. Large values plus a small target block size make
+// each Put land in roughly its own data block, so per-block AutoSkip decisions
+// map to individual Puts.
+class DBAutoSkipTest : public DBTestBase {
  public:
-  explicit AutoSkipTestFlushBlockPolicy(const int window,
-                                        const BlockBuilder& data_block_builder,
-                                        std::shared_ptr<Statistics> statistics)
-      : window_(window),
-        num_keys_(0),
-        data_block_builder_(data_block_builder),
-        statistics_(statistics) {}
+  DBAutoSkipTest() : DBTestBase("db_auto_skip_test", /*env_do_fsync=*/false) {}
 
-  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
-    auto nth_window = num_keys_ / window_;
-    if (data_block_builder_.empty()) {
-      // First key in this block
-      return false;
-    }
-    // Check every window
-    if (num_keys_ % window_ == 0) {
-      auto set_exploration = [&](void* arg) {
-        bool* exploration = static_cast<bool*>(arg);
-        *exploration = true;
-      };
-      auto unset_exploration = [&](void* arg) {
-        bool* exploration = static_cast<bool*>(arg);
-        *exploration = false;
-      };
-      SyncPoint::GetInstance()->DisableProcessing();
-      SyncPoint::GetInstance()->ClearAllCallBacks();
-      // We force exploration to set the predicted rejection ratio for odd
-      // window and then test that the prediction is exploited in the even
-      // window
-      if (nth_window % 2 == 0) {
-        SyncPoint::GetInstance()->SetCallBack(
-            "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
-            set_exploration);
-      } else {
-        SyncPoint::GetInstance()->SetCallBack(
-            "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
-            unset_exploration);
-      }
-      SyncPoint::GetInstance()->EnableProcessing();
-
-      auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-      auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-      auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-      auto total = compressed_count + rejected_count + bypassed_count;
-      int rejection_percentage, bypassed_percentage, compressed_percentage;
-      if (total != 0) {
-        rejection_percentage = static_cast<int>(rejected_count * 100 / total);
-        bypassed_percentage = static_cast<int>(bypassed_count * 100 / total);
-        compressed_percentage =
-            static_cast<int>(compressed_count * 100 / total);
-        // use nth window to detect test cases and set the expected
-        switch (nth_window) {
-          case 1:
-            // In first window we only explore and thus here we verify that the
-            // correct prediction has been made by the end of the window
-            // Since 6 of 10 blocks are compression unfriendly, the predicted
-            // rejection ratio should be 60%
-            EXPECT_EQ(rejection_percentage, 60);
-            EXPECT_EQ(bypassed_percentage, 0);
-            EXPECT_EQ(compressed_percentage, 40);
-            break;
-          case 2:
-            // With the rejection ratio set to 0.6 all the blocks should be
-            // bypassed in next window
-            EXPECT_EQ(rejection_percentage, 0);
-            EXPECT_EQ(bypassed_percentage, 100);
-            EXPECT_EQ(compressed_percentage, 0);
-            break;
-          case 3:
-            // In third window we only explore and verify that the correct
-            // prediction has been made by the end of the window
-            // since 4 of 10 blocks are compression ufriendly, the predicted
-            // rejection ratio should be 40%
-            EXPECT_EQ(rejection_percentage, 40);
-            EXPECT_EQ(bypassed_percentage, 0);
-            EXPECT_EQ(compressed_percentage, 60);
-            break;
-          case 4:
-            // With the rejection ratio set to 0.4 all the blocks should be
-            // attempted to be compressed
-            // 6 of 10 blocks are compression unfriendly and thus should be
-            // rejected 4 of 10 blocks are compression friendly and thus should
-            // be compressed
-            EXPECT_EQ(rejection_percentage, 60);
-            EXPECT_EQ(bypassed_percentage, 0);
-            EXPECT_EQ(compressed_percentage, 40);
-        }
-      }
-    }
-    num_keys_++;
-    return true;
-  }
-  uint64_t PopStat(Tickers t) { return statistics_->getAndResetTickerCount(t); }
-
- private:
-  int window_;
-  int num_keys_;
-  const BlockBuilder& data_block_builder_;
-  std::shared_ptr<Statistics> statistics_;
-};
-
-class AutoSkipTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
- public:
-  explicit AutoSkipTestFlushBlockPolicyFactory(
-      const int window, std::shared_ptr<Statistics> statistics)
-      : window_(window), statistics_(statistics) {}
-
-  virtual const char* Name() const override {
-    return "AutoSkipTestFlushBlockPolicyFactory";
-  }
-
-  virtual FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& /*table_options*/,
-      const BlockBuilder& data_block_builder) const override {
-    (void)data_block_builder;
-    return new AutoSkipTestFlushBlockPolicy(window_, data_block_builder,
-                                            statistics_);
-  }
-
- private:
-  int window_;
-  std::shared_ptr<Statistics> statistics_;
-};
-
-class DBAutoSkip : public DBTestBase {
- public:
-  Options options;
-  Random rnd_;
-  int key_index_;
-  DBAutoSkip()
-      : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
-        options(CurrentOptions()),
-        rnd_(231),
-        key_index_(0) {
-    options.compression_manager = CreateAutoSkipCompressionManager();
-    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.statistics = statistics;
+  Options MakeOptions(bool auto_skip, int sample_every,
+                      uint32_t parallel_threads, CompressionType type) {
+    Options options = CurrentOptions();
+    options.compression = type;
+    options.bottommost_compression = type;
+    options.compression_opts.auto_skip = auto_skip;
+    options.compression_opts.auto_skip_min_sample_every = sample_every;
+    options.compression_opts.parallel_threads = parallel_threads;
+    options.statistics = CreateDBStatistics();
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
-    bbto.flush_block_policy_factory.reset(
-        new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
+    bbto.block_size = 4096;
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    return options;
   }
 
-  bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
-    auto value = std::string(size_of_value, 'A');
-    for (int i = 0; i < no_of_kvs; ++i) {
-      auto status = Put(Key(key_index_), value);
-      EXPECT_EQ(status.ok(), true);
-      key_index_++;
-    }
-    return true;
+  // Returns the value written, so callers can verify read-back.
+  std::string PutOne(Random* rnd, int value_size, bool compressible) {
+    std::string value = compressible ? std::string(value_size, 'A')
+                                     : rnd->RandomBinaryString(value_size);
+    EXPECT_OK(Put(Key(key_index_++), value));
+    return value;
   }
-  bool CompressionUnfriendlyPut(const int no_of_kvs, const int size_of_value) {
-    auto value = rnd_.RandomBinaryString(size_of_value);
-    for (int i = 0; i < no_of_kvs; ++i) {
-      auto status = Put(Key(key_index_), value);
-      EXPECT_EQ(status.ok(), true);
-      key_index_++;
-    }
-    return true;
-  }
+
+  int key_index_ = 0;
 };
 
-TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  for (uint32_t max_dict_bytes : {0, 10000}) {
-    for (auto type : GetSupportedCompressions()) {
-      if (type == kNoCompression) {
-        continue;
-      }
-      options.compression = type;
-      options.bottommost_compression = type;
-      options.compression_opts.max_dict_bytes = max_dict_bytes;
-      DestroyAndReopen(options);
-      const int kValueSize = 20000;
-      // This will set the rejection ratio to 60%
-      CompressionUnfriendlyPut(6, kValueSize);
-      CompressionFriendlyPut(4, kValueSize);
-      // This will verify all the data block compressions are bypassed based on
-      // previous prediction
-      CompressionUnfriendlyPut(6, kValueSize);
-      CompressionFriendlyPut(4, kValueSize);
-      // This will set the rejection ratio to 40%
-      CompressionUnfriendlyPut(4, kValueSize);
-      CompressionFriendlyPut(6, kValueSize);
-      // This will verify all the data block compression are attempted based on
-      // previous prediction
-      // Compression will be rejected for 6 compression unfriendly blocks
-      // Compression will be accepted for 4 compression friendly blocks
-      CompressionUnfriendlyPut(6, kValueSize);
-      CompressionFriendlyPut(4, kValueSize);
-      // Extra block write to ensure that the all above cases are checked
-      CompressionFriendlyPut(6, kValueSize);
-      CompressionFriendlyPut(4, kValueSize);
-      ASSERT_OK(Flush());
+TEST_F(DBAutoSkipTest, SkipsSustainedIncompressibleData) {
+  const int kValueSize = 20000;
+  const int kNum = 600;
+  for (auto type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
     }
+    SCOPED_TRACE("compression=" + std::to_string(static_cast<int>(type)));
+    Options options = MakeOptions(/*auto_skip=*/true, /*sample_every=*/64,
+                                  /*parallel_threads=*/1, type);
+    DestroyAndReopen(options);
+    Random rnd(301);
+    for (int i = 0; i < kNum; ++i) {
+      PutOne(&rnd, kValueSize, /*compressible=*/false);
+    }
+    ASSERT_OK(Flush());
+    auto* stats = options.statistics.get();
+    uint64_t bypassed =
+        stats->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    uint64_t attempted =
+        stats->getTickerCount(NUMBER_BLOCK_COMPRESSED) +
+        stats->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    // After the initial ramp-down and aside from occasional sampling, most
+    // incompressible data blocks are bypassed rather than pointlessly
+    // attempted.
+    EXPECT_GT(bypassed, attempted);
   }
 }
+
+TEST_F(DBAutoSkipTest, DoesNotSkipCompressibleData) {
+  const int kValueSize = 20000;
+  const int kNum = 300;
+  for (auto type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    SCOPED_TRACE("compression=" + std::to_string(static_cast<int>(type)));
+    Options options = MakeOptions(/*auto_skip=*/true, /*sample_every=*/64,
+                                  /*parallel_threads=*/1, type);
+    DestroyAndReopen(options);
+    Random rnd(302);
+    for (int i = 0; i < kNum; ++i) {
+      PutOne(&rnd, kValueSize, /*compressible=*/true);
+    }
+    ASSERT_OK(Flush());
+    // Highly compressible data keeps the estimate below the threshold, so we
+    // never enter the skip regime and never bypass a block.
+    EXPECT_EQ(0, options.statistics->getTickerCount(
+                     NUMBER_BLOCK_COMPRESSION_BYPASSED));
+  }
+}
+
+TEST_F(DBAutoSkipTest, DisabledByDefaultMatchesNoBypass) {
+  const int kValueSize = 20000;
+  const int kNum = 200;
+  CompressionType type = kNoCompression;
+  for (auto t : GetSupportedCompressions()) {
+    if (t != kNoCompression) {
+      type = t;
+      break;
+    }
+  }
+  if (type == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("No compression library supported");
+    return;
+  }
+  // auto_skip=false disables AutoSkip: incompressible data is
+  // attempted-and-rejected (the pre-existing behavior), never
+  // AutoSkip-"bypassed".
+  Options options = MakeOptions(/*auto_skip=*/false, /*sample_every=*/0,
+                                /*parallel_threads=*/1, type);
+  DestroyAndReopen(options);
+  Random rnd(303);
+  for (int i = 0; i < kNum; ++i) {
+    PutOne(&rnd, kValueSize, /*compressible=*/false);
+  }
+  ASSERT_OK(Flush());
+  EXPECT_EQ(
+      0, options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED));
+}
+
+TEST_F(DBAutoSkipTest, ParallelCompressionIntegrity) {
+  CompressionType type = kNoCompression;
+  for (auto t : GetSupportedCompressions()) {
+    if (t != kNoCompression) {
+      type = t;
+      break;
+    }
+  }
+  if (type == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("No compression library supported");
+    return;
+  }
+  const int kValueSize = 20000;
+  const int kNum = 500;
+  Options options = MakeOptions(/*auto_skip=*/true, /*sample_every=*/32,
+                                /*parallel_threads=*/4, type);
+  DestroyAndReopen(options);
+  Random rnd(304);
+  std::vector<std::string> values;
+  values.reserve(kNum);
+  // Alternate regimes so the estimate crosses the threshold both ways while
+  // parallel workers share it.
+  for (int i = 0; i < kNum; ++i) {
+    bool compressible = (i / 50) % 2 == 0;
+    values.push_back(PutOne(&rnd, kValueSize, compressible));
+  }
+  ASSERT_OK(Flush());
+  // All data must round-trip regardless of which blocks were skipped, and which
+  // thread compressed/skipped them.
+  for (int i = 0; i < kNum; ++i) {
+    std::string got;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &got));
+    ASSERT_EQ(values[i], got);
+  }
+}
+
 class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
  public:
   explicit CostAwareTestFlushBlockPolicy(const int window,

@@ -1115,6 +1115,15 @@ DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
               "Buffering limit for SST file data to sample for dictionary "
               "compression.");
 
+DEFINE_bool(compression_auto_skip, false,
+            "Enable AutoSkip compression: stop attempting compression on data "
+            "blocks once it is not paying off (reuses max_compressed_bytes_per_"
+            "kb as the bar).");
+
+DEFINE_int32(compression_auto_skip_min_sample_every, 0,
+             "AutoSkip nominal sampling interval (skipped data blocks between "
+             "forced compression samples). 0 selects an internal default.");
+
 DEFINE_bool(
     compression_use_zstd_dict_trainer, true,
     "Use zstd's trainer to generate dictionary. If the options is false, "

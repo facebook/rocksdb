@@ -228,7 +228,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   void BGWorker(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
-  // compression type
+  // compression type. Only ever called to attempt compression; the auto-skip
+  // skip/bypass decision is made by the caller (emit thread).
   Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
                                 bool is_data_block,
                                 WorkingAreaPair& working_area,

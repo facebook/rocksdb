@@ -316,6 +316,62 @@ struct CompressionOptions {
   // compressed by less than 12.5% (minimum ratio of 1.143:1).
   int max_compressed_bytes_per_kb = 1024 * 7 / 8;
 
+  // EXPERIMENTAL: "auto-skip" for compression. When true, the block-based table
+  // builder continuously estimates the compression ratio it is actually
+  // achieving on data blocks and, once that running estimate is worse than
+  // max_compressed_bytes_per_kb (i.e. attempting compression is not paying
+  // off), stops attempting compression on most data blocks to save CPU. It
+  // still (a) always attempts the first data block of each file and (b) samples
+  // a small fraction of blocks (see auto_skip_min_sample_every) so it can
+  // resume compressing if the data becomes compressible again. Estimator state
+  // is carried across the files a compaction/flush thread emits, so a sustained
+  // incompressible region does not re-learn on every file. Applies to data
+  // blocks only (index/meta blocks are unaffected). Default false (disabled).
+  //
+  // The decision reuses max_compressed_bytes_per_kb -- the same "minimum
+  // compression worth keeping" bar already applied per block -- as the bar for
+  // whether attempting compression on the stream is worthwhile. The estimate is
+  // the aggregate stored bytes per KB the builder would achieve by attempting
+  // (a block that compresses is counted at its achieved ratio; one that is
+  // rejected and stored raw is counted at 1024/1024). This is inherently
+  // payoff-weighted: a stream of blocks that each save only a little, or only a
+  // few blocks that compress well, will not clear the bar and is skipped, while
+  // a stream that compresses substantially is attempted. Because the bar is
+  // shared, an amount of compression given up per KB is bounded by
+  // (1024 - max_compressed_bytes_per_kb) -- i.e. never more than the minimum
+  // savings you already declared worth pursuing.
+  //
+  // This lives on CompressionOptions (rather than a block-based-table-specific
+  // option) because auto-skip is a property of how compression is applied, not
+  // of the block-based format per se; the mechanism could reasonably generalize
+  // to other table formats or compression consumers in the future. For now only
+  // the block-based table builder implements it.
+  //
+  // Caveat: auto-skip is a payoff heuristic, not a CPU-cost model. It assumes
+  // the CPU spent attempting compression is roughly proportional to the
+  // uncompressed size (empirically true within a small factor for real data),
+  // and it decides purely on achieved ratio. It will therefore still attempt
+  // data that clears the bar even in the rare case that such data is unusually
+  // expensive to compress.
+  //
+  // For now disabled by default, but we expect this to become enabled by
+  // default in a future release.
+  bool auto_skip = false;
+
+  // EXPERIMENTAL: only meaningful when auto_skip is true.
+  // While in the skip regime, auto-skip still attempts compression on roughly
+  // one out of every this many skipped data blocks (randomized by +/- 25% to
+  // avoid clustering and predictable patterns) so it can detect a return to
+  // compressible data. Smaller values detect such transitions sooner at the
+  // cost of more sampling CPU; larger values save more CPU but react more
+  // slowly. 0 selects an internal default.
+  //
+  // In short, this parameter limits the local impact around a worst-case
+  // transition from all-incompressible to all-compressible, while the
+  // max_compressed_bytes_per_kb threshold governs the long term behavior with
+  // mixed compressibility.
+  int auto_skip_min_sample_every = 0;
+
   // ZSTD only.
   // Enable compression algorithm's checksum feature.
   // (https://github.com/facebook/zstd/blob/d857369028d997c92ff1f1861a4d7f679a125464/lib/zstd.h#L428)
