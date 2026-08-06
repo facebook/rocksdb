@@ -237,6 +237,23 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
                                    const BlobIndex& blob_index,
                                    PinnableSlice* value) const;
 
+  // Range-read counterparts of ResolveEmbeddedBlobPinned /
+  // ResolveEmbeddedBlobCached: resolve only [range_offset, range_offset +
+  // range_length) of an uncompressed same-file payload (skipping the trailer +
+  // checksum verification, and -- for the cached variant -- never inserting
+  // into the blob cache). The caller must ensure range_offset + range_length <=
+  // blob_index.size().
+  Status ResolveEmbeddedBlobRangePinned(const ReadOptions& read_options,
+                                        const BlobIndex& blob_index,
+                                        uint64_t range_offset,
+                                        size_t range_length,
+                                        PinnableSlice* value) const;
+  Status ResolveEmbeddedBlobRangeCached(const ReadOptions& read_options,
+                                        const BlobIndex& blob_index,
+                                        uint64_t range_offset,
+                                        size_t range_length,
+                                        PinnableSlice* value) const;
+
   // SameFileBlobReader: resolve a same-file blob reference for GetContext's
   // zero-copy wide-column resolution on the Get()/MultiGet() path. Routes
   // through the blob cache (ResolveEmbeddedBlobCached) when a BlobSource is
@@ -244,6 +261,14 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
   Status GetSameFileBlob(const ReadOptions& read_options,
                          const BlobIndex& blob_index,
                          PinnableSlice* value) const override;
+
+  // SameFileBlobReader: byte-range counterpart of GetSameFileBlob, used by the
+  // lazy read path for partial (sub-range) reads of an uncompressed embedded
+  // blob. Routes through ResolveEmbeddedBlobRangeCached / ...Pinned.
+  Status GetSameFileBlobRange(const ReadOptions& read_options,
+                              const BlobIndex& blob_index,
+                              uint64_t range_offset, size_t range_length,
+                              PinnableSlice* value) const override;
 
   // If `value` is a same-file BlobIndex, materializes the referenced payload
   // and updates `resolved_internal_key` to the corresponding value type. Leaves

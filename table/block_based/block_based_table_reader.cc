@@ -1374,6 +1374,78 @@ Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
   return ResolveEmbeddedBlobPinned(read_options, blob_index, value);
 }
 
+Status BlockBasedTable::ResolveEmbeddedBlobRangePinned(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    uint64_t range_offset, size_t range_length, PinnableSlice* value) const {
+  assert(value != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Read only the requested sub-range of the payload into a heap buffer owned
+  // by `value` (via a registered cleanup), pinning it zero-copy. No trailer
+  // read and no checksum verification (a strict sub-range cannot cover the
+  // record's checksum).
+  std::unique_ptr<char[]> buf(new char[range_length]);
+  s = ReadSimpleGen2BlobRange(
+      read_options, rep_->file.get(), blob_index.offset(), payload_size,
+      range_offset, range_length, blob_index.compression(), buf.get());
+  if (!s.ok()) {
+    return s;
+  }
+  char* raw = buf.release();
+  value->PinSlice(Slice(raw, range_length), &DeleteCharArray, raw, nullptr);
+  return Status::OK();
+}
+
+Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    uint64_t range_offset, size_t range_length, PinnableSlice* value) const {
+  assert(value != nullptr);
+  assert(rep_->blob_source_ != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  // TODO(lazy-blob-resolution-quirks): ValidateEmbeddedBlobIndex rejects
+  // read_tier == kBlockCacheTier up front (before the blob-cache probe in
+  // GetSimpleGen2BlobRange), so a block-cache-only read of an embedded column
+  // returns Incomplete even when the whole payload is already cached. This
+  // mirrors the whole-value embedded path (ResolveEmbeddedBlobCached) but
+  // differs from the separate-file GetBlobRange, which probes the cache first
+  // and can serve a kBlockCacheTier read from cache. Unify the two (probe cache
+  // before rejecting kBlockCacheTier) in a later quirk-cleanup phase; see the
+  // lazy blob resolution plan.
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return rep_->blob_source_->GetSimpleGen2BlobRange(
+      read_options, rep_->base_cache_key, rep_->file.get(), blob_index.offset(),
+      payload_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(),
+      range_offset, range_length, value, /*bytes_read=*/nullptr);
+}
+
+Status BlockBasedTable::GetSameFileBlobRange(const ReadOptions& read_options,
+                                             const BlobIndex& blob_index,
+                                             uint64_t range_offset,
+                                             size_t range_length,
+                                             PinnableSlice* value) const {
+  // Mirror GetSameFileBlob's routing: blob-cache-backed read when a BlobSource
+  // is wired, otherwise a direct pinned read.
+  if (rep_->blob_source_ != nullptr) {
+    return ResolveEmbeddedBlobRangeCached(read_options, blob_index,
+                                          range_offset, range_length, value);
+  }
+  return ResolveEmbeddedBlobRangePinned(read_options, blob_index, range_offset,
+                                        range_length, value);
+}
+
 Status BlockBasedTable::MaybeResolveEmbeddedValue(
     const ReadOptions& read_options, const Slice& internal_key,
     const Slice& value, std::string* resolved_internal_key,

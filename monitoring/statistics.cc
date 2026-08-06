@@ -338,6 +338,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {CHECKPOINT_WRITE_BYTES, "rocksdb.checkpoint.write.bytes"},
     {FILE_SUBMIT_ASYNC_READ_FALLBACK,
      "rocksdb.file.submit.async.read.fallback"},
+    {BLOB_DB_LAZY_READ_COUNT, "rocksdb.blobdb.lazy.read.count"},
+    {BLOB_DB_LAZY_READ_BYTES, "rocksdb.blobdb.lazy.read.bytes"},
+    {BLOB_DB_LAZY_PARTIAL_READ_COUNT, "rocksdb.blobdb.lazy.partial.read.count"},
+    {BLOB_DB_LAZY_PARTIAL_BYTES_SAVED,
+     "rocksdb.blobdb.lazy.partial.bytes.saved"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

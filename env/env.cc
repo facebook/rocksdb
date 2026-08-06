@@ -771,6 +771,8 @@ std::string Env::IOActivityToString(IOActivity activity) {
       return "MultiGetEntity";
     case Env::IOActivity::kGetFileChecksumsFromCurrentManifest:
       return "GetFileChecksumsFromCurrentManifest";
+    case Env::IOActivity::kLazyResolve:
+      return "LazyResolve";
     case Env::IOActivity::kUnknown:
       return "Unknown";
     default:

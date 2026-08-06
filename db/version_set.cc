@@ -2803,6 +2803,40 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   return s;
 }
 
+Status Version::GetBlobRange(const ReadOptions& read_options,
+                             const Slice& user_key, const BlobIndex& blob_index,
+                             uint64_t range_offset, size_t range_length,
+                             PinnableSlice* value, uint64_t* bytes_read) const {
+  assert(value);
+
+  if (blob_index.HasTTL() || blob_index.IsInlined()) {
+    return Status::Corruption("Unexpected TTL/inlined blob index");
+  }
+
+  // A strict sub-range of a compressed blob cannot be decompressed in
+  // isolation; the caller resolves such columns whole and slices instead.
+  if (blob_index.compression() != kNoCompression) {
+    return Status::Corruption("Cannot range-read a compressed blob");
+  }
+
+  const uint64_t blob_file_number = blob_index.file_number();
+
+  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  if (!blob_file_meta) {
+    // INTEGRITY CHECK -- see Version::GetBlob. No metadata (including
+    // file_number 0, the same-file "embedded" sentinel) means a corrupt index
+    // or a same-file reference that the lazy caller must not route here.
+    return Status::Corruption("Invalid blob file number");
+  }
+
+  assert(blob_source_);
+  value->Reset();
+  return blob_source_->GetBlobRange(
+      read_options, user_key, blob_file_number, blob_index.offset(),
+      blob_file_meta->GetBlobFileSize(), blob_index.size(),
+      blob_index.compression(), range_offset, range_length, value, bytes_read);
+}
+
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {

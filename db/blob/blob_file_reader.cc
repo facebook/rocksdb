@@ -416,6 +416,77 @@ Status BlobFileReader::GetBlob(
   return Status::OK();
 }
 
+Status BlobFileReader::GetBlobRange(const ReadOptions& read_options,
+                                    const Slice& user_key, uint64_t offset,
+                                    uint64_t value_size, uint64_t range_offset,
+                                    size_t range_length,
+                                    MemoryAllocator* allocator,
+                                    std::unique_ptr<BlobContents>* result,
+                                    uint64_t* bytes_read) const {
+  assert(result);
+
+  // Partial reads are only meaningful for uncompressed blobs: a strict
+  // sub-range of a compressed record cannot be decompressed in isolation.
+  // Callers (BlobSource::GetBlobRange) must ensure this; enforce it here too.
+  if (compression_type_ != kNoCompression) {
+    return Status::Corruption("Cannot range-read a compressed blob");
+  }
+
+  const uint64_t key_size = user_key.size();
+
+  // Validate that the full value region is within the file (same check GetBlob
+  // performs); this guards the sub-range read below.
+  if (!IsValidBlobOffset(offset, key_size, value_size, file_size_,
+                         has_footer_)) {
+    return Status::Corruption("Invalid blob offset");
+  }
+
+  // The requested sub-range must lie within the value.
+  if (range_offset > value_size || range_length > value_size - range_offset) {
+    return Status::InvalidArgument("Blob range out of bounds");
+  }
+
+  // Read only the requested bytes, at the value's file position plus the range
+  // offset. Unlike GetBlob there is no record-header adjustment (we do not read
+  // the key/header) and no whole-record checksum verification (a strict
+  // sub-range cannot cover it -- callers that require verification take the
+  // full-read path instead).
+  const uint64_t read_offset = offset + range_offset;
+  const size_t read_size = range_length;
+
+  Slice range_slice;
+  Buffer buf;
+  AlignedBuffer direct_io_buffer;
+
+  TEST_SYNC_POINT("BlobFileReader::GetBlobRange:ReadFromFile");
+  PERF_COUNTER_ADD(blob_read_count, 1);
+  PERF_COUNTER_ADD(blob_read_byte, read_size);
+  PERF_TIMER_GUARD(blob_read_time);
+
+  {
+    const Status s =
+        ReadFromFile(file_reader_.get(), read_options, read_offset, read_size,
+                     statistics_, &range_slice, &buf, &direct_io_buffer);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlobRange:TamperWithResult",
+                           &range_slice);
+
+  // The blob is uncompressed, so the bytes read are the requested value bytes;
+  // copy them into an owned BlobContents (no decompression).
+  BlobContentsCreator::Create(result, /*out_charge=*/nullptr, range_slice,
+                              kNoCompression, allocator);
+
+  if (bytes_read) {
+    *bytes_read = read_size;
+  }
+
+  return Status::OK();
+}
+
 void BlobFileReader::MultiGetBlob(
     const ReadOptions& read_options, MemoryAllocator* allocator,
     autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&

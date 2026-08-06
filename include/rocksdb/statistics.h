@@ -657,6 +657,26 @@ enum Tickers : uint32_t {
   // Number of SubmitReadAsync calls that fell back to a synchronous read
   FILE_SUBMIT_ASYNC_READ_FALLBACK,
 
+  // Lazy wide-column resolution (DB::GetEntityLazy / DB::MultiGetEntityLazy):
+  // metrics for the blob reads issued from storage while resolving a lazy
+  // result (attributed via Env::IOActivity::kLazyResolve). Cache hits, which do
+  // no storage read, are not counted.
+  //
+  // Number of storage reads issued by lazy resolution (both whole-column and
+  // partial byte-range reads).
+  BLOB_DB_LAZY_READ_COUNT,
+  // Bytes actually read from storage by those reads (on-disk record bytes for
+  // whole-column reads; the requested sub-range length for partial reads).
+  BLOB_DB_LAZY_READ_BYTES,
+  // Of the above, the number that were actual partial (byte-range) reads: only
+  // a requested sub-range of an uncompressed blob's value was read (skipping
+  // the whole-column read). A whole-column read or a force_verify read is not
+  // counted here.
+  BLOB_DB_LAZY_PARTIAL_READ_COUNT,
+  // Bytes not read thanks to those partial reads: for each, the column's
+  // logical value size minus the bytes actually read.
+  BLOB_DB_LAZY_PARTIAL_BYTES_SAVED,
+
   TICKER_ENUM_MAX
 };
 

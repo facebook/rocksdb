@@ -511,6 +511,54 @@ void StressTest::MaybeTestGetEntityLazy(
   ResolveLazyEntity(thread, key.ToString(), reference, lazy);
 }
 
+namespace {
+// Chooses a byte range for a lazy column read in db_stress fuzzing. Half the
+// time (or when the size is unknown or zero) reads the whole column; otherwise
+// a random sub-range, occasionally with an offset past the end or a length
+// beyond the remainder to exercise the API's clamp-to-empty /
+// clamp-to-remainder behavior. `known_size` is the column's logical size when
+// known without I/O.
+void PickLazyReadRange(Random* rand, std::optional<uint64_t> known_size,
+                       uint64_t* offset, size_t* length) {
+  if (!known_size.has_value() || *known_size == 0 || rand->OneIn(2)) {
+    *offset = 0;
+    *length = kLazyWholeColumn;
+    return;
+  }
+  // Cap for the 32-bit Random API; db_stress column values are far smaller.
+  uint64_t size = *known_size;
+  if (size > (uint64_t{1} << 20)) {
+    size = uint64_t{1} << 20;
+  }
+  // Offset in [0, size]; occasionally just past the end to exercise clamping.
+  *offset = rand->Uniform(static_cast<int>(size) + 1);
+  if (rand->OneIn(8)) {
+    *offset = size + rand->Uniform(4);
+  }
+  // Length: usually a bounded sub-range (which may exceed the remainder),
+  // sometimes to the end of the column.
+  if (rand->OneIn(4)) {
+    *length = kLazyWholeColumn;
+  } else {
+    *length = static_cast<size_t>(rand->Uniform(static_cast<int>(size) + 1));
+  }
+}
+
+// The sub-range of `value` that a partial read with (offset, length) should
+// return, applying the API's documented clamping: an offset at/past the end
+// yields empty, length is clamped to the remainder, and kLazyWholeColumn reads
+// to the end.
+Slice ExpectedLazySlice(const Slice& value, uint64_t offset, size_t length) {
+  if (offset >= value.size()) {
+    return Slice();
+  }
+  const size_t off = static_cast<size_t>(offset);
+  const size_t avail = value.size() - off;
+  const size_t len = length > avail ? avail : length;
+  return Slice(value.data() + off, len);
+}
+}  // namespace
+
 void StressTest::MaybeTestMultiGetEntityLazy(
     ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
     size_t num_keys, const Slice* keys,
@@ -659,9 +707,17 @@ void StressTest::MaybeTestMultiGetEntityLazy(
   std::vector<Status> statuses(chosen.size());
   std::vector<LazyColumnReadRequest> reads(chosen.size());
   for (size_t j = 0; j < chosen.size(); ++j) {
-    reads[j].column = &batch[chosen[j].first][chosen[j].second];
-    reads[j].offset = 0;
-    reads[j].length = kLazyWholeColumn;
+    const size_t i = chosen[j].first;
+    const size_t c = chosen[j].second;
+    // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
+    // against the reference when available, else the known logical size.
+    const WideColumns* reference = entity_ref[i];
+    const std::optional<uint64_t> size_hint =
+        reference ? std::optional<uint64_t>((*reference)[c].value().size())
+                  : batch[i][c].logical_size();
+    reads[j].column = &batch[i][c];
+    PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
+                      &reads[j].length);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -692,14 +748,17 @@ void StressTest::MaybeTestMultiGetEntityLazy(
       }
       continue;
     }
-    const Slice& expected = (*reference)[chosen[j].second].value();
+    const Slice expected =
+        ExpectedLazySlice((*reference)[chosen[j].second].value(),
+                          reads[j].offset, reads[j].length);
     if (Slice(results[j]) != expected) {
       shared->SetVerificationFailure();
       fprintf(stderr,
-              "MultiGetEntityLazy value mismatch for key %s column %zu: lazy "
-              "%s, reference %s\n",
+              "MultiGetEntityLazy value mismatch for key %s column %zu "
+              "[offset %" PRIu64 " len %zu]: lazy %s, reference %s\n",
               StringToHex(keys[chosen[j].first].ToString()).c_str(),
-              chosen[j].second, Slice(results[j]).ToString(true).c_str(),
+              chosen[j].second, reads[j].offset, reads[j].length,
+              Slice(results[j]).ToString(true).c_str(),
               expected.ToString(true).c_str());
     }
   }
@@ -774,9 +833,15 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   std::vector<Status> statuses(chosen.size());
   std::vector<LazyColumnReadRequest> reads(chosen.size());
   for (size_t j = 0; j < chosen.size(); ++j) {
-    reads[j].column = &lazy[chosen[j]];
-    reads[j].offset = 0;
-    reads[j].length = kLazyWholeColumn;
+    const size_t c = chosen[j];
+    // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
+    // against the reference when available, else the known logical size.
+    const std::optional<uint64_t> size_hint =
+        reference ? std::optional<uint64_t>((*reference)[c].value().size())
+                  : lazy[c].logical_size();
+    reads[j].column = &lazy[c];
+    PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
+                      &reads[j].length);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -806,14 +871,16 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
       }
       continue;
     }
-    if (Slice(results[j]) != (*reference)[chosen[j]].value()) {
+    const Slice expected = ExpectedLazySlice((*reference)[chosen[j]].value(),
+                                             reads[j].offset, reads[j].length);
+    if (Slice(results[j]) != expected) {
       shared->SetVerificationFailure();
       fprintf(stderr,
-              "GetEntityLazy value mismatch for key %s column %zu: lazy %s, "
-              "reference %s\n",
-              StringToHex(key).c_str(), chosen[j],
-              Slice(results[j]).ToString(true).c_str(),
-              (*reference)[chosen[j]].value().ToString(true).c_str());
+              "GetEntityLazy value mismatch for key %s column %zu "
+              "[offset %" PRIu64 " len %zu]: lazy %s, reference %s\n",
+              StringToHex(key).c_str(), chosen[j], reads[j].offset,
+              reads[j].length, Slice(results[j]).ToString(true).c_str(),
+              expected.ToString(true).c_str());
     }
   }
 }
