@@ -885,6 +885,8 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
 std::string GetNowNanos();
 
+std::string GetReadTimestamp();
+
 uint64_t GetWriteUnixTime(ThreadState* thread);
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(

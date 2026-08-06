@@ -754,6 +754,19 @@ std::string GetNowNanos() {
   return ret;
 }
 
+std::string GetReadTimestamp() {
+  uint64_t read_timestamp = raw_env->NowNanos();
+  if (!FLAGS_persist_user_defined_timestamps) {
+    // Add 10 seconds of headroom because a concurrent flush can advance
+    // full_history_ts_low making the read timestamp invalid.
+    read_timestamp += 10'000'000'000ULL;
+  }
+
+  std::string ret;
+  PutFixed64(&ret, read_timestamp);
+  return ret;
+}
+
 uint64_t GetWriteUnixTime(ThreadState* thread) {
   static uint64_t kPreserveSeconds =
       std::max(FLAGS_preserve_internal_time_seconds,
