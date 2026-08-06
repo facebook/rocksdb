@@ -19,6 +19,7 @@
 #include "db/wide/read_path_blob_resolver.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
+#include "monitoring/thread_status_util.h"
 #include "rocksdb/cleanable.h"
 #include "rocksdb/options.h"
 #include "rocksdb/wide_columns.h"
@@ -49,6 +50,14 @@ class LazyWideColumns::Rep {
   // inline columns' value() are zero-copy Slices into that buffer; blob
   // columns' value() are the raw serialized BlobIndex bytes (the resolver reads
   // decoded indices from blob_columns_, not from here).
+  //
+  // Lifetime invariant: `entity_` is populated once (by the point lookup, via
+  // EntityBuffer(), before Finalize) and is never mutated afterwards, and the
+  // Rep is heap-allocated and never relocated. So this backing buffer is stable
+  // for the result's whole lifetime -- which is what keeps valid every Slice
+  // that points into it: the inline column values, the decoded
+  // inlined-BlobIndex values stored in blob_columns_, the per-column
+  // inline_data_ in columns_, and the resolver's cached bytes.
   PinnableWideColumns entity_;
 
   // Decoded blob references (column_index -> BlobIndex), for the columns whose
@@ -96,6 +105,23 @@ class LazyWideColumns::Rep {
   // Emplaced at finalize time (needs the Version). Absent for an unpopulated
   // (e.g. NotFound) result.
   std::optional<ReadPathBlobResolver> resolver_;
+
+  ~Rep() {
+    // Releasing the SuperVersion pin (pin_) can trigger obsolete-file cleanup
+    // I/O -- e.g. FindObsoleteFiles closing an obsolete WAL -- when this result
+    // held the last reference to it. Mirror DBIter::~DBIter and run that
+    // teardown with the thread operation reset to OP_UNKNOWN, so the incidental
+    // I/O is not attributed to whatever read operation happens to be active on
+    // the destroying thread (which otherwise misattributes I/O stats and trips
+    // db_stress's io_activity invariant).
+    const ThreadStatus::OperationType saved_op =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
+    resolver_.reset();  // borrows the pinned Version; drop before the pin
+    pin_.Reset();       // runs CleanupSuperVersionHandle if this was last ref
+    ThreadStatusUtil::SetThreadOperation(saved_op);
+  }
 
   // Resolve one read against column `index` of this result (index < size()),
   // writing the per-read outcome to read.status / read.result. Shared by the
@@ -172,6 +198,9 @@ Status LazyWideColumns::MultiResolve(size_t num_reads,
     LazyColumnReadRequest& read = reads[i];
     if (read.status) {
       *read.status = Status::OK();
+    }
+    if (read.result) {
+      read.result->Reset();  // failure paths below leave an empty result
     }
     // The column must belong to this result (it carries a back-pointer to the
     // Rep that owns it).
@@ -261,6 +290,9 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
     LazyColumnReadRequest& read = reads[i];
     if (read.status) {
       *read.status = Status::OK();
+    }
+    if (read.result) {
+      read.result->Reset();  // failure paths below leave an empty result
     }
     if (read.column == nullptr) {
       if (read.status) {

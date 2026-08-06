@@ -342,6 +342,65 @@ TEST_F(DBLazyEntityTest, UnpulledColumnsAreNeverRead) {
   ASSERT_LT(BlobBytesRead(options), unwanted.size());
 }
 
+// A repeated resolve of the same column reads its blob from storage only once;
+// the second resolve is served from the cached bytes with no additional I/O.
+TEST_F(DBLazyEntityTest, RepeatedResolutionReadsBlobOnce) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(200, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  PinnableSlice v1;
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &v1));
+  ASSERT_EQ(Slice(v1), big);
+  const uint64_t after_first = BlobBytesRead(options);
+  ASSERT_GT(after_first, 0U);
+
+  // Resolving the same column again reuses the cached bytes -- no more blob
+  // I/O.
+  PinnableSlice v2;
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &v2));
+  ASSERT_EQ(Slice(v2), big);
+  ASSERT_EQ(BlobBytesRead(options), after_first);
+}
+
+// A memtable-resident entity (never flushed) reads back correctly through the
+// lazy API. Blobs are only created at flush, so the large value lives inline in
+// the memtable: the column is not a reference and resolves with no blob I/O.
+TEST_F(DBLazyEntityTest, MemtableResidentEntity) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(200, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  // No Flush(): the entity stays in the memtable.
+  ASSERT_OK(options.statistics->Reset());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+  ASSERT_EQ(lazy.size(), 2U);
+  ASSERT_FALSE(lazy[1].is_reference());  // inline in memtable, not a blob ref
+
+  PinnableSlice value;
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &value));
+  ASSERT_EQ(Slice(value), big);
+  ASSERT_EQ(BlobBytesRead(options), 0U);  // no SST/blob files exist yet
+}
+
 // The lazy API requires max_open_files == -1 (immortal table readers) so
 // embedded/same-file references stay resolvable lazily; otherwise it declines.
 TEST_F(DBLazyEntityTest, RequiresMaxOpenFilesMinusOne) {
@@ -419,10 +478,16 @@ TEST_F(DBLazyEntityTest, ForeignColumnIsInvalidArgument) {
   ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
                                &other));
 
-  // Resolving `other`'s column through `lazy` is rejected.
+  // Populate `value` with a successful resolve, then confirm a failed resolve
+  // into the same output resets it (leaves no stale bytes).
   PinnableSlice value;
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &value));
+  ASSERT_FALSE(value.empty());
+
+  // Resolving `other`'s column through `lazy` is rejected, and clears `value`.
   const Status s = lazy.ResolveColumn(other[0], &value);
   ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_TRUE(value.empty());
 
   // A null column is likewise rejected, reported on the per-read status.
   PinnableSlice null_value;
@@ -433,6 +498,80 @@ TEST_F(DBLazyEntityTest, ForeignColumnIsInvalidArgument) {
   read.status = &null_status;
   ASSERT_OK(lazy.MultiResolve(/*num_reads=*/1, &read));
   ASSERT_TRUE(null_status.IsInvalidArgument()) << null_status.ToString();
+}
+
+// A reused LazyWideColumns is reset (left empty) when a later GetEntityLazy
+// call fails argument validation, rather than retaining the previous result.
+TEST_F(DBLazyEntityTest, ReusedResultResetOnEarlyReturn) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const WideColumns columns{{kDefaultWideColumnName, "inline"},
+                            {"data", std::string(200, 'a')}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+  ASSERT_EQ(lazy.size(), 2U);
+
+  // Reuse the same result for a call that fails argument validation (an
+  // io_activity that is neither kUnknown nor kGetEntity); it must be reset to
+  // empty, not left holding the previous entity.
+  ReadOptions bad_read_options;
+  bad_read_options.io_activity = Env::IOActivity::kGet;
+  const Status s = db_->GetEntityLazy(bad_read_options,
+                                      db_->DefaultColumnFamily(), key, &lazy);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_TRUE(lazy.empty());
+  ASSERT_EQ(lazy.size(), 0U);
+}
+
+// A reused LazyWideColumnsBatch is reset (left empty) on MultiGetEntityLazy's
+// early-return paths (num_keys == 0 and argument errors), not left stale.
+TEST_F(DBLazyEntityTest, ReusedBatchResetOnEarlyReturn) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  const std::string k1 = "k1";
+  const std::string k2 = "k2";
+  const WideColumns c1{{kDefaultWideColumnName, "i1"},
+                       {"data", std::string(200, 'a')}};
+  const WideColumns c2{{kDefaultWideColumnName, "i2"},
+                       {"data", std::string(200, 'b')}};
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), k1, c1));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), k2, c2));
+  ASSERT_OK(Flush());
+
+  const std::array<Slice, 2> keys{Slice(k1), Slice(k2)};
+  LazyWideColumnsBatch batch;
+  std::array<Status, 2> statuses;
+
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
+                          keys.size(), keys.data(), &batch, statuses.data());
+  ASSERT_EQ(batch.size(), 2U);
+
+  // Reuse with num_keys == 0: the batch must be reset (empty), not stale.
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
+                          /*num_keys=*/0, keys.data(), &batch, statuses.data());
+  ASSERT_TRUE(batch.empty());
+  ASSERT_EQ(batch.size(), 0U);
+
+  // Repopulate, then reuse for a call that fails argument validation; still
+  // reset to empty.
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
+                          keys.size(), keys.data(), &batch, statuses.data());
+  ASSERT_EQ(batch.size(), 2U);
+
+  ReadOptions bad_read_options;
+  bad_read_options.io_activity = Env::IOActivity::kGet;
+  db_->MultiGetEntityLazy(bad_read_options, db_->DefaultColumnFamily(),
+                          keys.size(), keys.data(), &batch, statuses.data());
+  ASSERT_TRUE(statuses[0].IsInvalidArgument()) << statuses[0].ToString();
+  ASSERT_TRUE(batch.empty());
 }
 
 // LazyWideColumnsBatch::MultiResolve rejects a null column and a column that
@@ -462,8 +601,12 @@ TEST_F(DBLazyEntityTest, BatchRejectsForeignAndNullColumns) {
   ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
                                &standalone));
 
-  PinnableSlice v_null, v_foreign, v_ok;
-  Status s_null, s_foreign, s_ok;
+  PinnableSlice v_null;
+  PinnableSlice v_foreign;
+  PinnableSlice v_ok;
+  Status s_null;
+  Status s_foreign;
+  Status s_ok;
   std::vector<LazyColumnReadRequest> reads(3);
   reads[0].column = nullptr;  // null
   reads[0].result = &v_null;

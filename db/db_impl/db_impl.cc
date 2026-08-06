@@ -2768,6 +2768,11 @@ Status DBImpl::GetEntityLazyImpl(const ReadOptions& read_options,
 Status DBImpl::GetEntityLazy(const ReadOptions& _read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, LazyWideColumns* result) {
+  // Start from an empty result so a reused LazyWideColumns is left empty (not
+  // stale) on every early-return / error path below.
+  if (result != nullptr) {
+    result->Reset();
+  }
   if (!column_family) {
     return Status::InvalidArgument(
         "Cannot call GetEntityLazy without a column family handle");
@@ -2794,7 +2799,6 @@ Status DBImpl::GetEntityLazy(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGetEntity;
   }
-  result->Reset();
 
   return GetEntityLazyImpl(read_options, column_family, key, result);
 }
@@ -2804,6 +2808,11 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
                                 size_t num_keys, const Slice* keys,
                                 LazyWideColumnsBatch* result, Status* statuses,
                                 bool /* sorted_input */) {
+  // Start from an empty batch so a reused LazyWideColumnsBatch is left empty
+  // (not stale) on every early-return / error path below.
+  if (result != nullptr) {
+    result->Reset();
+  }
   if (num_keys == 0) {
     return;
   }
@@ -2832,7 +2841,6 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
     return;
   }
 
-  result->Reset();
   LazyWideColumnsHelper::InitBatch(result, num_keys);
 
   ReadOptions read_options(_read_options);

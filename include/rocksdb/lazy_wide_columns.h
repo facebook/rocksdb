@@ -145,7 +145,9 @@ class LazyWideColumn {
 // that keeps the referenced blob files / SST readers valid so deferred reads
 // stay resolvable. A standalone result from GetEntityLazy() holds its own pin;
 // a result from MultiGetEntityLazy() is kept alive by its enclosing
-// LazyWideColumnsBatch, so it is valid only as long as that batch is.
+// LazyWideColumnsBatch, so it is valid only as long as that batch is. As with
+// an iterator, the result (or its enclosing batch) must be destroyed before the
+// DB is closed.
 //
 // Zero-copy: every enumerated inline value and every resolved range is a Slice
 // into a stable backing buffer owned or pinned by this object, so results stay
