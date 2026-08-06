@@ -507,8 +507,9 @@ TEST_F(DBLazyEntityTest, ReusedResultResetOnEarlyReturn) {
   DestroyAndReopen(options);
 
   constexpr char key[] = "entity";
+  const std::string value(200, 'a');
   const WideColumns columns{{kDefaultWideColumnName, "inline"},
-                            {"data", std::string(200, 'a')}};
+                            {"data", value}};
   ASSERT_OK(
       db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
   ASSERT_OK(Flush());
@@ -538,10 +539,10 @@ TEST_F(DBLazyEntityTest, ReusedBatchResetOnEarlyReturn) {
 
   const std::string k1 = "k1";
   const std::string k2 = "k2";
-  const WideColumns c1{{kDefaultWideColumnName, "i1"},
-                       {"data", std::string(200, 'a')}};
-  const WideColumns c2{{kDefaultWideColumnName, "i2"},
-                       {"data", std::string(200, 'b')}};
+  const std::string d1(200, 'a');
+  const std::string d2(200, 'b');
+  const WideColumns c1{{kDefaultWideColumnName, "i1"}, {"data", d1}};
+  const WideColumns c2{{kDefaultWideColumnName, "i2"}, {"data", d2}};
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), k1, c1));
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), k2, c2));
   ASSERT_OK(Flush());
@@ -552,6 +553,8 @@ TEST_F(DBLazyEntityTest, ReusedBatchResetOnEarlyReturn) {
 
   db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
                           keys.size(), keys.data(), &batch, statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
   ASSERT_EQ(batch.size(), 2U);
 
   // Reuse with num_keys == 0: the batch must be reset (empty), not stale.
@@ -564,6 +567,8 @@ TEST_F(DBLazyEntityTest, ReusedBatchResetOnEarlyReturn) {
   // reset to empty.
   db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
                           keys.size(), keys.data(), &batch, statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
   ASSERT_EQ(batch.size(), 2U);
 
   ReadOptions bad_read_options;
@@ -571,6 +576,7 @@ TEST_F(DBLazyEntityTest, ReusedBatchResetOnEarlyReturn) {
   db_->MultiGetEntityLazy(bad_read_options, db_->DefaultColumnFamily(),
                           keys.size(), keys.data(), &batch, statuses.data());
   ASSERT_TRUE(statuses[0].IsInvalidArgument()) << statuses[0].ToString();
+  ASSERT_TRUE(statuses[1].IsInvalidArgument()) << statuses[1].ToString();
   ASSERT_TRUE(batch.empty());
 }
 
