@@ -1069,6 +1069,10 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   if (max_depth_ > kMaxReasonableDepth) {
     return Status::Corruption("Trie index: max_depth exceeds reasonable limit");
   }
+  if (static_cast<uint64_t>(cutoff_level_) >
+      static_cast<uint64_t>(max_depth_) + 1) {
+    return Status::Corruption("Trie index: cutoff_level exceeds max_depth");
+  }
 
   memcpy(&dense_leaf_count_, p, 8);
   p += 8;
@@ -1079,6 +1083,17 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   memcpy(&dense_child_count_, p, 8);
   p += 8;
   remaining -= 8;
+
+  // d_labels_ stores exactly 256 bits per dense node, and Bitvector rejects
+  // serialized bitvectors whose logical size exceeds UINT32_MAX bits because
+  // its rank LUT entries are uint32_t. Check the matching dense-node bound
+  // explicitly before using this header field to bound validation work.
+  static constexpr uint64_t kMaxReasonableDenseNodes =
+      std::numeric_limits<uint32_t>::max() / 256;
+  if (dense_node_count_ > kMaxReasonableDenseNodes) {
+    return Status::Corruption(
+        "Trie index: dense_node_count exceeds reasonable limit");
+  }
 
   // Read flags field.
   uint32_t flags;
@@ -1120,26 +1135,72 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   // ordinal computation during traversal. Inconsistent values would cause
   // incorrect rank arithmetic leading to wrong leaf indices -> wrong block
   // handles.
-  if (dense_node_count_ > 0) {
-    // Each dense node uses 256 bits in d_labels_.
-    if (d_labels_.NumBits() != dense_node_count_ * 256) {
-      return Status::Corruption(
-          "Trie index: d_labels size inconsistent with dense_node_count");
-    }
-    // d_has_child_ has one bit per set bit in d_labels_ (one per label).
-    if (d_has_child_.NumBits() != d_labels_.NumOnes()) {
-      return Status::Corruption(
-          "Trie index: d_has_child size inconsistent with d_labels");
-    }
-    // d_is_prefix_key_ has one bit per dense node.
-    if (d_is_prefix_key_.NumBits() != dense_node_count_) {
-      return Status::Corruption(
-          "Trie index: d_is_prefix_key size inconsistent with "
-          "dense_node_count");
-    }
+  if (dense_node_count_ > std::numeric_limits<uint64_t>::max() / 256 ||
+      d_labels_.NumBits() != dense_node_count_ * 256) {
+    return Status::Corruption(
+        "Trie index: d_labels size inconsistent with dense_node_count");
+  }
+  // d_has_child_ has one bit per set bit in d_labels_ (one per label).
+  if (d_has_child_.NumBits() != d_labels_.NumOnes()) {
+    return Status::Corruption(
+        "Trie index: d_has_child size inconsistent with d_labels");
+  }
+  // d_is_prefix_key_ has one bit per dense node.
+  if (d_is_prefix_key_.NumBits() != dense_node_count_) {
+    return Status::Corruption(
+        "Trie index: d_is_prefix_key size inconsistent with "
+        "dense_node_count");
+  }
+  uint64_t computed_dense_leaf_count =
+      d_is_prefix_key_.NumOnes() +
+      (d_labels_.NumOnes() - d_has_child_.NumOnes());
+  if (dense_leaf_count_ != computed_dense_leaf_count) {
+    return Status::Corruption(
+        "Trie index: dense_leaf_count inconsistent with dense topology");
   }
   if (dense_leaf_count_ > num_keys_) {
     return Status::Corruption("Trie index: dense_leaf_count exceeds num_keys");
+  }
+  if (cutoff_level_ > 0 && dense_node_count_ == 0) {
+    return Status::Corruption(
+        "Trie index: cutoff_level inconsistent with dense_node_count");
+  }
+
+  uint64_t expected_dense_child_count = 0;
+  if (cutoff_level_ == 0) {
+    expected_dense_child_count = num_keys_ == 0 ? 0 : 1;
+  } else {
+    uint64_t level_start_node = 0;
+    uint64_t level_node_count = dense_node_count_ == 0 ? 0 : 1;
+    uint64_t dense_nodes_seen = 0;
+    for (uint32_t level = 0; level < cutoff_level_; level++) {
+      if (level_start_node + level_node_count > dense_node_count_) {
+        return Status::Corruption(
+            "Trie index: dense_node_count inconsistent with dense topology");
+      }
+      uint64_t internal_children = 0;
+      for (uint64_t i = 0; i < level_node_count; i++) {
+        uint64_t node_num = level_start_node + i;
+        uint64_t label_begin = d_labels_.Rank1(node_num * 256);
+        uint64_t label_end = d_labels_.Rank1((node_num + 1) * 256);
+        internal_children +=
+            d_has_child_.Rank1(label_end) - d_has_child_.Rank1(label_begin);
+      }
+      dense_nodes_seen += level_node_count;
+      if (level + 1 == cutoff_level_) {
+        expected_dense_child_count = internal_children;
+      }
+      level_start_node += level_node_count;
+      level_node_count = internal_children;
+    }
+    if (dense_nodes_seen != dense_node_count_) {
+      return Status::Corruption(
+          "Trie index: dense_node_count inconsistent with dense topology");
+    }
+  }
+  if (dense_child_count_ != expected_dense_child_count) {
+    return Status::Corruption(
+        "Trie index: dense_child_count inconsistent with dense topology");
   }
 
   // Sparse section.
@@ -1190,15 +1251,30 @@ Status LoudsTrie::InitFromData(const Slice& data) {
   // label has exactly one bit in s_has_child_ and one bit in s_louds_.
   // A mismatch means the serialized data is inconsistent, which would cause
   // GetBit/Rank1 OOB reads during traversal.
-  if (s_labels_size_ > 0) {
-    if (s_has_child_.NumBits() != s_labels_size_) {
-      return Status::Corruption(
-          "Trie index: s_has_child size inconsistent with s_labels_size");
-    }
-    if (s_louds_.NumBits() != s_labels_size_) {
-      return Status::Corruption(
-          "Trie index: s_louds size inconsistent with s_labels_size");
-    }
+  if (s_has_child_.NumBits() != s_labels_size_) {
+    return Status::Corruption(
+        "Trie index: s_has_child size inconsistent with s_labels_size");
+  }
+  if (s_louds_.NumBits() != s_labels_size_) {
+    return Status::Corruption(
+        "Trie index: s_louds size inconsistent with s_labels_size");
+  }
+  if (s_labels_size_ > 0 && !s_louds_.GetBit(0)) {
+    return Status::Corruption("Trie index: sparse LOUDS root is missing");
+  }
+  if (s_is_prefix_key_.NumBits() != s_louds_.NumOnes()) {
+    return Status::Corruption(
+        "Trie index: s_is_prefix_key size inconsistent with sparse nodes");
+  }
+  if (dense_child_count_ > s_louds_.NumOnes()) {
+    return Status::Corruption(
+        "Trie index: dense_child_count exceeds sparse node count");
+  }
+  uint64_t computed_sparse_leaf_count =
+      s_is_prefix_key_.NumOnes() + (s_labels_size_ - s_has_child_.NumOnes());
+  if (dense_leaf_count_ + computed_sparse_leaf_count != num_keys_) {
+    return Status::Corruption(
+        "Trie index: num_keys inconsistent with trie topology");
   }
 
   // Child position lookup tables for Select-free sparse traversal.
@@ -1218,6 +1294,18 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     if (num_internal > kMaxReasonableInternal) {
       return Status::Corruption(
           "Trie index: num_internal exceeds reasonable limit");
+    }
+    if (num_internal != s_has_child_.NumOnes()) {
+      return Status::Corruption(
+          "Trie index: child position table count inconsistent with sparse "
+          "topology");
+    }
+    if (dense_child_count_ >
+            std::numeric_limits<uint64_t>::max() - num_internal ||
+        s_louds_.NumOnes() != dense_child_count_ + num_internal) {
+      return Status::Corruption(
+          "Trie index: sparse node count inconsistent with child position "
+          "table");
     }
 
     if (num_internal > 0) {
@@ -1251,9 +1339,25 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       for (uint64_t k = 0; k < num_internal; k++) {
         if (s_child_start_pos_[k] >= s_labels_size_ ||
             s_child_end_pos_[k] > s_labels_size_ ||
-            s_child_end_pos_[k] < s_child_start_pos_[k]) {
+            s_child_end_pos_[k] <= s_child_start_pos_[k]) {
           return Status::Corruption(
               "Trie index: child position out of range for sparse labels");
+        }
+        if (!s_louds_.GetBit(s_child_start_pos_[k])) {
+          return Status::Corruption(
+              "Trie index: child position does not start a sparse node");
+        }
+        uint64_t child_node = dense_child_count_ + k;
+        uint64_t expected_start = s_louds_.FindNthOneBit(child_node);
+        uint64_t expected_end = s_louds_.NextSetBit(expected_start + 1);
+        if (expected_end > s_labels_size_) {
+          expected_end = s_labels_size_;
+        }
+        if (s_child_start_pos_[k] != expected_start ||
+            s_child_end_pos_[k] != expected_end) {
+          return Status::Corruption(
+              "Trie index: child position table inconsistent with sparse "
+              "topology");
         }
       }
     }
@@ -1269,6 +1373,10 @@ Status LoudsTrie::InitFromData(const Slice& data) {
     memcpy(&num_chains, p, 8);
     p += 8;
     remaining -= 8;
+    if (num_chains > num_internal) {
+      return Status::Corruption(
+          "Trie index: chain count exceeds sparse internal node count");
+    }
 
     if (num_chains > 0) {
       // Read chain bitmap.
@@ -1278,6 +1386,11 @@ Status LoudsTrie::InitFromData(const Slice& data) {
       }
       p += consumed;
       remaining -= consumed;
+      if (s_chain_bitmap_.NumBits() != num_internal ||
+          s_chain_bitmap_.NumOnes() != num_chains) {
+        return Status::Corruption(
+            "Trie index: chain bitmap inconsistent with chain count");
+      }
 
       // Read compact chain_offsets (uint32_t per chain).
       size_t offsets_bytes = num_chains * sizeof(uint32_t);

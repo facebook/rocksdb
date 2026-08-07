@@ -8,6 +8,8 @@
 #include <cinttypes>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
@@ -1103,6 +1105,233 @@ class LoudsTrieTest : public testing::Test {
   }
 };
 
+static constexpr size_t kTrieHeaderVersionOffset = 4;
+static constexpr size_t kTrieHeaderNumKeysOffset = 8;
+static constexpr size_t kTrieHeaderCutoffLevelOffset = 16;
+static constexpr size_t kTrieHeaderMaxDepthOffset = 20;
+static constexpr size_t kTrieHeaderDenseLeafCountOffset = 24;
+static constexpr size_t kTrieHeaderDenseNodeCountOffset = 32;
+static constexpr size_t kTrieHeaderDenseChildCountOffset = 40;
+static constexpr size_t kTrieHeaderSize = 56;
+static constexpr size_t kBitvectorNumBitsOffset = 0;
+static constexpr size_t kBitvectorNumOnesOffset = sizeof(uint64_t);
+static constexpr size_t kBitvectorWordsOffset = 2 * sizeof(uint64_t);
+static constexpr uint64_t kMaxReasonableDenseNodesForTest =
+    std::numeric_limits<uint32_t>::max() / 256;
+
+static void ExpectCorruptionContainsForTest(const Status& s,
+                                            const std::string& message) {
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_NE(s.ToString().find(message), std::string::npos) << s.ToString();
+}
+
+static void PatchFixed64ForTest(std::string* data, size_t offset,
+                                uint64_t value) {
+  ASSERT_LE(offset + sizeof(value), data->size());
+  memcpy(&(*data)[offset], &value, sizeof(value));
+}
+
+static void PatchFixed32ForTest(std::string* data, size_t offset,
+                                uint32_t value) {
+  ASSERT_LE(offset + sizeof(value), data->size());
+  memcpy(&(*data)[offset], &value, sizeof(value));
+}
+
+static uint32_t ReadFixed32ForTest(const std::string& data, size_t offset) {
+  assert(offset + sizeof(uint32_t) <= data.size());
+  uint32_t value;
+  memcpy(&value, data.data() + offset, sizeof(value));
+  return value;
+}
+
+static uint64_t ReadFixed64ForTest(const std::string& data, size_t offset) {
+  assert(offset + sizeof(uint64_t) <= data.size());
+  uint64_t value;
+  memcpy(&value, data.data() + offset, sizeof(value));
+  return value;
+}
+
+static uint64_t ReadBitvectorNumBitsForTest(const std::string& data,
+                                            size_t bitvector_offset) {
+  return ReadFixed64ForTest(data, bitvector_offset + kBitvectorNumBitsOffset);
+}
+
+static uint64_t ReadBitvectorNumOnesForTest(const std::string& data,
+                                            size_t bitvector_offset) {
+  return ReadFixed64ForTest(data, bitvector_offset + kBitvectorNumOnesOffset);
+}
+
+static void PatchBitvectorNumBitsForTest(std::string* data,
+                                         size_t bitvector_offset,
+                                         uint64_t num_bits) {
+  PatchFixed64ForTest(data, bitvector_offset + kBitvectorNumBitsOffset,
+                      num_bits);
+}
+
+static void PatchBitvectorNumOnesForTest(std::string* data,
+                                         size_t bitvector_offset,
+                                         uint64_t num_ones) {
+  PatchFixed64ForTest(data, bitvector_offset + kBitvectorNumOnesOffset,
+                      num_ones);
+}
+
+static void ClearBitvectorBitForTest(std::string* data, size_t bitvector_offset,
+                                     uint64_t bit_pos) {
+  size_t word_offset = bitvector_offset + kBitvectorWordsOffset +
+                       static_cast<size_t>(bit_pos / 64) * sizeof(uint64_t);
+  uint64_t word = ReadFixed64ForTest(*data, word_offset);
+  word &= ~(uint64_t{1} << (bit_pos % 64));
+  PatchFixed64ForTest(data, word_offset, word);
+}
+
+static std::vector<std::string> GenerateTwoByteKeysForTest(
+    int first_level_labels, int second_level_labels) {
+  std::vector<std::string> keys;
+  keys.reserve(static_cast<size_t>(first_level_labels) *
+               static_cast<size_t>(second_level_labels));
+  for (int i = 0; i < first_level_labels; i++) {
+    for (int j = 0; j < second_level_labels; j++) {
+      std::string key;
+      key.push_back(static_cast<char>('A' + i));
+      key.push_back(static_cast<char>('A' + j));
+      keys.push_back(key);
+    }
+  }
+  return keys;
+}
+
+static Status SkipBitvectorForTest(const std::string& data, size_t* offset) {
+  if (*offset > data.size()) {
+    return Status::Corruption("offset past end");
+  }
+  Bitvector bv;
+  size_t consumed = 0;
+  Status s =
+      bv.InitFromData(data.data() + *offset, data.size() - *offset, &consumed);
+  if (!s.ok()) {
+    return s;
+  }
+  *offset += consumed;
+  return Status::OK();
+}
+
+static Status FindSparseBitvectorOffsetsForTest(
+    const std::string& data, size_t* s_has_child_offset, size_t* s_louds_offset,
+    size_t* s_is_prefix_key_offset) {
+  size_t offset = kTrieHeaderSize;
+  for (int i = 0; i < 3; i++) {
+    Status s = SkipBitvectorForTest(data, &offset);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  if (offset + sizeof(uint64_t) > data.size()) {
+    return Status::Corruption("truncated sparse labels size");
+  }
+  uint64_t sparse_labels_size = ReadFixed64ForTest(data, offset);
+  offset += sizeof(uint64_t);
+  size_t sparse_labels_padded = (sparse_labels_size + 7) & ~size_t(7);
+  if (offset + sparse_labels_padded > data.size()) {
+    return Status::Corruption("truncated sparse labels");
+  }
+  offset += sparse_labels_padded;
+
+  *s_has_child_offset = offset;
+  Status s = SkipBitvectorForTest(data, &offset);
+  if (!s.ok()) {
+    return s;
+  }
+  *s_louds_offset = offset;
+  s = SkipBitvectorForTest(data, &offset);
+  if (!s.ok()) {
+    return s;
+  }
+  *s_is_prefix_key_offset = offset;
+  return Status::OK();
+}
+
+static Status FindChildCountOffsetForTest(const std::string& data,
+                                          size_t* child_count_offset) {
+  size_t offset = kTrieHeaderSize;
+  for (int i = 0; i < 3; i++) {
+    Status s = SkipBitvectorForTest(data, &offset);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  if (offset + sizeof(uint64_t) > data.size()) {
+    return Status::Corruption("truncated sparse labels size");
+  }
+  uint64_t sparse_labels_size = ReadFixed64ForTest(data, offset);
+  offset += sizeof(uint64_t);
+  size_t sparse_labels_padded = (sparse_labels_size + 7) & ~size_t(7);
+  if (offset + sparse_labels_padded > data.size()) {
+    return Status::Corruption("truncated sparse labels");
+  }
+  offset += sparse_labels_padded;
+  for (int i = 0; i < 3; i++) {
+    Status s = SkipBitvectorForTest(data, &offset);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  if (offset + sizeof(uint64_t) > data.size()) {
+    return Status::Corruption("truncated child count");
+  }
+  *child_count_offset = offset;
+  return Status::OK();
+}
+
+static Status FindChildPositionTableOffsetsForTest(
+    const std::string& data, size_t* child_start_table_offset,
+    size_t* child_end_table_offset, uint64_t* num_internal) {
+  size_t child_count_offset = 0;
+  Status s = FindChildCountOffsetForTest(data, &child_count_offset);
+  if (!s.ok()) {
+    return s;
+  }
+  *num_internal = ReadFixed64ForTest(data, child_count_offset);
+  size_t offset = child_count_offset + sizeof(uint64_t);
+  if (*num_internal >
+      (std::numeric_limits<size_t>::max() - 7) / sizeof(uint32_t)) {
+    return Status::Corruption("child table size overflow");
+  }
+  size_t table_bytes = static_cast<size_t>(*num_internal) * sizeof(uint32_t);
+  size_t table_padded = (table_bytes + 7) & ~size_t(7);
+  if (table_padded > data.size() - offset) {
+    return Status::Corruption("truncated child start table");
+  }
+  size_t end_offset = offset + table_padded;
+  if (table_padded > data.size() - end_offset) {
+    return Status::Corruption("truncated child tables");
+  }
+  *child_start_table_offset = offset;
+  *child_end_table_offset = end_offset;
+  return Status::OK();
+}
+
+static Status FindChainCountOffsetForTest(const std::string& data,
+                                          size_t* chain_count_offset) {
+  size_t offset = 0;
+  Status s = FindChildCountOffsetForTest(data, &offset);
+  if (!s.ok()) {
+    return s;
+  }
+  uint64_t num_internal = ReadFixed64ForTest(data, offset);
+  offset += sizeof(uint64_t);
+  size_t child_table_bytes = num_internal * sizeof(uint32_t);
+  size_t child_table_padded = (child_table_bytes + 7) & ~size_t(7);
+  if (offset + child_table_padded + child_table_padded > data.size()) {
+    return Status::Corruption("truncated child tables");
+  }
+  offset += child_table_padded + child_table_padded;
+  if (offset + sizeof(uint64_t) > data.size()) {
+    return Status::Corruption("truncated chain count");
+  }
+  *chain_count_offset = offset;
+  return Status::OK();
+}
+
 // Helper: build a trie from sorted keys and verify that Seek and Next
 // iterate in exactly the expected order, checking both handles and
 // reconstructed keys.
@@ -1830,6 +2059,348 @@ TEST_F(LoudsTrieTest, InitFromDataMaxDepthCorruption) {
   ASSERT_TRUE(trie3.InitFromData(Slice(header2)).IsCorruption());
 }
 
+TEST_F(LoudsTrieTest, InitFromDataRejectsCutoffLevelBeyondMaxDepth) {
+  std::vector<std::string> keys = {"alpha", "beta", "delta", "gamma"};
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+  uint32_t max_depth = ReadFixed32ForTest(data, kTrieHeaderMaxDepthOffset);
+
+  PatchFixed32ForTest(&data, kTrieHeaderCutoffLevelOffset, max_depth + 2);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsDenseCutoffWithoutDenseRoot) {
+  std::vector<std::string> keys = {"alpha", "beta", "delta", "gamma"};
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  PatchFixed32ForTest(&data, kTrieHeaderCutoffLevelOffset, 1);
+  PatchFixed64ForTest(&data, kTrieHeaderDenseChildCountOffset, 0);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsDenseNodeCountAboveReasonableLimit) {
+  std::vector<std::string> keys = {"alpha", "beta", "delta", "gamma"};
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  PatchFixed64ForTest(&data, kTrieHeaderDenseNodeCountOffset,
+                      kMaxReasonableDenseNodesForTest + 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "dense_node_count exceeds reasonable limit"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsDenseLevelWalkOverflow) {
+  std::vector<std::string> keys = GenerateTwoByteKeysForTest(30, 1);
+  auto bt = BuildTrieFromKeys(keys);
+  ASSERT_EQ(bt.trie.CutoffLevel(), 1u);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  PatchFixed32ForTest(&data, kTrieHeaderCutoffLevelOffset, 2);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "dense_node_count inconsistent with dense topology"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsDenseNodesSeenMismatch) {
+  std::vector<std::string> keys = GenerateTwoByteKeysForTest(30, 30);
+  auto bt = BuildTrieFromKeys(keys);
+  ASSERT_EQ(bt.trie.CutoffLevel(), 2u);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  PatchFixed32ForTest(&data, kTrieHeaderCutoffLevelOffset, 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "dense_node_count inconsistent with dense topology"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsLeafCountMismatch) {
+  std::vector<std::string> keys = {"alpha", "beta", "delta", "gamma"};
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  PatchFixed64ForTest(&data, kTrieHeaderNumKeysOffset, keys.size() - 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "num_keys inconsistent with trie topology"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsDenseLeafCountMismatch) {
+  std::vector<std::string> keys = {"alpha", "beta", "delta", "gamma"};
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+  uint64_t dense_leaf_count =
+      ReadFixed64ForTest(data, kTrieHeaderDenseLeafCountOffset);
+
+  PatchFixed64ForTest(&data, kTrieHeaderDenseLeafCountOffset,
+                      dense_leaf_count + 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsDenseChildCountMismatch) {
+  std::vector<std::string> keys;
+  for (char c = 'a'; c <= 'z'; c++) {
+    keys.push_back(std::string(1, c) + "1");
+    keys.push_back(std::string(1, c) + "2");
+  }
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+  uint64_t dense_child_count =
+      ReadFixed64ForTest(data, kTrieHeaderDenseChildCountOffset);
+
+  PatchFixed64ForTest(&data, kTrieHeaderDenseChildCountOffset,
+                      dense_child_count + 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsSeqnoLeafCountMismatch) {
+  LoudsTrieBuilder builder;
+  builder.SetHasSeqnoEncoding(true);
+  std::vector<std::string> keys = {"alpha", "beta", "delta", "gamma"};
+  for (size_t i = 0; i < keys.size(); i++) {
+    builder.AddKeyWithSeqno(Slice(keys[i]), TrieBlockHandle{i * 100, 50},
+                            /*seqno=*/i + 1, /*block_count=*/1);
+  }
+  builder.Finish();
+  std::string data(builder.GetSerializedData().data(),
+                   builder.GetSerializedData().size());
+
+  PatchFixed64ForTest(&data, kTrieHeaderNumKeysOffset, keys.size() - 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsSparseChildCountMismatch) {
+  std::vector<std::string> keys;
+  for (int i = 0; i < 20; i++) {
+    std::string key(1, static_cast<char>('A' + i));
+    key += 'x';
+    keys.push_back(key);
+  }
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+  size_t child_count_offset = 0;
+  ASSERT_OK(FindChildCountOffsetForTest(data, &child_count_offset));
+  uint64_t num_internal = ReadFixed64ForTest(data, child_count_offset);
+  ASSERT_GT(num_internal, 0u);
+
+  PatchFixed64ForTest(&data, child_count_offset, num_internal - 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "child position table count inconsistent with sparse topology"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsMissingSparseLoudsRoot) {
+  std::vector<std::string> keys = GenerateTwoByteKeysForTest(20, 1);
+  auto bt = BuildTrieFromKeys(keys);
+  ASSERT_EQ(bt.trie.CutoffLevel(), 0u);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  size_t s_has_child_offset = 0;
+  size_t s_louds_offset = 0;
+  size_t s_is_prefix_key_offset = 0;
+  ASSERT_OK(FindSparseBitvectorOffsetsForTest(
+      data, &s_has_child_offset, &s_louds_offset, &s_is_prefix_key_offset));
+  (void)s_has_child_offset;
+  (void)s_is_prefix_key_offset;
+  ASSERT_GT(ReadBitvectorNumBitsForTest(data, s_louds_offset), 0u);
+
+  ClearBitvectorBitForTest(&data, s_louds_offset, 0);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(
+      ExpectCorruptionContainsForTest(s, "sparse LOUDS root is missing"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsSparsePrefixKeyNodeCountMismatch) {
+  std::vector<std::string> keys = GenerateTwoByteKeysForTest(20, 1);
+  auto bt = BuildTrieFromKeys(keys);
+  ASSERT_EQ(bt.trie.CutoffLevel(), 0u);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  size_t s_has_child_offset = 0;
+  size_t s_louds_offset = 0;
+  size_t s_is_prefix_key_offset = 0;
+  ASSERT_OK(FindSparseBitvectorOffsetsForTest(
+      data, &s_has_child_offset, &s_louds_offset, &s_is_prefix_key_offset));
+  (void)s_has_child_offset;
+  uint64_t sparse_node_count =
+      ReadBitvectorNumOnesForTest(data, s_louds_offset);
+  ASSERT_GT(sparse_node_count, 1u);
+  ASSERT_EQ(ReadBitvectorNumBitsForTest(data, s_is_prefix_key_offset),
+            sparse_node_count);
+
+  PatchBitvectorNumBitsForTest(&data, s_is_prefix_key_offset,
+                               sparse_node_count - 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "s_is_prefix_key size inconsistent with sparse nodes"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsSparseNodeCountChildTableMismatch) {
+  std::vector<std::string> keys = GenerateTwoByteKeysForTest(20, 1);
+  auto bt = BuildTrieFromKeys(keys);
+  ASSERT_EQ(bt.trie.CutoffLevel(), 0u);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  size_t s_has_child_offset = 0;
+  size_t s_louds_offset = 0;
+  size_t s_is_prefix_key_offset = 0;
+  ASSERT_OK(FindSparseBitvectorOffsetsForTest(
+      data, &s_has_child_offset, &s_louds_offset, &s_is_prefix_key_offset));
+  (void)s_has_child_offset;
+  uint64_t sparse_node_count =
+      ReadBitvectorNumOnesForTest(data, s_louds_offset);
+  ASSERT_EQ(ReadBitvectorNumBitsForTest(data, s_is_prefix_key_offset),
+            sparse_node_count);
+
+  PatchBitvectorNumOnesForTest(&data, s_louds_offset, sparse_node_count + 1);
+  PatchBitvectorNumBitsForTest(&data, s_is_prefix_key_offset,
+                               sparse_node_count + 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "sparse node count inconsistent with child position table"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsSparseChildPositionMismatch) {
+  std::vector<std::string> keys;
+  std::string prefix(10, 'A');
+  for (int i = 0; i < 20; i++) {
+    char suffix[8];
+    snprintf(suffix, sizeof(suffix), "%02d", i);
+    keys.push_back(prefix + suffix);
+  }
+  std::sort(keys.begin(), keys.end());
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  size_t child_start_table_offset = 0;
+  size_t child_end_table_offset = 0;
+  uint64_t num_internal = 0;
+  ASSERT_OK(FindChildPositionTableOffsetsForTest(
+      data, &child_start_table_offset, &child_end_table_offset, &num_internal));
+  ASSERT_GT(num_internal, 1u);
+
+  uint32_t start0 = ReadFixed32ForTest(data, child_start_table_offset);
+  uint32_t start1 =
+      ReadFixed32ForTest(data, child_start_table_offset + sizeof(uint32_t));
+  uint32_t end0 = ReadFixed32ForTest(data, child_end_table_offset);
+  uint32_t end1 =
+      ReadFixed32ForTest(data, child_end_table_offset + sizeof(uint32_t));
+  ASSERT_NE(start0, start1);
+
+  PatchFixed32ForTest(&data, child_start_table_offset, start1);
+  PatchFixed32ForTest(&data, child_start_table_offset + sizeof(uint32_t),
+                      start0);
+  PatchFixed32ForTest(&data, child_end_table_offset, end1);
+  PatchFixed32ForTest(&data, child_end_table_offset + sizeof(uint32_t), end0);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsSparseZeroSizeChildPosition) {
+  std::vector<std::string> keys;
+  std::string prefix(10, 'A');
+  for (int i = 0; i < 20; i++) {
+    char suffix[8];
+    snprintf(suffix, sizeof(suffix), "%02d", i);
+    keys.push_back(prefix + suffix);
+  }
+  std::sort(keys.begin(), keys.end());
+  auto bt = BuildTrieFromKeys(keys);
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+
+  size_t child_start_table_offset = 0;
+  size_t child_end_table_offset = 0;
+  uint64_t num_internal = 0;
+  ASSERT_OK(FindChildPositionTableOffsetsForTest(
+      data, &child_start_table_offset, &child_end_table_offset, &num_internal));
+  ASSERT_GT(num_internal, 0u);
+
+  uint32_t start0 = ReadFixed32ForTest(data, child_start_table_offset);
+  PatchFixed32ForTest(&data, child_end_table_offset, start0);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_NO_FATAL_FAILURE(ExpectCorruptionContainsForTest(
+      s, "child position out of range for sparse labels"));
+}
+
+TEST_F(LoudsTrieTest, InitFromDataRejectsChainBitmapCountMismatch) {
+  std::vector<std::string> keys;
+  std::string prefix(10, 'A');
+  for (int i = 0; i < 20; i++) {
+    char suffix[8];
+    snprintf(suffix, sizeof(suffix), "%02d", i);
+    keys.push_back(prefix + suffix);
+  }
+  std::sort(keys.begin(), keys.end());
+  auto bt = BuildTrieFromKeys(keys);
+  ASSERT_TRUE(bt.trie.HasChains());
+  std::string data(bt.builder.GetSerializedData().data(),
+                   bt.builder.GetSerializedData().size());
+  size_t child_count_offset = 0;
+  ASSERT_OK(FindChildCountOffsetForTest(data, &child_count_offset));
+  uint64_t num_internal = ReadFixed64ForTest(data, child_count_offset);
+  size_t chain_count_offset = 0;
+  ASSERT_OK(FindChainCountOffsetForTest(data, &chain_count_offset));
+  uint64_t num_chains = ReadFixed64ForTest(data, chain_count_offset);
+  ASSERT_GT(num_chains, 0u);
+  ASSERT_LT(num_chains, num_internal);
+
+  PatchFixed64ForTest(&data, chain_count_offset, num_chains + 1);
+
+  LoudsTrie trie;
+  Status s = trie.InitFromData(Slice(data));
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
 TEST_F(LoudsTrieTest, MoveConstructor) {
   // Verify that move constructor works correctly for LoudsTrie, which
   // contains Bitvector members with RecomputePointers() logic.
@@ -2036,9 +2607,8 @@ TEST_F(LoudsTrieTest, InitFromDataUnsupportedVersion) {
   std::string data(builder.GetSerializedData().data(),
                    builder.GetSerializedData().size());
 
-  // Version is at offset 4 (after the 4-byte magic).
   uint32_t bad_version = 99;
-  memcpy(&data[4], &bad_version, sizeof(uint32_t));
+  PatchFixed32ForTest(&data, kTrieHeaderVersionOffset, bad_version);
 
   LoudsTrie trie;
   Status s = trie.InitFromData(Slice(data));
