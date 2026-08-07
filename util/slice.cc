@@ -298,10 +298,13 @@ alignas(64) static constexpr int8_t kHexLookup[256] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
 bool Slice::DecodeHex(std::string* result) const {
-  if (!result) return false;
-
+  if (!result) {
+    return false;
+  }
   const size_t len = size_;
-  if (len % 2 != 0) return false;
+  if (len % 2 != 0) {
+    return false;
+  }
 
   const size_t target_len = len / 2;
   result->resize(target_len);
