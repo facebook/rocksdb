@@ -317,7 +317,7 @@ bool Slice::DecodeHex(std::string* result) const {
     // Single branch check using bitwise OR
     if ((h1 | h2) >= 16) {
       // Calling clear() would be a change in behaviour.
-      // result->clear(); 
+      // result->clear();
       return false;
     }
     *dst++ = lossless_cast<char>(static_cast<uint8_t>((h1 << 4) | h2));
