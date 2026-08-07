@@ -25,15 +25,50 @@
 #include "rocksdb/wide_columns.h"
 
 // Current implementation of the lazy blob resolution API. Enumeration and
-// whole-column resolution are functional; a byte range is served by resolving
-// the whole column and slicing it. A future phase reads only the requested
-// bytes from storage (skipping checksum verification and cache-fill for
-// uncompressed blobs) instead of the whole column. Cross-key coalescing and
-// async execution are also future work; here LazyWideColumnsBatch::MultiResolve
-// simply routes each read to its owning per-key result, and MultiGetEntityLazy
-// fills the batch key-by-key.
+// whole-column resolution are functional. Byte-range reads of an uncompressed
+// blob -- whether it lives in a separate blob file or is embedded (same-file)
+// in the SST -- are served by reading only the requested bytes from storage
+// (skipping checksum verification and cache-fill); other cases (compressed,
+// whole-column, already-cached, or force_verify) resolve the whole column and
+// slice it. Cross-key coalescing and async execution are future work; here
+// LazyWideColumnsBatch::MultiResolve simply routes each read to its owning
+// per-key result, and MultiGetEntityLazy fills the batch key-by-key.
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+// Scope guard used while resolving a lazy result: sets the thread's
+// ThreadStatus operation to OP_LAZY_RESOLVE for the duration, then returns it
+// to OP_UNKNOWN on exit. A resolve is a self-contained top-level operation, so
+// it starts and ends with no active op rather than restoring a prior one --
+// thread operations do not stack, and any op lingering from the originating
+// GetEntity/MultiGetEntity call is stale. (This mirrors the SetThreadOperation
+// + ResetThreadStatus pattern other top-level ops such as compaction/DBOpen
+// use.)
+//
+// Setting the parallel operation type keeps the io_activity and thread
+// operation consistent while the deferred reads (which carry
+// Env::IOActivity::kLazyResolve) run: db_stress asserts every file read's
+// io_activity matches the one implied by the current thread operation (see
+// db_stress_env_wrapper.h / TEST_GetExpectedIOActivity), and ThreadStatus
+// reporting then attributes these reads to the lazy-resolve operation.
+//
+// TODO: unified RAII wrappers for thread status updates
+class LazyResolveThreadOpScope {
+ public:
+  LazyResolveThreadOpScope() {
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_LAZY_RESOLVE);
+  }
+  ~LazyResolveThreadOpScope() {
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
+  }
+  LazyResolveThreadOpScope(const LazyResolveThreadOpScope&) = delete;
+  LazyResolveThreadOpScope& operator=(const LazyResolveThreadOpScope&) = delete;
+};
+}  // namespace
+
 // Internal representation. Owns the serialized-entity backing buffer + inline
 // columns (via `entity_`), the decoded blob references, the per-column views,
 // the on-demand blob resolver, and the SuperVersion pin that keeps all of it
@@ -127,52 +162,23 @@ class LazyWideColumns::Rep {
   // writing the per-read outcome to read.status / read.result. Shared by the
   // single-entity and batch MultiResolve paths.
   void ResolveOneRead(size_t index, LazyColumnReadRequest& read) {
+    assert(resolver_);
+
+    // Delegate to the resolver, which owns the partial-vs-whole decision: for a
+    // strict sub-range of an uncompressed blob reference (separate-file or
+    // embedded, and not force_verify) it reads only the requested bytes,
+    // skipping checksum and cache-fill; every other case resolves the whole
+    // column (caching it) and slices. Repeated whole-column reads therefore
+    // read the blob at most once; partial reads own their own bytes and are not
+    // cached. A null read.result still resolves (to surface I/O/integrity
+    // errors on read.status and honor force_verify), just without producing
+    // output -- ResolveColumnRange handles that case.
+    const Status s = resolver_->ResolveColumnRange(
+        index, read.offset, read.length, read.force_verify, read.result);
+
     if (read.status) {
-      *read.status = Status::OK();
+      *read.status = s;
     }
-
-    // Resolve the whole column (inline value directly, blob reference via the
-    // resolver, which caches so repeated reads of one column read the blob at
-    // most once), then slice out the requested byte range.
-    //
-    // TODO(lazy-blob-resolution-phase1): for a strict sub-range of an
-    // uncompressed separate-file blob on a cache miss, read only the requested
-    // bytes from storage (skipping checksum and cache-fill) instead of the
-    // whole column; a further phase (TODO(lazy-blob-resolution-phase2)) does
-    // the same for embedded (same-file) blobs.
-    const LazyWideColumn& info = columns_[index];
-    Slice whole;
-    Status s;
-    if (!info.is_reference()) {
-      whole = *info.inline_value();
-    } else {
-      assert(resolver_);
-      s = resolver_->ResolveColumn(index, &whole);
-    }
-
-    if (!s.ok()) {
-      if (read.status) {
-        *read.status = s;
-      }
-      return;
-    }
-
-    if (read.result != nullptr) {
-      read.result->Reset();
-      if (read.offset >= whole.size()) {
-        // Offset at/past the end clamps to empty (not an error).
-        read.result->PinSlice(Slice(), nullptr);
-      } else {
-        const size_t offset = static_cast<size_t>(read.offset);
-        const size_t avail = whole.size() - offset;
-        const size_t len =
-            (read.length == kLazyWholeColumn || read.length > avail)
-                ? avail
-                : read.length;
-        read.result->PinSlice(Slice(whole.data() + offset, len), nullptr);
-      }
-    }
-    // read.status already OK.
   }
 };
 
@@ -194,6 +200,7 @@ const LazyWideColumn& LazyWideColumns::operator[](size_t i) const {
 
 Status LazyWideColumns::MultiResolve(size_t num_reads,
                                      LazyColumnReadRequest* reads) {
+  LazyResolveThreadOpScope thread_op_scope;
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];
     if (read.status) {
@@ -285,6 +292,7 @@ LazyWideColumns& LazyWideColumnsBatch::operator[](size_t i) {
 
 Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
                                           LazyColumnReadRequest* reads) {
+  LazyResolveThreadOpScope thread_op_scope;
   const void* this_rep = rep_.get();
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];
@@ -301,13 +309,18 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
       continue;
     }
     // Route the read to the entity that owns its column, and require that
-    // entity to belong to this batch.
+    // entity to belong to this batch. The owning_batch_rep_ == nullptr check is
+    // essential: a standalone column (from GetEntityLazy) has
+    // owning_batch_rep_ == nullptr, and an empty/default-constructed batch has
+    // this_rep == nullptr, so without it a foreign standalone column would slip
+    // through the nullptr == nullptr comparison instead of being rejected.
     // TODO(lazy-blob-resolution-phase3): group reads per (CF, Version, blob
     // file) across entities and coalesce them; the request shape is unchanged.
     LazyWideColumns::Rep* entity_rep =
         static_cast<const LazyWideColumns::Rep::ColumnImpl*>(read.column)
             ->parent_rep_;
-    if (entity_rep == nullptr || entity_rep->owning_batch_rep_ != this_rep) {
+    if (entity_rep == nullptr || entity_rep->owning_batch_rep_ == nullptr ||
+        entity_rep->owning_batch_rep_ != this_rep) {
       if (read.status) {
         *read.status =
             Status::InvalidArgument("Column does not belong to this batch");
@@ -385,10 +398,14 @@ Status LazyWideColumnsHelper::Finalize(
 
   // Take ownership of the SuperVersion pin and stand up the resolver bound to
   // the (address-stable, since Rep is heap-allocated) entity columns + blob
-  // references.
+  // references. The resolver's deferred blob-byte reads are attributed to
+  // Env::IOActivity::kLazyResolve (distinct from the kGetEntity/kMultiGetEntity
+  // of the initial entity read that already completed via GetImpl).
   rep.pin_ = std::move(pin);
   rep.user_key_.assign(user_key.data(), user_key.size());
-  rep.resolver_.emplace(version, read_options, blob_file_cache,
+  ReadOptions resolve_read_options(read_options);
+  resolve_read_options.io_activity = Env::IOActivity::kLazyResolve;
+  rep.resolver_.emplace(version, resolve_read_options, blob_file_cache,
                         allow_write_path_fallback);
   rep.resolver_->Reset(Slice(rep.user_key_), &rep.entity_.columns(),
                        &rep.blob_columns_, same_file_reader);

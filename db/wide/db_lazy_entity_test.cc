@@ -17,14 +17,87 @@
 #include "db/db_test_util.h"
 #include "db/wide/wide_column_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/lazy_wide_columns.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/compression.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+// FileSystem wrapper that records the ReadOptions::io_activity of the most
+// recent read to a blob file (*.blob), so tests can assert how deferred lazy
+// resolve reads are attributed. Separate-file blob payloads live in .blob
+// files, so this isolates a deferred ResolveColumn read from the SST reads done
+// by GetEntityLazy itself.
+class BlobReadIOActivityFS : public FileSystemWrapper {
+ public:
+  explicit BlobReadIOActivityFS(std::shared_ptr<FileSystem> base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "BlobReadIOActivityFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    const IOStatus s =
+        target()->NewRandomAccessFile(fname, file_opts, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    const bool is_blob_file =
+        fname.size() >= 5 && fname.compare(fname.size() - 5, 5, ".blob") == 0;
+    if (is_blob_file) {
+      *result = std::make_unique<RecordingFile>(std::move(file), this);
+    } else {
+      *result = std::move(file);
+    }
+    return s;
+  }
+
+  void ResetLastBlobReadIOActivity() {
+    last_blob_read_io_activity_.store(
+        static_cast<uint8_t>(Env::IOActivity::kUnknown));
+  }
+  Env::IOActivity last_blob_read_io_activity() const {
+    return static_cast<Env::IOActivity>(last_blob_read_io_activity_.load());
+  }
+
+ private:
+  class RecordingFile : public FSRandomAccessFileOwnerWrapper {
+   public:
+    RecordingFile(std::unique_ptr<FSRandomAccessFile>&& file,
+                  BlobReadIOActivityFS* fs)
+        : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+
+    IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                  Slice* result, char* scratch,
+                  IODebugContext* dbg) const override {
+      fs_->last_blob_read_io_activity_.store(
+          static_cast<uint8_t>(options.io_activity));
+      return FSRandomAccessFileOwnerWrapper::Read(offset, n, options, result,
+                                                  scratch, dbg);
+    }
+
+   private:
+    BlobReadIOActivityFS* fs_;
+  };
+
+  std::atomic<uint8_t> last_blob_read_io_activity_{
+      static_cast<uint8_t>(Env::IOActivity::kUnknown)};
+};
+}  // namespace
 
 class DBLazyEntityTest : public DBTestBase {
  protected:
@@ -43,8 +116,62 @@ class DBLazyEntityTest : public DBTestBase {
     return options;
   }
 
+  // Like GetLazyTestOptions but with a blob cache configured, so tests can
+  // observe blob-cache hits / (non-)insertions on the partial-read path.
+  Options GetLazyTestOptionsWithBlobCache() {
+    Options options = GetLazyTestOptions();
+    LRUCacheOptions co;
+    co.capacity = 8 << 20;  // 8MB
+    options.blob_cache = NewLRUCache(co);
+    return options;
+  }
+
   uint64_t BlobBytesRead(const Options& options) {
     return options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+  }
+
+  uint64_t BlobCacheAdds(const Options& options) {
+    return options.statistics->getTickerCount(BLOB_DB_CACHE_ADD);
+  }
+
+  uint64_t LazyReadCount(const Options& options) {
+    return options.statistics->getTickerCount(BLOB_DB_LAZY_READ_COUNT);
+  }
+  uint64_t LazyReadBytes(const Options& options) {
+    return options.statistics->getTickerCount(BLOB_DB_LAZY_READ_BYTES);
+  }
+  uint64_t LazyPartialReadCount(const Options& options) {
+    return options.statistics->getTickerCount(BLOB_DB_LAZY_PARTIAL_READ_COUNT);
+  }
+  uint64_t LazyPartialBytesSaved(const Options& options) {
+    return options.statistics->getTickerCount(BLOB_DB_LAZY_PARTIAL_BYTES_SAVED);
+  }
+
+  // Warms the blob-file reader for a column with a 1-byte partial read: opening
+  // the blob file reads its header + footer, a one-time cost. Tests that assert
+  // an exact BLOB_DB_BLOB_FILE_BYTES_READ delta call this and then reset stats,
+  // so only the bytes of the measured read are counted.
+  void WarmBlobFileReader(LazyWideColumns& lazy, size_t column_index) {
+    PinnableSlice warm;
+    ASSERT_OK(lazy.ResolveColumnRange(lazy[column_index], /*offset=*/0,
+                                      /*length=*/1, &warm));
+  }
+
+  // Writes an SST containing a single embedded (same-file blob) wide-column
+  // entity and ingests it into the default column family. Columns at least
+  // `min_blob_size` bytes become same-file blob references; smaller ones stay
+  // inline. Used by the Phase 2 (embedded range read) tests.
+  void IngestEmbeddedEntity(const Options& options, const std::string& key,
+                            const WideColumns& columns,
+                            uint64_t min_blob_size = 64) {
+    const std::string sst_path = dbname_ + "/embedded_" + key + ".sst";
+    SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+    embedded_blob_options.min_blob_size = min_blob_size;
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+    ASSERT_OK(writer.PutEntity(key, columns));
+    ASSERT_OK(writer.Finish());
+    ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
   }
 };
 
@@ -128,6 +255,570 @@ TEST_F(DBLazyEntityTest, ResolveSingleColumnRange) {
   ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/big.size(),
                                     /*length=*/10, &past_end));
   ASSERT_TRUE(past_end.empty());
+}
+
+// Phase 1: a byte-range read of an uncompressed separate-file blob reads only
+// the requested bytes from storage (not the whole column, and not the record
+// header/key), and returns exactly the requested sub-span.
+TEST_F(DBLazyEntityTest, PartialReadReadsOnlyRequestedBytes) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  std::string big(4000, '\0');
+  for (size_t i = 0; i < big.size(); ++i) {
+    big[i] = static_cast<char>('0' + (i % 10));
+  }
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  // Warm the blob-file reader (opening it reads the file header + footer, a
+  // one-time cost that would otherwise be counted below). Partial reads are not
+  // cached, so the measured read still hits the file.
+  WarmBlobFileReader(lazy, /*column_index=*/1);
+  ASSERT_OK(options.statistics->Reset());
+
+  constexpr uint64_t kOffset = 1000;
+  constexpr size_t kLength = 100;
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], kOffset, kLength, &range));
+  ASSERT_EQ(range, big.substr(kOffset, kLength));
+
+  // Only the requested bytes were read from the blob file -- not the whole
+  // 4000-byte column, and not the record header/key.
+  ASSERT_EQ(BlobBytesRead(options), kLength);
+}
+
+// Phase 1: length == kLazyWholeColumn with a nonzero offset is a partial read
+// from the offset to the end -- only the remaining bytes are read.
+TEST_F(DBLazyEntityTest, PartialReadToEndFromOffset) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  std::string big(4000, '\0');
+  for (size_t i = 0; i < big.size(); ++i) {
+    big[i] = static_cast<char>('0' + (i % 10));
+  }
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  // Warm the blob-file reader (see PartialReadReadsOnlyRequestedBytes).
+  WarmBlobFileReader(lazy, /*column_index=*/1);
+  ASSERT_OK(options.statistics->Reset());
+
+  constexpr uint64_t kOffset = 3000;
+  PinnableSlice range;
+  ASSERT_OK(
+      lazy.ResolveColumnRange(lazy[1], kOffset, kLazyWholeColumn, &range));
+  ASSERT_EQ(range, big.substr(kOffset));
+  ASSERT_EQ(BlobBytesRead(options), big.size() - kOffset);
+}
+
+// Phase 1: a partial read never inserts into the blob cache (which is keyed by
+// (file, offset) and holds the whole record). A subsequent whole-column read
+// does populate the cache, confirming the cache is otherwise functional.
+TEST_F(DBLazyEntityTest, PartialReadDoesNotFillBlobCache) {
+  Options options = GetLazyTestOptionsWithBlobCache();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+
+  // A partial read reads only the range and adds nothing to the cache.
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &lazy));
+    PinnableSlice range;
+    ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/1000,
+                                      /*length=*/100, &range));
+    ASSERT_EQ(range, big.substr(1000, 100));
+  }
+  ASSERT_EQ(BlobCacheAdds(options), 0U);
+
+  // A whole-column read of the same column does populate the cache.
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &lazy));
+    PinnableSlice whole;
+    ASSERT_OK(lazy.ResolveColumn(lazy[1], &whole));
+    ASSERT_EQ(whole, big);
+  }
+  ASSERT_EQ(BlobCacheAdds(options), 1U);
+}
+
+// Phase 1: when the whole value is already in the blob cache, a partial read is
+// served by slicing the cached value -- no blob-file I/O.
+TEST_F(DBLazyEntityTest, PartialReadServedFromCachedWholeValueDoesNoIO) {
+  Options options = GetLazyTestOptionsWithBlobCache();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Warm the blob cache with a whole-column read.
+  {
+    LazyWideColumns warm;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &warm));
+    PinnableSlice whole;
+    ASSERT_OK(warm.ResolveColumn(warm[1], &whole));
+    ASSERT_EQ(whole, big);
+  }
+
+  ASSERT_OK(options.statistics->Reset());
+
+  // A fresh lazy read + partial read: the whole value is cached, so the range
+  // is sliced out of the cache with no blob-file I/O.
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/1000, /*length=*/100,
+                                    &range));
+  ASSERT_EQ(range, big.substr(1000, 100));
+  ASSERT_EQ(BlobBytesRead(options), 0U);
+}
+
+// Phase 1: a byte-range read of a *compressed* blob cannot read a sub-range in
+// isolation, so it resolves (and decompresses) the whole column and slices the
+// range. Its logical size is unknown before resolution.
+TEST_F(DBLazyEntityTest, CompressedColumnRangeResolvesWholeAndSlices) {
+  if (!Snappy_Supported()) {
+    ROCKSDB_GTEST_SKIP("Snappy compression not supported");
+    return;
+  }
+  Options options = GetLazyTestOptions();
+  options.blob_compression_type = kSnappyCompression;
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');  // highly compressible
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  // A compressed reference reports an unknown logical size before resolution.
+  ASSERT_TRUE(lazy[1].is_reference());
+  ASSERT_FALSE(lazy[1].logical_size().has_value());
+
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/1000, /*length=*/100,
+                                    &range));
+  ASSERT_EQ(range, big.substr(1000, 100));
+}
+
+// Phase 1: force_verify on a partial read prioritizes checksum verification
+// over I/O efficiency -- it reads (and checks) the whole record even though
+// only a sub-range was requested.
+TEST_F(DBLazyEntityTest, ForceVerifyPartialReadDoesFullVerifiedRead) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  PinnableSlice range;
+  Status status;
+  LazyColumnReadRequest read;
+  read.column = &lazy[1];
+  read.offset = 1000;
+  read.length = 100;
+  read.force_verify = true;
+  read.result = &range;
+  read.status = &status;
+  ASSERT_OK(lazy.MultiResolve(/*num_reads=*/1, &read));
+  ASSERT_OK(status);
+  ASSERT_EQ(range, big.substr(1000, 100));
+
+  // A verified read covers the whole record (value + key + header), so strictly
+  // more than the requested 100 bytes are read from the blob file.
+  ASSERT_GT(BlobBytesRead(options), big.size());
+}
+
+// Phase 1: force_verify verifies the record's checksum even when
+// ReadOptions::verify_checksums is off. With verification forced on, a
+// corrupted blob record surfaces as Corruption; without force_verify the same
+// partial read skips verification and succeeds.
+TEST_F(DBLazyEntityTest, ForceVerifyVerifiesEvenWhenVerifyChecksumsOff) {
+  Options options = GetLazyTestOptions();  // no blob cache: reads hit the file
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Corrupt the value bytes after they are read from the file, so a checksum
+  // verification (if it runs) fails. Flip a byte in place to keep the record
+  // size intact (a strict sub-range read of the requested bytes would not
+  // trigger this on the whole-record path, which is the point).
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:TamperWithResult", [](void* arg) {
+        Slice* const record_slice = static_cast<Slice*>(arg);
+        ASSERT_NE(record_slice, nullptr);
+        ASSERT_FALSE(record_slice->empty());
+        char* const data = const_cast<char*>(record_slice->data());
+        data[record_slice->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions ro;
+  ro.verify_checksums = false;  // globally off
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ro, db_->DefaultColumnFamily(), key, &lazy));
+
+  // With force_verify, the whole record is read and its checksum verified, so
+  // the corruption is detected.
+  PinnableSlice range;
+  Status status;
+  LazyColumnReadRequest read;
+  read.column = &lazy[1];
+  read.offset = 1000;
+  read.length = 100;
+  read.force_verify = true;
+  read.result = &range;
+  read.status = &status;
+  ASSERT_OK(lazy.MultiResolve(/*num_reads=*/1, &read));
+  ASSERT_TRUE(status.IsCorruption()) << status.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Phase 2: a byte-range read of an uncompressed embedded (same-file) blob reads
+// only the requested bytes from the SST -- the embedded counterpart of
+// PartialReadReadsOnlyRequestedBytes.
+TEST_F(DBLazyEntityTest, EmbeddedPartialReadReadsOnlyRequestedBytes) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  const std::string key = "entity";
+  std::string big(4000, '\0');
+  for (size_t i = 0; i < big.size(); ++i) {
+    big[i] = static_cast<char>('0' + (i % 10));
+  }
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  IngestEmbeddedEntity(options, key, columns);
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  // The blob column is an unresolved same-file reference with a known
+  // (uncompressed) logical size.
+  ASSERT_EQ(lazy.size(), 2U);
+  ASSERT_TRUE(lazy[1].is_reference());
+  ASSERT_TRUE(lazy[1].logical_size().has_value());
+  ASSERT_EQ(*lazy[1].logical_size(), big.size());
+
+  ASSERT_OK(options.statistics->Reset());
+
+  constexpr uint64_t kOffset = 1000;
+  constexpr size_t kLength = 100;
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], kOffset, kLength, &range));
+  ASSERT_EQ(range, big.substr(kOffset, kLength));
+
+  // Only the requested bytes were read from the SST's embedded blob region --
+  // not the whole 4000-byte payload, and not the record trailer.
+  ASSERT_EQ(BlobBytesRead(options), kLength);
+}
+
+// Phase 2: with the whole embedded payload already in the blob cache, a partial
+// read slices the cached value with no disk I/O.
+TEST_F(DBLazyEntityTest,
+       EmbeddedPartialReadServedFromCachedWholeValueDoesNoIO) {
+  Options options = GetLazyTestOptionsWithBlobCache();
+  DestroyAndReopen(options);
+
+  const std::string key = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  IngestEmbeddedEntity(options, key, columns);
+
+  // Warm the blob cache with a whole-column read.
+  {
+    LazyWideColumns warm;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &warm));
+    PinnableSlice whole;
+    ASSERT_OK(warm.ResolveColumn(warm[1], &whole));
+    ASSERT_EQ(whole, big);
+  }
+
+  ASSERT_OK(options.statistics->Reset());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/1000, /*length=*/100,
+                                    &range));
+  ASSERT_EQ(range, big.substr(1000, 100));
+  ASSERT_EQ(BlobBytesRead(options), 0U);
+}
+
+// Phase 2: force_verify on an embedded partial read forces the whole-record
+// (verifying) path even when ReadOptions::verify_checksums is off -- so more
+// than the requested bytes are read from the SST.
+TEST_F(DBLazyEntityTest, EmbeddedForceVerifyReadsWholeRecordWithVerifyOff) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  const std::string key = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  IngestEmbeddedEntity(options, key, columns);
+
+  ReadOptions ro;
+  ro.verify_checksums = false;  // globally off
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ro, db_->DefaultColumnFamily(), key, &lazy));
+
+  ASSERT_OK(options.statistics->Reset());
+
+  PinnableSlice range;
+  Status status;
+  LazyColumnReadRequest read;
+  read.column = &lazy[1];
+  read.offset = 1000;
+  read.length = 100;
+  read.force_verify = true;
+  read.result = &range;
+  read.status = &status;
+  ASSERT_OK(lazy.MultiResolve(/*num_reads=*/1, &read));
+  ASSERT_OK(status);
+  ASSERT_EQ(range, big.substr(1000, 100));
+
+  // force_verify forces the whole embedded record (payload + trailer) to be
+  // read and verified even though verify_checksums is off, so strictly more
+  // than the requested 100 bytes are read.
+  ASSERT_GT(BlobBytesRead(options), big.size());
+}
+
+// Phase 1/2 statistics: an actual partial read (separate-file) bumps the lazy
+// partial-read tickers by the requested length and the bytes it avoided.
+TEST_F(DBLazyEntityTest, PartialReadUpdatesLazyStats) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+  constexpr uint64_t kOffset = 1000;
+  constexpr size_t kLength = 100;
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], kOffset, kLength, &range));
+  ASSERT_EQ(range, big.substr(kOffset, kLength));
+
+  // A partial read is both a lazy read and a partial read.
+  ASSERT_EQ(LazyReadCount(options), 1U);
+  ASSERT_EQ(LazyReadBytes(options), kLength);
+  ASSERT_EQ(LazyPartialReadCount(options), 1U);
+  ASSERT_EQ(LazyPartialBytesSaved(options), big.size() - kLength);
+}
+
+// The same lazy stats are recorded for an embedded (same-file) partial read.
+TEST_F(DBLazyEntityTest, EmbeddedPartialReadUpdatesLazyStats) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  const std::string key = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  IngestEmbeddedEntity(options, key, columns);
+  ASSERT_OK(options.statistics->Reset());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+  constexpr uint64_t kOffset = 1000;
+  constexpr size_t kLength = 100;
+  PinnableSlice range;
+  ASSERT_OK(lazy.ResolveColumnRange(lazy[1], kOffset, kLength, &range));
+  ASSERT_EQ(range, big.substr(kOffset, kLength));
+
+  ASSERT_EQ(LazyReadCount(options), 1U);
+  ASSERT_EQ(LazyReadBytes(options), kLength);
+  ASSERT_EQ(LazyPartialReadCount(options), 1U);
+  ASSERT_EQ(LazyPartialBytesSaved(options), big.size() - kLength);
+}
+
+// Lazy read stats count every lazy storage read (whole-column and partial), but
+// the partial tickers count only actual partial reads: a whole-column read and
+// a force_verify (full verified) read bump the lazy-read tickers without the
+// partial ones, and a cache-hit slice bumps neither (no storage read).
+TEST_F(DBLazyEntityTest, LazyStatsCountReadsAndPartialsSeparately) {
+  Options options = GetLazyTestOptionsWithBlobCache();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+
+  // A whole-column read is a lazy read, but not a partial read.
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &lazy));
+    PinnableSlice whole;
+    ASSERT_OK(lazy.ResolveColumn(lazy[1], &whole));
+  }
+  ASSERT_EQ(LazyReadCount(options), 1U);
+  ASSERT_GE(LazyReadBytes(options), big.size());  // whole record (+ header)
+  ASSERT_EQ(LazyPartialReadCount(options), 0U);
+  ASSERT_EQ(LazyPartialBytesSaved(options), 0U);
+
+  // A force_verify partial request becomes a full verified read: a lazy read,
+  // not a partial read. (Fresh column so the blob cache does not serve it.)
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), "e2",
+                           columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
+                                 "e2", &lazy));
+    PinnableSlice v;
+    Status s;
+    LazyColumnReadRequest read;
+    read.column = &lazy[1];
+    read.offset = 1000;
+    read.length = 100;
+    read.force_verify = true;
+    read.result = &v;
+    read.status = &s;
+    ASSERT_OK(lazy.MultiResolve(/*num_reads=*/1, &read));
+    ASSERT_OK(s);
+  }
+  ASSERT_EQ(LazyReadCount(options), 1U);
+  ASSERT_EQ(LazyPartialReadCount(options), 0U);
+
+  // A partial read served from the blob cache does no storage read, so it
+  // counts as neither a lazy read nor a partial read.
+  ASSERT_OK(options.statistics->Reset());
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &lazy));
+    PinnableSlice range;
+    ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/1000, /*length=*/100,
+                                      &range));
+    ASSERT_EQ(range, big.substr(1000, 100));
+  }
+  ASSERT_EQ(LazyReadCount(options), 0U);
+  ASSERT_EQ(LazyReadBytes(options), 0U);
+  ASSERT_EQ(LazyPartialReadCount(options), 0U);
+}
+
+// A non-lazy read (ordinary GetEntity) does not touch the lazy read stats: the
+// lazy tickers are gated on Env::IOActivity::kLazyResolve.
+TEST_F(DBLazyEntityTest, NonLazyReadsDoNotUpdateLazyStats) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+  ASSERT_OK(options.statistics->Reset());
+
+  // An ordinary (eager) GetEntity resolves the blob column via the normal path.
+  PinnableWideColumns eager;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &eager));
+  ASSERT_GT(BlobBytesRead(options), 0U);  // it did read the blob
+  ASSERT_EQ(LazyReadCount(options), 0U);
+  ASSERT_EQ(LazyReadBytes(options), 0U);
+  ASSERT_EQ(LazyPartialReadCount(options), 0U);
+}
+
+// Deferred lazy resolve reads are attributed to Env::IOActivity::kLazyResolve,
+// distinct from the kGetEntity of the initial entity read.
+TEST_F(DBLazyEntityTest, LazyResolveReadsUseLazyResolveIOActivity) {
+  auto fs = std::make_shared<BlobReadIOActivityFS>(FileSystem::Default());
+  std::unique_ptr<Env> env(NewCompositeEnv(fs));
+  // Close the DB before the local Env is destroyed (even on an early ASSERT).
+  Defer close_db_on_exit([this]() { Close(); });
+
+  Options options = GetLazyTestOptions();
+  options.env = env.get();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  LazyWideColumns lazy;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &lazy));
+
+  // The initial entity read touched only the SST, not the .blob file.
+  fs->ResetLastBlobReadIOActivity();
+
+  PinnableSlice value;
+  ASSERT_OK(lazy.ResolveColumn(lazy[1], &value));
+  ASSERT_EQ(value, big);
+
+  // The deferred blob-file read carried the lazy-resolve activity.
+  ASSERT_EQ(fs->last_blob_read_io_activity(), Env::IOActivity::kLazyResolve);
 }
 
 // The headline example: resolve *many blobs in a single call*. One MultiResolve
@@ -629,6 +1320,43 @@ TEST_F(DBLazyEntityTest, BatchRejectsForeignAndNullColumns) {
   ASSERT_TRUE(s_foreign.IsInvalidArgument()) << s_foreign.ToString();
   ASSERT_OK(s_ok);
   ASSERT_EQ(Slice(v_ok), big);
+}
+
+// Regression test: an empty (default-constructed) LazyWideColumnsBatch has a
+// null rep_, and a standalone column (from GetEntityLazy, not part of any
+// batch) has a null owning_batch_rep_. MultiResolve must still reject the
+// standalone column with InvalidArgument -- it must not fall through the
+// nullptr == nullptr comparison and resolve a column that does not belong to
+// this batch.
+TEST_F(DBLazyEntityTest, EmptyBatchRejectsStandaloneColumn) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(200, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  LazyWideColumns standalone;
+  ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                               &standalone));
+
+  // An empty batch owns no columns, so resolving any column through it must
+  // fail rather than resolve the standalone column.
+  LazyWideColumnsBatch empty_batch;
+  ASSERT_TRUE(empty_batch.empty());
+
+  PinnableSlice value;
+  Status status;
+  LazyColumnReadRequest read;
+  read.column = &standalone[1];
+  read.result = &value;
+  read.status = &status;
+  ASSERT_OK(empty_batch.MultiResolve(/*num_reads=*/1, &read));
+  ASSERT_TRUE(status.IsInvalidArgument()) << status.ToString();
+  ASSERT_TRUE(value.empty());
 }
 
 // Wide-column entities do not support user-defined timestamps: PutEntity()

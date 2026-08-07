@@ -73,6 +73,24 @@ Status ReadAndVerifySimpleGen2BlobRecord(
     ChecksumType checksum_type, uint32_t base_context_checksum,
     CompressionType expected_compression, char* buf);
 
+// Reads a byte sub-range [range_offset, range_offset + range_length) of an
+// *uncompressed* SimpleGen2Blob payload directly into `buf` (capacity >=
+// range_length), reading only those bytes. Unlike
+// ReadAndVerifySimpleGen2BlobRecord it does not read the trailer and does not
+// verify the record's checksum (a strict sub-range cannot cover it); callers
+// that require verification read the whole record instead. `payload_size` is
+// the full payload size (from the blob index); the caller must ensure
+// range_offset + range_length <= payload_size. `expected_compression` must be
+// kNoCompression (a strict sub-range of a compressed payload cannot be
+// decompressed in isolation).
+//
+// On success, buf[0, range_length) holds the requested payload bytes.
+Status ReadSimpleGen2BlobRange(const ReadOptions& read_options,
+                               RandomAccessFileReader* file,
+                               uint64_t record_offset, size_t payload_size,
+                               uint64_t range_offset, size_t range_length,
+                               CompressionType expected_compression, char* buf);
+
 // Writes a SimpleGen2Blob record for `payload` at the current end of `file`,
 // which the caller asserts is byte offset `record_offset`. Appends the payload
 // bytes followed by the 5-byte trailer (compression marker + context-modified

@@ -984,6 +984,19 @@ class Version {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
+  // Retrieves a byte sub-range [range_offset, range_offset + range_length) of
+  // an *uncompressed*, separate-file blob's value into *value, reading only
+  // those bytes on a cache miss (see BlobSource::GetBlobRange). The blob file
+  // must be part of this Version. Returns Corruption for a
+  // TTL/inlined/same-file or compressed blob index (the lazy caller only routes
+  // uncompressed separate-file references here; other cases take the
+  // whole-value GetBlob path). The caller must ensure range_offset +
+  // range_length <= blob_index.size().
+  Status GetBlobRange(const ReadOptions& read_options, const Slice& user_key,
+                      const BlobIndex& blob_index, uint64_t range_offset,
+                      size_t range_length, PinnableSlice* value,
+                      uint64_t* bytes_read) const;
+
   struct BlobReadContext {
     BlobReadContext(const BlobIndex& blob_idx, KeyContext* key_ctx)
         : blob_index(blob_idx), key_context(key_ctx) {}

@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 
@@ -34,6 +37,21 @@ class SameFileBlobReader {
   virtual Status GetSameFileBlob(const ReadOptions& read_options,
                                  const BlobIndex& blob_index,
                                  PinnableSlice* value) const = 0;
+
+  // Resolves a byte sub-range [range_offset, range_offset + range_length) of an
+  // *uncompressed* same-file blob reference into `value`, reading only those
+  // bytes on a cache miss (the embedded counterpart of a separate-file blob
+  // range read). Pins the payload zero-copy (a sliced cached record, or an
+  // owned sub-range buffer). Unlike GetSameFileBlob it skips whole-record
+  // checksum verification (a strict sub-range cannot cover it) and never
+  // populates the blob cache. The caller must ensure range_offset +
+  // range_length <= blob_index.size(). read_tier == kBlockCacheTier without a
+  // cached record yields Status::Incomplete.
+  virtual Status GetSameFileBlobRange(const ReadOptions& read_options,
+                                      const BlobIndex& blob_index,
+                                      uint64_t range_offset,
+                                      size_t range_length,
+                                      PinnableSlice* value) const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

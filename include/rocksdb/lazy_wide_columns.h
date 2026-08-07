@@ -40,29 +40,31 @@ inline constexpr size_t kLazyWholeColumn = std::numeric_limits<size_t>::max();
 // does not belong to the target (InvalidArgument) -- there are no untyped
 // indices to mix up. `result` and `status` are out-params filled by the resolve
 // call, so both pointed-to objects must outlive it. Zero-copy: on success
-// `*result` is a view into a stable backing buffer owned by the owning
-// LazyWideColumns.
+// `*result` is a view into stable backing storage -- either a buffer owned or
+// pinned by the owning LazyWideColumns (for whole-column / cached reads) or,
+// for a partial read that reads only the requested bytes, storage owned by
+// `*result` itself.
 struct LazyColumnReadRequest {
   // The column to read (from the target result's operator[] / iteration). Must
   // belong to the result being resolved.
   const LazyWideColumn* column = nullptr;
 
-  // Starting byte offset within the column's logical value. An offset at or
-  // past the end of the value yields an empty result (not an error). A nonzero
-  // offset makes this a partial read; see `force_verify` for checksums.
+  // `offset` and `length` select the byte range [offset, offset + length) of
+  // the column's logical, post-decompression value to put in the result. length
+  // == kLazyWholeColumn reads to the end; otherwise length is clamped to the
+  // bytes remaining after offset, and an offset at or past the end yields an
+  // empty result rather than an error.
   //
-  // Not yet optimized: a partial read currently resolves the whole column and
-  // slices it, so for now it saves no I/O and skips no checksum.
+  // A strict sub-range -- a nonzero offset, or a length short of the remainder
+  // -- makes this a partial read request. It becomes an actual partial read
+  // only for an uncompressed blob reference, whether in a separate blob file or
+  // embedded in the same SST. Such a read fetches only the requested bytes,
+  // does not populate the blob cache, and skips whole-record checksum
+  // verification, which a sub-range cannot cover; set force_verify to override.
+  // Any other request, including a compressed reference or a whole-column read,
+  // resolves the whole column, verifying under ReadOptions::verify_checksums,
+  // and slices the requested range out of it.
   uint64_t offset = 0;
-
-  // Number of bytes to read starting at `offset`, clamped to the end of the
-  // value. kLazyWholeColumn reads the entire remainder from `offset`. Anything
-  // less (or a nonzero `offset`) is a partial read: it returns only the
-  // requested bytes and by default skips whole-record checksum verification
-  // (see `force_verify`).
-  //
-  // Not yet optimized: a partial read currently resolves the whole column and
-  // slices it, so for now it saves no I/O and skips no checksum.
   size_t length = kLazyWholeColumn;
 
   // Extra lever to prioritize checksum verification over I/O efficiency, mainly
@@ -72,9 +74,6 @@ struct LazyColumnReadRequest {
   // when that exceeds the requested range or ReadOptions::verify_checksums is
   // off. No effect where verification already happens (e.g. a whole-column read
   // under verify_checksums) or where the format has no usable checksum.
-  //
-  // Not yet honored: because reads currently resolve the whole column, this
-  // flag has no effect for now.
   bool force_verify = false;
 
   // Output: on OK status, a zero-copy view of the requested bytes.

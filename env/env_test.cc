@@ -4625,6 +4625,9 @@ class TestIOActivity : public testing::Test {
 TEST_F(TestIOActivity, IOActivityToString) {
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kMultiGet), "MultiGet");
 
+  ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kLazyResolve),
+            "LazyResolve");
+
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kCustomIOActivity80),
             "CustomIOActivity80");
   ASSERT_EQ(Env::IOActivityToString(Env::IOActivity::kCustomIOActivityA9),

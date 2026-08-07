@@ -36,6 +36,102 @@ Status AppendBlobRefreshRetryFailure(const Status& stale_status,
       stale_status, "; refresh retry failed: ", retry_status.ToString());
 }
 
+// Runs read(reader) against the blob-file reader for `file_number`. On a
+// Corruption -- which a stale cached reader (e.g. the physical file was
+// replaced) can surface -- evicts the cached reader, reopens it uncached,
+// retries read() once, and refreshes the cache on success. Shared by the
+// single-blob read paths (GetBlob / GetBlobRange) so the stale-file recovery
+// lives in one place.
+//
+// `read` is invoked with a BlobFileReader* and returns a Status; because it may
+// run twice, it must re-initialize any output it populates on each call (and is
+// taken by const reference rather than forwarded, since it is not moved-from).
+template <typename ReadFn>
+Status ReadBlobWithReaderRetry(BlobFileCache* blob_file_cache,
+                               const ReadOptions& read_options,
+                               uint64_t file_number, const ReadFn& read) {
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
+  Status s = blob_file_cache->GetBlobFileReader(read_options, file_number,
+                                                &blob_file_reader);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(blob_file_reader.GetValue());
+
+  s = read(blob_file_reader.GetValue());
+  if (!s.IsCorruption()) {
+    return s;
+  }
+
+  const Status stale_status = s;
+  blob_file_reader.Reset();
+  blob_file_cache->Evict(file_number);
+
+  std::unique_ptr<BlobFileReader> fresh_reader;
+  s = blob_file_cache->OpenBlobFileReaderUncached(
+      read_options, file_number, &fresh_reader,
+      /*allow_footer_skip_retry=*/false);
+  if (!s.ok()) {
+    return AppendBlobRefreshRetryFailure(stale_status, s);
+  }
+
+  s = read(fresh_reader.get());
+  if (!s.ok()) {
+    return AppendBlobRefreshRetryFailure(stale_status, s);
+  }
+
+  CacheHandleGuard<BlobFileReader> ignored_reader;
+  blob_file_cache
+      ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
+      .PermitUncheckedError();
+  return s;
+}
+
+// Records lazy wide-column read metrics for one actual storage read issued
+// while resolving a lazy result (attributed via Env::IOActivity::kLazyResolve):
+// `bytes_read` bytes were read from storage. Covers both whole-column and
+// partial reads; not called for cache hits (no storage read).
+void RecordLazyRead(Statistics* statistics, uint64_t bytes_read) {
+  RecordTick(statistics, BLOB_DB_LAZY_READ_COUNT);
+  RecordTick(statistics, BLOB_DB_LAZY_READ_BYTES, bytes_read);
+}
+
+// Additionally records the partial-read metrics for one actual partial
+// (byte-range) read: `bytes_read` bytes were fetched instead of the column's
+// full `value_size`. Call alongside RecordLazyRead (a partial read is also a
+// lazy read).
+void RecordLazyPartialRead(Statistics* statistics, uint64_t bytes_read,
+                           uint64_t value_size) {
+  RecordTick(statistics, BLOB_DB_LAZY_PARTIAL_READ_COUNT);
+  if (value_size > bytes_read) {
+    RecordTick(statistics, BLOB_DB_LAZY_PARTIAL_BYTES_SAVED,
+               value_size - bytes_read);
+  }
+}
+
+// Pins the sub-range [range_offset, range_offset + range_length) of a cache-hit
+// whole blob value into *value (clamped: an offset at/past the end yields
+// empty, length is clamped to the remainder), keeping the cached bytes alive by
+// transferring the cache handle into *value. Shared by the range-read cache-hit
+// paths (GetBlobRange / GetSimpleGen2BlobRange).
+void PinCacheHitSubRange(CacheHandleGuard<BlobContents>* blob_handle,
+                         uint64_t range_offset, size_t range_length,
+                         PinnableSlice* value) {
+  const Slice full = blob_handle->GetValue()->data();
+  Slice sub;
+  if (range_offset < full.size()) {
+    const size_t off = static_cast<size_t>(range_offset);
+    const size_t avail = full.size() - off;
+    const size_t len = range_length > avail ? avail : range_length;
+    sub = Slice(full.data() + off, len);
+  }  // else: offset at/past end -> empty (not an error)
+
+  value->Reset();
+  constexpr Cleanable* cleanable = nullptr;
+  value->PinSlice(sub, cleanable);
+  blob_handle->TransferTo(value);
+}
+
 }  // namespace
 
 BlobSource::BlobSource(const ImmutableOptions& immutable_options,
@@ -228,65 +324,36 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   std::unique_ptr<BlobContents> blob_contents;
 
   {
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
-                                            &blob_file_reader);
-    if (!s.ok()) {
-      return s;
-    }
-
-    assert(blob_file_reader.GetValue());
-
-    if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
-      return Status::Corruption("Compression type mismatch when reading blob");
-    }
-
     MemoryAllocator* const allocator =
         (blob_cache_ && read_options.fill_cache)
             ? blob_cache_.get()->memory_allocator()
             : nullptr;
 
     uint64_t read_size = 0;
-    s = blob_file_reader.GetValue()->GetBlob(
-        read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, allocator, &blob_contents, &read_size);
-    if (s.IsCorruption()) {
-      const Status stale_status = s;
-      blob_file_reader.Reset();
-      blob_file_cache_->Evict(file_number);
-
-      std::unique_ptr<BlobFileReader> fresh_reader;
-      s = blob_file_cache_->OpenBlobFileReaderUncached(
-          read_options, file_number, &fresh_reader,
-          /*allow_footer_skip_retry=*/false);
-      if (!s.ok()) {
-        return AppendBlobRefreshRetryFailure(stale_status, s);
-      }
-
-      if (compression_type != fresh_reader->GetCompressionType()) {
-        return Status::Corruption(
-            "Compression type mismatch when reading blob");
-      }
-
-      blob_contents.reset();
-      read_size = 0;
-      s = fresh_reader->GetBlob(read_options, user_key, offset, value_size,
-                                compression_type, prefetch_buffer, allocator,
-                                &blob_contents, &read_size);
-      if (!s.ok()) {
-        s = AppendBlobRefreshRetryFailure(stale_status, s);
-      } else {
-        CacheHandleGuard<BlobFileReader> ignored_reader;
-        blob_file_cache_
-            ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
-            .PermitUncheckedError();
-      }
-    }
+    s = ReadBlobWithReaderRetry(
+        blob_file_cache_, read_options, file_number,
+        [&](BlobFileReader* reader) {
+          if (compression_type != reader->GetCompressionType()) {
+            return Status::Corruption(
+                "Compression type mismatch when reading blob");
+          }
+          blob_contents.reset();
+          read_size = 0;
+          return reader->GetBlob(read_options, user_key, offset, value_size,
+                                 compression_type, prefetch_buffer, allocator,
+                                 &blob_contents, &read_size);
+        });
     if (!s.ok()) {
       return s;
     }
     if (bytes_read) {
       *bytes_read = read_size;
+    }
+    // Whole-column read on the lazy resolve path (partial reads go through
+    // GetBlobRange). Counts the storage read; partial reads are not counted
+    // here.
+    if (read_options.io_activity == Env::IOActivity::kLazyResolve) {
+      RecordLazyRead(statistics_, read_size);
     }
   }
 
@@ -303,6 +370,92 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   } else {
     PinOwnedBlob(&blob_contents, value);
   }
+
+  assert(s.ok());
+  return s;
+}
+
+Status BlobSource::GetBlobRange(const ReadOptions& read_options,
+                                const Slice& user_key, uint64_t file_number,
+                                uint64_t offset, uint64_t file_size,
+                                uint64_t value_size,
+                                CompressionType compression_type,
+                                uint64_t range_offset, size_t range_length,
+                                PinnableSlice* value, uint64_t* bytes_read) {
+  assert(value);
+  // Partial reads are for uncompressed blobs only; the caller decides this (a
+  // compressed column takes the whole-value GetBlob path and slices).
+  assert(compression_type == kNoCompression);
+  // Range reads are (currently) only issued while resolving a lazy result, so
+  // the lazy read stats below are recorded unconditionally (unlike GetBlob,
+  // which gates on the activity). Enforce that invariant here.
+  assert(read_options.io_activity == Env::IOActivity::kLazyResolve);
+
+  Status s;
+
+  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+
+  CacheHandleGuard<BlobContents> blob_handle;
+
+  // First, probe the blob cache for the whole value. On a hit, slice the
+  // requested sub-range out of the cached value while pinning the cache handle
+  // (zero-copy, no disk read). A partial read never inserts into the cache.
+  if (blob_cache_) {
+    Slice key = cache_key.AsSlice();
+    s = GetBlobFromCache(key, &blob_handle);
+    if (s.ok()) {
+      PinCacheHitSubRange(&blob_handle, range_offset, range_length, value);
+      if (bytes_read) {
+        *bytes_read = 0;  // served from cache; no disk read
+      }
+      return s;
+    }
+  }
+
+  assert(blob_handle.IsEmpty());
+
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  if (no_io) {
+    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+  }
+
+  // Cache miss: read only the requested sub-range from the file. The result is
+  // never inserted into the blob cache (see the header comment).
+  std::unique_ptr<BlobContents> blob_contents;
+  {
+    // No cache-fill allocator: a partial value is never inserted into the
+    // cache.
+    constexpr MemoryAllocator* allocator = nullptr;
+
+    uint64_t read_size = 0;
+    // Reuses the stale-reader retry shared with GetBlob. A range read skips
+    // whole-record checksum verification, so the retry handles the stale-file
+    // case (offset/size mismatch surfacing as Corruption), not a payload
+    // checksum failure.
+    s = ReadBlobWithReaderRetry(
+        blob_file_cache_, read_options, file_number,
+        [&](BlobFileReader* reader) {
+          if (compression_type != reader->GetCompressionType()) {
+            return Status::Corruption(
+                "Compression type mismatch when reading blob");
+          }
+          blob_contents.reset();
+          read_size = 0;
+          return reader->GetBlobRange(read_options, user_key, offset,
+                                      value_size, range_offset, range_length,
+                                      allocator, &blob_contents, &read_size);
+        });
+    if (!s.ok()) {
+      return s;
+    }
+    if (bytes_read) {
+      *bytes_read = read_size;
+    }
+    RecordLazyRead(statistics_, read_size);
+    RecordLazyPartialRead(statistics_, read_size, value_size);
+  }
+
+  PinOwnedBlob(&blob_contents, value);
 
   assert(s.ok());
   return s;
@@ -379,6 +532,11 @@ Status BlobSource::GetSimpleGen2Blob(
   if (bytes_read) {
     *bytes_read = record_size;
   }
+  // Whole-column read on the lazy resolve path (partial reads go through
+  // GetSimpleGen2BlobRange).
+  if (read_options.io_activity == Env::IOActivity::kLazyResolve) {
+    RecordLazyRead(statistics_, record_size);
+  }
 
   if (blob_cache_ && read_options.fill_cache) {
     // If filling cache is allowed and a cache is configured, try to put the
@@ -393,6 +551,83 @@ Status BlobSource::GetSimpleGen2Blob(
   } else {
     PinOwnedBlob(&blob_contents, value);
   }
+
+  assert(s.ok());
+  return s;
+}
+
+Status BlobSource::GetSimpleGen2BlobRange(
+    const ReadOptions& read_options, const OffsetableCacheKey& base_cache_key,
+    RandomAccessFileReader* file, uint64_t record_offset, uint64_t payload_size,
+    ChecksumType /*checksum_type*/, uint32_t /*base_context_checksum*/,
+    CompressionType expected_compression, uint64_t range_offset,
+    size_t range_length, PinnableSlice* value, uint64_t* bytes_read) {
+  assert(value);
+  assert(file);
+  // Partial reads are for uncompressed payloads only; the caller decides this
+  // (a compressed column takes the whole-payload GetSimpleGen2Blob path +
+  // slice).
+  assert(expected_compression == kNoCompression);
+  // Range reads are (currently) only issued while resolving a lazy result, so
+  // the lazy read stats below are recorded unconditionally (unlike
+  // GetSimpleGen2Blob, which gates on the activity). Enforce that invariant
+  // here.
+  assert(read_options.io_activity == Env::IOActivity::kLazyResolve);
+
+  const CacheKey cache_key =
+      GetSimpleGen2BlobCacheKey(base_cache_key, record_offset);
+
+  Status s;
+
+  CacheHandleGuard<BlobContents> blob_handle;
+
+  // First, probe the blob cache for the whole payload. On a hit, slice the
+  // requested sub-range out of the cached payload while pinning the cache
+  // handle (zero-copy, no disk read). A partial read never inserts into the
+  // cache.
+  if (blob_cache_) {
+    Slice key = cache_key.AsSlice();
+    s = GetBlobFromCache(key, &blob_handle);
+    if (s.ok()) {
+      PinCacheHitSubRange(&blob_handle, range_offset, range_length, value);
+      if (bytes_read) {
+        *bytes_read = 0;  // served from cache; no disk read
+      }
+      return s;
+    }
+  }
+
+  assert(blob_handle.IsEmpty());
+
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  if (no_io) {
+    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+  }
+
+  // Cache miss: read only the requested sub-range from the file. The result is
+  // never inserted into the blob cache (a partial payload cannot represent the
+  // whole-record cache entry).
+  CacheAllocationPtr buf = AllocateBlock(range_length, /*allocator=*/nullptr);
+  s = ReadSimpleGen2BlobRange(read_options, file, record_offset,
+                              static_cast<size_t>(payload_size), range_offset,
+                              range_length, expected_compression, buf.get());
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<BlobContents> blob_contents(
+      new BlobContents(std::move(buf), range_length));
+
+  RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, range_length);
+  PERF_COUNTER_ADD(blob_read_count, 1);
+  PERF_COUNTER_ADD(blob_read_byte, range_length);
+  RecordLazyRead(statistics_, range_length);
+  RecordLazyPartialRead(statistics_, range_length, payload_size);
+  if (bytes_read) {
+    *bytes_read = range_length;
+  }
+
+  PinOwnedBlob(&blob_contents, value);
 
   assert(s.ok());
   return s;
