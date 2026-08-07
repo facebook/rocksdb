@@ -104,4 +104,14 @@ public class IngestExternalFileOptionsTest {
       assertThat(options.writeGlobalSeqno()).isTrue();
     }
   }
+
+  @Test
+  public void allowDbGeneratedFiles() {
+    try (final IngestExternalFileOptions options =
+             new IngestExternalFileOptions()) {
+      assertThat(options.allowDbGeneratedFiles()).isFalse();
+      options.setAllowDbGeneratedFiles(true);
+      assertThat(options.allowDbGeneratedFiles()).isTrue();
+    }
+  }
 }
