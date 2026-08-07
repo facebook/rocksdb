@@ -798,6 +798,125 @@ TEST(SliceHexTest, HexAndToStringRoundTrip) {
   }
 }
 
+TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
+  // Collect all valid hex characters in a lookup set for quick membership check
+  // Valid hex chars: '0'-'9', 'a'-'f', 'A'-'F'
+  static constexpr char kValidHexChars[] = "0123456789abcdefABCDEF";
+  std::unordered_set<char> valid_hex_set(
+      std::begin(kValidHexChars),
+      // Exclude the null terminator that constexpr char array includes
+      std::end(kValidHexChars) - 1
+  );
+
+  // Identify all invalid hex characters (0-255 excluding valid ones)
+  std::vector<uint8_t> invalid_chars;
+  invalid_chars.reserve(256 - 22);  // 256 total minus 22 valid hex chars
+  for (int c = 0; c < 256; ++c) {
+    if (valid_hex_set.find(static_cast<char>(c)) == valid_hex_set.end()) {
+      invalid_chars.push_back(static_cast<uint8_t>(c));
+    }
+  }
+
+  // Verify the expected number of invalid characters
+  // 256 total - 10 digits - 6 lowercase - 6 uppercase = 234 invalid chars
+  ASSERT_EQ(invalid_chars.size(), 234u)
+      << "Unexpected number of invalid hex characters";
+
+  // Pick an arbitrary valid hex character to pair with each invalid character
+  static constexpr char kValidHexChar = '0';
+
+  // Test every possible pair where the FIRST character is invalid
+  // i.e., invalid char in high nibble position
+  for (uint8_t invalid_c : invalid_chars) {
+    std::string hex_pair(2, '\0');
+    hex_pair[0] = static_cast<char>(invalid_c);
+    hex_pair[1] = kValidHexChar;
+
+    Slice hex_slice(hex_pair);
+    std::string result = "sentinel";  // Pre-fill to confirm it gets cleared
+    bool success = hex_slice.DecodeHex(&result);
+
+    EXPECT_FALSE(success)
+        << "Expected DecodeHex to fail for invalid first char: 0x"
+        << std::hex << static_cast<int>(invalid_c);
+
+    EXPECT_TRUE(result.empty())
+        << "Expected empty result string after failure for invalid first char: 0x"
+        << std::hex << static_cast<int>(invalid_c);
+  }
+
+  // Test every possible pair where the SECOND character is invalid
+  // i.e., invalid char in low nibble position
+  for (uint8_t invalid_c : invalid_chars) {
+    std::string hex_pair(2, '\0');
+    hex_pair[0] = kValidHexChar;
+    hex_pair[1] = static_cast<char>(invalid_c);
+
+    Slice hex_slice(hex_pair);
+    std::string result = "sentinel";  // Pre-fill to confirm it gets cleared
+    bool success = hex_slice.DecodeHex(&result);
+
+    EXPECT_FALSE(success)
+        << "Expected DecodeHex to fail for invalid second char: 0x"
+        << std::hex << static_cast<int>(invalid_c);
+
+    EXPECT_TRUE(result.empty())
+        << "Expected empty result string after failure for invalid second char: 0x"
+        << std::hex << static_cast<int>(invalid_c);
+  }
+
+  // Test every possible pair where BOTH characters are invalid
+  for (uint8_t invalid_c1 : invalid_chars) {
+    for (uint8_t invalid_c2 : invalid_chars) {
+      std::string hex_pair(2, '\0');
+      hex_pair[0] = static_cast<char>(invalid_c1);
+      hex_pair[1] = static_cast<char>(invalid_c2);
+
+      Slice hex_slice(hex_pair);
+      std::string result = "sentinel";
+      bool success = hex_slice.DecodeHex(&result);
+
+      EXPECT_FALSE(success)
+          << "Expected DecodeHex to fail for invalid pair: 0x"
+          << std::hex << static_cast<int>(invalid_c1)
+          << " 0x" << static_cast<int>(invalid_c2);
+
+      EXPECT_TRUE(result.empty())
+          << "Expected empty result string after failure for invalid pair: 0x"
+          << std::hex << static_cast<int>(invalid_c1)
+          << " 0x" << static_cast<int>(invalid_c2);
+    }
+  }
+
+  // Test that a null result pointer returns false without crashing
+  {
+    Slice hex_slice("GG");  // Invalid hex pair
+    EXPECT_FALSE(hex_slice.DecodeHex(nullptr))
+        << "Expected DecodeHex to return false for null result pointer";
+  }
+
+  // Test that an odd-length input returns false and leaves result unchanged
+  {
+    Slice odd_slice("A");  // Single character, odd length
+    std::string result = "sentinel";
+    EXPECT_FALSE(odd_slice.DecodeHex(&result))
+        << "Expected DecodeHex to fail for odd-length input";
+    // Odd-length check returns early before clearing, so result is unchanged
+    EXPECT_EQ(result, "sentinel")
+        << "Expected result to be unchanged for odd-length input";
+  }
+
+  // Test that an empty input succeeds and returns an empty string
+  {
+    Slice empty_slice("");
+    std::string result = "sentinel";
+    EXPECT_TRUE(empty_slice.DecodeHex(&result))
+        << "Expected DecodeHex to succeed for empty input";
+    EXPECT_TRUE(result.empty())
+        << "Expected empty result for empty input";
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
