@@ -805,8 +805,7 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
   std::unordered_set<char> valid_hex_set(
       std::begin(kValidHexChars),
       // Exclude the null terminator that constexpr char array includes
-      std::end(kValidHexChars) - 1
-  );
+      std::end(kValidHexChars) - 1);
 
   // Identify all invalid hex characters (0-255 excluding valid ones)
   std::vector<uint8_t> invalid_chars;
@@ -837,12 +836,12 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
     bool success = hex_slice.DecodeHex(&result);
 
     EXPECT_FALSE(success)
-        << "Expected DecodeHex to fail for invalid first char: 0x"
-        << std::hex << static_cast<int>(invalid_c);
+        << "Expected DecodeHex to fail for invalid first char: 0x" << std::hex
+        << static_cast<int>(invalid_c);
 
-    EXPECT_TRUE(result.empty())
-        << "Expected empty result string after failure for invalid first char: 0x"
-        << std::hex << static_cast<int>(invalid_c);
+    EXPECT_TRUE(result.empty()) << "Expected empty result string after failure "
+                                   "for invalid first char: 0x"
+                                << std::hex << static_cast<int>(invalid_c);
   }
 
   // Test every possible pair where the SECOND character is invalid
@@ -857,12 +856,12 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
     bool success = hex_slice.DecodeHex(&result);
 
     EXPECT_FALSE(success)
-        << "Expected DecodeHex to fail for invalid second char: 0x"
-        << std::hex << static_cast<int>(invalid_c);
+        << "Expected DecodeHex to fail for invalid second char: 0x" << std::hex
+        << static_cast<int>(invalid_c);
 
-    EXPECT_TRUE(result.empty())
-        << "Expected empty result string after failure for invalid second char: 0x"
-        << std::hex << static_cast<int>(invalid_c);
+    EXPECT_TRUE(result.empty()) << "Expected empty result string after failure "
+                                   "for invalid second char: 0x"
+                                << std::hex << static_cast<int>(invalid_c);
   }
 
   // Test every possible pair where BOTH characters are invalid
@@ -876,15 +875,14 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
       std::string result = "sentinel";
       bool success = hex_slice.DecodeHex(&result);
 
-      EXPECT_FALSE(success)
-          << "Expected DecodeHex to fail for invalid pair: 0x"
-          << std::hex << static_cast<int>(invalid_c1)
-          << " 0x" << static_cast<int>(invalid_c2);
+      EXPECT_FALSE(success) << "Expected DecodeHex to fail for invalid pair: 0x"
+                            << std::hex << static_cast<int>(invalid_c1) << " 0x"
+                            << static_cast<int>(invalid_c2);
 
       EXPECT_TRUE(result.empty())
           << "Expected empty result string after failure for invalid pair: 0x"
-          << std::hex << static_cast<int>(invalid_c1)
-          << " 0x" << static_cast<int>(invalid_c2);
+          << std::hex << static_cast<int>(invalid_c1) << " 0x"
+          << static_cast<int>(invalid_c2);
     }
   }
 
@@ -912,8 +910,7 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
     std::string result = "sentinel";
     EXPECT_TRUE(empty_slice.DecodeHex(&result))
         << "Expected DecodeHex to succeed for empty input";
-    EXPECT_TRUE(result.empty())
-        << "Expected empty result for empty input";
+    EXPECT_TRUE(result.empty()) << "Expected empty result for empty input";
   }
 }
 
