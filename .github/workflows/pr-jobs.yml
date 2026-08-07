@@ -4,7 +4,7 @@ permissions: {}
 env:
   # Set to a job name to run only that job (on any repo), or leave empty for
   # normal behavior (all jobs on facebook repo only).
-  ONLY_JOB: ''
+  ONLY_JOB: 'build-linux-arm'
 jobs:
   config:
     runs-on: ubuntu-latest
@@ -761,11 +761,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4.1.0
       - uses: "./.github/actions/pre-steps"
-      - run: sudo apt-get update && sudo apt-get install -y build-essential ccache
+      - run: sudo apt-get update && sudo apt-get install -y build-essential ccache libgflags-dev
       - uses: "./.github/actions/setup-ccache"
         with:
           cache-key-prefix: arm
-      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
+      - run: make V=1 J=4 -j4 check
       - name: Print ccache stats
         run: ccache -s
         if: always()
