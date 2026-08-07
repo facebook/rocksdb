@@ -361,6 +361,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/MergeVariantsTest.java
   src/test/java/org/rocksdb/MixedOptionsTest.java
   src/test/java/org/rocksdb/MultiColumnRegressionTest.java
+  src/test/java/org/rocksdb/MultiGetCorruptionTest.java
   src/test/java/org/rocksdb/MultiGetManyKeysTest.java
   src/test/java/org/rocksdb/MultiGetTest.java
   src/test/java/org/rocksdb/MutableColumnFamilyOptionsTest.java
@@ -479,6 +480,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.MergeVariantsTest
   org.rocksdb.MixedOptionsTest
   org.rocksdb.MultiColumnRegressionTest
+  org.rocksdb.MultiGetCorruptionTest
   org.rocksdb.MultiGetManyKeysTest
   org.rocksdb.MultiGetTest
   org.rocksdb.MutableColumnFamilyOptionsTest
