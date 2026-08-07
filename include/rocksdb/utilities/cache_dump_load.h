@@ -109,9 +109,9 @@ class CacheDumper {
 class CacheDumpedLoader {
  public:
   virtual ~CacheDumpedLoader() = default;
-  virtual IOStatus RestoreCacheEntriesToSecondaryCache() {
+  virtual IOStatus RestoreCacheEntriesToCache() {
     return IOStatus::NotSupported(
-        "RestoreCacheEntriesToSecondaryCache is not supported");
+        "RestoreCacheEntriesToCache is not supported");
   }
 };
 
@@ -134,10 +134,10 @@ Status NewDefaultCacheDumper(const CacheDumpOptions& dump_options,
                              std::unique_ptr<CacheDumper>* cache_dumper);
 
 // Get the default cache dump loader
+template <typename T>
 Status NewDefaultCacheDumpedLoader(
     const CacheDumpOptions& dump_options,
-    const BlockBasedTableOptions& toptions,
-    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    const BlockBasedTableOptions& toptions, const std::shared_ptr<T>& cache,
     std::unique_ptr<CacheDumpReader>&& reader,
     std::unique_ptr<CacheDumpedLoader>* cache_dump_loader);
 
