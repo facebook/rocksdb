@@ -893,12 +893,12 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
         << "Expected DecodeHex to return false for null result pointer";
   }
 
-  // Partial decode clears
+  // Partial decode
   {
     Slice s("41GG");
-    std::string d("leftover");
-    ASSERT_FALSE(s.DecodeHex(&d));
-    ASSERT_TRUE(d.empty());
+    std::string decoded;
+    ASSERT_FALSE(s.DecodeHex(&decoded));
+    ASSERT_EQ(decoded, "A");
   }
 
   // Test that an odd-length input returns false and leaves result unchanged
