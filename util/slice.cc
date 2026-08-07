@@ -318,6 +318,7 @@ bool Slice::DecodeHex(std::string* result) const {
     if ((h1 | h2) >= 16) {
       // Calling clear() would be a change in behaviour.
       // result->clear();
+      result->resize(i);
       return false;
     }
     *dst++ = lossless_cast<char>(static_cast<uint8_t>((h1 << 4) | h2));
