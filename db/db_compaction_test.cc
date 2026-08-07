@@ -813,6 +813,31 @@ TEST_F(DBCompactionTest, CompactRangeBottomPri) {
   int low_pri_count = 0;
   int bottom_pri_count = 0;
   bool bottom_running_seen = false;
+  std::atomic<bool> low_property_seen = false;
+  std::atomic<bool> bottom_property_seen = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Start", [&](void*) {
+        uint64_t total = 0;
+        uint64_t low = 0;
+        uint64_t bottom = 0;
+        ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                        &total));
+        ASSERT_TRUE(db_->GetIntProperty(
+            DB::Properties::kNumRunningLowCompactions, &low));
+        ASSERT_TRUE(db_->GetIntProperty(
+            DB::Properties::kNumRunningBottomCompactions, &bottom));
+        ASSERT_EQ(total, low + bottom);
+        ASSERT_GE(total, 1);
+        ASSERT_LE(total, 2);
+        ASSERT_LE(low, 1);
+        ASSERT_LE(bottom, 1);
+        if (low > 0) {
+          low_property_seen = true;
+        }
+        if (bottom > 0) {
+          bottom_property_seen = true;
+        }
+      });
   SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:1", [&](void*) {
         if (dbfull()->TEST_NumRunningBottomCompactions() > 0) {
@@ -838,6 +863,8 @@ TEST_F(DBCompactionTest, CompactRangeBottomPri) {
   ASSERT_EQ(1, low_pri_count);
   ASSERT_EQ(1, bottom_pri_count);
   ASSERT_TRUE(bottom_running_seen);
+  ASSERT_TRUE(low_property_seen);
+  ASSERT_TRUE(bottom_property_seen);
   ASSERT_EQ("0,0,2", FilesPerLevel(0));
 
   // Recompact bottom most level uses bottom pool
@@ -6156,6 +6183,7 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
 TEST_F(DBCompactionTest, CompactionStatsTest) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.max_background_compactions = 1;
   CompactionStatsCollector* collector = new CompactionStatsCollector();
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
@@ -6163,9 +6191,17 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   // Verify that the internal statistics for num_running_compactions and
   // num_running_compaction_sorted_runs start and end at valid states
   uint64_t num_running_compactions = 0;
+  uint64_t num_running_low_compactions = 0;
+  uint64_t num_running_bottom_compactions = 0;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                   &num_running_compactions));
-  ASSERT_EQ(num_running_compactions, 0);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningLowCompactions,
+                                  &num_running_low_compactions));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningBottomCompactions,
+                                  &num_running_bottom_compactions));
+  ASSERT_EQ(0, num_running_compactions);
+  ASSERT_EQ(0, num_running_low_compactions);
+  ASSERT_EQ(0, num_running_bottom_compactions);
   uint64_t num_running_compaction_sorted_runs = 0;
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
@@ -6174,6 +6210,22 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   // Check that the stat actually gets changed some time between the start and
   // end of compaction
   std::atomic<bool> sorted_runs_count_incremented = false;
+  std::atomic<bool> running_compaction_seen = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Start", [&](void*) {
+        ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                        &num_running_compactions));
+        ASSERT_TRUE(
+            db_->GetIntProperty(DB::Properties::kNumRunningLowCompactions,
+                                &num_running_low_compactions));
+        ASSERT_TRUE(
+            db_->GetIntProperty(DB::Properties::kNumRunningBottomCompactions,
+                                &num_running_bottom_compactions));
+        ASSERT_EQ(1, num_running_compactions);
+        ASSERT_EQ(1, num_running_low_compactions);
+        ASSERT_EQ(0, num_running_bottom_compactions);
+        running_compaction_seen = true;
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionMergingIterator::UpdateInternalStats",
       [&](void*) { sorted_runs_count_incremented = true; });
@@ -6197,11 +6249,18 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   // to process
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                   &num_running_compactions));
-  ASSERT_EQ(num_running_compactions, 0);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningLowCompactions,
+                                  &num_running_low_compactions));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningBottomCompactions,
+                                  &num_running_bottom_compactions));
+  ASSERT_EQ(0, num_running_compactions);
+  ASSERT_EQ(0, num_running_low_compactions);
+  ASSERT_EQ(0, num_running_bottom_compactions);
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
                           &num_running_compaction_sorted_runs));
   ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  ASSERT_TRUE(running_compaction_seen);
   ASSERT_TRUE(sorted_runs_count_incremented);
 
   SyncPoint::GetInstance()->DisableProcessing();

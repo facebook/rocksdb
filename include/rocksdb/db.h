@@ -1431,6 +1431,14 @@ class DB {
     //      running compactions.
     static const std::string kNumRunningCompactions;
 
+    //  "rocksdb.num-running-low-compactions" - returns the number of currently
+    //      running low-priority compactions.
+    static const std::string kNumRunningLowCompactions;
+
+    //  "rocksdb.num-running-bottom-compactions" - returns the number of
+    //      currently running bottom-priority compactions.
+    static const std::string kNumRunningBottomCompactions;
+
     //  "rocksdb.num-running-compaction-sorted-runs" - returns the number of
     //  sorted runs being processed by currently running compactions.
     static const std::string kNumRunningCompactionSortedRuns;
@@ -1680,6 +1688,8 @@ class DB {
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
+  //  "rocksdb.num-running-low-compactions"
+  //  "rocksdb.num-running-bottom-compactions"
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
