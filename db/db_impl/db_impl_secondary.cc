@@ -270,17 +270,15 @@ Status DBImplSecondary::RecoverLogFiles(
           }
           // If the active memtable contains records added by replaying an
           // earlier WAL, then we need to seal the memtable, add it to the
-          // immutable memtable list and create a new active memtable.
+          // immutable memtable list and create a new active memtable. This
+          // keeps the invariant that the active memtable only holds entries
+          // replayed from a single WAL, the one recorded in
+          // `cfd_to_current_log_`, which MaybeSealFullyFlushedActiveMemtable()
+          // relies on.
           if (!cfd->mem()->IsEmpty() &&
               (curr_log_num == std::numeric_limits<uint64_t>::max() ||
                curr_log_num != log_number)) {
-            MemTable* new_mem = cfd->ConstructNewMemtable(
-                cfd->GetLatestMutableCFOptions(), seq_of_batch);
-            cfd->mem()->SetNextLogNumber(log_number);
-            cfd->mem()->ConstructFragmentedRangeTombstones();
-            cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
-            new_mem->Ref();
-            cfd->SetMemtable(new_mem);
+            SealActiveMemtable(cfd, log_number, seq_of_batch, job_context);
           }
         }
         bool has_valid_writes = false;
@@ -334,6 +332,92 @@ Status DBImplSecondary::RecoverLogFiles(
     }
   }
   return status;
+}
+
+void DBImplSecondary::SealActiveMemtable(ColumnFamilyData* cfd,
+                                         uint64_t next_log_number,
+                                         SequenceNumber new_mem_earliest_seq,
+                                         JobContext* job_context) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  assert(job_context != nullptr);
+  MemTable* new_mem = cfd->ConstructNewMemtable(
+      cfd->GetLatestMutableCFOptions(), new_mem_earliest_seq);
+  cfd->mem()->SetNextLogNumber(next_log_number);
+  cfd->mem()->ConstructFragmentedRangeTombstones();
+  cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
+  new_mem->Ref();
+  cfd->SetMemtable(new_mem);
+}
+
+bool DBImplSecondary::MaybeSealFullyFlushedActiveMemtable(
+    ColumnFamilyData* cfd, JobContext* job_context) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  assert(job_context != nullptr);
+  if (cfd->mem()->IsEmpty()) {
+    return false;
+  }
+  const auto log_iter = cfd_to_current_log_.find(cfd);
+  if (log_iter == cfd_to_current_log_.end()) {
+    return false;
+  }
+  // Cheap necessary condition, checked before the lookup below because it rules
+  // out most column families: only the WALs preceding the column family's
+  // current log number have been flushed by the primary, so if the WAL that
+  // filled the active memtable is still the current one, part of the memtable
+  // is not covered by any file and must be kept.
+  if (log_iter->second >= cfd->GetLogNumber()) {
+    return false;
+  }
+  // The authoritative condition: the installed Version has to actually contain
+  // what the memtable holds. `cfd->GetLogNumber()` advances as soon as the
+  // flush record is read from the MANIFEST, whether or not a Version reflecting
+  // that record could be installed - the flushed files may be missing or
+  // unreadable, and an incomplete atomic group parks the new Version until its
+  // last column family catches up. Until such a Version is installed, the
+  // active memtable can hold the only readable copy of what was flushed, so
+  // dropping it would turn a stale read into a vanished key. Ask the Version
+  // what it covers instead of inferring it from the file set.
+  const uint64_t installed_log_number =
+      static_cast_with_check<ReactiveVersionSet>(versions_.get())
+          ->GetInstalledVersionLogNumber(cfd->GetID());
+  assert(installed_log_number <= cfd->GetLogNumber());
+  if (log_iter->second >= installed_log_number) {
+    return false;
+  }
+  // The file set is now the authority for everything in the active memtable, so
+  // the replayed entries must go: keeping them would be incorrect, not merely
+  // redundant. Point lookups consult the memtable before the file set, so a
+  // residual entry shadows the newer flushed value for its key, and bottommost
+  // compaction rewriting the flushed entry's sequence number to 0 makes the
+  // shadowing permanent.
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] Sealing active memtable replayed from WAL %" PRIu64
+                 ", flushed by the primary and readable as of log number "
+                 "%" PRIu64 "; its first sequence number is %" PRIu64,
+                 cfd->GetName().c_str(), log_iter->second, installed_log_number,
+                 static_cast<uint64_t>(cfd->mem()->GetFirstSequenceNumber()));
+  // Recording the column family's log number as the sealed memtable's next log
+  // number is what makes the RemoveOldMemTables(cfd->GetLogNumber()) call in
+  // TryCatchUpWithPrimary() collect it.
+  //
+  // The replacement memtable's earliest sequence number is the VersionSet's
+  // last sequence number for the same reason as in
+  // DBImplFollower::TryCatchUpWithLeader(): DBImpl::MultiCFSnapshot() compares
+  // it against the last sequence number to detect a version change while it
+  // collects super version references without holding the mutex. Note that on a
+  // secondary this is only an upper bound on what will be inserted next, not
+  // the lower bound MemTable::earliest_seqno_ is documented to be: it also
+  // advances from the MANIFEST's last sequence number, which can be ahead of
+  // the WAL replay position, so a later round can insert replayed entries below
+  // it. No read path relies on that bound today - DBIter prefers
+  // MemTable::GetFirstSequenceNumber() - but a stricter bound would have to
+  // come from the next WAL record, which is not known here.
+  SealActiveMemtable(cfd, cfd->GetLogNumber(), versions_->LastSequence(),
+                     job_context);
+  cfd_to_current_log_.erase(log_iter);
+  return true;
 }
 
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
@@ -528,7 +612,29 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
       }
     }
     if (s.ok()) {
-      for (auto cfd : cfds_changed) {
+      // Iterate over every column family rather than only `cfds_changed`: a
+      // stale memtable left behind because an earlier round failed after
+      // ReadAndApply() had already advanced the log number must still be
+      // dropped, and that column family may have no new MANIFEST record in this
+      // round. Column families dropped in this round are skipped, unlike with
+      // `cfds_changed`, which could still name a column family that
+      // VersionEditHandler::DestroyCfAndCleanup() has already unreferenced.
+      // Column families that neither changed nor have anything to collect are
+      // skipped below, so this installs no extra super versions.
+      for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped() || !cfd->initialized()) {
+          continue;
+        }
+        const bool sealed =
+            MaybeSealFullyFlushedActiveMemtable(cfd, &job_context);
+        // A round that failed after RecoverLogFiles() had sealed on a WAL
+        // switch can also leave a collectible immutable memtable behind, so
+        // check for one instead of relying on this round having sealed.
+        if (!sealed &&
+            !cfd->imm()->HasOldMemTablesToRemove(cfd->GetLogNumber()) &&
+            cfds_changed.find(cfd) == cfds_changed.end()) {
+          continue;
+        }
         cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
                                        &job_context.memtables_to_free);
         auto& sv_context = job_context.superversion_contexts.back();

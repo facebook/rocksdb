@@ -287,6 +287,23 @@ class DBImplSecondary : public DBImpl {
     return false;
   }
 
+  // Seals `cfd`'s active memtable: adds it to the immutable memtable list and
+  // puts a fresh, empty active memtable in its place. This is the counterpart
+  // of DBImpl::SwitchMemtable(), which cannot be used here because there is no
+  // writer queue and no WAL of this instance's own.
+  //
+  // `next_log_number` is recorded on the sealed memtable. A subsequent
+  // MemTableList::RemoveOldMemTables(log_number) call collects the sealed
+  // memtable if and only if `next_log_number <= log_number`, so pass the log
+  // number of the WAL that follows the memtable's contents.
+  // `new_mem_earliest_seq` becomes the replacement memtable's earliest
+  // sequence number.
+  //
+  // REQUIRES: mutex_ held
+  void SealActiveMemtable(ColumnFamilyData* cfd, uint64_t next_log_number,
+                          SequenceNumber new_mem_earliest_seq,
+                          JobContext* job_context);
+
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
@@ -310,6 +327,22 @@ class DBImplSecondary : public DBImpl {
                          SequenceNumber* next_sequence,
                          std::unordered_set<ColumnFamilyData*>* cfds_changed,
                          JobContext* job_context);
+
+  // Seals the column family's active memtable if everything it holds is
+  // already readable through the installed Version, so that a following
+  // RemoveOldMemTables(cfd->GetLogNumber()) call drops it. Returns whether the
+  // memtable was sealed; in the common case it is not, and this is a no-op.
+  //
+  // REQUIRES: mutex_ held
+  // REQUIRES: cfd_to_current_log_[cfd] is the newest WAL whose entries the
+  // active memtable holds, i.e. any WAL replay for this round has run.
+  // RecoverLogFiles() only records a WAL there once its batches have been
+  // inserted, so a replay that fails partway through can leave the map naming
+  // an older WAL than the memtable holds. That is unreachable here because the
+  // same failure leaves LogReaderContainer::status_ permanently non-OK, which
+  // fails every later round before it reaches this function.
+  bool MaybeSealFullyFlushedActiveMemtable(ColumnFamilyData* cfd,
+                                           JobContext* job_context);
 
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still

@@ -517,6 +517,17 @@ class MemTableList {
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<ReadOnlyMemTable*>* to_delete);
 
+  // Returns whether RemoveOldMemTables(log_number) would remove anything.
+  // Lets a caller that would otherwise have to install a new super version
+  // afterwards skip the call. O(1): the list is ordered newest first, so only
+  // its oldest memtable can decide this.
+  //
+  // REQUIRES: db mutex held.
+  bool HasOldMemTablesToRemove(uint64_t log_number) const {
+    const auto& memlist = current_->memlist_;
+    return !memlist.empty() && memlist.back()->GetNextLogNumber() <= log_number;
+  }
+
   // This API is only used by atomic date replacement. To get an edit for
   // dropping the current `MemTableListVersion`.
   VersionEdit GetEditForDroppingCurrentVersion(
