@@ -883,8 +883,8 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
 
       EXPECT_FALSE(result.empty()) << "Expected non empty result string after "
                                       "failure for invalid pair: 0x"
-                                   << std::hex << static_cast<int>(invalid_c1) << " 0x"
-                                   << static_cast<int>(invalid_c2);
+                                   << std::hex << static_cast<int>(invalid_c1)
+                                   << " 0x" << static_cast<int>(invalid_c2);
     }
   }
 
