@@ -77,11 +77,6 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             index_value_is_full(), false /* block_contents_pinned */,
             user_defined_timestamps_persisted()));
   } else {
-    ReadOptions ro{read_options};
-    // FIXME? Possible regression seen in prefetch_test if this field is
-    // propagated
-    ro.readahead_size = ReadOptions{}.readahead_size;
-
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
@@ -93,7 +88,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             user_defined_timestamps_persisted()));
 
     it = new PartitionedIndexIterator(
-        table(), ro, *internal_comparator(), std::move(index_iter),
+        table(), read_options, *internal_comparator(), std::move(index_iter),
         lookup_context ? lookup_context->caller
                        : TableReaderCaller::kUncategorized);
   }
