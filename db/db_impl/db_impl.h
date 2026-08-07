@@ -75,6 +75,10 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
+#if USE_COROUTINES
+#include "rocksdb/coro_db.h"
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 class Arena;
@@ -200,14 +204,22 @@ struct DBOpenLogRecordReadReporter : public log::Reader::Reporter {
 //
 // Since it's a very large class, the definition of the functions is
 // divided in several db_impl_*.cc files, besides db_impl.cc.
-class DBImpl : public DB {
+#if USE_COROUTINES
+class DBImpl : public DB,
+               public CoroDB
+#else
+class DBImpl : public DB
+#endif
+{
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
          const bool seq_per_batch = false, const bool batch_per_txn = true,
          bool read_only = false);
-  // No copying allowed
+  // No copying or moving allowed
   DBImpl(const DBImpl&) = delete;
   void operator=(const DBImpl&) = delete;
+  DBImpl(DBImpl&&) = delete;
+  void operator=(DBImpl&&) = delete;
 
   virtual ~DBImpl();
 
@@ -273,14 +285,10 @@ class DBImpl : public DB {
   bool HasAnyBlobDirectWriteColumnFamily();
 
   using DB::Get;
-  using DB::GetAsync;
-  DECLARE_SYNC_ASYNC_AND_CALLBACK(
-      Status, Get, GetAsync,
-      (const ReadOptions& options, ColumnFamilyHandle* column_family,
-       const Slice& key, PinnableSlice* value, std::string* timestamp,
-       Status& status, AsyncCallback& callback),
-      const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
-      const Slice& key, PinnableSlice* value, std::string* timestamp);
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, Get, const ReadOptions& _read_options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key, PinnableSlice* value,
+                                  std::string* timestamp);
 
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
@@ -309,7 +317,6 @@ class DBImpl : public DB {
   }
 
   using DB::MultiGet;
-  using DB::MultiGetAsync;
   // This MultiGet is a batched version, which may be faster than calling Get
   // multiple times, especially if the keys have some spatial locality that
   // enables them to be queried in the same SST files/set of files. The larger
@@ -317,16 +324,13 @@ class DBImpl : public DB {
   // The values and statuses parameters are arrays with number of elements
   // equal to keys.size(). This allows the storage for those to be alloacted
   // by the caller on the stack for small batches
-  DECLARE_SYNC_ASYNC_AND_CALLBACK(
-      void, MultiGet, MultiGetAsync,
-      (const ReadOptions& options, const size_t num_keys,
-       ColumnFamilyHandle** column_families, const Slice* keys,
-       PinnableSlice* values, std::string* timestamps, Status* statuses,
-       const bool sorted_input, AsyncCallback& callback),
-      const ReadOptions& _read_options, const size_t num_keys,
-      ColumnFamilyHandle** column_families, const Slice* keys,
-      PinnableSlice* values, std::string* timestamps, Status* statuses,
-      const bool sorted_input = false);
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
+                                  const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool sorted_input = false);
 
   void MultiGetWithCallback(
       const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
@@ -2018,6 +2022,10 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_ = false;
+
+#if USE_COROUTINES
+  CoroDB* GetCoroDB() override { return this; }
+#endif
 
  private:
   friend class DB;

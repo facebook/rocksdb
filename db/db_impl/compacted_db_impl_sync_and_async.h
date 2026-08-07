@@ -6,6 +6,10 @@
 
 #include "util/coro_utils.h"
 
+#if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
+#include "util/coro_stats_util.h"
+#endif  // USE_COROUTINES && WITH_COROUTINES
+
 #if defined(WITHOUT_COROUTINES) || \
     (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 
@@ -14,6 +18,10 @@ namespace ROCKSDB_NAMESPACE {
 DEFINE_SYNC_AND_ASYNC(Status, CompactedDBImpl::Get)
 (const ReadOptions& _read_options, ColumnFamilyHandle*, const Slice& key,
  PinnableSlice* value, std::string* timestamp) {
+#ifdef WITH_COROUTINES
+  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
+      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
+#endif
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kGet) {
     CO_RETURN Status::InvalidArgument(
@@ -102,6 +110,10 @@ DEFINE_SYNC_AND_ASYNC(void, CompactedDBImpl::MultiGet)
  ColumnFamilyHandle** /*column_families*/, const Slice* keys,
  PinnableSlice* values, std::string* timestamps, Status* statuses,
  const bool /*sorted_input*/) {
+#ifdef WITH_COROUTINES
+  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
+      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
+#endif
   assert(user_comparator_);
   Status s;
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&

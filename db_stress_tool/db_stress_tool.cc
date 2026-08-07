@@ -139,6 +139,12 @@ int db_stress_tool(int argc, char** argv) {
     return ReturnValidationError(
         "--env_uri and --fs_uri are mutually exclusive");
   }
+#if !USE_COROUTINES
+  if (FLAGS_use_coro_db_api) {
+    return ReturnValidationError(
+        "--use_coro_db_api requires coroutine support");
+  }
+#endif  // !USE_COROUTINES
 
   Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
                                 &raw_env, &env_guard);

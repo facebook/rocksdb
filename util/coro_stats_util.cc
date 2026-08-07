@@ -86,11 +86,19 @@ class CoroutineStatsRequestData : public folly::RequestData {
 
   PerfLevel CapturedPerfLevel() const { return perf_level_; }
 
-  void Finalize() {
-    assert(GetCoroutineStatsData() == this);
-    assert(!finalized_);
-    finalized_ = true;
-    StopGetCpuTimer();
+  void StopGetCpuTimer() {
+#ifndef NPERF_CONTEXT
+    if (coroutine_stats_thread_local_state.data != this) {
+      return;
+    }
+    const uint64_t start =
+        coroutine_stats_thread_local_state.get_cpu_nanos_start;
+    coroutine_stats_thread_local_state = {};
+    const uint64_t now = env_->GetSystemClock()->CPUNanos();
+    if (now >= start) {
+      get_perf_context()->get_cpu_nanos += now - start;
+    }
+#endif
   }
 
  private:
@@ -122,30 +130,12 @@ class CoroutineStatsRequestData : public folly::RequestData {
 
   void StartGetCpuTimer() {
 #ifndef NPERF_CONTEXT
-    if (finalized_) {
-      return;
-    }
     if (!PerfLevelAtLeast(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex)) {
       return;
     }
     coroutine_stats_thread_local_state.data = this;
     coroutine_stats_thread_local_state.get_cpu_nanos_start =
         env_->GetSystemClock()->CPUNanos();
-#endif
-  }
-
-  void StopGetCpuTimer() {
-#ifndef NPERF_CONTEXT
-    if (coroutine_stats_thread_local_state.data != this) {
-      return;
-    }
-    const uint64_t start =
-        coroutine_stats_thread_local_state.get_cpu_nanos_start;
-    coroutine_stats_thread_local_state = {};
-    const uint64_t now = env_->GetSystemClock()->CPUNanos();
-    if (now >= start) {
-      get_perf_context()->get_cpu_nanos += now - start;
-    }
 #endif
   }
 
@@ -157,7 +147,6 @@ class CoroutineStatsRequestData : public folly::RequestData {
 #ifndef NIOSTATS_CONTEXT
   IOStatsContext iostats_context_;
 #endif
-  bool finalized_ = false;
 #ifndef NDEBUG
   uint64_t owner_thread_id_ = 0;
 #endif
@@ -189,9 +178,22 @@ CoroutineStatsConfig CaptureCoroutineStatsConfig() {
   return stats_config;
 }
 
+bool IsCoroutineStatsEnabled() {
+#ifndef NPERF_CONTEXT
+  if (GetPerfLevel() != PerfLevel::kDisable) {
+    return true;
+  }
+#endif
+#ifndef NIOSTATS_CONTEXT
+  if (!get_iostats_context()->disable_iostats) {
+    return true;
+  }
+#endif
+  return false;
+}
+
 CoroutineStatsContextScope::CoroutineStatsContextScope(
-    CoroutineStatsConfig stats_config, Env* env)
-    : request_data_(nullptr) {
+    CoroutineStatsConfig stats_config, Env* env) {
   assert(GetCoroutineStatsData() == nullptr);  // NO nesting allowed
   auto data =
       std::make_unique<CoroutineStatsRequestData>(std::move(stats_config), env);
@@ -200,12 +202,23 @@ CoroutineStatsContextScope::CoroutineStatsContextScope(
       CoroutineStatsRequestDataTraits::kToken, std::move(data));
 }
 
-CoroutineStatsContextScope::~CoroutineStatsContextScope() = default;
-
-void CoroutineStatsContextScope::Finalize() const {
-  auto* data = static_cast<CoroutineStatsRequestData*>(request_data_);
-  assert(data != nullptr);
-  data->Finalize();
+CoroutineStatsContextScope::~CoroutineStatsContextScope() {
+  auto* request_data = static_cast<CoroutineStatsRequestData*>(request_data_);
+  assert(GetCoroutineStatsData() == request_data);
+  request_data->StopGetCpuTimer();
+#ifndef NPERF_CONTEXT
+  PerfContext request_perf_context = std::move(*get_perf_context());
+#endif
+#ifndef NIOSTATS_CONTEXT
+  IOStatsContext request_iostats_context = std::move(*get_iostats_context());
+#endif
+  guard_.reset();
+#ifndef NPERF_CONTEXT
+  *get_perf_context() = std::move(request_perf_context);
+#endif
+#ifndef NIOSTATS_CONTEXT
+  *get_iostats_context() = std::move(request_iostats_context);
+#endif
 }
 
 }  // namespace ROCKSDB_NAMESPACE

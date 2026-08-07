@@ -12,14 +12,23 @@
 #include "db_stress_tool/db_stress_common.h"
 
 #include <cmath>
-#include <condition_variable>
-#include <mutex>
+#include <cstdlib>
+#include <utility>
 
 #include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
+
+#if USE_COROUTINES
+#include "folly/Executor.h"
+#include "folly/coro/Task.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/io/async/EventBase.h"
+#include "rocksdb/coro_db.h"
+#include "rocksdb/file_system.h"
+#endif  // USE_COROUTINES
 
 ROCKSDB_NAMESPACE::Env* raw_env = nullptr;
 std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> compressed_secondary_cache;
@@ -40,25 +49,73 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-class BlockingAsyncCallback : public DB::AsyncCallback {
- public:
-  void OnComplete(const PerfContext* /*perf_context*/,
-                  const IOStatsContext* /*iostats_context*/) override {
-    std::lock_guard<std::mutex> lock(mu_);
-    done_ = true;
-    cv_.notify_one();
-  }
-
-  void Wait() {
-    std::unique_lock<std::mutex> lock(mu_);
-    cv_.wait(lock, [this] { return done_; });
-  }
-
- private:
-  std::mutex mu_;
-  std::condition_variable cv_;
-  bool done_ = false;
+#if USE_COROUTINES
+struct CoroutineReadContext {
+  CoroDB* coro_db;
+  folly::EventBase* event_base;
 };
+
+[[noreturn]] void CoroDbApiUnavailable(const char* reason) {
+  fprintf(stderr, "--use_coro_db_api unavailable: %s\n", reason);
+  std::abort();
+}
+
+CoroutineReadContext GetCoroutineReadContext(DB* db) {
+  auto* coro_db = db->GetCoroDB();
+  if (coro_db == nullptr) {
+    CoroDbApiUnavailable("DB does not implement CoroDB");
+  }
+  auto* read_executor = db->GetFileSystem()->GetReadExecutor();
+  if (read_executor == nullptr) {
+    CoroDbApiUnavailable("FileSystem has no read executor");
+  }
+  auto* event_base = read_executor->getEventBase();
+  if (event_base == nullptr) {
+    CoroDbApiUnavailable("read executor has no EventBase");
+  }
+  return {coro_db, event_base};
+}
+
+Status DbStressGetCoroutine(DB* db, const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableSlice* value, std::string* timestamp) {
+  const auto context = GetCoroutineReadContext(db);
+  auto result = folly::coro::co_withExecutor(
+                    folly::Executor::getKeepAliveToken(context.event_base),
+                    context.coro_db->GetCoroutine(options, column_family, key,
+                                                  value, timestamp))
+                    .start();
+  return std::move(result).get();
+}
+
+Status DbStressGetCoroutine(DB* db, const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, std::string* timestamp) {
+  PinnableSlice pinnable_value(value);
+  Status status = DbStressGetCoroutine(db, options, column_family, key,
+                                       &pinnable_value, timestamp);
+  if (status.ok() && pinnable_value.IsPinned()) {
+    value->assign(pinnable_value.data(), pinnable_value.size());
+  }
+  return status;
+}
+
+void DbStressMultiGetCoroutine(DB* db, const ReadOptions& options,
+                               ColumnFamilyHandle* column_family,
+                               size_t num_keys, const Slice* keys,
+                               PinnableSlice* values, Status* statuses) {
+  const auto context = GetCoroutineReadContext(db);
+  std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+  auto result = folly::coro::co_withExecutor(
+                    folly::Executor::getKeepAliveToken(context.event_base),
+                    context.coro_db->MultiGetCoroutine(
+                        options, num_keys, column_families.data(), keys, values,
+                        /*timestamps=*/nullptr, statuses,
+                        /*sorted_input=*/false))
+                    .start();
+  std::move(result).get();
+}
+#endif  // USE_COROUTINES
 
 }  // namespace
 
@@ -66,13 +123,9 @@ Status DbStressGet(DB* db, const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
 #if USE_COROUTINES
-  if (FLAGS_use_async_db_api) {
-    BlockingAsyncCallback callback;
-    Status status;
-    db->GetAsync(options, column_family, key, value, timestamp, status,
-                 callback);
-    callback.Wait();
-    return status;
+  if (FLAGS_use_coro_db_api) {
+    return DbStressGetCoroutine(db, options, column_family, key, value,
+                                timestamp);
   }
 #endif  // USE_COROUTINES
   return db->Get(options, column_family, key, value, timestamp);
@@ -82,13 +135,9 @@ Status DbStressGet(DB* db, const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    std::string* value, std::string* timestamp) {
 #if USE_COROUTINES
-  if (FLAGS_use_async_db_api) {
-    BlockingAsyncCallback callback;
-    Status status;
-    db->GetAsync(options, column_family, key, value, timestamp, status,
-                 callback);
-    callback.Wait();
-    return status;
+  if (FLAGS_use_coro_db_api) {
+    return DbStressGetCoroutine(db, options, column_family, key, value,
+                                timestamp);
   }
 #endif  // USE_COROUTINES
   return db->Get(options, column_family, key, value, timestamp);
@@ -104,12 +153,9 @@ void DbStressMultiGet(DB* db, const ReadOptions& options,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses) {
 #if USE_COROUTINES
-  if (FLAGS_use_async_db_api) {
-    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
-    BlockingAsyncCallback callback;
-    db->MultiGetAsync(options, num_keys, column_families.data(), keys, values,
-                      statuses, callback);
-    callback.Wait();
+  if (FLAGS_use_coro_db_api) {
+    DbStressMultiGetCoroutine(db, options, column_family, num_keys, keys,
+                              values, statuses);
     return;
   }
 #endif  // USE_COROUTINES
