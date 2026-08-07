@@ -307,18 +307,15 @@ bool Slice::DecodeHex(std::string* result) const {
   const size_t target_len = len / 2;
   result->resize(target_len);
 
-  // Safe pointer acquisition that avoids undefined behavior on empty
-  // allocations bypasses std::string overhead inside the loop.
   char* dst = result->data();
   const char* src = data_;
 
   for (size_t i = 0; i < target_len; ++i) {
-    // Cast to uint8_t prevents negative char indexing issues
     uint8_t h1 = kHexLookup[static_cast<uint8_t>(*src++)];
     uint8_t h2 = kHexLookup[static_cast<uint8_t>(*src++)];
-    // Single branch check using bitwise OR (detects if either is -1)
+    // Single branch check using bitwise OR
     if ((h1 | h2) >= 16) {
-      result->clear();  // Maintain safety on failure
+      result->clear();
       return false;
     }
     *dst++ = static_cast<char>((h1 << 4) | h2);
