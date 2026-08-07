@@ -1,0 +1,1 @@
+Added the `blob_file_writable_file_max_buffer_size` mutable column family option. When set to a non-zero value, blob-file writers use it as their `WritableFileWriter` max buffer size instead of inheriting `DBOptions::writable_file_max_buffer_size`.

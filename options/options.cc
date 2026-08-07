@@ -102,6 +102,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
+      blob_file_writable_file_max_buffer_size(
+          options.blob_file_writable_file_max_buffer_size),
       blob_compression_type(options.blob_compression_type),
       blob_compression_opts(options.blob_compression_opts),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
@@ -446,6 +448,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                         Options.blob_file_size: %" PRIu64,
                    blob_file_size);
+  ROCKS_LOG_HEADER(
+      log,
+      "Options.blob_file_writable_file_max_buffer_size: %" PRIu64,
+      blob_file_writable_file_max_buffer_size);
   ROCKS_LOG_HEADER(log, "                  Options.blob_compression_type: %s",
                    CompressionTypeToString(blob_compression_type).c_str());
   ROCKS_LOG_HEADER(log, "            Options.blob_compression_opts.level: %d",

@@ -527,6 +527,13 @@ DEFINE_uint64(blob_file_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_size,
               "[Integrated BlobDB] The size limit for blob files.");
 
+DEFINE_uint64(
+    blob_file_writable_file_max_buffer_size,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_file_writable_file_max_buffer_size,
+    "[Integrated BlobDB] Max WritableFileWriter buffer size for blob files. "
+    "0 means inherit writable_file_max_buffer_size.");
+
 DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");

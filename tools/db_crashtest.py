@@ -766,6 +766,9 @@ blob_params = {
     ),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
+    "blob_file_writable_file_max_buffer_size": lambda: random.choice(
+        [0, 65536, 131072, 1048576]
+    ),
     "blob_file_starting_level": lambda: random.choice(
         [0] * 4 + [1] * 3 + [2] * 2 + [3]
     ),
@@ -787,6 +790,9 @@ blob_direct_write_params = {
     "inplace_update_support": 0,
     "min_blob_size": lambda: random.choice([8, 16, 64]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
+    "blob_file_writable_file_max_buffer_size": lambda: random.choice(
+        [0, 65536, 131072, 1048576]
+    ),
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": 0,
     "blob_garbage_collection_age_cutoff": 0.0,

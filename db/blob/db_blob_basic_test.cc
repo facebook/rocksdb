@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <set>
 #include <sstream>
 #include <string>
@@ -61,6 +63,74 @@ TEST_F(DBBlobBasicTest, GetBlob) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                   .IsIncomplete());
+}
+
+TEST_F(DBBlobBasicTest, BlobFileWritableFileMaxBufferSize) {
+  constexpr uint64_t kBlobWriterBufferSize = 128 * 1024;
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.writable_file_max_buffer_size = 1024 * 1024;
+  options.blob_file_writable_file_max_buffer_size = kBlobWriterBufferSize;
+
+  Reopen(options);
+
+  std::atomic<int> matching_blob_writer_count{0};
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::WritableFileWriter:0", [&](void* arg) {
+        const uint64_t max_buffer_size =
+            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(arg));
+        if (max_buffer_size == kBlobWriterBufferSize) {
+          ++matching_blob_writer_count;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key", std::string(1024, 'v')));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GE(matching_blob_writer_count.load(), 1);
+}
+
+TEST_F(DBBlobBasicTest, DirectWriteBlobFileWritableFileMaxBufferSizeSetOptions) {
+  constexpr uint64_t kBlobWriterBufferSize = 64 * 1024;
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_direct_write = true;
+  options.allow_concurrent_memtable_write = false;
+  options.min_blob_size = 0;
+  options.blob_file_size = 200;
+  options.writable_file_max_buffer_size = 1024 * 1024;
+
+  Reopen(options);
+
+  std::atomic<int> matching_blob_writer_count{0};
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::WritableFileWriter:0", [&](void* arg) {
+        const uint64_t max_buffer_size =
+            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(arg));
+        if (max_buffer_size == kBlobWriterBufferSize) {
+          ++matching_blob_writer_count;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("first", std::string(300, 'a')));
+  ASSERT_OK(db_->SetOptions({{"blob_file_writable_file_max_buffer_size",
+                              std::to_string(kBlobWriterBufferSize)}}));
+  ASSERT_OK(Put("second", std::string(300, 'b')));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GE(matching_blob_writer_count.load(), 1);
 }
 
 TEST_F(DBBlobBasicTest, EmptyValueNotStoredAsBlob) {

@@ -347,6 +347,7 @@ DECLARE_bool(enable_blob_direct_write);
 DECLARE_uint64(blob_direct_write_partitions);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);
+DECLARE_uint64(blob_file_writable_file_max_buffer_size);
 DECLARE_string(blob_compression_type);
 DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);

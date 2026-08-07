@@ -296,6 +296,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->enable_blob_files = moptions.enable_blob_files;
   cf_opts->min_blob_size = moptions.min_blob_size;
   cf_opts->blob_file_size = moptions.blob_file_size;
+  cf_opts->blob_file_writable_file_max_buffer_size =
+      moptions.blob_file_writable_file_max_buffer_size;
   cf_opts->blob_compression_type = moptions.blob_compression_type;
   cf_opts->blob_compression_opts = moptions.blob_compression_opts;
   cf_opts->enable_blob_garbage_collection =

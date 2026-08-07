@@ -672,8 +672,9 @@ void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
       [vs = versions_.get()]() { return vs->NewFileNumber(); }, fs_.get(),
       immutable_db_options_.clock, stats_, file_options_, dbname_,
       column_family_name, cf_options.blob_file_size,
-      immutable_db_options_.use_fsync, cfd->blob_file_cache(), &blob_callback_,
-      immutable_db_options_.listeners,
+      immutable_db_options_.use_fsync,
+      cf_options.blob_file_writable_file_max_buffer_size,
+      cfd->blob_file_cache(), &blob_callback_, immutable_db_options_.listeners,
       immutable_db_options_.file_checksum_gen_factory.get(),
       immutable_db_options_.checksum_handoff_file_types, io_tracer_, db_id_,
       db_session_id_, immutable_db_options_.info_log.get());
@@ -1689,7 +1690,13 @@ Status DBImpl::SetOptions(
       // options to file, otherwise there will be a deadlock with writer
       // thread.
       for (const auto& cfd_opts : column_family_datas) {
-        InstallSuperVersionForConfigChange(cfd_opts.first, &sv_context);
+        auto* cfd = cfd_opts.first;
+        InstallSuperVersionForConfigChange(cfd, &sv_context);
+        if (auto* blob_partition_manager = cfd->blob_partition_manager()) {
+          blob_partition_manager->SetBlobWriterMaxBufferSize(
+              cfd->GetLatestMutableCFOptions()
+                  .blob_file_writable_file_max_buffer_size);
+        }
       }
 
       persist_options_status =
