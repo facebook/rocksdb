@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <algorithm>
 #include <cstdlib>
 #include <iomanip>
 #include <ios>
@@ -372,6 +373,45 @@ void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
             path.c_str());
     port::ImmediateExit(1);
   }
+}
+
+std::string JoinSorted(std::vector<std::string> names) {
+  std::sort(names.begin(), names.end());
+  std::string out;
+  for (const auto& name : names) {
+    if (!out.empty()) {
+      out += ", ";
+    }
+    out += name;
+  }
+  return out;
+}
+
+// Checks that a column-family-subset checkpoint holds exactly the requested
+// families: the excluded ones must have been recorded as dropped in the copied
+// MANIFEST, and the requested ones must have survived that rewrite.
+Status VerifyCheckpointColumnFamilies(
+    const std::string& checkpoint_dir, const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& expected_cf_descs) {
+  std::vector<std::string> actual_names;
+  Status s = DB::ListColumnFamilies(db_options, checkpoint_dir, &actual_names);
+  if (!s.ok()) {
+    return s;
+  }
+  std::vector<std::string> expected_names;
+  expected_names.reserve(expected_cf_descs.size());
+  for (const auto& desc : expected_cf_descs) {
+    expected_names.push_back(desc.name);
+  }
+  const std::string actual = JoinSorted(std::move(actual_names));
+  const std::string expected = JoinSorted(std::move(expected_names));
+  if (actual == expected) {
+    return Status::OK();
+  }
+  std::ostringstream oss;
+  oss << "Subset checkpoint " << checkpoint_dir << " has column families {"
+      << actual << "} but {" << expected << "} were requested";
+  return Status::Corruption(oss.str());
 }
 
 }  // namespace
@@ -4094,18 +4134,66 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_fault_injection_fs_) {
     db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
   }
+  const size_t num_cfs = column_families_.size();
+  const bool use_cf_subset =
+      num_cfs > 1 && thread->rand.OneInOpt(FLAGS_subset_cf_checkpoint_one_in);
   const bool use_parallel_engine =
       thread->rand.OneInOpt(FLAGS_parallel_checkpoint_one_in);
+
+  // `in_checkpoint[i]` is whether column family `i` is expected to exist in the
+  // checkpoint; all of them unless subset mode picked otherwise.
+  std::vector<bool> in_checkpoint(num_cfs, true);
+
+  // Picks a random non-empty proper subset of the column families, marking the
+  // excluded ones in `in_checkpoint` and returning the handles to pass to the
+  // Checkpoint API.
+  auto pick_cf_subset = [&]() {
+    // Index 0 is the default column family, which is in every checkpoint
+    // whether or not it is requested (it cannot be dropped), so only the
+    // non-default families at indices [1, num_cfs) can be excluded.
+    for (size_t i = 1; i < num_cfs; ++i) {
+      in_checkpoint[i] = thread->rand.OneIn(2);
+    }
+    // Force one exclusion so every subset checkpoint exercises the MANIFEST
+    // column-family-drop rewrite instead of degenerating into a whole-DB
+    // checkpoint.
+    in_checkpoint[1 + thread->rand.Uniform(static_cast<int>(num_cfs) - 1)] =
+        false;
+
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(num_cfs);
+    for (size_t i = 1; i < num_cfs; ++i) {
+      if (in_checkpoint[i]) {
+        cfhs.push_back(column_families_[i]);
+      }
+    }
+    // Pass the default column family only half the time, to cover both sides
+    // of the "included whether or not you pass it" contract. An empty vector
+    // means "all column families" to the API, so it has to go in when nothing
+    // else did.
+    if (cfhs.empty() || thread->rand.OneIn(2)) {
+      cfhs.push_back(column_families_[0]);
+    }
+    return cfhs;
+  };
+
+  std::vector<ColumnFamilyHandle*> subset_cfhs;
+  if (use_cf_subset) {
+    subset_cfhs = pick_cf_subset();
+  }
+
   Checkpoint* checkpoint = nullptr;
   Status s;
   if (use_parallel_engine) {
-    const IOStatus io_s =
-        checkpoint_engine_->CreateCheckpoint(db_, checkpoint_dir);
+    CreateCheckpointOptions create_options;
+    create_options.column_families = subset_cfhs;
+    const IOStatus io_s = checkpoint_engine_->CreateCheckpoint(
+        db_, checkpoint_dir, /*sequence_number_ptr=*/nullptr, create_options);
     s = io_s;
   } else {
     s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
-      s = checkpoint->CreateCheckpoint(checkpoint_dir);
+      s = checkpoint->CreateCheckpoint(checkpoint_dir, subset_cfhs);
     }
   }
   if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
@@ -4140,6 +4228,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
   std::unique_ptr<DB> checkpoint_db;
+  // Maps a column family index in `column_families_` to its index in
+  // `cf_handles`, or -1 when it was left out of a subset checkpoint.
+  std::vector<int> cf_handle_index(num_cfs, -1);
   if (s.ok()) {
     Options options(options_);
     options.best_efforts_recovery = false;
@@ -4153,11 +4244,22 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
     if (FLAGS_clear_column_family_one_in == 0) {
-      for (const auto& name : column_family_names_) {
-        cf_descs.emplace_back(name, ColumnFamilyOptions(options));
+      for (size_t i = 0; i < num_cfs; ++i) {
+        if (!in_checkpoint[i]) {
+          continue;
+        }
+        cf_handle_index[i] = static_cast<int>(cf_descs.size());
+        cf_descs.emplace_back(column_family_names_[i],
+                              ColumnFamilyOptions(options));
       }
-      s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
-                              &cf_handles, &checkpoint_db);
+      if (use_cf_subset) {
+        s = VerifyCheckpointColumnFamilies(checkpoint_dir, DBOptions(options),
+                                           cf_descs);
+      }
+      if (s.ok()) {
+        s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
+                                &cf_handles, &checkpoint_db);
+      }
     }
   }
   if (checkpoint_db != nullptr) {
@@ -4165,6 +4267,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // dropped while the locks for `rand_keys` are held. So we should not have
     // to worry about accessing those column families throughout this function.
     for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
+      const int handle_index = cf_handle_index[rand_column_families[i]];
+      if (handle_index < 0) {
+        // Left out of this subset checkpoint, so there is nothing to compare.
+        continue;
+      }
       std::string key_str = Key(rand_keys[0]);
       Slice key = key_str;
       std::string ts_str;
@@ -4176,9 +4283,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
         read_opts.timestamp = &ts;
       }
       std::string value;
-      Status get_status =
-          DbStressGet(checkpoint_db.get(), read_opts,
-                      cf_handles[rand_column_families[i]], key, &value);
+      Status get_status = DbStressGet(checkpoint_db.get(), read_opts,
+                                      cf_handles[handle_index], key, &value);
       bool exists =
           thread->shared->Exists(rand_column_families[i], rand_keys[0]);
       if (get_status.ok()) {

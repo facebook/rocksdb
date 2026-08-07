@@ -355,6 +355,16 @@ int db_stress_tool(int argc, char** argv) {
         "clear_column_family_one_in must be 0 when using backup");
   }
   if (FLAGS_clear_column_family_one_in > 0 &&
+      FLAGS_subset_cf_checkpoint_one_in > 0) {
+    // A subset checkpoint passes live handles from `column_families_` to the
+    // Checkpoint API and validates the checkpoint's column family list against
+    // `column_family_names_`; neither is stable while families are being
+    // dropped and recreated underneath.
+    return ReturnValidationError(
+        "clear_column_family_one_in must be 0 when using "
+        "subset_cf_checkpoint_one_in");
+  }
+  if (FLAGS_clear_column_family_one_in > 0 &&
       FLAGS_abort_and_resume_cf_compactions_one_in > 0) {
     fprintf(stderr,
             "Error: clear_column_family_one_in must be 0 when using "

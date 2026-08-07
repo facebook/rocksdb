@@ -232,6 +232,7 @@ DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(checkpoint_engine_max_background_operations);
 DECLARE_bool(checkpoint_engine_use_link_file_when_available);
 DECLARE_int32(parallel_checkpoint_one_in);
+DECLARE_int32(subset_cf_checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(ingest_external_file_prepare_commit_one_in);

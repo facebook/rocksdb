@@ -874,6 +874,12 @@ DEFINE_int32(parallel_checkpoint_one_in, 0,
              "probability 1/N, else the legacy serial API (0 = always serial, "
              "1 = always parallel).");
 
+DEFINE_int32(subset_cf_checkpoint_one_in, 0,
+             "Each checkpoint covers only a random proper subset of the column "
+             "families with probability 1/N (0 = always all column families, "
+             "1 = always a subset). Ignored when there is only the default "
+             "column family.");
+
 DEFINE_int32(ingest_external_file_one_in, 0,
              "If non-zero, then IngestExternalFile() will be called once for "
              "every N operations on average.  0 indicates IngestExternalFile() "
