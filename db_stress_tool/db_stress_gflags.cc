@@ -984,8 +984,10 @@ DEFINE_bool(long_running_snapshots, false,
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads.");
 
-DEFINE_bool(use_async_db_api, false,
-            "If set, use DB::GetAsync and DB::MultiGetAsync for reads.");
+DEFINE_bool(
+    use_coro_db_api, false,
+    "If set, use CoroDB::GetCoroutine and CoroDB::MultiGetCoroutine for "
+    "reads.");
 
 DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads.");
 

@@ -46,14 +46,6 @@ namespace ROCKSDB_NAMESPACE {
   __template_decl__ folly::coro::Task<__ret_type__> __func_name__##Coroutine(  \
       __VA_ARGS__) const;
 
-#define DECLARE_SYNC_ASYNC_AND_CALLBACK(__ret_type__, __func_name__, \
-                                        __callback_func_name__,      \
-                                        __callback_args__, ...)      \
-  __ret_type__ __func_name__(__VA_ARGS__) override;                  \
-  virtual folly::coro::Task<__ret_type__> __func_name__##Coroutine(  \
-      __VA_ARGS__);                                                  \
-  void __callback_func_name__ __callback_args__ final override;
-
 constexpr bool using_coroutines() { return true; }
 #else  // !USE_COROUTINES
 
@@ -74,12 +66,6 @@ constexpr bool using_coroutines() { return true; }
 #define DECLARE_SYNC_AND_ASYNC_TEMPLATE_CONST(__template_decl__, __ret_type__, \
                                               __func_name__, ...)              \
   __template_decl__ __ret_type__ __func_name__(__VA_ARGS__) const;
-
-#define DECLARE_SYNC_ASYNC_AND_CALLBACK(__ret_type__, __func_name__, \
-                                        __callback_func_name__,      \
-                                        __callback_args__, ...)      \
-  __ret_type__ __func_name__(__VA_ARGS__) override;                  \
-  void __callback_func_name__ __callback_args__ final override;
 
 constexpr bool using_coroutines() { return false; }
 #endif  // USE_COROUTINES

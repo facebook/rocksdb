@@ -4965,8 +4965,8 @@ void StressTest::PrintEnv() const {
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
           FLAGS_use_multiget ? "true" : "false");
-  fprintf(stdout, "Use async DB API          : %s\n",
-          FLAGS_use_async_db_api ? "true" : "false");
+  fprintf(stdout, "Use coroutine DB API      : %s\n",
+          FLAGS_use_coro_db_api ? "true" : "false");
   fprintf(stdout, "Use GetEntity             : %s\n",
           FLAGS_use_get_entity ? "true" : "false");
   fprintf(stdout, "Use MultiGetEntity        : %s\n",
@@ -6431,7 +6431,7 @@ void InitializeOptionsGeneral(
   options.create_missing_column_families = true;
   options.create_if_missing = true;
 #if USE_COROUTINES
-  if (FLAGS_use_async_db_api) {
+  if (FLAGS_use_coro_db_api) {
     options.read_io_executor_threads = 8;
   }
 #endif  // USE_COROUTINES
