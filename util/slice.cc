@@ -307,8 +307,8 @@ bool Slice::DecodeHex(std::string* result) const {
   const size_t target_len = len / 2;
   result->resize(target_len);
 
-  // Safe pointer acquisition that avoids undefined behavior on empty allocations
-  // bypasses std::string overhead inside the loop.
+  // Safe pointer acquisition that avoids undefined behavior on empty 
+  // allocations bypasses std::string overhead inside the loop.
   char* dst = result->data();
   const char* src = data_;
 
