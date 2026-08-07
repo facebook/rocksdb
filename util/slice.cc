@@ -248,21 +248,6 @@ char toHex(unsigned char v) {
   }
   return 'A' + v - 10;
 }
-// most of the code is for validation/error check
-int fromHex(char c) {
-  // toupper:
-  if (c >= 'a' && c <= 'f') {
-    c -= ('a' - 'A');  // aka 0x20
-  }
-  // validation
-  if (c < '0' || (c > '9' && (c < 'A' || c > 'F'))) {
-    return -1;  // invalid not 0-9A-F hex char
-  }
-  if (c <= '9') {
-    return c - '0';
-  }
-  return c - 'A' + 10;
-}
 
 Slice::Slice(const SliceParts& parts, std::string* buf) {
   size_t length = 0;
@@ -295,29 +280,48 @@ std::string Slice::ToString(bool hex) const {
   }
 }
 
-// Originally from rocksdb/utilities/ldb_cmd.h
-bool Slice::DecodeHex(std::string* result) const {
-  std::string::size_type len = size_;
-  if (len % 2) {
-    // Hex string must be even number of hex digits to get complete bytes back
-    return false;
-  }
-  if (!result) {
-    return false;
-  }
-  result->clear();
-  result->reserve(len / 2);
+alignas(64) static constexpr int8_t kHexLookup[256] = {
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // 0-15
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // 16-31
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // 32-47
+     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, -1, -1, -1, -1, -1, -1, // 48-63 ('0'-'9')
+    -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, // 64-79 ('A'-'F')
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // 80-95
+    -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, // 96-111 ('a'-'f')
+    // ... fill the remaining 112 to 255 with -1
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+};
 
-  for (size_t i = 0; i < len;) {
-    int h1 = fromHex(data_[i++]);
-    if (h1 < 0) {
+bool Slice::DecodeHex(std::string* result) const {
+  if (!result) return false;
+
+  const size_t len = size_;
+  if (len % 2 != 0) return false;
+
+  const size_t target_len = len / 2;
+  result->resize(target_len);
+
+  // Direct pointer access bypasses std::string overhead inside the loop
+  char* dst = &(*result)[0];
+  const char* src = data_;
+
+  for (size_t i = 0; i < target_len; ++i) {
+    // Cast to uint8_t prevents negative char indexing issues
+    int8_t h1 = kHexLookup[static_cast<uint8_t>(*src++)];
+    int8_t h2 = kHexLookup[static_cast<uint8_t>(*src++)];
+    // Single branch check using bitwise OR (detects if either is -1)
+    if ((h1 | h2) < 0) {
+      result->clear(); // Maintain safety on failure
       return false;
     }
-    int h2 = fromHex(data_[i++]);
-    if (h2 < 0) {
-      return false;
-    }
-    result->push_back(static_cast<char>((h1 << 4) | h2));
+    *dst++ = static_cast<char>((h1 << 4) | h2);
   }
   return true;
 }
