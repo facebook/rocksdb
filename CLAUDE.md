@@ -394,8 +394,8 @@ rather than relying on libstdc++ transitive includes.
 ### Adding release note
 * Release note should be kept short at high level for external user consumption.
     Release notes identify what users might care about most in a release. They
-    are not exhaustive and not a guide. PLEASE learn from past agents who tried
-    to build elaborate release notes with implementation details and
+    are not exhaustive and are not a guide. PLEASE learn from past agents who
+    ried to build elaborate release notes with implementation details and
     elsewhere-documented nuance. That wastes time. Fight the bias that
     "my change" is important so must be worthy of release note mention.
 * If more than single markdown line, consider how their formatting will be
