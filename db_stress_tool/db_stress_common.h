@@ -113,6 +113,7 @@ DECLARE_int32(max_write_buffer_number);
 DECLARE_int32(min_write_buffer_number_to_merge);
 DECLARE_int64(max_write_buffer_size_to_maintain);
 DECLARE_bool(use_write_buffer_manager);
+DECLARE_int32(wbm_flush_policy);
 DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);

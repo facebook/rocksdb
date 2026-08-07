@@ -591,8 +591,9 @@ int db_stress_tool(int argc, char** argv) {
   block_cache =
       StressTest::NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits);
   if (FLAGS_use_write_buffer_manager) {
-    wbm = std::make_shared<WriteBufferManager>(FLAGS_db_write_buffer_size,
-                                               block_cache);
+    wbm = std::make_shared<WriteBufferManager>(
+        FLAGS_db_write_buffer_size, block_cache, false /* allow_stall */,
+        static_cast<WriteBufferFlushPolicy>(FLAGS_wbm_flush_policy));
   }
   if (FLAGS_rate_limiter_bytes_per_sec > 0) {
     rate_limiter.reset(NewGenericRateLimiter(

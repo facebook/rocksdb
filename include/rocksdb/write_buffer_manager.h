@@ -23,6 +23,29 @@
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
 
+// Policy that decides, when the WriteBufferManager triggers a flush to free
+// memory, which column family's mutable memtable should be flushed. The
+// WriteBufferManager itself only signals that a flush is needed; the actual
+// selection happens in the DB, which consults this policy.
+enum class WriteBufferFlushPolicy {
+  // Flush the column family whose mutable memtable was created earliest. This
+  // is the historical default.
+  kFlushOldest,
+  // Flush the column family whose mutable memtable is currently using the most
+  // memory. Freeing the largest memtable reclaims the most memory per flush,
+  // which reduces how often the WriteBufferManager has to trigger a flush when
+  // many column families share a single write buffer -- avoiding a stream of
+  // small, back-to-back flushes.
+  kFlushLargest,
+  // Like kFlushLargest, but the selection spans every DB that shares this
+  // WriteBufferManager: the DB using the most mutable memtable memory flushes
+  // its largest column family, even if a different DB's write triggered the
+  // flush. A DB that is not the largest defers instead of flushing itself, so a
+  // single flush of the biggest memory holder replaces many small flushes
+  // scattered across DBs. Only applies to non-atomic-flush DBs.
+  kFlushLargestAcrossDBs,
+};
+
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
@@ -32,6 +55,27 @@ class StallInterface {
   virtual void Block() = 0;
 
   virtual void Signal() = 0;
+};
+
+// Interface implemented by each DB (DBImpl) so that a WriteBufferManager shared
+// across multiple DBs can, under the kFlushLargestAcrossDBs policy, find the DB
+// using the most mutable memtable memory and initiate a flush on it. Intended
+// for RocksDB internal use only.
+class FlushInitiator {
+ public:
+  virtual ~FlushInitiator() {}
+
+  // Best-effort estimate of the bytes held by this DB's flushable mutable
+  // memtables. Called by the WriteBufferManager while holding its registry
+  // mutex; the implementation may briefly lock the DB mutex but must not
+  // acquire the registry mutex.
+  virtual size_t GetFlushableMemUsage() = 0;
+
+  // Schedules a non-blocking background flush of this DB's largest flushable
+  // column family. Must be safe to call from another DB's thread: it must not
+  // block on this DB's write thread and must not acquire the registry mutex.
+  // Called by the WriteBufferManager while holding its registry mutex.
+  virtual void ScheduleFlush() = 0;
 };
 
 class WriteBufferManager final {
@@ -47,9 +91,13 @@ class WriteBufferManager final {
   // allow_stall: if set true, it will enable stalling of writes when
   // memory_usage() exceeds buffer_size. It will wait for flush to complete and
   // memory usage to drop down.
-  explicit WriteBufferManager(size_t _buffer_size,
-                              std::shared_ptr<Cache> cache = {},
-                              bool allow_stall = false);
+  //
+  // flush_policy: decides which column family is flushed when a flush is
+  // triggered to free memory. See WriteBufferFlushPolicy.
+  explicit WriteBufferManager(
+      size_t _buffer_size, std::shared_ptr<Cache> cache = {},
+      bool allow_stall = false,
+      WriteBufferFlushPolicy flush_policy = WriteBufferFlushPolicy::kFlushOldest);
   // No copying allowed
   WriteBufferManager(const WriteBufferManager&) = delete;
   WriteBufferManager& operator=(const WriteBufferManager&) = delete;
@@ -93,6 +141,16 @@ class WriteBufferManager final {
   void SetAllowStall(bool new_allow_stall) {
     allow_stall_.store(new_allow_stall, std::memory_order_relaxed);
     MaybeEndWriteStall();
+  }
+
+  // Returns the policy used to pick which column family to flush when a flush
+  // is triggered to free memory.
+  WriteBufferFlushPolicy flush_policy() const {
+    return flush_policy_.load(std::memory_order_relaxed);
+  }
+
+  void SetFlushPolicy(WriteBufferFlushPolicy new_flush_policy) {
+    flush_policy_.store(new_flush_policy, std::memory_order_relaxed);
   }
 
   // Below functions should be called by RocksDB internally.
@@ -159,6 +217,20 @@ class WriteBufferManager final {
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
+  // Registry of DBs sharing this WriteBufferManager, used only by the
+  // kFlushLargestAcrossDBs policy. Registration lasts for the DB's lifetime.
+  // Should only be called by RocksDB internally.
+  void RegisterFlushInitiator(FlushInitiator* initiator);
+  void DeregisterFlushInitiator(FlushInitiator* initiator);
+
+  // Across all registered DBs, if one other than `self` is using more flushable
+  // memtable memory, initiate a background flush on it and return true (the
+  // caller should then NOT flush itself). Returns false when `self` is (one of)
+  // the largest or there are no other candidates, in which case the caller
+  // should fall back to flushing itself. Should only be called by RocksDB
+  // internally, and NOT while holding the caller's DB mutex.
+  bool InitiateFlushOnLargestDB(FlushInitiator* self);
+
  private:
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
@@ -176,6 +248,12 @@ class WriteBufferManager final {
   // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
   // while holding mu_, but it can be read without a lock.
   std::atomic<bool> stall_active_;
+  std::atomic<WriteBufferFlushPolicy> flush_policy_;
+
+  // Registry of DBs sharing this WriteBufferManager (kFlushLargestAcrossDBs).
+  std::list<FlushInitiator*> flush_initiators_;
+  // Protects flush_initiators_.
+  std::mutex flush_initiators_mu_;
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);

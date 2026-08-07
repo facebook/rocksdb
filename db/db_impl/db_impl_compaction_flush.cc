@@ -3965,6 +3965,102 @@ void DBImpl::UnscheduleFlushCallback(void* arg) {
   TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
 }
 
+size_t DBImpl::GetFlushableMemUsage() {
+  InstrumentedMutexLock l(&mutex_);
+  // DBs that cannot honor a cross-DB flush request must not be selected.
+  if (!opened_successfully_ || read_only_ ||
+      immutable_db_options_.atomic_flush) {
+    return 0;
+  }
+  size_t total = 0;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->IsDropped() && !cfd->mem()->IsEmpty() &&
+        !cfd->imm()->IsFlushPendingOrRunning()) {
+      total += cfd->mem()->ApproximateMemoryUsageFast();
+    }
+  }
+  return total;
+}
+
+void DBImpl::ScheduleWriteBufferManagerFlush() {
+  InstrumentedMutexLock l(&mutex_);
+  if (shutdown_initiated_.load(std::memory_order_acquire) ||
+      shutting_down_.load(std::memory_order_acquire) ||
+      reject_new_background_jobs_ || !opened_successfully_ || read_only_ ||
+      immutable_db_options_.atomic_flush) {
+    return;
+  }
+  // Coalesce: keep at most one outstanding WBM-driven flush job per DB.
+  if (bg_wbm_flush_scheduled_ > 0) {
+    return;
+  }
+  ++bg_wbm_flush_scheduled_;
+  env_->Schedule(&DBImpl::BGWorkWBMFlush, this, Env::Priority::HIGH,
+                 this /* tag */, &DBImpl::UnscheduleWBMFlushCallback);
+}
+
+void DBImpl::BGWorkWBMFlush(void* arg) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
+  TEST_SYNC_POINT("DBImpl::BGWorkWBMFlush");
+  static_cast<DBImpl*>(arg)->BackgroundCallWBMFlush();
+  TEST_SYNC_POINT("DBImpl::BGWorkWBMFlush:done");
+}
+
+void DBImpl::UnscheduleWBMFlushCallback(void* arg) {
+  // Invoked by the thread pool (with mutex_ held by CloseHelper's UnSchedule)
+  // when a still-queued task is cancelled. Mirror UnscheduleFlushCallback: only
+  // decrement the counter here; do not re-lock mutex_.
+  static_cast<DBImpl*>(arg)->bg_wbm_flush_scheduled_--;
+  TEST_SYNC_POINT("DBImpl::UnscheduleWBMFlushCallback");
+}
+
+void DBImpl::BackgroundCallWBMFlush() {
+  ColumnFamilyData* cfd_to_flush = nullptr;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (!shutting_down_.load(std::memory_order_acquire) &&
+        !reject_new_background_jobs_ && opened_successfully_ && !read_only_ &&
+        !immutable_db_options_.atomic_flush) {
+      size_t max_mem = 0;
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped() && !cfd->mem()->IsEmpty() &&
+            !cfd->imm()->IsFlushPendingOrRunning()) {
+          size_t mem = cfd->mem()->ApproximateMemoryUsageFast();
+          if (cfd_to_flush == nullptr || mem > max_mem) {
+            cfd_to_flush = cfd;
+            max_mem = mem;
+          }
+        }
+      }
+      if (cfd_to_flush != nullptr) {
+        cfd_to_flush->Ref();
+      }
+    }
+  }
+
+  if (cfd_to_flush != nullptr) {
+    FlushOptions flush_options;
+    flush_options.wait = false;
+    flush_options.allow_write_stall = true;
+    // FlushMemTable self-acquires mutex_ and enters the write thread, then
+    // schedules a bg_flush_scheduled_-tracked flush. bg_wbm_flush_scheduled_
+    // stays > 0 across this call, so shutdown cannot tear down the DB in the
+    // window before that flush becomes tracked.
+    Status s =
+        FlushMemTable(cfd_to_flush, flush_options,
+                      FlushReason::kWriteBufferManager,
+                      false /* entered_write_thread */);
+    s.PermitUncheckedError();
+  }
+
+  InstrumentedMutexLock l(&mutex_);
+  if (cfd_to_flush != nullptr) {
+    cfd_to_flush->UnrefAndTryDelete();
+  }
+  --bg_wbm_flush_scheduled_;
+  bg_cv_.SignalAll();
+}
+
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
                                LogBuffer* log_buffer, FlushReason* reason,
                                bool* flush_rescheduled_to_retain_udt,

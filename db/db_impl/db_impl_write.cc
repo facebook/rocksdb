@@ -2132,9 +2132,23 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // thread is writing to another DB with the same write buffer, they may also
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
-    InstrumentedMutexLock l(&mutex_);
-    WaitForPendingWrites();
-    status = HandleWriteBufferManagerFlush(write_context);
+    //
+    // Under kFlushLargestAcrossDBs, first give the shared WriteBufferManager a
+    // chance to flush whichever DB (possibly a different one) holds the most
+    // memtable memory. If it initiates a flush on another DB, this DB defers
+    // instead of flushing itself. Called without holding mutex_ to respect the
+    // registry -> mutex_ lock order.
+    if (write_buffer_manager_->flush_policy() ==
+            WriteBufferFlushPolicy::kFlushLargestAcrossDBs &&
+        !immutable_db_options_.atomic_flush &&
+        write_buffer_manager_->InitiateFlushOnLargestDB(
+            wbm_flush_initiator_.get())) {
+      // A larger DB sharing this WriteBufferManager will flush asynchronously.
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      WaitForPendingWrites();
+      status = HandleWriteBufferManagerFlush(write_context);
+    }
   }
 
   if (UNLIKELY(status.ok() && !trim_history_scheduler_.Empty())) {
@@ -2722,8 +2736,16 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
+    const WriteBufferFlushPolicy policy = write_buffer_manager_->flush_policy();
+    const bool flush_largest =
+        policy == WriteBufferFlushPolicy::kFlushLargest ||
+        policy == WriteBufferFlushPolicy::kFlushLargestAcrossDBs;
     ColumnFamilyData* cfd_picked = nullptr;
+    // Only one of these keys is used, depending on the policy: the smallest
+    // creation seq for kFlushOldest, or the largest memtable memory usage for
+    // kFlushLargest.
     SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
+    size_t mem_for_cf_picked = 0;
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
@@ -2734,10 +2756,21 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
         // and no immutable memtables for which flush has yet to finish. If
         // we triggered flush on CFs already trying to flush, we would risk
         // creating too many immutable memtables leading to write stalls.
-        uint64_t seq = cfd->mem()->GetCreationSeq();
-        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-          cfd_picked = cfd;
-          seq_num_for_cf_picked = seq;
+        if (flush_largest) {
+          // Pick the CF using the most memory so that a single flush frees as
+          // much as possible. ApproximateMemoryUsageFast() is a cheap relaxed
+          // load that needs no external synchronization.
+          const size_t mem = cfd->mem()->ApproximateMemoryUsageFast();
+          if (cfd_picked == nullptr || mem > mem_for_cf_picked) {
+            cfd_picked = cfd;
+            mem_for_cf_picked = mem;
+          }
+        } else {
+          const uint64_t seq = cfd->mem()->GetCreationSeq();
+          if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+            cfd_picked = cfd;
+            seq_num_for_cf_picked = seq;
+          }
         }
       }
     }
