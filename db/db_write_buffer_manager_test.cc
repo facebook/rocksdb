@@ -845,6 +845,139 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   shared_wbm_db.reset();
 }
 
+// Verifies that with WriteBufferFlushPolicy::kFlushLargest, the column family
+// whose mutable memtable is using the most memory is the one selected for
+// flushing -- regardless of creation order or which CF received the write that
+// crossed the limit. The default policy (kFlushOldest) would instead pick the
+// default CF here.
+//
+// Not supported in LITE mode due to `GetProperty()` unavailable.
+TEST_P(DBWriteBufferManagerTest, FlushLargestMemtablePolicy) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  cost_cache_ = GetParam();
+  options.write_buffer_manager.reset(new WriteBufferManager(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargest));
+
+  // "default" (oldest), "cf1" (largest), and "cf2" all share the same WBM.
+  CreateAndReopenWithCF({"cf1", "cf2"}, options);
+
+  // Block the flush background thread so switched memtables stay pending and
+  // remain observable via the num-immutable-mem-table property.
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
+
+  // Make cf1 the largest mutable memtable while keeping the total under the WBM
+  // limit (512KB * 7/8 = 448KB) so no flush is triggered yet.
+  ASSERT_OK(
+      Put(0 /* default */, Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_OK(Put(1 /* cf1 */, Key(1), DummyString(300 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // This write crosses the WBM limit and triggers a flush. Even though it
+  // targets cf2, kFlushLargest must pick cf1, the largest memtable.
+  ASSERT_OK(Put(2 /* cf2 */, Key(1), DummyString(1), WriteOptions()));
+
+  auto num_immutable = [&](int cf) {
+    std::string prop;
+    EXPECT_TRUE(db_->GetProperty(handles_[cf],
+                                 "rocksdb.num-immutable-mem-table", &prop));
+    return prop;
+  };
+  EXPECT_EQ("1", num_immutable(1));  // cf1 (largest) was flushed
+  EXPECT_EQ("0", num_immutable(0));  // default was not
+  EXPECT_EQ("0", num_immutable(2));  // cf2 was not
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+}
+
+namespace {
+// Records which DB instances have completed a flush, so a test can wait for and
+// assert on cross-DB flush behavior deterministically.
+class FlushedDBRecorder : public EventListener {
+ public:
+  void OnFlushCompleted(DB* db, const FlushJobInfo& /*info*/) override {
+    InstrumentedMutexLock l(&mu_);
+    flushed_.insert(db);
+    cv_.SignalAll();
+  }
+  void WaitForFlush(DB* db) {
+    InstrumentedMutexLock l(&mu_);
+    while (flushed_.find(db) == flushed_.end()) {
+      cv_.Wait();
+    }
+  }
+  bool HasFlushed(DB* db) {
+    InstrumentedMutexLock l(&mu_);
+    return flushed_.find(db) != flushed_.end();
+  }
+  void Reset() {
+    InstrumentedMutexLock l(&mu_);
+    flushed_.clear();
+  }
+
+ private:
+  InstrumentedMutex mu_;
+  InstrumentedCondVar cv_{&mu_};
+  std::set<DB*> flushed_;
+};
+}  // anonymous namespace
+
+// Verifies WriteBufferFlushPolicy::kFlushLargestAcrossDBs: when multiple DBs
+// share a single WriteBufferManager, the DB using the most mutable memtable
+// memory is the one flushed -- even when a write to a *different* (smaller) DB
+// is what crosses the shared memory limit. The smaller DB defers instead of
+// flushing itself.
+//
+// Not supported in LITE mode due to `GetProperty()` unavailable.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsPolicy) {
+  auto recorder = std::make_shared<FlushedDBRecorder>();
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  options.listeners.push_back(recorder);
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  cost_cache_ = GetParam();
+  options.write_buffer_manager.reset(new WriteBufferManager(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs));
+
+  // db_ (the fixture's DB) shares the WBM with a second DB, other_db.
+  Reopen(options);
+  std::string other_dbname = test::PerThreadDBPath("wbm_across_dbs_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  // Make other_db the larger DB (300KB) and db_ smaller (200KB). The total
+  // (500KB) exceeds the mutable limit (512KB * 7/8 = 448KB), but neither Put
+  // trips the trigger at its start.
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // Ignore any flush that may have happened during open/setup.
+  recorder->Reset();
+
+  // This crossing write targets db_, but kFlushLargestAcrossDBs must flush
+  // other_db (the larger one) instead, and db_ must defer.
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  recorder->WaitForFlush(other_db.get());
+  EXPECT_FALSE(recorder->HasFlushed(db_.get()));
+
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
 TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
   constexpr int kBigValue = 10000;
 
