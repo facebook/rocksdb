@@ -36,6 +36,57 @@ Status AppendBlobRefreshRetryFailure(const Status& stale_status,
       stale_status, "; refresh retry failed: ", retry_status.ToString());
 }
 
+// Runs read(reader) against the blob-file reader for `file_number`. On a
+// Corruption -- which a stale cached reader (e.g. the physical file was
+// replaced) can surface -- evicts the cached reader, reopens it uncached,
+// retries read() once, and refreshes the cache on success. Shared by the
+// single-blob read paths (GetBlob / GetBlobRange) so the stale-file recovery
+// lives in one place.
+//
+// `read` is invoked with a BlobFileReader* and returns a Status; because it may
+// run twice, it must re-initialize any output it populates on each call (and is
+// taken by const reference rather than forwarded, since it is not moved-from).
+template <typename ReadFn>
+Status ReadBlobWithReaderRetry(BlobFileCache* blob_file_cache,
+                               const ReadOptions& read_options,
+                               uint64_t file_number, const ReadFn& read) {
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
+  Status s = blob_file_cache->GetBlobFileReader(read_options, file_number,
+                                                &blob_file_reader);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(blob_file_reader.GetValue());
+
+  s = read(blob_file_reader.GetValue());
+  if (!s.IsCorruption()) {
+    return s;
+  }
+
+  const Status stale_status = s;
+  blob_file_reader.Reset();
+  blob_file_cache->Evict(file_number);
+
+  std::unique_ptr<BlobFileReader> fresh_reader;
+  s = blob_file_cache->OpenBlobFileReaderUncached(
+      read_options, file_number, &fresh_reader,
+      /*allow_footer_skip_retry=*/false);
+  if (!s.ok()) {
+    return AppendBlobRefreshRetryFailure(stale_status, s);
+  }
+
+  s = read(fresh_reader.get());
+  if (!s.ok()) {
+    return AppendBlobRefreshRetryFailure(stale_status, s);
+  }
+
+  CacheHandleGuard<BlobFileReader> ignored_reader;
+  blob_file_cache
+      ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
+      .PermitUncheckedError();
+  return s;
+}
+
 // Records lazy wide-column read metrics for one actual storage read issued
 // while resolving a lazy result (attributed via Env::IOActivity::kLazyResolve):
 // `bytes_read` bytes were read from storage. Covers both whole-column and
@@ -56,6 +107,29 @@ void RecordLazyPartialRead(Statistics* statistics, uint64_t bytes_read,
     RecordTick(statistics, BLOB_DB_LAZY_PARTIAL_BYTES_SAVED,
                value_size - bytes_read);
   }
+}
+
+// Pins the sub-range [range_offset, range_offset + range_length) of a cache-hit
+// whole blob value into *value (clamped: an offset at/past the end yields
+// empty, length is clamped to the remainder), keeping the cached bytes alive by
+// transferring the cache handle into *value. Shared by the range-read cache-hit
+// paths (GetBlobRange / GetSimpleGen2BlobRange).
+void PinCacheHitSubRange(CacheHandleGuard<BlobContents>* blob_handle,
+                         uint64_t range_offset, size_t range_length,
+                         PinnableSlice* value) {
+  const Slice full = blob_handle->GetValue()->data();
+  Slice sub;
+  if (range_offset < full.size()) {
+    const size_t off = static_cast<size_t>(range_offset);
+    const size_t avail = full.size() - off;
+    const size_t len = range_length > avail ? avail : range_length;
+    sub = Slice(full.data() + off, len);
+  }  // else: offset at/past end -> empty (not an error)
+
+  value->Reset();
+  constexpr Cleanable* cleanable = nullptr;
+  value->PinSlice(sub, cleanable);
+  blob_handle->TransferTo(value);
 }
 
 }  // namespace
@@ -250,60 +324,25 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   std::unique_ptr<BlobContents> blob_contents;
 
   {
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
-                                            &blob_file_reader);
-    if (!s.ok()) {
-      return s;
-    }
-
-    assert(blob_file_reader.GetValue());
-
-    if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
-      return Status::Corruption("Compression type mismatch when reading blob");
-    }
-
     MemoryAllocator* const allocator =
         (blob_cache_ && read_options.fill_cache)
             ? blob_cache_.get()->memory_allocator()
             : nullptr;
 
     uint64_t read_size = 0;
-    s = blob_file_reader.GetValue()->GetBlob(
-        read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, allocator, &blob_contents, &read_size);
-    if (s.IsCorruption()) {
-      const Status stale_status = s;
-      blob_file_reader.Reset();
-      blob_file_cache_->Evict(file_number);
-
-      std::unique_ptr<BlobFileReader> fresh_reader;
-      s = blob_file_cache_->OpenBlobFileReaderUncached(
-          read_options, file_number, &fresh_reader,
-          /*allow_footer_skip_retry=*/false);
-      if (!s.ok()) {
-        return AppendBlobRefreshRetryFailure(stale_status, s);
-      }
-
-      if (compression_type != fresh_reader->GetCompressionType()) {
-        return Status::Corruption(
-            "Compression type mismatch when reading blob");
-      }
-
-      blob_contents.reset();
-      read_size = 0;
-      s = fresh_reader->GetBlob(read_options, user_key, offset, value_size,
-                                compression_type, prefetch_buffer, allocator,
-                                &blob_contents, &read_size);
-      if (!s.ok()) {
-        s = AppendBlobRefreshRetryFailure(stale_status, s);
-      } else {
-        CacheHandleGuard<BlobFileReader> ignored_reader;
-        blob_file_cache_
-            ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
-            .PermitUncheckedError();
-      }
-    }
+    s = ReadBlobWithReaderRetry(
+        blob_file_cache_, read_options, file_number,
+        [&](BlobFileReader* reader) {
+          if (compression_type != reader->GetCompressionType()) {
+            return Status::Corruption(
+                "Compression type mismatch when reading blob");
+          }
+          blob_contents.reset();
+          read_size = 0;
+          return reader->GetBlob(read_options, user_key, offset, value_size,
+                                 compression_type, prefetch_buffer, allocator,
+                                 &blob_contents, &read_size);
+        });
     if (!s.ok()) {
       return s;
     }
@@ -365,20 +404,7 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_handle);
     if (s.ok()) {
-      const Slice full = blob_handle.GetValue()->data();
-      Slice sub;
-      if (range_offset < full.size()) {
-        const size_t off = static_cast<size_t>(range_offset);
-        const size_t avail = full.size() - off;
-        const size_t len = range_length > avail ? avail : range_length;
-        sub = Slice(full.data() + off, len);
-      }  // else: offset at/past end -> empty (not an error)
-
-      value->Reset();
-      constexpr Cleanable* cleanable = nullptr;
-      value->PinSlice(sub, cleanable);
-      blob_handle.TransferTo(value);
-
+      PinCacheHitSubRange(&blob_handle, range_offset, range_length, value);
       if (bytes_read) {
         *bytes_read = 0;  // served from cache; no disk read
       }
@@ -397,27 +423,28 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
   // never inserted into the blob cache (see the header comment).
   std::unique_ptr<BlobContents> blob_contents;
   {
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
-                                            &blob_file_reader);
-    if (!s.ok()) {
-      return s;
-    }
-
-    assert(blob_file_reader.GetValue());
-
-    if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
-      return Status::Corruption("Compression type mismatch when reading blob");
-    }
-
     // No cache-fill allocator: a partial value is never inserted into the
     // cache.
     constexpr MemoryAllocator* allocator = nullptr;
 
     uint64_t read_size = 0;
-    s = blob_file_reader.GetValue()->GetBlobRange(
-        read_options, user_key, offset, value_size, range_offset, range_length,
-        allocator, &blob_contents, &read_size);
+    // Reuses the stale-reader retry shared with GetBlob. A range read skips
+    // whole-record checksum verification, so the retry handles the stale-file
+    // case (offset/size mismatch surfacing as Corruption), not a payload
+    // checksum failure.
+    s = ReadBlobWithReaderRetry(
+        blob_file_cache_, read_options, file_number,
+        [&](BlobFileReader* reader) {
+          if (compression_type != reader->GetCompressionType()) {
+            return Status::Corruption(
+                "Compression type mismatch when reading blob");
+          }
+          blob_contents.reset();
+          read_size = 0;
+          return reader->GetBlobRange(read_options, user_key, offset,
+                                      value_size, range_offset, range_length,
+                                      allocator, &blob_contents, &read_size);
+        });
     if (!s.ok()) {
       return s;
     }
@@ -562,20 +589,7 @@ Status BlobSource::GetSimpleGen2BlobRange(
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_handle);
     if (s.ok()) {
-      const Slice full = blob_handle.GetValue()->data();
-      Slice sub;
-      if (range_offset < full.size()) {
-        const size_t off = static_cast<size_t>(range_offset);
-        const size_t avail = full.size() - off;
-        const size_t len = range_length > avail ? avail : range_length;
-        sub = Slice(full.data() + off, len);
-      }  // else: offset at/past end -> empty (not an error)
-
-      value->Reset();
-      constexpr Cleanable* cleanable = nullptr;
-      value->PinSlice(sub, cleanable);
-      blob_handle.TransferTo(value);
-
+      PinCacheHitSubRange(&blob_handle, range_offset, range_length, value);
       if (bytes_read) {
         *bytes_read = 0;  // served from cache; no disk read
       }

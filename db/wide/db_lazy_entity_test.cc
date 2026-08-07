@@ -41,7 +41,7 @@ namespace {
 class BlobReadIOActivityFS : public FileSystemWrapper {
  public:
   explicit BlobReadIOActivityFS(std::shared_ptr<FileSystem> base)
-      : FileSystemWrapper(std::move(base)) {}
+      : FileSystemWrapper(base) {}
 
   static const char* kClassName() { return "BlobReadIOActivityFS"; }
   const char* Name() const override { return kClassName(); }
@@ -145,6 +145,16 @@ class DBLazyEntityTest : public DBTestBase {
   }
   uint64_t LazyPartialBytesSaved(const Options& options) {
     return options.statistics->getTickerCount(BLOB_DB_LAZY_PARTIAL_BYTES_SAVED);
+  }
+
+  // Warms the blob-file reader for a column with a 1-byte partial read: opening
+  // the blob file reads its header + footer, a one-time cost. Tests that assert
+  // an exact BLOB_DB_BLOB_FILE_BYTES_READ delta call this and then reset stats,
+  // so only the bytes of the measured read are counted.
+  void WarmBlobFileReader(LazyWideColumns& lazy, size_t column_index) {
+    PinnableSlice warm;
+    ASSERT_OK(lazy.ResolveColumnRange(lazy[column_index], /*offset=*/0,
+                                      /*length=*/1, &warm));
   }
 
   // Writes an SST containing a single embedded (same-file blob) wide-column
@@ -271,9 +281,7 @@ TEST_F(DBLazyEntityTest, PartialReadReadsOnlyRequestedBytes) {
   // Warm the blob-file reader (opening it reads the file header + footer, a
   // one-time cost that would otherwise be counted below). Partial reads are not
   // cached, so the measured read still hits the file.
-  PinnableSlice warm;
-  ASSERT_OK(
-      lazy.ResolveColumnRange(lazy[1], /*offset=*/0, /*length=*/1, &warm));
+  WarmBlobFileReader(lazy, /*column_index=*/1);
   ASSERT_OK(options.statistics->Reset());
 
   constexpr uint64_t kOffset = 1000;
@@ -308,9 +316,7 @@ TEST_F(DBLazyEntityTest, PartialReadToEndFromOffset) {
                                &lazy));
 
   // Warm the blob-file reader (see PartialReadReadsOnlyRequestedBytes).
-  PinnableSlice warm;
-  ASSERT_OK(
-      lazy.ResolveColumnRange(lazy[1], /*offset=*/0, /*length=*/1, &warm));
+  WarmBlobFileReader(lazy, /*column_index=*/1);
   ASSERT_OK(options.statistics->Reset());
 
   constexpr uint64_t kOffset = 3000;

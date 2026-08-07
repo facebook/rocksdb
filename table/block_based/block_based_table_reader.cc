@@ -1374,34 +1374,6 @@ Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
   return ResolveEmbeddedBlobPinned(read_options, blob_index, value);
 }
 
-Status BlockBasedTable::ResolveEmbeddedBlobRangePinned(
-    const ReadOptions& read_options, const BlobIndex& blob_index,
-    uint64_t range_offset, size_t range_length, PinnableSlice* value) const {
-  assert(value != nullptr);
-  size_t payload_size = 0;
-  size_t record_size = 0;
-  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
-                                       &record_size);
-  if (!s.ok()) {
-    return s;
-  }
-
-  // Read only the requested sub-range of the payload into a heap buffer owned
-  // by `value` (via a registered cleanup), pinning it zero-copy. No trailer
-  // read and no checksum verification (a strict sub-range cannot cover the
-  // record's checksum).
-  std::unique_ptr<char[]> buf(new char[range_length]);
-  s = ReadSimpleGen2BlobRange(
-      read_options, rep_->file.get(), blob_index.offset(), payload_size,
-      range_offset, range_length, blob_index.compression(), buf.get());
-  if (!s.ok()) {
-    return s;
-  }
-  char* raw = buf.release();
-  value->PinSlice(Slice(raw, range_length), &DeleteCharArray, raw, nullptr);
-  return Status::OK();
-}
-
 Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
     const ReadOptions& read_options, const BlobIndex& blob_index,
     uint64_t range_offset, size_t range_length, PinnableSlice* value) const {
@@ -1436,13 +1408,21 @@ Status BlockBasedTable::GetSameFileBlobRange(const ReadOptions& read_options,
                                              uint64_t range_offset,
                                              size_t range_length,
                                              PinnableSlice* value) const {
-  // Mirror GetSameFileBlob's routing: blob-cache-backed read when a BlobSource
-  // is wired, otherwise a direct pinned read.
-  if (rep_->blob_source_ != nullptr) {
-    return ResolveEmbeddedBlobRangeCached(read_options, blob_index,
-                                          range_offset, range_length, value);
+  // Byte-range embedded reads are only issued while resolving a lazy result,
+  // which always runs against an open DB column family (so a BlobSource is
+  // wired); unlike the whole-value GetSameFileBlob there is no direct-pinned
+  // (no-BlobSource, e.g. SstFileReader) range path. Reaching here without a
+  // BlobSource therefore means a same-file/embedded reference was routed from
+  // an unexpected context -- which a corrupt index can cause in production
+  // (e.g. an entry decoding to the file_number 0 same-file sentinel) -- so
+  // report it as corruption, mirroring Version::GetBlobRange's "Invalid blob
+  // file number".
+  assert(rep_->blob_source_ != nullptr);
+  if (rep_->blob_source_ == nullptr) {
+    return Status::Corruption(
+        "Invalid same-file blob reference (no BlobSource for range read)");
   }
-  return ResolveEmbeddedBlobRangePinned(read_options, blob_index, range_offset,
+  return ResolveEmbeddedBlobRangeCached(read_options, blob_index, range_offset,
                                         range_length, value);
 }
 

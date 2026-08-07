@@ -237,17 +237,13 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
                                    const BlobIndex& blob_index,
                                    PinnableSlice* value) const;
 
-  // Range-read counterparts of ResolveEmbeddedBlobPinned /
-  // ResolveEmbeddedBlobCached: resolve only [range_offset, range_offset +
-  // range_length) of an uncompressed same-file payload (skipping the trailer +
-  // checksum verification, and -- for the cached variant -- never inserting
+  // Range-read counterpart of ResolveEmbeddedBlobCached: resolve only
+  // [range_offset, range_offset + range_length) of an uncompressed same-file
+  // payload (skipping the trailer + checksum verification, and never inserting
   // into the blob cache). The caller must ensure range_offset + range_length <=
-  // blob_index.size().
-  Status ResolveEmbeddedBlobRangePinned(const ReadOptions& read_options,
-                                        const BlobIndex& blob_index,
-                                        uint64_t range_offset,
-                                        size_t range_length,
-                                        PinnableSlice* value) const;
+  // blob_index.size(). Requires a BlobSource (rep_->blob_source_ != nullptr):
+  // byte-range embedded reads are only issued on the lazy read path, which
+  // always has one, so there is no direct-pinned range variant.
   Status ResolveEmbeddedBlobRangeCached(const ReadOptions& read_options,
                                         const BlobIndex& blob_index,
                                         uint64_t range_offset,
@@ -264,7 +260,8 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
 
   // SameFileBlobReader: byte-range counterpart of GetSameFileBlob, used by the
   // lazy read path for partial (sub-range) reads of an uncompressed embedded
-  // blob. Routes through ResolveEmbeddedBlobRangeCached / ...Pinned.
+  // blob. Routes through ResolveEmbeddedBlobRangeCached (requires a
+  // BlobSource).
   Status GetSameFileBlobRange(const ReadOptions& read_options,
                               const BlobIndex& blob_index,
                               uint64_t range_offset, size_t range_length,

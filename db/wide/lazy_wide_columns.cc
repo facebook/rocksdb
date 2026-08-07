@@ -35,6 +35,40 @@
 // per-key result, and MultiGetEntityLazy fills the batch key-by-key.
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+// Scope guard used while resolving a lazy result: sets the thread's
+// ThreadStatus operation to OP_LAZY_RESOLVE for the duration, then returns it
+// to OP_UNKNOWN on exit. A resolve is a self-contained top-level operation, so
+// it starts and ends with no active op rather than restoring a prior one --
+// thread operations do not stack, and any op lingering from the originating
+// GetEntity/MultiGetEntity call is stale. (This mirrors the SetThreadOperation
+// + ResetThreadStatus pattern other top-level ops such as compaction/DBOpen
+// use.)
+//
+// Setting the parallel operation type keeps the io_activity and thread
+// operation consistent while the deferred reads (which carry
+// Env::IOActivity::kLazyResolve) run: db_stress asserts every file read's
+// io_activity matches the one implied by the current thread operation (see
+// db_stress_env_wrapper.h / TEST_GetExpectedIOActivity), and ThreadStatus
+// reporting then attributes these reads to the lazy-resolve operation.
+//
+// TODO: unified RAII wrappers for thread status updates
+class LazyResolveThreadOpScope {
+ public:
+  LazyResolveThreadOpScope() {
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_LAZY_RESOLVE);
+  }
+  ~LazyResolveThreadOpScope() {
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
+  }
+  LazyResolveThreadOpScope(const LazyResolveThreadOpScope&) = delete;
+  LazyResolveThreadOpScope& operator=(const LazyResolveThreadOpScope&) = delete;
+};
+}  // namespace
+
 // Internal representation. Owns the serialized-entity backing buffer + inline
 // columns (via `entity_`), the decoded blob references, the per-column views,
 // the on-demand blob resolver, and the SuperVersion pin that keeps all of it
@@ -136,18 +170,11 @@ class LazyWideColumns::Rep {
     // skipping checksum and cache-fill; every other case resolves the whole
     // column (caching it) and slices. Repeated whole-column reads therefore
     // read the blob at most once; partial reads own their own bytes and are not
-    // cached.
-    Status s;
-    if (read.result != nullptr) {
-      s = resolver_->ResolveColumnRange(index, read.offset, read.length,
-                                        read.force_verify, read.result);
-    } else {
-      // No output buffer: still resolve the column so any I/O error surfaces on
-      // read.status (matching a request that asked only whether the column is
-      // readable). A whole-column resolve suffices here.
-      Slice ignored;
-      s = resolver_->ResolveColumn(index, &ignored);
-    }
+    // cached. A null read.result still resolves (to surface I/O/integrity
+    // errors on read.status and honor force_verify), just without producing
+    // output -- ResolveColumnRange handles that case.
+    const Status s = resolver_->ResolveColumnRange(
+        index, read.offset, read.length, read.force_verify, read.result);
 
     if (read.status) {
       *read.status = s;
@@ -173,6 +200,7 @@ const LazyWideColumn& LazyWideColumns::operator[](size_t i) const {
 
 Status LazyWideColumns::MultiResolve(size_t num_reads,
                                      LazyColumnReadRequest* reads) {
+  LazyResolveThreadOpScope thread_op_scope;
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];
     if (read.status) {
@@ -264,6 +292,7 @@ LazyWideColumns& LazyWideColumnsBatch::operator[](size_t i) {
 
 Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
                                           LazyColumnReadRequest* reads) {
+  LazyResolveThreadOpScope thread_op_scope;
   const void* this_rep = rep_.get();
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];

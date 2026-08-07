@@ -53,6 +53,8 @@ Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
     case ThreadStatus::OperationType::
         OP_GET_FILE_CHECKSUMS_FROM_CURRENT_MANIFEST:
       return Env::IOActivity::kGetFileChecksumsFromCurrentManifest;
+    case ThreadStatus::OperationType::OP_LAZY_RESOLVE:
+      return Env::IOActivity::kLazyResolve;
     default:
       return Env::IOActivity::kUnknown;
   }

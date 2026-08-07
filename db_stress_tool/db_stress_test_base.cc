@@ -525,22 +525,19 @@ void PickLazyReadRange(Random* rand, std::optional<uint64_t> known_size,
     *length = kLazyWholeColumn;
     return;
   }
-  // Cap for the 32-bit Random API; db_stress column values are far smaller.
-  uint64_t size = *known_size;
-  if (size > (uint64_t{1} << 20)) {
-    size = uint64_t{1} << 20;
-  }
-  // Offset in [0, size]; occasionally just past the end to exercise clamping.
-  *offset = rand->Uniform(static_cast<int>(size) + 1);
-  if (rand->OneIn(8)) {
-    *offset = size + rand->Uniform(4);
-  }
+  // A small over-range so ~1/16 of picks land past the end or beyond the
+  // remainder, exercising the API's clamp-to-empty / clamp-to-remainder
+  // behavior. db_stress column values fit comfortably in int.
+  const int size_plus_some = static_cast<int>(*known_size + (*known_size >> 4));
+  // Offset in [0, size_plus_some); occasionally past the end to exercise
+  // clamping.
+  *offset = rand->Uniform(size_plus_some);
   // Length: usually a bounded sub-range (which may exceed the remainder),
   // sometimes to the end of the column.
   if (rand->OneIn(4)) {
     *length = kLazyWholeColumn;
   } else {
-    *length = static_cast<size_t>(rand->Uniform(static_cast<int>(size) + 1));
+    *length = rand->Uniform(size_plus_some);
   }
 }
 

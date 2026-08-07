@@ -159,10 +159,17 @@ Status ReadPathBlobResolver::ResolveColumnRange(size_t column_index,
                                                 bool force_verify,
                                                 PinnableSlice* result) {
   assert(columns_);
-  assert(result);
 
   if (column_index >= columns_->size()) {
     return Status::InvalidArgument("Column index out of bounds");
+  }
+
+  // No output buffer: the caller only wants to surface any I/O / integrity
+  // error (and honor force_verify). Resolve the whole column and return; there
+  // is nothing to slice into.
+  if (result == nullptr) {
+    Slice ignored;
+    return ResolveColumnInternal(column_index, force_verify, &ignored);
   }
 
   const BlobIndex* blob_index_ptr =
@@ -214,7 +221,7 @@ Status ReadPathBlobResolver::ResolveColumnRange(size_t column_index,
   // ReadOptions::verify_checksums or force_verify), then slice out the
   // requested range.
   Slice whole;
-  const Status s = ResolveColumnInternal(column_index, force_verify, &whole);
+  Status s = ResolveColumnInternal(column_index, force_verify, &whole);
   if (!s.ok()) {
     return s;
   }
