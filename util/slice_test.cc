@@ -771,10 +771,10 @@ TEST(SliceHexTest, HexAndToStringRoundTrip) {
     ASSERT_EQ(decoded.size(), 4);
 
     // Verify the decoded bytes match expected values
-    ASSERT_EQ(static_cast<unsigned char>(decoded[0]), 0xDE);
-    ASSERT_EQ(static_cast<unsigned char>(decoded[1]), 0xAD);
-    ASSERT_EQ(static_cast<unsigned char>(decoded[2]), 0xBE);
-    ASSERT_EQ(static_cast<unsigned char>(decoded[3]), 0xEF);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[0]), 0xDE);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[1]), 0xAD);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[2]), 0xBE);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[3]), 0xEF);
 
     // Round-trip the decoded bytes back through VerifyHexRoundTrip
     VerifyHexRoundTrip(decoded);
