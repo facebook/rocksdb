@@ -106,6 +106,13 @@ rocksdb_options_set_use_direct_io_for_compaction_reads(rocksdb_options_t* opt,
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_use_direct_io_for_compaction_reads(rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_fail_on_option_compatibility_error(rocksdb_options_t* opt,
+                                                       unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_fail_on_option_compatibility_error(rocksdb_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_allow_fallocate(
     rocksdb_options_t* opt, unsigned char v);
 

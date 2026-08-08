@@ -49,6 +49,19 @@ inline bool HasTableFilter(const ReadOptions& read_options) {
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts);
 
+// Runs mandatory DB option compatibility checks. These checks are not
+// controlled by DBOptions::fail_on_option_compatibility_error.
+Status ValidateDBOptionCompatibility(const DBOptions& db_opts);
+
+// Runs mandatory DB option compatibility checks followed by product-option
+// compatibility checks. Product-option compatibility issues are always logged
+// as warnings when info_log is configured, and become InvalidArgument when
+// DBOptions::fail_on_option_compatibility_error is true.
+Status ValidateOptionCompatibility(const DBOptions& db_opts,
+                                   const ColumnFamilyOptions& cf_opts);
+Status ValidateColumnFamilyOptionCompatibility(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts);
+
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
 // Overwrites `options`

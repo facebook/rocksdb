@@ -6171,6 +6171,8 @@ void InitializeOptionsFromFlags(
       FLAGS_use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       FLAGS_use_direct_io_for_flush_and_compaction;
+  options.fail_on_option_compatibility_error =
+      FLAGS_fail_on_option_compatibility_error;
   options.recycle_log_file_num =
       static_cast<size_t>(FLAGS_recycle_log_file_num);
   options.target_file_size_base = FLAGS_target_file_size_base;

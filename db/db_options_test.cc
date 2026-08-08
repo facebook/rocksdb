@@ -1783,6 +1783,21 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsRoundTrip) {
   ASSERT_FALSE(parsed.use_direct_io_for_compaction_reads);
 }
 
+TEST_F(DBOptionsTest, FailOnOptionCompatibilityErrorRoundTrip) {
+  ASSERT_FALSE(DBOptions().fail_on_option_compatibility_error);
+
+  DBOptions parsed;
+  ConfigOptions config_options;
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "fail_on_option_compatibility_error=true",
+                                   &parsed));
+  ASSERT_TRUE(parsed.fail_on_option_compatibility_error);
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(),
+                                   "fail_on_option_compatibility_error=false",
+                                   &parsed));
+  ASSERT_FALSE(parsed.fail_on_option_compatibility_error);
+}
+
 // Validates that Open rejects the documented incompatible combination.
 TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsValidation) {
   // mmap_reads + use_direct_io_for_compaction_reads is rejected at Open
@@ -1794,6 +1809,119 @@ TEST_F(DBOptionsTest, UseDirectIoForCompactionReadsValidation) {
   bad_options.use_direct_io_for_compaction_reads = true;
   Status bad_status = TryReopen(bad_options);
   ASSERT_TRUE(bad_status.IsNotSupported()) << bad_status.ToString();
+}
+
+TEST_F(DBOptionsTest, DBOptionCompatibilityRejectsMmapAndDirectIo) {
+  DBOptions options;
+  options.allow_mmap_reads = true;
+  options.use_direct_reads = true;
+  ASSERT_TRUE(ValidateDBOptionCompatibility(options).IsNotSupported());
+
+  options = DBOptions();
+  options.allow_mmap_reads = true;
+  options.use_direct_io_for_compaction_reads = true;
+  ASSERT_TRUE(ValidateDBOptionCompatibility(options).IsNotSupported());
+
+  options = DBOptions();
+  options.allow_mmap_writes = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+  ASSERT_TRUE(ValidateDBOptionCompatibility(options).IsNotSupported());
+}
+
+TEST_F(DBOptionsTest, BlobDirectWriteMandatoryCompatibilityRules) {
+  DBOptions db_options;
+  db_options.allow_concurrent_memtable_write = false;
+  ColumnFamilyOptions cf_options;
+  cf_options.enable_blob_files = true;
+  cf_options.enable_blob_direct_write = true;
+
+  auto expect_not_supported = [&](const DBOptions& db_opts,
+                                  const ColumnFamilyOptions& cf_opts,
+                                  const std::string& expected) {
+    Status s = ValidateOptionCompatibility(db_opts, cf_opts);
+    ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+    ASSERT_NE(s.ToString().find(expected), std::string::npos) << s.ToString();
+  };
+
+  DBOptions bad_db_options = db_options;
+  bad_db_options.enable_pipelined_write = true;
+  expect_not_supported(bad_db_options, cf_options, "pipelined writes");
+
+  bad_db_options = db_options;
+  bad_db_options.allow_concurrent_memtable_write = true;
+  expect_not_supported(bad_db_options, cf_options,
+                       "concurrent memtable writes");
+
+  bad_db_options = db_options;
+  bad_db_options.unordered_write = true;
+  expect_not_supported(bad_db_options, cf_options, "unordered writes");
+
+  bad_db_options = db_options;
+  bad_db_options.two_write_queues = true;
+  expect_not_supported(bad_db_options, cf_options, "two write queues");
+
+  ColumnFamilyOptions bad_cf_options = cf_options;
+  bad_cf_options.experimental_mempurge_threshold = 1.0;
+  expect_not_supported(db_options, bad_cf_options, "MemPurge");
+
+  bad_cf_options = cf_options;
+  bad_cf_options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  expect_not_supported(db_options, bad_cf_options, "user-defined timestamps");
+}
+
+TEST_F(DBOptionsTest, BlobDirectWriteCompatibilityWarningPolicy) {
+  DBOptions db_options;
+  db_options.allow_concurrent_memtable_write = false;
+  ColumnFamilyOptions cf_options;
+  cf_options.enable_blob_direct_write = true;
+
+  ASSERT_OK(ValidateOptionCompatibility(db_options, cf_options));
+  db_options.fail_on_option_compatibility_error = true;
+  Status s = ValidateOptionCompatibility(db_options, cf_options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("enable_blob_files"), std::string::npos)
+      << s.ToString();
+
+  db_options = DBOptions();
+  db_options.allow_concurrent_memtable_write = false;
+  cf_options.enable_blob_files = true;
+  cf_options.enable_blob_garbage_collection = true;
+  ASSERT_OK(ValidateOptionCompatibility(db_options, cf_options));
+  db_options.fail_on_option_compatibility_error = true;
+  s = ValidateOptionCompatibility(db_options, cf_options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("enable_blob_garbage_collection"),
+            std::string::npos)
+      << s.ToString();
+
+  db_options = DBOptions();
+  db_options.allow_concurrent_memtable_write = false;
+  cf_options.enable_blob_garbage_collection = false;
+  db_options.best_efforts_recovery = true;
+  ASSERT_OK(ValidateOptionCompatibility(db_options, cf_options));
+  db_options.fail_on_option_compatibility_error = true;
+  s = ValidateOptionCompatibility(db_options, cf_options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("best_efforts_recovery"), std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(DBOptionsTest, FailOnOptionCompatibilityErrorPolicy) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_concurrent_memtable_write = false;
+  options.inplace_update_support = true;
+  options.min_tombstones_for_range_conversion = 2;
+
+  options.fail_on_option_compatibility_error = false;
+  DestroyAndReopen(options);
+
+  Destroy(options);
+  options.fail_on_option_compatibility_error = true;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_NE(s.ToString().find("option compatibility check"), std::string::npos)
+      << s.ToString();
 }
 
 // Confirms the option is plumbed all the way to the live DB's options API:

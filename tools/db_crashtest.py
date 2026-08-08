@@ -986,7 +986,7 @@ def finalize_and_sanitize(src_params):
     # remote --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
-    
+
     # Not to accidentally ignore errors on local dbs
     # (e.g. errors on IO Uring would be categorized as IO error)
     if not is_remote_db:
