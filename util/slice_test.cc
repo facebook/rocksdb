@@ -14,6 +14,7 @@
 #include <cstring>
 #include <new>
 #include <semaphore>
+#include <unordered_set>
 
 #include "port/port.h"
 #include "port/stack_trace.h"
