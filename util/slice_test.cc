@@ -875,8 +875,8 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
   for (int i = 0; i < 500; ++i) {
     const uint8_t invalid_c1 = invalid_chars[rand.Uniform(num_invalid)];
     const uint8_t invalid_c2 = invalid_chars[rand.Uniform(num_invalid)];
-    SCOPED_TRACE("Testing invalid pair: 0x" + 
-                 std::to_string(static_cast<int>(invalid_c1)) + " 0x" + 
+    SCOPED_TRACE("Testing invalid pair: 0x" +
+                 std::to_string(static_cast<int>(invalid_c1)) + " 0x" +
                  std::to_string(static_cast<int>(invalid_c2)));
     const std::string hex_pair{static_cast<char>(invalid_c1),
                                static_cast<char>(invalid_c2)};
