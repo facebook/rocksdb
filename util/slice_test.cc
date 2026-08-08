@@ -901,6 +901,12 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
     ASSERT_FALSE(s.DecodeHex(&decoded));
     ASSERT_EQ(decoded, "A");
   }
+  {
+    Slice s("4142GG4546");
+    std::string decoded;
+    ASSERT_FALSE(s.DecodeHex(&decoded));
+    ASSERT_EQ(decoded, "AB");
+  }
 
   // Test that an odd-length input returns false and leaves result unchanged
   {
