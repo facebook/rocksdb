@@ -159,6 +159,7 @@ def generate_buck(repo_path, deps_map):
             "//folly/io/async:async_base",
             "//folly/io/async:event_base_manager",
             "//folly/io/async:io_uring_backend",
+            "//folly/io/async:request_context",
             "//folly/synchronization:distributed_mutex",
         ],
         headers=LiteralValue("glob([\"**/*.h\"])")

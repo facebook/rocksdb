@@ -772,6 +772,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   std::string old_sk_prefix = Record::EncodeSecondaryKey(old_c);
   std::string iter_ub_str = Record::EncodeSecondaryKey(old_c + 1);
   Slice iter_ub = iter_ub_str;
+  std::function<bool(const TableProperties&)> table_filter;
   ReadOptions ropts;
   ropts.snapshot = txn->GetSnapshot();
   ropts.auto_refresh_iterator_with_snapshot =
@@ -781,8 +782,9 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   ropts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   if (FLAGS_use_sqfc_for_range_queries) {
-    ropts.table_filter =
+    table_filter =
         sqfc_factory_->GetTableFilterForRangeQuery(old_sk_prefix, iter_ub);
+    ropts.table_filter = &table_filter;
   }
   it = txn->GetIterator(ropts);
 
@@ -1149,9 +1151,11 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
         FLAGS_auto_refresh_iterator_with_snapshot;
     ropts.total_order_seek = true;
     ropts.iterate_upper_bound = &iter_ub;
+    std::function<bool(const TableProperties&)> table_filter;
     if (FLAGS_use_sqfc_for_range_queries) {
-      ropts.table_filter =
+      table_filter =
           sqfc_factory_->GetTableFilterForRangeQuery(start_key, iter_ub);
+      ropts.table_filter = &table_filter;
     }
 
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
@@ -1475,10 +1479,10 @@ void MultiOpsTxnsStressTest::PersistKeySpacesDesc(
   std::unique_ptr<WritableFile> wfile;
   Status s1 =
       Env::Default()->NewWritableFile(key_spaces_path, &wfile, EnvOptions());
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
   assert(wfile);
   s1 = wfile->Append(key_spaces_rep);
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
 }
 
 MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
@@ -1487,12 +1491,12 @@ MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
   std::unique_ptr<SequentialFile> sfile;
   Status s1 =
       Env::Default()->NewSequentialFile(key_spaces_path, &sfile, EnvOptions());
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
   assert(sfile);
   char buf[16];
   Slice result;
   s1 = sfile->Read(sizeof(buf), &result, buf);
-  assert(s1.ok());
+  DB_STRESS_ASSERT_OK(s1);
   if (!key_spaces.DecodeFrom(result)) {
     assert(false);
   }
@@ -1581,7 +1585,7 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     s = txn_db_->Write(wopts, &wb);
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
     ProcessStatus(shared, "PreloadDB", s, /*ignore_injected_error=*/false);
 
     // TODO (yanqin): make the following check optional, especially when data
@@ -1674,24 +1678,22 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
         Record::EncodePrimaryKey(std::numeric_limits<uint32_t>::max());
     Slice pk_lb = pk_lb_str;
     Slice pk_ub = pk_ub_str;
+    std::function<bool(const TableProperties&)> table_filter;
     ropts.iterate_lower_bound = &pk_lb;
     ropts.iterate_upper_bound = &pk_ub;
     ropts.total_order_seek = true;
     if (FLAGS_use_sqfc_for_range_queries) {
-      ropts.table_filter =
-          sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
+      table_filter = sqfc_factory_->GetTableFilterForRangeQuery(pk_lb, pk_ub);
+      ropts.table_filter = &table_filter;
     }
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
-      if (!s.ok()) {
-        fprintf(stderr, "Cannot decode primary index entry (%s => %s): %s\n",
-                it->key().ToString(true).c_str(),
-                it->value().ToString(true).c_str(), s.ToString().c_str());
-        assert(false);
-      }
+      DB_STRESS_ASSERT_OK_MSG(s, "Cannot decode primary index entry (%s => %s)",
+                              it->key().ToString(true).c_str(),
+                              it->value().ToString(true).c_str());
       uint32_t a = record.a_value();
       assert(a >= lb_a);
       assert(a < ub_a);

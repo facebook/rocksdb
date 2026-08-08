@@ -48,7 +48,7 @@ class BlobFileBuilder {
                   const std::shared_ptr<IOTracer>& io_tracer,
                   BlobFileCompletionCallback* blob_callback,
                   BlobFileCreationReason creation_reason,
-                  std::vector<std::string>* blob_file_paths,
+                  std::vector<std::string>* output_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
   BlobFileBuilder(std::function<uint64_t()> file_number_generator,
@@ -63,7 +63,7 @@ class BlobFileBuilder {
                   const std::shared_ptr<IOTracer>& io_tracer,
                   BlobFileCompletionCallback* blob_callback,
                   BlobFileCreationReason creation_reason,
-                  std::vector<std::string>* blob_file_paths,
+                  std::vector<std::string>* output_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
   BlobFileBuilder(const BlobFileBuilder&) = delete;
@@ -76,6 +76,7 @@ class BlobFileBuilder {
   void Abandon(const Status& s);
 
  private:
+  std::string GetBlobFilePath(uint64_t blob_file_number) const;
   bool IsBlobFileOpen() const;
   Status OpenBlobFileIfNeeded();
   Status CompressBlobIfNeeded(Slice* blob,
@@ -108,7 +109,7 @@ class BlobFileBuilder {
   std::shared_ptr<IOTracer> io_tracer_;
   BlobFileCompletionCallback* blob_callback_;
   BlobFileCreationReason creation_reason_;
-  std::vector<std::string>* blob_file_paths_;
+  std::vector<std::string>* output_file_paths_;
   std::vector<BlobFileAddition>* blob_file_additions_;
   std::unique_ptr<BlobLogWriter> writer_;
   uint64_t blob_count_;

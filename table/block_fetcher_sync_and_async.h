@@ -35,8 +35,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockFetcher::ReadBlock)(bool retry) {
       AlignedBufferAllocationContext direct_io_context{
           &direct_io_buffer_,
           direct_io_allocator ? &direct_io_allocator : nullptr};
-#if defined(WITHOUT_COROUTINES)
       PERF_TIMER_GUARD(block_read_time);
+#if defined(WITHOUT_COROUTINES)
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
@@ -47,8 +47,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockFetcher::ReadBlock)(bool retry) {
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
-#if defined(WITHOUT_COROUTINES)
       PERF_TIMER_GUARD(block_read_time);
+#if defined(WITHOUT_COROUTINES)
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
@@ -71,8 +71,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockFetcher::ReadBlock)(bool retry) {
         CO_RETURN;
       }
 
-#if defined(WITHOUT_COROUTINES)
       PERF_TIMER_GUARD(block_read_time);
+#if defined(WITHOUT_COROUTINES)
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);

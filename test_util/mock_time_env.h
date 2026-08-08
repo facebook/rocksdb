@@ -41,6 +41,20 @@ class MockSystemClock : public SystemClockWrapper {
     return current_time_us_ * 1000;
   }
 
+  uint64_t CPUMicros() override {
+    if (!mock_cpu_time_.load(std::memory_order_relaxed)) {
+      return SystemClockWrapper::CPUMicros();
+    }
+    return current_cpu_time_ns_.load(std::memory_order_relaxed) / 1000;
+  }
+
+  uint64_t CPUNanos() override {
+    if (!mock_cpu_time_.load(std::memory_order_relaxed)) {
+      return SystemClockWrapper::CPUNanos();
+    }
+    return current_cpu_time_ns_.load(std::memory_order_relaxed);
+  }
+
   uint64_t RealNowMicros() { return target_->NowMicros(); }
 
   void SetCurrentTime(uint64_t time_sec) {
@@ -67,6 +81,18 @@ class MockSystemClock : public SystemClockWrapper {
     uint64_t micros = static_cast<uint64_t>(seconds) * kMicrosInSecond;
     assert(current_time_us_ + micros >= current_time_us_);
     current_time_us_.fetch_add(micros);
+  }
+
+  void SetCurrentCPUTimeNanos(uint64_t nanos) {
+    current_cpu_time_ns_.store(nanos, std::memory_order_relaxed);
+    mock_cpu_time_.store(true, std::memory_order_relaxed);
+  }
+
+  void MockSleepForCPUNanos(uint64_t nanos) {
+    assert(mock_cpu_time_.load(std::memory_order_relaxed));
+    assert(current_cpu_time_ns_.load(std::memory_order_relaxed) <=
+           std::numeric_limits<uint64_t>::max() - nanos);
+    current_cpu_time_ns_.fetch_add(nanos, std::memory_order_relaxed);
   }
 
   bool TimedWait(port::CondVar* cv,
@@ -103,6 +129,8 @@ class MockSystemClock : public SystemClockWrapper {
 
  private:
   std::atomic<uint64_t> current_time_us_{0};
+  std::atomic<uint64_t> current_cpu_time_ns_{0};
+  std::atomic<bool> mock_cpu_time_{false};
   static constexpr uint64_t kMicrosInSecond = 1000U * 1000U;
 };
 

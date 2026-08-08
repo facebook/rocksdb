@@ -493,7 +493,8 @@ struct CompactionJobInfo {
   // BlobDB.
   std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
 
-  // Whether this compaction was aborted via AbortAllCompactions()
+  // Whether this compaction was aborted via AbortAllCompactions() or
+  // AbortCompactions().
   bool aborted = false;
 };
 

@@ -73,11 +73,7 @@ SharedState::SharedState(Env* /*env*/, StressTest* stress_test)
     }
     status = expected_state_manager_->Open();
   }
-  if (!status.ok()) {
-    fprintf(stderr, "Failed setting up expected state with error: %s\n",
-            status.ToString().c_str());
-    exit(1);  // NOLINT(concurrency-mt-unsafe)
-  }
+  DB_STRESS_ASSERT_OK_MSG(status, "Failed setting up expected state");
 
   if (FLAGS_test_batches_snapshots) {
     fprintf(stdout, "No lock creation because test_batches_snapshots set\n");

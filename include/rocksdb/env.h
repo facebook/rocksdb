@@ -464,6 +464,12 @@ class Env : public Customizable {
     kGetEntity = 8,
     kMultiGetEntity = 9,
     kGetFileChecksumsFromCurrentManifest = 10,
+    // Deferred blob-byte reads performed while resolving a lazy wide-column
+    // result (DB::GetEntityLazy / DB::MultiGetEntityLazy), i.e. reads issued by
+    // LazyWideColumns::MultiResolve after the originating call returned.
+    // Distinct from kGetEntity/kMultiGetEntity, which cover the initial entity
+    // read.
+    kLazyResolve = 11,
     // Enums after this, up to 0x7F, are reserved for future use for the public
     // RocksDB API (i.e. they should be "non-custom" IO activities). Make sure
     // to also update IOActivityToString when adding new values.

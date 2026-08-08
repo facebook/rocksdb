@@ -12,7 +12,6 @@
 #include "rocksdb/file_system.h"
 
 #if USE_COROUTINES && FOLLY_HAS_LIBURING
-#include "folly/ScopeGuard.h"
 #include "folly/executors/IOThreadPoolExecutor.h"
 #endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
@@ -21,24 +20,22 @@ namespace ROCKSDB_NAMESPACE {
 #if USE_COROUTINES && FOLLY_HAS_LIBURING
 class PosixFileSystemTest : public testing::Test {};
 
-TEST_F(PosixFileSystemTest, SetsReadIOExecutorThreads) {
+TEST_F(PosixFileSystemTest, OnlyIncreasesReadIOExecutor) {
   auto fs = FileSystem::Default();
+  fs->SetReadIOExecutorThreads(1);
   auto* read_executor = fs->GetReadExecutor();
   if (read_executor == nullptr) {
     return;
   }
   auto* thread_pool = dynamic_cast<folly::IOThreadPoolExecutor*>(read_executor);
   ASSERT_NE(thread_pool, nullptr);
-  ASSERT_NE(read_executor->getEventBase(), nullptr);
-  const auto original_threads = thread_pool->numThreads();
-  auto restore_threads = folly::makeGuard([&] {
-    fs->SetReadIOExecutorThreads(static_cast<int>(original_threads));
-  });
+  const size_t original_threads = thread_pool->numThreads();
 
-  fs->SetReadIOExecutorThreads(1);
-  ASSERT_EQ(thread_pool->numThreads(), static_cast<size_t>(1));
-  fs->SetReadIOExecutorThreads(2);
-  ASSERT_EQ(thread_pool->numThreads(), static_cast<size_t>(2));
+  fs->SetReadIOExecutorThreads(static_cast<int>(original_threads + 1));
+  EXPECT_EQ(thread_pool->numThreads(), original_threads + 1);
+
+  fs->SetReadIOExecutorThreads(static_cast<int>(original_threads));
+  EXPECT_EQ(thread_pool->numThreads(), original_threads + 1);
 }
 
 #endif  // USE_COROUTINES && FOLLY_HAS_LIBURING

@@ -93,7 +93,6 @@ LIB_SOURCES =                                                   \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
-  db/transaction_log_impl.cc                                    \
   db/trim_history_scheduler.cc                                  \
   db/version_builder.cc                                         \
   db/version_edit.cc                                            \
@@ -101,8 +100,10 @@ LIB_SOURCES =                                                   \
   db/version_set.cc                                             \
   db/version_util.cc                                            \
   db/wal_edit.cc                                                \
+  db/wal_iterator_impl.cc                                       \
   db/wal_manager.cc                                             \
-  db/wide/read_path_blob_resolver.cc                             \
+  db/wide/lazy_wide_columns.cc                                  \
+  db/wide/read_path_blob_resolver.cc                            \
   db/wide/wide_column_serialization.cc                          \
   db/wide/wide_columns.cc                                       \
   db/wide/wide_columns_helper.cc                                \
@@ -253,6 +254,7 @@ LIB_SOURCES =                                                   \
   util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
+  util/coro_stats_util.cc                                       \
   util/crc32c.cc                                                \
   util/crc32c_arm64.cc                                          \
   util/data_structure.cc                                        \
@@ -574,6 +576,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
+  db/wide/db_lazy_entity_test.cc                                       \
   db/wide/db_wide_basic_test.cc                                         \
   db/wide/db_wide_blob_direct_write_test.cc                             \
   db/wide/wide_column_serialization_test.cc                             \
@@ -774,13 +777,13 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/transaction_db.cc                             \
   java/rocksjni/transaction_options.cc                        \
   java/rocksjni/transaction_db_options.cc                     \
-  java/rocksjni/transaction_log.cc                            \
   java/rocksjni/transaction_notifier.cc                       \
   java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
   java/rocksjni/testable_event_listener.cc                    \
   java/rocksjni/wal_filter.cc                                 \
   java/rocksjni/wal_filter_jnicallback.cc                     \
+  java/rocksjni/wal_iterator.cc                               \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \

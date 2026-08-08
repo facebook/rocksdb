@@ -17,6 +17,7 @@
 
 #if USE_COROUTINES
 #include "folly/Executor.h"
+#include "folly/coro/Invoke.h"
 #include "folly/executors/IOExecutor.h"
 #include "folly/io/async/EventBase.h"
 #endif  // USE_COROUTINES
@@ -66,8 +67,9 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
-#include "db/transaction_log_impl.h"
 #include "db/version_set.h"
+#include "db/wal_iterator_impl.h"
+#include "db/wide/lazy_wide_columns_helper.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
@@ -90,6 +92,7 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "rocksdb/lazy_wide_columns.h"
 #include "util/udt_util.h"
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
@@ -123,6 +126,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/coro_stats_util.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
 #include "util/distributed_mutex.h"
@@ -242,6 +246,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
                      immutable_db_options_.listeners, dbname_) {
+#if USE_COROUTINES
+  immutable_db_options_.fs->SetReadIOExecutorThreads(
+      immutable_db_options_.read_io_executor_threads);
+#endif  // USE_COROUTINES
+
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -875,6 +884,13 @@ Status DBImpl::CloseHelper() {
     auto cfd = PopFirstFromCompactionQueue();
     cfd->UnrefAndTryDelete();
   }
+
+  for (auto* cfd : parked_compaction_cfds_) {
+    assert(cfd->queued_for_compaction());
+    cfd->set_queued_for_compaction(false);
+    cfd->UnrefAndTryDelete();
+  }
+  parked_compaction_cfds_.clear();
 
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
@@ -2530,6 +2546,17 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
   delete sv_handle;
 }
 
+void DBImpl::TransferSuperVersionPin(SuperVersion* super_version,
+                                     Cleanable* pin) {
+  assert(super_version != nullptr);
+  assert(pin != nullptr);
+  super_version->Ref();
+  SuperVersionHandle* sv_handle = new SuperVersionHandle(
+      this, &mutex_, super_version,
+      immutable_db_options_.avoid_unnecessary_blocking_io);
+  pin->RegisterCleanup(CleanupSuperVersionHandle, sv_handle, nullptr);
+}
+
 struct GetMergeOperandsState {
   GetMergeOperandsState(MergeContext _merge_context,
                         PinnedIteratorsManager _pinned_iters_mgr)
@@ -2700,6 +2727,163 @@ Status DBImpl::GetEntity(const ReadOptions& _read_options,
   return GetImpl(read_options, key, get_impl_options);
 }
 
+Status DBImpl::GetEntityLazyImpl(const ReadOptions& read_options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, LazyWideColumns* result) {
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Point-lookup output: the entity buffer owned by the result. GetImpl fills
+  // it with the (unresolved) entity and hands back the resolution context.
+  PinnableWideColumns* entity_buffer =
+      LazyWideColumnsHelper::EntityBuffer(result);
+
+  const SameFileBlobReader* same_file_reader = nullptr;
+  const Version* version = nullptr;
+  Cleanable pin;
+
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns = entity_buffer;
+  get_impl_options.lazy_columns_pin = &pin;
+  get_impl_options.lazy_columns_version = &version;
+  get_impl_options.lazy_columns_same_file_reader = &same_file_reader;
+
+  Status s = GetImpl(read_options, key, get_impl_options);
+  if (!s.ok()) {
+    result->Reset();
+    return s;
+  }
+
+  s = LazyWideColumnsHelper::Finalize(
+      result, key, version, read_options, cfd->blob_file_cache(),
+      /*allow_write_path_fallback=*/cfd->blob_partition_manager() != nullptr,
+      same_file_reader, std::move(pin));
+  if (!s.ok()) {
+    result->Reset();
+  }
+  return s;
+}
+
+Status DBImpl::GetEntityLazy(const ReadOptions& _read_options,
+                             ColumnFamilyHandle* column_family,
+                             const Slice& key, LazyWideColumns* result) {
+  // Start from an empty result so a reused LazyWideColumns is left empty (not
+  // stale) on every early-return / error path below.
+  if (result != nullptr) {
+    result->Reset();
+  }
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityLazy without a column family handle");
+  }
+  if (!result) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityLazy without a LazyWideColumns object");
+  }
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+    return Status::InvalidArgument(
+        "Can only call GetEntityLazy with `ReadOptions::io_activity` set to "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+  }
+  // Lazy resolution keeps blob references (including same-file/embedded ones)
+  // resolvable after the call returns; that relies on immortal, pinned table
+  // readers, which the DB only guarantees when max_open_files == -1.
+  if (mutable_db_options_.max_open_files != -1) {
+    return Status::InvalidArgument(
+        "GetEntityLazy requires the DB to be opened with max_open_files == -1");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGetEntity;
+  }
+
+  return GetEntityLazyImpl(read_options, column_family, key, result);
+}
+
+void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
+                                ColumnFamilyHandle* column_family,
+                                size_t num_keys, const Slice* keys,
+                                LazyWideColumnsBatch* result, Status* statuses,
+                                bool /* sorted_input */) {
+  // Start from an empty batch so a reused LazyWideColumnsBatch is left empty
+  // (not stale) on every early-return / error path below.
+  if (result != nullptr) {
+    result->Reset();
+  }
+  if (num_keys == 0) {
+    return;
+  }
+  Status arg_status;
+  if (!column_family) {
+    arg_status = Status::InvalidArgument(
+        "Cannot call MultiGetEntityLazy without a column family handle");
+  } else if (!result) {
+    arg_status = Status::InvalidArgument(
+        "Cannot call MultiGetEntityLazy without a LazyWideColumnsBatch object");
+  } else if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+             _read_options.io_activity != Env::IOActivity::kMultiGetEntity) {
+    arg_status = Status::InvalidArgument(
+        "Can only call MultiGetEntityLazy with `ReadOptions::io_activity` set "
+        "to `Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGetEntity`");
+  } else if (mutable_db_options_.max_open_files != -1) {
+    arg_status = Status::InvalidArgument(
+        "MultiGetEntityLazy requires the DB to be opened with max_open_files "
+        "== "
+        "-1");
+  }
+  if (!arg_status.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = arg_status;
+    }
+    return;
+  }
+
+  LazyWideColumnsHelper::InitBatch(result, num_keys);
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGetEntity;
+  }
+
+  // The current phase implements MultiGetEntityLazy as a loop of single-key
+  // lazy lookups. Each iteration acquires (and hands back to the result) its
+  // own SuperVersion reference, and each single-key lookup independently
+  // derives its read sequence number. To still present one consistent
+  // point-in-time view across all keys (as MultiGet guarantees), pin an
+  // explicit snapshot for the duration of the loop when the caller did not
+  // supply one: it fixes the read sequence number for every key and prevents
+  // compaction from dropping a version some later key still needs to observe.
+  //
+  // TODO(lazy-blob-resolution-phase3): replace this loop with a genuinely
+  // batched read that acquires a single SuperVersion and one consistent
+  // (implicit) sequence number for the whole batch -- the mechanism batched
+  // MultiGet already uses -- and holds one shared pin per column family instead
+  // of one per key. That removes the need for an explicit snapshot here (which
+  // takes the DB mutex and adds a snapshot list entry) and enables
+  // coalescing/parallelizing the per-key work.
+  const Snapshot* snapshot = read_options.snapshot;
+  const bool own_snapshot = snapshot == nullptr;
+  if (own_snapshot) {
+    snapshot = GetSnapshot();
+    read_options.snapshot = snapshot;
+  }
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    statuses[i] =
+        GetEntityLazyImpl(read_options, column_family, keys[i], &(*result)[i]);
+  }
+  // Link the populated entities back to the batch so batch reads can validate
+  // column ownership.
+  LazyWideColumnsHelper::FinalizeBatch(result);
+
+  if (own_snapshot) {
+    ReleaseSnapshot(snapshot);
+  }
+}
+
 Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
                          PinnableAttributeGroups* result) {
   if (!result) {
@@ -2820,9 +3004,10 @@ static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
   return status;
 }
 
-Status DBImpl::ResolveDirectWritePlainValue(
-    const ReadOptions& read_options, const Slice& key, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns) {
+Status DBImpl::ResolveDirectWritePlainValue(const Slice& key,
+                                            const BlobFetcher& blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns) {
   Slice blob_index_slice;
   std::string blob_index_storage;
   if (value != nullptr) {
@@ -2860,9 +3045,9 @@ Status DBImpl::ResolveDirectWritePlainValue(
   BlobIndex blob_idx;
   Status status = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
   if (status.ok()) {
-    status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-        read_options, key, blob_idx, current, cfd->blob_file_cache(),
-        nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
+    status =
+        blob_fetcher.FetchBlob(key, blob_idx, nullptr /* prefetch_buffer */,
+                               target, nullptr /* bytes_read */);
     if (status.ok() && columns != nullptr) {
       columns->SetPlainValue(std::move(*target));
     }
@@ -2870,10 +3055,8 @@ Status DBImpl::ResolveDirectWritePlainValue(
   return status;
 }
 
-Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
-                                             const Slice& key,
-                                             const Version* current,
-                                             ColumnFamilyData* cfd,
+Status DBImpl::ResolveDirectWriteWideColumns(const Slice& key,
+                                             const BlobFetcher& blob_fetcher,
                                              PinnableWideColumns* columns) {
   assert(columns != nullptr);
 
@@ -2917,9 +3100,8 @@ Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
     } else {
       extra_buffers.emplace_front();
       PinnableSlice& blob_value = extra_buffers.front();
-      s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
-          read_options, key, blob_idx, current, cfd->blob_file_cache(),
-          nullptr /* prefetch_buffer */, &blob_value, nullptr /* bytes_read */);
+      s = blob_fetcher.FetchBlob(key, blob_idx, nullptr /* prefetch_buffer */,
+                                 &blob_value, nullptr /* bytes_read */);
       if (!s.ok()) {
         return s;
       }
@@ -3115,9 +3297,9 @@ Status DBImpl::PostprocessMemtableValueRead(
 
 bool DBImpl::MaybeResolveDirectWriteValue(
     const ReadOptions& read_options, const Slice& key,
-    bool resolve_direct_write_value, const Version* current,
-    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-    Status* s, bool* is_blob_index, bool* value_found) {
+    bool resolve_direct_write_value, const BlobFetcher& blob_fetcher,
+    PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+    bool* is_blob_index, bool* value_found) {
   if (!s->ok() || !resolve_direct_write_value || (!value && !columns)) {
     return false;
   }
@@ -3162,15 +3344,14 @@ bool DBImpl::MaybeResolveDirectWriteValue(
   }
 
   if (needs_plain_value_resolution) {
-    *s = ResolveDirectWritePlainValue(read_options, key, current, cfd, value,
-                                      columns);
+    *s = ResolveDirectWritePlainValue(key, blob_fetcher, value, columns);
     assert(is_blob_index != nullptr);
     *is_blob_index = false;
     return true;
   }
 
   assert(columns != nullptr);
-  *s = ResolveDirectWriteWideColumns(read_options, key, current, cfd, columns);
+  *s = ResolveDirectWriteWideColumns(key, blob_fetcher, columns);
 
   if (is_blob_index != nullptr) {
     *is_blob_index = false;
@@ -3182,15 +3363,16 @@ bool DBImpl::MaybeResolveDirectWriteValue(
 void DBImpl::PostprocessDirectWriteValueRead(
     const ReadOptions& read_options, const Slice& key,
     const std::string* timestamp, bool resolve_direct_write_value,
-    const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+    const BlobFetcher* blob_fetcher, PinnableSlice* value,
     PinnableWideColumns* columns, Status* s, bool* is_blob_index,
     bool* value_found) {
   if (resolve_direct_write_value) {
+    assert(blob_fetcher != nullptr);
     std::string blob_lookup_key_storage;
     const bool value_resolved = MaybeResolveDirectWriteValue(
         read_options,
         GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-        resolve_direct_write_value, current, cfd, value, columns, s,
+        resolve_direct_write_value, *blob_fetcher, value, columns, s,
         is_blob_index, value_found);
     if (!value_resolved && value != nullptr) {
       value->PinSelf();
@@ -4008,6 +4190,9 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       write_thread_.ExitUnbatched(&w);
       if (s.ok() && cfd->blob_partition_manager() != nullptr) {
         UnregisterBlobDirectWriteColumnFamily();
+      }
+      if (s.ok()) {
+        RestoreParkedCompaction(cfd);
       }
     }
     if (s.ok()) {
@@ -5205,9 +5390,9 @@ void DBImpl::ReleaseOptionsFileNumber(
   }
 }
 
-Status DBImpl::GetUpdatesSince(
-    SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
-    const TransactionLogIterator::ReadOptions& read_options) {
+Status DBImpl::GetUpdatesSince(SequenceNumber seq,
+                               std::unique_ptr<WalIterator>* iter,
+                               const WalIterator::ReadOptions& read_options) {
   RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
   if (seq_per_batch_) {
     return Status::NotSupported(
@@ -5828,7 +6013,7 @@ void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
 }
 }  // namespace
 
-Status DBImpl::DeleteObsoleteOptionsFiles() {
+Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
   std::vector<std::string> filenames;
   // use ordered map to store keep the filenames sorted from the newest
   // to the oldest.
@@ -5853,8 +6038,23 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
 
   // Keeps the latest 2 Options file
   const size_t kNumOptionsFilesKept = 2;
-  DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
-                           immutable_db_options_.info_log, GetEnv());
+  if (options_filenames.size() > kNumOptionsFilesKept) {
+    if (schedule_only) {
+      InstrumentedMutexLock l(&mutex_);
+      for (auto iter =
+               std::next(options_filenames.begin(), kNumOptionsFilesKept);
+           iter != options_filenames.end(); ++iter) {
+        const uint64_t file_number =
+            std::numeric_limits<uint64_t>::max() - iter->first;
+        SchedulePendingPurge(iter->second, GetName(), kOptionsFile, file_number,
+                             /*job_id=*/0);
+      }
+      SchedulePurge();
+    } else {
+      DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
+                               immutable_db_options_.info_log, GetEnv());
+    }
+  }
   return Status::OK();
 }
 
@@ -5894,18 +6094,42 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
   }
 
   if (s.ok()) {
-    int my_disable_delete_obsolete_files;
+    enum class ObsoleteOptionsFileCleanup {
+      kSkip,
+      kDeleteNow,
+      kSchedule,
+    };
+    ObsoleteOptionsFileCleanup obsolete_options_file_cleanup =
+        ObsoleteOptionsFileCleanup::kSkip;
 
     {
       InstrumentedMutexLock l(&mutex_);
       versions_->options_file_number_ = options_file_number;
       versions_->options_file_size_ = options_file_size;
-      my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+      if (!disable_delete_obsolete_files_ && !is_remote_compaction_enabled) {
+        if (immutable_db_options_.avoid_unnecessary_blocking_io &&
+            !reject_new_background_jobs_) {
+          // DB::Open() sets `opened_successfully_` after WriteOptionsFile()
+          // returns, then schedules the deferred OPTIONS-file purge.
+          obsolete_options_file_cleanup =
+              opened_successfully_ ? ObsoleteOptionsFileCleanup::kSchedule
+                                   : ObsoleteOptionsFileCleanup::kSkip;
+        } else {
+          obsolete_options_file_cleanup =
+              ObsoleteOptionsFileCleanup::kDeleteNow;
+        }
+      }
     }
 
-    if (!my_disable_delete_obsolete_files && !is_remote_compaction_enabled) {
-      // TODO: Should we check for errors here?
-      DeleteObsoleteOptionsFiles().PermitUncheckedError();
+    if (obsolete_options_file_cleanup != ObsoleteOptionsFileCleanup::kSkip) {
+      Status obsolete_options_status =
+          DeleteObsoleteOptionsFiles(obsolete_options_file_cleanup ==
+                                     ObsoleteOptionsFileCleanup::kSchedule);
+      if (!obsolete_options_status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Unable to delete obsolete OPTIONS files: %s",
+                       obsolete_options_status.ToString().c_str());
+      }
     }
   }
 
@@ -7513,33 +7737,101 @@ void DBImpl::TriggerPeriodicCompaction() {
   }
 }
 
+namespace {
+
+void ResetThreadLocalStatsForAsyncCallback() {
+#ifndef NPERF_CONTEXT
+  get_perf_context()->Reset();
+#endif
+#ifndef NIOSTATS_CONTEXT
+  get_iostats_context()->Reset();
+#endif
+}
+
+const PerfContext* CurrentPerfContextForAsyncCallback(bool stats_enabled) {
+  if (!stats_enabled) {
+    return nullptr;
+  }
+#ifdef NPERF_CONTEXT
+  return nullptr;
+#else
+  return get_perf_context();
+#endif
+}
+
+const IOStatsContext* CurrentIOStatsContextForAsyncCallback(
+    bool stats_enabled) {
+  if (!stats_enabled) {
+    return nullptr;
+  }
+#ifdef NIOSTATS_CONTEXT
+  return nullptr;
+#else
+  return get_iostats_context();
+#endif
+}
+
+#if USE_COROUTINES
+std::optional<CoroutineStatsConfig> CaptureCoroutineStatsConfigForCallback(
+    bool stats_enabled) {
+  if (!stats_enabled) {
+    return std::nullopt;
+  }
+  return CaptureCoroutineStatsConfig();
+}
+
+#endif  // USE_COROUTINES
+
+}  // namespace
+
 void DBImpl::GetAsync(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       PinnableSlice* value, std::string* timestamp,
                       Status& status, AsyncCallback& callback) {
+  const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
-    auto task = [](DBImpl* db, ReadOptions task_options,
-                   ColumnFamilyHandle* task_column_family, Slice task_key,
-                   PinnableSlice* task_value, std::string* task_timestamp,
-                   Status& task_status,
-                   AsyncCallback& task_callback) -> folly::coro::Task<void> {
+    auto task =
+        [](std::optional<CoroutineStatsConfig> task_stats_config, DBImpl* db,
+           ReadOptions task_options, ColumnFamilyHandle* task_column_family,
+           Slice task_key, PinnableSlice* task_value,
+           std::string* task_timestamp, Status& task_status,
+           AsyncCallback& task_callback) mutable -> folly::coro::Task<void> {
+      std::optional<CoroutineStatsContextScope> coroutine_stats_scope;
+      if (task_stats_config.has_value()) {
+        coroutine_stats_scope.emplace(std::move(*task_stats_config),
+                                      db->immutable_db_options_.env);
+      }
       task_status = co_await folly::coro::co_nothrow(
           db->GetCoroutine(task_options, task_column_family, task_key,
                            task_value, task_timestamp));
-      task_callback.OnComplete();
-    }(this, options, column_family, key, value, timestamp, status, callback);
+      if (coroutine_stats_scope.has_value()) {
+        coroutine_stats_scope->Finalize();
+      }
+      task_callback.OnComplete(
+          CurrentPerfContextForAsyncCallback(coroutine_stats_scope.has_value()),
+          CurrentIOStatsContextForAsyncCallback(
+              coroutine_stats_scope.has_value()));
+    }(CaptureCoroutineStatsConfigForCallback(stats_enabled), this, options,
+                                                 column_family, key, value,
+                                                 timestamp, status, callback);
     folly::coro::co_withExecutor(
         folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
         .start();
     return;
   }
 #endif  // USE_COROUTINES
-  DB::GetAsync(options, column_family, key, value, timestamp, status, callback);
+  if (stats_enabled) {
+    // Mirror behavior of coroutine version where each coroutine gets a clean
+    // context
+    ResetThreadLocalStatsForAsyncCallback();
+  }
+  status = Get(options, column_family, key, value, timestamp);
+  callback.OnComplete(CurrentPerfContextForAsyncCallback(stats_enabled),
+                      CurrentIOStatsContextForAsyncCallback(stats_enabled));
 }
 
 void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
@@ -7547,32 +7839,52 @@ void DBImpl::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
                            const Slice* keys, PinnableSlice* values,
                            std::string* timestamps, Status* statuses,
                            const bool sorted_input, AsyncCallback& callback) {
+  const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
-    auto task =
-        [](DBImpl* db, ReadOptions task_options, size_t task_num_keys,
-           ColumnFamilyHandle** task_column_families, const Slice* task_keys,
-           PinnableSlice* task_values, std::string* task_timestamps,
-           Status* task_statuses, bool task_sorted_input,
-           AsyncCallback& task_callback) -> folly::coro::Task<void> {
+    auto task = [](std::optional<CoroutineStatsConfig> task_stats_config,
+                   DBImpl* db, ReadOptions task_options, size_t task_num_keys,
+                   ColumnFamilyHandle** task_column_families,
+                   const Slice* task_keys, PinnableSlice* task_values,
+                   std::string* task_timestamps, Status* task_statuses,
+                   bool task_sorted_input, AsyncCallback& task_callback) mutable
+        -> folly::coro::Task<void> {
+      std::optional<CoroutineStatsContextScope> coroutine_stats_scope;
+      if (task_stats_config.has_value()) {
+        coroutine_stats_scope.emplace(std::move(*task_stats_config),
+                                      db->immutable_db_options_.env);
+      }
       co_await folly::coro::co_nothrow(db->MultiGetCoroutine(
           task_options, task_num_keys, task_column_families, task_keys,
           task_values, task_timestamps, task_statuses, task_sorted_input));
-      task_callback.OnComplete();
-    }(this, options, num_keys, column_families, keys, values, timestamps,
-                                         statuses, sorted_input, callback);
+      if (coroutine_stats_scope.has_value()) {
+        coroutine_stats_scope->Finalize();
+      }
+      task_callback.OnComplete(
+          CurrentPerfContextForAsyncCallback(coroutine_stats_scope.has_value()),
+          CurrentIOStatsContextForAsyncCallback(
+              coroutine_stats_scope.has_value()));
+    }(CaptureCoroutineStatsConfigForCallback(stats_enabled), this, options,
+        num_keys, column_families, keys, values, timestamps, statuses,
+        sorted_input, callback);
     folly::coro::co_withExecutor(
         folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
         .start();
     return;
   }
 #endif  // USE_COROUTINES
-  DB::MultiGetAsync(options, num_keys, column_families, keys, values,
-                    timestamps, statuses, sorted_input, callback);
+  if (stats_enabled) {
+    // Mirror behavior of coroutine version where each coroutine gets a clean
+    // context
+    ResetThreadLocalStatsForAsyncCallback();
+  }
+  MultiGet(options, num_keys, column_families, keys, values, timestamps,
+           statuses, sorted_input);
+  callback.OnComplete(CurrentPerfContextForAsyncCallback(stats_enabled),
+                      CurrentIOStatsContextForAsyncCallback(stats_enabled));
 }
 
 void DBImpl::TrackOrUntrackFiles(

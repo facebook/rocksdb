@@ -27,12 +27,12 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wal_iterator.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -44,7 +44,9 @@ struct DBOptions;
 struct ExternalSstFileInfo;
 struct FlushOptions;
 struct FlushWALOptions;
+struct IOStatsContext;
 struct Options;
+struct PerfContext;
 struct ReadOptions;
 struct TableProperties;
 struct WriteOptions;
@@ -52,6 +54,8 @@ struct WaitForCompactOptions;
 class Env;
 class EventListener;
 class FileSystem;
+class LazyWideColumns;
+class LazyWideColumnsBatch;
 class MultiScan;
 class Replayer;
 class StatsHistoryIterator;
@@ -717,6 +721,43 @@ class DB {
     return Status::NotSupported("GetEntity not supported");
   }
 
+  // EXPERIMENTAL and subject to change
+  //
+  // Lazy variant of GetEntity(). If the column family contains an entry for
+  // "key", returns it in "*result" as a LazyWideColumns: inline columns are
+  // materialized zero-copy, but blob-backed columns are left as *unresolved
+  // references* whose bytes are read only when explicitly pulled (by byte
+  // range) via the LazyWideColumns read APIs (or, across keys,
+  // LazyWideColumnsBatch). Columns that are
+  // never pulled are never read from storage.
+  //
+  // Unlike GetEntity(), "*result" may be used after this call returns: it holds
+  // a pin (like an iterator) so deferred reads stay resolvable. Destroy it
+  // promptly to release that pin.
+  //
+  // Requires the DB's max_open_files == -1 (so table readers are immortal and
+  // same-file/embedded blob references stay resolvable lazily); returns
+  // InvalidArgument otherwise. Returns OK on success, NotFound (with an empty
+  // "*result") if there is no entry for "key", or another non-OK status on
+  // error.
+  //
+  // Limitations (in addition to being a wide-column API):
+  //   * User-defined timestamps: wide-column entities do not support UDT --
+  //     PutEntity() returns InvalidArgument on a column family with a
+  //     user-defined-timestamp comparator, so no entity can exist there. This
+  //     method performs the same read-timestamp validation as GetEntity() (both
+  //     go through the same internal read path), so on such a column family it
+  //     behaves exactly as GetEntity() would.
+  //   * Transactions: there is no Transaction counterpart of this method; the
+  //     lazy read APIs are available only directly on DB. Use GetEntity()
+  //     (which Transaction does provide) for reads within a transaction.
+  virtual Status GetEntityLazy(const ReadOptions& /* options */,
+                               ColumnFamilyHandle* /* column_family */,
+                               const Slice& /* key */,
+                               LazyWideColumns* /* result */) {
+    return Status::NotSupported("GetEntityLazy not supported");
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`, or a customizable suffix of merge operands when
   // `GetMergeOperandsOptions::continue_cb` is set. The `merge_operands` array
@@ -920,6 +961,30 @@ class DB {
     }
   }
 
+  // EXPERIMENTAL and subject to change
+  //
+  // Lazy, batched peer of MultiGetEntity() (see GetEntityLazy() for the lazy
+  // semantics, the required pin, and the max_open_files == -1 requirement).
+  // "*result" is filled with "num_keys" per-key entities: "(*result)[i]"
+  // is the LazyWideColumns for "keys[i]" (blob-backed columns left as
+  // unresolved references), and "statuses[i]" is set to OK / NotFound / an
+  // error as in MultiGetEntity(). The per-key entities are owned by "*result"
+  // and are valid only while it is. Resolve references across keys together via
+  // LazyWideColumnsBatch::MultiResolve.
+  //
+  // The caller must ensure "keys" and "statuses" point to "num_keys" contiguous
+  // objects.
+  virtual void MultiGetEntityLazy(const ReadOptions& /* options */,
+                                  ColumnFamilyHandle* /* column_family */,
+                                  size_t num_keys, const Slice* /* keys */,
+                                  LazyWideColumnsBatch* /* result */,
+                                  Status* statuses,
+                                  bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntityLazy not supported");
+    }
+  }
+
   // Batched MultiGet-like API that returns wide-column entities potentially
   // from multiple column families. For any given "key[i]" in "keys" (where 0 <=
   // "i" < "num_keys"), if the column family specified by "column_families[i]"
@@ -1111,15 +1176,34 @@ class DB {
   // is available, RocksDB can run an internal read coroutine on the read
   // executor, suspend while async file IO is outstanding, and resume when the
   // filesystem signals completion. The callback is invoked after the requested
-  // statuses and output buffers have been populated.
+  // statuses and output buffers have been populated. Applications can set
+  // `DBOptions::read_io_executor_threads` before opening the DB to configure
+  // executor parallelism for their workload.
   //
   // Callers must keep the DB, callback, inputs, and output buffers alive until
   // the callback returns. The callback may run inline before the async method
-  // returns, or later from the implementation's completion path.
+  // returns, or later from the implementation's completion path. Callbacks must
+  // not invoke another async read.
+  //
+  // STATS:
+  // Callbacks can opt into perf and io metrics by overriding `EnableStats`.
+  // When provided, the returned contexts contain metrics for this request
+  // only. Most metrics should generally be available. Some scoped CPU metrics
+  // may be missing (e.g. `block_read_cpu_time`). Each returned context only has
+  // stats for a single operation, unlike the sync version which can re-use the
+  // same context for multiple operations. DO NOT use get_perf_context() or
+  // get_iostats_context() for statistics as you would for sync versions.
+  //
+  // Also enabling perf for async reads is generally more expensive because each
+  // request needs a separate stats context, rather than relying on the
+  // traditional TLS stats. Stats configuration (e.g. perf level) can be set
+  // before calling async read, and the config is saved by the coroutine.
   class AsyncCallback {
    public:
     virtual ~AsyncCallback() = default;
-    virtual void OnComplete() = 0;
+    virtual bool EnableStats() const { return false; }
+    virtual void OnComplete(const PerfContext* callback_perf_context,
+                            const IOStatsContext* callback_iostats_context) = 0;
   };
 
   virtual void GetAsync(const ReadOptions& options,
@@ -1127,7 +1211,8 @@ class DB {
                         PinnableSlice* value, std::string* timestamp,
                         Status& status, AsyncCallback& callback) {
     status = Get(options, column_family, key, value, timestamp);
-    callback.OnComplete();
+    callback.OnComplete(/*callback_perf_context=*/nullptr,
+                        /*callback_iostats_context=*/nullptr);
   }
 
   virtual void GetAsync(const ReadOptions& options,
@@ -1145,14 +1230,17 @@ class DB {
 
       PinnableSlice* value() { return &pinnable_value_; }
 
-      void OnComplete() override {
+      bool EnableStats() const override { return callback_.EnableStats(); }
+
+      void OnComplete(const PerfContext* callback_perf_context,
+                      const IOStatsContext* callback_iostats_context) override {
         std::unique_ptr<CallbackWrapper> self(this);
         if (status_.ok() && pinnable_value_.IsPinned()) {
           value_->assign(pinnable_value_.data(), pinnable_value_.size());
         }
         AsyncCallback& callback = callback_;
         self.reset();
-        callback.OnComplete();
+        callback.OnComplete(callback_perf_context, callback_iostats_context);
       }
 
      private:
@@ -1202,7 +1290,8 @@ class DB {
                              const bool sorted_input, AsyncCallback& callback) {
     MultiGet(options, num_keys, column_families, keys, values, timestamps,
              statuses, sorted_input);
-    callback.OnComplete();
+    callback.OnComplete(/*callback_perf_context=*/nullptr,
+                        /*callback_iostats_context=*/nullptr);
   }
 
   virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,
@@ -1349,6 +1438,12 @@ class DB {
     //  "rocksdb.compaction-abort-count" - returns the current value of the
     //      compaction abort counter.
     static const std::string kCompactionAbortCount;
+
+    //  "rocksdb.num-unscheduled-compactions" - returns the number of
+    //      compactions waiting in the DB's internal compaction queue but not
+    //      yet assigned to a background job. This is a DB-wide value, not
+    //      per-column family.
+    static const std::string kNumUnscheduledCompactions;
 
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
@@ -1592,6 +1687,7 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-flushes"
+  //  "rocksdb.num-unscheduled-compactions"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
   //  "rocksdb.estimate-oldest-key-time"
@@ -1869,9 +1965,50 @@ class DB {
   // ResumeAllCompactions().
   virtual void ResumeAllCompactions() = 0;
 
+  // Abort compaction work for `column_family`. Running compactions for the
+  // column family are signaled to abort, and new compactions for it are
+  // rejected until ResumeCompactions() is called. Compactions for other column
+  // families are unaffected. This function blocks until the column family's
+  // running compactions complete or abort, or DB shutdown begins.
+  // Unless DB shutdown has begun, `column_family` must be a live handle owned
+  // by this DB.
+  //
+  // This is the per-column-family counterpart to AbortAllCompactions(). The
+  // global and per-column-family abort counts compose: compaction resumes for
+  // this column family only after matching ResumeAllCompactions() and
+  // ResumeCompactions() calls clear both. Unlike DisableManualCompaction(),
+  // this aborts automatic and manual compactions for the column family. Unlike
+  // PauseBackgroundWork(), it does not pause flushes or work for other column
+  // families.
+  //
+  // Calls are reference counted independently for each column family. The
+  // caller must retain the live handle through all matching
+  // ResumeCompactions() calls while the DB is live, even if the column family
+  // is dropped in the meantime. Flushes and external-ingestion reservations
+  // are unaffected. An already-running level refit is neither signaled nor
+  // waited on; new CompactRange() calls are rejected at entry. Remote
+  // compaction-service work is not actively aborted.
+  // If DB shutdown has begun, this is a no-op and does not inspect
+  // `column_family`.
+  virtual void AbortCompactions(ColumnFamilyHandle* column_family) = 0;
+
+  // Resume compactions for `column_family`. This must be called as many times
+  // as AbortCompactions() for the same column family before work is
+  // rescheduled. While the DB is live, `column_family` must be the live handle
+  // passed to AbortCompactions(). Extra calls log a warning and otherwise have
+  // no effect.
+  // If DB shutdown has begun, this is a no-op and does not inspect
+  // `column_family`.
+  virtual void ResumeCompactions(ColumnFamilyHandle* column_family) = 0;
+
   // Wait for all flush and compactions jobs to finish. Jobs to wait include the
   // unscheduled (queued, but not scheduled yet). If the db is shutting down,
   // Status::ShutdownInProgress will be returned.
+  //
+  // Compaction work parked by AbortCompactions() remains pending. Without a
+  // timeout, this function will not return until matching ResumeCompactions()
+  // calls restore that work and it finishes, the column family is dropped, or
+  // the DB starts shutting down.
   //
   // NOTE: This may also never return if there's sufficient ongoing writes that
   // keeps flush and compaction going without stopping. The user would have to
@@ -2048,22 +2185,33 @@ class DB {
   // is closed while files are still being opened in the background.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
-  // Note: this API is not yet consistent with WritePrepared transactions.
+  // Sets *iter to a WalIterator over the WriteBatches recorded in the
+  // write-ahead log, starting from the one whose sequence number range
+  // [start_seq, end_seq] covers seq_number.
   //
-  // Sets iter to an iterator that is positioned at a write-batch whose
-  // sequence number range [start_seq, end_seq] covers seq_number. If no such
-  // write-batch exists, then iter is positioned at the next write-batch whose
-  // start_seq > seq_number.
+  // Only writes that reached the WAL are returned. Writes made with
+  // WriteOptions::disableWAL, and sequence numbers consumed by
+  // IngestExternalFile(), are absent and leave permanent holes in the
+  // sequence numbers seen here. Set WAL_ttl_seconds and/or WAL_size_limit_MB
+  // large enough to cover how far behind a consumer may fall, or the WAL will
+  // be cleared before the consumer reads it.
   //
-  // Returns Status::OK if iterator is valid
-  // Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
-  // use this api, else the WAL files will get
-  // cleared aggressively and the iterator might keep getting invalid before
-  // an update is read.
-  virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options =
-          TransactionLogIterator::ReadOptions()) = 0;
+  // Returns Status::NotSupported() for TransactionDB with the WritePrepared
+  // or WriteUnprepared write policies.
+  //
+  // WARNING: if seq_number itself is no longer available, this positions at
+  // the next available write-batch (start_seq > seq_number) and still returns
+  // Status::OK -- data is skipped silently. Since recovering from a spent
+  // iterator means calling this function again, that recovery is where data
+  // loss can slip in unnoticed. Callers resuming a previous iterator should
+  // check that the first batch continues from where that one stopped; see
+  // WalIterator for details.
+  //
+  // Returns Status::OK if the iterator is valid.
+  virtual Status GetUpdatesSince(SequenceNumber seq_number,
+                                 std::unique_ptr<WalIterator>* iter,
+                                 const WalIterator::ReadOptions& read_options =
+                                     WalIterator::ReadOptions()) = 0;
 
   // Obtains a list of all live table (SST) files and how they fit into the
   // LSM-trees, such as column family, level, key range, etc.

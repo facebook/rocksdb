@@ -64,6 +64,23 @@ class BlobFileReader {
                  std::unique_ptr<BlobContents>* result,
                  uint64_t* bytes_read) const;
 
+  // Reads a byte sub-range [range_offset, range_offset + range_length) of an
+  // *uncompressed* blob's value directly from the file, reading only those
+  // bytes. Unlike GetBlob it does not read the record header/key, does not
+  // verify the whole-record checksum (a strict sub-range cannot cover it), and
+  // never decompresses -- so it is only valid when this reader's blob file is
+  // uncompressed (checked). `offset` and `value_size` are the blob value's file
+  // offset and full size (from the BlobIndex); the caller must ensure
+  // range_offset + range_length <= value_size. On success `*result` owns a copy
+  // of the requested bytes and `*bytes_read` (when non-null) is the number of
+  // bytes read from the file.
+  Status GetBlobRange(const ReadOptions& read_options, const Slice& user_key,
+                      uint64_t offset, uint64_t value_size,
+                      uint64_t range_offset, size_t range_length,
+                      MemoryAllocator* allocator,
+                      std::unique_ptr<BlobContents>* result,
+                      uint64_t* bytes_read) const;
+
   // offsets must be sorted in ascending order by caller.
   void MultiGetBlob(
       const ReadOptions& read_options, MemoryAllocator* allocator,

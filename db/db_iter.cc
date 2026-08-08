@@ -26,6 +26,7 @@
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "port/likely.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_dispatcher.h"
@@ -78,8 +79,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
       // Enable the direct-write blob fallback only when this CF has a
-      // write-path partition manager; otherwise the fetcher stays on the plain
-      // Version::GetBlob fast path.
+      // write-path partition manager; otherwise the fetcher stays on the
+      // version-backed path.
       blob_state_(version, read_options, cfd ? cfd->blob_file_cache() : nullptr,
                   cfd != nullptr && cfd->blob_partition_manager() != nullptr),
       read_callback_(read_callback),
@@ -122,7 +123,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       // prefix_same_as_start do not guarantee complete scans, so conversion
       // must stay disabled for the iterator lifetime.
       min_tombstones_for_range_conversion_(
-          active_mem != nullptr && !read_options.table_filter &&
+          active_mem != nullptr && !HasTableFilter(read_options) &&
                   (expect_total_order_inner_iter_ || prefix_same_as_start_) &&
                   HasFullTimestampVisibility(read_options)
               ? mutable_cf_options.min_tombstones_for_range_conversion

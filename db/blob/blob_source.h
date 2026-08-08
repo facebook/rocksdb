@@ -61,6 +61,31 @@ class BlobSource {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
+  // Reads a byte sub-range [range_offset, range_offset + range_length) of an
+  // *uncompressed* blob's value, reading only those bytes on a cache miss.
+  //
+  // First probes the blob cache for the whole value. On a hit, pins the cache
+  // handle into *value and points it at the requested sub-range (zero-copy, no
+  // disk I/O). On a miss, reads only the requested bytes from the blob file
+  // (via BlobFileReader::GetBlobRange -- no record-header/key read and no
+  // whole-record checksum verification) and pins the owned buffer into *value.
+  //
+  // Unlike GetBlob, a partial read never inserts into the blob cache: the cache
+  // entry is keyed per (file, offset) and holds the *whole* BlobContents, so a
+  // partial value would violate that invariant. `compression_type` must be
+  // kNoCompression (a strict sub-range of a compressed blob cannot be
+  // decompressed in isolation); callers that need a compressed column, a
+  // whole-column read, or checksum verification use GetBlob and slice instead.
+  //
+  // The caller must ensure range_offset + range_length <= value_size. On a miss
+  // *bytes_read (when non-null) is the number of bytes read from the file; on a
+  // hit it is 0.
+  Status GetBlobRange(const ReadOptions& read_options, const Slice& user_key,
+                      uint64_t file_number, uint64_t offset, uint64_t file_size,
+                      uint64_t value_size, CompressionType compression_type,
+                      uint64_t range_offset, size_t range_length,
+                      PinnableSlice* value, uint64_t* bytes_read);
+
   // Reads a SimpleGen2Blob payload (see db/blob/blob_gen2_format.h) through the
   // blob value cache and BLOB_DB_* statistics. This is the counterpart to
   // GetBlob() for the second-generation blob record format, which is read
@@ -95,6 +120,31 @@ class BlobSource {
                            uint32_t base_context_checksum,
                            CompressionType expected_compression,
                            PinnableSlice* value, uint64_t* bytes_read);
+
+  // Reads a byte sub-range [range_offset, range_offset + range_length) of an
+  // *uncompressed* SimpleGen2Blob payload, reading only those bytes on a cache
+  // miss. This is the embedded (same-file) counterpart of GetBlobRange().
+  //
+  // First probes the blob cache for the whole payload (keyed exactly as
+  // GetSimpleGen2Blob). On a hit, pins the cache handle into *value and points
+  // it at the requested sub-range (zero-copy, no disk I/O). On a miss, reads
+  // only the requested bytes from the file (via ReadSimpleGen2BlobRange -- no
+  // trailer read and no checksum verification) and pins the owned buffer.
+  //
+  // Like GetBlobRange, a partial read never inserts into the blob cache (the
+  // cache entry holds the whole payload). `expected_compression` must be
+  // kNoCompression. The caller must ensure range_offset + range_length <=
+  // payload_size. On a miss *bytes_read (when non-null) is the number of bytes
+  // read from the file; on a hit it is 0.
+  Status GetSimpleGen2BlobRange(const ReadOptions& read_options,
+                                const OffsetableCacheKey& base_cache_key,
+                                RandomAccessFileReader* file,
+                                uint64_t record_offset, uint64_t payload_size,
+                                ChecksumType checksum_type,
+                                uint32_t base_context_checksum,
+                                CompressionType expected_compression,
+                                uint64_t range_offset, size_t range_length,
+                                PinnableSlice* value, uint64_t* bytes_read);
 
   // Read multiple blobs from the underlying cache or blob file(s).
   //

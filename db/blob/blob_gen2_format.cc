@@ -76,6 +76,54 @@ Status ReadAndVerifySimpleGen2BlobRecord(
   return Status::OK();
 }
 
+Status ReadSimpleGen2BlobRange(const ReadOptions& read_options,
+                               RandomAccessFileReader* file,
+                               uint64_t record_offset, size_t payload_size,
+                               uint64_t range_offset, size_t range_length,
+                               CompressionType expected_compression,
+                               char* buf) {
+  assert(file != nullptr);
+  assert(buf != nullptr);
+
+  // A strict sub-range of a compressed payload cannot be decompressed in
+  // isolation; callers resolve such payloads whole and slice instead.
+  if (expected_compression != kNoCompression) {
+    return Status::Corruption("Cannot range-read a compressed blob");
+  }
+
+  // The requested sub-range must lie within the payload (the trailer that
+  // follows the payload is never part of a range read).
+  if (range_offset > payload_size ||
+      range_length > payload_size - range_offset) {
+    return Status::InvalidArgument("Blob range out of bounds");
+  }
+
+  Slice result;
+  IOOptions opts;
+  IODebugContext dbg;
+  Status s = file->PrepareIOOptions(read_options, opts, &dbg);
+  if (s.ok()) {
+    s = file->Read(opts, record_offset + range_offset, range_length, &result,
+                   buf, nullptr, &dbg);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+  if (result.size() != range_length) {
+    return Status::Corruption("Could not read complete blob range");
+  }
+  // With mmap reads the data lands outside `buf`; copy it in so the caller can
+  // rely on `buf` owning the bytes (the only copy on the mmap path).
+  if (result.data() != buf) {
+    memcpy(buf, result.data(), range_length);
+  }
+
+  // No trailer read and no checksum verification: a strict sub-range cannot
+  // cover the record's checksum (callers that require it read the whole
+  // record).
+  return Status::OK();
+}
+
 IOStatus WriteSimpleGen2BlobRecord(WritableFileWriter* file,
                                    const WriteOptions& write_options,
                                    ChecksumType checksum_type,

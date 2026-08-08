@@ -406,6 +406,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "table_cache_numshardbits=28;"
       "max_open_files=72;"
       "max_file_opening_threads=35;"
+      "read_io_executor_threads=7;"
       "max_background_jobs=8;"
       "max_background_compactions=33;"
       "use_fsync=true;"

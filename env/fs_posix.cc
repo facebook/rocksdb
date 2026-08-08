@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <exception>
 #include <stdexcept>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
@@ -46,7 +47,6 @@
 #endif
 #include <deque>
 #include <set>
-#include <thread>
 #include <vector>
 
 #include "env/composite_env_wrapper.h"
@@ -60,22 +60,22 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
+#include "util/atomic.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/thread_local.h"
 #include "util/threadpool_imp.h"
 
-#if USE_COROUTINES
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
 #include "folly/executors/IOThreadPoolExecutor.h"
-#include "folly/io/async/EventBaseManager.h"
-#if FOLLY_HAS_LIBURING
 #include "folly/executors/thread_factory/NamedThreadFactory.h"
 #include "folly/io/async/EventBase.h"
+#include "folly/io/async/EventBaseManager.h"
 #include "folly/io/async/IoUringBackend.h"
-#endif  // FOLLY_HAS_LIBURING
-#endif
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
@@ -97,11 +97,10 @@ inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
 
-#if USE_COROUTINES
-#if FOLLY_HAS_LIBURING
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
 folly::IoUringOptions GetReadIOUringOptions() {
   folly::IoUringOptions options;
-  options.setMaxSubmit(512);
+  options.setMaxSubmit(256);
   options.setCapacity(1024);
   options.setMinCapacity(512);
   options.setRegisterRingFd(true);
@@ -110,42 +109,69 @@ folly::IoUringOptions GetReadIOUringOptions() {
   return options;
 }
 
-#endif  // FOLLY_HAS_LIBURING
-
 struct ReadIOExecutorState {
-  ReadIOExecutorState() {
-#if FOLLY_HAS_LIBURING
-    try {
-      // Older Linux kernels can support basic io_uring while rejecting some
-      // of the required setup flags. Validate the worker options at runtime
-      // before exposing the lazy executor.
-      std::make_unique<folly::IoUringBackend>(GetReadIOUringOptions());
-      folly::EventBase::Options event_base_options;
-      event_base_options.setBackendFactory([]() {
-        return std::make_unique<folly::IoUringBackend>(GetReadIOUringOptions());
-      });
-      event_base_manager_ =
-          std::make_unique<folly::EventBaseManager>(event_base_options);
-      executor_ = std::make_unique<folly::IOThreadPoolExecutor>(
-          std::max(1u, std::thread::hardware_concurrency()),
-          /*minThreads=*/0,
-          std::make_shared<folly::NamedThreadFactory>("RocksDBAsyncRead"),
-          event_base_manager_.get());
-    } catch (const std::runtime_error&) {
-      executor_.reset();
-      event_base_manager_.reset();
-      return;
-    }
-#else
-    event_base_manager_ = nullptr;
-    executor_ = nullptr;
-#endif  // FOLLY_HAS_LIBURING
+  ReadIOExecutorState() = default;
+  ReadIOExecutorState(const ReadIOExecutorState&) = delete;
+  ReadIOExecutorState& operator=(const ReadIOExecutorState&) = delete;
+  ReadIOExecutorState(ReadIOExecutorState&&) = delete;
+  ReadIOExecutorState& operator=(ReadIOExecutorState&&) = delete;
+
+  ~ReadIOExecutorState() {
+    delete executor_.LoadRelaxed();
+    delete event_base_manager_.LoadRelaxed();
   }
 
-  std::unique_ptr<folly::EventBaseManager> event_base_manager_;
-  std::unique_ptr<folly::IOThreadPoolExecutor> executor_;
+  folly::IOExecutor* GetExecutor() { return executor_.Load(); }
+
+  folly::EventBaseManager* GetEventBaseManager() {
+    return event_base_manager_.Load();
+  }
+
+  void SetThreads(int num) {
+    assert(num > 0);
+    MutexLock lock(&mutex_);
+    const size_t requested_threads = static_cast<size_t>(num);
+    auto* executor = executor_.Load();
+    if (executor != nullptr) {
+      if (requested_threads > executor->numThreads()) {
+        try {
+          executor->setNumThreads(requested_threads);
+        } catch (const std::exception&) {
+        }
+      }
+      return;
+    }
+    try {
+      folly::EventBase::Options event_base_options;
+      event_base_options.setBackendFactory(
+          []() -> std::unique_ptr<folly::EventBaseBackendBase> {
+            try {
+              auto backend = std::make_unique<folly::IoUringBackend>(
+                  GetReadIOUringOptions());
+              SetCurrentThreadReadIOUringBackendAvailable();
+              return backend;
+            } catch (const std::exception&) {
+              return folly::EventBase::getDefaultBackend();
+            }
+          });
+      auto event_base_manager =
+          std::make_unique<folly::EventBaseManager>(event_base_options);
+      auto new_executor = std::make_unique<folly::IOThreadPoolExecutor>(
+          requested_threads, 0,
+          std::make_shared<folly::NamedThreadFactory>("RocksDBAsyncRead"),
+          event_base_manager.get());
+      event_base_manager_.Store(event_base_manager.release());
+      executor_.Store(new_executor.release());
+    } catch (const std::exception&) {
+      return;
+    }
+  }
+
+  port::Mutex mutex_;
+  Atomic<folly::EventBaseManager*> event_base_manager_{nullptr};
+  Atomic<folly::IOThreadPoolExecutor*> executor_{nullptr};
 };
-#endif  // USE_COROUTINES
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 // list of pathnames that are locked
 // Only used for error message.
@@ -207,22 +233,15 @@ class PosixFileSystem : public FileSystem {
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
 
-#if USE_COROUTINES
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
   folly::IOExecutor* GetReadExecutor() override {
-    return read_io_executor_state_.executor_.get();
+    return read_io_executor_state_.GetExecutor();
   }
 
   void SetReadIOExecutorThreads(int num) override {
-    assert(num > 0);
-    if (num <= 0) {
-      return;
-    }
-    if (read_io_executor_state_.executor_ != nullptr) {
-      read_io_executor_state_.executor_->setNumThreads(
-          static_cast<size_t>(num));
-    }
+    read_io_executor_state_.SetThreads(num);
   }
-#endif  // USE_COROUTINES
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
   ~PosixFileSystem() override = default;
   bool IsInstanceOf(const std::string& name) const override {
@@ -350,7 +369,7 @@ class PosixFileSystem : public FileSystem {
           options
 #if USE_COROUTINES && FOLLY_HAS_LIBURING
           ,
-          read_io_executor_state_.event_base_manager_.get()
+          read_io_executor_state_.GetEventBaseManager()
 #endif
 #if defined(ROCKSDB_IOURING_PRESENT)
               ,
@@ -1013,7 +1032,7 @@ class PosixFileSystem : public FileSystem {
     optimized.use_direct_writes = false;
     optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
-    // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
+    // breaks DBWalIteratorTest.StallAtLastRecord unit test. Fix the unit
     // test and make this false
     optimized.fallocate_with_keep_size = true;
     optimized.writable_file_max_buffer_size =
@@ -1391,9 +1410,9 @@ class PosixFileSystem : public FileSystem {
     supported_ops |= (1 << FSSupportedOps::kFSPrefetch);
   }
 
-#if USE_COROUTINES
+#if USE_COROUTINES && FOLLY_HAS_LIBURING
   ReadIOExecutorState read_io_executor_state_;
-#endif  // USE_COROUTINES
+#endif  // USE_COROUTINES && FOLLY_HAS_LIBURING
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance

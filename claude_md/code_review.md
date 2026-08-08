@@ -82,6 +82,11 @@ The most critical bugs hide at component boundaries.
 
 ## Output Format
 
+NOTE: Post the review **directly in your response** (the PR review comment).
+This is the only durable output: a CI review runs in an **ephemeral** GitHub
+Actions runner whose workspace is deleted the moment the job ends, so anything
+written to a file is unrecoverable by the author.
+
 ### Summary
 Brief overall assessment (1-2 sentences).
 

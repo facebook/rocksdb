@@ -112,10 +112,12 @@
 
 #if USE_COROUTINES
 #include "folly/coro/Baton.h"
+#include "folly/coro/CurrentExecutor.h"
 #include "folly/coro/Task.h"
 #include "folly/executors/IOExecutor.h"
 #include "folly/futures/Future.h"
 #include "folly/io/async/EventBase.h"
+#include "folly/io/async/Request.h"
 #endif  // USE_COROUTINES
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -7609,37 +7611,83 @@ class Benchmark {
   }
 
   struct AsyncAwaitCallback : public DB::AsyncCallback {
-    void OnComplete() override { baton.post(); }
+    AsyncAwaitCallback(
+        PerfContext* job_perf_context,
+        std::shared_ptr<folly::RequestContext> caller_request_context)
+        : job_perf_context_(job_perf_context),
+          caller_request_context_(std::move(caller_request_context)) {}
 
+    bool EnableStats() const override { return job_perf_context_ != nullptr; }
+
+    void OnComplete(const PerfContext* callback_perf_context,
+                    const IOStatsContext* /*iostats_context*/) override {
+      if (job_perf_context_ != nullptr && callback_perf_context != nullptr) {
+        job_perf_context_->Merge(*callback_perf_context);
+      }
+      folly::RequestContextScopeGuard context_scope(caller_request_context_);
+      baton.post();
+    }
+
+    PerfContext* job_perf_context_;
+    std::shared_ptr<folly::RequestContext> caller_request_context_;
     folly::coro::Baton baton;
   };
+
+  void PrepareCoroutineJobPerfContext(PerfContext* job_perf_context) {
+    SetPerfLevel(static_cast<PerfLevel>(FLAGS_perf_level));
+    if (job_perf_context == nullptr) {
+      return;
+    }
+#ifndef NPERF_CONTEXT
+    get_perf_context()->EnablePerLevelPerfContext();
+#endif
+  }
 
   folly::coro::Task<Status> AwaitGetAsync(DB* db, const ReadOptions& options,
                                           ColumnFamilyHandle* cfh,
                                           const Slice& key,
                                           PinnableSlice* value,
-                                          std::string* timestamp) {
-    AsyncAwaitCallback callback;
+                                          std::string* timestamp,
+                                          PerfContext* job_perf_context) {
+    PrepareCoroutineJobPerfContext(job_perf_context);
+    AsyncAwaitCallback callback(job_perf_context,
+                                folly::RequestContext::saveContext());
     Status status;
     db->GetAsync(options, cfh, key, value, timestamp, status, callback);
     co_await callback.baton;
+    co_await folly::coro::co_reschedule_on_current_executor;
     co_return status;
   }
 
   folly::coro::Task<void> AwaitMultiGetAsync(
       DB* db, const ReadOptions& options, size_t num_keys,
       ColumnFamilyHandle** column_families, const Slice* keys,
-      PinnableSlice* values, Status* statuses) {
-    AsyncAwaitCallback callback;
+      PinnableSlice* values, Status* statuses, PerfContext* job_perf_context) {
+    PrepareCoroutineJobPerfContext(job_perf_context);
+    AsyncAwaitCallback callback(job_perf_context,
+                                folly::RequestContext::saveContext());
     db->MultiGetAsync(options, num_keys, column_families, keys, values,
                       statuses, callback);
     co_await callback.baton;
+    co_await folly::coro::co_reschedule_on_current_executor;
     co_return;
+  }
+
+  void SetCoroutineJobPerfContextMessage(
+      std::vector<std::string>* job_perf_contexts, int job_id,
+      const char* benchmark_name, const PerfContext* job_perf_context) {
+    if (job_perf_contexts == nullptr || job_perf_context == nullptr) {
+      return;
+    }
+    (*job_perf_contexts)[job_id] = std::string(benchmark_name) + " job " +
+                                   std::to_string(job_id) + " PERF_CONTEXT:\n" +
+                                   job_perf_context->ToString();
   }
 
   folly::coro::Task<void> ReadRandomCoroutineJob(
       uint64_t seed, int64_t ops, std::atomic<int64_t>* total_ops,
-      std::atomic<int64_t>* total_found, std::atomic<int64_t>* total_bytes) {
+      std::atomic<int64_t>* total_found, std::atomic<int64_t>* total_bytes,
+      int job_id, std::vector<std::string>* job_perf_contexts) {
     Random64 rng(seed);
     ReadOptions options = read_options_;
     std::unique_ptr<const char[]> key_guard;
@@ -7654,6 +7702,7 @@ class Benchmark {
     int64_t job_ops = 0;
     int64_t job_found = 0;
     int64_t job_bytes = 0;
+    PerfContext job_perf_context;
     for (int64_t done = 0; done < ops; ++done) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(rng.Next());
       const int64_t key_rand = GetRandomKey(&rng);
@@ -7675,8 +7724,9 @@ class Benchmark {
         cfh = db_with_cfh->db->DefaultColumnFamily();
       }
 
-      Status s = co_await AwaitGetAsync(db_with_cfh->db, options, cfh, key,
-                                        &pinnable_val, ts_ptr);
+      Status s = co_await AwaitGetAsync(
+          db_with_cfh->db, options, cfh, key, &pinnable_val, ts_ptr,
+          job_perf_contexts != nullptr ? &job_perf_context : nullptr);
       ++job_ops;
       if (s.ok()) {
         ++job_found;
@@ -7691,6 +7741,8 @@ class Benchmark {
     total_ops->fetch_add(job_ops, std::memory_order_relaxed);
     total_found->fetch_add(job_found, std::memory_order_relaxed);
     total_bytes->fetch_add(job_bytes, std::memory_order_relaxed);
+    SetCoroutineJobPerfContextMessage(job_perf_contexts, job_id,
+                                      "readrandomcoroutine", &job_perf_context);
     co_return;
   }
 
@@ -7701,7 +7753,8 @@ class Benchmark {
   folly::coro::Task<void> MultiGetAsyncCoroutineJob(
       DB* db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
       std::atomic<int64_t>* total_ops, std::atomic<int64_t>* total_found,
-      std::atomic<int64_t>* total_bytes) {
+      std::atomic<int64_t>* total_bytes, int job_id,
+      std::vector<std::string>* job_perf_contexts) {
     Random64 rng(seed);
     ReadOptions options = read_options_;
     std::vector<std::unique_ptr<const char[]>> key_guards(entries_per_batch_);
@@ -7717,14 +7770,17 @@ class Benchmark {
     int64_t job_ops = 0;
     int64_t job_found = 0;
     int64_t job_bytes = 0;
+    PerfContext job_perf_context;
     for (int64_t done = 0; done < ops; done += entries_per_batch_) {
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         GenerateKeyFromInt(GetRandomKey(&rng), FLAGS_num, &keys[i]);
         statuses[i] = Status::OK();
         values[i].Reset();
       }
-      co_await AwaitMultiGetAsync(db, options, entries_per_batch_, cfs.data(),
-                                  keys.data(), values.get(), statuses.data());
+      co_await AwaitMultiGetAsync(
+          db, options, entries_per_batch_, cfs.data(), keys.data(),
+          values.get(), statuses.data(),
+          job_perf_contexts != nullptr ? &job_perf_context : nullptr);
       job_ops += entries_per_batch_;
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         if (statuses[i].ok()) {
@@ -7740,6 +7796,9 @@ class Benchmark {
     total_ops->fetch_add(job_ops, std::memory_order_relaxed);
     total_found->fetch_add(job_found, std::memory_order_relaxed);
     total_bytes->fetch_add(job_bytes, std::memory_order_relaxed);
+    SetCoroutineJobPerfContextMessage(job_perf_contexts, job_id,
+                                      "multireadrandomcoroutine",
+                                      &job_perf_context);
     co_return;
   }
 #endif  // USE_COROUTINES
@@ -7760,6 +7819,14 @@ class Benchmark {
     std::atomic<int64_t> total_ops{0};
     std::atomic<int64_t> total_found{0};
     std::atomic<int64_t> total_bytes{0};
+    std::vector<std::string> job_perf_contexts;
+    std::vector<std::string>* job_perf_contexts_ptr = nullptr;
+#ifndef NPERF_CONTEXT
+    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
+      job_perf_contexts.resize(num_jobs);
+      job_perf_contexts_ptr = &job_perf_contexts;
+    }
+#endif
 
     // Spread reads_ * pool_threads ops across the jobs
     const int64_t total_reads = reads_ * pool_threads;
@@ -7778,7 +7845,8 @@ class Benchmark {
           folly::coro::co_withExecutor(
               folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
               ReadRandomCoroutineJob(thread->rand.Next(), ops, &total_ops,
-                                     &total_found, &total_bytes))
+                                     &total_found, &total_bytes, j,
+                                     job_perf_contexts_ptr))
               .start());
     }
     for (auto& f : futures) {
@@ -7791,6 +7859,9 @@ class Benchmark {
              total_found.load(), total_ops.load());
     thread->stats.AddBytes(total_bytes.load());
     thread->stats.AddMessage(msg);
+    if (!job_perf_contexts.empty() && !job_perf_contexts.front().empty()) {
+      thread->stats.AddMessage(job_perf_contexts.front());
+    }
 #else   // USE_COROUTINES
     (void)thread;
     fprintf(stderr,
@@ -7819,6 +7890,14 @@ class Benchmark {
     std::atomic<int64_t> total_ops{0};
     std::atomic<int64_t> total_found{0};
     std::atomic<int64_t> total_bytes{0};
+    std::vector<std::string> job_perf_contexts;
+    std::vector<std::string>* job_perf_contexts_ptr = nullptr;
+#ifndef NPERF_CONTEXT
+    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
+      job_perf_contexts.resize(num_jobs);
+      job_perf_contexts_ptr = &job_perf_contexts;
+    }
+#endif
 
     const int64_t total_reads = reads_ * pool_threads;
     if (total_reads % num_jobs != 0) {
@@ -7841,7 +7920,8 @@ class Benchmark {
           folly::coro::co_withExecutor(
               folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
               MultiGetAsyncCoroutineJob(db, cfh, thread->rand.Next(), ops,
-                                        &total_ops, &total_found, &total_bytes))
+                                        &total_ops, &total_found, &total_bytes,
+                                        j, job_perf_contexts_ptr))
               .start());
     }
     for (auto& f : futures) {
@@ -7854,6 +7934,9 @@ class Benchmark {
              total_found.load(), total_ops.load());
     thread->stats.AddBytes(total_bytes.load());
     thread->stats.AddMessage(msg);
+    if (!job_perf_contexts.empty() && !job_perf_contexts.front().empty()) {
+      thread->stats.AddMessage(job_perf_contexts.front());
+    }
 #else   // USE_COROUTINES
     (void)thread;
     fprintf(stderr,
@@ -7877,16 +7960,10 @@ class Benchmark {
 
   void MultiScan(ThreadState* thread) {
     const int64_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
-    const int64_t readahead =
-        FLAGS_readahead_size ? FLAGS_readahead_size : 1024 * 24;
     const int64_t multiscan_size = FLAGS_multiscan_size;
     auto count_hist = std::make_shared<HistogramImpl>();
-    ReadOptions options = read_options_;
 
     int64_t multiscans_done = 0;
-
-    options.async_io = true;
-    options.readahead_size = readahead;
 
     auto io_dispatcher = MaybeCreateIODispatcher();
 

@@ -121,6 +121,13 @@ class StackableDB : public DB {
     return db_->GetEntity(options, key, result);
   }
 
+  using DB::GetEntityLazy;
+  Status GetEntityLazy(const ReadOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       LazyWideColumns* result) override {
+    return db_->GetEntityLazy(options, column_family, key, result);
+  }
+
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
@@ -165,6 +172,15 @@ class StackableDB : public DB {
                       const Slice* keys,
                       PinnableAttributeGroups* results) override {
     db_->MultiGetEntity(options, num_keys, keys, results);
+  }
+
+  using DB::MultiGetEntityLazy;
+  void MultiGetEntityLazy(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, size_t num_keys,
+                          const Slice* keys, LazyWideColumnsBatch* result,
+                          Status* statuses, bool sorted_input) override {
+    db_->MultiGetEntityLazy(options, column_family, num_keys, keys, result,
+                            statuses, sorted_input);
   }
 
   using DB::IngestExternalFile;
@@ -394,6 +410,12 @@ class StackableDB : public DB {
   }
   void AbortAllCompactions() override { return db_->AbortAllCompactions(); }
   void ResumeAllCompactions() override { return db_->ResumeAllCompactions(); }
+  void AbortCompactions(ColumnFamilyHandle* column_family) override {
+    return db_->AbortCompactions(column_family);
+  }
+  void ResumeCompactions(ColumnFamilyHandle* column_family) override {
+    return db_->ResumeCompactions(column_family);
+  }
 
   Status WaitForCompact(
       const WaitForCompactOptions& wait_for_compact_options) override {
@@ -607,8 +629,8 @@ class StackableDB : public DB {
   }
 
   Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options) override {
+      SequenceNumber seq_number, std::unique_ptr<WalIterator>* iter,
+      const WalIterator::ReadOptions& read_options) override {
     return db_->GetUpdatesSince(seq_number, iter, read_options);
   }
 

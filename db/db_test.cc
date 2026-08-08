@@ -3725,6 +3725,8 @@ class ModelDB : public DB {
   void DisableManualCompaction() override {}
   void AbortAllCompactions() override {}
   void ResumeAllCompactions() override {}
+  void AbortCompactions(ColumnFamilyHandle* /*column_family*/) override {}
+  void ResumeCompactions(ColumnFamilyHandle* /*column_family*/) override {}
 
   Status WaitForCompact(
       const WaitForCompactOptions& /* wait_for_compact_options */) override {
@@ -3804,11 +3806,10 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status GetUpdatesSince(
-      ROCKSDB_NAMESPACE::SequenceNumber,
-      std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator>*,
-      const TransactionLogIterator::ReadOptions& /*read_options*/ =
-          TransactionLogIterator::ReadOptions()) override {
+  Status GetUpdatesSince(ROCKSDB_NAMESPACE::SequenceNumber,
+                         std::unique_ptr<ROCKSDB_NAMESPACE::WalIterator>*,
+                         const WalIterator::ReadOptions& /*read_options*/ =
+                             WalIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
   }
 

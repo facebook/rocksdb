@@ -20,11 +20,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 #if defined(WITH_COROUTINES)
-inline folly::coro::Task<void> SubmitMultiReadAsync(FSRandomAccessFile* file,
-                                                    FSReadRequest* fs_reqs,
-                                                    size_t num_fs_reqs,
-                                                    const IOOptions& opts,
-                                                    IODebugContext* dbg) {
+inline folly::coro::Task<void> SubmitMultiReadAsync(
+    FSRandomAccessFile* file, FSReadRequest* fs_reqs, size_t num_fs_reqs,
+    const IOOptions& opts, Statistics* stats, IODebugContext* dbg) {
   if (num_fs_reqs == 0) {
     co_return;
   }
@@ -39,14 +37,16 @@ inline folly::coro::Task<void> SubmitMultiReadAsync(FSRandomAccessFile* file,
       [&] { assert(pending.load(std::memory_order_acquire) == 0); });
 #endif  // NDEBUG
   for (size_t i = 0; i < num_fs_reqs; ++i) {
-    file->SubmitReadAsync(
-        fs_reqs[i], opts,
-        [executor, &baton, &pending](FSReadRequest& /*req*/) {
-          if (pending.fetch_sub(1) == 1) {
-            executor->add([&baton] { baton.post(); });
-          }
-        },
-        dbg);
+    if (!file->SubmitReadAsync(
+            fs_reqs[i], opts,
+            [executor, &baton, &pending](FSReadRequest& /*req*/) {
+              if (pending.fetch_sub(1) == 1) {
+                executor->add([&baton] { baton.post(); });
+              }
+            },
+            dbg)) {
+      RecordTick(stats, FILE_SUBMIT_ASYNC_READ_FALLBACK, 1);
+    }
   }
 
   co_await baton;
@@ -94,10 +94,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
-#if defined(WITHOUT_COROUTINES)
-    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-#endif
     if (use_direct_io() && is_aligned == false) {
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
@@ -148,7 +145,8 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
         fs_req.status.PermitUncheckedError();
         TEST_SYNC_POINT_CALLBACK(
             "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", &fs_req);
-        co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, dbg);
+        co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, stats_,
+                                      dbg);
         io_s = fs_req.status;
         tmp = fs_req.result;
 #else
@@ -227,7 +225,8 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
         if (fs_req.scratch != nullptr) {
           TEST_SYNC_POINT_CALLBACK(
               "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", &fs_req);
-          co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, dbg);
+          co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, stats_,
+                                        dbg);
           io_s = fs_req.status;
           tmp_result = fs_req.result;
         } else {
@@ -267,9 +266,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
     RecordIOStats(stats_, file_temperature_, is_last_level_, result->size());
-#if defined(WITHOUT_COROUTINES)
-    SetPerfLevel(prev_perf_level);
-#endif
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
@@ -324,10 +320,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
                  GetFileReadHistograms(stats_, opts.io_activity),
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
-#if defined(WITHOUT_COROUTINES)
-    auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
-#endif
 
     FSReadRequest* fs_reqs = read_reqs;
     size_t num_fs_reqs = num_reqs;
@@ -417,7 +410,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
           const_cast<void*>(static_cast<void*>(dbg)));
 #if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
       co_await SubmitMultiReadAsync(file_.get(), fs_reqs, num_fs_reqs, opts,
-                                    dbg);
+                                    stats_, dbg);
 #else
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, dbg);
 #endif
@@ -465,9 +458,6 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
       }
       RecordIOStats(stats_, file_temperature_, is_last_level_, result_size);
     }
-#if defined(WITHOUT_COROUTINES)
-    SetPerfLevel(prev_perf_level);
-#endif
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);

@@ -2771,23 +2771,6 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
 }
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const Slice& blob_index_slice,
-                        FilePrefetchBuffer* prefetch_buffer,
-                        PinnableSlice* value, uint64_t* bytes_read) const {
-  BlobIndex blob_index;
-
-  {
-    Status s = blob_index.DecodeFrom(blob_index_slice);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  return GetBlob(read_options, user_key, blob_index, prefetch_buffer, value,
-                 bytes_read);
-}
-
-Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
                         FilePrefetchBuffer* prefetch_buffer,
                         PinnableSlice* value, uint64_t* bytes_read) const {
@@ -2818,6 +2801,40 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
       blob_index.compression(), prefetch_buffer, value, bytes_read);
 
   return s;
+}
+
+Status Version::GetBlobRange(const ReadOptions& read_options,
+                             const Slice& user_key, const BlobIndex& blob_index,
+                             uint64_t range_offset, size_t range_length,
+                             PinnableSlice* value, uint64_t* bytes_read) const {
+  assert(value);
+
+  if (blob_index.HasTTL() || blob_index.IsInlined()) {
+    return Status::Corruption("Unexpected TTL/inlined blob index");
+  }
+
+  // A strict sub-range of a compressed blob cannot be decompressed in
+  // isolation; the caller resolves such columns whole and slices instead.
+  if (blob_index.compression() != kNoCompression) {
+    return Status::Corruption("Cannot range-read a compressed blob");
+  }
+
+  const uint64_t blob_file_number = blob_index.file_number();
+
+  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  if (!blob_file_meta) {
+    // INTEGRITY CHECK -- see Version::GetBlob. No metadata (including
+    // file_number 0, the same-file "embedded" sentinel) means a corrupt index
+    // or a same-file reference that the lazy caller must not route here.
+    return Status::Corruption("Invalid blob file number");
+  }
+
+  assert(blob_source_);
+  value->Reset();
+  return blob_source_->GetBlobRange(
+      read_options, user_key, blob_file_number, blob_index.offset(),
+      blob_file_meta->GetBlobFileSize(), blob_index.size(),
+      blob_index.compression(), range_offset, range_length, value, bytes_read);
 }
 
 void Version::MultiGetBlob(
@@ -6542,6 +6559,135 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
                  ")",
                  manifest_path.c_str(), manifest_last_valid_record_end_);
   TEST_SYNC_POINT("VersionSet::ReopenManifestForAppend:Reopened");
+  return Status::OK();
+}
+
+Status VersionSet::AppendColumnFamilyDropsToManifest(
+    const std::string& manifest_path, uint64_t manifest_size,
+    const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
+    uint64_t manifest_preallocation_size) {
+  if (cf_ids.empty()) {
+    return Status::OK();
+  }
+
+  // Rewrite the checkpoint MANIFEST via a bounded-memory buffered copy into a
+  // .tmp file (append drops, sync, close), then atomically rename over the
+  // original. Avoids depending on FileSystem::ReopenWritableFile (optional,
+  // unsupported on some backends) and avoids reading the whole MANIFEST into
+  // memory (which can reach ~1GB depending on configuration).
+  const std::string tmp_path = manifest_path + ".tmp";
+
+  // Best-effort cleanup of any stale .tmp left by a prior aborted run.
+  fs_->DeleteFile(tmp_path, IOOptions(), /*dbg=*/nullptr)
+      .PermitUncheckedError();
+
+  std::unique_ptr<FSSequentialFile> src_file;
+  {
+    IOStatus io_s = fs_->NewSequentialFile(manifest_path, FileOptions(),
+                                           &src_file, /*dbg=*/nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
+  FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
+  // Buffered writes only: direct writes would need alignment / tail-pad
+  // reasoning that isn't worth the complexity for a checkpoint MANIFEST.
+  opt_file_opts.use_direct_writes = false;
+
+  std::unique_ptr<FSWritableFile> dst_file;
+  {
+    IOStatus io_s = fs_->NewWritableFile(tmp_path, opt_file_opts, &dst_file,
+                                         /*dbg=*/nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
+  // Copy exactly manifest_size bytes through a fixed-size buffer.
+  constexpr size_t kBufSize = 1 * 1024 * 1024;
+  std::string buffer(kBufSize, '\0');
+  uint64_t remaining = manifest_size;
+  while (remaining > 0) {
+    Slice result;
+    const size_t to_read =
+        static_cast<size_t>(std::min<uint64_t>(kBufSize, remaining));
+    IOStatus read_s = src_file->Read(to_read, opt_file_opts.io_options, &result,
+                                     buffer.data(), /*dbg=*/nullptr);
+    if (!read_s.ok()) {
+      return read_s;
+    }
+    if (result.empty()) {
+      return Status::Corruption(
+          "Unexpected EOF reading source checkpoint MANIFEST");
+    }
+    IOStatus write_s = dst_file->Append(result, opt_file_opts.io_options,
+                                        /*dbg=*/nullptr);
+    if (!write_s.ok()) {
+      return write_s;
+    }
+    remaining -= result.size();
+  }
+  src_file.reset();
+
+  // Seeds initial_block_offset = manifest_size % kBlockSize so drop-record
+  // framing continues from where the copied contents left off, matching the
+  // position-based log reader.
+  std::unique_ptr<log::Writer> writer =
+      CreateManifestWriter(std::move(dst_file), tmp_path, opt_file_opts,
+                           manifest_preallocation_size, manifest_size);
+
+  // Always attempt to Close the writer on any exit path, folding any Close
+  // error into the primary status. Guards against dropping the underlying
+  // FSWritableFile with buffered data / no filesystem close hook.
+  Status s;
+  auto close_writer = [&]() {
+    if (writer == nullptr) {
+      return;
+    }
+    Status close_s = writer->Close(write_options);
+    if (s.ok() && !close_s.ok()) {
+      s = close_s;
+    }
+    writer.reset();
+  };
+
+  for (uint32_t cf_id : cf_ids) {
+    VersionEdit edit;
+    edit.SetColumnFamily(cf_id);
+    edit.DropColumnFamily();
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      s = Status::Corruption(
+          "Unable to encode column family drop VersionEdit for checkpoint");
+      close_writer();
+      return s;
+    }
+    IOStatus add_s = writer->AddRecord(write_options, record);
+    if (!add_s.ok()) {
+      s = add_s;
+      close_writer();
+      return s;
+    }
+  }
+
+  IOStatus sync_s = SyncManifest(db_options_, write_options, writer->file());
+  if (!sync_s.ok()) {
+    s = sync_s;
+    close_writer();
+    return s;
+  }
+  close_writer();
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Replace the original with the rewritten .tmp.
+  IOStatus rename_s =
+      fs_->RenameFile(tmp_path, manifest_path, IOOptions(), /*dbg=*/nullptr);
+  if (!rename_s.ok()) {
+    return rename_s;
+  }
   return Status::OK();
 }
 

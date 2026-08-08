@@ -41,6 +41,7 @@
 #include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "db_stress_tool/db_stress_status.h"
 #include "db_stress_tool/db_stress_test_base.h"
 #include "logging/logging.h"
 #include "monitoring/histogram.h"
@@ -230,6 +231,10 @@ DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_int32(backup_one_in);
 DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
+DECLARE_int32(checkpoint_engine_max_background_operations);
+DECLARE_bool(checkpoint_engine_use_link_file_when_available);
+DECLARE_int32(parallel_checkpoint_one_in);
+DECLARE_int32(subset_cf_checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(ingest_external_file_prepare_commit_one_in);
@@ -246,6 +251,7 @@ DECLARE_int32(pause_background_one_in);
 DECLARE_int32(disable_file_deletions_one_in);
 DECLARE_int32(disable_manual_compaction_one_in);
 DECLARE_int32(abort_and_resume_compactions_one_in);
+DECLARE_int32(abort_and_resume_cf_compactions_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
@@ -255,6 +261,7 @@ DECLARE_bool(use_multiget);
 DECLARE_bool(use_async_db_api);
 DECLARE_bool(use_get_entity);
 DECLARE_bool(use_multi_get_entity);
+DECLARE_int32(lazy_entity_read_one_in);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
 DECLARE_int32(writepercent);
@@ -881,6 +888,8 @@ void InitializeHotKeyGenerator(double alpha);
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
 std::string GetNowNanos();
+
+std::string GetReadTimestamp();
 
 uint64_t GetWriteUnixTime(ThreadState* thread);
 

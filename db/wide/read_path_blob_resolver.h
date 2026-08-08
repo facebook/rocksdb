@@ -21,13 +21,14 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Version;
+class SameFileBlobReader;
 
 // TODO: ReadPathBlobResolver and CompactionBlobResolver (in
 // compaction_iterator.h) share significant logic for blob column resolution
 // and caching. A refactoring into a common base class or shared utility
-// could reduce duplication. The two classes differ in their blob-fetching
-// backends (Version::GetBlob vs BlobFetcher::FetchBlob) and contexts
-// (read path vs compaction path with stats tracking).
+// could reduce duplication. The two classes differ in fetcher ownership and
+// their surrounding contexts (read path vs compaction path with stats
+// tracking).
 //
 // Enables lazy (on-demand) resolution of blob column values in the read path.
 // When a wide-column entity contains blob references (V2 format), the resolver
@@ -50,8 +51,17 @@ class ReadPathBlobResolver {
   // Reset the resolver for a new entity. Clears all cached values.
   // The columns and blob_columns pointers must remain valid for the lifetime
   // of the resolver (or until the next Reset call).
+  //
+  // same_file_reader: when non-null, same-file ("embedded") blob references are
+  // resolved against it (the SST that held the entity) via an
+  // EmbeddedAwareBlobFetcher; it must outlive the resolver (ensured, on the
+  // lazy read path, by the same SuperVersion pin that keeps the Version alive,
+  // combined with immortal table readers when max_open_files == -1). When null
+  // (e.g. the DBIter path, which resolves embedded refs separately), only
+  // separate-file references are resolvable.
   void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
-             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns);
+             const std::vector<std::pair<size_t, BlobIndex>>* blob_columns,
+             const SameFileBlobReader* same_file_reader = nullptr);
 
   // Resolve the value for the column at the given index.
   // For blob columns, fetches the blob value from the blob file (or returns
@@ -61,6 +71,29 @@ class ReadPathBlobResolver {
   // - column_index is out of bounds
   // - I/O error occurred while fetching the blob
   Status ResolveColumn(size_t column_index, Slice* resolved_value);
+
+  // Resolve a byte sub-range [range_offset, range_offset + range_length) of the
+  // column at `column_index` into *result (zero-copy). `range_length` may be
+  // larger than the remaining bytes (or SIZE_MAX for "to the end"); it is
+  // clamped to the column's logical size. An offset at/past the end yields an
+  // empty result (not an error).
+  //
+  // Reads only the requested bytes -- skipping whole-record checksum
+  // verification and blob-cache population -- only for a strict sub-range of an
+  // uncompressed blob reference (in a separate blob file, or
+  // embedded/same-file) that is not already resolved, when !force_verify and
+  // the read is servable (a Version-backed range read for separate-file refs,
+  // or a SameFileBlobReader for embedded refs). Every other case (inline
+  // column, already-resolved column, inlined blob, compressed reference, a
+  // whole-column read, or force_verify) resolves the whole column (caching it,
+  // verifying under ReadOptions::verify_checksums) and slices the requested
+  // range out of it.
+  //
+  // Unlike ResolveColumn, a partial read is NOT cached: *result owns (or pins)
+  // its own bytes, independent of this resolver's whole-column cache.
+  Status ResolveColumnRange(size_t column_index, uint64_t range_offset,
+                            size_t range_length, bool force_verify,
+                            PinnableSlice* result);
 
   // Resolve multiple columns in the order provided by `column_indices`.
   // Resolved blob values are cached exactly as if ResolveColumn() were called
@@ -91,6 +124,13 @@ class ReadPathBlobResolver {
   }
 
  private:
+  // Shared implementation of ResolveColumn / the whole-column path of
+  // ResolveColumnRange. When force_verify is set, a separate-file blob
+  // reference is read with checksum verification forced on even if
+  // ReadOptions::verify_checksums is off (see LazyColumnReadRequest).
+  Status ResolveColumnInternal(size_t column_index, bool force_verify,
+                               Slice* resolved_value);
+
   // Owns its ReadOptions: a resolver's lifetime is independent of the caller
   // that created it (e.g. it may outlive the originating ReadOptions once
   // returned as part of a lazy result).
@@ -99,6 +139,9 @@ class ReadPathBlobResolver {
   Slice user_key_;
   const std::vector<WideColumn>* columns_ = nullptr;
   const std::vector<std::pair<size_t, BlobIndex>>* blob_columns_ = nullptr;
+  // Non-null on the lazy read path for entities with same-file blob references;
+  // see Reset().
+  const SameFileBlobReader* same_file_reader_ = nullptr;
 
   // Cache for resolved blob values to avoid re-fetching.
   // Uses a vector of (column_index, PinnableSlice) pairs. Typical entities

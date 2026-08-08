@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cinttypes>
 #include <cstring>
+#include <type_traits>
 #include <unordered_map>
 
 #include "cache/lru_cache.h"
@@ -44,6 +45,11 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
 namespace ROCKSDB_NAMESPACE {
+
+// ReadOptions is copied frequently on read paths, so keep it cheap to copy:
+// all members must stay trivially copyable (use pointers, not std::function /
+// std::string / std::shared_ptr members).
+static_assert(std::is_trivially_copyable_v<ReadOptions>);
 
 class OptionsTest : public testing::Test {};
 

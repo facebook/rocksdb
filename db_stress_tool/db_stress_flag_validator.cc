@@ -302,6 +302,18 @@ int ValidateDbStressFlags() {
             "Error: clear_column_family_one_in must be 0 when using backup\n");
     return 1;
   }
+  if (FLAGS_clear_column_family_one_in > 0 &&
+      FLAGS_subset_cf_checkpoint_one_in > 0) {
+    return ReturnFlagValidationError(
+        "clear_column_family_one_in must be 0 when using "
+        "subset_cf_checkpoint_one_in");
+  }
+  if (FLAGS_clear_column_family_one_in > 0 &&
+      FLAGS_abort_and_resume_cf_compactions_one_in > 0) {
+    return ReturnFlagValidationError(
+        "clear_column_family_one_in must be 0 when using per-column-family "
+        "compaction abort");
+  }
   if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
   }

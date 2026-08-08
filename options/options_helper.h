@@ -38,6 +38,13 @@ inline bool IsSupportedChecksumType(ChecksumType type) {
   return type >= min && type <= max;
 }
 
+// Returns true if read_options has an active table filter, i.e. a non-null
+// pointer to a non-empty std::function. A null pointer, or a pointer to an
+// empty std::function, means no filtering.
+inline bool HasTableFilter(const ReadOptions& read_options) {
+  return read_options.table_filter != nullptr && *read_options.table_filter;
+}
+
 // Checks that the combination of DBOptions and ColumnFamilyOptions are valid
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts);

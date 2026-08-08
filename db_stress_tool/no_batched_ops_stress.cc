@@ -39,7 +39,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
+      ts_str = GetReadTimestamp();
       ts = ts_str;
       options.timestamp = &ts;
     }
@@ -280,6 +280,14 @@ class NonBatchedOpsStressTest : public StressTest {
             s = DbStressGet(secondary_db_.get(), options, secondary_cfhs_[cf],
                             key, &from_db);
 
+            // Also exercise the lazy wide-column read path on the secondary
+            // (self-checks lazy vs eager on the secondary, read at latest). A
+            // no-op unless the lazy API is enabled (open_files == -1, no
+            // UDT/txn) and sampled.
+            MaybeTestGetEntityLazy(thread, ReadOptions(), secondary_cfhs_[cf],
+                                   key, /*eager_reference=*/nullptr,
+                                   secondary_db_.get());
+
             // Re-enable error injection after verifying the secondary
             if (db_fault_injection_fs_) {
               db_fault_injection_fs_->EnableThreadLocalErrorInjection(
@@ -491,10 +499,7 @@ class NonBatchedOpsStressTest : public StressTest {
     assert(secondary_db_);
     assert(!secondary_cfhs_.empty());
     Status s = secondary_db_->TryCatchUpWithPrimary();
-    if (!s.ok()) {
-      assert(false);
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "TryCatchUpWithPrimary failed");
 
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
@@ -515,7 +520,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
+      ts_str = GetReadTimestamp();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -648,7 +653,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
@@ -686,7 +691,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
@@ -1136,7 +1141,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts_slice;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts_slice = read_ts_str;
       read_opts_copy.timestamp = &read_ts_slice;
     }
@@ -1255,6 +1260,8 @@ class NonBatchedOpsStressTest : public StressTest {
               s.ToString().c_str(), StringToHex(key_str).c_str(), rand_keys[0]);
       thread->shared->SetVerificationFailure();
     }
+
+    MaybeTestGetEntityLazy(thread, read_opts, cfh, key_str);
   }
 
   void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
@@ -1427,7 +1434,7 @@ class NonBatchedOpsStressTest : public StressTest {
                 is_consistent = false;
               }
             } else {
-              assert(cmp_s.ok());
+              DB_STRESS_ASSERT_OK(cmp_s);
 
               if (s.IsNotFound()) {
                 fprintf(
@@ -1437,7 +1444,7 @@ class NonBatchedOpsStressTest : public StressTest {
                     StringToHex(keys[i]).c_str());
                 is_consistent = false;
               } else {
-                assert(s.ok());
+                DB_STRESS_ASSERT_OK(s);
 
                 const WideColumns& cmp_columns = cmp_result.columns();
 
@@ -1670,6 +1677,16 @@ class NonBatchedOpsStressTest : public StressTest {
                     [&](const Slice& key, PinnableWideColumns* result) {
                       return db_->GetEntity(read_opts_copy, cfh, key, result);
                     });
+
+      std::vector<EagerEntityRef> eager_refs(num_keys);
+      for (size_t i = 0; i < num_keys; ++i) {
+        eager_refs[i].status = results[i][0].status();
+        if (eager_refs[i].status.ok()) {
+          eager_refs[i].columns = &results[i][0].columns();
+        }
+      }
+      MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
+                                  key_slices.data(), &eager_refs);
     } else {
       // Non-AttributeGroup MultiGetEntity verification
 
@@ -1698,6 +1715,16 @@ class NonBatchedOpsStressTest : public StressTest {
                     [&](const Slice& key, PinnableWideColumns* result) {
                       return db_->GetEntity(read_opts_copy, cfh, key, result);
                     });
+
+      std::vector<EagerEntityRef> eager_refs(num_keys);
+      for (size_t i = 0; i < num_keys; ++i) {
+        eager_refs[i].status = statuses[i];
+        if (statuses[i].ok()) {
+          eager_refs[i].columns = &results[i].columns();
+        }
+      }
+      MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
+                                  key_slices.data(), &eager_refs);
     }
   }
 
@@ -1715,6 +1742,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     std::string upper_bound;
     Slice ub_slice;
+    std::function<bool(const TableProperties&)> table_filter;
     ReadOptions ro_copy = read_opts;
 
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
@@ -1726,8 +1754,9 @@ class NonBatchedOpsStressTest : public StressTest {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
       if (FLAGS_use_sqfc_for_range_queries) {
-        ro_copy.table_filter =
+        table_filter =
             sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
+        ro_copy.table_filter = &table_filter;
       }
     } else if (options_.prefix_extractor && thread->rand.OneIn(2)) {
       ro_copy.prefix_same_as_start = true;
@@ -2834,7 +2863,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string read_ts_str;
     Slice read_ts;
     if (FLAGS_user_timestamp_size > 0) {
-      read_ts_str = GetNowNanos();
+      read_ts_str = GetReadTimestamp();
       read_ts = read_ts_str;
       ro.timestamp = &read_ts;
     }
@@ -2850,11 +2879,12 @@ class NonBatchedOpsStressTest : public StressTest {
       ro.iterate_upper_bound = &max_key_slice;
     }
     std::string ub_str, lb_str;
+    std::function<bool(const TableProperties&)> table_filter;
     if (FLAGS_use_sqfc_for_range_queries) {
       ub_str = Key(ub);
       lb_str = Key(lb);
-      ro.table_filter =
-          sqfc_factory_->GetTableFilterForRangeQuery(lb_str, ub_str);
+      table_filter = sqfc_factory_->GetTableFilterForRangeQuery(lb_str, ub_str);
+      ro.table_filter = &table_filter;
     }
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_family];
@@ -3130,7 +3160,7 @@ class NonBatchedOpsStressTest : public StressTest {
       if (!rs.ok() && IsErrorInjectedAndRetryable(rs)) {
         return rs;
       }
-      assert(rs.ok());
+      DB_STRESS_ASSERT_OK(rs);
       op_logs += "Refresh ";
       for (int64_t i = 0; i < static_cast<int64_t>(expected_values_size); ++i) {
         post_read_expected_values.push_back(

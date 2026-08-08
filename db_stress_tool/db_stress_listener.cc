@@ -48,11 +48,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
   IOOptions opts;
 
   Status st = fs->CreateDirIfMissing(dir, opts, nullptr);
-  if (!st.ok()) {
-    fprintf(stderr, "Failed to create directory %s: %s\n", dir.c_str(),
-            st.ToString().c_str());
-    exit(1);
-  }
+  DB_STRESS_ASSERT_OK_MSG(st, "Failed to create directory %s", dir.c_str());
 
   // Avoid relying on ReopenWritableFile which is not supported by all
   // file systems. Create a new file and copy the old file contents to it.
@@ -99,7 +95,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
             id_set_.clear();
             reader.reset();
             s = fs->DeleteFile(tmp_path, opts, /*dbg*/ nullptr);
-            assert(s.ok());
+            DB_STRESS_ASSERT_OK(s);
             size = 0;
           }
           break;
@@ -113,9 +109,9 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& dir)
       // the failure. (Issue #9021)
       Status s2 = fs->FileExists(tmp_path, opts, /*dbg*/ nullptr);
       if (!s2.IsNotFound()) {
-        fprintf(stderr, "Error opening unique id file: %s\n",
-                s.ToString().c_str());
-        assert(false);
+        DB_STRESS_ASSERT_OK_MSG(
+            s, "Error opening unique id file; FileExists returned %s",
+            s2.ToString().c_str());
       }
       size = 0;
     }
@@ -152,7 +148,7 @@ UniqueIdVerifier::~UniqueIdVerifier() {
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
   IOStatus s;
   s = data_file_writer_->Close(IOOptions());
-  assert(s.ok());
+  DB_STRESS_ASSERT_OK(s);
   ThreadStatusUtil::SetThreadOperation(cur_op_type);
 }
 

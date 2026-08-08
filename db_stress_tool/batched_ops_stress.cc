@@ -381,6 +381,19 @@ class BatchedOpsStressTest : public StressTest {
         }
       }
     }
+
+    // Reuse one of the sibling entities we just read (under read_opts_copy's
+    // snapshot, and cross-checked above) as the lazy read's reference, rather
+    // than issuing another eager read.
+    const size_t lazy_idx = thread->rand.Uniform(static_cast<int>(num_keys));
+    const std::string lazy_key = std::to_string(lazy_idx) + key_suffix;
+    const WideColumns& eager_ref_columns =
+        FLAGS_use_attribute_group
+            ? attribute_group_results[lazy_idx].front().columns()
+            : column_results[lazy_idx].columns();
+    const WideColumns* const eager_ref =
+        eager_ref_columns.empty() ? nullptr : &eager_ref_columns;
+    MaybeTestGetEntityLazy(thread, read_opts_copy, cfh, lazy_key, eager_ref);
   }
 
   void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
@@ -485,6 +498,16 @@ class BatchedOpsStressTest : public StressTest {
             }
           }
         }
+
+        std::vector<EagerEntityRef> eager_refs(num_prefixes);
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          eager_refs[j].status = results[j][0].status();
+          if (eager_refs[j].status.ok()) {
+            eager_refs[j].columns = &results[j][0].columns();
+          }
+        }
+        MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_prefixes,
+                                    key_slices.data(), &eager_refs);
       } else {
         // Non-AttributeGroup MultiGetEntity verification
 
@@ -546,6 +569,16 @@ class BatchedOpsStressTest : public StressTest {
             }
           }
         }
+
+        std::vector<EagerEntityRef> eager_refs(num_prefixes);
+        for (size_t j = 0; j < num_prefixes; ++j) {
+          eager_refs[j].status = statuses[j];
+          if (statuses[j].ok()) {
+            eager_refs[j].columns = &results[j].columns();
+          }
+        }
+        MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_prefixes,
+                                    key_slices.data(), &eager_refs);
       }
     }
   }
@@ -574,6 +607,8 @@ class BatchedOpsStressTest : public StressTest {
     std::array<ReadOptions, num_prefixes> ro_copies;
     std::array<std::string, num_prefixes> upper_bounds;
     std::array<Slice, num_prefixes> ub_slices;
+    std::array<std::function<bool(const TableProperties&)>, num_prefixes>
+        table_filters;
     std::array<std::unique_ptr<Iterator>, num_prefixes> iters;
 
     const Snapshot* const snapshot = db_->GetSnapshot();
@@ -597,9 +632,9 @@ class BatchedOpsStressTest : public StressTest {
         ub_slices[i] = upper_bounds[i];
         ro_copies[i].iterate_upper_bound = &(ub_slices[i]);
         if (FLAGS_use_sqfc_for_range_queries) {
-          ro_copies[i].table_filter =
-              sqfc_factory_->GetTableFilterForRangeQuery(prefix_slices[i],
-                                                         ub_slices[i]);
+          table_filters[i] = sqfc_factory_->GetTableFilterForRangeQuery(
+              prefix_slices[i], ub_slices[i]);
+          ro_copies[i].table_filter = &table_filters[i];
         }
       } else {
         // Otherwise, bound by prefix
@@ -685,7 +720,7 @@ class BatchedOpsStressTest : public StressTest {
       // if the first iterator finished, they should have all finished
       assert(!iters[i]->Valid() ||
              !iters[i]->key().starts_with(prefix_slices[i]));
-      assert(iters[i]->status().ok());
+      DB_STRESS_ASSERT_OK(iters[i]->status());
     }
 
     db_->ReleaseSnapshot(snapshot);

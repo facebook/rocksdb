@@ -18,6 +18,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "db/wal_manager.h"
 #include "file/file_util.h"
 #include "file/filename.h"
@@ -28,9 +29,9 @@
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/wal_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/file_checksum_helper.h"
@@ -64,6 +65,8 @@ class CheckpointEngineImpl : public CheckpointEngine {
     copy_options.max_background_operations =
         std::max(1, options_.max_background_operations);
     copy_options.io_buffer_size = options_.io_buffer_size;
+    copy_options.read_bytes_ticker = CHECKPOINT_READ_BYTES;
+    copy_options.write_bytes_ticker = CHECKPOINT_WRITE_BYTES;
     copy_options.info_log = options_.info_log;
     copy_options.thread_name = "rocksdb:ckpt";
     copy_engine_ = std::make_unique<CopyEngine>(std::move(copy_options));
@@ -79,11 +82,19 @@ class CheckpointEngineImpl : public CheckpointEngine {
           create_options.background_thread_cpu_priority);
     }
 
+    std::vector<uint32_t> include_cf_ids;
+    Status resolve_s = CheckpointImpl::ResolveIncludeColumnFamilyIds(
+        source_db, create_options.column_families, &include_cf_ids);
+    if (!resolve_s.ok()) {
+      return status_to_io_status(std::move(resolve_s));
+    }
+
     const bool use_link = options_.use_link_file_when_available;
     CheckpointImpl impl(source_db);
     return status_to_io_status(impl.CreateCheckpointImpl(
         destination_dir, create_options.log_size_for_flush, sequence_number_ptr,
-        copy_engine_.get(), use_link, options_.backup_rate_limiter.get()));
+        copy_engine_.get(), use_link, options_.backup_rate_limiter.get(),
+        include_cf_ids));
   }
 
   IOStatus ExportColumnFamily(
@@ -157,12 +168,14 @@ class SerialFileMover : public CheckpointFileMover {
 class ParallelFileMover : public CheckpointFileMover {
  public:
   ParallelFileMover(CopyEngine* engine, Env* env, bool use_link, bool use_fsync,
-                    RateLimiter* copy_rate_limiter, Logger* info_log)
+                    RateLimiter* copy_rate_limiter, Statistics* stats,
+                    Logger* info_log)
       : engine_(engine),
         env_(env),
         use_link_(use_link),
         use_fsync_(use_fsync),
         copy_rate_limiter_(copy_rate_limiter),
+        stats_(stats),
         info_log_(info_log) {}
 
   Status Link(const std::string& src, const std::string& dst,
@@ -175,8 +188,9 @@ class ParallelFileMover : public CheckpointFileMover {
     // Linking moves no data, so the WorkItem carries no temperature; it is kept
     // in PendingLink for the copy fallback in Finish().
     WorkItem w(src, dst, Temperature::kUnknown, Temperature::kUnknown,
-               /*contents=*/"", env_, env_, EnvOptions(), use_fsync_,
-               /*rate_limiter=*/nullptr, /*size_limit=*/0, /*stats=*/nullptr);
+               /*contents=*/"", env_, env_, EnvOptions(), /*sync=*/true,
+               /*use_fsync=*/use_fsync_, /*rate_limiter=*/nullptr,
+               /*size_limit=*/0, /*stats=*/nullptr);
     w.type = WorkItemType::Link;
     link_pendings_.push_back({w.result.get_future(), src, dst, temperature});
     engine_->Submit(std::move(w));
@@ -187,8 +201,8 @@ class ParallelFileMover : public CheckpointFileMover {
               uint64_t size_limit, Temperature temperature) override {
     ROCKS_LOG_INFO(info_log_, "Copying %s", dst.c_str());
     WorkItem w(src, dst, temperature, temperature, /*contents=*/"", env_, env_,
-               EnvOptions(), use_fsync_, copy_rate_limiter_, size_limit,
-               /*stats=*/nullptr);
+               EnvOptions(), /*sync=*/true, /*use_fsync=*/use_fsync_,
+               copy_rate_limiter_, size_limit, stats_);
     copy_futures_.push_back(w.result.get_future());
     engine_->Submit(std::move(w));
     return Status::OK();
@@ -218,8 +232,9 @@ class ParallelFileMover : public CheckpointFileMover {
         // size_limit 0 copies the whole file; only immutable (non-trim_to_size)
         // files are linked, so this matches the serial path's info.size bound.
         WorkItem w(p.src, p.dst, p.temperature, p.temperature,
-                   /*contents=*/"", env_, env_, EnvOptions(), use_fsync_,
-                   copy_rate_limiter_, /*size_limit=*/0, /*stats=*/nullptr);
+                   /*contents=*/"", env_, env_, EnvOptions(), /*sync=*/true,
+                   /*use_fsync=*/use_fsync_, copy_rate_limiter_,
+                   /*size_limit=*/0, stats_);
         fallback_copies.push_back(w.result.get_future());
         engine_->Submit(std::move(w));
       } else {
@@ -245,6 +260,7 @@ class ParallelFileMover : public CheckpointFileMover {
   bool use_link_;
   bool use_fsync_;
   RateLimiter* copy_rate_limiter_;
+  Statistics* stats_;
   Logger* info_log_;
   std::vector<std::future<WorkItemResult>> copy_futures_;
   std::vector<PendingLink> link_pendings_;
@@ -266,6 +282,13 @@ Status CheckpointEngine::Open(
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
                                     uint64_t /*log_size_for_flush*/,
                                     uint64_t* /*sequence_number_ptr*/) {
+  return Status::NotSupported("");
+}
+
+Status Checkpoint::CreateCheckpoint(
+    const std::string& /*checkpoint_dir*/,
+    const std::vector<ColumnFamilyHandle*>& /*column_families*/,
+    uint64_t /*log_size_for_flush*/, uint64_t* /*sequence_number_ptr*/) {
   return Status::NotSupported("");
 }
 
@@ -321,11 +344,65 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                               /*use_link=*/true, /*copy_rate_limiter=*/nullptr);
 }
 
-Status CheckpointImpl::CreateCheckpointImpl(const std::string& checkpoint_dir,
-                                            uint64_t log_size_for_flush,
-                                            uint64_t* sequence_number_ptr,
-                                            CopyEngine* engine, bool use_link,
-                                            RateLimiter* copy_rate_limiter) {
+Status CheckpointImpl::ResolveIncludeColumnFamilyIds(
+    DB* db, const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<uint32_t>* include_cf_ids) {
+  assert(include_cf_ids != nullptr);
+  include_cf_ids->clear();
+  // Empty list means "all column families" -- identical to the whole-DB API.
+  if (column_families.empty()) {
+    return Status::OK();
+  }
+
+  // Reject handles that do not belong to this DB. handle->GetID() alone would
+  // silently coerce a foreign CF id into whatever CF in this DB happens to
+  // share that id, producing a wrong-data subset checkpoint.
+  DBImpl* this_db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  std::unordered_set<uint32_t> id_set;
+  for (auto* handle : column_families) {
+    if (handle == nullptr) {
+      return Status::InvalidArgument("Null column family handle");
+    }
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
+    if (cfh->db() != this_db_impl) {
+      return Status::InvalidArgument(
+          "Column family handle does not belong to this DB");
+    }
+    if (cfh->cfd() != nullptr && cfh->cfd()->IsDropped()) {
+      return Status::InvalidArgument(
+          "Column family handle refers to a dropped column family");
+    }
+    id_set.insert(handle->GetID());
+  }
+  // The default column family cannot be dropped and must exist in every
+  // openable DB, so it is always included and never eligible for exclusion.
+  id_set.insert(db->DefaultColumnFamily()->GetID());
+
+  include_cf_ids->assign(id_set.begin(), id_set.end());
+  return Status::OK();
+}
+
+Status CheckpointImpl::CreateCheckpoint(
+    const std::string& checkpoint_dir,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    uint64_t log_size_for_flush, uint64_t* sequence_number_ptr) {
+  std::vector<uint32_t> include_cf_ids;
+  Status s =
+      ResolveIncludeColumnFamilyIds(db_, column_families, &include_cf_ids);
+  if (!s.ok()) {
+    return s;
+  }
+  return CreateCheckpointImpl(checkpoint_dir, log_size_for_flush,
+                              sequence_number_ptr, /*engine=*/nullptr,
+                              /*use_link=*/true, /*copy_rate_limiter=*/nullptr,
+                              include_cf_ids);
+}
+
+Status CheckpointImpl::CreateCheckpointImpl(
+    const std::string& checkpoint_dir, uint64_t log_size_for_flush,
+    uint64_t* sequence_number_ptr, CopyEngine* engine, bool use_link,
+    RateLimiter* copy_rate_limiter,
+    const std::vector<uint32_t>& include_cf_ids) {
   DBOptions db_options = db_->GetDBOptions();
   Env* env = db_->GetEnv();
   const auto& fs = db_->GetFileSystem();
@@ -376,12 +453,17 @@ Status CheckpointImpl::CreateCheckpointImpl(const std::string& checkpoint_dir,
   } else {
     mover = std::make_unique<ParallelFileMover>(
         engine, env, use_link, db_options.use_fsync, copy_rate_limiter,
-        db_options.info_log.get());
+        db_options.statistics.get(), db_options.info_log.get());
   }
 
   // create snapshot directory
   s = env->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
+  // Populated by CreateCustomCheckpoint when include_cf_ids restricts the
+  // checkpoint to a subset of column families.
+  std::vector<uint32_t> excluded_cf_ids;
+  std::string manifest_relative_filename;
+  uint64_t manifest_size = 0;
   if (s.ok()) {
     // enable file deletions
     s = db_->DisableFileDeletions();
@@ -408,7 +490,10 @@ Status CheckpointImpl::CreateCheckpointImpl(const std::string& checkpoint_dir,
             return CreateFile(fs, full_private_path + "/" + fname, contents,
                               db_options.use_fsync);
           } /* create_file_cb */,
-          &sequence_number, log_size_for_flush);
+          &sequence_number, log_size_for_flush,
+          /*get_live_table_checksum=*/false, /*atomic_flush=*/false,
+          include_cf_ids, &excluded_cf_ids, &manifest_relative_filename,
+          &manifest_size);
 
       // Await any deferred work and fold in the first error before committing.
       Status finish_s = mover->Finish();
@@ -416,6 +501,22 @@ Status CheckpointImpl::CreateCheckpointImpl(const std::string& checkpoint_dir,
         s = finish_s;
       } else {
         finish_s.PermitUncheckedError();
+      }
+
+      // All files (including the copied MANIFEST) are now materialized in the
+      // staging dir. If a subset of column families was requested, record the
+      // excluded CFs as dropped in the copied MANIFEST so it is consistent with
+      // the reduced set of SST/blob files and opens under paranoid_checks.
+      if (s.ok() && !excluded_cf_ids.empty()) {
+        if (manifest_relative_filename.empty()) {
+          s = Status::Corruption(
+              "Subset checkpoint did not record a MANIFEST descriptor entry");
+        } else {
+          DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+          s = db_impl->AppendColumnFamilyDropsToManifest(
+              full_private_path + "/" + manifest_relative_filename,
+              manifest_size, excluded_cf_ids);
+        }
       }
 
       // we copied all the files, enable file deletions
@@ -487,7 +588,10 @@ Status CheckpointImpl::CreateCustomCheckpoint(
                          FileType type)>
         create_file_cb,
     uint64_t* sequence_number, uint64_t log_size_for_flush,
-    bool get_live_table_checksum, bool atomic_flush) {
+    bool get_live_table_checksum, bool atomic_flush,
+    const std::vector<uint32_t>& include_cf_ids,
+    std::vector<uint32_t>* excluded_cf_ids,
+    std::string* manifest_relative_filename, uint64_t* manifest_size) {
   *sequence_number = db_->GetLatestSequenceNumber();
 
   LiveFilesStorageInfoOptions opts;
@@ -497,7 +601,15 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   std::vector<LiveFileStorageInfo> infos;
   {
-    Status s = db_->GetLiveFilesStorageInfo(opts, &infos);
+    Status s;
+    if (include_cf_ids.empty()) {
+      s = db_->GetLiveFilesStorageInfo(opts, &infos);
+    } else {
+      assert(excluded_cf_ids != nullptr);
+      DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+      s = db_impl->GetLiveFilesStorageInfoForSubsetCheckpoint(
+          opts, include_cf_ids, &infos, excluded_cf_ids);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -520,6 +632,17 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   for (auto& info : infos) {
     Status s;
+    // Record the MANIFEST location/size so the caller can post-process it
+    // (append CF-drop records) after all files are materialized.
+    if (info.file_type == kDescriptorFile) {
+      if (manifest_relative_filename != nullptr) {
+        assert(manifest_relative_filename->empty());
+        *manifest_relative_filename = info.relative_filename;
+      }
+      if (manifest_size != nullptr) {
+        *manifest_size = info.size;
+      }
+    }
     if (!info.replacement_contents.empty()) {
       // Currently should only be used for CURRENT file.
       assert(info.file_type == kCurrentFile);
