@@ -18,14 +18,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class DBTestXactLogIterator : public DBTestBase {
+class DBWalIteratorTest : public DBTestBase {
  public:
-  DBTestXactLogIterator()
-      : DBTestBase("db_log_iter_test", /*env_do_fsync=*/true) {}
+  DBWalIteratorTest() : DBTestBase("db_log_iter_test", /*env_do_fsync=*/true) {}
 
-  std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
-      const SequenceNumber seq) {
-    std::unique_ptr<TransactionLogIterator> iter;
+  std::unique_ptr<WalIterator> OpenWalIter(const SequenceNumber seq) {
+    std::unique_ptr<WalIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
     EXPECT_OK(status);
     EXPECT_TRUE(iter->Valid());
@@ -34,8 +32,8 @@ class DBTestXactLogIterator : public DBTestBase {
 };
 
 namespace {
-SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
-                           int& count, bool expect_ok = true) {
+SequenceNumber ReadRecords(std::unique_ptr<WalIterator>& iter, int& count,
+                           bool expect_ok = true) {
   count = 0;
   SequenceNumber lastSequence = 0;
   BatchResult res;
@@ -56,14 +54,14 @@ SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
 }
 
 void ExpectRecords(const int expected_no_records,
-                   std::unique_ptr<TransactionLogIterator>& iter) {
+                   std::unique_ptr<WalIterator>& iter) {
   int num_records;
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
 }
 }  // anonymous namespace
 
-TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
+TEST_F(DBWalIteratorTest, Basic) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
@@ -73,7 +71,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
     ASSERT_OK(Put(1, "key2", DummyString(1024)));
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
     {
-      auto iter = OpenTransactionLogIter(0);
+      auto iter = OpenWalIter(0);
       ExpectRecords(3, iter);
     }
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
@@ -84,14 +82,14 @@ TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
       ASSERT_OK(Put(0, "key6", DummyString(1024)));
     }
     {
-      auto iter = OpenTransactionLogIter(0);
+      auto iter = OpenWalIter(0);
       ExpectRecords(6, iter);
     }
   } while (ChangeCompactOptions());
 }
 
 #ifndef NDEBUG  // sync point is not included with DNDEBUG build
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
+TEST_F(DBWalIteratorTest, Race) {
   static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
   static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] = {
       {"WalManager::GetSortedWalFiles:1", "WalManager::PurgeObsoleteFiles:1",
@@ -123,7 +121,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
       ASSERT_OK(dbfull()->FlushWAL(false));
 
       {
-        auto iter = OpenTransactionLogIter(0);
+        auto iter = OpenWalIter(0);
         ExpectRecords(4, iter);
       }
 
@@ -140,14 +138,14 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
       ASSERT_OK(dbfull()->FlushWAL(false));
       {
         // this iter would miss "key4" if not fixed
-        auto iter = OpenTransactionLogIter(0);
+        auto iter = OpenWalIter(0);
         ExpectRecords(5, iter);
       }
     } while (ChangeCompactOptions());
   }
 }
 
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
+TEST_F(DBWalIteratorTest, CheckWhenArchive) {
   RelaxedAtomic<bool> callback_hit{};
   do {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
@@ -173,7 +171,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
     callback_hit.StoreRelaxed(false);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WalManager::PurgeObsoleteFiles:1", [&](void*) {
-          auto iter = OpenTransactionLogIter(0);
+          auto iter = OpenWalIter(0);
           ExpectRecords(4, iter);
           callback_hit.StoreRelaxed(true);
         });
@@ -192,12 +190,12 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckWhenArchive) {
 }
 #endif
 
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorStallAtLastRecord) {
+TEST_F(DBWalIteratorTest, StallAtLastRecord) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
     ASSERT_OK(Put("key1", DummyString(1024)));
-    auto iter = OpenTransactionLogIter(0);
+    auto iter = OpenWalIter(0);
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
     iter->Next();
@@ -210,7 +208,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorStallAtLastRecord) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckAfterRestart) {
+TEST_F(DBWalIteratorTest, CheckAfterRestart) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
@@ -218,12 +216,12 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCheckAfterRestart) {
     ASSERT_OK(Put("key2", DummyString(1023)));
     ASSERT_OK(dbfull()->Flush(FlushOptions()));
     Reopen(options);
-    auto iter = OpenTransactionLogIter(0);
+    auto iter = OpenWalIter(0);
     ExpectRecords(2, iter);
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
+TEST_F(DBWalIteratorTest, CorruptedLog) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
@@ -254,18 +252,18 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
 
     // Try to read from the beginning. Should stop before the gap and read less
     // than 1025 entries
-    auto iter = OpenTransactionLogIter(0);
+    auto iter = OpenWalIter(0);
     int count = 0;
     SequenceNumber last_sequence_read = ReadRecords(iter, count, false);
     ASSERT_LT(last_sequence_read, 1025U);
 
     // Try to read past the gap, should be able to seek to key1025
-    auto iter2 = OpenTransactionLogIter(last_sequence_read + 1);
+    auto iter2 = OpenWalIter(last_sequence_read + 1);
     ExpectRecords(1, iter2);
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorBatchOperations) {
+TEST_F(DBWalIteratorTest, BatchOperations) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
@@ -280,12 +278,12 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBatchOperations) {
     ASSERT_OK(Flush(0));
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
     ASSERT_OK(Put(1, "key4", DummyString(1024)));
-    auto iter = OpenTransactionLogIter(3);
+    auto iter = OpenWalIter(3);
     ExpectRecords(2, iter);
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
+TEST_F(DBWalIteratorTest, Blobs) {
   Options options = OptionsForLogIterTest();
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -301,7 +299,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
   }
 
-  auto res = OpenTransactionLogIter(0)->GetBatch();
+  auto res = OpenWalIter(0)->GetBatch();
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
@@ -331,6 +329,84 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
       "LogData(blob2)"
       "Delete(0, key2)",
       handler.seen);
+}
+
+// The tests below pin the semantics documented on WalIterator and
+// DB::GetUpdatesSince, including the sharp edges, so that changing any of
+// them is a deliberate and visible decision rather than an accident.
+
+// A caught-up iterator is usable, not finished: Next() is how a consumer
+// tails a DB.
+TEST_F(DBWalIteratorTest, CaughtUpThenResumes) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key1", DummyString(128)));
+
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+
+  // Caught up: !Valid(), but status() is OK and the iterator is not spent.
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // A later write to the same WAL is picked up by calling Next() again,
+  // without rebuilding the iterator.
+  ASSERT_OK(Put("key2", DummyString(128)));
+  iter->Next();
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(2U, iter->GetBatch().sequence);
+}
+
+// Writes that bypass the WAL still consume sequence numbers, so they leave
+// holes that this API surfaces as the end of the run.
+TEST_F(DBWalIteratorTest, GapFromDisableWAL) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(options);
+
+  WriteOptions no_wal;
+  no_wal.disableWAL = true;
+  ASSERT_OK(Put("key1", DummyString(128)));          // seq 1, in the WAL
+  ASSERT_OK(Put("key2", DummyString(128), no_wal));  // seq 2, not in the WAL
+  ASSERT_OK(Put("key3", DummyString(128)));          // seq 3, in the WAL
+
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(1U, iter->GetBatch().sequence);
+
+  // The run stops at the hole rather than silently jumping to seq 3.
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsNotFound()) << iter->status().ToString();
+
+  // And the iterator is spent: further Next() calls do nothing and the
+  // status never changes.
+  iter->Next();
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsNotFound());
+}
+
+// GetUpdatesSince is permissive about its starting point: if the requested
+// sequence number is not in the WAL it silently starts later and still
+// reports OK. This is the path by which a consumer recovering from a spent
+// iterator can lose data without noticing.
+TEST_F(DBWalIteratorTest, SilentlySkipsUnavailableStart) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(options);
+
+  WriteOptions no_wal;
+  no_wal.disableWAL = true;
+  ASSERT_OK(Put("key1", DummyString(128), no_wal));  // seq 1, not in the WAL
+  ASSERT_OK(Put("key2", DummyString(128)));          // seq 2, in the WAL
+
+  std::unique_ptr<WalIterator> iter;
+  ASSERT_OK(dbfull()->GetUpdatesSince(1, &iter));
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  // Asked for seq 1, silently given seq 2, with no error anywhere.
+  ASSERT_EQ(2U, iter->GetBatch().sequence);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

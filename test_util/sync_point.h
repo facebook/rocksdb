@@ -68,7 +68,8 @@ namespace ROCKSDB_NAMESPACE {
 // In the unit test, 'Happens After' relationship among sync points could be
 // setup via SyncPoint::LoadDependency, to reproduce a desired interleave of
 // threads execution.
-// Refer to (DBTest,TransactionLogIteratorRace), for an example use case.
+// Refer to (DBWalIteratorTest,Race), for an example use
+// case.
 
 class SyncPoint {
  public:
@@ -153,7 +154,8 @@ void SetupSyncPointsToMockDirectIO();
 // Sync points can have happens-after dependency on other sync points,
 // configured at runtime via SyncPoint::LoadDependency. This could be
 // utilized to re-produce race conditions between threads.
-// See TransactionLogIteratorRace in db_test.cc for an example use case.
+// See DBWalIteratorTest.Race in db_log_iter_test.cc for an example use
+// case.
 // TEST_SYNC_POINT is no op in release build.
 #define TEST_SYNC_POINT(x) \
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->Process(x)

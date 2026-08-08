@@ -78,11 +78,8 @@ bool RunStressTestImpl(SharedState* shared) {
     if (s.ok() && !ev_dir.empty()) {
       s = InitUnverifiedSubdir(ev_dir);
     }
-    if (!s.ok()) {
-      fprintf(stderr, "%sFailed to setup unverified state dir: %s\n",
-              db_label.c_str(), s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "%sFailed to setup unverified state dir",
+                            db_label.c_str());
   }
 
   stress->InitDb(shared);
@@ -189,11 +186,8 @@ bool RunStressTestImpl(SharedState* shared) {
         if (s.ok() && !ev_dir.empty()) {
           s = DestroyUnverifiedSubdir(ev_dir);
         }
-        if (!s.ok()) {
-          fprintf(stderr, "%sFailed to cleanup unverified state dir: %s\n",
-                  db_label.c_str(), s.ToString().c_str());
-          exit(1);
-        }
+        DB_STRESS_ASSERT_OK_MSG(s, "%sFailed to cleanup unverified state dir",
+                                db_label.c_str());
       }
     }
 
@@ -215,7 +209,7 @@ bool RunStressTestImpl(SharedState* shared) {
       }
       if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
         Status s = stress->EnableAutoCompaction();
-        assert(s.ok());
+        DB_STRESS_ASSERT_OK(s);
       }
       fprintf(stdout, "%s %sStarting database operations\n",
               clock->TimeToString(now / 1000000).c_str(), db_label.c_str());

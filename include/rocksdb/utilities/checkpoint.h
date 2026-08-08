@@ -81,6 +81,19 @@ struct CreateCheckpointOptions : public CreateCheckpointOrBackupOptions {
   // recent writes when WAL writing is not always enabled. Always flushes for
   // 2PC.
   uint64_t log_size_for_flush = 0;
+
+  // Restricts the checkpoint to these column families. SST and blob files of
+  // the other column families are not hard-linked or copied, and the
+  // checkpoint's MANIFEST records those other column families as dropped, so
+  // the checkpoint still opens cleanly under the default paranoid_checks.
+  // - Handles must be non-null and belong to the source_db passed to
+  //   CreateCheckpoint(). Duplicate handles (by id) are coalesced.
+  // - The default column family is always included, whether or not it appears
+  //   here (it cannot be dropped).
+  // - The resulting checkpoint must be opened listing exactly these column
+  //   families (plus default); the excluded ones no longer exist in it.
+  // Default: empty, meaning all column families are included.
+  std::vector<ColumnFamilyHandle*> column_families;
 };
 
 // A reusable engine for creating checkpoints. Unlike the legacy Checkpoint API
@@ -102,6 +115,8 @@ class CheckpointEngineBase {
   // Builds an openable snapshot of source_db under destination_dir (must not
   // exist). Data files are hard-linked when possible, else copied, across the
   // pool. sequence_number_ptr, if set, receives a seqno in the checkpoint.
+  // Set options.column_families to checkpoint only a subset of the column
+  // families.
   virtual IOStatus CreateCheckpoint(
       DB* source_db, const std::string& destination_dir,
       uint64_t* sequence_number_ptr = nullptr,
@@ -152,6 +167,24 @@ class Checkpoint {
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
                                   uint64_t log_size_for_flush = 0,
                                   uint64_t* sequence_number_ptr = nullptr);
+
+  // Like CreateCheckpoint above, but the resulting checkpoint contains only the
+  // given column families (plus the default column family, which is always
+  // included). SST and blob files of the other column families are not
+  // hard-linked or copied, and the checkpoint's MANIFEST records those other
+  // column families as dropped, so the checkpoint still opens cleanly under the
+  // default paranoid_checks.
+  // - column_families must be handles from this DB (non-null). Duplicate
+  //   handles (by id) are coalesced. An empty vector is equivalent to the
+  //   overload above (all column families are included).
+  // - The default column family is always included, whether or not it appears
+  //   in column_families (it cannot be dropped).
+  // - The resulting checkpoint must be opened listing exactly these column
+  //   families (plus default); the excluded ones no longer exist in it.
+  virtual Status CreateCheckpoint(
+      const std::string& checkpoint_dir,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      uint64_t log_size_for_flush = 0, uint64_t* sequence_number_ptr = nullptr);
 
   // Exports all live SST files of a specified Column Family onto export_dir,
   // returning SST files information in metadata.

@@ -7,22 +7,40 @@
 
 #include <algorithm>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
 #include "monitoring/histogram.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/system_clock.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
+
+#if defined(USE_COROUTINES)
+#include "folly/Executor.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
+#include "folly/coro/CurrentExecutor.h"
+#include "folly/coro/Task.h"
+#include "folly/executors/IOThreadPoolExecutor.h"
+#include "folly/io/async/EventBase.h"
+#include "folly/io/async/Request.h"
+#include "util/coro_stats_util.h"
+#endif
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;
@@ -64,7 +82,267 @@ std::unique_ptr<DB> OpenDb(bool read_only = false) {
   return db;
 }
 
-class PerfContextTest : public testing::Test {};
+class PerfContextTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    SetPerfLevel(PerfLevel::kEnableCount);
+    get_perf_context()->ClearPerLevelPerfContext();
+    get_perf_context()->Reset();
+    get_iostats_context()->Reset();
+    get_iostats_context()->disable_iostats = false;
+  }
+};
+
+#if defined(USE_COROUTINES)
+TEST_F(PerfContextTest, CoroutineStatsContextScopeCollectsStats) {
+  SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+  get_perf_context()->EnablePerLevelPerfContext();
+
+  folly::IOThreadPoolExecutor executor(1);
+  folly::EventBase* event_base = executor.getEventBase();
+  ASSERT_NE(nullptr, event_base);
+
+  auto clock = std::make_shared<MockSystemClock>(SystemClock::Default());
+  clock->SetCurrentTime(1);
+  CoroutineStatsConfig stats_config = CaptureCoroutineStatsConfig();
+  folly::coro::blockingWait(folly::coro::co_withExecutor(
+      folly::Executor::getKeepAliveToken(event_base),
+      [event_base, clock = clock.get(),
+       stats_config =
+           std::move(stats_config)]() mutable -> folly::coro::Task<void> {
+        EXPECT_TRUE(event_base->isInEventBaseThread());
+
+        CoroutineStatsContextScope scope(std::move(stats_config),
+                                         Env::Default());
+
+        EXPECT_EQ(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex,
+                  GetPerfLevel());
+        EXPECT_EQ(0, get_perf_context()->block_read_count);
+        EXPECT_TRUE(get_perf_context()->per_level_perf_context_enabled);
+
+        get_perf_context()->block_read_count += 3;
+        (*get_perf_context()->level_to_perf_context)[2].block_cache_hit_count +=
+            5;
+        EXPECT_EQ(0, get_iostats_context()->bytes_read);
+        get_iostats_context()->bytes_read += 7;
+        get_iostats_context()->cpu_read_nanos += 11;
+        get_iostats_context()
+            ->file_io_stats_by_temperature.hot_file_read_count += 1;
+
+        {
+          PERF_TIMER_GUARD_WITH_CLOCK(block_read_time, clock);
+          clock->SleepForMicroseconds(7);
+        }
+
+        co_await folly::coro::co_reschedule_on_current_executor;
+
+        EXPECT_TRUE(event_base->isInEventBaseThread());
+        EXPECT_EQ(3, get_perf_context()->block_read_count);
+        EXPECT_TRUE(get_perf_context()->per_level_perf_context_enabled);
+
+        get_perf_context()->block_read_count += 5;
+        (*get_perf_context()->level_to_perf_context)[2].block_cache_hit_count +=
+            2;
+        EXPECT_EQ(7, get_iostats_context()->bytes_read);
+        get_iostats_context()->bytes_read += 11;
+        get_iostats_context()->cpu_read_nanos += 13;
+        get_iostats_context()
+            ->file_io_stats_by_temperature.hot_file_read_count += 2;
+
+        scope.Finalize();
+        auto verify_stats = [] {
+          const PerfContext* captured_perf_context = get_perf_context();
+          ASSERT_NE(nullptr, captured_perf_context);
+          EXPECT_EQ(8, captured_perf_context->block_read_count);
+          EXPECT_EQ(7000, captured_perf_context->block_read_time);
+          ASSERT_NE(nullptr, captured_perf_context->level_to_perf_context);
+          EXPECT_EQ(7, (*captured_perf_context->level_to_perf_context)[2]
+                           .block_cache_hit_count);
+
+          const IOStatsContext* iostats_context = get_iostats_context();
+          ASSERT_NE(nullptr, iostats_context);
+          EXPECT_EQ(18, iostats_context->bytes_read);
+          EXPECT_EQ(24, iostats_context->cpu_read_nanos);
+          EXPECT_EQ(3, iostats_context->file_io_stats_by_temperature
+                           .hot_file_read_count);
+        };
+        verify_stats();
+      }()));
+}
+
+TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
+  CoroutineStatsConfig first_stats_config = CaptureCoroutineStatsConfig();
+
+  SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
+  get_perf_context()->EnablePerLevelPerfContext();
+  get_iostats_context()->disable_iostats = true;
+  CoroutineStatsConfig second_stats_config = CaptureCoroutineStatsConfig();
+
+  folly::IOThreadPoolExecutor executor(1);
+  folly::EventBase* event_base = executor.getEventBase();
+  ASSERT_NE(nullptr, event_base);
+
+  folly::coro::blockingWait(folly::coro::co_withExecutor(
+      folly::Executor::getKeepAliveToken(event_base),
+      [first_stats_config = std::move(first_stats_config),
+       second_stats_config = std::move(
+           second_stats_config)]() mutable -> folly::coro::Task<void> {
+        get_perf_context()->Reset();
+        get_perf_context()->ClearPerLevelPerfContext();
+        get_perf_context()->block_read_count = 100;
+        get_iostats_context()->Reset();
+        get_iostats_context()->bytes_read = 200;
+
+        auto make_task = [](CoroutineStatsConfig stats_config, uint64_t first,
+                            uint64_t second) -> folly::coro::Task<uint64_t> {
+          const PerfLevel expected_perf_level = stats_config.perf_level;
+          const bool expected_per_level_perf_context_enabled =
+              stats_config.per_level_perf_context_enabled;
+          const bool expected_iostats_disabled = stats_config.iostats_disabled;
+          CoroutineStatsContextScope scope(std::move(stats_config),
+                                           Env::Default());
+
+          EXPECT_EQ(expected_perf_level, GetPerfLevel());
+          EXPECT_EQ(expected_per_level_perf_context_enabled,
+                    get_perf_context()->per_level_perf_context_enabled);
+          EXPECT_EQ(expected_iostats_disabled,
+                    get_iostats_context()->disable_iostats);
+          EXPECT_EQ(0, get_perf_context()->block_read_count);
+          EXPECT_EQ(0, get_iostats_context()->bytes_read);
+
+          get_perf_context()->block_read_count += first;
+          get_iostats_context()->bytes_read += first;
+          co_await folly::coro::co_reschedule_on_current_executor;
+
+          EXPECT_EQ(expected_perf_level, GetPerfLevel());
+          EXPECT_EQ(expected_per_level_perf_context_enabled,
+                    get_perf_context()->per_level_perf_context_enabled);
+          EXPECT_EQ(expected_iostats_disabled,
+                    get_iostats_context()->disable_iostats);
+          EXPECT_EQ(first, get_perf_context()->block_read_count);
+          EXPECT_EQ(first, get_iostats_context()->bytes_read);
+          get_perf_context()->block_read_count += second;
+          get_iostats_context()->bytes_read += second;
+
+          scope.Finalize();
+          EXPECT_EQ(first + second, get_iostats_context()->bytes_read);
+          co_return get_perf_context()->block_read_count;
+        };
+
+        std::vector<folly::coro::Task<uint64_t>> tasks;
+        tasks.push_back(make_task(std::move(first_stats_config), 1, 10));
+        tasks.push_back(make_task(std::move(second_stats_config), 2, 20));
+        std::vector<uint64_t> results =
+            co_await folly::coro::collectAllRange(std::move(tasks));
+
+        EXPECT_EQ((std::vector<uint64_t>{11, 22}), results);
+
+        get_perf_context()->Reset();
+        get_iostats_context()->Reset();
+        co_return;
+      }()));
+}
+
+TEST_F(PerfContextTest, CoroutineStatsContextScopeCollectsGetCpuNanos) {
+  SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+
+  auto clock = std::make_shared<MockSystemClock>(SystemClock::Default());
+  CompositeEnvWrapper env(Env::Default(), clock);
+  clock->SetCurrentCPUTimeNanos(0);
+  {
+    CoroutineStatsContextScope scope(CaptureCoroutineStatsConfig(), &env);
+
+    clock->MockSleepForCPUNanos(17);
+    clock->MockSleepForCPUNanos(5);
+    // Time while the request context is unset is not charged to the request.
+    {
+      folly::RequestContextScopeGuard context_scope;
+      clock->MockSleepForCPUNanos(13);
+    }
+    clock->MockSleepForCPUNanos(7);
+    scope.Finalize();
+    EXPECT_EQ(29, get_perf_context()->get_cpu_nanos);
+  }
+}
+
+#endif
+
+TEST_F(PerfContextTest, AsyncCallbackStatsStartEmptyOnSyncFallback) {
+  class NoReadExecutorFileSystem final : public FileSystemWrapper {
+   public:
+    explicit NoReadExecutorFileSystem(const std::shared_ptr<FileSystem>& target)
+        : FileSystemWrapper(target) {}
+
+    const char* Name() const override { return "NoReadExecutorFileSystem"; }
+    folly::IOExecutor* GetReadExecutor() override { return nullptr; }
+  };
+
+  class StatsCallback final : public DB::AsyncCallback {
+   public:
+    bool EnableStats() const override { return true; }
+
+    void OnComplete(const PerfContext* callback_perf_context,
+                    const IOStatsContext* callback_iostats_context) override {
+      ASSERT_NE(nullptr, callback_perf_context);
+      ASSERT_NE(nullptr, callback_iostats_context);
+      called = true;
+      get_read_bytes = callback_perf_context->get_read_bytes;
+      multiget_read_bytes = callback_perf_context->multiget_read_bytes;
+    }
+
+    bool called = false;
+    uint64_t get_read_bytes = 0;
+    uint64_t multiget_read_bytes = 0;
+  };
+
+  auto file_system =
+      std::make_shared<NoReadExecutorFileSystem>(FileSystem::Default());
+  std::unique_ptr<Env> env = NewCompositeEnv(file_system);
+  Options options;
+  options.create_if_missing = true;
+  options.env = env.get();
+
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, kDbName, &db));
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+
+  get_perf_context()->get_read_bytes = 13;
+
+  StatsCallback callback;
+  Status status;
+  std::string value;
+  db->GetAsync(ReadOptions(), "key", &value, status, callback);
+
+  EXPECT_TRUE(callback.called);
+  ASSERT_OK(status);
+  EXPECT_EQ("value", value);
+  EXPECT_EQ(value.size(), callback.get_read_bytes);
+
+  get_perf_context()->Reset();
+  get_perf_context()->multiget_read_bytes = 29;
+
+  StatsCallback multiget_callback;
+  ColumnFamilyHandle* column_families[] = {db->DefaultColumnFamily(),
+                                           db->DefaultColumnFamily()};
+  const std::string key_strings[] = {"key", "key2"};
+  const Slice keys[] = {key_strings[0], key_strings[1]};
+  PinnableSlice values[2];
+  Status statuses[2];
+  db->MultiGetAsync(ReadOptions(), 2, column_families, keys, values, statuses,
+                    /*sorted_input=*/false, multiget_callback);
+
+  EXPECT_TRUE(multiget_callback.called);
+  EXPECT_OK(statuses[0]);
+  EXPECT_OK(statuses[1]);
+  EXPECT_EQ("value", values[0].ToString());
+  EXPECT_EQ("value2", values[1].ToString());
+  EXPECT_EQ(values[0].size() + values[1].size(),
+            multiget_callback.multiget_read_bytes);
+
+  db.reset();
+  ASSERT_OK(DestroyDB(kDbName, options));
+}
 
 TEST_F(PerfContextTest, SeekIntoDeletion) {
   ASSERT_OK(DestroyDB(kDbName, Options()));

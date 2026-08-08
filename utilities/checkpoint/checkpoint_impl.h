@@ -5,7 +5,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 #include "file/filename.h"
 #include "rocksdb/db.h"
@@ -24,13 +27,30 @@ class CheckpointImpl : public Checkpoint {
                           uint64_t log_size_for_flush,
                           uint64_t* sequence_number_ptr) override;
 
+  Status CreateCheckpoint(
+      const std::string& checkpoint_dir,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      uint64_t log_size_for_flush, uint64_t* sequence_number_ptr) override;
+
+  // Validates column_families against db and turns it into the coalesced,
+  // default-CF-inclusive id list that CreateCheckpointImpl expects. An empty
+  // column_families yields an empty *include_cf_ids, which means "all column
+  // families". Rejects null handles, handles from another DB, and handles for
+  // already-dropped column families.
+  static Status ResolveIncludeColumnFamilyIds(
+      DB* db, const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<uint32_t>* include_cf_ids);
+
   // Shared by the legacy Checkpoint API and CheckpointEngine. engine == nullptr
   // links/copies serially; otherwise work runs on the pool, awaited before the
-  // staging dir is committed.
+  // staging dir is committed. include_cf_ids, when non-empty, restricts the
+  // checkpoint to those column families (plus the default CF); excluded CFs are
+  // recorded as dropped in the checkpoint's MANIFEST.
   Status CreateCheckpointImpl(const std::string& checkpoint_dir,
                               uint64_t log_size_for_flush,
                               uint64_t* sequence_number_ptr, CopyEngine* engine,
-                              bool use_link, RateLimiter* copy_rate_limiter);
+                              bool use_link, RateLimiter* copy_rate_limiter,
+                              const std::vector<uint32_t>& include_cf_ids = {});
 
   Status ExportColumnFamily(ColumnFamilyHandle* handle,
                             const std::string& export_dir,
@@ -53,7 +73,11 @@ class CheckpointImpl : public Checkpoint {
                            const std::string& contents, FileType type)>
           create_file_cb,
       uint64_t* sequence_number, uint64_t log_size_for_flush,
-      bool get_live_table_checksum = false, bool atomic_flush = false);
+      bool get_live_table_checksum = false, bool atomic_flush = false,
+      const std::vector<uint32_t>& include_cf_ids = {},
+      std::vector<uint32_t>* excluded_cf_ids = nullptr,
+      std::string* manifest_relative_filename = nullptr,
+      uint64_t* manifest_size = nullptr);
 
  private:
   Status CleanStagingDirectory(const std::string& path, Logger* info_log);

@@ -63,6 +63,37 @@ class VersionBlobFetcherBase : public BlobFetcher {
                    PinnableSlice* blob_value,
                    uint64_t* bytes_read) const override;
 
+  // Fetches a byte sub-range [range_offset, range_offset + range_length) of an
+  // *uncompressed*, separate-file blob's value into *blob_value, reading only
+  // those bytes on a cache miss (see Version::GetBlobRange /
+  // BlobSource::GetBlobRange). Only valid when SupportsRangeRead() is true (a
+  // Version to read through and no direct-write fallback); callers check that
+  // first and take the whole-value FetchBlob path otherwise. Not routed through
+  // the same-file (embedded) decorator -- same-file range reads are a later
+  // phase.
+  Status FetchBlobRange(const Slice& user_key, const BlobIndex& blob_index,
+                        uint64_t range_offset, size_t range_length,
+                        PinnableSlice* blob_value, uint64_t* bytes_read) const;
+
+  // Fetches the whole blob with checksum verification forced on, regardless of
+  // this fetcher's ReadOptions::verify_checksums. Used to honor a lazy read's
+  // force_verify when verify_checksums is off: the caller wants the record's
+  // checksum checked even though the global option would skip it. When
+  // verify_checksums is already on this is just FetchBlob.
+  //
+  // TODO(lazy-blob-resolution-cleanup): fold FetchBlobRange /
+  // FetchBlobForceVerify (and the whole-vs-range GetBlob twins throughout the
+  // blob stack) into one parameterized primitive taking a BlobReadRequest -- a
+  // range descriptor ({offset, len}; whole == [0, npos)) plus a 3-valued verify
+  // policy (must-verify-if-present / verify-if-no-amplification / ignore). That
+  // retires this method and the range/whole method pairs. See the lazy blob
+  // resolution plan (deferred for feature velocity).
+  Status FetchBlobForceVerify(const Slice& user_key,
+                              const BlobIndex& blob_index,
+                              FilePrefetchBuffer* prefetch_buffer,
+                              PinnableSlice* blob_value,
+                              uint64_t* bytes_read) const;
+
   // True if this fetcher has enough context to resolve a (non-inlined,
   // non-same-file) blob reference: either a Version to read through, or the
   // direct-write fallback (a blob file cache) enabled. Callers that may hold a
@@ -71,6 +102,13 @@ class VersionBlobFetcherBase : public BlobFetcher {
   bool CanResolve() const {
     return version_ != nullptr ||
            (allow_write_path_fallback_ && blob_file_cache_ != nullptr);
+  }
+
+  // True if this fetcher can serve an I/O-saving byte-range read: it reads
+  // through a Version (FetchBlobRange goes to Version::GetBlobRange) and is not
+  // in direct-write fallback mode (whose reads resolve whole records instead).
+  bool SupportsRangeRead() const {
+    return version_ != nullptr && !allow_write_path_fallback_;
   }
 
  protected:

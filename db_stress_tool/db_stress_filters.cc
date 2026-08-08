@@ -8,6 +8,8 @@
 #include <memory>
 #include <mutex>
 
+#include "db_stress_tool/db_stress_status.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef GFLAGS
@@ -82,7 +84,7 @@ SstQueryFilterConfigsManager& DbStressSqfcManager() {
   static std::shared_ptr<SstQueryFilterConfigsManager> mgr;
   std::call_once(flag, []() {
     Status s = SstQueryFilterConfigsManager::MakeShared(data, &mgr);
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
     assert(mgr);
   });
   return *mgr;

@@ -45,7 +45,8 @@ namespace {
 
 class BlockingAsyncCallback : public DB::AsyncCallback {
  public:
-  void OnComplete() override {
+  void OnComplete(const PerfContext* /*perf_context*/,
+                  const IOStatsContext* /*iostats_context*/) override {
     std::lock_guard<std::mutex> lock(mu_);
     done_ = true;
     cv_.notify_one();
@@ -1011,6 +1012,19 @@ std::string GetNowNanos() {
   uint64_t t = raw_env->NowNanos();
   std::string ret;
   PutFixed64(&ret, t);
+  return ret;
+}
+
+std::string GetReadTimestamp() {
+  uint64_t read_timestamp = raw_env->NowNanos();
+  if (!FLAGS_persist_user_defined_timestamps) {
+    // Add 10 seconds of headroom because a concurrent flush can advance
+    // full_history_ts_low making the read timestamp invalid.
+    read_timestamp += 10'000'000'000ULL;
+  }
+
+  std::string ret;
+  PutFixed64(&ret, read_timestamp);
   return ret;
 }
 

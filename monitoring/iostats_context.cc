@@ -20,6 +20,27 @@ thread_local IOStatsContext iostats_context;
 
 IOStatsContext* get_iostats_context() { return &iostats_context; }
 
+void FileIOByTemperature::Merge(const FileIOByTemperature& other) {
+#ifndef NIOSTATS_CONTEXT
+  hot_file_bytes_read += other.hot_file_bytes_read;
+  warm_file_bytes_read += other.warm_file_bytes_read;
+  cool_file_bytes_read += other.cool_file_bytes_read;
+  cold_file_bytes_read += other.cold_file_bytes_read;
+  ice_file_bytes_read += other.ice_file_bytes_read;
+  unknown_non_last_level_bytes_read += other.unknown_non_last_level_bytes_read;
+  unknown_last_level_bytes_read += other.unknown_last_level_bytes_read;
+  hot_file_read_count += other.hot_file_read_count;
+  warm_file_read_count += other.warm_file_read_count;
+  cool_file_read_count += other.cool_file_read_count;
+  cold_file_read_count += other.cold_file_read_count;
+  ice_file_read_count += other.ice_file_read_count;
+  unknown_non_last_level_read_count += other.unknown_non_last_level_read_count;
+  unknown_last_level_read_count += other.unknown_last_level_read_count;
+#else
+  (void)other;
+#endif
+}
+
 void IOStatsContext::Reset() {
 #ifndef NIOSTATS_CONTEXT
   thread_pool_id = Env::Priority::TOTAL;
@@ -37,6 +58,26 @@ void IOStatsContext::Reset() {
   cpu_read_nanos = 0;
   file_io_stats_by_temperature.Reset();
 #endif  //! NIOSTATS_CONTEXT
+}
+
+void IOStatsContext::Merge(const IOStatsContext& other) {
+#ifndef NIOSTATS_CONTEXT
+  bytes_read += other.bytes_read;
+  bytes_written += other.bytes_written;
+  open_nanos += other.open_nanos;
+  allocate_nanos += other.allocate_nanos;
+  write_nanos += other.write_nanos;
+  read_nanos += other.read_nanos;
+  range_sync_nanos += other.range_sync_nanos;
+  prepare_write_nanos += other.prepare_write_nanos;
+  fsync_nanos += other.fsync_nanos;
+  logger_nanos += other.logger_nanos;
+  cpu_write_nanos += other.cpu_write_nanos;
+  cpu_read_nanos += other.cpu_read_nanos;
+  file_io_stats_by_temperature.Merge(other.file_io_stats_by_temperature);
+#else
+  (void)other;
+#endif
 }
 
 #define IOSTATS_CONTEXT_OUTPUT(counter)         \

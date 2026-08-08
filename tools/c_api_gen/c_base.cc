@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <unordered_set>
@@ -178,7 +179,6 @@ using ROCKSDB_NAMESPACE::TraceReader;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
-using ROCKSDB_NAMESPACE::TransactionLogIterator;
 using ROCKSDB_NAMESPACE::TransactionOptions;
 using ROCKSDB_NAMESPACE::UserCollectedProperties;
 using ROCKSDB_NAMESPACE::UserDefinedIndexFactory;
@@ -186,6 +186,7 @@ using ROCKSDB_NAMESPACE::VectorWalPtr;
 using ROCKSDB_NAMESPACE::WaitForCompactOptions;
 using ROCKSDB_NAMESPACE::WalFile;
 using ROCKSDB_NAMESPACE::WalFilter;
+using ROCKSDB_NAMESPACE::WalIterator;
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
@@ -408,12 +409,16 @@ struct rocksdb_readoptions_t {
   void* table_filter_state = nullptr;
   void (*table_filter_destructor)(void*) = nullptr;
   rocksdb_readoptions_table_filter_cb table_filter_callback = nullptr;
+  // Owns the std::function that rep.table_filter points to. rep.table_filter is
+  // a pointer to a caller-owned std::function, and this struct is that owner.
+  std::function<bool(const TableProperties&)> table_filter_func;
   std::shared_ptr<UserDefinedIndexFactory> table_index_factory;
 
   ~rocksdb_readoptions_t() { ClearTableFilter(); }
 
   void ClearTableFilter() {
-    rep.table_filter = {};
+    rep.table_filter = nullptr;
+    table_filter_func = {};
     if (table_filter_destructor != nullptr) {
       (*table_filter_destructor)(table_filter_state);
     }
@@ -431,11 +436,12 @@ struct rocksdb_readoptions_t {
     if (callback != nullptr) {
       auto cb = table_filter_callback;
       auto filter_state = table_filter_state;
-      rep.table_filter = [cb, filter_state](const TableProperties& props) {
+      table_filter_func = [cb, filter_state](const TableProperties& props) {
         return cb(filter_state,
                   reinterpret_cast<const rocksdb_table_properties_t*>(
                       &props)) != 0;
       };
+      rep.table_filter = &table_filter_func;
     }
   }
 };
@@ -476,10 +482,10 @@ struct rocksdb_writablefile_t {
   WritableFile* rep;
 };
 struct rocksdb_wal_iterator_t {
-  TransactionLogIterator* rep;
+  WalIterator* rep;
 };
 struct rocksdb_wal_readoptions_t {
-  TransactionLogIterator::ReadOptions rep;
+  WalIterator::ReadOptions rep;
 };
 
 struct rocksdb_wal_files_t {
@@ -589,6 +595,63 @@ struct rocksdb_perfcontext_t {
 };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
+};
+struct rocksdb_pinnable_multi_get_t {
+  static constexpr size_t kNotFound = std::numeric_limits<size_t>::max();
+
+  explicit rocksdb_pinnable_multi_get_t(size_t result_count)
+      : result_indexes(result_count, kNotFound) {}
+
+  void ReservePayloads(const std::vector<Status>& statuses) {
+    size_t value_count = 0;
+    size_t error_count = 0;
+    for (const Status& status : statuses) {
+      value_count += status.ok();
+      error_count += !status.ok() && !status.IsNotFound();
+    }
+    values.reserve(value_count);
+    errors.reserve(error_count);
+  }
+
+  void StoreResults(std::vector<PinnableSlice>* multi_get_values,
+                    const std::vector<Status>& statuses) {
+    ReservePayloads(statuses);
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      if (statuses[i].ok()) {
+        result_indexes[i] = values.size();
+        values.emplace_back(std::move((*multi_get_values)[i]));
+      } else if (!statuses[i].IsNotFound()) {
+        result_indexes[i] = kNotFound - errors.size() - 1;
+        errors.emplace_back(statuses[i].ToString());
+      }
+    }
+  }
+
+  int GetResult(size_t index, const char** value, size_t* value_size,
+                const char** error, size_t* error_size) const {
+    if (index >= result_indexes.size()) {
+      return rocksdb_pinnable_multi_get_out_of_bounds;
+    }
+    const size_t result_index = result_indexes[index];
+    if (result_index == kNotFound) {
+      return rocksdb_pinnable_multi_get_not_found;
+    }
+    if (result_index < values.size()) {
+      *value = values[result_index].data();
+      *value_size = values[result_index].size();
+      return rocksdb_pinnable_multi_get_found;
+    }
+    const std::string& message = errors[kNotFound - result_index - 1];
+    *error = message.c_str();
+    *error_size = message.size();
+    return rocksdb_pinnable_multi_get_error;
+  }
+
+  // Found entries store a value index. Error entries count back from
+  // kNotFound - 1, leaving kNotFound to represent a missing key.
+  std::vector<size_t> result_indexes;
+  std::vector<PinnableSlice> values;
+  std::vector<std::string> errors;
 };
 struct rocksdb_transactiondb_options_t {
   TransactionDBOptions rep;
@@ -2668,6 +2731,44 @@ void rocksdb_batched_multi_get_cf_slice(
   delete[] statuses;
 }
 
+rocksdb_pinnable_multi_get_t* rocksdb_batched_multi_get_pinned_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const rocksdb_slice_t* keys, unsigned char sorted_input) {
+  auto results = std::make_unique<rocksdb_pinnable_multi_get_t>(num_keys);
+  if (num_keys == 0) {
+    return results.release();
+  }
+  const Slice* key_slices = reinterpret_cast<const Slice*>(keys);
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  db->rep->MultiGet(options->rep, column_family->rep, num_keys, key_slices,
+                    values.data(), statuses.data(), sorted_input != 0);
+  results->StoreResults(&values, statuses);
+  return results.release();
+}
+
+size_t rocksdb_pinnable_multi_get_count(
+    const rocksdb_pinnable_multi_get_t* multi_get) {
+  return multi_get->result_indexes.size();
+}
+
+int rocksdb_pinnable_multi_get_result(
+    const rocksdb_pinnable_multi_get_t* multi_get, size_t index,
+    const char** value, size_t* value_size, const char** error,
+    size_t* error_size) {
+  *value = nullptr;
+  *value_size = 0;
+  *error = nullptr;
+  *error_size = 0;
+  return multi_get->GetResult(index, value, value_size, error, error_size);
+}
+
+void rocksdb_pinnable_multi_get_destroy(
+    rocksdb_pinnable_multi_get_t* multi_get) {
+  delete multi_get;
+}
+
 unsigned char rocksdb_key_may_exist(rocksdb_t* db,
                                     const rocksdb_readoptions_t* options,
                                     const char* key, size_t key_len,
@@ -2727,8 +2828,8 @@ rocksdb_iterator_t* rocksdb_create_iterator(
 rocksdb_wal_iterator_t* rocksdb_get_updates_since(
     rocksdb_t* db, uint64_t seq_number,
     const rocksdb_wal_readoptions_t* options, char** errptr) {
-  std::unique_ptr<TransactionLogIterator> iter;
-  TransactionLogIterator::ReadOptions ro;
+  std::unique_ptr<WalIterator> iter;
+  WalIterator::ReadOptions ro;
   if (options != nullptr) {
     ro = options->rep;
   }

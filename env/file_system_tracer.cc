@@ -363,11 +363,11 @@ IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
   return s;
 }
 
-void FSRandomAccessFileTracingWrapper::SubmitReadAsync(
+bool FSRandomAccessFileTracingWrapper::SubmitReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(FSReadRequest&)> cb, IODebugContext* dbg) {
   const uint64_t start_time = clock_->NowNanos();
-  target()->SubmitReadAsync(
+  return target()->SubmitReadAsync(
       req, opts,
       [this, start_time, cb = std::move(cb)](FSReadRequest& completed_req) {
         const uint64_t elapsed = clock_->NowNanos() - start_time;

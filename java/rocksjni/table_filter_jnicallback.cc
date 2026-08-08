@@ -58,9 +58,9 @@ TableFilterJniCallback::TableFilterJniCallback(JNIEnv* env,
       };
 }
 
-std::function<bool(const ROCKSDB_NAMESPACE::TableProperties&)>
+const std::function<bool(const ROCKSDB_NAMESPACE::TableProperties&)>*
 TableFilterJniCallback::GetTableFilterFunction() {
-  return m_table_filter_function;
+  return &m_table_filter_function;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

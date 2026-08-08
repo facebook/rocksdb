@@ -701,6 +701,44 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBSSTTest, SstFileManagerTracksMultipleCompactionBlobOutputs) {
+  constexpr uint64_t kBlobFileSize = 1024;
+  constexpr size_t kValueSize = 600;
+
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto* sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Options options = CurrentOptions();
+  options.sst_file_manager = sst_file_manager;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = kBlobFileSize;
+  options.blob_compression_type = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.blob_garbage_collection_force_threshold = 0.0;
+  DestroyAndReopen(options);
+
+  const std::string value(kValueSize, 'a');
+  ASSERT_OK(Put("key1", value));
+  ASSERT_OK(Put("key3", value));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", value));
+  ASSERT_OK(Put("key4", value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  sfm->WaitForEmptyTrash();
+  ASSERT_EQ(2U, GetBlobFileNumbers().size());
+
+  std::unordered_map<std::string, uint64_t> files_in_db;
+  ASSERT_OK(GetAllDataFiles(kTableFile, &files_in_db));
+  ASSERT_OK(GetAllDataFiles(kBlobFile, &files_in_db));
+  ASSERT_EQ(files_in_db, sfm->GetTrackedFiles());
+}
+
 class DBSSTTestRateLimit : public DBSSTTest,
                            public ::testing::WithParamInterface<bool> {
  public:

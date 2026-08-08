@@ -29,6 +29,7 @@
 #include "rocksdb/metadata.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -552,6 +553,223 @@ TEST_F(CheckpointTest, CheckpointCF) {
   }
   cphandles.clear();
   snapshotDB.reset();
+}
+
+namespace {
+// The subset-checkpoint tests all share a {default, "one", "two", "three"}
+// layout, with handles in that order.
+constexpr size_t kNumSubsetCheckpointCfs = 4;
+
+// Writes one key per column family and flushes, so each family owns exactly one
+// SST file and the families excluded from a subset checkpoint are visible as
+// missing SSTs.
+void PopulateFourCfsForSubsetCheckpoint(
+    DB* db, const std::vector<ColumnFamilyHandle*>& handles) {
+  ASSERT_EQ(kNumSubsetCheckpointCfs, handles.size());
+  ASSERT_OK(db->Put(WriteOptions(), handles[0], "d_key", "d_val"));
+  ASSERT_OK(db->Put(WriteOptions(), handles[1], "one_key", "one_val"));
+  ASSERT_OK(db->Put(WriteOptions(), handles[2], "two_key", "two_val"));
+  ASSERT_OK(db->Put(WriteOptions(), handles[3], "three_key", "three_val"));
+  for (auto* handle : handles) {
+    ASSERT_OK(db->Flush(FlushOptions(), handle));
+  }
+}
+
+// Guards against a subset checkpoint dropping column families from the live DB
+// while post-processing the checkpoint's MANIFEST.
+void VerifyFourCfsIntact(DB* db,
+                         const std::vector<ColumnFamilyHandle*>& handles) {
+  ASSERT_EQ(kNumSubsetCheckpointCfs, handles.size());
+  std::string val;
+  ASSERT_OK(db->Get(ReadOptions(), handles[0], "d_key", &val));
+  ASSERT_EQ("d_val", val);
+  ASSERT_OK(db->Get(ReadOptions(), handles[1], "one_key", &val));
+  ASSERT_EQ("one_val", val);
+  ASSERT_OK(db->Get(ReadOptions(), handles[2], "two_key", &val));
+  ASSERT_EQ("two_val", val);
+  ASSERT_OK(db->Get(ReadOptions(), handles[3], "three_key", &val));
+  ASSERT_EQ("three_val", val);
+}
+
+int CountSstFiles(Env* env, const std::string& dir) {
+  std::vector<std::string> children;
+  EXPECT_OK(env->GetChildren(dir, &children));
+  int n = 0;
+  for (const auto& c : children) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(c, &number, &type) && type == kTableFile) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+// Verifies a checkpoint taken from the {default, "one", "two", "three"} layout
+// built by the subset tests, when only {default, "two"} were requested: the
+// other families' SSTs were never captured, and the families themselves are
+// gone from the checkpoint's MANIFEST.
+void VerifyDefaultAndTwoSubsetCheckpoint(Env* env, const std::string& dir,
+                                         Options options) {
+  // 4 CFs x 1 SST each, of which only default's and two's are kept.
+  ASSERT_EQ(2, CountSstFiles(env, dir));
+
+  options.create_if_missing = false;
+
+  // Opening with exactly {default, two} succeeds and returns the values.
+  {
+    std::vector<ColumnFamilyDescriptor> cfds;
+    cfds.emplace_back(kDefaultColumnFamilyName, options);
+    cfds.emplace_back("two", options);
+    std::vector<ColumnFamilyHandle*> cph;
+    std::unique_ptr<DB> snapshotDB;
+    ASSERT_OK(DB::Open(options, dir, cfds, &cph, &snapshotDB));
+    std::string result;
+    ASSERT_OK(snapshotDB->Get(ReadOptions(), cph[0], "d_key", &result));
+    ASSERT_EQ("d_val", result);
+    ASSERT_OK(snapshotDB->Get(ReadOptions(), cph[1], "two_key", &result));
+    ASSERT_EQ("two_val", result);
+    for (auto h : cph) {
+      delete h;
+    }
+    snapshotDB.reset();
+  }
+
+  // The excluded column families no longer exist in the checkpoint: opening
+  // with the full CF list fails.
+  {
+    std::vector<ColumnFamilyDescriptor> cfds;
+    for (const std::string& cf : std::vector<std::string>{
+             kDefaultColumnFamilyName, "one", "two", "three"}) {
+      cfds.emplace_back(cf, options);
+    }
+    std::vector<ColumnFamilyHandle*> cph;
+    std::unique_ptr<DB> snapshotDB;
+    Status s = DB::Open(options, dir, cfds, &cph, &snapshotDB);
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+    for (auto h : cph) {
+      delete h;
+    }
+  }
+}
+}  // namespace
+
+TEST_F(CheckpointTest, CheckpointSubsetOfCF) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  // Checkpoint only {default, two}.
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  ASSERT_OK(uchk->CreateCheckpoint(snapshot_name_, {handles_[0], handles_[2]}));
+
+  VerifyFourCfsIntact(db_.get(), handles_);
+
+  // Close and reopen the source DB with the full CF list to prove the live
+  // MANIFEST was not mutated by the checkpoint post-processing.
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "one", "two", "three"},
+                           options);
+  VerifyFourCfsIntact(db_.get(), handles_);
+
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest, CheckpointSubsetEmptyListEqualsAll) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two"}, options);
+  ASSERT_OK(Put(0, "d", "0"));
+  ASSERT_OK(Put(1, "a", "1"));
+  ASSERT_OK(Put(2, "b", "2"));
+  for (int cf = 0; cf <= 2; ++cf) {
+    ASSERT_OK(Flush(cf));
+  }
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  // Empty list is equivalent to a whole-DB checkpoint.
+  ASSERT_OK(uchk->CreateCheckpoint(snapshot_name_,
+                                   std::vector<ColumnFamilyHandle*>{}));
+
+  // All three CFs' SSTs are present.
+  ASSERT_EQ(3, CountSstFiles(env_, snapshot_name_));
+
+  options.create_if_missing = false;
+  std::vector<ColumnFamilyDescriptor> cfds;
+  for (const std::string& cf :
+       std::vector<std::string>{kDefaultColumnFamilyName, "one", "two"}) {
+    cfds.emplace_back(cf, options);
+  }
+  std::vector<ColumnFamilyHandle*> cph;
+  std::unique_ptr<DB> snapshotDB;
+  ASSERT_OK(DB::Open(options, snapshot_name_, cfds, &cph, &snapshotDB));
+  std::string result;
+  ASSERT_OK(snapshotDB->Get(ReadOptions(), cph[1], "a", &result));
+  ASSERT_EQ("1", result);
+  ASSERT_OK(snapshotDB->Get(ReadOptions(), cph[2], "b", &result));
+  ASSERT_EQ("2", result);
+  for (auto h : cph) {
+    delete h;
+  }
+  snapshotDB.reset();
+}
+
+TEST_F(CheckpointTest, CheckpointSubsetNullHandleRejected) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one"}, options);
+  ASSERT_OK(Put(1, "a", "1"));
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  ASSERT_TRUE(uchk->CreateCheckpoint(snapshot_name_, {handles_[1], nullptr})
+                  .IsInvalidArgument());
+}
+
+TEST_F(CheckpointTest, CheckpointSubsetForeignHandleRejected) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one"}, options);
+  ASSERT_OK(Put(1, "a", "1"));
+
+  // Open a second, unrelated DB with its own CF whose id will collide with
+  // "one" from this DB (both are the first non-default CF -> id 1).
+  const std::string other_dbname = test::PerThreadDBPath("other_db_for_ckpt");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  Options open_opts = options;
+  open_opts.create_if_missing = true;
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(open_opts, other_dbname, &other_db));
+  ColumnFamilyHandle* other_cf = nullptr;
+  ASSERT_OK(
+      other_db->CreateColumnFamily(ColumnFamilyOptions(), "one", &other_cf));
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  Status s = uchk->CreateCheckpoint(snapshot_name_, {other_cf});
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+
+  ASSERT_OK(other_db->DestroyColumnFamilyHandle(other_cf));
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+TEST_F(CheckpointTest, CheckpointSubsetDroppedHandleRejected) {
+  // A CF handle for a CF that was already dropped must not silently succeed;
+  // GetLiveFilesStorageInfoForSubsetCheckpoint would skip it, producing a
+  // checkpoint missing what the caller asked for.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one"}, options);
+  ASSERT_OK(Put(1, "a", "1"));
+  ColumnFamilyHandle* dropped_handle = handles_[1];
+  ASSERT_OK(db_->DropColumnFamily(dropped_handle));
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  Status s = uchk->CreateCheckpoint(snapshot_name_, {dropped_handle});
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
 }
 
 TEST_F(CheckpointTest, CheckpointCFNoFlush) {
@@ -1640,6 +1858,191 @@ TEST_F(CheckpointTest, CheckpointEngineParallelCopy) {
         checkpoint_db->Get(ReadOptions(), "key" + std::to_string(id), &value));
     ASSERT_EQ("value" + std::to_string(id), value);
   }
+}
+
+TEST_F(CheckpointTest, CheckpointEngineParallelCopyRecordsCheckpointBytes) {
+  // Force copies (NoLinkFileSystem) so the parallel path actually moves bytes;
+  // hard links move no data and record nothing.
+  auto no_link_fs = std::make_shared<NoLinkFileSystem>(FileSystem::Default());
+  std::unique_ptr<Env> no_link_env(NewCompositeEnv(no_link_fs));
+
+  Options options = CurrentOptions();
+  options.env = no_link_env.get();
+  options.statistics = CreateDBStatistics();
+  Reopen(options);
+
+  constexpr int kNumFiles = 4;
+  constexpr int kKeysPerFile = 50;
+  for (int f = 0; f < kNumFiles; ++f) {
+    for (int k = 0; k < kKeysPerFile; ++k) {
+      int id = f * kKeysPerFile + k;
+      ASSERT_OK(Put("key" + std::to_string(id), "value" + std::to_string(id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_));
+
+  // Copied bytes are attributed to the checkpoint tickers, and never to the
+  // backup tickers -- this verifies both the ticker wiring and that a live
+  // Statistics* reaches the CopyEngine WorkItems.
+  EXPECT_GT(options.statistics->getTickerCount(CHECKPOINT_READ_BYTES), 0U);
+  EXPECT_GT(options.statistics->getTickerCount(CHECKPOINT_WRITE_BYTES), 0U);
+  EXPECT_EQ(options.statistics->getTickerCount(BACKUP_READ_BYTES), 0U);
+  EXPECT_EQ(options.statistics->getTickerCount(BACKUP_WRITE_BYTES), 0U);
+
+  Close();  // before tearing down the env the DB was opened with
+}
+
+TEST_F(CheckpointTest, CheckpointEngineSubsetOfCF) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+
+  // Checkpoint only {default, two} through the parallel hard-link path.
+  CreateCheckpointOptions create_options;
+  create_options.column_families = {handles_[0], handles_[2]};
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_,
+                                     /*sequence_number_ptr=*/nullptr,
+                                     create_options));
+
+  // The source DB must be untouched by the checkpoint MANIFEST rewrite.
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "one", "two", "three"},
+                           options);
+  VerifyFourCfsIntact(db_.get(), handles_);
+
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest, CheckpointEngineSubsetOfCFParallelCopy) {
+  // Links fail NotSupported, so the subset's files go through the parallel
+  // copy path while the MANIFEST drop records are appended afterwards.
+  auto no_link_fs = std::make_shared<NoLinkFileSystem>(FileSystem::Default());
+  std::unique_ptr<Env> no_link_env(NewCompositeEnv(no_link_fs));
+
+  Options options = CurrentOptions();
+  options.env = no_link_env.get();
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+
+  CreateCheckpointOptions create_options;
+  create_options.column_families = {handles_[2]};
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_,
+                                     /*sequence_number_ptr=*/nullptr,
+                                     create_options));
+
+  Close();  // before tearing down the env the DB was opened with
+
+  options.env = env_;
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest, CheckpointEngineSubsetEmptyListEqualsAll) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations = 4;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+
+  // Default-constructed options leave column_families empty, which must remain
+  // equivalent to a whole-DB checkpoint.
+  ASSERT_OK(engine->CreateCheckpoint(db_.get(), snapshot_name_));
+
+  ASSERT_EQ(4, CountSstFiles(env_, snapshot_name_));
+
+  options.create_if_missing = false;
+  std::vector<ColumnFamilyDescriptor> cfds;
+  for (const std::string& cf : std::vector<std::string>{
+           kDefaultColumnFamilyName, "one", "two", "three"}) {
+    cfds.emplace_back(cf, options);
+  }
+  std::vector<ColumnFamilyHandle*> cph;
+  std::unique_ptr<DB> snapshotDB;
+  ASSERT_OK(DB::Open(options, snapshot_name_, cfds, &cph, &snapshotDB));
+  std::string result;
+  ASSERT_OK(snapshotDB->Get(ReadOptions(), cph[1], "one_key", &result));
+  ASSERT_EQ("one_val", result);
+  ASSERT_OK(snapshotDB->Get(ReadOptions(), cph[3], "three_key", &result));
+  ASSERT_EQ("three_val", result);
+  for (auto h : cph) {
+    delete h;
+  }
+}
+
+TEST_F(CheckpointTest, CheckpointEngineSubsetInvalidHandlesRejected) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one"}, options);
+  ASSERT_OK(Put(1, "a", "1"));
+
+  // Second, unrelated DB whose CF id collides with "one" from this DB (both
+  // are the first non-default CF -> id 1).
+  const std::string other_dbname = test::PerThreadDBPath("other_db_for_engine");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  Options open_opts = options;
+  open_opts.create_if_missing = true;
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(open_opts, other_dbname, &other_db));
+  ColumnFamilyHandle* other_cf = nullptr;
+  ASSERT_OK(
+      other_db->CreateColumnFamily(ColumnFamilyOptions(), "one", &other_cf));
+
+  CheckpointEngineOptions engine_options;
+  std::unique_ptr<CheckpointEngine> engine;
+  ASSERT_OK(CheckpointEngine::Open(engine_options, &engine));
+  if (engine == nullptr) {
+    FAIL() << "CheckpointEngine::Open returned a null engine";
+  }
+
+  // Validation must run before any staging directory is created, so a rejected
+  // request leaves nothing behind and can be retried at the same path.
+  auto expect_rejected = [&](const std::vector<ColumnFamilyHandle*>& cfs) {
+    CreateCheckpointOptions create_options;
+    create_options.column_families = cfs;
+    IOStatus io_s = engine->CreateCheckpoint(db_.get(), snapshot_name_,
+                                             /*sequence_number_ptr=*/nullptr,
+                                             create_options);
+    ASSERT_TRUE(io_s.IsInvalidArgument()) << io_s.ToString();
+    ASSERT_TRUE(env_->FileExists(snapshot_name_).IsNotFound());
+  };
+  expect_rejected({handles_[1], nullptr});
+  expect_rejected({other_cf});
+
+  ColumnFamilyHandle* dropped_handle = handles_[1];
+  ASSERT_OK(db_->DropColumnFamily(dropped_handle));
+  expect_rejected({dropped_handle});
+
+  ASSERT_OK(other_db->DestroyColumnFamilyHandle(other_cf));
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

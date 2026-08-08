@@ -55,7 +55,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 **API Consistency:** New APIs should be consistent with existing patterns. Use similar naming conventions, parameter ordering, and return types. Reviewers will suggest changes to improve consistency with the broader codebase.
 
-**Documentation:** Public APIs must be thoroughly documented. Include usage examples, parameter descriptions, and notes on thread safety, performance characteristics, and compatibility considerations.
+**Documentation:** Public APIs must be thoroughly documented, without unnecessary embelishment nor dwelling on implementation details nor project planning. When non-obvious, include usage examples, parameter descriptions, known bugs or limitations, notes on thread safety, performance characteristics, and compatibility considerations. Re-read comments for ambiguous terminology and phrasing, such as ambiguously re-purposed programming jargon.
 
 ---
 
@@ -259,6 +259,10 @@ will automatically clean object files if the build parameters/flavor have
 changed. The `build_tools/rockstest.sh` / `rocksptest.sh` helpers described
 below set `AUTO_CLEAN=1` for you.
 
+`AUTO_CLEAN=1` does not fix Make failures associated with stale .d files
+referring to removed files. Resolve that manually or with `make clean`
+without complaining to the user.
+
 ### Source checks
 * Run `make check-sources` before committing. This catches non-ASCII
     characters in source files and other source-level issues that CI will
@@ -389,6 +393,11 @@ rather than relying on libstdc++ transitive includes.
 
 ### Adding release note
 * Release note should be kept short at high level for external user consumption.
+    Release notes identify what users might care about most in a release. They
+    are not exhaustive and are not a guide. PLEASE learn from past agents who
+    ried to build elaborate release notes with implementation details and
+    elsewhere-documented nuance. That wastes time. Fight the bias that
+    "my change" is important so must be worthy of release note mention.
 * If more than single markdown line, consider how their formatting will be
     integrated into HISTORY.md.
 

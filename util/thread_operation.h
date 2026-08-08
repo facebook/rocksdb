@@ -49,6 +49,7 @@ static OperationInfo global_operation_table[] = {
     {ThreadStatus::OP_MULTIGETENTITY, "MultiGetEntity"},
     {ThreadStatus::OP_GET_FILE_CHECKSUMS_FROM_CURRENT_MANIFEST,
      "GetFileChecksumsFromCurrentManifest"},
+    {ThreadStatus::OP_LAZY_RESOLVE, "LazyResolve"},
 
 };
 

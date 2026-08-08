@@ -4547,11 +4547,11 @@ class LoggerJni
   }
 };
 
-// The portal class for org.rocksdb.TransactionLogIterator.BatchResult
+// The portal class for org.rocksdb.WalIterator.BatchResult
 class BatchResultJni : public JavaClass {
  public:
   /**
-   * Get the Java Class org.rocksdb.TransactionLogIterator.BatchResult
+   * Get the Java Class org.rocksdb.WalIterator.BatchResult
    *
    * @param env A pointer to the Java environment
    *
@@ -4560,12 +4560,11 @@ class BatchResultJni : public JavaClass {
    *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
    */
   static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(
-        env, "org/rocksdb/TransactionLogIterator$BatchResult");
+    return JavaClass::getJClass(env, "org/rocksdb/WalIterator$BatchResult");
   }
 
   /**
-   * Create a new Java org.rocksdb.TransactionLogIterator.BatchResult object
+   * Create a new Java org.rocksdb.WalIterator.BatchResult object
    * with the same properties as the provided C++ ROCKSDB_NAMESPACE::BatchResult
    * object
    *
@@ -4573,7 +4572,7 @@ class BatchResultJni : public JavaClass {
    * @param batch_result The ROCKSDB_NAMESPACE::BatchResult object
    *
    * @return A reference to a Java
-   *     org.rocksdb.TransactionLogIterator.BatchResult object,
+   *     org.rocksdb.WalIterator.BatchResult object,
    *     or nullptr if an an exception occurs
    */
   static jobject construct(JNIEnv* env,
@@ -5357,6 +5356,8 @@ class TickerTypeJni {
         return -0x7E;
       case ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER:
         return -0x7F;
+      case ROCKSDB_NAMESPACE::Tickers::FILE_SUBMIT_ASYNC_READ_FALLBACK:
+        return -0x80;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5904,6 +5905,8 @@ class TickerTypeJni {
             ATOMIC_FLUSH_REQUEST_REASON_MEMTABLE_MAX_RANGE_DELETIONS;
       case -0x7F:
         return ROCKSDB_NAMESPACE::Tickers::ATOMIC_FLUSH_REQUEST_REASON_OTHER;
+      case -0x80:
+        return ROCKSDB_NAMESPACE::Tickers::FILE_SUBMIT_ASYNC_READ_FALLBACK;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

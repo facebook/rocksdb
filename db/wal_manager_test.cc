@@ -105,11 +105,10 @@ class WalManagerTest : public testing::Test {
     }
   }
 
-  std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
-      const SequenceNumber seq) {
-    std::unique_ptr<TransactionLogIterator> iter;
+  std::unique_ptr<WalIterator> OpenWalIter(const SequenceNumber seq) {
+    std::unique_ptr<WalIterator> iter;
     Status status = wal_manager_->GetUpdatesSince(
-        seq, &iter, TransactionLogIterator::ReadOptions(), versions_.get());
+        seq, &iter, WalIterator::ReadOptions(), versions_.get());
     EXPECT_OK(status);
     return iter;
   }
@@ -206,7 +205,7 @@ std::vector<std::uint64_t> ListSpecificFiles(
   return file_numbers;
 }
 
-int CountRecords(TransactionLogIterator* iter) {
+int CountRecords(WalIterator* iter) {
   int count = 0;
   SequenceNumber lastSequence = 0;
   BatchResult res;
@@ -320,7 +319,7 @@ TEST_F(WalManagerTest, WALArchivalTtlClockGoesBackwards) {
             ListSpecificFiles(env_.get(), archive_dir, kWalFile).size());
 }
 
-TEST_F(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
+TEST_F(WalManagerTest, WalIteratorMoveOverZeroFiles) {
   Init(nullptr /* clock_override */);
   RollTheLog(false);
   Put("key1", std::string(1024, 'a'));
@@ -330,22 +329,22 @@ TEST_F(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
 
   Put("key2", std::string(1024, 'a'));
 
-  auto iter = OpenTransactionLogIter(0);
+  auto iter = OpenWalIter(0);
   ASSERT_EQ(2, CountRecords(iter.get()));
 }
 
-TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
+TEST_F(WalManagerTest, WalIteratorJustEmptyFile) {
   Init(nullptr /* clock_override */);
   RollTheLog(false);
-  auto iter = OpenTransactionLogIter(0);
+  auto iter = OpenWalIter(0);
   // Check that an empty iterator is returned
   ASSERT_TRUE(!iter->Valid());
 }
 
-TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
+TEST_F(WalManagerTest, WalIteratorNewFileWhileScanning) {
   Init(nullptr /* clock_override */);
   CreateArchiveLogs(2, 100);
-  auto iter = OpenTransactionLogIter(0);
+  auto iter = OpenWalIter(0);
   CreateArchiveLogs(1, 100);
   int i = 0;
   for (; iter->Valid(); iter->Next()) {
@@ -356,7 +355,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   // TryAgain indicates a new iterator is needed to fetch the new data
   ASSERT_TRUE(iter->status().IsTryAgain());
 
-  iter = OpenTransactionLogIter(0);
+  iter = OpenWalIter(0);
   i = 0;
   for (; iter->Valid(); iter->Next()) {
     i++;

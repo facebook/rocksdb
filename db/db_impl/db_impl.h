@@ -21,6 +21,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "db/column_family.h"
@@ -53,6 +54,7 @@
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
@@ -60,10 +62,10 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/wal_iterator.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -77,7 +79,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
+class Cleanable;
 class FileIngestionHandleImpl;
+class SameFileBlobReader;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
@@ -285,6 +289,10 @@ class DBImpl : public DB {
   Status GetEntity(const ReadOptions& options, const Slice& key,
                    PinnableAttributeGroups* result) override;
 
+  Status GetEntityLazy(const ReadOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       LazyWideColumns* result) override;
+
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
@@ -339,6 +347,11 @@ class DBImpl : public DB {
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       const Slice* keys,
                       PinnableAttributeGroups* results) override;
+
+  void MultiGetEntityLazy(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, size_t num_keys,
+                          const Slice* keys, LazyWideColumnsBatch* result,
+                          Status* statuses, bool sorted_input) override;
 
   void MultiGetEntityWithCallback(
       const ReadOptions& read_options, ColumnFamilyHandle* column_family,
@@ -477,6 +490,8 @@ class DBImpl : public DB {
   void DisableManualCompaction() override;
   void AbortAllCompactions() override;
   void ResumeAllCompactions() override;
+  void AbortCompactions(ColumnFamilyHandle* column_family) override;
+  void ResumeCompactions(ColumnFamilyHandle* column_family) override;
 
   using DB::SetOptions;
   Status SetOptions(
@@ -573,10 +588,10 @@ class DBImpl : public DB {
   Status GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) override;
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override;
 
-  Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options =
-          TransactionLogIterator::ReadOptions()) override;
+  Status GetUpdatesSince(SequenceNumber seq_number,
+                         std::unique_ptr<WalIterator>* iter,
+                         const WalIterator::ReadOptions& read_options =
+                             WalIterator::ReadOptions()) override;
   Status DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                              const RangeOpt* ranges, size_t n,
                              bool include_end = true);
@@ -588,6 +603,35 @@ class DBImpl : public DB {
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
+
+  // Variant of GetLiveFilesStorageInfo used by subset-CF Checkpoint. Only
+  // table/blob files of the given column families are captured; the rest are
+  // reported in excluded_cf_ids so the caller can reconcile the copied
+  // MANIFEST (typically via AppendColumnFamilyDropsToManifest below). Caller
+  // must supply a non-empty include_cf_ids containing the default CF id and a
+  // non-null excluded_cf_ids; both are internal-contract preconditions.
+  Status GetLiveFilesStorageInfoForSubsetCheckpoint(
+      const LiveFilesStorageInfoOptions& opts,
+      const std::vector<uint32_t>& include_cf_ids,
+      std::vector<LiveFileStorageInfo>* files,
+      std::vector<uint32_t>* excluded_cf_ids);
+
+  // Shared body of GetLiveFilesStorageInfo and its subset-checkpoint variant.
+  // include_cf_ids empty -> no filter; otherwise records skipped CF ids in
+  // *excluded_cf_ids (which must be non-null in that case).
+  Status GetLiveFilesStorageInfoImpl(
+      const LiveFilesStorageInfoOptions& opts,
+      const std::vector<uint32_t>& include_cf_ids,
+      std::vector<LiveFileStorageInfo>* files,
+      std::vector<uint32_t>* excluded_cf_ids);
+
+  // Appends kColumnFamilyDrop records to the MANIFEST file at manifest_path for
+  // the given column family ids. Used by Checkpoint to make a subset-CF
+  // checkpoint's copied MANIFEST consistent with the reduced file set. Operates
+  // only on the given file; does not mutate this DB's live state.
+  Status AppendColumnFamilyDropsToManifest(const std::string& manifest_path,
+                                           uint64_t manifest_size,
+                                           const std::vector<uint32_t>& cf_ids);
 
   Status GetPreparedFileInfoForExternalSstIngestion(
       const std::string& file_path,
@@ -729,6 +773,24 @@ class DBImpl : public DB {
     PinnableSlice* merge_operands = nullptr;
     GetMergeOperandsOptions* get_merge_operands_options = nullptr;
     int* number_of_operands = nullptr;
+
+    // Lazy wide-column mode (used by GetEntityLazy / MultiGetEntityLazy). When
+    // `lazy_columns_pin` is non-null, the SST point-lookup path leaves a
+    // wide-column entity's blob references *unresolved* (see
+    // GetContext::SaveWideColumnEntityToColumns), so the caller can resolve
+    // them on demand later. On a successful lookup GetImpl then:
+    //   - sets `*lazy_columns_version` to the Version the entity was read from
+    //     (the resolution context for blob references), and
+    //   - transfers an extra SuperVersion reference by registering a cleanup on
+    //     `*lazy_columns_pin`, so the result may outlive this call (as an
+    //     iterator's result does).
+    // The SameFileBlobReader for the SST that held the entity (if any) is
+    // stored in `*lazy_columns_same_file_reader` by the read path, so same-file
+    // ("embedded") references stay resolvable later. All three must be set
+    // together. `columns` must also be set (the entity output).
+    Cleanable* lazy_columns_pin = nullptr;
+    const Version** lazy_columns_version = nullptr;
+    const SameFileBlobReader** lazy_columns_same_file_reader = nullptr;
   };
 
   DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& read_options,
@@ -749,6 +811,17 @@ class DBImpl : public DB {
   DECLARE_SYNC_AND_ASYNC_VIRTUAL(Status, GetImpl, const ReadOptions& options,
                                  const Slice& key,
                                  GetImplOptions& get_impl_options);
+
+  // Shared implementation of GetEntityLazy / MultiGetEntityLazy for a single
+  // key: performs a lazy point lookup for `key` (leaving blob references
+  // unresolved) into `*result`, which takes ownership of a SuperVersion pin so
+  // it may outlive this call. `read_options` must already be finalized (e.g.
+  // io_activity set). Returns OK on success, NotFound (with an empty `*result`)
+  // if there is no entry, or another non-OK status on error. REQUIRES:
+  // max_open_files == -1 has already been validated by the caller.
+  Status GetEntityLazyImpl(const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           LazyWideColumns* result);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
@@ -900,6 +973,13 @@ class DBImpl : public DB {
   // never needed to lazily build its child iterator tree.
   void CleanupIteratorSuperVersion(SuperVersion* super_version,
                                    bool background_purge);
+
+  // Transfer an extra reference to `super_version` into `pin` (via a cleanup
+  // callback), so `pin`'s owner keeps the SuperVersion -- and thus the data it
+  // references -- alive after the current call returns, as an iterator does.
+  // Shared by the lazy wide-column read path (GetEntityLazy) across the
+  // primary, read-only, and secondary GetImpl overrides.
+  void TransferSuperVersionPin(SuperVersion* super_version, Cleanable* pin);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -1562,7 +1642,7 @@ class DBImpl : public DB {
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name,
                                      bool is_remote_compaction_enabled);
-  Status DeleteObsoleteOptionsFiles();
+  Status DeleteObsoleteOptionsFiles(bool schedule_only);
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
                                     FlushReason flush_reason);
@@ -2801,9 +2881,24 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   FlushRequest PopFirstFromFlushQueue();
 
+  struct CompactionQueueThrottled {};
+  struct CompactionQueueParked {};
+  struct CompactionQueuePicked {
+    ColumnFamilyData* cfd;
+  };
+  using CompactionQueuePickResult =
+      std::variant<CompactionQueuePicked, CompactionQueueThrottled,
+                   CompactionQueueParked>;
+
   // Pick the first unthrottled compaction with task token from queue.
-  ColumnFamilyData* PickCompactionFromQueue(
+  CompactionQueuePickResult PickCompactionFromQueue(
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
+  bool IsCompactionAborted(ColumnFamilyData* cfd) const;
+  bool MustWaitForCompaction(ColumnFamilyData* cfd);
+  bool HasPendingManualCompaction(ColumnFamilyData* cfd);
+  bool RestoreParkedCompaction(ColumnFamilyData* cfd);
+  void BeginInFlightCompaction(ColumnFamilyData* cfd);
+  bool EndInFlightCompaction(ColumnFamilyData* cfd);
 
   IOStatus SyncWalImpl(bool include_current_wal,
                        const WriteOptions& write_options,
@@ -3084,39 +3179,34 @@ class DBImpl : public DB {
   // Resolves a plain value whose current payload is an encoded direct-write
   // blob index, either through `value` directly or through the default-column
   // view layered on `columns`.
-  static Status ResolveDirectWritePlainValue(const ReadOptions& read_options,
-                                             const Slice& key,
-                                             const Version* current,
-                                             ColumnFamilyData* cfd,
+  static Status ResolveDirectWritePlainValue(const Slice& key,
+                                             const BlobFetcher& blob_fetcher,
                                              PinnableSlice* value,
                                              PinnableWideColumns* columns);
   // Resolves each unresolved direct-write blob-valued column in `columns` and
   // rebuilds the serialized wide-column entity in place.
-  static Status ResolveDirectWriteWideColumns(const ReadOptions& read_options,
-                                              const Slice& key,
-                                              const Version* current,
-                                              ColumnFamilyData* cfd,
+  static Status ResolveDirectWriteWideColumns(const Slice& key,
+                                              const BlobFetcher& blob_fetcher,
                                               PinnableWideColumns* columns);
   // Dispatches between plain-value and wide-column direct-write resolution for
   // read results observed before flush makes the corresponding blob file
   // visible through normal Version metadata.
   static bool MaybeResolveDirectWriteValue(
       const ReadOptions& read_options, const Slice& key,
-      bool resolve_direct_write_value, const Version* current,
-      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
-      Status* s, bool* is_blob_index, bool* value_found = nullptr);
+      bool resolve_direct_write_value, const BlobFetcher& blob_fetcher,
+      PinnableSlice* value, PinnableWideColumns* columns, Status* s,
+      bool* is_blob_index, bool* value_found = nullptr);
   // Completes primary memtable hits that can still carry direct-write blob
   // references before the blob file is visible in Version metadata.
   static void PostprocessDirectWriteValueRead(
       const ReadOptions& read_options, const Slice& key,
       const std::string* timestamp, bool resolve_direct_write_value,
-      const Version* current, ColumnFamilyData* cfd, PinnableSlice* value,
+      const BlobFetcher* blob_fetcher, PinnableSlice* value,
       PinnableWideColumns* columns, Status* s, bool* is_blob_index,
       bool* value_found = nullptr);
   // Resolves memtable read results that still carry blob references through
   // either a raw blob-index payload in `value` or unresolved blob columns in
-  // `columns`. Unlike the direct-write helper above, this path only depends on
-  // a BlobFetcher and therefore works for read-only/secondary DBs. Sets
+  // `columns`. This generic path is also used by read-only/secondary DBs. Sets
   // *did_resolve to true iff there was a reference to resolve -- in which case
   // this function has finalized `value`/`columns` (populated on success,
   // cleared on error) -- and false iff there was nothing to resolve (the caller
@@ -3189,6 +3279,10 @@ class DBImpl : public DB {
   // have called AbortAllCompactions(). It is accessed in read mode outside the
   // DB mutex in compaction code paths.
   std::atomic<int> compaction_aborted_ = 0;
+
+  // Number of AbortCompactions() callers waiting for a targeted compaction to
+  // finish. Protected by the DB mutex.
+  int per_cf_compaction_abort_waiters_ = 0;
 
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
@@ -3399,7 +3493,7 @@ class DBImpl : public DB {
   // cfd->imm()->IsFlushPending()
   // A column family is inserted into compaction_queue_ when it satisfied
   // condition cfd->NeedsCompaction()
-  // Column families in this list are all Ref()-erenced
+  // Column families in these collections are all Ref()-erenced.
   // TODO(icanadi) Provide some kind of ReferencedColumnFamily class that will
   // do RAII on ColumnFamilyData
   // Column families are in this queue when they need to be flushed or
@@ -3414,9 +3508,23 @@ class DBImpl : public DB {
   // invariant(column family present in flush_queue_ <==>
   // ColumnFamilyData::pending_flush_ == true)
   std::deque<FlushRequest> flush_queue_;
-  // invariant(column family present in compaction_queue_ <==>
-  // ColumnFamilyData::pending_compaction_ == true)
+  // invariant((column family in compaction_queue_ or
+  //            column family in parked_compaction_cfds_)
+  //           <=> queued_for_compaction() == true)
+  //
+  // "Parked" means a column family whose compaction was aborted via
+  // AbortCompactions() while it was queued. When an aborted CF reaches the
+  // front of compaction_queue_, PickCompactionFromQueue() moves it to
+  // parked_compaction_cfds_ instead of scheduling it. The CF does not
+  // immediately lose its place -- only when it reaches the front of the
+  // queue is it parked. This preserves fairness for CFs behind it and
+  // avoids restoring the scheduler credit (which would cause a hot re-pick
+  // loop). On the final ResumeCompactions(), RestoreParkedCompaction()
+  // re-enqueues the CF (or releases its ref if it no longer needs
+  // compaction). Each parked CF carries exactly one Ref() from the
+  // original AddToCompactionQueue() call.
   std::deque<ColumnFamilyData*> compaction_queue_;
+  std::unordered_set<ColumnFamilyData*> parked_compaction_cfds_;
 
   // A map to store file numbers and filenames of the files to be purged
   std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;
@@ -3770,7 +3878,7 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
 inline Status DBImpl::FailIfTableFilterWithRangeConversion(
     const ReadOptions& read_options,
     const MutableCFOptions& mutable_cf_options) const {
-  if (read_options.table_filter &&
+  if (HasTableFilter(read_options) &&
       mutable_cf_options.min_tombstones_for_range_conversion > 0) {
     return Status::InvalidArgument(
         "ReadOptions::table_filter is not supported when "

@@ -233,7 +233,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileOwnerWrapper {
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override;
 
-  void SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
+  bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
                        std::function<void(FSReadRequest&)> cb,
                        IODebugContext* dbg) override;
 

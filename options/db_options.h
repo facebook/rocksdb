@@ -36,6 +36,7 @@ struct ImmutableDBOptions {
   std::shared_ptr<Logger> info_log;
   InfoLogLevel info_log_level;
   int max_file_opening_threads;
+  int read_io_executor_threads;
   std::shared_ptr<Statistics> statistics;
   bool use_fsync;
   std::vector<DbPath> db_paths;

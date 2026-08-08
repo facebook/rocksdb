@@ -16,6 +16,7 @@
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/user_defined_index.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -242,6 +243,78 @@ class StressTest {
                                   const std::vector<int>& rand_column_families,
                                   const std::vector<int64_t>& rand_keys) = 0;
 
+  // True if lazy wide-column read coverage (FLAGS_lazy_entity_read_one_in) is
+  // enabled and applicable for this run. Cheap config-only check (no
+  // randomness); used by callers that must build key data before invoking the
+  // Maybe* helpers below. Requires open_files == -1 (the lazy API's
+  // requirement) and, as tracked follow-ups, excludes user-defined timestamps
+  // and transactions (see LazyEntityReadEnabled() in the .cc for details).
+  bool LazyEntityReadEnabled() const;
+
+  // Coverage for the lazy wide-column read API. When enabled and randomly
+  // triggered (FLAGS_lazy_entity_read_one_in), always reads `key` in `cfh` via
+  // GetEntityLazy and resolves a random subset of its columns (possibly none)
+  // under a pinned snapshot -- this exercises the lazy read paths for crash
+  // coverage. Additionally, when DB verification is enabled (!skip_verifydb),
+  // checks the lazy result matches an eager reference (enumeration: column
+  // count / names / known logical sizes, with no blob I/O; plus the resolved
+  // subset compared byte-for-byte). If the caller already read the entity under
+  // read_opts.snapshot, it should pass those columns as `eager_reference` so we
+  // reuse that (already-verified) result and skip a redundant eager read;
+  // otherwise (eager_reference == nullptr) we pin our own snapshot and read the
+  // reference here. Reports failures via thread->shared; tolerates
+  // injected/retryable read errors. No-op if not triggered. Meant to be called
+  // from the modes' TestGetEntity implementations.
+  //
+  // By default the read targets the primary `db_`. Pass `db` (with a `cfh` from
+  // that instance) to exercise a read-only or secondary instance instead; such
+  // a target has a stable view for the call (and secondary intentionally
+  // disallows snapshot reads), so it is read at latest with no pinned snapshot.
+  void MaybeTestGetEntityLazy(ThreadState* thread, const ReadOptions& read_opts,
+                              ColumnFamilyHandle* cfh, const Slice& key,
+                              const WideColumns* eager_reference = nullptr,
+                              DB* db = nullptr) const;
+
+  // Per-key eager reference for the MultiGetEntityLazy differential below: the
+  // caller's eager status for the key plus, when found, a pointer to its
+  // columns (all read under read_opts.snapshot). Carrying the status -- rather
+  // than just a columns-or-null pointer -- lets the differential tell a clean
+  // NotFound apart from an injected/other eager error, which must be skipped
+  // rather than compared against the lazy result.
+  struct EagerEntityRef {
+    Status status;
+    const WideColumns* columns = nullptr;  // valid iff status.ok()
+  };
+
+  // Batch analogue of MaybeTestGetEntityLazy for TestMultiGetEntity: always
+  // exercises MultiGetEntityLazy + LazyWideColumnsBatch::MultiResolve on a
+  // random cross-entity column subset, and (when !skip_verifydb) verifies
+  // against an eager reference. If the caller already read these keys under
+  // read_opts.snapshot, it should pass `eager_references` (size == num_keys,
+  // one EagerEntityRef per key) to reuse those verified results and skip a
+  // redundant eager MultiGetEntity; otherwise (eager_references == nullptr) we
+  // read the reference here. Single column family.
+  void MaybeTestMultiGetEntityLazy(
+      ThreadState* thread, const ReadOptions& read_opts,
+      ColumnFamilyHandle* cfh, size_t num_keys, const Slice* keys,
+      const std::vector<EagerEntityRef>* eager_references = nullptr);
+
+  // Exercises a lazily-read entity's no-I/O enumeration accessors, and (when
+  // `reference` is non-null) checks column count / names / known logical sizes
+  // against the eager reference. Reports mismatches via thread->shared and
+  // returns false; returns true when consistent (or when only exercising, i.e.
+  // reference == nullptr).
+  bool CheckLazyEntityEnumeration(ThreadState* thread, const std::string& key,
+                                  const WideColumns* reference,
+                                  const LazyWideColumns& lazy) const;
+
+  // Resolves a random subset of `lazy`'s columns (possibly none) via
+  // LazyWideColumns::MultiResolve to exercise the resolver; when `reference` is
+  // non-null, also verifies the resolved bytes against it.
+  void ResolveLazyEntity(ThreadState* thread, const std::string& key,
+                         const WideColumns* reference,
+                         LazyWideColumns& lazy) const;
+
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,
                                 const std::vector<int>& rand_column_families,
@@ -409,6 +482,8 @@ class StressTest {
 
   Status TestAbortAndResumeCompactions(ThreadState* thread);
 
+  Status TestAbortAndResumeCfCompactions(ThreadState* thread);
+
   void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,
                            const std::string& keystr, uint64_t i);
 
@@ -530,6 +605,8 @@ class StressTest {
   std::unique_ptr<DB> secondary_db_;
   std::vector<ColumnFamilyHandle*> secondary_cfhs_;
   bool is_db_stopped_;
+
+  std::unique_ptr<CheckpointEngine> checkpoint_engine_;
 
   // MANIFEST verification state for reopen
   ManifestVerifyMode manifest_verify_mode_;

@@ -3230,16 +3230,18 @@ TEST_P(DBIteratorTest, TableFilter) {
   {
     std::set<uint64_t> unseen{1, 2, 3};
     ReadOptions opts;
-    opts.table_filter = [&](const TableProperties& props) {
-      auto it = unseen.find(props.num_entries);
-      if (it == unseen.end()) {
-        ADD_FAILURE() << "saw table properties with an unexpected "
-                      << props.num_entries << " entries";
-      } else {
-        unseen.erase(it);
-      }
-      return true;
-    };
+    std::function<bool(const TableProperties&)> filter =
+        [&](const TableProperties& props) {
+          auto it = unseen.find(props.num_entries);
+          if (it == unseen.end()) {
+            ADD_FAILURE() << "saw table properties with an unexpected "
+                          << props.num_entries << " entries";
+          } else {
+            unseen.erase(it);
+          }
+          return true;
+        };
+    opts.table_filter = &filter;
     auto iter = NewIterator(opts);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter), "a->1");
@@ -3264,9 +3266,9 @@ TEST_P(DBIteratorTest, TableFilter) {
   // during iteration.
   {
     ReadOptions opts;
-    opts.table_filter = [](const TableProperties& props) {
-      return props.num_entries != 2;
-    };
+    std::function<bool(const TableProperties&)> filter =
+        [](const TableProperties& props) { return props.num_entries != 2; };
+    opts.table_filter = &filter;
     auto iter = NewIterator(opts);
     iter->SeekToFirst();
     ASSERT_EQ(IterStatus(iter), "a->1");
@@ -7151,9 +7153,9 @@ TEST_P(ReadPathRangeTombstoneTest, TableFilterNotAllowed) {
 
   {
     ReadOptions filtered_ro;
-    filtered_ro.table_filter = [](const TableProperties& props) {
-      return props.num_entries != 2;
-    };
+    std::function<bool(const TableProperties&)> filter =
+        [](const TableProperties& props) { return props.num_entries != 2; };
+    filtered_ro.table_filter = &filter;
     // Hiding the two-delete SST would otherwise leave this iterator with a
     // partial SST view plus the previously converted memtable tombstone,
     // allowing hidden SST state to affect the filtered read result.

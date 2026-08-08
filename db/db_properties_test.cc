@@ -1148,6 +1148,60 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   ASSERT_EQ(int_num, 0U);
 }
 
+TEST_F(DBPropertiesTest, NumUnscheduledCompactions) {
+  if (env_ == nullptr) {
+    ADD_FAILURE() << "Missing test environment";
+    return;
+  }
+  auto& env = *env_;
+  env.SetBackgroundThreads(1, Env::HIGH);
+  env.SetBackgroundThreads(1, Env::LOW);
+
+  Options options = CurrentOptions();
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_background_compactions = 1;
+  options.max_background_flushes = 1;
+  options.write_buffer_size = 1000000;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"one"}, options);
+
+  uint64_t int_num;
+
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kNumUnscheduledCompactions, &int_num));
+  ASSERT_EQ(int_num, 0U);
+
+  // Keep one scheduled compaction from completing.
+  test::SleepingBackgroundTask sleeping_task_low;
+  env.Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+               Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
+
+  std::string big_value(1000000 * 2, 'x');
+  for (int cf = 0; cf < 2; cf++) {
+    for (int i = 0; i < 4; i++) {
+      ASSERT_OK(dbfull()->Put(writeOpt, handles_[cf], "k" + std::to_string(i),
+                              big_value));
+      ASSERT_OK(Flush(cf));
+    }
+  }
+
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kNumUnscheduledCompactions, &int_num));
+  ASSERT_GT(int_num, 0U);
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kNumUnscheduledCompactions, &int_num));
+  ASSERT_EQ(int_num, 0U);
+}
+
 TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   if (!Snappy_Supported()) {
     return;

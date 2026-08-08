@@ -42,14 +42,14 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
   }
 
 #ifdef WITH_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);
-    co_return co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
+    Status s = co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
         folly::Executor::getKeepAliveToken(read_event_base),
         GetImplCoroutine(read_options, column_family, key, value, timestamp)));
+    co_return s;
   }
 #endif
   CO_RETURN GetImpl(read_options, column_family, key, value, timestamp);
@@ -99,11 +99,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 
 #if defined(WITHOUT_COROUTINES)
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
-#endif  // defined(WITHOUT_COROUTINES)
+#endif
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_GUARD(get_snapshot_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
@@ -208,9 +206,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot, read_options.timestamp);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_STOP(get_snapshot_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
@@ -253,8 +249,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
-            sv->current, cfd, get_impl_options.value, get_impl_options.columns,
-            &s, &is_blob_index, get_impl_options.value_found);
+            memtable_blob_fetcher_ptr, get_impl_options.value,
+            get_impl_options.columns, &s, &is_blob_index,
+            get_impl_options.value_found);
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -269,8 +266,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
-            sv->current, cfd, get_impl_options.value, get_impl_options.columns,
-            &s, &is_blob_index, get_impl_options.value_found);
+            memtable_blob_fetcher_ptr, get_impl_options.value,
+            get_impl_options.columns, &s, &is_blob_index,
+            get_impl_options.value_found);
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -301,9 +299,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
-#if defined(WITHOUT_COROUTINES)
     PERF_TIMER_GUARD(get_from_output_files_time);
-#endif  // defined(WITHOUT_COROUTINES)
     CO_AWAIT(
         sv->current->Get, read_options, lkey, get_impl_options.value,
         get_impl_options.columns, timestamp, &s, &merge_context,
@@ -312,23 +308,23 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
-        get_impl_options.get_value);
+        get_impl_options.get_value,
+        get_impl_options.lazy_columns_same_file_reader);
     if (get_impl_options.get_value && resolve_direct_write_value) {
+      assert(memtable_blob_fetcher_ptr != nullptr);
       std::string blob_lookup_key_storage;
       MaybeResolveDirectWriteValue(
           read_options,
           GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
-          resolve_direct_write_value, sv->current, cfd, get_impl_options.value,
-          get_impl_options.columns, &s, &is_blob_index,
+          resolve_direct_write_value, *memtable_blob_fetcher_ptr,
+          get_impl_options.value, get_impl_options.columns, &s, &is_blob_index,
           get_impl_options.value_found);
     }
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
   {
-#if defined(WITHOUT_COROUTINES)
     PERF_TIMER_GUARD(get_post_process_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -414,6 +410,19 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
 
+    if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
+      // Lazy result (GetEntityLazy): the entity's blob references were left
+      // unresolved. Hand back the Version they must be resolved against and
+      // transfer an extra SuperVersion reference into the result's pin, so the
+      // result -- and thus deferred blob reads -- stay valid after this call
+      // returns (as an iterator's SuperVersion pin does). The reference is
+      // released when the pin's cleanup runs (result destruction); the
+      // borrowed reference for this call is dropped by the sv_cleanup Defer.
+      if (get_impl_options.lazy_columns_version != nullptr) {
+        *get_impl_options.lazy_columns_version = sv->current;
+      }
+      TransferSuperVersionPin(sv, get_impl_options.lazy_columns_pin);
+    }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
   CO_RETURN s;
@@ -521,9 +530,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
       }
     }
     if (lookup_current) {
-#if defined(WITHOUT_COROUTINES)
       PERF_TIMER_GUARD(get_from_output_files_time);
-#endif  // defined(WITHOUT_COROUTINES)
       CO_AWAIT(super_version->current->MultiGet, read_options, &range,
                callback);
     }
@@ -542,9 +549,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
   }
 
   // Post processing (decrement reference counts and record statistics)
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_GUARD(get_post_process_time);
-#endif  // defined(WITHOUT_COROUTINES)
   size_t num_found = 0;
   uint64_t bytes_read = 0;
   // value_size_soft_limit was enforced above (and inside per-file MultiGet) on
@@ -585,12 +590,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
         key->is_blob_index = false;
         *key->s = Status::Aborted();
       } else {
+        assert(memtable_blob_fetcher_ptr != nullptr);
         std::string blob_lookup_key_storage;
         MaybeResolveDirectWriteValue(
             read_options,
             GetBlobLookupUserKey(*key->key, key->timestamp,
                                  &blob_lookup_key_storage),
-            /*resolve_direct_write_value=*/true, super_version->current, cfd,
+            /*resolve_direct_write_value=*/true, *memtable_blob_fetcher_ptr,
             key->value, key->columns, key->s, &key->is_blob_index);
       }
     }
@@ -627,9 +633,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::MultiGetImpl)
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
   RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
-#if defined(WITHOUT_COROUTINES)
   PERF_TIMER_STOP(get_post_process_time);
-#endif  // defined(WITHOUT_COROUTINES)
 
   CO_RETURN s;
 }
@@ -821,8 +825,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
 #ifdef WITH_COROUTINES
-  auto* read_executor =
-      immutable_db_options_.env->GetFileSystem()->GetReadExecutor();
+  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
   if (read_executor != nullptr) {
     auto* read_event_base = read_executor->getEventBase();
     assert(read_event_base != nullptr);

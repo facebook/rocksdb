@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/transaction_log_impl.h"
+#include "db/wal_iterator_impl.h"
 
 #include <cinttypes>
 
@@ -13,12 +13,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-TransactionLogIteratorImpl::TransactionLogIteratorImpl(
+WalIteratorImpl::WalIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
-    const TransactionLogIterator::ReadOptions& read_options,
-    const EnvOptions& soptions, const SequenceNumber seq,
-    std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
-    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
+    const WalIterator::ReadOptions& read_options, const EnvOptions& soptions,
+    const SequenceNumber seq, std::unique_ptr<VectorWalPtr> files,
+    VersionSet const* const versions, [[maybe_unused]] const bool seq_per_batch,
+    const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -26,7 +26,6 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       starting_sequence_number_(seq),
       files_(std::move(files)),
       versions_(versions),
-      seq_per_batch_(seq_per_batch),
       io_tracer_(io_tracer),
       started_(false),
       is_valid_(false),
@@ -35,14 +34,16 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       current_last_seq_(0) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
-  assert(!seq_per_batch_);
+  // WalManager::GetUpdatesSince() rejects seq_per_batch before we get here, so
+  // one update always consumes exactly one sequence number below.
+  assert(!seq_per_batch);
   current_status_.PermitUncheckedError();  // Clear on start
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
   SeekToStartSequence();  // Seek till starting sequence
 }
 
-Status TransactionLogIteratorImpl::OpenLogFile(
+Status WalIteratorImpl::OpenLogFile(
     const WalFile* log_file,
     std::unique_ptr<SequentialFileReader>* file_reader) {
   FileSystemPtr fs(options_->fs, io_tracer_);
@@ -71,7 +72,7 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   return s;
 }
 
-BatchResult TransactionLogIteratorImpl::GetBatch() {
+BatchResult WalIteratorImpl::GetBatch() {
   assert(is_valid_);  //  cannot call in a non valid state.
   BatchResult result;
   result.sequence = current_batch_seq_;
@@ -79,11 +80,11 @@ BatchResult TransactionLogIteratorImpl::GetBatch() {
   return result;
 }
 
-Status TransactionLogIteratorImpl::status() { return current_status_; }
+Status WalIteratorImpl::status() { return current_status_; }
 
-bool TransactionLogIteratorImpl::Valid() { return started_ && is_valid_; }
+bool WalIteratorImpl::Valid() { return started_ && is_valid_; }
 
-bool TransactionLogIteratorImpl::RestrictedRead(Slice* record) {
+bool WalIteratorImpl::RestrictedRead(Slice* record) {
   // Don't read if no more complete entries to read from logs
   if (current_last_seq_ >= versions_->LastSequence()) {
     return false;
@@ -91,13 +92,12 @@ bool TransactionLogIteratorImpl::RestrictedRead(Slice* record) {
   return current_log_reader_->ReadRecord(record, &scratch_);
 }
 
-void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
-                                                     bool strict) {
+void WalIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
+                                          bool strict) {
   Slice record;
   started_ = false;
   is_valid_ = false;
-  // Check invariant of TransactionLogIterator when SeekToStartSequence()
-  // succeeds.
+  // Check invariant of WalIterator when SeekToStartSequence() succeeds.
   const Defer defer([this]() {
     if (is_valid_) {
       assert(current_status_.ok());
@@ -110,6 +110,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   if (files_->size() <= start_file_index) {
     return;
   } else if (!current_status_.ok()) {
+    // Already spent; see the comment on current_status_.
     return;
   }
   Status s =
@@ -166,14 +167,15 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   }
 }
 
-void TransactionLogIteratorImpl::Next() {
+void WalIteratorImpl::Next() {
   if (!current_status_.ok()) {
+    // Spent; the run ended and cannot be resumed. See WalIterator docs.
     return;
   }
   return NextImpl(false);
 }
 
-void TransactionLogIteratorImpl::NextImpl(bool internal) {
+void WalIteratorImpl::NextImpl(bool internal) {
   Slice record;
   is_valid_ = false;
   if (!internal && !started_) {
@@ -215,8 +217,13 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     } else {
       is_valid_ = false;
       if (current_last_seq_ == versions_->LastSequence()) {
+        // Caught up. Not an error: the caller may call Next() again later to
+        // pick up writes that have not happened yet.
         current_status_ = Status::OK();
       } else {
+        // The DB has moved on but this iterator's set of WAL files is
+        // exhausted, typically because the WAL was rotated after the file
+        // list was collected. The caller must build a new iterator.
         const char* msg = "Create a new iterator to fetch the new tail.";
         current_status_ = Status::TryAgain(msg);
       }
@@ -225,16 +232,15 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
   }
 }
 
-bool TransactionLogIteratorImpl::IsBatchExpected(
-    const WriteBatch* batch, const SequenceNumber expected_seq) {
+bool WalIteratorImpl::IsBatchExpected(const WriteBatch* batch,
+                                      const SequenceNumber expected_seq) {
   assert(batch);
   SequenceNumber batchSeq = WriteBatchInternal::Sequence(batch);
   if (batchSeq != expected_seq) {
     std::ostringstream oss;
     oss << "Discontinuity in log records. " << "Got seq=" << batchSeq << ", "
         << "Expected seq=" << expected_seq << ", "
-        << "Last flushed seq=" << versions_->LastSequence() << ". "
-        << "Log iterator will reseek the correct batch.";
+        << "Last flushed seq=" << versions_->LastSequence() << ".";
 
     reporter_.Info(oss.str().c_str());
     return false;
@@ -242,7 +248,7 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
   return true;
 }
 
-void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
+void WalIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   std::unique_ptr<WriteBatch> batch(new WriteBatch());
   Status s = WriteBatchInternal::SetContents(batch.get(), record);
   s.PermitUncheckedError();  // TODO: What should we do with this error?
@@ -250,26 +256,15 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   SequenceNumber expected_seq = current_last_seq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches
   if (started_ && !IsBatchExpected(batch.get(), expected_seq)) {
-    // Seek to the batch having expected sequence number
-    if (expected_seq < files_->at(current_file_index_)->StartSequence()) {
-      // Expected batch must lie in the previous log file
-      // Avoid underflow.
-      if (current_file_index_ != 0) {
-        current_file_index_--;
-      }
-    }
-    starting_sequence_number_ = expected_seq;
-    // currentStatus_ will be set to Ok if reseek succeeds
-    // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
-    // that allows gaps in the WAL since it will still skip over the gap.
+    // A run is contiguous, so a discontinuity ends it. Note that this is a
+    // normal consequence of writes that bypass the WAL (WriteOptions::
+    // disableWAL, IngestExternalFile()), not necessarily of data loss.
+    is_valid_ = false;
     current_status_ = Status::NotFound("Gap in sequence numbers");
-    // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
-    // should be disabled
-    return SeekToStartSequence(current_file_index_, !seq_per_batch_);
+    return;
   }
 
   current_batch_seq_ = WriteBatchInternal::Sequence(batch.get());
-  assert(!seq_per_batch_);
   current_last_seq_ =
       current_batch_seq_ + WriteBatchInternal::Count(batch.get()) - 1;
   // currentBatchSeq_ can only change here
@@ -280,7 +275,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   current_status_ = Status::OK();
 }
 
-Status TransactionLogIteratorImpl::OpenLogReader(const WalFile* log_file) {
+Status WalIteratorImpl::OpenLogReader(const WalFile* log_file) {
   std::unique_ptr<SequentialFileReader> file;
   Status s = OpenLogFile(log_file, &file);
   if (!s.ok()) {

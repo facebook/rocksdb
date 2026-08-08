@@ -38,6 +38,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
+#include "rocksdb/lazy_wide_columns.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table.h"
@@ -317,11 +318,7 @@ std::string GetFaultInjectionLogPath(const std::string& db_label) {
   const std::string log_dir =
       GetFaultInjectionLogBaseDir() + "/fault_injection_logs";
   Status s = Env::Default()->CreateDirIfMissing(log_dir);
-  if (!s.ok()) {
-    fprintf(stderr, "Failed to create directory %s: %s\n", log_dir.c_str(),
-            s.ToString().c_str());
-    exit(1);
-  }
+  DB_STRESS_ASSERT_OK_MSG(s, "Failed to create directory %s", log_dir.c_str());
   return log_dir + "/fault_injection_" + std::to_string(port::GetProcessID()) +
          "_" + std::to_string(Env::Default()->NowMicros()) + "_" + db_label +
          ".bin";
@@ -416,6 +413,45 @@ void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
   }
 }
 
+std::string JoinSorted(std::vector<std::string> names) {
+  std::sort(names.begin(), names.end());
+  std::string out;
+  for (const auto& name : names) {
+    if (!out.empty()) {
+      out += ", ";
+    }
+    out += name;
+  }
+  return out;
+}
+
+// Checks that a column-family-subset checkpoint holds exactly the requested
+// families: the excluded ones must have been recorded as dropped in the copied
+// MANIFEST, and the requested ones must have survived that rewrite.
+Status VerifyCheckpointColumnFamilies(
+    const std::string& checkpoint_dir, const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& expected_cf_descs) {
+  std::vector<std::string> actual_names;
+  Status s = DB::ListColumnFamilies(db_options, checkpoint_dir, &actual_names);
+  if (!s.ok()) {
+    return s;
+  }
+  std::vector<std::string> expected_names;
+  expected_names.reserve(expected_cf_descs.size());
+  for (const auto& desc : expected_cf_descs) {
+    expected_names.push_back(desc.name);
+  }
+  const std::string actual = JoinSorted(std::move(actual_names));
+  const std::string expected = JoinSorted(std::move(expected_names));
+  if (actual == expected) {
+    return Status::OK();
+  }
+  std::ostringstream oss;
+  oss << "Subset checkpoint " << checkpoint_dir << " has column families {"
+      << actual << "} but {" << expected << "} were requested";
+  return Status::Corruption(oss.str());
+}
+
 }  // namespace
 
 bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
@@ -427,6 +463,501 @@ bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
           (FLAGS_tolerate_non_injected_io_errors_for_remote_dbs &&
            (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) &&
            error_s.IsIOError()));
+}
+
+bool StressTest::LazyEntityReadEnabled() const {
+  // Exercising the lazy wide-column read API requires the DB to be opened with
+  // max_open_files == -1 (the API returns InvalidArgument otherwise).
+  //
+  // Two combinations are excluded here, both matching documented limitations of
+  // the API (see DB::GetEntityLazy() in include/rocksdb/db.h) rather than being
+  // silent omissions:
+  //
+  //   * User-defined timestamps. Wide-column entities do not support UDT at
+  //   all:
+  //     PutEntity() returns InvalidArgument on a UDT column family (tested by
+  //     DBWideBasicTest.PutEntityTimestampError; the lazy read is at parity
+  //     with GetEntity() via the shared read path -- see
+  //     DBLazyEntityTest.UserTimestampParityWithGetEntity). So no entity exists
+  //     to read under UDT, and this harness does not supply the read timestamp
+  //     a UDT column family requires; running it there would just hit the same
+  //     InvalidArgument the eager path does. Nothing entity-specific to cover.
+  //
+  //   * Transactions. Transaction provides GetEntity()/MultiGetEntity() but has
+  //     no lazy counterpart, so there is no in-transaction lazy read to
+  //     exercise or to compare against the eager txn read (which also sees the
+  //     txn's own uncommitted writes). Adding a Transaction-level lazy API is
+  //     the tracked follow-up; until then this is a documented API limitation.
+  return FLAGS_lazy_entity_read_one_in > 0 && FLAGS_open_files == -1 &&
+         FLAGS_user_timestamp_size == 0 && !FLAGS_use_txn;
+}
+
+namespace {
+// Tri-state presence of the eager reference in the lazy read differential.
+enum class EagerPresence { kFound, kNotFound, kUnknown };
+}  // namespace
+
+void StressTest::MaybeTestGetEntityLazy(
+    ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
+    const Slice& key, const WideColumns* eager_reference, DB* db) const {
+  assert(thread);
+  if (!LazyEntityReadEnabled() ||
+      !thread->rand.OneIn(FLAGS_lazy_entity_read_one_in)) {
+    return;
+  }
+
+  // Default to the primary; a caller may target a read-only or secondary
+  // instance instead (see below).
+  DB* target = db != nullptr ? db : db_;
+
+  // The crash test's first goal is to exercise code (find crashes/asserts/UB),
+  // which does not require data-consistency verification. So the lazy read and
+  // resolution below always run; the eager-reference comparison is additionally
+  // done only when DB verification is enabled.
+  const bool verify = !FLAGS_skip_verifydb;
+
+  // When the caller supplies `eager_reference`, it is the entity the caller
+  // already read (and verified) under read_opts.snapshot; reuse that snapshot
+  // so the lazy read observes the same view and skip issuing a redundant eager
+  // read. Otherwise pin our own snapshot and read the reference here.
+  assert(eager_reference == nullptr || read_opts.snapshot != nullptr);
+  ReadOptions ro = read_opts;
+  std::unique_ptr<ManagedSnapshot> local_snapshot;
+  if (ro.snapshot == nullptr && target == db_) {
+    // Pin a snapshot so the lazy and eager reads observe the same view of the
+    // concurrently-mutated primary. A read-only/secondary target has a stable
+    // view for this call and (secondary) disallows snapshot reads, so it is
+    // read at latest without a snapshot.
+    local_snapshot = std::make_unique<ManagedSnapshot>(target);
+    ro.snapshot = local_snapshot->snapshot();
+  }
+  ro.timestamp = nullptr;  // gated on FLAGS_user_timestamp_size == 0
+
+  LazyWideColumns lazy;
+  const Status lazy_s = target->GetEntityLazy(ro, cfh, key, &lazy);
+  if (!lazy_s.ok() && !lazy_s.IsNotFound()) {
+    if (verify && !IsErrorInjectedAndRetryable(lazy_s)) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr, "GetEntityLazy error for key %s: %s\n",
+              StringToHex(key.ToString()).c_str(), lazy_s.ToString().c_str());
+    }
+    return;
+  }
+
+  // Establish the eager reference (caller-supplied or read here) and its
+  // presence, for comparison when verifying.
+  PinnableWideColumns own_eager;
+  const WideColumns* reference = nullptr;
+  EagerPresence presence = EagerPresence::kUnknown;
+  if (verify) {
+    if (eager_reference != nullptr) {
+      reference = eager_reference;
+      presence = EagerPresence::kFound;
+    } else {
+      const Status eager_s = target->GetEntity(ro, cfh, key, &own_eager);
+      if (eager_s.ok()) {
+        reference = &own_eager.columns();
+        presence = EagerPresence::kFound;
+      } else if (eager_s.IsNotFound()) {
+        presence = EagerPresence::kNotFound;
+      }
+      // else: eager errored (e.g. injected fault) -> presence stays kUnknown.
+    }
+  }
+
+  // Presence cross-check (only when the eager presence is known).
+  if (presence != EagerPresence::kUnknown) {
+    const bool eager_found = (presence == EagerPresence::kFound);
+    const bool lazy_found = lazy_s.ok();
+    if (eager_found != lazy_found) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr,
+              "GetEntityLazy presence mismatch for key %s: eager %s, lazy %s\n",
+              StringToHex(key.ToString()).c_str(),
+              eager_found ? "found" : "NotFound",
+              lazy_found ? "found" : "NotFound");
+      return;
+    }
+  }
+
+  if (lazy_s.IsNotFound()) {
+    return;  // consistent NotFound (or exercise-only): nothing to resolve
+  }
+
+  // Lazy read found the entity: exercise the resolver, comparing against the
+  // eager reference when we have one.
+  ResolveLazyEntity(thread, key.ToString(), reference, lazy);
+}
+
+namespace {
+// Chooses a byte range for a lazy column read in db_stress fuzzing. Half the
+// time (or when the size is unknown or zero) reads the whole column; otherwise
+// a random sub-range, occasionally with an offset past the end or a length
+// beyond the remainder to exercise the API's clamp-to-empty /
+// clamp-to-remainder behavior. `known_size` is the column's logical size when
+// known without I/O.
+void PickLazyReadRange(Random* rand, std::optional<uint64_t> known_size,
+                       uint64_t* offset, size_t* length) {
+  if (!known_size.has_value() || *known_size == 0 || rand->OneIn(2)) {
+    *offset = 0;
+    *length = kLazyWholeColumn;
+    return;
+  }
+  // A small over-range so ~1/16 of picks land past the end or beyond the
+  // remainder, exercising the API's clamp-to-empty / clamp-to-remainder
+  // behavior. db_stress column values fit comfortably in int.
+  const int size_plus_some = static_cast<int>(*known_size + (*known_size >> 4));
+  // Offset in [0, size_plus_some); occasionally past the end to exercise
+  // clamping.
+  *offset = rand->Uniform(size_plus_some);
+  // Length: usually a bounded sub-range (which may exceed the remainder),
+  // sometimes to the end of the column.
+  if (rand->OneIn(4)) {
+    *length = kLazyWholeColumn;
+  } else {
+    *length = rand->Uniform(size_plus_some);
+  }
+}
+
+// The sub-range of `value` that a partial read with (offset, length) should
+// return, applying the API's documented clamping: an offset at/past the end
+// yields empty, length is clamped to the remainder, and kLazyWholeColumn reads
+// to the end.
+Slice ExpectedLazySlice(const Slice& value, uint64_t offset, size_t length) {
+  if (offset >= value.size()) {
+    return Slice();
+  }
+  const size_t off = static_cast<size_t>(offset);
+  const size_t avail = value.size() - off;
+  const size_t len = length > avail ? avail : length;
+  return Slice(value.data() + off, len);
+}
+}  // namespace
+
+void StressTest::MaybeTestMultiGetEntityLazy(
+    ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
+    size_t num_keys, const Slice* keys,
+    const std::vector<EagerEntityRef>* eager_references) {
+  assert(thread);
+  if (num_keys == 0 || !LazyEntityReadEnabled() ||
+      !thread->rand.OneIn(FLAGS_lazy_entity_read_one_in)) {
+    return;
+  }
+  // When the caller supplies per-key references, they were read (and verified)
+  // under read_opts.snapshot; each carries the eager status (and columns when
+  // found) so we can distinguish a clean NotFound from an injected/other error.
+  assert(eager_references == nullptr || (read_opts.snapshot != nullptr &&
+                                         eager_references->size() == num_keys));
+
+  const bool verify = !FLAGS_skip_verifydb;
+
+  ReadOptions ro = read_opts;
+  std::unique_ptr<ManagedSnapshot> local_snapshot;
+  if (ro.snapshot == nullptr) {
+    local_snapshot = std::make_unique<ManagedSnapshot>(db_);
+    ro.snapshot = local_snapshot->snapshot();
+  }
+  ro.timestamp = nullptr;
+
+  LazyWideColumnsBatch batch;
+  std::vector<Status> lazy_statuses(num_keys);
+  db_->MultiGetEntityLazy(ro, cfh, num_keys, keys, &batch,
+                          lazy_statuses.data());
+
+  SharedState* const shared = thread->shared;
+
+  if (batch.size() != num_keys) {
+    if (verify) {
+      shared->SetVerificationFailure();
+      fprintf(stderr,
+              "MultiGetEntityLazy returned %zu entities, expected %zu\n",
+              batch.size(), num_keys);
+    }
+    return;
+  }
+
+  // Reference source: caller-supplied per-key columns (already read and
+  // verified under the caller's snapshot) or, absent that, an eager
+  // MultiGetEntity we issue here. Only needed when verifying.
+  std::vector<PinnableWideColumns> own_eager;
+  std::vector<Status> own_eager_statuses;
+  if (verify && eager_references == nullptr) {
+    own_eager.resize(num_keys);
+    own_eager_statuses.resize(num_keys);
+    db_->MultiGetEntity(ro, cfh, num_keys, keys, own_eager.data(),
+                        own_eager_statuses.data());
+  }
+
+  // When eager_references == nullptr the fallbacks (own_eager_statuses /
+  // own_eager) are populated only in the verify path; guard against a future
+  // caller reaching these lambdas outside it.
+  auto eager_status = [&](size_t i) -> const Status& {
+    assert(verify || eager_references != nullptr);
+    return eager_references != nullptr ? (*eager_references)[i].status
+                                       : own_eager_statuses[i];
+  };
+  auto eager_presence = [&](size_t i) -> EagerPresence {
+    if (!verify) {
+      return EagerPresence::kUnknown;
+    }
+    const Status& es = eager_status(i);
+    if (es.ok()) {
+      return EagerPresence::kFound;
+    }
+    if (es.IsNotFound()) {
+      return EagerPresence::kNotFound;
+    }
+    return EagerPresence::kUnknown;  // e.g. injected error
+  };
+  auto eager_columns = [&](size_t i) -> const WideColumns* {
+    assert(verify || eager_references != nullptr);
+    if (!eager_status(i).ok()) {
+      return nullptr;
+    }
+    return eager_references != nullptr ? (*eager_references)[i].columns
+                                       : &own_eager[i].columns();
+  };
+
+  // Per entity: reconcile presence vs the eager reference, verify enumeration,
+  // then collect a random cross-entity subset of columns to resolve together.
+  // entity_ref[i] is non-null only when entity i has a usable reference to
+  // verify against.
+  std::vector<const WideColumns*> entity_ref(num_keys, nullptr);
+  std::vector<std::pair<size_t, size_t>>
+      chosen;  // (entity_index, column_index)
+  for (size_t i = 0; i < num_keys; ++i) {
+    const Status& ls = lazy_statuses[i];
+    if (!ls.ok() && !ls.IsNotFound()) {
+      if (verify && !IsErrorInjectedAndRetryable(ls)) {
+        shared->SetVerificationFailure();
+        fprintf(stderr, "MultiGetEntityLazy error for key %s: %s\n",
+                StringToHex(keys[i].ToString()).c_str(), ls.ToString().c_str());
+      }
+      continue;
+    }
+
+    const EagerPresence presence = eager_presence(i);
+    if (presence != EagerPresence::kUnknown) {
+      const bool eager_found = (presence == EagerPresence::kFound);
+      const bool lazy_found = ls.ok();
+      if (eager_found != lazy_found) {
+        shared->SetVerificationFailure();
+        fprintf(stderr,
+                "MultiGetEntityLazy presence mismatch for key %s: eager %s, "
+                "lazy %s\n",
+                StringToHex(keys[i].ToString()).c_str(),
+                eager_found ? "found" : "NotFound",
+                lazy_found ? "found" : "NotFound");
+        continue;
+      }
+    }
+
+    if (ls.IsNotFound()) {
+      continue;
+    }
+
+    // Lazy read found this entity.
+    const LazyWideColumns& entity = batch[i];
+    const WideColumns* reference =
+        (presence == EagerPresence::kFound) ? eager_columns(i) : nullptr;
+    if (!CheckLazyEntityEnumeration(thread, keys[i].ToString(), reference,
+                                    entity)) {
+      continue;
+    }
+    entity_ref[i] = reference;
+    const size_t num_columns = entity.size();
+    for (size_t c = 0; c < num_columns; ++c) {
+      if (thread->rand.OneIn(2)) {
+        chosen.emplace_back(i, c);
+      }
+    }
+  }
+
+  if (chosen.empty()) {
+    return;  // resolved "none" this time; enumeration was still exercised above
+  }
+
+  // Reserve up front so the out-param pointers stored in `reads` stay valid.
+  std::vector<PinnableSlice> results(chosen.size());
+  std::vector<Status> statuses(chosen.size());
+  std::vector<LazyColumnReadRequest> reads(chosen.size());
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    const size_t i = chosen[j].first;
+    const size_t c = chosen[j].second;
+    // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
+    // against the reference when available, else the known logical size.
+    const WideColumns* reference = entity_ref[i];
+    const std::optional<uint64_t> size_hint =
+        reference ? std::optional<uint64_t>((*reference)[c].value().size())
+                  : batch[i][c].logical_size();
+    reads[j].column = &batch[i][c];
+    PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
+                      &reads[j].length);
+    reads[j].result = &results[j];
+    reads[j].status = &statuses[j];
+  }
+
+  const Status ms = batch.MultiResolve(reads);
+  if (!ms.ok()) {
+    if (verify && !IsErrorInjectedAndRetryable(ms)) {
+      shared->SetVerificationFailure();
+      fprintf(stderr, "LazyWideColumnsBatch::MultiResolve error: %s\n",
+              ms.ToString().c_str());
+    }
+    return;
+  }
+
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    const WideColumns* reference = entity_ref[chosen[j].first];
+    if (reference == nullptr) {
+      continue;  // exercise-only entity: resolved for crash coverage, no
+                 // compare
+    }
+    if (!statuses[j].ok()) {
+      if (!IsErrorInjectedAndRetryable(statuses[j])) {
+        shared->SetVerificationFailure();
+        fprintf(stderr,
+                "MultiGetEntityLazy column resolve error for key %s: %s\n",
+                StringToHex(keys[chosen[j].first].ToString()).c_str(),
+                statuses[j].ToString().c_str());
+      }
+      continue;
+    }
+    const Slice expected =
+        ExpectedLazySlice((*reference)[chosen[j].second].value(),
+                          reads[j].offset, reads[j].length);
+    if (Slice(results[j]) != expected) {
+      shared->SetVerificationFailure();
+      fprintf(stderr,
+              "MultiGetEntityLazy value mismatch for key %s column %zu "
+              "[offset %" PRIu64 " len %zu]: lazy %s, reference %s\n",
+              StringToHex(keys[chosen[j].first].ToString()).c_str(),
+              chosen[j].second, reads[j].offset, reads[j].length,
+              Slice(results[j]).ToString(true).c_str(),
+              expected.ToString(true).c_str());
+    }
+  }
+}
+
+bool StressTest::CheckLazyEntityEnumeration(ThreadState* thread,
+                                            const std::string& key,
+                                            const WideColumns* reference,
+                                            const LazyWideColumns& lazy) const {
+  const size_t num_columns = lazy.size();
+  if (reference && num_columns != reference->size()) {
+    thread->shared->SetVerificationFailure();
+    fprintf(stderr,
+            "GetEntityLazy column count mismatch for key %s: lazy %zu, "
+            "reference %zu\n",
+            StringToHex(key).c_str(), num_columns, reference->size());
+    return false;
+  }
+  for (size_t c = 0; c < num_columns; ++c) {
+    if (reference == nullptr) {
+      // Exercise the no-I/O enumeration accessors for crash coverage even when
+      // there is nothing to compare against.
+      const LazyWideColumn& col = lazy[c];
+      col.name();
+      col.logical_size();
+      continue;
+    }
+    if (lazy[c].name() != (*reference)[c].name()) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr, "GetEntityLazy column name mismatch for key %s at %zu\n",
+              StringToHex(key).c_str(), c);
+      return false;
+    }
+    // Logical size is known (and must be exact) for inline and uncompressed
+    // blob columns; unknown for compressed blob columns (skip those).
+    if (lazy[c].logical_size().has_value() &&
+        *lazy[c].logical_size() != (*reference)[c].value().size()) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr,
+              "GetEntityLazy logical size mismatch for key %s column %zu: lazy "
+              "%" PRIu64 ", reference %zu\n",
+              StringToHex(key).c_str(), c, *lazy[c].logical_size(),
+              (*reference)[c].value().size());
+      return false;
+    }
+  }
+  return true;
+}
+
+void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
+                                   const WideColumns* reference,
+                                   LazyWideColumns& lazy) const {
+  if (!CheckLazyEntityEnumeration(thread, key, reference, lazy)) {
+    return;
+  }
+
+  // Resolve a random subset of columns (possibly none, possibly all) in one
+  // MultiResolve call. This exercises the resolver for crash coverage; when a
+  // reference is available it also verifies the resolved bytes.
+  std::vector<size_t> chosen;
+  const size_t num_columns = lazy.size();
+  for (size_t c = 0; c < num_columns; ++c) {
+    if (thread->rand.OneIn(2)) {
+      chosen.push_back(c);
+    }
+  }
+  if (chosen.empty()) {
+    return;
+  }
+
+  std::vector<PinnableSlice> results(chosen.size());
+  std::vector<Status> statuses(chosen.size());
+  std::vector<LazyColumnReadRequest> reads(chosen.size());
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    const size_t c = chosen[j];
+    // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
+    // against the reference when available, else the known logical size.
+    const std::optional<uint64_t> size_hint =
+        reference ? std::optional<uint64_t>((*reference)[c].value().size())
+                  : lazy[c].logical_size();
+    reads[j].column = &lazy[c];
+    PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
+                      &reads[j].length);
+    reads[j].result = &results[j];
+    reads[j].status = &statuses[j];
+  }
+
+  SharedState* const shared = thread->shared;
+  const Status ms = lazy.MultiResolve(reads);
+  if (!ms.ok()) {
+    if (reference && !IsErrorInjectedAndRetryable(ms)) {
+      shared->SetVerificationFailure();
+      fprintf(stderr, "LazyWideColumns::MultiResolve error for key %s: %s\n",
+              StringToHex(key).c_str(), ms.ToString().c_str());
+    }
+    return;
+  }
+  if (reference == nullptr) {
+    return;  // exercise-only (e.g. skip_verifydb): nothing to compare
+  }
+  for (size_t j = 0; j < chosen.size(); ++j) {
+    if (!statuses[j].ok()) {
+      if (!IsErrorInjectedAndRetryable(statuses[j])) {
+        shared->SetVerificationFailure();
+        fprintf(
+            stderr,
+            "GetEntityLazy column resolve error for key %s column %zu: %s\n",
+            StringToHex(key).c_str(), chosen[j],
+            statuses[j].ToString().c_str());
+      }
+      continue;
+    }
+    const Slice expected = ExpectedLazySlice((*reference)[chosen[j]].value(),
+                                             reads[j].offset, reads[j].length);
+    if (Slice(results[j]) != expected) {
+      shared->SetVerificationFailure();
+      fprintf(stderr,
+              "GetEntityLazy value mismatch for key %s column %zu "
+              "[offset %" PRIu64 " len %zu]: lazy %s, reference %s\n",
+              StringToHex(key).c_str(), chosen[j], reads[j].offset,
+              reads[j].length, Slice(results[j]).ToString(true).c_str(),
+              expected.ToString(true).c_str());
+    }
+  }
 }
 
 const std::string& StressTest::GetDbLabel() const { return db_label_; }
@@ -488,19 +1019,20 @@ StressTest::StressTest(int db_index, const std::string& db_path,
 
   if (FLAGS_destroy_db_initially) {
     const Status s = DbStressDestroyDb(GetDbPath());
-    if (!s.ok()) {
-      fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "Cannot destroy original db");
   }
 
   Status s = DbStressSqfcManager().MakeSharedFactory(
       FLAGS_sqfc_name, FLAGS_sqfc_version, &sqfc_factory_);
-  if (!s.ok()) {
-    fprintf(stderr, "Error initializing SstQueryFilterConfig: %s\n",
-            s.ToString().c_str());
-    exit(1);
-  }
+  DB_STRESS_ASSERT_OK_MSG(s, "Error initializing SstQueryFilterConfig");
+
+  CheckpointEngineOptions engine_options;
+  engine_options.max_background_operations =
+      FLAGS_checkpoint_engine_max_background_operations;
+  engine_options.use_link_file_when_available =
+      FLAGS_checkpoint_engine_use_link_file_when_available;
+  s = CheckpointEngine::Open(engine_options, &checkpoint_engine_);
+  DB_STRESS_ASSERT_OK_MSG(s, "Error opening CheckpointEngine");
 }
 
 void StressTest::CleanUp() {
@@ -530,11 +1062,9 @@ void StressTest::InitializeListenersForOpen(
     Status listener_status =
         ObjectRegistry::Default()->NewSharedObject<EventListener>(
             FLAGS_listener_uri, &listener);
-    if (!listener_status.ok()) {
-      fprintf(stderr, "Failed to create listener from URI '%s': %s\n",
-              FLAGS_listener_uri.c_str(), listener_status.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(listener_status,
+                            "Failed to create listener from URI '%s'",
+                            FLAGS_listener_uri.c_str());
     options_.listeners.emplace_back(std::move(listener));
   }
 }
@@ -968,13 +1498,6 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   PinnableSlice v;
   s = DbStressGet(db, ropt, cf, snap_state.key, &v);
   if (!s.ok() && !s.IsNotFound()) {
-    // When `persist_user_defined_timestamps` is false, a repeated read with
-    // both a read timestamp and an explicitly taken snapshot cannot guarantee
-    // consistent result all the time. When it cannot return consistent result,
-    // it will return an `InvalidArgument` status.
-    if (s.IsInvalidArgument() && !FLAGS_persist_user_defined_timestamps) {
-      return Status::OK();
-    }
     return s;
   }
   if (snap_state.status != s) {
@@ -1134,7 +1657,7 @@ void StressTest::MaybeVerifyCpuCorruption(ThreadState* thread,
   std::string read_ts_str;
   Slice read_ts;
   if (FLAGS_user_timestamp_size > 0) {
-    read_ts_str = GetNowNanos();
+    read_ts_str = GetReadTimestamp();
     read_ts = read_ts_str;
     read_opts.timestamp = &read_ts;
   }
@@ -1291,8 +1814,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     // Reopen as read-only, can ignore all options related to updates
     Open(shared);
   } else {
-    fprintf(stderr, "Failed to preload db");
-    exit(1);
+    DB_STRESS_ASSERT_OK_MSG(s, "Failed to preload db");
   }
 }
 
@@ -1354,10 +1876,10 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
   }
   if (rand.OneIn(2)) {
     Status s = txn->Commit();
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
   } else {
     Status s = txn->Rollback();
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK(s);
   }
 }
 
@@ -1893,6 +2415,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         ProcessStatus(shared, "TestAbortAndResumeCompactions", status);
       }
 
+      if (thread->rand.OneInOpt(FLAGS_abort_and_resume_cf_compactions_one_in)) {
+        Status status = TestAbortAndResumeCfCompactions(thread);
+        ProcessStatus(shared, "TestAbortAndResumeCfCompactions", status);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kVerifyChecksum);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
@@ -1998,7 +2525,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::string read_ts_str;
       Slice read_ts;
       if (FLAGS_user_timestamp_size > 0) {
-        read_ts_str = GetNowNanos();
+        read_ts_str = GetReadTimestamp();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
       }
@@ -2671,10 +3198,12 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     ro.iterate_lower_bound = &lower_bound;
   }
 
+  std::function<bool(const TableProperties&)> table_filter;
   if (FLAGS_use_sqfc_for_range_queries && ro.iterate_upper_bound &&
       ro.iterate_lower_bound) {
-    ro.table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
+    table_filter = sqfc_factory_->GetTableFilterForRangeQuery(
         *ro.iterate_lower_bound, *ro.iterate_upper_bound);
+    ro.table_filter = &table_filter;
   }
 
   std::unique_ptr<IterType> iter = new_iter_func(ro);
@@ -2764,7 +3293,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       if (!s.ok() && IsErrorInjectedAndRetryable(s)) {
         return s;
       }
-      assert(s.ok());
+      DB_STRESS_ASSERT_OK(s);
       op_logs += "Refresh ";
     }
 
@@ -3458,7 +3987,7 @@ Status StressTest::TestBackupRestore(
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
+      ts_str = GetReadTimestamp();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -3691,36 +4220,93 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_fault_injection_fs_) {
     db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
   }
+  const size_t num_cfs = column_families_.size();
+  const bool use_cf_subset =
+      num_cfs > 1 && thread->rand.OneInOpt(FLAGS_subset_cf_checkpoint_one_in);
+  const bool use_parallel_engine =
+      thread->rand.OneInOpt(FLAGS_parallel_checkpoint_one_in);
+
+  // `in_checkpoint[i]` is whether column family `i` is expected to exist in the
+  // checkpoint; all of them unless subset mode picked otherwise.
+  std::vector<bool> in_checkpoint(num_cfs, true);
+
+  // Picks a random non-empty proper subset of the column families, marking the
+  // excluded ones in `in_checkpoint` and returning the handles to pass to the
+  // Checkpoint API.
+  auto pick_cf_subset = [&]() {
+    // Index 0 is the default column family, which is in every checkpoint
+    // whether or not it is requested (it cannot be dropped), so only the
+    // non-default families at indices [1, num_cfs) can be excluded.
+    for (size_t i = 1; i < num_cfs; ++i) {
+      in_checkpoint[i] = thread->rand.OneIn(2);
+    }
+    // Force one exclusion so every subset checkpoint exercises the MANIFEST
+    // column-family-drop rewrite instead of degenerating into a whole-DB
+    // checkpoint.
+    in_checkpoint[1 + thread->rand.Uniform(static_cast<int>(num_cfs) - 1)] =
+        false;
+
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(num_cfs);
+    for (size_t i = 1; i < num_cfs; ++i) {
+      if (in_checkpoint[i]) {
+        cfhs.push_back(column_families_[i]);
+      }
+    }
+    // Pass the default column family only half the time, to cover both sides
+    // of the "included whether or not you pass it" contract. An empty vector
+    // means "all column families" to the API, so it has to go in when nothing
+    // else did.
+    if (cfhs.empty() || thread->rand.OneIn(2)) {
+      cfhs.push_back(column_families_[0]);
+    }
+    return cfhs;
+  };
+
+  std::vector<ColumnFamilyHandle*> subset_cfhs;
+  if (use_cf_subset) {
+    subset_cfhs = pick_cf_subset();
+  }
+
   Checkpoint* checkpoint = nullptr;
-  Status s = Checkpoint::Create(db_, &checkpoint);
-  if (s.ok()) {
-    s = checkpoint->CreateCheckpoint(checkpoint_dir);
-    if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
-      fprintf(stderr, "Fail to create checkpoint to %s\n",
-              checkpoint_dir.c_str());
-      std::vector<std::string> files;
+  Status s;
+  if (use_parallel_engine) {
+    CreateCheckpointOptions create_options;
+    create_options.column_families = subset_cfhs;
+    const IOStatus io_s = checkpoint_engine_->CreateCheckpoint(
+        db_, checkpoint_dir, /*sequence_number_ptr=*/nullptr, create_options);
+    s = io_s;
+  } else {
+    s = Checkpoint::Create(db_, &checkpoint);
+    if (s.ok()) {
+      s = checkpoint->CreateCheckpoint(checkpoint_dir, subset_cfhs);
+    }
+  }
+  if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
+    fprintf(stderr, "Fail to create checkpoint to %s\n",
+            checkpoint_dir.c_str());
+    std::vector<std::string> files;
 
-      // Temporarily disable error injection to print debugging information
-      if (db_fault_injection_fs_) {
-        db_fault_injection_fs_->DisableThreadLocalErrorInjection(
-            FaultInjectionIOType::kMetadataRead);
-      }
+    // Temporarily disable error injection to print debugging information
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->DisableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+    }
 
-      Status my_s = GetDbEnv()->GetChildren(checkpoint_dir, &files);
+    Status my_s = GetDbEnv()->GetChildren(checkpoint_dir, &files);
 
-      // Enable back disable error injection disabled for printing debugging
-      // information
-      if (db_fault_injection_fs_) {
-        db_fault_injection_fs_->EnableThreadLocalErrorInjection(
-            FaultInjectionIOType::kMetadataRead);
-      }
-      if (!my_s.ok()) {
-        fprintf(stderr, "Fail to GetChildren under %s due to %s\n",
-                checkpoint_dir.c_str(), my_s.ToString().c_str());
-      } else {
-        for (const auto& f : files) {
-          fprintf(stderr, " %s\n", f.c_str());
-        }
+    // Enable back disable error injection disabled for printing debugging
+    // information
+    if (db_fault_injection_fs_) {
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kMetadataRead);
+    }
+    if (!my_s.ok()) {
+      fprintf(stderr, "Fail to GetChildren under %s due to %s\n",
+              checkpoint_dir.c_str(), my_s.ToString().c_str());
+    } else {
+      for (const auto& f : files) {
+        fprintf(stderr, " %s\n", f.c_str());
       }
     }
   }
@@ -3728,6 +4314,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
   std::unique_ptr<DB> checkpoint_db;
+  // Maps a column family index in `column_families_` to its index in
+  // `cf_handles`, or -1 when it was left out of a subset checkpoint.
+  std::vector<int> cf_handle_index(num_cfs, -1);
   if (s.ok()) {
     Options options(options_);
     options.best_efforts_recovery = false;
@@ -3741,11 +4330,22 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
     if (FLAGS_clear_column_family_one_in == 0) {
-      for (const auto& name : column_family_names_) {
-        cf_descs.emplace_back(name, ColumnFamilyOptions(options));
+      for (size_t i = 0; i < num_cfs; ++i) {
+        if (!in_checkpoint[i]) {
+          continue;
+        }
+        cf_handle_index[i] = static_cast<int>(cf_descs.size());
+        cf_descs.emplace_back(column_family_names_[i],
+                              ColumnFamilyOptions(options));
       }
-      s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
-                              &cf_handles, &checkpoint_db);
+      if (use_cf_subset) {
+        s = VerifyCheckpointColumnFamilies(checkpoint_dir, DBOptions(options),
+                                           cf_descs);
+      }
+      if (s.ok()) {
+        s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
+                                &cf_handles, &checkpoint_db);
+      }
     }
   }
   if (checkpoint_db != nullptr) {
@@ -3753,20 +4353,24 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // dropped while the locks for `rand_keys` are held. So we should not have
     // to worry about accessing those column families throughout this function.
     for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
+      const int handle_index = cf_handle_index[rand_column_families[i]];
+      if (handle_index < 0) {
+        // Left out of this subset checkpoint, so there is nothing to compare.
+        continue;
+      }
       std::string key_str = Key(rand_keys[0]);
       Slice key = key_str;
       std::string ts_str;
       Slice ts;
       ReadOptions read_opts;
       if (FLAGS_user_timestamp_size > 0) {
-        ts_str = GetNowNanos();
+        ts_str = GetReadTimestamp();
         ts = ts_str;
         read_opts.timestamp = &ts;
       }
       std::string value;
-      Status get_status =
-          DbStressGet(checkpoint_db.get(), read_opts,
-                      cf_handles[rand_column_families[i]], key, &value);
+      Status get_status = DbStressGet(checkpoint_db.get(), read_opts,
+                                      cf_handles[handle_index], key, &value);
       bool exists =
           thread->shared->Exists(rand_column_families[i], rand_keys[0]);
       if (get_status.ok()) {
@@ -4130,6 +4734,17 @@ Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
   return Status::OK();
 }
 
+Status StressTest::TestAbortAndResumeCfCompactions(ThreadState* thread) {
+  int rand_cf = thread->rand.Uniform(static_cast<int>(column_families_.size()));
+  auto* cfh = column_families_[rand_cf];
+  db_->AbortCompactions(cfh);
+  int pwr2_micros =
+      std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  db_->ResumeCompactions(cfh);
+  return Status::OK();
+}
+
 void StressTest::TestAcquireSnapshot(ThreadState* thread,
                                      int rand_column_family,
                                      const std::string& keystr, uint64_t i) {
@@ -4153,7 +4768,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GetNowNanos();
+    ts_str = GetReadTimestamp();
     ts = ts_str;
     ropt.timestamp = &ts;
   }
@@ -4357,7 +4972,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GetNowNanos();
+    ts_str = GetReadTimestamp();
     ts = ts_str;
     ro.timestamp = &ts;
   }
@@ -4633,11 +5248,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         true /* delete_existing_trash */, &status,
         0.25 /* max_trash_db_ratio */,
         FLAGS_sst_file_manager_bytes_per_truncate));
-    if (!status.ok()) {
-      fprintf(stderr, "SstFileManager creation failed: %s\n",
-              status.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(status, "SstFileManager creation failed");
   }
   DbStressCustomCompressionManager::Register();
 
@@ -4902,12 +5513,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         s = OptimisticTransactionDB::Open(
             options_, optimistic_txn_db_options, GetDbPath(), cf_descriptors,
             &column_families_, &optimistic_txn_db_);
-        if (!s.ok()) {
-          fprintf(stderr, "Error in opening the OptimisticTransactionDB [%s]\n",
-                  s.ToString().c_str());
-          fflush(stderr);
-        }
-        assert(s.ok());
+        DB_STRESS_ASSERT_OK_MSG(s,
+                                "Error in opening the OptimisticTransactionDB");
         {
           db_owner_.reset(optimistic_txn_db_);
           db_ = optimistic_txn_db_;
@@ -4940,12 +5547,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         PrepareTxnDbOptions(shared, txn_db_options);
         s = TransactionDB::Open(options_, txn_db_options, GetDbPath(),
                                 cf_descriptors, &column_families_, &txn_db_);
-        if (!s.ok()) {
-          fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
-                  s.ToString().c_str());
-          fflush(stderr);
-        }
-        assert(s.ok());
+        DB_STRESS_ASSERT_OK_MSG(s, "Error in opening the TransactionDB");
 
         // Do not swap the order of the following.
         {
@@ -4955,11 +5557,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         }
       }
     }
-    if (!s.ok()) {
-      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
-      fflush(stderr);
-    }
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK_MSG(s, "Error in opening the DB");
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
     // Clear statistics reference from options_ to intentionally shorten the
@@ -4981,7 +5579,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       const std::string& secondary_path = GetSecondariesBase();
       s = DB::OpenAsSecondary(tmp_opts, GetDbPath(), secondary_path,
                               cf_descriptors, &secondary_cfhs_, &secondary_db_);
-      assert(s.ok());
+      DB_STRESS_ASSERT_OK(s);
       assert(secondary_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
     }
@@ -5068,6 +5666,16 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
   // Opening read-only while the primary mutates the same directory is
   // best-effort; a transient failure here is expected and not a bug.
   if (s.ok()) {
+    // Exercise the lazy wide-column read path on the read-only instance: the
+    // differential self-checks lazy vs eager on this same reader. No-op unless
+    // the lazy API is enabled (open_files == -1, no UDT/txn) and sampled.
+    {
+      const size_t cf = thread->rand.Next() % ro_cfhs.size();
+      const std::string key_str = Key(thread->rand.Next() % FLAGS_max_key);
+      MaybeTestGetEntityLazy(thread, ReadOptions(), ro_cfhs[cf], key_str,
+                             /*eager_reference=*/nullptr, ro_db.get());
+    }
+
     // Create new SST files in the primary that are absent from the reader's
     // frozen live-file snapshot, so that a read-only close wrongly running
     // obsolete-file cleanup would delete these live files. Flush all column
@@ -5368,22 +5976,13 @@ void StressTest::Reopen(ThreadState* thread) {
     } else {
       s = db_->SyncWAL();
     }
-    if (!s.ok()) {
-      fprintf(stderr,
-              "Error persisting WAL data which is needed before reopening the "
-              "DB: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(
+        s, "Error persisting WAL data which is needed before reopening the DB");
   }
 
   if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
-    if (!s.ok()) {
-      fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());
-      fflush(stderr);
-    }
-    assert(s.ok());
+    DB_STRESS_ASSERT_OK_MSG(s, "Non-ok close status");
   }
   assert((txn_db_ == nullptr && optimistic_txn_db_ == nullptr) ||
          (db_ == txn_db_ || db_ == optimistic_txn_db_));
@@ -5409,11 +6008,7 @@ void StressTest::Reopen(ThreadState* thread) {
   if (thread->shared->GetStressTest()->MightHaveUnsyncedDataLoss() &&
       IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
-    if (!s.ok()) {
-      fprintf(stderr, "Error enabling history tracing: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "Error enabling history tracing");
   }
 }
 
@@ -5541,11 +6136,8 @@ bool InitializeOptionsFromFile(Options& options) {
   if (!FLAGS_options_file.empty()) {
     Status s = LoadOptionsFromFile(config_options, FLAGS_options_file,
                                    &db_options, &cf_descriptors);
-    if (!s.ok()) {
-      fprintf(stderr, "Unable to load options file %s --- %s\n",
-              FLAGS_options_file.c_str(), s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "Unable to load options file %s",
+                            FLAGS_options_file.c_str());
     db_options.env = new CompositeEnvWrapper(raw_env);
     options = Options(db_options, cf_descriptors[0].options);
     return true;
@@ -5885,11 +6477,7 @@ void InitializeOptionsFromFlags(
             ";allow_trivial_copy_when_change_temperature=" +
             allowTrivialCopyBoolStr + "}",
         &options);
-    if (!s.ok()) {
-      fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(s, "While setting file_temperature_age_thresholds");
   }
   // NOTE: allow -1 to mean starting disabled but dynamically changing
   options.preclude_last_level_data_seconds =
@@ -5990,6 +6578,11 @@ void InitializeOptionsGeneral(
     Options& options) {
   options.create_missing_column_families = true;
   options.create_if_missing = true;
+#if USE_COROUTINES
+  if (FLAGS_use_async_db_api) {
+    options.read_io_executor_threads = 8;
+  }
+#endif  // USE_COROUTINES
 
   if (FLAGS_statistics) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -6053,11 +6646,7 @@ void InitializeOptionsGeneral(
         true /* delete_existing_trash */, &status,
         0.25 /* max_trash_db_ratio */,
         FLAGS_sst_file_manager_bytes_per_truncate));
-    if (!status.ok()) {
-      fprintf(stderr, "SstFileManager creation failed: %s\n",
-              status.ToString().c_str());
-      exit(1);
-    }
+    DB_STRESS_ASSERT_OK_MSG(status, "SstFileManager creation failed");
   }
 
   options.table_properties_collector_factories.clear();

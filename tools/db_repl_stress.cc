@@ -43,7 +43,7 @@ using ROCKSDB_NAMESPACE::Random;
 using ROCKSDB_NAMESPACE::SequenceNumber;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::Status;
-using ROCKSDB_NAMESPACE::TransactionLogIterator;
+using ROCKSDB_NAMESPACE::WalIterator;
 using ROCKSDB_NAMESPACE::WriteOptions;
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -97,7 +97,7 @@ int main(int argc, const char** argv) {
   dataPump.db = db.get();
   env->StartThread(DataPumpThreadBody, &dataPump);
 
-  std::unique_ptr<TransactionLogIterator> iter;
+  std::unique_ptr<WalIterator> iter;
   SequenceNumber currentSeqNum = 1;
   uint64_t num_read = 0;
   for (;;) {
