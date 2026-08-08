@@ -708,6 +708,7 @@ TEST(BitFieldsTest, BitFields) {
   }
 }
 
+namespace {
 void VerifyHexRoundTrip(const std::string& input) {
   Slice slice(input);
 
@@ -736,6 +737,7 @@ void VerifyHexRoundTrip(const std::string& input) {
   ASSERT_EQ(decoded, input);
   ASSERT_EQ(decoded.size(), input.size());
 }
+}  // namespace
 
 TEST(SliceHexTest, HexAndToStringRoundTrip) {
   {
