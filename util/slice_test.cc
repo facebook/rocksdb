@@ -785,6 +785,12 @@ TEST(SliceHexTest, HexAndToStringRoundTrip) {
     std::string upper_decoded;
     ASSERT_TRUE(upper_hex_slice.DecodeHex(&upper_decoded));
     ASSERT_EQ(upper_decoded, decoded);
+
+    // Verify mixed case hex input also decodes correctly
+    Slice mixed_hex_slice("dEaDbEeF");
+    std::string mixed_decoded;
+    ASSERT_TRUE(mixed_hex_slice.DecodeHex(&mixed_decoded));
+    ASSERT_EQ(mixed_decoded, decoded);
   }
 
   {
