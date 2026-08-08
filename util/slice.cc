@@ -316,8 +316,6 @@ bool Slice::DecodeHex(std::string* result) const {
     uint8_t h2 = kHexLookup[lossless_cast<uint8_t>(*src++)];
     // Single branch check using bitwise OR
     if ((h1 | h2) >= 16) {
-      // Calling clear() would be a change in behaviour.
-      // result->clear();
       result->resize(i);
       return false;
     }
