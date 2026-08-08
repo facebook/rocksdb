@@ -890,8 +890,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_TRUE(to_flush5.empty());
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
-  ASSERT_FALSE(list.IsFlushPending());
-  ASSERT_FALSE(list.HasFlushRequested());
+  ASSERT_TRUE(list.IsFlushPending());
+  ASSERT_TRUE(list.HasFlushRequested());
 
   // Pick tables to flush. The tables to pick must have ID smaller than or
   // equal to 5. Therefore, only tables[5] will be selected.
@@ -918,6 +918,52 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     delete m;
   }
   to_delete.clear();
+}
+
+TEST_F(MemTableListTest, FlushRequestPersistsAfterPartialPick) {
+  SequenceNumber seq = 1;
+
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableOptions ioptions(options);
+  InternalKeyComparator cmp(BytewiseComparator());
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MutableCFOptions mutable_cf_options(options);
+  autovector<ReadOnlyMemTable*> to_delete;
+
+  MemTableList list(10 /* min_write_buffer_number_to_merge */,
+                    0 /* max_write_buffer_size_to_maintain */);
+
+  for (uint64_t memtable_id = 0; memtable_id < 2; ++memtable_id) {
+    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    mem->SetID(memtable_id);
+    mem->Ref();
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "key" + std::to_string(memtable_id),
+                       "value", nullptr /* kv_prot_info */));
+    list.Add(mem, &to_delete);
+  }
+
+  list.FlushRequested();
+  ASSERT_TRUE(list.IsFlushPending());
+
+  autovector<ReadOnlyMemTable*> to_flush;
+  list.PickMemtablesToFlush(0 /* max_memtable_id */, &to_flush);
+  ASSERT_EQ(1, to_flush.size());
+  ASSERT_TRUE(list.IsFlushPending());
+  ASSERT_TRUE(list.HasFlushRequested());
+
+  autovector<ReadOnlyMemTable*> to_flush2;
+  list.PickMemtablesToFlush(1 /* max_memtable_id */, &to_flush2);
+  ASSERT_EQ(1, to_flush2.size());
+  ASSERT_FALSE(list.IsFlushPending());
+  ASSERT_FALSE(list.HasFlushRequested());
+
+  list.current()->Unref(&to_delete);
+  ASSERT_EQ(2, to_delete.size());
+  for (ReadOnlyMemTable* m : to_delete) {
+    delete m;
+  }
 }
 
 TEST_F(MemTableListTest, EmptyAtomicFlushTest) {
