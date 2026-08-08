@@ -12,8 +12,10 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <iomanip>
 #include <new>
 #include <semaphore>
+#include <sstream>
 #include <unordered_set>
 
 #include "port/port.h"
@@ -882,9 +884,11 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
   for (int i = 0; i < 500; ++i) {
     const uint8_t invalid_c1 = invalid_chars[rand.Uniform(num_invalid)];
     const uint8_t invalid_c2 = invalid_chars[rand.Uniform(num_invalid)];
-    SCOPED_TRACE("Testing invalid pair: 0x" +
-                 std::to_string(static_cast<int>(invalid_c1)) + " 0x" +
-                 std::to_string(static_cast<int>(invalid_c2)));
+    std::stringstream pair_stream;
+    pair_stream << "Testing invalid pair: 0x" << std::hex
+                << static_cast<int>(invalid_c1) << " 0x" << std::hex
+                << static_cast<int>(invalid_c2);
+    SCOPED_TRACE(pair_stream.str());
     const std::string hex_pair{static_cast<char>(invalid_c1),
                                static_cast<char>(invalid_c2)};
     const Slice hex_slice(hex_pair);
