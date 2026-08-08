@@ -294,7 +294,7 @@ constexpr uint8_t kHexLookup[256] = {
     255,255,255,255,255,255,255,255, 255,255,255,255,255,255,255,255   // 240-255
 };
 // clang-format on
-}  // end of namespace
+}  // namespace
 
 bool Slice::DecodeHex(std::string* result) const {
   if (!result) {
