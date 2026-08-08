@@ -877,6 +877,7 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
   // Test 500 randomized invalid pairs
   const uint32_t seed = static_cast<uint32_t>(std::time(nullptr));
   Random rand(seed);
+  SCOPED_TRACE("seed=" + std::to_string(seed));
   const int num_invalid = static_cast<int>(invalid_chars.size());
   for (int i = 0; i < 500; ++i) {
     const uint8_t invalid_c1 = invalid_chars[rand.Uniform(num_invalid)];
