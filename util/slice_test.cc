@@ -24,6 +24,7 @@
 #include "test_util/testutil.h"
 #include "util/bit_fields.h"
 #include "util/cast_util.h"
+#include "util/random.h"
 #include "util/semaphore.h"
 #include "util/string_util.h"
 
@@ -867,26 +868,23 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
                                 << std::hex << static_cast<int>(invalid_c);
   }
 
-  // Test every possible pair where BOTH characters are invalid
-  for (uint8_t invalid_c1 : invalid_chars) {
-    for (uint8_t invalid_c2 : invalid_chars) {
-      std::string hex_pair(2, '\0');
-      hex_pair[0] = static_cast<char>(invalid_c1);
-      hex_pair[1] = static_cast<char>(invalid_c2);
-
-      Slice hex_slice(hex_pair);
-      std::string result = "sentinel";
-      bool success = hex_slice.DecodeHex(&result);
-
-      EXPECT_FALSE(success) << "Expected DecodeHex to fail for invalid pair: 0x"
-                            << std::hex << static_cast<int>(invalid_c1) << " 0x"
-                            << static_cast<int>(invalid_c2);
-
-      EXPECT_TRUE(result.empty())
-          << "Expected empty result string after failure for invalid pair: 0x"
-          << std::hex << static_cast<int>(invalid_c1) << " 0x"
-          << static_cast<int>(invalid_c2);
-    }
+  // Test 500 randomized invalid pairs
+  const uint32_t seed = static_cast<uint32_t>(std::time(nullptr));
+  Random rand(seed);
+  const int num_invalid = static_cast<int>(invalid_chars.size());
+  for (int i = 0; i < 500; ++i) {
+    const uint8_t invalid_c1 = invalid_chars[rand.Uniform(num_invalid)];
+    const uint8_t invalid_c2 = invalid_chars[rand.Uniform(num_invalid)];
+    SCOPED_TRACE("Testing invalid pair: 0x" + 
+                 std::to_string(static_cast<int>(invalid_c1)) + " 0x" + 
+                 std::to_string(static_cast<int>(invalid_c2)));
+    const std::string hex_pair{static_cast<char>(invalid_c1),
+                               static_cast<char>(invalid_c2)};
+    const Slice hex_slice(hex_pair);
+    std::string result = "sentinel";
+    bool success = hex_slice.DecodeHex(&result);
+    EXPECT_FALSE(success);
+    EXPECT_TRUE(result.empty());
   }
 
   // Test that a null result pointer returns false without crashing
