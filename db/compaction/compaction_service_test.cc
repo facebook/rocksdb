@@ -1779,6 +1779,7 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
 
 TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   std::unique_ptr<CompactionFilter> delete_comp_filter(
       new PartialDeleteCompactionFilter());
   options.compaction_filter = delete_comp_filter.get();
