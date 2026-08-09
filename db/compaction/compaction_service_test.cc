@@ -360,6 +360,7 @@ class CompactionServiceTest : public DBTestBase {
 
 TEST_F(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();
+  options.max_open_files = -1;
   ReopenWithCompactionService(&options);
 
   Statistics* primary_statistics = GetPrimaryStatistics();
