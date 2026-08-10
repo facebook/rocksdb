@@ -7,8 +7,7 @@
 #include "util/coro_utils.h"
 
 #if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
-#include "folly/executors/IOExecutor.h"
-#include "folly/io/async/EventBase.h"
+#include "util/coro_stats_util.h"
 #endif  // USE_COROUTINES && WITH_COROUTINES
 
 #if defined(WITHOUT_COROUTINES) || \
@@ -26,6 +25,10 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
 (const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
  const Slice& key, PinnableSlice* value, std::string* timestamp) {
+#ifdef WITH_COROUTINES
+  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
+      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
+#endif
   assert(value != nullptr);
   value->Reset();
 
@@ -41,18 +44,8 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
     read_options.io_activity = Env::IOActivity::kGet;
   }
 
-#ifdef WITH_COROUTINES
-  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
-  if (read_executor != nullptr) {
-    auto* read_event_base = read_executor->getEventBase();
-    assert(read_event_base != nullptr);
-    Status s = co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
-        folly::Executor::getKeepAliveToken(read_event_base),
-        GetImplCoroutine(read_options, column_family, key, value, timestamp)));
-    co_return s;
-  }
-#endif
-  CO_RETURN GetImpl(read_options, column_family, key, value, timestamp);
+  CO_RETURN CO_AWAIT(GetImpl, read_options, column_family, key, value,
+                     timestamp);
 }
 
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
@@ -808,6 +801,10 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
 (const ReadOptions& _read_options, const size_t num_keys,
  ColumnFamilyHandle** column_families, const Slice* keys, PinnableSlice* values,
  std::string* timestamps, Status* statuses, const bool sorted_input) {
+#ifdef WITH_COROUTINES
+  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
+      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
+#endif
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
@@ -824,21 +821,10 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
-#ifdef WITH_COROUTINES
-  auto* read_executor = immutable_db_options_.fs->GetReadExecutor();
-  if (read_executor != nullptr) {
-    auto* read_event_base = read_executor->getEventBase();
-    assert(read_event_base != nullptr);
-    co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
-        folly::Executor::getKeepAliveToken(read_event_base),
-        MultiGetCommonCoroutine(
-            read_options, num_keys, column_families, keys, values,
-            /* columns */ nullptr, timestamps, statuses, sorted_input)));
-    co_return;
-  }
-#endif
-  MultiGetCommon(read_options, num_keys, column_families, keys, values,
-                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+  CO_AWAIT(MultiGetCommon, read_options, num_keys, column_families, keys,
+           values,
+           /* columns */ nullptr, timestamps, statuses, sorted_input);
+  CO_RETURN;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

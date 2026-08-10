@@ -589,9 +589,12 @@ TESTS += $(PLUGIN_TESTS)
 ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
+	FOLLY_DEPENDENT_HEADERS := \
+		include/rocksdb/coro_db.h \
+		include/rocksdb/utilities/coro_stackable_db.h
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|range_tree/|secondary_index/')
-	PUBLIC_HEADERS_TO_CHECK := $(shell $(FIND) include/ -type f -name '*.h')
+	DEV_HEADERS_TO_CHECK := $(filter-out $(FOLLY_DEPENDENT_HEADERS), $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|range_tree/|secondary_index/'))
+	PUBLIC_HEADERS_TO_CHECK := $(filter-out $(FOLLY_DEPENDENT_HEADERS), $(shell $(FIND) include/ -type f -name '*.h'))
 else
 	DEV_HEADERS_TO_CHECK :=
 	PUBLIC_HEADERS_TO_CHECK :=

@@ -4020,7 +4020,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     AssertMultiGetIOBatchSize(3, 1);
   }
 #else   // ROCKSDB_IOURING_PRESENT
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            use_coroutine_ ? 3 : 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4047,7 +4048,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
             UseCoroutineRead() ? 6 : 3);
 #else   // ROCKSDB_IOURING_PRESENT
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            use_coroutine_ ? 6 : 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4200,7 +4202,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
             UseCoroutineRead() ? 3 : 2);
 #else   // ROCKSDB_IOURING_PRESENT
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            use_coroutine_ ? 3 : 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4263,7 +4266,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   ASSERT_EQ(async_read_bytes.count, 0);
   const uint64_t coroutine_count =
       statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT);
-  if (UseCoroutineRead()) {
+  if (use_coroutine_) {
     ASSERT_GT(coroutine_count, 0);
   } else {
     ASSERT_EQ(coroutine_count, 0);

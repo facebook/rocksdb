@@ -111,13 +111,12 @@
 #endif
 
 #if USE_COROUTINES
-#include "folly/coro/Baton.h"
-#include "folly/coro/CurrentExecutor.h"
+#include "folly/coro/Nothrow.h"
 #include "folly/coro/Task.h"
 #include "folly/executors/IOExecutor.h"
 #include "folly/futures/Future.h"
 #include "folly/io/async/EventBase.h"
-#include "folly/io/async/Request.h"
+#include "rocksdb/coro_db.h"
 #endif  // USE_COROUTINES
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -204,7 +203,8 @@ DEFINE_string(
     "\treadtocache   -- 1 thread reading database sequentially\n"
     "\treadreverse   -- read N times in reverse order\n"
     "\treadrandom    -- read N times in random order\n"
-    "\treadrandomcoroutine -- read N times in random order using async Get\n"
+    "\treadrandomcoroutine -- read N times in random order using "
+    "GetCoroutine\n"
     "\treadmissing   -- read N missing keys in random order\n"
     "\treadwhilewriting      -- 1 writer, N threads doing random "
     "reads\n"
@@ -4254,8 +4254,8 @@ class Benchmark {
       } else if (name == "readrandomcoroutine") {
         fprintf(stderr, "read executor pool size (threads) = %d\n",
                 FLAGS_threads > 0 ? FLAGS_threads : 1);
-        // A single db_bench driver thread issues concurrent async Get calls
-        // onto the configured read executor.
+        // A single db_bench driver thread starts concurrent GetCoroutine tasks
+        // on the configured read executor.
         num_threads = 1;
         method = &Benchmark::ReadRandomCoroutine;
       } else if (name == "readrandomfast") {
@@ -4269,8 +4269,8 @@ class Benchmark {
                 entries_per_batch_);
         fprintf(stderr, "read executor pool size (threads) = %d\n",
                 FLAGS_threads > 0 ? FLAGS_threads : 1);
-        // A single db_bench driver thread issues concurrent async MultiGet
-        // calls onto the configured read executor.
+        // A single db_bench driver thread starts concurrent MultiGetCoroutine
+        // tasks on the configured read executor.
         num_threads = 1;
         method = &Benchmark::MultiReadRandomCoroutine;
       } else if (name == "readrandomentity") {
@@ -7592,10 +7592,8 @@ class Benchmark {
 
 #if USE_COROUTINES
   folly::IOExecutor* GetReadExecutorForCoroutineBenchmark(
-      const char* benchmark_name, int pool_threads) {
-    Env* env =
-        open_options_.env != nullptr ? open_options_.env : Env::Default();
-    auto fs = env->GetFileSystem();
+      DB* db, const char* benchmark_name, int pool_threads) {
+    auto* fs = db->GetFileSystem();
     if (fs != nullptr) {
       fs->SetReadIOExecutorThreads(pool_threads);
     }
@@ -7610,29 +7608,6 @@ class Benchmark {
     return read_executor;
   }
 
-  struct AsyncAwaitCallback : public DB::AsyncCallback {
-    AsyncAwaitCallback(
-        PerfContext* job_perf_context,
-        std::shared_ptr<folly::RequestContext> caller_request_context)
-        : job_perf_context_(job_perf_context),
-          caller_request_context_(std::move(caller_request_context)) {}
-
-    bool EnableStats() const override { return job_perf_context_ != nullptr; }
-
-    void OnComplete(const PerfContext* callback_perf_context,
-                    const IOStatsContext* /*iostats_context*/) override {
-      if (job_perf_context_ != nullptr && callback_perf_context != nullptr) {
-        job_perf_context_->Merge(*callback_perf_context);
-      }
-      folly::RequestContextScopeGuard context_scope(caller_request_context_);
-      baton.post();
-    }
-
-    PerfContext* job_perf_context_;
-    std::shared_ptr<folly::RequestContext> caller_request_context_;
-    folly::coro::Baton baton;
-  };
-
   void PrepareCoroutineJobPerfContext(PerfContext* job_perf_context) {
     SetPerfLevel(static_cast<PerfLevel>(FLAGS_perf_level));
     if (job_perf_context == nullptr) {
@@ -7643,34 +7618,14 @@ class Benchmark {
 #endif
   }
 
-  folly::coro::Task<Status> AwaitGetAsync(DB* db, const ReadOptions& options,
-                                          ColumnFamilyHandle* cfh,
-                                          const Slice& key,
-                                          PinnableSlice* value,
-                                          std::string* timestamp,
-                                          PerfContext* job_perf_context) {
-    PrepareCoroutineJobPerfContext(job_perf_context);
-    AsyncAwaitCallback callback(job_perf_context,
-                                folly::RequestContext::saveContext());
-    Status status;
-    db->GetAsync(options, cfh, key, value, timestamp, status, callback);
-    co_await callback.baton;
-    co_await folly::coro::co_reschedule_on_current_executor;
-    co_return status;
-  }
-
-  folly::coro::Task<void> AwaitMultiGetAsync(
-      DB* db, const ReadOptions& options, size_t num_keys,
-      ColumnFamilyHandle** column_families, const Slice* keys,
-      PinnableSlice* values, Status* statuses, PerfContext* job_perf_context) {
-    PrepareCoroutineJobPerfContext(job_perf_context);
-    AsyncAwaitCallback callback(job_perf_context,
-                                folly::RequestContext::saveContext());
-    db->MultiGetAsync(options, num_keys, column_families, keys, values,
-                      statuses, callback);
-    co_await callback.baton;
-    co_await folly::coro::co_reschedule_on_current_executor;
-    co_return;
+  void MergeCoroutineJobPerfContext(PerfContext* job_perf_context) {
+#ifndef NPERF_CONTEXT
+    if (job_perf_context != nullptr) {
+      job_perf_context->Merge(*get_perf_context());
+    }
+#else
+    (void)job_perf_context;
+#endif
   }
 
   void SetCoroutineJobPerfContextMessage(
@@ -7685,7 +7640,8 @@ class Benchmark {
   }
 
   folly::coro::Task<void> ReadRandomCoroutineJob(
-      uint64_t seed, int64_t ops, std::atomic<int64_t>* total_ops,
+      const std::vector<DBWithColumnFamilies*>& db_choices, uint64_t seed,
+      int64_t ops, std::atomic<int64_t>* total_ops,
       std::atomic<int64_t>* total_found, std::atomic<int64_t>* total_bytes,
       int job_id, std::vector<std::string>* job_perf_contexts) {
     Random64 rng(seed);
@@ -7703,8 +7659,13 @@ class Benchmark {
     int64_t job_found = 0;
     int64_t job_bytes = 0;
     PerfContext job_perf_context;
+    PerfContext* const job_perf_context_ptr =
+        job_perf_contexts != nullptr ? &job_perf_context : nullptr;
+    PrepareCoroutineJobPerfContext(job_perf_context_ptr);
     for (int64_t done = 0; done < ops; ++done) {
-      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(rng.Next());
+      const uint64_t db_rand = rng.Next();
+      DBWithColumnFamilies* db_with_cfh =
+          db_choices[db_rand % db_choices.size()];
       const int64_t key_rand = GetRandomKey(&rng);
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
 
@@ -7724,15 +7685,22 @@ class Benchmark {
         cfh = db_with_cfh->db->DefaultColumnFamily();
       }
 
-      Status s = co_await AwaitGetAsync(
-          db_with_cfh->db, options, cfh, key, &pinnable_val, ts_ptr,
-          job_perf_contexts != nullptr ? &job_perf_context : nullptr);
+      CoroDB* coro_db = db_with_cfh->db->GetCoroDB();
+      if (coro_db == nullptr) {
+        fprintf(stderr,
+                "readrandomcoroutine requires a DB with native coroutine "
+                "reads\n");
+        abort();
+      }
+      Status s = co_await folly::coro::co_nothrow(
+          coro_db->GetCoroutine(options, cfh, key, &pinnable_val, ts_ptr));
+      MergeCoroutineJobPerfContext(job_perf_context_ptr);
       ++job_ops;
       if (s.ok()) {
         ++job_found;
         job_bytes += key.size() + pinnable_val.size() + user_timestamp_size_;
       } else if (!s.IsNotFound()) {
-        fprintf(stderr, "GetAsync returned an error: %s\n",
+        fprintf(stderr, "GetCoroutine returned an error: %s\n",
                 s.ToString().c_str());
         abort();
       }
@@ -7747,11 +7715,11 @@ class Benchmark {
   }
 
   // One coroutine "job": mirrors a single multireadrandom thread -- a loop of
-  // batched async MultiGet reads -- but as a coroutine, so it yields its
+  // batched MultiGetCoroutine reads -- but as a coroutine, so it yields its
   // executor thread while its IO is in flight. Per-job buffers and RNG mean
   // jobs share no mutable state; results are folded into the shared counters.
-  folly::coro::Task<void> MultiGetAsyncCoroutineJob(
-      DB* db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
+  folly::coro::Task<void> MultiGetCoroutineJob(
+      CoroDB* coro_db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
       std::atomic<int64_t>* total_ops, std::atomic<int64_t>* total_found,
       std::atomic<int64_t>* total_bytes, int job_id,
       std::vector<std::string>* job_perf_contexts) {
@@ -7771,23 +7739,26 @@ class Benchmark {
     int64_t job_found = 0;
     int64_t job_bytes = 0;
     PerfContext job_perf_context;
+    PerfContext* const job_perf_context_ptr =
+        job_perf_contexts != nullptr ? &job_perf_context : nullptr;
+    PrepareCoroutineJobPerfContext(job_perf_context_ptr);
     for (int64_t done = 0; done < ops; done += entries_per_batch_) {
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         GenerateKeyFromInt(GetRandomKey(&rng), FLAGS_num, &keys[i]);
         statuses[i] = Status::OK();
         values[i].Reset();
       }
-      co_await AwaitMultiGetAsync(
-          db, options, entries_per_batch_, cfs.data(), keys.data(),
-          values.get(), statuses.data(),
-          job_perf_contexts != nullptr ? &job_perf_context : nullptr);
+      co_await folly::coro::co_nothrow(coro_db->MultiGetCoroutine(
+          options, entries_per_batch_, cfs.data(), keys.data(), values.get(),
+          /*timestamps=*/nullptr, statuses.data(), /*sorted_input=*/false));
+      MergeCoroutineJobPerfContext(job_perf_context_ptr);
       job_ops += entries_per_batch_;
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         if (statuses[i].ok()) {
           job_bytes += keys[i].size() + values[i].size();
           ++job_found;
         } else if (!statuses[i].IsNotFound()) {
-          fprintf(stderr, "MultiGetAsync returned an error: %s\n",
+          fprintf(stderr, "MultiGetCoroutine returned an error: %s\n",
                   statuses[i].ToString().c_str());
           abort();
         }
@@ -7804,7 +7775,7 @@ class Benchmark {
 #endif  // USE_COROUTINES
 
   // Coroutine variant of ReadRandom. A single db_bench driver thread launches
-  // (-coro_jobs_per_thread * -threads) async Get jobs onto the FileSystem
+  // (-coro_jobs_per_thread * -threads) GetCoroutine jobs onto the FileSystem
   // read executor and waits for them all.
   void ReadRandomCoroutine(ThreadState* thread) {
 #if USE_COROUTINES
@@ -7812,9 +7783,16 @@ class Benchmark {
     const int jobs_per_thread =
         FLAGS_coro_jobs_per_thread > 0 ? FLAGS_coro_jobs_per_thread : 1;
     const int num_jobs = jobs_per_thread * pool_threads;
-    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
-        "readrandomcoroutine", pool_threads);
     DB* db = SelectDB(thread);
+    const size_t db_count = db_.db != nullptr ? 1 : multi_dbs_.size();
+    std::vector<DBWithColumnFamilies*> db_choices;
+    db_choices.reserve(db_count);
+    for (size_t i = 0; i < db_count; ++i) {
+      db_choices.push_back(SelectDBWithCfh(i));
+    }
+    assert(!db_choices.empty());
+    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
+        db, "readrandomcoroutine", pool_threads);
 
     std::atomic<int64_t> total_ops{0};
     std::atomic<int64_t> total_found{0};
@@ -7844,8 +7822,8 @@ class Benchmark {
       futures.push_back(
           folly::coro::co_withExecutor(
               folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
-              ReadRandomCoroutineJob(thread->rand.Next(), ops, &total_ops,
-                                     &total_found, &total_bytes, j,
+              ReadRandomCoroutineJob(db_choices, thread->rand.Next(), ops,
+                                     &total_ops, &total_found, &total_bytes, j,
                                      job_perf_contexts_ptr))
               .start());
     }
@@ -7872,7 +7850,7 @@ class Benchmark {
   }
 
   // Coroutine variant of MultiReadRandom. A single db_bench driver thread
-  // launches (-coro_jobs_per_thread * -threads) async MultiGet jobs onto the
+  // launches (-coro_jobs_per_thread * -threads) MultiGetCoroutine jobs onto the
   // FileSystem read executor and waits for them all. Because each job suspends
   // while its IO is in flight, jobs over-subscribe the executor and keep its
   // threads busy.
@@ -7882,9 +7860,16 @@ class Benchmark {
     const int jobs_per_thread =
         FLAGS_coro_jobs_per_thread > 0 ? FLAGS_coro_jobs_per_thread : 1;
     const int num_jobs = jobs_per_thread * pool_threads;
-    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
-        "multireadrandomcoroutine", pool_threads);
     DB* db = SelectDB(thread);
+    auto* read_executor = GetReadExecutorForCoroutineBenchmark(
+        db, "multireadrandomcoroutine", pool_threads);
+    CoroDB* coro_db = db->GetCoroDB();
+    if (coro_db == nullptr) {
+      fprintf(stderr,
+              "multireadrandomcoroutine requires a DB with native coroutine "
+              "reads\n");
+      ErrorExit();
+    }
     ColumnFamilyHandle* cfh = db->DefaultColumnFamily();
 
     std::atomic<int64_t> total_ops{0};
@@ -7919,9 +7904,9 @@ class Benchmark {
       futures.push_back(
           folly::coro::co_withExecutor(
               folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
-              MultiGetAsyncCoroutineJob(db, cfh, thread->rand.Next(), ops,
-                                        &total_ops, &total_found, &total_bytes,
-                                        j, job_perf_contexts_ptr))
+              MultiGetCoroutineJob(coro_db, cfh, thread->rand.Next(), ops,
+                                   &total_ops, &total_found, &total_bytes, j,
+                                   job_perf_contexts_ptr))
               .start());
     }
     for (auto& f : futures) {
