@@ -837,8 +837,10 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
 
   auto test_invalid_nibble = [&](uint8_t invalid_c, bool is_first_nibble) {
     std::string hex_pair(2, '\0');
-    hex_pair[0] = is_first_nibble ? static_cast<char>(invalid_c) : kValidHexChar;
-    hex_pair[1] = is_first_nibble ? kValidHexChar : static_cast<char>(invalid_c);
+    hex_pair[0] =
+      is_first_nibble ? static_cast<char>(invalid_c) : kValidHexChar;
+    hex_pair[1] =
+      is_first_nibble ? kValidHexChar : static_cast<char>(invalid_c);
     Slice hex_slice(hex_pair);
     std::string result = "sentinel";
     bool success = hex_slice.DecodeHex(&result);
@@ -847,12 +849,12 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
                           << position << " char: 0x" << std::hex
                           << static_cast<int>(invalid_c);
     EXPECT_TRUE(result.empty())
-      << "Expected empty result string after failure for invalid " << position
-      << " char: 0x" << std::hex << static_cast<int>(invalid_c);
+        << "Expected empty result string after failure for invalid " << position
+        << " char: 0x" << std::hex << static_cast<int>(invalid_c);
   };
   for (uint8_t invalid_c : invalid_chars) {
-    test_invalid_nibble(invalid_c, true);  // Test invalid first char
-    test_invalid_nibble(invalid_c, false); // Test invalid second char
+    test_invalid_nibble(invalid_c, true);   // Test invalid first char
+    test_invalid_nibble(invalid_c, false);  // Test invalid second char
   }
 
   // Test 500 randomized invalid pairs
