@@ -24,7 +24,14 @@
 #include "util/random.h"
 
 #if USE_COROUTINES
+#include <utility>
+
+#include "folly/Executor.h"
 #include "folly/coro/BlockingWait.h"
+#include "folly/coro/Task.h"
+#include "folly/executors/IOExecutor.h"
+#include "folly/io/async/EventBase.h"
+#include "rocksdb/file_system.h"
 #endif  // USE_COROUTINES
 
 namespace ROCKSDB_NAMESPACE {
@@ -35,6 +42,21 @@ int64_t MaybeCurrentTime(Env* env) {
   env->GetCurrentTime(&time).PermitUncheckedError();
   return time;
 }
+
+#if USE_COROUTINES
+template <typename T>
+T BlockingWaitOnReadExecutor(DB* db, folly::coro::Task<T> task) {
+  auto* read_executor = db->GetFileSystem()->GetReadExecutor();
+  if (read_executor == nullptr) {
+    return folly::coro::blockingWait(std::move(task));
+  }
+
+  auto* read_event_base = read_executor->getEventBase();
+  assert(read_event_base != nullptr);
+  return folly::coro::blockingWait(folly::coro::co_withExecutor(
+      folly::Executor::getKeepAliveToken(read_event_base), std::move(task)));
+}
+#endif  // USE_COROUTINES
 
 }  // anonymous namespace
 
@@ -872,9 +894,11 @@ std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot,
 #if USE_COROUTINES
   if (use_coroutine) {
     PinnableSlice pinnable_value(&result);
-    s = folly::coro::blockingWait(dbfull()->GetCoroutine(
-        options, dbfull()->DefaultColumnFamily(), k, &pinnable_value,
-        /*timestamp=*/nullptr));
+    s = BlockingWaitOnReadExecutor(
+        dbfull(),
+        dbfull()->GetCoroutine(options, dbfull()->DefaultColumnFamily(), k,
+                               &pinnable_value,
+                               /*timestamp=*/nullptr));
     if (s.ok() && pinnable_value.IsPinned()) {
       result.assign(pinnable_value.data(), pinnable_value.size());
     }
@@ -903,8 +927,10 @@ std::string DBTestBase::Get(int cf, const std::string& k,
 #if USE_COROUTINES
   if (use_coroutine) {
     PinnableSlice pinnable_value(&result);
-    s = folly::coro::blockingWait(dbfull()->GetCoroutine(
-        options, handles_[cf], k, &pinnable_value, /*timestamp=*/nullptr));
+    s = BlockingWaitOnReadExecutor(
+        dbfull(),
+        dbfull()->GetCoroutine(options, handles_[cf], k, &pinnable_value,
+                               /*timestamp=*/nullptr));
     if (s.ok() && pinnable_value.IsPinned()) {
       result.assign(pinnable_value.data(), pinnable_value.size());
     }
@@ -956,9 +982,11 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
     s.resize(cfs.size());
 #if USE_COROUTINES
     if (use_coroutine) {
-      folly::coro::blockingWait(dbfull()->MultiGetCoroutine(
-          options, cfs.size(), handles.data(), keys.data(), pin_values.data(),
-          /*timestamps=*/nullptr, s.data(), /*sorted_input=*/false));
+      BlockingWaitOnReadExecutor(
+          dbfull(), dbfull()->MultiGetCoroutine(
+                        options, cfs.size(), handles.data(), keys.data(),
+                        pin_values.data(), /*timestamps=*/nullptr, s.data(),
+                        /*sorted_input=*/false));
     } else
 #else
     (void)use_coroutine;
@@ -1005,9 +1033,12 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
   if (use_coroutine) {
     std::vector<ColumnFamilyHandle*> cfs(keys.size(),
                                          dbfull()->DefaultColumnFamily());
-    folly::coro::blockingWait(dbfull()->MultiGetCoroutine(
-        options, keys.size(), cfs.data(), keys.data(), pin_values.data(),
-        /*timestamps=*/nullptr, statuses.data(), /*sorted_input=*/false));
+    BlockingWaitOnReadExecutor(
+        dbfull(),
+        dbfull()->MultiGetCoroutine(options, keys.size(), cfs.data(),
+                                    keys.data(), pin_values.data(),
+                                    /*timestamps=*/nullptr, statuses.data(),
+                                    /*sorted_input=*/false));
   } else
 #else
   (void)use_coroutine;
@@ -1037,7 +1068,8 @@ Status DBTestBase::Get(const std::string& k, PinnableSlice* v,
   options.verify_checksums = true;
 #if USE_COROUTINES
   if (use_coroutine) {
-    return folly::coro::blockingWait(
+    return BlockingWaitOnReadExecutor(
+        dbfull(),
         dbfull()->GetCoroutine(options, dbfull()->DefaultColumnFamily(), k, v,
                                /*timestamp=*/nullptr));
   }
