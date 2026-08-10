@@ -259,7 +259,11 @@ std::string Slice::ToString(bool hex) const {
     return {data_, size_};
   }
   static constexpr char kHexChars[] = "0123456789ABCDEF";
-  assert(size_ <= SIZE_MAX / 2);
+  if (size_ > SIZE_MAX / 2) {
+    // On 32-bit platforms, size_ > ~2GB could cause 2 * size_
+    // to overflow, practically unreachable on 64-bit.
+    throw std::length_error("Slice size is too large for hex conversion");
+  }
   std::string result(2 * size_, '\0');
   char* p = result.data();
   const unsigned char* src = lossless_cast<const unsigned char*>(data_);
