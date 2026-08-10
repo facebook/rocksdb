@@ -838,9 +838,9 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
   auto test_invalid_nibble = [&](uint8_t invalid_c, bool is_first_nibble) {
     std::string hex_pair(2, '\0');
     hex_pair[0] =
-      is_first_nibble ? static_cast<char>(invalid_c) : kValidHexChar;
+        is_first_nibble ? static_cast<char>(invalid_c) : kValidHexChar;
     hex_pair[1] =
-      is_first_nibble ? kValidHexChar : static_cast<char>(invalid_c);
+        is_first_nibble ? kValidHexChar : static_cast<char>(invalid_c);
     Slice hex_slice(hex_pair);
     std::string result = "sentinel";
     bool success = hex_slice.DecodeHex(&result);
