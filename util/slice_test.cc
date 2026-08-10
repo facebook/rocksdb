@@ -11,11 +11,11 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
 #include <new>
 #include <semaphore>
 #include <sstream>
-#include <unordered_set>
 
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -809,20 +809,26 @@ TEST(SliceHexTest, HexAndToStringRoundTrip) {
   }
 }
 
+namespace {
+constexpr std::array<bool, 256> MakeValidHexLookup() {
+  std::array<bool, 256> table{};
+  for (char c : "0123456789abcdefABCDEF") {
+    if (c != '\0') {
+      table[static_cast<unsigned char>(c)] = true;
+    }
+  }
+  return table;
+}
+}  // namespace
+
 TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
-  // Collect all valid hex characters in a lookup set for quick membership check
-  // Valid hex chars: '0'-'9', 'a'-'f', 'A'-'F'
-  static constexpr char kValidHexChars[] = "0123456789abcdefABCDEF";
-  std::unordered_set<char> valid_hex_set(
-      std::begin(kValidHexChars),
-      // Exclude the null terminator that constexpr char array includes
-      std::end(kValidHexChars) - 1);
+  static constexpr std::array<bool, 256> kValidHexTable = MakeValidHexLookup();
 
   // Identify all invalid hex characters (0-255 excluding valid ones)
   std::vector<uint8_t> invalid_chars;
   invalid_chars.reserve(256 - 22);  // 256 total minus 22 valid hex chars
   for (int c = 0; c < 256; ++c) {
-    if (valid_hex_set.find(static_cast<char>(c)) == valid_hex_set.end()) {
+    if (!kValidHexTable[c]) {
       invalid_chars.push_back(static_cast<uint8_t>(c));
     }
   }
