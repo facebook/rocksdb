@@ -835,44 +835,24 @@ TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
   // Pick an arbitrary valid hex character to pair with each invalid character
   static constexpr char kValidHexChar = '0';
 
-  // Test every possible pair where the FIRST character is invalid
-  // i.e., invalid char in high nibble position
-  for (uint8_t invalid_c : invalid_chars) {
+  auto test_invalid_nibble = [&](uint8_t invalid_c, bool is_first_nibble) {
     std::string hex_pair(2, '\0');
-    hex_pair[0] = static_cast<char>(invalid_c);
-    hex_pair[1] = kValidHexChar;
-
+    hex_pair[0] = is_first_nibble ? static_cast<char>(invalid_c) : kValidHexChar;
+    hex_pair[1] = is_first_nibble ? kValidHexChar : static_cast<char>(invalid_c);
     Slice hex_slice(hex_pair);
-    std::string result = "sentinel";  // Pre-fill to confirm it gets cleared
+    std::string result = "sentinel";
     bool success = hex_slice.DecodeHex(&result);
-
-    EXPECT_FALSE(success)
-        << "Expected DecodeHex to fail for invalid first char: 0x" << std::hex
-        << static_cast<int>(invalid_c);
-
-    EXPECT_TRUE(result.empty()) << "Expected empty result string after failure "
-                                   "for invalid first char: 0x"
-                                << std::hex << static_cast<int>(invalid_c);
-  }
-
-  // Test every possible pair where the SECOND character is invalid
-  // i.e., invalid char in low nibble position
+    const char* position = is_first_nibble ? "first" : "second";
+    EXPECT_FALSE(success) << "Expected DecodeHex to fail for invalid "
+                          << position << " char: 0x" << std::hex
+                          << static_cast<int>(invalid_c);
+    EXPECT_TRUE(result.empty())
+      << "Expected empty result string after failure for invalid " << position
+      << " char: 0x" << std::hex << static_cast<int>(invalid_c);
+  };
   for (uint8_t invalid_c : invalid_chars) {
-    std::string hex_pair(2, '\0');
-    hex_pair[0] = kValidHexChar;
-    hex_pair[1] = static_cast<char>(invalid_c);
-
-    Slice hex_slice(hex_pair);
-    std::string result = "sentinel";  // Pre-fill to confirm it gets cleared
-    bool success = hex_slice.DecodeHex(&result);
-
-    EXPECT_FALSE(success)
-        << "Expected DecodeHex to fail for invalid second char: 0x" << std::hex
-        << static_cast<int>(invalid_c);
-
-    EXPECT_TRUE(result.empty()) << "Expected empty result string after failure "
-                                   "for invalid second char: 0x"
-                                << std::hex << static_cast<int>(invalid_c);
+    test_invalid_nibble(invalid_c, true);  // Test invalid first char
+    test_invalid_nibble(invalid_c, false); // Test invalid second char
   }
 
   // Test 500 randomized invalid pairs
