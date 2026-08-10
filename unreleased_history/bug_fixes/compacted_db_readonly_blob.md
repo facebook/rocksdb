@@ -1,0 +1,1 @@
+Fixed a bug where a read-only DB opened against a fully compacted blob DB (qualifying for the `CompactedDBImpl` fast path, i.e. `max_open_files == -1`) could not retrieve blob values at all: `Get()`/`MultiGet()` reported `NotFound` for any key resolving to a blob index, even though the key and blob file were both present.
