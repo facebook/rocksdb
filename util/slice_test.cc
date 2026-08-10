@@ -12,7 +12,6 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
-#include <iomanip>
 #include <new>
 #include <semaphore>
 #include <sstream>
