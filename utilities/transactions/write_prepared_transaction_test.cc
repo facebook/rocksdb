@@ -35,6 +35,11 @@
 #include "utilities/transactions/transaction_test.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
+#if USE_COROUTINES
+#include "folly/coro/BlockingWait.h"
+#include "rocksdb/coro_db.h"
+#endif
+
 using std::string;
 
 namespace ROCKSDB_NAMESPACE {
@@ -724,6 +729,40 @@ INSTANTIATE_TEST_CASE_P(
         OneWriteQueue_SeqAdvanceConcurrentTest_Params)));
 
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+
+#if USE_COROUTINES
+TEST_P(WritePreparedTransactionTest, CoroutineReadsDoNotExposeUncommittedData) {
+  ASSERT_OK(db->Put(WriteOptions(), "key", "committed"));
+  std::unique_ptr<Transaction> transaction(
+      db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(nullptr, transaction);
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("key", "uncommitted"));
+  ASSERT_OK(transaction->Prepare());
+
+  PinnableSlice value;
+  Status status = folly::coro::blockingWait(
+      CoroDB::CoGet(db, ReadOptions(), db->DefaultColumnFamily(), "key", &value,
+                    /*timestamp=*/nullptr));
+
+  ColumnFamilyHandle* column_families[] = {db->DefaultColumnFamily(),
+                                           db->DefaultColumnFamily()};
+  const Slice keys[] = {Slice("key"), Slice("key")};
+  PinnableSlice values[2];
+  Status statuses[2];
+  folly::coro::blockingWait(CoroDB::CoMultiGet(
+      db, ReadOptions(), 2, column_families, keys, values,
+      /*timestamps=*/nullptr, statuses, /*sorted_input=*/false));
+
+  ASSERT_OK(transaction->Rollback());
+  ASSERT_OK(status);
+  ASSERT_EQ("committed", value.ToString());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ("committed", values[0].ToString());
+  ASSERT_EQ("committed", values[1].ToString());
+}
+#endif  // USE_COROUTINES
 
 TEST_P(WritePreparedTransactionTest, CommitMap) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);

@@ -246,53 +246,6 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   return s;
 }
 
-Status WritePreparedTxnDB::Get(const ReadOptions& _read_options,
-                               ColumnFamilyHandle* column_family,
-                               const Slice& key, PinnableSlice* value,
-                               std::string* timestamp) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGet) {
-    return Status::InvalidArgument(
-        "Can only call Get with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
-  }
-  if (timestamp) {
-    return Status::NotSupported(
-        "Get() that returns timestamp is not implemented");
-  }
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGet;
-  }
-
-  return GetImpl(read_options, column_family, key, value);
-}
-
-Status WritePreparedTxnDB::GetImpl(const ReadOptions& options,
-                                   ColumnFamilyHandle* column_family,
-                                   const Slice& key, PinnableSlice* value) {
-  SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
-                                        backed_by_snapshot);
-  bool* dont_care = nullptr;
-  DBImpl::GetImplOptions get_impl_options;
-  get_impl_options.column_family = column_family;
-  get_impl_options.value = value;
-  get_impl_options.value_found = dont_care;
-  get_impl_options.callback = &callback;
-  auto res = db_impl_->GetImpl(options, key, get_impl_options);
-  if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
-                                                  backed_by_snapshot))) {
-    return res;
-  } else {
-    res.PermitUncheckedError();
-    WPRecordTick(TXN_GET_TRY_AGAIN);
-    return Status::TryAgain();
-  }
-}
-
 void WritePreparedTxnDB::UpdateCFComparatorMap(
     const std::vector<ColumnFamilyHandle*>& handles) {
   auto cf_map = new std::map<uint32_t, const Comparator*>();
@@ -327,47 +280,6 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   (*handle_map)[id] = h;
   cf_map_.reset(cf_map);
   handle_map_.reset(handle_map);
-}
-
-void WritePreparedTxnDB::MultiGet(const ReadOptions& _read_options,
-                                  const size_t num_keys,
-                                  ColumnFamilyHandle** column_families,
-                                  const Slice* keys, PinnableSlice* values,
-                                  std::string* timestamps, Status* statuses,
-                                  const bool /*sorted_input*/) {
-  assert(values);
-
-  Status s;
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kMultiGet) {
-    s = Status::InvalidArgument(
-        "Can only call MultiGet with `ReadOptions::io_activity` is "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
-  }
-
-  if (s.ok()) {
-    if (timestamps) {
-      s = Status::NotSupported(
-          "MultiGet() returning timestamps not implemented.");
-    }
-  }
-
-  if (!s.ok()) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = s;
-    }
-    return;
-  }
-
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kMultiGet;
-  }
-
-  for (size_t i = 0; i < num_keys; ++i) {
-    statuses[i] =
-        this->GetImpl(read_options, column_families[i], keys[i], &values[i]);
-  }
 }
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
@@ -1097,3 +1009,12 @@ void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+
+// clang-format off
+#define WITHOUT_COROUTINES
+#include "utilities/transactions/write_prepared_txn_db_sync_and_async.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
+#include "utilities/transactions/write_prepared_txn_db_sync_and_async.h"
+#undef WITH_COROUTINES
+// clang-format on

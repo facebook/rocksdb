@@ -8,11 +8,15 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 #include "folly/coro/Task.h"
 #include "rocksdb/db.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+template <typename Base>
+class CoroStackableDBBase;
 
 // EXPERIMENTAL native coroutine read interface.
 //
@@ -27,38 +31,109 @@ namespace ROCKSDB_NAMESPACE {
 // The returned tasks are lazy: no read begins until a task is awaited or
 // started.
 //
-// IMPORTANT: RocksDB assumes each request runs entirely on one thread. Schedule
-// coroutine reads on the read IOExecutor's EventBase and do not migrate them.
+// CoGet() and CoMultiGet() schedule native coroutine reads on the read
+// IOExecutor's EventBase. They use the synchronous DB API when native
+// coroutine reads or a read executor are unavailable.
 //
 // STATS:
-// Unlike the callback APIs, coroutine stats are returned through TLS. Each task
-// publishes its request-local PerfContext and IOStatsContext to TLS on its
-// execution thread before completing. Read them after the await resumes on the
-// same EventBase. The TLS values are defined only on the thread where the
-// RocksDB operation completes. Consume or copy them immediately after the
-// RocksDB await returns; no coroutine suspension may occur in between:
-//
-//   auto* coro_db = db->GetCoroDB();
-//   auto* read_executor = db->GetFileSystem()->GetReadExecutor();
-//   auto* read_event_base =
-//       read_executor == nullptr ? nullptr : read_executor->getEventBase();
-//   if (coro_db == nullptr || read_event_base == nullptr) {
-//     co_return db->Get(options, column_family, key, value, timestamp);
-//   }
-//
-//   auto read = [&]() -> folly::coro::Task<Status> {
-//     Status status = co_await coro_db->GetCoroutine(
-//         options, column_family, key, value, timestamp);
-//     const PerfContext* perf_context = get_perf_context();
-//     const IOStatsContext* iostats_context = get_iostats_context();
-//     // Consume or copy the stats here, before any further co_await.
-//     co_return status;
-//   };
-//   co_return co_await folly::coro::co_withExecutor(
-//       folly::Executor::getKeepAliveToken(read_event_base), read());
+// GetCoroutine() and MultiGetCoroutine() populate TLS with stats for only that
+// operation. CoGet() and CoMultiGet() can resume their callers on a different
+// thread, so reading TLS after awaiting them is not valid. To consume coroutine
+// stats, override the protected CoroStackableDB hook and copy the TLS values
+// immediately after awaiting the wrapped operation, before suspending again.
 class CoroDB {
  public:
   virtual ~CoroDB() = default;
+
+  static folly::coro::Task<Status> CoGet(DB* db, const ReadOptions& options,
+                                         ColumnFamilyHandle* column_family,
+                                         const Slice& key, PinnableSlice* value,
+                                         std::string* timestamp);
+
+  static folly::coro::Task<Status> CoGet(DB* db, const ReadOptions& options,
+                                         ColumnFamilyHandle* column_family,
+                                         const Slice& key, std::string* value,
+                                         std::string* timestamp);
+
+  static folly::coro::Task<Status> CoGet(DB* db, const ReadOptions& options,
+                                         ColumnFamilyHandle* column_family,
+                                         const Slice& key,
+                                         PinnableSlice* value) {
+    return CoGet(db, options, column_family, key, value,
+                 /*timestamp=*/nullptr);
+  }
+
+  static folly::coro::Task<Status> CoGet(DB* db, const ReadOptions& options,
+                                         ColumnFamilyHandle* column_family,
+                                         const Slice& key, std::string* value) {
+    return CoGet(db, options, column_family, key, value,
+                 /*timestamp=*/nullptr);
+  }
+
+  static folly::coro::Task<Status> CoGet(DB* db, const ReadOptions& options,
+                                         const Slice& key, std::string* value);
+
+  static folly::coro::Task<Status> CoGet(DB* db, const ReadOptions& options,
+                                         const Slice& key, std::string* value,
+                                         std::string* timestamp);
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      DB* db, const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      std::vector<std::string>* timestamps);
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      DB* db, const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Slice>& keys, std::vector<std::string>* values) {
+    return CoMultiGet(db, options, column_families, keys, values,
+                      /*timestamps=*/nullptr);
+  }
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      DB* db, const ReadOptions& options, const std::vector<Slice>& keys,
+      std::vector<std::string>* values) {
+    return CoMultiGet(db, options, keys, values, /*timestamps=*/nullptr);
+  }
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      DB* db, const ReadOptions& options, const std::vector<Slice>& keys,
+      std::vector<std::string>* values, std::vector<std::string>* timestamps);
+
+  static folly::coro::Task<void> CoMultiGet(
+      DB* db, const ReadOptions& options, size_t num_keys,
+      ColumnFamilyHandle** column_families, const Slice* keys,
+      PinnableSlice* values, std::string* timestamps, Status* statuses,
+      bool sorted_input = false);
+
+  static folly::coro::Task<void> CoMultiGet(
+      DB* db, const ReadOptions& options, ColumnFamilyHandle* column_family,
+      size_t num_keys, const Slice* keys, PinnableSlice* values,
+      std::string* timestamps, Status* statuses, bool sorted_input = false);
+
+  static folly::coro::Task<void> CoMultiGet(DB* db, const ReadOptions& options,
+                                            ColumnFamilyHandle* column_family,
+                                            size_t num_keys, const Slice* keys,
+                                            PinnableSlice* values,
+                                            Status* statuses,
+                                            bool sorted_input = false) {
+    return CoMultiGet(db, options, column_family, num_keys, keys, values,
+                      /*timestamps=*/nullptr, statuses, sorted_input);
+  }
+
+  static folly::coro::Task<void> CoMultiGet(
+      DB* db, const ReadOptions& options, size_t num_keys,
+      ColumnFamilyHandle** column_families, const Slice* keys,
+      PinnableSlice* values, Status* statuses, bool sorted_input = false) {
+    return CoMultiGet(db, options, num_keys, column_families, keys, values,
+                      /*timestamps=*/nullptr, statuses, sorted_input);
+  }
+
+ protected:
+  friend class DB;
+  template <typename Base>
+  friend class CoroStackableDBBase;
 
   // Reads key and completes after populating value and the optional timestamp.
   // The returned Status describes the operation and its outputs.
