@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cstring>
+#include <ctime>
 #include <new>
 #include <semaphore>
 #include <sstream>
