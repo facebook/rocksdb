@@ -3,11 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <atomic>
 #include <memory>
 
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_compression.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
@@ -479,6 +483,113 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
 
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+namespace {
+
+// A CompressionManager that records, per GetCompressorForSST() call, whether
+// the FilterBuildingContext reports the SST as being built by a remote
+// (offloaded) compaction worker. Observations go into process-global counters
+// because the remote worker reconstructs its own manager instance from the
+// persisted OPTIONS file (same process in this test).
+struct RemoteAwareObservations {
+  std::atomic<int> num_remote{0};
+  std::atomic<int> num_non_remote{0};
+  void Reset() {
+    num_remote.store(0);
+    num_non_remote.store(0);
+  }
+};
+
+RemoteAwareObservations& GetRemoteAwareObservations() {
+  static RemoteAwareObservations obs;
+  return obs;
+}
+
+class RemoteAwareCompressionManager : public CompressionManagerWrapper {
+ public:
+  RemoteAwareCompressionManager()
+      : CompressionManagerWrapper(GetBuiltinV2CompressionManager()) {}
+
+  static const char* kClassName() { return "RemoteAwareCompressionManager"; }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext& context, const CompressionOptions& opts,
+      CompressionType preferred) override {
+    if (context.is_remote_compaction) {
+      GetRemoteAwareObservations().num_remote.fetch_add(1);
+    } else {
+      GetRemoteAwareObservations().num_non_remote.fetch_add(1);
+    }
+    return CompressionManagerWrapper::GetCompressorForSST(context, opts,
+                                                          preferred);
+  }
+};
+
+}  // namespace
+
+TEST_F(CompactionServiceTest, IsRemoteCompactionInCompressorContext) {
+  // Register so the remote worker's DB::OpenAndCompact can reconstruct the
+  // custom CompressionManager from the persisted OPTIONS file
+  // (CompactionServiceOptionsOverride does not carry a compression_manager).
+  ObjectLibrary::Default()->AddFactory<CompressionManager>(
+      RemoteAwareCompressionManager::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<CompressionManager>* guard,
+         std::string* /*errmsg*/) {
+        *guard = std::make_unique<RemoteAwareCompressionManager>();
+        return guard->get();
+      });
+
+  auto& obs = GetRemoteAwareObservations();
+  obs.Reset();
+
+  Options options = CurrentOptions();
+  options.compression_manager =
+      std::make_shared<RemoteAwareCompressionManager>();
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  VerifyTestData();
+
+  auto my_cs = GetCompactionService();
+  ASSERT_GE(my_cs->GetCompactionNum(), 1);
+
+  // The offloaded worker built the compaction output SSTs and therefore must
+  // have observed is_remote_compaction == true in GetCompressorForSST().
+  ASSERT_GT(obs.num_remote.load(), 0);
+  // The primary's own flushes, seen by the same manager, must report false
+  ASSERT_GT(obs.num_non_remote.load(), 0);
+
+  Close();
+}
+
+TEST_F(CompactionServiceTest, IsRemoteCompactionFalseForLocalCompaction) {
+  // Same custom manager, but no compaction_service: everything runs locally,
+  // so GetCompressorForSST() must never see is_remote_compaction == true.
+  auto& obs = GetRemoteAwareObservations();
+  obs.Reset();
+
+  Options options = CurrentOptions();
+  options.compression_manager =
+      std::make_shared<RemoteAwareCompressionManager>();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(64)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Local flushes and compactions must all report not-remote.
+  ASSERT_GT(obs.num_non_remote.load(), 0);
+  ASSERT_EQ(obs.num_remote.load(), 0);
+
+  Close();
 }
 
 TEST_F(CompactionServiceTest, SkipWALRecoveryInOpenAndCompact) {

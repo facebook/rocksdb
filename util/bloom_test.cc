@@ -1173,7 +1173,7 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 
         // Like SST file writer
         ctx.level_at_creation = -1;
-        ctx.reason = TableFileCreationReason::kMisc;
+        ctx.reason = TableFileCreationReason::kSstFileWriter;
 
         builder.reset(policy->GetBuilderWithContext(ctx));
 

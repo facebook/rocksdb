@@ -236,6 +236,8 @@ struct ExternalTableBuilderOptions {
   const std::string db_session_id;
   const TableFileCreationReason reason;
   const std::shared_ptr<FileSystem>& fs;
+  // NOTE: a number of internal TableBuilderOptions could also be plumbed
+  // through to here
 
   ExternalTableBuilderOptions(
       const ReadOptions& _read_options, const WriteOptions& _write_options,

@@ -286,12 +286,12 @@ public class EventListenerTest {
     final Status statusTestData = new Status(Status.Code.Incomplete, Status.SubCode.NoSpace, null);
     final TableFileDeletionInfo tableFileDeletionInfoTestData =
         new TableFileDeletionInfo("dbName", "/file/path", Integer.MAX_VALUE, statusTestData);
-    final TableFileCreationInfo tableFileCreationInfoTestData =
-        new TableFileCreationInfo(TEST_LONG_VAL, tablePropertiesTestData, statusTestData, "dbName",
-            "columnFamilyName", "/file/path", Integer.MAX_VALUE, (byte) 0x03);
+    final TableFileCreationInfo tableFileCreationInfoTestData = new TableFileCreationInfo(
+        TEST_LONG_VAL, tablePropertiesTestData, statusTestData, "dbName", "columnFamilyName",
+        "/file/path", Integer.MAX_VALUE, TableFileCreationReason.MISC.getValue());
     final TableFileCreationBriefInfo tableFileCreationBriefInfoTestData =
-        new TableFileCreationBriefInfo(
-            "dbName", "columnFamilyName", "/file/path", Integer.MAX_VALUE, (byte) 0x03);
+        new TableFileCreationBriefInfo("dbName", "columnFamilyName", "/file/path",
+            Integer.MAX_VALUE, TableFileCreationReason.MISC.getValue());
     final MemTableInfo memTableInfoTestData = new MemTableInfo(
         "columnFamilyName", TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL);
     final FileOperationInfo fileOperationInfoTestData = new FileOperationInfo("/file/path",

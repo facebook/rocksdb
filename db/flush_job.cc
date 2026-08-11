@@ -1042,7 +1042,8 @@ Status FlushJob::WriteLevel0Table() {
           meta_.fd.GetNumber(),
           preclude_last_level_min_seqno_ == kMaxSequenceNumber
               ? preclude_last_level_min_seqno_
-              : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
+              : std::min(earliest_snapshot_, preclude_last_level_min_seqno_),
+          dbname_ /*db_name*/);
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,

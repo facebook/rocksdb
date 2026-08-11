@@ -9,7 +9,8 @@ public enum TableFileCreationReason {
   FLUSH((byte) 0x00),
   COMPACTION((byte) 0x01),
   RECOVERY((byte) 0x02),
-  MISC((byte) 0x03);
+  MISC((byte) 0x03),
+  SST_FILE_WRITER((byte) 0x04);
 
   private final byte value;
 

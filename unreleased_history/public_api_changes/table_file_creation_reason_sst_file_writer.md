@@ -1,0 +1,1 @@
+Added a `kSstFileWriter` value to `TableFileCreationReason`, which `SstFileWriter` now reports instead of the catch-all `kMisc`. This, along with new `db_name` and `is_remote_compaction` fields in `FilterBuildingContext`, improves the contextual information available to custom filter and compression strategies.
