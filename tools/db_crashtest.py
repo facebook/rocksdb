@@ -529,9 +529,13 @@ default_params = {
     "compression_manager": lambda: random.choice(
         ["mixed"] * 1
         + ["none"] * 2
-        + ["autoskip"] * 2
         + ["randommixed"] * 2
         + ["custom"] * 3
+    ),
+    # AutoSkip compression is now a CompressionOptions feature (bool).
+    "compression_auto_skip": lambda: random.choice([0] * 4 + [1]),
+    "compression_auto_skip_min_sample_every": lambda: random.choice(
+        [0, 16, 64, 256]
     ),
     # fixed within a run for easier debugging
     # actual frequency is lower after option sanitization
@@ -1477,22 +1481,26 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("compression_manager") == "randommixed"
     ):
         dest_params["block_align"] = 0
-    elif dest_params.get("compression_manager") == "autoskip":
-        # ensuring the compression is being used
-        if dest_params.get("compression_type") == "none":
-            dest_params["compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
-            )
-        if dest_params.get("bottommost_compression_type") == "none":
-            dest_params["bottommost_compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
-            )
-        dest_params["block_align"] = 0
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
             dest_params["compression_type"] = "none"
             dest_params["bottommost_compression_type"] = "none"
+    if dest_params.get("compression_auto_skip", 0) == 1:
+        # AutoSkip only does anything when compression is actually configured,
+        # and it is incompatible with block_align (like other compression).
+        dest_params["block_align"] = 0
+        if dest_params.get("compression_type") == "none":
+            dest_params["compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        # Also ensure the bottommost level actually compresses, so AutoSkip is
+        # exercised on bottommost output too (parity with the pre-integration
+        # autoskip compression manager coverage).
+        if dest_params.get("bottommost_compression_type") == "none":
+            dest_params["bottommost_compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
