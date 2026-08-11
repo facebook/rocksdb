@@ -65,12 +65,12 @@ DEFINE_SYNC_AND_ASYNC(Status, CompactedDBImpl::Get)
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
   LookupKey lkey(key, kMaxSequenceNumber, read_options.timestamp);
+  bool is_blob_index = false;
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, lkey.user_key(), value,
                          /*columns=*/nullptr, ts, nullptr, nullptr, true,
                          nullptr, nullptr, nullptr, nullptr, &read_cb,
-                         nullptr /* is_blob_index */, 0 /* tracing_get_id */,
-                         &blob_fetcher);
+                         &is_blob_index, 0 /* tracing_get_id */, &blob_fetcher);
 
   const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
   if (user_comparator_->CompareWithoutTimestamp(
@@ -100,6 +100,19 @@ DEFINE_SYNC_AND_ASYNC(Status, CompactedDBImpl::Get)
     CO_RETURN s;
   }
   if (get_context.State() == GetContext::kFound) {
+    if (is_blob_index) {
+      // The TableReader above only decoded the blob reference into *value;
+      // resolve it to the actual blob content, mirroring Version::Get.
+      constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+      constexpr uint64_t* bytes_read = nullptr;
+      PinnableSlice blob_value;
+      s = blob_fetcher.FetchBlob(get_context.ukey_to_get_blob_value(), *value,
+                                 prefetch_buffer, &blob_value, bytes_read);
+      if (!s.ok()) {
+        CO_RETURN s;
+      }
+      *value = std::move(blob_value);
+    }
     CO_RETURN Status::OK();
   }
   CO_RETURN Status::NotFound();
@@ -174,12 +187,13 @@ DEFINE_SYNC_AND_ASYNC(void, CompactedDBImpl::MultiGet)
 
     PinnableSlice& pinnable_val = values[i];
     std::string* timestamp = timestamps ? &timestamps[i] : nullptr;
+    bool is_blob_index = false;
     GetContext get_context(
         user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
         lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
         user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
         nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb,
-        nullptr /* is_blob_index */, 0 /* tracing_get_id */, &blob_fetcher);
+        &is_blob_index, 0 /* tracing_get_id */, &blob_fetcher);
     TableReader* t = nullptr;
     TableCache::TypedHandle* handle = nullptr;
     Status status = cfd_->table_cache()->FindTable(
@@ -199,7 +213,22 @@ DEFINE_SYNC_AND_ASYNC(void, CompactedDBImpl::MultiGet)
     if (!status.ok() && !status.IsNotFound()) {
       statuses[i] = status;
     } else if (get_context.State() == GetContext::kFound) {
-      statuses[i] = Status::OK();
+      if (is_blob_index) {
+        // The TableReader above only decoded the blob reference into
+        // pinnable_val; resolve it to the actual blob content, mirroring
+        // Version::Get.
+        constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+        constexpr uint64_t* bytes_read = nullptr;
+        PinnableSlice blob_value;
+        statuses[i] =
+            blob_fetcher.FetchBlob(lkey.user_key(), pinnable_val,
+                                   prefetch_buffer, &blob_value, bytes_read);
+        if (statuses[i].ok()) {
+          pinnable_val = std::move(blob_value);
+        }
+      } else {
+        statuses[i] = Status::OK();
+      }
     } else {
       statuses[i] = Status::NotFound();
     }

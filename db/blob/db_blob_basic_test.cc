@@ -63,6 +63,42 @@ TEST_F(DBBlobBasicTest, GetBlob) {
                   .IsIncomplete());
 }
 
+// Regression test for a bug where a read-only DB opened against a fully
+// compacted blob DB (i.e. one that qualifies for the CompactedDBImpl fast
+// path: max_open_files == -1 and at most a single file per level) could not
+// retrieve blob values at all. CompactedDBImpl::Get/MultiGet passed a null
+// is_blob_index pointer into GetContext, so any key resolving to a blob
+// index immediately hit GetContext::kUnexpectedBlobIndex and was reported
+// as NotFound, even though the key/blob file were both present.
+TEST_F(DBBlobBasicTest, GetBlobReadOnlyFullyCompacted) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  // CompactedDBImpl::Open requires max_open_files == -1; the DBTestBase
+  // default (5000) would skip the fast path this test targets.
+  options.max_open_files = -1;
+
+  Reopen(options);
+
+  constexpr char key1[] = "key1";
+  constexpr char blob_value1[] = "blob_value1";
+  constexpr char key2[] = "key2";
+  constexpr char blob_value2[] = "blob_value2";
+
+  ASSERT_OK(Put(key1, blob_value1));
+  ASSERT_OK(Put(key2, blob_value2));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  ASSERT_EQ(Get(key1), blob_value1);
+
+  auto values = MultiGet({key1, key2});
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(values[0], blob_value1);
+  ASSERT_EQ(values[1], blob_value2);
+}
+
 TEST_F(DBBlobBasicTest, EmptyValueNotStoredAsBlob) {
   // Regression test for crash when empty blob value is evicted to
   // CompressedSecondaryCache (T261142690). Empty values should always be
