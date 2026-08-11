@@ -1685,6 +1685,8 @@ class NonBatchedOpsStressTest : public StressTest {
           eager_refs[i].columns = &results[i][0].columns();
         }
       }
+      ThreadStatusUtil::SetThreadOperation(
+          ThreadStatus::OperationType::OP_MULTIGETENTITY);
       MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
                                   key_slices.data(), &eager_refs);
     } else {
@@ -1723,6 +1725,8 @@ class NonBatchedOpsStressTest : public StressTest {
           eager_refs[i].columns = &results[i].columns();
         }
       }
+      ThreadStatusUtil::SetThreadOperation(
+          ThreadStatus::OperationType::OP_MULTIGETENTITY);
       MaybeTestMultiGetEntityLazy(thread, read_opts_copy, cfh, num_keys,
                                   key_slices.data(), &eager_refs);
     }
