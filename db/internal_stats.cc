@@ -310,6 +310,8 @@ static const std::string aggregated_table_properties_at_level =
 static const std::string num_running_compactions = "num-running-compactions";
 static const std::string num_running_remote_compactions =
     "num-running-remote-compactions";
+static const std::string num_running_bottom_compactions =
+    "num-running-bottom-compactions";
 static const std::string num_running_compaction_sorted_runs =
     "num-running-compaction-sorted-runs";
 static const std::string compaction_abort_count = "compaction-abort-count";
@@ -367,6 +369,8 @@ const std::string DB::Properties::kNumRunningCompactions =
     rocksdb_prefix + num_running_compactions;
 const std::string DB::Properties::kNumRunningRemoteCompactions =
     rocksdb_prefix + num_running_remote_compactions;
+const std::string DB::Properties::kNumRunningBottomCompactions =
+    rocksdb_prefix + num_running_bottom_compactions;
 const std::string DB::Properties::kNumRunningCompactionSortedRuns =
     rocksdb_prefix + num_running_compaction_sorted_runs;
 const std::string DB::Properties::kCompactionAbortCount =
@@ -604,6 +608,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kNumRunningRemoteCompactions,
          {false, nullptr, &InternalStats::HandleNumRunningRemoteCompactions,
+          nullptr, nullptr}},
+        {DB::Properties::kNumRunningBottomCompactions,
+         {false, nullptr, &InternalStats::HandleNumRunningBottomCompactions,
           nullptr, nullptr}},
         {DB::Properties::kNumRunningCompactionSortedRuns,
          {false, nullptr, &InternalStats::HandleNumRunningCompactionSortedRuns,
@@ -1307,6 +1314,13 @@ bool InternalStats::HandleNumRunningRemoteCompactions(uint64_t* value,
       db->num_running_remote_compactions_.load(std::memory_order_relaxed);
   assert(num_running >= 0);
   *value = static_cast<uint64_t>(num_running);
+  return true;
+}
+
+bool InternalStats::HandleNumRunningBottomCompactions(uint64_t* value,
+                                                      DBImpl* db,
+                                                      Version* /*version*/) {
+  *value = static_cast<uint64_t>(db->num_running_bottom_compactions_);
   return true;
 }
 

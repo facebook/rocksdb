@@ -1433,6 +1433,10 @@ class DB {
     //      to this count. Always 0 when no `compaction_service` is configured.
     static const std::string kNumRunningRemoteCompactions;
 
+    //  "rocksdb.num-running-bottom-compactions" - returns the number of
+    //      currently running bottom-priority compactions.
+    static const std::string kNumRunningBottomCompactions;
+
     //  "rocksdb.num-running-compaction-sorted-runs" - returns the number of
     //  sorted runs being processed by currently running compactions.
     static const std::string kNumRunningCompactionSortedRuns;
@@ -1689,6 +1693,7 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-remote-compactions"
+  //  "rocksdb.num-running-bottom-compactions"
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.num-unscheduled-compactions"
   //  "rocksdb.actual-delayed-write-rate"
