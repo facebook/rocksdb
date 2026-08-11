@@ -53,6 +53,12 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
 
+  // Resets this thread's AutoSkip inter-file estimate carryover (see
+  // CompressionOptions::auto_skip). Tools that build many independent files on
+  // a single thread (e.g. sst_dump --command=recompress) call this between
+  // files so each is measured without inheriting the previous file's estimate.
+  static void ResetThreadLocalAutoSkipCarryover();
+
   // Add key,value to the table being constructed.
   // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any
   //           previously added non-kTypeRangeDeletion key according to

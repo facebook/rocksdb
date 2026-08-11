@@ -201,6 +201,15 @@ Compressor* MaybeCloneSpecialized(
 }
 }  // namespace
 
+// Defined outside the anonymous namespace above (it is a static member of
+// BlockBasedTableBuilder) but relies on that namespace's AutoSkip carryover.
+// Lets tools that build many independent files on one thread (e.g. sst_dump
+// --command=recompress) clear the AutoSkip inter-file estimate between files,
+// so each is measured without inheriting the previous file's estimate.
+void BlockBasedTableBuilder::ResetThreadLocalAutoSkipCarryover() {
+  AutoSkipCarryTLS() = AutoSkipCarry{};
+}
+
 // kBlockBasedTableMagicNumber was picked by running
 //    echo rocksdb.table.block_based | sha1sum
 // and taking the leading 64 bits.
