@@ -3520,17 +3520,27 @@ class Benchmark {
             "Keys:       %d bytes each (+ %d bytes user-defined timestamp)\n",
             FLAGS_key_size, FLAGS_user_timestamp_size);
     auto avg_value_size = FLAGS_value_size;
+    // When only a fraction of values are compressible
+    // (--compressible_data_fraction < 1.0), the rest are generated
+    // ~incompressible (ratio ~1.0), so the effective ratio applied to the data
+    // is a blend of --compression_ratio and 1.0.
+    const double compressible_fraction =
+        std::min(1.0, FLAGS_compressible_data_fraction);
+    const double effective_compression_ratio =
+        compressible_fraction * FLAGS_compression_ratio +
+        (1.0 - compressible_fraction);
     if (FLAGS_value_size_distribution_type_e == kFixed) {
-      fprintf(stdout,
-              "Values:     %d bytes each (%d bytes after compression)\n",
-              avg_value_size,
-              static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
+      fprintf(
+          stdout, "Values:     %d bytes each (%d bytes after compression)\n",
+          avg_value_size,
+          static_cast<int>(avg_value_size * effective_compression_ratio + 0.5));
     } else {
       avg_value_size = (FLAGS_value_size_min + FLAGS_value_size_max) / 2;
-      fprintf(stdout,
-              "Values:     %d avg bytes each (%d bytes after compression)\n",
-              avg_value_size,
-              static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
+      fprintf(
+          stdout,
+          "Values:     %d avg bytes each (%d bytes after compression)\n",
+          avg_value_size,
+          static_cast<int>(avg_value_size * effective_compression_ratio + 0.5));
       fprintf(stdout, "Values Distribution: %s (min: %d, max: %d)\n",
               FLAGS_value_size_distribution_type.c_str(), FLAGS_value_size_min,
               FLAGS_value_size_max);
@@ -3541,10 +3551,10 @@ class Benchmark {
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
             ((static_cast<int64_t>(FLAGS_key_size + avg_value_size) * num_) /
              1048576.0));
-    fprintf(
-        stdout, "FileSize:   %.1f MB (estimated)\n",
-        (((FLAGS_key_size + avg_value_size * FLAGS_compression_ratio) * num_) /
-         1048576.0));
+    fprintf(stdout, "FileSize:   %.1f MB (estimated)\n",
+            (((FLAGS_key_size + avg_value_size * effective_compression_ratio) *
+              num_) /
+             1048576.0));
     fprintf(stdout, "Write rate: %" PRIu64 " bytes/second\n",
             FLAGS_benchmark_write_rate_limit);
     fprintf(stdout, "Read rate: %" PRIu64 " ops/second\n",

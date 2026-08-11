@@ -149,6 +149,12 @@ std::string CompressionOptionsToString(
   result.append("max_compressed_bytes_per_kb=")
       .append(std::to_string(compression_options.max_compressed_bytes_per_kb))
       .append("; ");
+  result.append("auto_skip=")
+      .append(std::to_string(compression_options.auto_skip))
+      .append("; ");
+  result.append("auto_skip_min_sample_every=")
+      .append(std::to_string(compression_options.auto_skip_min_sample_every))
+      .append("; ");
   result.append("checksum=")
       .append(std::to_string(compression_options.checksum))
       .append("; ");

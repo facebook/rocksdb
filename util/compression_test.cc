@@ -5,6 +5,7 @@
 //
 // Testing various compression features
 
+#include <atomic>
 #include <cstdlib>
 #include <memory>
 
@@ -1972,6 +1973,29 @@ class DBAutoSkipTest : public DBTestBase {
     return value;
   }
 
+  // First supported real (non-kNoCompression) codec, or kNoCompression if none.
+  static CompressionType FirstSupportedCompression() {
+    for (auto t : GetSupportedCompressions()) {
+      if (t != kNoCompression) {
+        return t;
+      }
+    }
+    return kNoCompression;
+  }
+
+  // First supported codec that actually keeps parallel compression enabled.
+  // Snappy (and the fast/accelerated levels of other codecs) recommend
+  // parallel_threads=1, which forces the serial path; any other codec with a
+  // non-fast level (>=1) keeps the requested parallelism.
+  static CompressionType FirstParallelCapableCompression() {
+    for (auto t : GetSupportedCompressions()) {
+      if (t != kNoCompression && t != kSnappyCompression) {
+        return t;
+      }
+    }
+    return kNoCompression;
+  }
+
   int key_index_ = 0;
 };
 
@@ -2057,22 +2081,28 @@ TEST_F(DBAutoSkipTest, DisabledByDefaultMatchesNoBypass) {
 }
 
 TEST_F(DBAutoSkipTest, ParallelCompressionIntegrity) {
-  CompressionType type = kNoCompression;
-  for (auto t : GetSupportedCompressions()) {
-    if (t != kNoCompression) {
-      type = t;
-      break;
-    }
-  }
+  CompressionType type = FirstParallelCapableCompression();
   if (type == kNoCompression) {
-    ROCKSDB_GTEST_SKIP("No compression library supported");
+    ROCKSDB_GTEST_SKIP("No parallel-capable compression library supported");
     return;
   }
   const int kValueSize = 20000;
   const int kNum = 500;
   Options options = MakeOptions(/*auto_skip=*/true, /*sample_every=*/32,
                                 /*parallel_threads=*/4, type);
+  // A non-fast level keeps parallel compression enabled for every codec chosen
+  // above (accelerated/fast variants would recommend parallel_threads=1).
+  options.compression_opts.level = 3;
   DestroyAndReopen(options);
+
+  // Prove we actually entered the parallel compression path rather than
+  // silently falling back to serial (which would make this a weak test).
+  std::atomic<int> parallel_started{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      [&](void* /*arg*/) { parallel_started.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   Random rnd(304);
   std::vector<std::string> values;
   values.reserve(kNum);
@@ -2083,6 +2113,11 @@ TEST_F(DBAutoSkipTest, ParallelCompressionIntegrity) {
     values.push_back(PutOne(&rnd, kValueSize, compressible));
   }
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  EXPECT_GT(parallel_started.load(), 0);
+
   // All data must round-trip regardless of which blocks were skipped, and which
   // thread compressed/skipped them.
   for (int i = 0; i < kNum; ++i) {
@@ -2090,6 +2125,58 @@ TEST_F(DBAutoSkipTest, ParallelCompressionIntegrity) {
     ASSERT_OK(db_->Get(ReadOptions(), Key(i), &got));
     ASSERT_EQ(values[i], got);
   }
+}
+
+TEST_F(DBAutoSkipTest, CarriesEstimateAcrossFiles) {
+  CompressionType type = FirstSupportedCompression();
+  if (type == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("No compression library supported");
+    return;
+  }
+  const int kValueSize = 20000;
+  const int kNum = 400;
+  // Large sampling interval so periodic samples don't muddy the per-file
+  // attempt counts compared below.
+  Options options = MakeOptions(/*auto_skip=*/true, /*sample_every=*/1024,
+                                /*parallel_threads=*/1, type);
+  // A single flush thread guarantees consecutive flushes reuse the same thread,
+  // whose thread-local carryover is exactly what this test exercises.
+  options.max_background_jobs = 1;
+  DestroyAndReopen(options);
+  auto* stats = options.statistics.get();
+  Random rnd(305);
+
+  auto flush_and_count_attempts = [&](bool compressible) -> uint64_t {
+    for (int i = 0; i < kNum; ++i) {
+      PutOne(&rnd, kValueSize, compressible);
+    }
+    EXPECT_OK(Flush());
+    uint64_t attempted =
+        stats->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED) +
+        stats->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    stats->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    return attempted;
+  };
+
+  // Warm the flush thread's carryover down to a low (compressible) estimate so
+  // this test is independent of whatever estimate earlier tests may have left
+  // on the pooled flush thread.
+  flush_and_count_attempts(/*compressible=*/true);
+
+  // The first incompressible file must ramp its estimate up from that low
+  // carried value, attempting many blocks before it is confident enough to
+  // skip.
+  uint64_t first_incompressible_attempts =
+      flush_and_count_attempts(/*compressible=*/false);
+
+  // The second incompressible file inherits the now-high estimate via the
+  // thread's carryover, so it skips from the start and attempts only the forced
+  // first block plus rare samples -- far fewer than the first file's ramp. If
+  // carryover were broken, this file would re-ramp and attempt about as many.
+  uint64_t second_incompressible_attempts =
+      flush_and_count_attempts(/*compressible=*/false);
+
+  EXPECT_GT(first_incompressible_attempts, second_incompressible_attempts + 8);
 }
 
 class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {

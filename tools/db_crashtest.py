@@ -1494,6 +1494,13 @@ def finalize_and_sanitize(src_params):
             dest_params["compression_type"] = random.choice(
                 ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
             )
+        # Also ensure the bottommost level actually compresses, so AutoSkip is
+        # exercised on bottommost output too (parity with the pre-integration
+        # autoskip compression manager coverage).
+        if dest_params.get("bottommost_compression_type") == "none":
+            dest_params["bottommost_compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""

@@ -64,7 +64,6 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/defer.h"
-#include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/semaphore.h"
 #include "util/stop_watch.h"
@@ -136,7 +135,14 @@ struct AutoSkipCarry {
   // marks the slot unset/invalid.
   CompressionType type = kNoCompression;
 };
-thread_local AutoSkipCarry tls_auto_skip_carry{};
+// Accessor for the per-thread carryover slot. A function-local thread_local
+// (rather than a namespace-scope thread_local) keeps this mutable per-thread
+// state out of the global namespace (clang-tidy
+// cppcoreguidelines-avoid-non-const-global-variables).
+AutoSkipCarry& AutoSkipCarryTLS() {
+  thread_local AutoSkipCarry carry{};
+  return carry;
+}
 
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
@@ -1128,8 +1134,9 @@ struct BlockBasedTableBuilder::Rep {
   uint32_t AutoSkipDrawGap() {
     uint32_t n = auto_skip_min_sample_every;
     uint32_t spread = n / 4;  // e = 0.25
-    return n - spread +
-           Random::GetTLSInstance()->Uniform(static_cast<int>(2 * spread + 1));
+    uint32_t jitter = static_cast<uint32_t>(
+        Random::GetTLSInstance()->Uniform(static_cast<int>(2 * spread + 1)));
+    return n - spread + jitter;
   }
 
   // Emit-thread-only auto-skip decision for an ELIGIBLE data block (caller has
@@ -1208,7 +1215,7 @@ struct BlockBasedTableBuilder::Rep {
       return;
     }
     auto_skip_carry_type = data_block_compressor->GetPreferredCompressionType();
-    const AutoSkipCarry& c = tls_auto_skip_carry;
+    const AutoSkipCarry& c = AutoSkipCarryTLS();
     // Inherit the carried estimate only if it was produced for the same
     // compression type; otherwise start fresh.
     auto_skip_q_hat.obj_.store(
@@ -1222,7 +1229,7 @@ struct BlockBasedTableBuilder::Rep {
     if (auto_skip_carry_type == kNoCompression) {
       return;
     }
-    tls_auto_skip_carry =
+    AutoSkipCarryTLS() =
         AutoSkipCarry{auto_skip_q_hat.obj_.load(std::memory_order_relaxed),
                       auto_skip_carry_type};
   }
@@ -1487,6 +1494,14 @@ struct BlockBasedTableBuilder::Rep {
                   data_block_compressor->GetPreferredCompressionType());
         }
       }
+    }
+
+    // AutoSkip needs a data-block compressor to have anything to skip. If
+    // compression is entirely disabled (no compressor at all), keep AutoSkip
+    // inactive so the hot path does no pointless work and the state stays
+    // consistent with the "requires a data-block compressor" invariant.
+    if (!basic_compressor) {
+      auto_skip = false;
     }
 
     // Allow Compressor to override parallel_threads
