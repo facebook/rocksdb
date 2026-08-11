@@ -5114,9 +5114,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     options_.compression_manager =
         std::make_shared<RandomMixedCompressionManager>(
             GetBuiltinV2CompressionManager());
-  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-    options_.compression_manager =
-        CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {
@@ -6190,6 +6187,9 @@ void InitializeOptionsFromFlags(
       FLAGS_compression_parallel_threads;
   options.compression_opts.max_dict_buffer_bytes =
       FLAGS_compression_max_dict_buffer_bytes;
+  options.compression_opts.auto_skip = FLAGS_compression_auto_skip;
+  options.compression_opts.auto_skip_min_sample_every =
+      FLAGS_compression_auto_skip_min_sample_every;
   if (ZSTD_FinalizeDictionarySupported()) {
     options.compression_opts.use_zstd_dict_trainer =
         FLAGS_compression_use_zstd_dict_trainer;

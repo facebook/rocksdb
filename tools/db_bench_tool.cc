@@ -420,6 +420,26 @@ DEFINE_double(compression_ratio, 0.5,
               "their original size after compression");
 
 DEFINE_double(
+    compressible_data_fraction, 1.0,
+    "Fraction of generated values that are compressible (to "
+    "--compression_ratio). The remaining values are generated incompressible "
+    "(random, ~1.0 ratio). 1.0 (default) reproduces the historical behavior "
+    "where every value uses --compression_ratio. Combined with a large value "
+    "size (>= block size) this lets db_bench exercise AutoSkip regimes: a "
+    "random mix of compressible/incompressible data BLOCKS (see also "
+    "--compressible_data_run_length).");
+
+DEFINE_int32(
+    compressible_data_run_length, 1,
+    "Number of consecutive generated values that share the same "
+    "compressible-or-incompressible choice. 1 (default) makes the choice "
+    "i.i.d. per value (Bernoulli with p=--compressible_data_fraction); larger "
+    "values create alternating compressible/incompressible REGIONS, so with "
+    "--compressible_data_fraction=0.5 the data has abrupt transitions between "
+    "large compressible and incompressible regions. Ignored when "
+    "--compressible_data_fraction >= 1.0.");
+
+DEFINE_double(
     overwrite_probability, 0.0,
     "Used in 'filluniquerandom' benchmark: for each write operation, "
     "we give a probability to perform an overwrite instead. The key used for "
@@ -1599,6 +1619,18 @@ DEFINE_int32(compression_parallel_threads, 1,
              "compression configurations can quietly override this setting to "
              "non-parallel, for efficiency");
 
+DEFINE_bool(compression_auto_skip,
+            ROCKSDB_NAMESPACE::CompressionOptions().auto_skip,
+            "Enable AutoSkip compression: stop attempting compression on data "
+            "blocks once it is not paying off (reuses max_compressed_bytes_per_"
+            "kb as the bar).");
+
+DEFINE_int32(
+    compression_auto_skip_min_sample_every,
+    ROCKSDB_NAMESPACE::CompressionOptions().auto_skip_min_sample_every,
+    "AutoSkip nominal sampling interval (skipped data blocks between forced "
+    "compression samples). 0 selects an internal default.");
+
 DEFINE_uint64(compression_max_dict_buffer_bytes,
               ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes,
               "Maximum bytes to buffer to collect samples for dictionary.");
@@ -2257,8 +2289,30 @@ class RandomGenerator {
  private:
   std::string data_;
   unsigned int pos_;
+  // For --compressible_data_fraction < 1.0: a second pool of incompressible
+  // (fully random) data, plus per-value run-based selection state so db_bench
+  // can generate a mix of compressible and incompressible blocks (i.i.d. or in
+  // alternating regions) to exercise AutoSkip.
+  bool mixed_;
+  double compressible_fraction_;
+  uint64_t run_length_;
+  std::string incompressible_data_;
+  unsigned int incompressible_pos_;
+  uint64_t value_counter_;
   std::unique_ptr<BaseDistribution> dist_;
   Random rnd;
+
+  // Deterministic (thread-interleaving-independent) decision of whether the
+  // run with the given index is compressible, so a given seed always produces
+  // the same data layout. splitmix64-based hash mapped to [0,1).
+  bool RunIsCompressible(uint64_t run_index) const {
+    uint64_t x = run_index + 0x9E3779B97F4A7C15ull;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+    x = x ^ (x >> 31);
+    double u = static_cast<double>(x >> 11) * (1.0 / 9007199254740992.0);
+    return u < compressible_fraction_;
+  }
 
  public:
   RandomGenerator() : rnd(301) {
@@ -2280,17 +2334,51 @@ class RandomGenerator {
     // We use a limited amount of data over and over again and ensure
     // that it is larger than the compression window (32KB), and also
     // large enough to serve all typical value sizes we want to write.
+    const size_t kPoolSize =
+        static_cast<size_t>(std::max(1048576, max_value_size));
     std::string piece;
-    while (data_.size() < (unsigned)std::max(1048576, max_value_size)) {
+    while (data_.size() < kPoolSize) {
       // Add a short fragment that is as compressible as specified
       // by FLAGS_compression_ratio.
       test::CompressibleString(&rnd, FLAGS_compression_ratio, 100, &piece);
       data_.append(piece);
     }
     pos_ = 0;
+
+    compressible_fraction_ = FLAGS_compressible_data_fraction;
+    run_length_ =
+        static_cast<uint64_t>(std::max(1, FLAGS_compressible_data_run_length));
+    mixed_ = compressible_fraction_ < 1.0;
+    incompressible_pos_ = 0;
+    value_counter_ = 0;
+    if (mixed_) {
+      // Build a fully-random (incompressible) pool the same way, using
+      // compressed_to_fraction == 1.0 (no repetition -> ~1.0 ratio).
+      while (incompressible_data_.size() < kPoolSize) {
+        test::CompressibleString(&rnd, 1.0, 100, &piece);
+        incompressible_data_.append(piece);
+      }
+    }
   }
 
   Slice Generate(unsigned int len) {
+    if (mixed_) {
+      // Choose the compressible or incompressible pool for this value based on
+      // its run, so runs of length --compressible_data_run_length share a
+      // choice (1 => i.i.d. per value; large => compressible/incompressible
+      // regions with abrupt transitions).
+      uint64_t run_index = value_counter_ / run_length_;
+      ++value_counter_;
+      bool compressible = RunIsCompressible(run_index);
+      std::string& pool = compressible ? data_ : incompressible_data_;
+      unsigned int& pos = compressible ? pos_ : incompressible_pos_;
+      assert(len <= pool.size());
+      if (pos + len > pool.size()) {
+        pos = 0;
+      }
+      pos += len;
+      return Slice(pool.data() + pos - len, len);
+    }
     assert(len <= data_.size());
     if (rnd.PercentTrue(FLAGS_same_value_percentage)) {
       return Slice(data_.data(), len);
@@ -3432,17 +3520,27 @@ class Benchmark {
             "Keys:       %d bytes each (+ %d bytes user-defined timestamp)\n",
             FLAGS_key_size, FLAGS_user_timestamp_size);
     auto avg_value_size = FLAGS_value_size;
+    // When only a fraction of values are compressible
+    // (--compressible_data_fraction < 1.0), the rest are generated
+    // ~incompressible (ratio ~1.0), so the effective ratio applied to the data
+    // is a blend of --compression_ratio and 1.0.
+    const double compressible_fraction =
+        std::min(1.0, FLAGS_compressible_data_fraction);
+    const double effective_compression_ratio =
+        compressible_fraction * FLAGS_compression_ratio +
+        (1.0 - compressible_fraction);
     if (FLAGS_value_size_distribution_type_e == kFixed) {
-      fprintf(stdout,
-              "Values:     %d bytes each (%d bytes after compression)\n",
-              avg_value_size,
-              static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
+      fprintf(
+          stdout, "Values:     %d bytes each (%d bytes after compression)\n",
+          avg_value_size,
+          static_cast<int>(avg_value_size * effective_compression_ratio + 0.5));
     } else {
       avg_value_size = (FLAGS_value_size_min + FLAGS_value_size_max) / 2;
-      fprintf(stdout,
-              "Values:     %d avg bytes each (%d bytes after compression)\n",
-              avg_value_size,
-              static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
+      fprintf(
+          stdout,
+          "Values:     %d avg bytes each (%d bytes after compression)\n",
+          avg_value_size,
+          static_cast<int>(avg_value_size * effective_compression_ratio + 0.5));
       fprintf(stdout, "Values Distribution: %s (min: %d, max: %d)\n",
               FLAGS_value_size_distribution_type.c_str(), FLAGS_value_size_min,
               FLAGS_value_size_max);
@@ -3453,10 +3551,10 @@ class Benchmark {
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
             ((static_cast<int64_t>(FLAGS_key_size + avg_value_size) * num_) /
              1048576.0));
-    fprintf(
-        stdout, "FileSize:   %.1f MB (estimated)\n",
-        (((FLAGS_key_size + avg_value_size * FLAGS_compression_ratio) * num_) /
-         1048576.0));
+    fprintf(stdout, "FileSize:   %.1f MB (estimated)\n",
+            (((FLAGS_key_size + avg_value_size * effective_compression_ratio) *
+              num_) /
+             1048576.0));
     fprintf(stdout, "Write rate: %" PRIu64 " bytes/second\n",
             FLAGS_benchmark_write_rate_limit);
     fprintf(stdout, "Read rate: %" PRIu64 " ops/second\n",
@@ -5165,6 +5263,9 @@ class Benchmark {
         FLAGS_compression_max_dict_buffer_bytes;
     options.compression_opts.use_zstd_dict_trainer =
         FLAGS_compression_use_zstd_dict_trainer;
+    options.compression_opts.auto_skip = FLAGS_compression_auto_skip;
+    options.compression_opts.auto_skip_min_sample_every =
+        FLAGS_compression_auto_skip_min_sample_every;
 
     options.max_open_files = FLAGS_open_files;
     if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
@@ -5571,8 +5672,6 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "costpredictor")) {
       mgr = CreateCostAwareCompressionManager();
-    } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-      mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       options.compression = FLAGS_compression_type_e;
     } else {
