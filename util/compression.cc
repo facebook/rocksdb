@@ -149,12 +149,22 @@ std::string CompressionOptionsToString(
   result.append("max_compressed_bytes_per_kb=")
       .append(std::to_string(compression_options.max_compressed_bytes_per_kb))
       .append("; ");
-  result.append("auto_skip=")
-      .append(std::to_string(compression_options.auto_skip))
-      .append("; ");
-  result.append("auto_skip_min_sample_every=")
-      .append(std::to_string(compression_options.auto_skip_min_sample_every))
-      .append("; ");
+  // Only emitted when enabled: auto_skip is experimental and default-off, so
+  // keeping it out of the common case avoids enlarging every SST's persisted
+  // compression_options property. Emitting it unconditionally grows every SST
+  // by ~40 bytes, which overflows the tight size tolerance in
+  // BlockBasedTableTest.CompressionRatioThreshold (table/table_test.cc). (The
+  // canonical options serialization always includes it; this is a curated
+  // summary.) auto_skip_min_sample_every is only meaningful when auto_skip is
+  // on, so it is gated the same way.
+  if (compression_options.auto_skip) {
+    result.append("auto_skip=")
+        .append(std::to_string(compression_options.auto_skip))
+        .append("; ");
+    result.append("auto_skip_min_sample_every=")
+        .append(std::to_string(compression_options.auto_skip_min_sample_every))
+        .append("; ");
+  }
   result.append("checksum=")
       .append(std::to_string(compression_options.checksum))
       .append("; ");
