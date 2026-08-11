@@ -17,6 +17,10 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "utilities/compaction_filters/layered_compaction_filter_base.h"
 
+#if USE_COROUTINES
+#include "rocksdb/utilities/coro_stackable_db.h"
+#endif
+
 #ifdef _WIN32
 // Windows API macro interference
 #undef GetCurrentTime
@@ -26,7 +30,12 @@ namespace ROCKSDB_NAMESPACE {
 struct ConfigOptions;
 class ObjectLibrary;
 class ObjectRegistry;
-class DBWithTTLImpl : public DBWithTTL {
+#if USE_COROUTINES
+using DBWithTTLImplBase = CoroStackableDBBase<DBWithTTL>;
+#else
+using DBWithTTLImplBase = DBWithTTL;
+#endif
+class DBWithTTLImpl : public DBWithTTLImplBase {
  public:
   static void SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
                               SystemClock* clock);
@@ -52,15 +61,18 @@ class DBWithTTLImpl : public DBWithTTL {
              const Slice& key, const Slice& val) override;
 
   using StackableDB::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, PinnableSlice* value,
-             std::string* timestamp) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, Get, const ReadOptions& options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key, PinnableSlice* value,
+                                  std::string* timestamp);
 
   using StackableDB::MultiGet;
-  void MultiGet(const ReadOptions& options, const size_t num_keys,
-                ColumnFamilyHandle** column_families, const Slice* keys,
-                PinnableSlice* values, std::string* timestamps,
-                Status* statuses, const bool sorted_input) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet, const ReadOptions& options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool sorted_input);
 
   using StackableDB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& options,

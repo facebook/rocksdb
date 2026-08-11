@@ -23,23 +23,34 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
+#include "util/coro_utils.h"
 #include "util/set_comparator.h"
 #include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
+#if USE_COROUTINES
+#include "rocksdb/utilities/coro_stackable_db.h"
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 enum SnapshotBackup : bool { kUnbackedByDBSnapshot, kBackedByDBSnapshot };
+
+#if USE_COROUTINES
+using WritePreparedTxnDBBase = CoroStackableDBBase<PessimisticTransactionDB>;
+#else
+using WritePreparedTxnDBBase = PessimisticTransactionDB;
+#endif
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
 // mechanisms to tell such data apart from committed data.
-class WritePreparedTxnDB : public PessimisticTransactionDB {
+class WritePreparedTxnDB : public WritePreparedTxnDBBase {
  public:
   explicit WritePreparedTxnDB(DB* db,
                               const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options),
+      : WritePreparedTxnDBBase(db, txn_db_options),
         SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
         COMMIT_CACHE_BITS(txn_db_options.wp_commit_cache_bits),
@@ -50,7 +61,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   explicit WritePreparedTxnDB(StackableDB* db,
                               const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options),
+      : WritePreparedTxnDBBase(db, txn_db_options),
         SNAPSHOT_CACHE_BITS(txn_db_options.wp_snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
         COMMIT_CACHE_BITS(txn_db_options.wp_commit_cache_bits),
@@ -83,15 +94,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                        size_t batch_cnt, WritePreparedTxn* txn);
 
   using DB::Get;
-  Status Get(const ReadOptions& _read_options,
-             ColumnFamilyHandle* column_family, const Slice& key,
-             PinnableSlice* value, std::string* timestamp) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, Get, const ReadOptions& _read_options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key, PinnableSlice* value,
+                                  std::string* timestamp);
+  using DB::GetAsync;
 
   using DB::MultiGet;
-  void MultiGet(const ReadOptions& _read_options, const size_t num_keys,
-                ColumnFamilyHandle** column_families, const Slice* keys,
-                PinnableSlice* values, std::string* timestamps,
-                Status* statuses, const bool sorted_input) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
+                                  const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle** column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  std::string* timestamps, Status* statuses,
+                                  const bool sorted_input);
+  using DB::MultiGetAsync;
 
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,
@@ -545,8 +562,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     return s;
   }
 
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value);
+  DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value);
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.

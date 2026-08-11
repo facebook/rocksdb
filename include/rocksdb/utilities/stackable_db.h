@@ -46,6 +46,10 @@ class StackableDB : public DB {
 
   DB* GetRootDB() override { return db_->GetRootDB(); }
 
+  // Wrappers must explicitly opt in so coroutine reads do not bypass their
+  // synchronous Get() and MultiGet() overrides.
+  CoroDB* GetCoroDB() override { return nullptr; }
+
   Status CreateColumnFamily(const ColumnFamilyOptions& options,
                             const std::string& column_family_name,
                             ColumnFamilyHandle** handle) override {

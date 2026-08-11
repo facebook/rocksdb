@@ -7685,15 +7685,14 @@ class Benchmark {
         cfh = db_with_cfh->db->DefaultColumnFamily();
       }
 
-      CoroDB* coro_db = db_with_cfh->db->GetCoroDB();
-      if (coro_db == nullptr) {
+      if (db_with_cfh->db->GetCoroDB() == nullptr) {
         fprintf(stderr,
                 "readrandomcoroutine requires a DB with native coroutine "
                 "reads\n");
         abort();
       }
-      Status s = co_await folly::coro::co_nothrow(
-          coro_db->GetCoroutine(options, cfh, key, &pinnable_val, ts_ptr));
+      Status s = co_await folly::coro::co_nothrow(CoroDB::CoGet(
+          db_with_cfh->db, options, cfh, key, &pinnable_val, ts_ptr));
       MergeCoroutineJobPerfContext(job_perf_context_ptr);
       ++job_ops;
       if (s.ok()) {
@@ -7719,7 +7718,7 @@ class Benchmark {
   // executor thread while its IO is in flight. Per-job buffers and RNG mean
   // jobs share no mutable state; results are folded into the shared counters.
   folly::coro::Task<void> MultiGetCoroutineJob(
-      CoroDB* coro_db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
+      DB* db, ColumnFamilyHandle* cfh, uint64_t seed, int64_t ops,
       std::atomic<int64_t>* total_ops, std::atomic<int64_t>* total_found,
       std::atomic<int64_t>* total_bytes, int job_id,
       std::vector<std::string>* job_perf_contexts) {
@@ -7748,9 +7747,10 @@ class Benchmark {
         statuses[i] = Status::OK();
         values[i].Reset();
       }
-      co_await folly::coro::co_nothrow(coro_db->MultiGetCoroutine(
-          options, entries_per_batch_, cfs.data(), keys.data(), values.get(),
-          /*timestamps=*/nullptr, statuses.data(), /*sorted_input=*/false));
+      co_await folly::coro::co_nothrow(CoroDB::CoMultiGet(
+          db, options, entries_per_batch_, cfs.data(), keys.data(),
+          values.get(), /*timestamps=*/nullptr, statuses.data(),
+          /*sorted_input=*/false));
       MergeCoroutineJobPerfContext(job_perf_context_ptr);
       job_ops += entries_per_batch_;
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
@@ -7904,7 +7904,7 @@ class Benchmark {
       futures.push_back(
           folly::coro::co_withExecutor(
               folly::Executor::getKeepAliveToken(read_executor->getEventBase()),
-              MultiGetCoroutineJob(coro_db, cfh, thread->rand.Next(), ops,
+              MultiGetCoroutineJob(db, cfh, thread->rand.Next(), ops,
                                    &total_ops, &total_found, &total_bytes, j,
                                    job_perf_contexts_ptr))
               .start());
