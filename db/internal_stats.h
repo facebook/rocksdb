@@ -850,6 +850,8 @@ class InternalStats {
   bool HandleCompactionPending(uint64_t* value, DBImpl* db, Version* version);
   bool HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleNumRunningRemoteCompactions(uint64_t* value, DBImpl* db,
+                                         Version* version);
   bool HandleNumRunningCompactionSortedRuns(uint64_t* value, DBImpl* db,
                                             Version* version);
   bool HandleCompactionAbortCount(uint64_t* value, DBImpl* db,

@@ -3563,6 +3563,10 @@ class DBImpl : public DB
   // stores the number of BOTTOM-priority compactions currently running
   int num_running_bottom_compactions_ = 0;
 
+  // Number of compaction service jobs currently waiting in
+  // CompactionService::Wait(), counted per executed subcompaction.
+  std::atomic<int> num_running_remote_compactions_ = 0;
+
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
 
