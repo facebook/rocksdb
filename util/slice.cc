@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "port/likely.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -259,10 +260,13 @@ std::string Slice::ToString(bool hex) const {
     return {data_, size_};
   }
   static constexpr char kHexChars[] = "0123456789ABCDEF";
-  if (size_ > SIZE_MAX / 2) {
-    // On 32-bit platforms, size_ > ~2GB could cause 2 * size_
-    // to overflow, practically unreachable on 64-bit.
-    throw std::length_error("Slice size is too large for hex conversion");
+  if constexpr (sizeof(void*) == 4) {
+    if (UNLIKELY(size_ > SIZE_MAX / 2)) {
+      // On 32-bit platforms, size_ > ~2GB could cause 2 * size_
+      // to overflow, practically unreachable on 64-bit.
+      assert(false);
+      return {};
+    }
   }
   std::string result(2 * size_, '\0');
   char* p = result.data();
