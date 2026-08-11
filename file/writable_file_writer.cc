@@ -75,6 +75,7 @@ IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
   size_t left = data.size();
   IOStatus s;
   pending_sync_ = true;
+  direct_io_buf_is_clean_tail_ = false;
 
   TEST_KILL_RANDOM_WITH_WEIGHT("WritableFileWriter::Append:0", REDUCE_ODDS2);
 
@@ -367,7 +368,7 @@ IOStatus WritableFileWriter::Flush(const IOOptions& opts) {
 
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
-      if (pending_sync_) {
+      if (pending_sync_ && !direct_io_buf_is_clean_tail_) {
         if (perform_data_verification_ && buffered_data_with_checksum_) {
           s = WriteDirectWithChecksum(io_options);
         } else {
@@ -870,6 +871,10 @@ IOStatus WritableFileWriter::WriteDirect(const IOOptions& opts) {
     // This never happens during normal Append but rather during
     // explicit call to Flush()/Sync() or Close()
     buf_.RefitTail(file_advance, leftover_tail);
+    // buf_ now holds only bytes already durably issued above; a future
+    // Flush()/Sync()/Close() with no intervening Append() must not
+    // re-write them (see #12168).
+    direct_io_buf_is_clean_tail_ = (leftover_tail > 0);
     // This is where we start writing next time which may or not be
     // the actual file size on disk. They match if the buffer size
     // is a multiple of whole pages otherwise filesize_ is leftover_tail
@@ -978,6 +983,10 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(const IOOptions& opts) {
     // Adjust the checksum value to align with the data in the buffer
     buffered_data_crc32c_checksum_ =
         crc32c::Value(buf_.BufferStart(), buf_.CurrentSize());
+    // buf_ now holds only bytes already durably issued above; a future
+    // Flush()/Sync()/Close() with no intervening Append() must not
+    // re-write them (see #12168).
+    direct_io_buf_is_clean_tail_ = (leftover_tail > 0);
     // This is where we start writing next time which may or not be
     // the actual file size on disk. They match if the buffer size
     // is a multiple of whole pages otherwise filesize_ is leftover_tail
