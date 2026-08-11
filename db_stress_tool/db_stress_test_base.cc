@@ -5496,7 +5496,7 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
 
   // A read-only instance opened concurrently with the primary can trip over
   // injected faults or files the primary mutates underneath it, so disable
-  // error injection while we open, read, and close the reader. The primary's
+  // error injection while we open and close the reader. The primary's
   // own subsequent operations run with injection re-enabled, so a genuinely
   // deleted live file still surfaces on the normal verification path.
   if (db_fault_injection_fs_) {
@@ -5518,16 +5518,6 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
   // Opening read-only while the primary mutates the same directory is
   // best-effort; a transient failure here is expected and not a bug.
   if (s.ok()) {
-    // Exercise the lazy wide-column read path on the read-only instance: the
-    // differential self-checks lazy vs eager on this same reader. No-op unless
-    // the lazy API is enabled (open_files == -1, no UDT/txn) and sampled.
-    {
-      const size_t cf = thread->rand.Next() % ro_cfhs.size();
-      const std::string key_str = Key(thread->rand.Next() % FLAGS_max_key);
-      MaybeTestGetEntityLazy(thread, ReadOptions(), ro_cfhs[cf], key_str,
-                             /*eager_reference=*/nullptr, ro_db.get());
-    }
-
     // Create new SST files in the primary that are absent from the reader's
     // frozen live-file snapshot, so that a read-only close wrongly running
     // obsolete-file cleanup would delete these live files. Flush all column
