@@ -16,6 +16,7 @@
 
 #include "db/db_test_util.h"
 #include "db/wide/wide_column_test_util.h"
+#include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -1552,6 +1553,50 @@ TEST_F(DBLazyEntityTest, SecondaryInstance) {
   PinnableSlice value;
   ASSERT_OK(lazy.ResolveColumn(lazy[1], &value));
   ASSERT_EQ(Slice(value), big);
+}
+
+// Verify that MultiGetEntityLazy sets IOOptions::io_activity to
+// kMultiGetEntity (not kGetEntity or kUnknown) so that the stress test's
+// CheckIOActivity assertion in db_stress_env_wrapper.h passes. This
+// reproduces the scenario from T283693234 where the thread operation was left
+// stale at OP_GETENTITY after a consistency check, causing a mismatch with the
+// kMultiGetEntity activity that MultiGetEntityLazy correctly propagates.
+TEST_F(DBLazyEntityTest, MultiGetEntityLazyIOActivity) {
+  Options options = GetLazyTestOptions();
+  options.enable_thread_tracking = true;
+  DestroyAndReopen(options);
+
+  constexpr char key1[] = "k1";
+  constexpr char key2[] = "k2";
+  const std::string val(200, 'x');
+  const WideColumns cols{{kDefaultWideColumnName, val}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key1, cols));
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key2, cols));
+  ASSERT_OK(Flush());
+
+  // Simulate the stress test scenario: thread operation is set to
+  // OP_MULTIGETENTITY (as in the stress test OperateDb loop).
+  ThreadStatusUtil::SetThreadOperation(
+      ThreadStatus::OperationType::OP_MULTIGETENTITY);
+
+  std::array<Slice, 2> keys{Slice(key1), Slice(key2)};
+  LazyWideColumnsBatch batch;
+  std::array<Status, 2> statuses;
+
+  // MultiGetEntityLazy should set io_activity = kMultiGetEntity internally,
+  // which matches OP_MULTIGETENTITY. If the thread op were stale at
+  // OP_GETENTITY, this would trigger the assertion in debug builds.
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(),
+                          keys.size(), keys.data(), &batch, statuses.data());
+  for (const auto& s : statuses) {
+    ASSERT_OK(s);
+  }
+  ASSERT_EQ(batch.size(), 2U);
+
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

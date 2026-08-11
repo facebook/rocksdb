@@ -5,6 +5,9 @@
 
 #include "utilities/ttl/db_ttl_impl.h"
 
+#include <memory>
+#include <utility>
+
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "logging/logging.h"
@@ -18,6 +21,32 @@
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+Status CheckAndStripTimestamp(PinnableSlice* value) {
+  Status status = DBWithTTLImpl::SanityCheckTimestamp(*value);
+  if (status.ok()) {
+    status = DBWithTTLImpl::StripTS(value);
+  }
+  return status;
+}
+
+void ProcessMultiGetResults(size_t num_keys, PinnableSlice* values,
+                            Status* statuses) {
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    PinnableSlice tmp_val = std::move(values[i]);
+    values[i].PinSelf(tmp_val);
+    assert(!values[i].IsPinned());
+    statuses[i] = CheckAndStripTimestamp(&values[i]);
+  }
+}
+
+}  // namespace
+
 static std::unordered_map<std::string, OptionTypeInfo> ttl_merge_op_type_info =
     {{"user_operator", OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
                            0, OptionVerificationType::kByNameAllowNull,
@@ -306,7 +335,7 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
 }
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
 DBWithTTLImpl::DBWithTTLImpl(std::unique_ptr<DB>&& db)
-    : DBWithTTL(std::move(db)), closed_(false) {}
+    : DBWithTTLImplBase(std::move(db)), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
@@ -490,54 +519,6 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
   return st;
 }
 
-Status DBWithTTLImpl::Get(const ReadOptions& options,
-                          ColumnFamilyHandle* column_family, const Slice& key,
-                          PinnableSlice* value, std::string* timestamp) {
-  if (timestamp) {
-    return Status::NotSupported(
-        "Get() that returns timestamp is not supported");
-  }
-  Status st = db_->Get(options, column_family, key, value);
-  if (!st.ok()) {
-    return st;
-  }
-  st = SanityCheckTimestamp(*value);
-  if (!st.ok()) {
-    return st;
-  }
-  return StripTS(value);
-}
-
-void DBWithTTLImpl::MultiGet(const ReadOptions& options, const size_t num_keys,
-                             ColumnFamilyHandle** column_families,
-                             const Slice* keys, PinnableSlice* values,
-                             std::string* timestamps, Status* statuses,
-                             const bool /*sorted_input*/) {
-  if (timestamps) {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::NotSupported(
-          "MultiGet() returning timestamps not implemented.");
-    }
-    return;
-  }
-
-  db_->MultiGet(options, num_keys, column_families, keys, values, timestamps,
-                statuses);
-  for (size_t i = 0; i < num_keys; ++i) {
-    if (!statuses[i].ok()) {
-      continue;
-    }
-    PinnableSlice tmp_val = std::move(values[i]);
-    values[i].PinSelf(tmp_val);
-    assert(!values[i].IsPinned());
-    statuses[i] = SanityCheckTimestamp(values[i]);
-    if (!statuses[i].ok()) {
-      continue;
-    }
-    statuses[i] = StripTS(&values[i]);
-  }
-}
-
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, std::string* value,
@@ -655,3 +636,12 @@ Status DBWithTTLImpl::GetTtl(ColumnFamilyHandle* h, int32_t* ttl) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+
+// clang-format off
+#define WITHOUT_COROUTINES
+#include "utilities/ttl/db_ttl_impl_sync_and_async.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
+#include "utilities/ttl/db_ttl_impl_sync_and_async.h"
+#undef WITH_COROUTINES
+// clang-format on

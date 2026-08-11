@@ -111,6 +111,20 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual("halt_on_error=1", env[_TSAN_OPTIONS_ENV_VAR])
 
+    def test_generated_command_uses_async_db_api(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {"use_async_db_api": 1},
+        )
+
+        command, _ = db_crashtest.gen_cmd(params, [])
+
+        self.assertIn("--use_async_db_api=1", command)
+        self.assertFalse(
+            any(arg.startswith("--use_coro_db_api=") for arg in command)
+        )
+
     def test_get_ev_parent_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
         marker = os.path.join(self.expected_dir, "marker")
