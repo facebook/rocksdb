@@ -268,6 +268,7 @@ std::string Slice::ToString(bool hex) const {
       return {};
     }
   }
+  // Use resize_and_overwrite with c++23
   std::string result(2 * size_, '\0');
   char* p = result.data();
   const unsigned char* src = lossless_cast<const unsigned char*>(data_);
@@ -323,7 +324,7 @@ bool Slice::DecodeHex(std::string* result) const {
     uint8_t h1 = kHexLookup[lossless_cast<uint8_t>(*src++)];
     uint8_t h2 = kHexLookup[lossless_cast<uint8_t>(*src++)];
     // Single branch check using bitwise OR
-    if ((h1 | h2) >= 16) {
+    if (UNLIKELY((h1 | h2) >= 16)) {
       result->resize(i);
       return false;
     }
