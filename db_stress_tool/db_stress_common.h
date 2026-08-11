@@ -827,6 +827,8 @@ void PoolSizeChangeThread(void* v);
 
 void DbVerificationThread(void* v);
 
+void LivenessWatchdogThread(void* v);
+
 void RemoteCompactionWorkerThread(void* v);
 
 void CompressedCacheSetCapacityThread(void* v);
