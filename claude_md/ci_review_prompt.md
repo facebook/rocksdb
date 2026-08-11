@@ -4,12 +4,19 @@
 Thorough multi-agent code review for RocksDB commits following CLAUDE.md guidelines,
 with structured codebase exploration, inter-agent debate, and verification.
 
-IMPORTANT — Incremental output: After completing EACH major phase (Setup,
-Codebase Context, Initial Review, Debate, Synthesis), append your findings
-to review-findings.md using the Write tool. This ensures partial results are
-saved even if the review is interrupted by the turn limit. After the final
-synthesis, write the complete review to review-findings.md, replacing
-previous content. Also output the final review as your response text.
+IMPORTANT — Where the review goes: Your FINAL RESPONSE TEXT is the review.
+The PR comment is generated verbatim from your final response, so the
+complete, polished review MUST appear there in full. Do NOT end your turn with
+a meta-summary such as "the review has been written to review-findings.md" —
+paste the entire review as your response.
+
+review-findings.md is a RECOVERY BACKSTOP, not the primary output: after
+completing EACH major phase (Setup, Codebase Context, Initial Review, Debate,
+Synthesis), append your current findings to it with the Write tool, and after
+the final synthesis overwrite it with the complete review. This preserves
+partial results if the turn limit interrupts the run (a recovery step reads
+this file); it does NOT substitute for outputting the full review as your
+final response.
 
 ## Workflow Steps
 
@@ -466,7 +473,9 @@ Team lead synthesizes the debate into a consensus document:
 - Include detailed bug analysis (root cause, vulnerable code paths)
 - Include suggested fixes
 - Note which findings were debated and the outcome
-- Write the complete review to review-findings.md and output as response
+- Output the complete review as your final response text (this becomes the PR
+  comment verbatim), and also overwrite review-findings.md with the identical
+  content as a recovery backstop
 
 **Final report quality rules:**
 - The final report must be CLEAN and POLISHED. No stream-of-consciousness,
@@ -483,9 +492,10 @@ Team lead synthesizes the debate into a consensus document:
 
 **REQUIRED output structure (so the PR page stays scrollable):**
 
-The final response (and contents of `review-findings.md`) MUST follow this
-exact structure. The summary appears first so reviewers can see HIGH findings
-at a glance; everything else is hidden behind a `<details>` block.
+Your final response — which becomes the PR comment verbatim — (and the
+identical contents of `review-findings.md`) MUST follow this exact structure.
+The summary appears first so reviewers can see HIGH findings at a glance;
+everything else is hidden behind a `<details>` block.
 
 ```markdown
 ## Summary
@@ -533,6 +543,9 @@ Rules for this structure:
 - Do NOT nest a `<details>` inside another `<details>`.
 - Do NOT add any text after the closing `</details>` — the comment-builder
   appends its own footer.
+- Your final response MUST be the review itself in this structure — never a
+  meta-summary like "the review has been written to review-findings.md". The
+  PR comment is generated verbatim from your final response.
 - If the review is partial (recovery path), still produce the summary block
   first, and put whatever was salvaged inside the `<details>` block.
 
@@ -571,9 +584,14 @@ Rules for this structure:
 - [ ] All callers enumerated with parameter range table
 
 ## Output Structure
-Write all review artifacts to the working directory root:
-- `review-findings.md` — Incremental findings (appended after each phase),
-  then replaced with the final synthesized review at the end
+Your **final response text is the primary output** — it becomes the PR comment
+verbatim. The files below are working artifacts and recovery backstops only;
+they are NOT a substitute for outputting the full review in your final response.
+
+Write these artifacts to the working directory root:
+- `review-findings.md` — Recovery backstop: incremental findings appended after
+  each phase, overwritten with the final synthesized review at the end. Used
+  only if the turn limit interrupts the run.
 - `context.md` — Codebase context (call chains, invariants)
 - `findings-*.md` — Per-agent findings (design, correctness, cross-component,
   invariant-adversary, caller-audit, performance, api, serialization, tests)
