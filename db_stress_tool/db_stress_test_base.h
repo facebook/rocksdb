@@ -478,6 +478,8 @@ class StressTest {
 
   Status TestDisableManualCompaction(ThreadState* thread);
 
+  bool ShouldAbortAndResumeCompactions() const;
+
   Status TestAbortAndResumeCompactions(ThreadState* thread);
 
   Status TestAbortAndResumeCfCompactions(ThreadState* thread);

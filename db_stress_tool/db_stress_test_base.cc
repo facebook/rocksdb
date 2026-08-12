@@ -59,6 +59,44 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+constexpr int kMaxAbortResumeCompactionsSleepMicros = 3 * 1000 * 1000;
+
+class ScopedThreadOperation {
+ public:
+  enum class FinishAction { kPop, kFinishSingleOp };
+
+  ScopedThreadOperation(ThreadState* thread, StressOperationType type,
+                        FinishAction finish_action = FinishAction::kPop)
+      : thread_(thread),
+        type_(type),
+        finish_action_(finish_action),
+        tracking_(false) {
+    tracking_ = thread_->BeginOperation(type);
+  }
+
+  ~ScopedThreadOperation() {
+    if (tracking_) {
+      thread_->CompletedOpForDiagnostics(type_);
+    }
+    switch (finish_action_) {
+      case FinishAction::kPop:
+        break;
+      case FinishAction::kFinishSingleOp:
+        thread_->RecordSingleOpFinished();
+        break;
+    }
+    if (tracking_) {
+      thread_->EndOperation(type_);
+    }
+  }
+
+ private:
+  ThreadState* thread_;
+  StressOperationType type_;
+  FinishAction finish_action_;
+  bool tracking_;
+};
+
 class StressReadScopedBlockBufferProvider
     : public ReadScopedBlockBufferProvider {
  public:
@@ -2101,7 +2139,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       break;
     }
     if (open_cnt != 0) {
-      thread->stats.FinishedSingleOp();
+      ScopedThreadOperation op(
+          thread, StressOperationType::kReopen,
+          ScopedThreadOperation::FinishAction::kFinishSingleOp);
       MutexLock l(thread->shared->GetMutex());
       while (!thread->snapshot_queue.empty()) {
         db_->ReleaseSnapshot(thread->snapshot_queue.front().second.snapshot);
@@ -2162,9 +2202,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-
       // Change Options
       if (thread->rand.OneInOpt(FLAGS_set_options_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kSetOptions);
         Status s = SetOptions(thread);
         ProcessStatus(shared, "SetOptions", s);
       }
@@ -2175,6 +2215,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->tid == 0 && FLAGS_verify_db_one_in > 0 &&
           thread->rand.OneIn(FLAGS_verify_db_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kVerifyDb);
         //  Temporarily disable error injection for verification
         if (db_fault_injection_fs_) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
@@ -2194,6 +2235,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       MaybeClearOneColumnFamily(thread);
 
       if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kManualWalFlush);
         bool sync = thread->rand.OneIn(2) ? true : false;
         Status s = db_->FlushWAL(sync);
         if (!s.ok() && !IsErrorInjectedAndRetryable(s) &&
@@ -2204,6 +2246,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_lock_wal_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kLockWal);
         Status s = db_->LockWAL();
         if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
           fprintf(stderr, "LockWAL() failed: %s\n", s.ToString().c_str());
@@ -2271,6 +2314,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kSyncWal);
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported() && !IsErrorInjectedAndRetryable(s)) {
           fprintf(stderr, "SyncWAL() failed: %s\n", s.ToString().c_str());
@@ -2281,6 +2325,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
       if (thread->rand.OneInOpt(FLAGS_compact_files_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kCompactFiles);
         TestCompactFiles(thread, column_family);
       }
 
@@ -2289,6 +2334,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       Slice key = keystr;
 
       if (thread->rand.OneInOpt(FLAGS_compact_range_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kCompactRange);
         TestCompactRange(thread, rand_key, key, column_family);
         if (thread->shared->HasVerificationFailedYet()) {
           break;
@@ -2303,10 +2349,12 @@ void StressTest::OperateDb(ThreadState* thread) {
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kFlush);
         TestFlush(thread, rand_column_families);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_live_files_apis_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kGetLiveFiles);
         Status s_1 = TestGetLiveFiles();
         ProcessStatus(shared, "GetLiveFiles", s_1);
         Status s_2 = TestGetLiveFilesMetaData();
@@ -2320,16 +2368,19 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_all_column_family_metadata_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kMetadata);
         Status status = TestGetAllColumnFamilyMetaData();
         ProcessStatus(shared, "GetAllColumnFamilyMetaData", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_sorted_wal_files_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kMetadata);
         Status status = TestGetSortedWalFiles();
         ProcessStatus(shared, "GetSortedWalFiles", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kMetadata);
         Status status = TestGetCurrentWalFile();
         ProcessStatus(shared, "GetCurrentWalFile", status);
       }
@@ -2340,16 +2391,21 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kPauseBackground);
         Status status = TestPauseBackground(thread);
         ProcessStatus(shared, "Pause/ContinueBackgroundWork", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_disable_file_deletions_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kDisableFileDeletions);
         Status status = TestDisableFileDeletions(thread);
         ProcessStatus(shared, "TestDisableFileDeletions", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_disable_manual_compaction_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kDisableManualCompaction);
         Status status = TestDisableManualCompaction(thread);
         ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
@@ -2365,6 +2421,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kVerifyChecksum);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
             ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM);
@@ -2374,6 +2431,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_file_checksums_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kVerifyFileChecksums);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
             ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS);
@@ -2383,6 +2442,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kGetProperty);
         // TestGetProperty doesn't return status for us to tell whether it has
         // failed due to injected error. So we disable fault injection to avoid
         // false positive
@@ -2398,6 +2458,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_properties_of_all_tables_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kTableProperties);
         Status status = TestGetPropertiesOfAllTables();
         ProcessStatus(shared, "TestGetPropertiesOfAllTables", status);
       }
@@ -2405,10 +2466,13 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (thread->rand.OneInOpt(FLAGS_ingest_external_file_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kIngestExternalFile);
         TestIngestExternalFile(thread, rand_column_families, rand_keys);
       }
 
       if (thread->rand.OneInOpt(FLAGS_backup_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kBackup);
         // Beyond a certain DB size threshold, this test becomes heavier than
         // it's worth.
         uint64_t total_size = 0;
@@ -2435,20 +2499,24 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kCheckpoint);
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
         ProcessStatus(shared, "Checkpoint", s);
       }
 
       if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kApproximateSize);
         Status s =
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
         ProcessStatus(shared, "ApproximateSize", s);
       }
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kSnapshot);
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
       }
 
       /*always*/ {
+        ScopedThreadOperation op(thread, StressOperationType::kSnapshot);
         Status s = MaybeReleaseSnapshots(thread, i);
         ProcessStatus(shared, "Snapshot", s);
       }
@@ -2463,6 +2531,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kKeyMayExist);
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
       // Historical expected-state restore replays exactly
@@ -2473,12 +2542,12 @@ void StressTest::OperateDb(ThreadState* thread) {
       bool disable_fault_injection_during_user_write =
           db_fault_injection_fs_ && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
-      // Reset this in case we pick something other than a read op. We don't
-      // want to use a stale value when deciding at the beginning of the loop
-      // whether to vote to reopen
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
+        ScopedThreadOperation op(
+            thread, StressOperationType::kRead,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         if (FLAGS_use_multi_get_entity) {
           constexpr uint64_t max_batch_size = 64;
@@ -2522,6 +2591,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < prefix_bound) {
         assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
         // OPERATION prefix scan
+        ScopedThreadOperation op(
+            thread, StressOperationType::kPrefixScan,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
@@ -2530,6 +2602,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < write_bound) {
         assert(prefix_bound <= prob_op);
         // OPERATION write
+        ScopedThreadOperation op(
+            thread, StressOperationType::kWrite,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2541,6 +2616,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < del_bound) {
         assert(write_bound <= prob_op);
         // OPERATION delete
+        ScopedThreadOperation op(
+            thread, StressOperationType::kDelete,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2551,6 +2629,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < delrange_bound) {
         assert(del_bound <= prob_op);
         // OPERATION delete range
+        ScopedThreadOperation op(
+            thread, StressOperationType::kDeleteRange,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2561,6 +2642,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
+        ScopedThreadOperation op(
+            thread, StressOperationType::kIterate,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (FLAGS_use_multiscan) {
           int num_seeks = static_cast<int>(
               std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
@@ -2609,9 +2693,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       } else {
         assert(iterate_bound <= prob_op);
+        ScopedThreadOperation op(
+            thread, StressOperationType::kCustom,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         TestCustomOperations(thread, rand_column_families);
       }
-      thread->stats.FinishedSingleOp();
     }
 
 #ifndef NDEBUG
@@ -4572,17 +4658,79 @@ Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
   return Status::OK();
 }
 
+bool StressTest::ShouldAbortAndResumeCompactions() const {
+  uint64_t is_write_stopped = 0;
+  if (db_->GetIntProperty(DB::Properties::kIsWriteStopped, &is_write_stopped) &&
+      is_write_stopped != 0) {
+    return false;
+  }
+
+  uint64_t delayed_write_rate = 0;
+  if (db_->GetIntProperty(DB::Properties::kActualDelayedWriteRate,
+                          &delayed_write_rate) &&
+      delayed_write_rate != 0) {
+    return false;
+  }
+
+  uint64_t running_compactions = 0;
+  const bool has_running_compactions =
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                          &running_compactions) &&
+      running_compactions != 0;
+
+  uint64_t pending_compactions = 0;
+  uint64_t pending_compaction_bytes = 0;
+  for (auto* column_family : column_families_) {
+    uint64_t cf_pending_compactions = 0;
+    if (db_->GetIntProperty(column_family, DB::Properties::kCompactionPending,
+                            &cf_pending_compactions)) {
+      pending_compactions += cf_pending_compactions;
+    }
+
+    uint64_t cf_pending_compaction_bytes = 0;
+    if (db_->GetIntProperty(column_family,
+                            DB::Properties::kEstimatePendingCompactionBytes,
+                            &cf_pending_compaction_bytes)) {
+      pending_compaction_bytes += cf_pending_compaction_bytes;
+    }
+  }
+
+  return has_running_compactions || pending_compactions != 0 ||
+         pending_compaction_bytes != 0;
+}
+
 Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
+  uint64_t successful_compactions = 0;
+  if (!thread->shared->TryBeginAbortAndResumeCompactions(
+          &successful_compactions)) {
+    return Status::OK();
+  }
+
+  if (!ShouldAbortAndResumeCompactions()) {
+    thread->shared->EndAbortAndResumeCompactions();
+    return Status::OK();
+  }
+
+  // Each abort must be paid for by at least one completed non-aborted
+  // compaction, and concurrent abort/resume sections are serialized. This keeps
+  // aggressive random sampling from starving compactions and causing unrelated
+  // write stalls.
+  thread->shared->MarkAbortAndResumeCompactions(successful_compactions);
+  ScopedThreadOperation op(thread,
+                           StressOperationType::kAbortResumeCompactions);
+
   // Abort all running compactions and prevent new ones from starting
   db_->AbortAllCompactions();
   // Sleep to allow other threads to attempt operations while aborted
-  // Uses same sleep pattern as TestPauseBackground and
-  // TestDisableManualCompaction
+  // Uses the same short-skewed pattern as TestPauseBackground, capped to avoid
+  // creating long compaction starvation windows.
   int pwr2_micros =
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
-  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  clock_->SleepForMicroseconds(
+      std::min(1 << pwr2_micros, kMaxAbortResumeCompactionsSleepMicros));
   // Resume compactions
   db_->ResumeAllCompactions();
+  thread->shared->EndAbortAndResumeCompactions();
   return Status::OK();
 }
 
