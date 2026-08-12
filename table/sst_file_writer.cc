@@ -417,9 +417,10 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
       r->internal_comparator, &internal_tbl_prop_coll_factories,
       compression_type, compression_opts, cf_id, r->column_family_name,
       unknown_level, kUnknownNewestKeyTime, false /* is_bottommost */,
-      TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
+      TableFileCreationReason::kSstFileWriter, 0 /* oldest_key_time */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
       0 /* target_file_size */, r->next_file_number, kMaxSequenceNumber,
+      Slice() /* db_name */, false /* is_remote_compaction */,
       r->embedded_blob_options.get());
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we

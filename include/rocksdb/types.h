@@ -27,11 +27,12 @@ using TablePropertiesCollection =
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
-enum class TableFileCreationReason {
+enum class TableFileCreationReason : uint8_t {
   kFlush,
   kCompaction,
   kRecovery,
   kMisc,
+  kSstFileWriter,
 };
 
 enum class BlobFileCreationReason {

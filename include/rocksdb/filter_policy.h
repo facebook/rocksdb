@@ -29,12 +29,12 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/customizable.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class Slice;
 struct BlockBasedTableOptions;
 struct ConfigOptions;
 
@@ -67,6 +67,12 @@ struct FilterBuildingContext {
   // TODO: consider changing to Slice
   std::string column_family_name;
 
+  // Name (path) of the DB the table is being built for, or empty if there is
+  // no such DB, as with SstFileWriter. Under remote compaction this is the DB
+  // name as opened by the worker, which can differ from the primary's.
+  // Non-owning; do not retain beyond the call receiving this context.
+  Slice db_name;
+
   // The table level at time of constructing the SST file, or -1 if unknown
   // or N/A as in SstFileWriter. (The table file could later be used at a
   // different level.)
@@ -79,6 +85,11 @@ struct FilterBuildingContext {
 
   // Reason for creating the file with the filter
   TableFileCreationReason reason = TableFileCreationReason::kMisc;
+
+  // True if the file is being built by a remote (offloaded) compaction worker
+  // via CompactionService. False otherwise (including local/fallback
+  // compactions, flushes, and SstFileWriter).
+  bool is_remote_compaction = false;
 };
 
 // Determines what kind of filter (if any) to generate in SST files, and under

@@ -1388,16 +1388,25 @@ struct BlockBasedTableBuilder::Rep {
 
     filter_context.info_log = ioptions.logger;
     filter_context.column_family_name = tbo.column_family_name;
+    filter_context.db_name = tbo.db_name;
     filter_context.reason = reason;
 
     // Only populate other fields if known to be in LSM rather than
     // generating external SST file
-    if (reason != TableFileCreationReason::kMisc) {
-      filter_context.compaction_style = ioptions.compaction_style;
-      filter_context.num_levels = ioptions.num_levels;
-      filter_context.level_at_creation = tbo.level_at_creation;
-      filter_context.is_bottommost = tbo.is_bottommost;
-      assert(filter_context.level_at_creation < filter_context.num_levels);
+    switch (reason) {
+      case TableFileCreationReason::kFlush:
+      case TableFileCreationReason::kCompaction:
+      case TableFileCreationReason::kRecovery:
+        filter_context.compaction_style = ioptions.compaction_style;
+        filter_context.num_levels = ioptions.num_levels;
+        filter_context.level_at_creation = tbo.level_at_creation;
+        filter_context.is_bottommost = tbo.is_bottommost;
+        filter_context.is_remote_compaction = tbo.is_remote_compaction;
+        assert(filter_context.level_at_creation < filter_context.num_levels);
+        break;
+      case TableFileCreationReason::kSstFileWriter:
+      case TableFileCreationReason::kMisc:
+        break;
     }
 
     props.compression_options =

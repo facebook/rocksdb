@@ -530,6 +530,10 @@ class CompactionJob {
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
+
+  // True if this job builds output files as a remote (offloaded)
+  // CompactionService worker. Overridden by CompactionServiceCompactionJob.
+  virtual bool IsRemoteCompaction() const { return false; }
   // The rate limiter priority (io_priority) is determined dynamically here.
   // The Compaction Read and Write priorities are the same for different
   // scenarios, such as write stalled.
@@ -737,6 +741,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
  private:
   // Get table file name in output_path
   std::string GetTableFileName(uint64_t file_number) override;
+  bool IsRemoteCompaction() const override { return true; }
   // Specific the compaction output path, otherwise it uses default DB path
   const std::string output_path_;
 
