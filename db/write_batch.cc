@@ -46,6 +46,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "db/column_family.h"
@@ -2037,6 +2038,8 @@ class MemTableInserter : public WriteBatch::Handler {
   size_t prot_info_idx_;
 
   bool* has_valid_writes_;
+  // Optional; see WriteBatchInternal::InsertInto() for the contract.
+  std::unordered_set<uint32_t>* selected_cf_ids_;
   // On some (!) platforms just default creating
   // a map is too expensive in the Write() path as they
   // cause memory allocations though unused.
@@ -2138,7 +2141,8 @@ class MemTableInserter : public WriteBatch::Handler {
                    bool concurrent_memtable_writes,
                    const WriteBatch::ProtectionInfo* prot_info,
                    bool* has_valid_writes = nullptr, bool seq_per_batch = false,
-                   bool batch_per_txn = true, bool hint_per_batch = false)
+                   bool batch_per_txn = true, bool hint_per_batch = false,
+                   std::unordered_set<uint32_t>* selected_cf_ids = nullptr)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -2152,6 +2156,7 @@ class MemTableInserter : public WriteBatch::Handler {
         prot_info_(prot_info),
         prot_info_idx_(0),
         has_valid_writes_(has_valid_writes),
+        selected_cf_ids_(selected_cf_ids),
         rebuilding_trx_(nullptr),
         rebuilding_trx_seq_(0),
         seq_per_batch_(seq_per_batch),
@@ -2262,6 +2267,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (has_valid_writes_ != nullptr) {
       *has_valid_writes_ = true;
+    }
+
+    // Recovery only; null on the write path.
+    if (UNLIKELY(selected_cf_ids_ != nullptr)) {
+      selected_cf_ids_->insert(column_family_id);
     }
 
     if (log_number_ref_ > 0) {
@@ -3330,12 +3340,14 @@ Status WriteBatchInternal::InsertInto(
     TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, SequenceNumber* next_seq,
-    bool* has_valid_writes, bool seq_per_batch, bool batch_per_txn) {
+    bool* has_valid_writes, bool seq_per_batch, bool batch_per_txn,
+    std::unordered_set<uint32_t>* selected_cf_ids) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             trim_history_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, batch->prot_info_.get(),
-                            has_valid_writes, seq_per_batch, batch_per_txn);
+                            has_valid_writes, seq_per_batch, batch_per_txn,
+                            false /* hint_per_batch */, selected_cf_ids);
   Status s = batch->Iterate(&inserter);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();

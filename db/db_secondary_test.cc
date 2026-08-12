@@ -85,6 +85,21 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
     VerifySecondaryValue("foo", "v1");
   }
 
+  // Destroys the primary and recreates it as a TransactionDB, so that its WAL
+  // carries 2PC markers. `db_` takes ownership; `*txn_db` is a borrowed view of
+  // it for the transaction API. Call under ASSERT_NO_FATAL_FAILURE: on a failed
+  // open `*txn_db` is left null.
+  void RecreatePrimaryAsTransactionDB(const Options& options,
+                                      TransactionDB** txn_db) {
+    Close();
+    Destroy(options, true);
+    *txn_db = nullptr;
+    TransactionDBOptions txn_db_opts;
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, txn_db));
+    ASSERT_NE(nullptr, *txn_db);
+    db_.reset(*txn_db);
+  }
+
   // Checks that the secondary reads `expected` for `key` through both Get() and
   // an iterator. The two paths order the active memtable against the file set
   // differently, so they can disagree on a stale memtable entry.
@@ -1136,12 +1151,10 @@ TEST_F(DBSecondaryCatchUpFaultTest, ReconcilesMemtableAfterFailedRound) {
   VerifySecondaryValue("foo", "v2");
 }
 
-// A catch-up round advances the column family's log number as soon as it reads
-// the primary's flush record from the MANIFEST, even when the flushed file
-// cannot be opened and no Version reflecting the flush can therefore be
-// installed. The active memtable then holds the only readable copy of what was
-// flushed, so it must be kept: dropping it would turn a stale read into data
-// loss.
+// The column family's log number advances as soon as the flush record is read,
+// even when the flushed file cannot be opened and no Version reflecting it can
+// be installed. The active memtable then holds the only readable copy of what
+// was flushed, so dropping it would turn a stale read into data loss.
 TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsMissing) {
   Options options;
   options.env = env_;
@@ -1164,10 +1177,9 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsMissing) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
-  // "v1" is stale, but it is the newest value this secondary can read: the file
-  // holding "v2" is absent from its installed Version and the WAL that carried
-  // "v2" is obsolete. Getting to "v2" from here requires reopening the
-  // secondary. What must not happen is the key disappearing.
+  // "v1" is stale but the newest value readable here: "v2"'s file is absent
+  // from the installed Version and its WAL is obsolete. Reaching "v2" needs a
+  // reopen. What must not happen is the key disappearing.
   VerifySecondaryValue("foo", "v1");
 }
 
@@ -1207,21 +1219,18 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenAtomicFlushSiblingFileIsMissing) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
-  // Neither column family may lose its key. The default column family has no
-  // missing file of its own, but the Version that references its flushed file
-  // is not installed while the atomic group is incomplete, so its memtable is
-  // the only place "foo" can be read from. Assert that directly as well, so the
-  // test states the mechanism and not only its consequence.
+  // Neither column family may lose its key. The default one has no missing
+  // file of its own, but its Version is parked while the group is incomplete,
+  // leaving its memtable the only source of "foo"; assert that directly too.
   ASSERT_FALSE(GetSecondaryCfd(handles_secondary_[0])->mem()->IsEmpty());
   VerifySecondaryValue(handles_secondary_[0], "foo", "v1");
   VerifySecondaryValue(handles_secondary_[1], "bar", "w1");
 }
 
-// Same hazard again for a flushed file that is present and the right size but
+// Same hazard for a flushed file that is present and the right size but
 // unreadable. With verify_sst_unique_id_in_manifest disabled nothing records it
-// as missing, yet opening it still fails while the Version is being built, and
-// that failure is deliberately swallowed so replay can continue, so again no
-// Version covering the flush gets installed.
+// missing, yet opening it fails while the Version is built and that failure is
+// swallowed so replay can continue, so again no Version covers the flush.
 TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsCorrupt) {
   Options options;
   options.env = env_;
@@ -1247,13 +1256,10 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsCorrupt) {
   VerifySecondaryValue("foo", "v1");
 }
 
-// The same hazard for an *immutable* memtable, which is reached without any
-// failed catch-up round. RecoverLogFiles() seals the active memtable when
-// replay moves to a newer WAL, recording that newer WAL as the sealed
-// memtable's next log number, so the watermark that collects it has to come
-// from the installed Version too: the column family's log number reaches the
-// newer WAL as soon as the primary's flush record is read, while the sealed
-// memtable still holds the only readable copy of what was flushed.
+// The same hazard for an *immutable* memtable. RecoverLogFiles() stamps a
+// memtable sealed on a WAL switch with the newer WAL, and the column family's
+// log number reaches that WAL as soon as the flush record is read, so the
+// watermark collecting it has to come from the installed Version too.
 TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
   Options options;
   options.env = env_;
@@ -1263,21 +1269,17 @@ TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
   secondary_options.max_open_files = -1;
   OpenSecondaryOnWalOnlyPut(options, secondary_options);
 
-  // "bar" joins "foo" in the primary's current WAL, and the secondary replays
-  // both into its active memtable. Only "foo" is overwritten later, so the
-  // memtable holding "bar" is the only place it can come from once the flushed
-  // file is unreadable.
+  // Only "foo" is overwritten later, so "bar" ends up readable from nowhere
+  // but this memtable once the flushed file is gone.
   ASSERT_OK(Put("bar", "w1"));
   ASSERT_OK(db_->FlushWAL(/*sync=*/true));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   VerifySecondaryValue("foo", "v1");
   VerifySecondaryValue("bar", "w1");
 
-  // The primary flushes that WAL into a file and starts a new one, then writes
-  // "v2" to the new WAL. The write goes through the WAL, so closing the primary
-  // does not flush "v2" out of its memtable and the secondary still has a WAL
-  // to replay after the flush record. The flushed file goes away before the
-  // secondary reads the MANIFEST record that adds it.
+  // "v2" goes through the WAL, so closing the primary leaves it there for the
+  // secondary to replay after the flush record. The flushed file disappears
+  // before the secondary reads the MANIFEST record adding it.
   ASSERT_OK(Flush());
   const std::string table_file =
       GetNewestTableFilePath(kDefaultColumnFamilyName);
@@ -1288,15 +1290,11 @@ TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
   Defer restore_file(
       [&] { EXPECT_OK(env_->RenameFile(aside_file, table_file)); });
 
-  // In this round the secondary reads the flush record, which advances the
-  // column family's log number to the new WAL, and then replays the new WAL,
-  // which seals the memtable holding "foo"="v1" and "bar"="w1" with the new
-  // WAL as its next log number. No Version covering the flush can be installed,
-  // so that memtable must survive: "v2" supersedes "foo" from the new WAL, but
-  // nothing supersedes "bar".
+  // This round advances the log number and seals the memtable holding both
+  // keys, stamped with the new WAL. No Version covers the flush, so it must
+  // survive: "v2" supersedes "foo", but nothing supersedes "bar".
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
-  // The surviving copy of "bar" is in an immutable memtable, which is what
-  // distinguishes this from KeepsMemtableWhenFlushedFileIsMissing above.
+  // "bar" survives in an immutable memtable, unlike the test above.
   ASSERT_EQ(1, GetSecondaryCfd(db_secondary_->DefaultColumnFamily())
                    ->imm()
                    ->NumNotFlushed());
@@ -1305,21 +1303,18 @@ TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
 }
 
 // WriteBatch::Iterate() stops at its first failure with earlier entries already
-// inserted, so a batch this secondary rejects partway leaves entries from the
-// newer WAL in the active memtable. The WAL recorded for the column family has
-// to cover them: if it still named the older WAL, the seal gate would pass as
-// soon as the installed Version reached the newer one and drop entries that no
-// readable file covers.
+// inserted, so a batch rejected partway leaves entries from the newer WAL in
+// the active memtable. The recorded WAL has to cover them, or the gate passes
+// as soon as the installed Version reaches the newer WAL and drops them.
 TEST_F(DBSecondaryTest, KeepsMemtableAfterPartialReplayFailure) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
   CreateAndReopenWithCF({"cf1"}, options);
 
-  // Rejecting memtable writes to "cf1" on the secondary only is what makes a
-  // batch fail partway through replay: MemTableInserter inserts the default
-  // column family's entry, then stops at "cf1". The primary allows both, so it
-  // can write such a batch in the first place.
+  // Rejecting writes to "cf1" on the secondary only is what fails a batch
+  // partway: the default column family's entry is inserted, then "cf1" stops
+  // it. The primary allows both, so it can write such a batch.
   Options secondary_options;
   secondary_options.env = env_;
   secondary_options.max_open_files = -1;
@@ -1332,16 +1327,15 @@ TEST_F(DBSecondaryTest, KeepsMemtableAfterPartialReplayFailure) {
                                 cf_descs, &handles_secondary_, &db_secondary_));
   ASSERT_EQ(2, handles_secondary_.size());
 
-  // Record a WAL for the default column family older than the one the failing
-  // batch arrives in. With no entry recorded at all the gate keeps the memtable
-  // regardless, so the hazard needs this one.
+  // The hazard needs an older WAL already recorded: with no entry at all the
+  // gate keeps the memtable regardless.
   ASSERT_OK(Put(0, "keep", "v1"));
   ASSERT_OK(db_->FlushWAL(/*sync=*/true));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   VerifySecondaryValue(handles_secondary_[0], "keep", "v1");
 
-  // Flush so "keep" becomes readable from a file and the primary moves to a new
-  // WAL, which is the WAL the rejected batch below is written to.
+  // "keep" becomes file-readable and the primary moves to the WAL the rejected
+  // batch below lands in.
   ASSERT_OK(Flush(0));
 
   {
@@ -1353,10 +1347,9 @@ TEST_F(DBSecondaryTest, KeepsMemtableAfterPartialReplayFailure) {
   ASSERT_OK(db_->FlushWAL(/*sync=*/true));
   ASSERT_NOK(db_secondary_->TryCatchUpWithPrimary());
 
-  // Flush both column families so that WAL becomes obsolete: until it does, the
-  // reader the failed round left in an error state fails every later round
-  // before it reaches the gate. The default column family's new file then goes
-  // missing, so no Version covering "lost" can be installed.
+  // Both column families, so that WAL goes obsolete: until it does, the reader
+  // the failed round poisoned fails every later round before the gate. The new
+  // file then goes missing, so no Version covers "lost".
   ASSERT_OK(Flush({0, 1}));
   const std::string table_file =
       GetNewestTableFilePath(kDefaultColumnFamilyName);
@@ -1372,13 +1365,71 @@ TEST_F(DBSecondaryTest, KeepsMemtableAfterPartialReplayFailure) {
   VerifySecondaryValue(handles_secondary_[0], "lost", "w1");
 }
 
-// A secondary replays the primary's WAL into its own active memtable. Once the
-// primary flushes and drops that WAL, the flushed files are the authority for
-// its contents and the secondary stops replaying it, but the entries it already
-// replayed linger in the active memtable. Reads consult the memtable before the
-// file set, so a lingering entry shadows the newer value in the files.
+// A 2PC commit record names no column family, so
+// CollectColumnFamilyIdsFromWriteBatch() reports nothing, yet MarkCommit()
+// replays the prepared batch into the memtables. The recorded WAL has to
+// advance anyway, or the gate drops committed data no file covers yet.
+TEST_F(DBSecondaryTest, KeepsMemtableAfterTwoPhaseCommitReplay) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  // Recreate the primary as a TransactionDB so its WAL carries 2PC markers.
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+
+  // Flush so the WAL the prepared section lands in is not the one the column
+  // family's log number already names.
+  ASSERT_OK(db_->Put(WriteOptions(), "seed", "s"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  // OpenAsSecondary() does not force allow_2pc the way TransactionDB::Open()
+  // does for the primary, and without it MarkBeginPrepare() rejects the
+  // prepared section with NotSupported before the gate is ever reached.
+  secondary_options.allow_2pc = true;
+  OpenSecondary(secondary_options);
+
+  // The prepared batch names the default column family, so the secondary
+  // records this WAL for it, but buffers the entries instead of inserting.
+  std::unique_ptr<Transaction> txn(
+      txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  ASSERT_NE(nullptr, txn);
+  ASSERT_OK(txn->SetName("t1"));
+  ASSERT_OK(txn->Put("x", "2"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_TRUE(
+      GetSecondaryCfd(db_secondary_->DefaultColumnFamily())->mem()->IsEmpty());
+
+  // No catch-up between this write and its flush: the secondary then applies
+  // the flush record first and skips replaying "z" as already flushed, which
+  // advances the installed Version while leaving its memtable empty.
+  ASSERT_OK(db_->Put(WriteOptions(), "z", "1"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  // Had "z" been replayed instead of skipped, this round would seal and the
+  // commit below would record its own WAL, leaving nothing to get wrong.
+  ColumnFamilyData* cfd_secondary =
+      GetSecondaryCfd(db_secondary_->DefaultColumnFamily());
+  ASSERT_TRUE(cfd_secondary->mem()->IsEmpty());
+  ASSERT_EQ(0, cfd_secondary->imm()->NumNotFlushed());
+
+  // Replaying the marker inserts "x", which no file covers.
+  ASSERT_OK(txn->Commit());
+  txn.reset();
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue("x", "2");
+}
+
+// Once the primary flushes and drops a WAL, its files are the authority for
+// that WAL's contents, but entries the secondary already replayed linger in the
+// active memtable and are consulted first, shadowing the newer file value.
 // Bottommost compaction rewrites the file entry's sequence number to 0, which
-// would make the shadowing permanent even for a seqno-aware read path.
+// makes the shadowing permanent even for a seqno-aware read path.
 TEST_F(DBSecondaryTest, StaleActiveMemtableDoesNotShadowFlushedData) {
   Options options;
   options.env = env_;
@@ -1386,16 +1437,12 @@ TEST_F(DBSecondaryTest, StaleActiveMemtableDoesNotShadowFlushedData) {
   Options secondary_options;
   secondary_options.env = env_;
   secondary_options.max_open_files = -1;
-  // The secondary replays "v1" from the primary's current WAL into its active
-  // memtable.
   OpenSecondaryOnWalOnlyPut(options, secondary_options);
 
-  // The primary appends "v2" to the same WAL, then flushes: "v2" is persisted
-  // in a table file and the now-obsolete WAL is deleted before the secondary
-  // reads its tail. The secondary's active memtable is therefore stuck at "v1"
-  // while the installed file set holds "v2". Before the fix, Get() returned the
-  // stale "v1" here while an iterator, which orders by sequence number,
-  // returned "v2", so the two read paths are both checked.
+  // "v2" is appended to the same WAL and flushed, and that WAL is deleted
+  // before the secondary reads its tail, so the memtable is stuck at "v1".
+  // Before the fix Get() returned "v1" here while an iterator returned "v2",
+  // which is why both read paths are checked.
   ASSERT_OK(Put("foo", "v2"));
   ASSERT_OK(Flush());
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
@@ -1408,9 +1455,8 @@ TEST_F(DBSecondaryTest, StaleActiveMemtableDoesNotShadowFlushedData) {
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   VerifySecondaryValue("foo", "v3");
 
-  // Compacting to the bottommost level rewrites the surviving entry's sequence
-  // number to 0, below any residual memtable entry, which is what used to make
-  // the iterator go stale as well.
+  // Rewriting the surviving entry's sequence number to 0 puts it below any
+  // residual memtable entry, which used to make the iterator go stale too.
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -2041,16 +2087,8 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
 
-  // Destroy the DB to recreate as a TransactionDB.
-  Close();
-  Destroy(options, true);
-
-  // Create a TransactionDB.
   TransactionDB* txn_db = nullptr;
-  TransactionDBOptions txn_db_opts;
-  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
-  ASSERT_NE(txn_db, nullptr);
-  db_.reset(txn_db);
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
 
   std::vector<std::string> cfs = {"new_CF"};
   CreateColumnFamilies(cfs, options);

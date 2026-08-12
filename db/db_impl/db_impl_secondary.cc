@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 #include <optional>
+#include <unordered_set>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_fetcher.h"
@@ -220,6 +221,10 @@ Status DBImplSecondary::RecoverLogFiles(
     std::string scratch;
     Slice record;
     WriteBatch batch;
+    // Hoisted alongside `scratch`, `record` and `batch`: the loop below runs
+    // once per replayed WAL record, and clear() keeps the bucket array that a
+    // set constructed there would allocate again for every record.
+    std::unordered_set<uint32_t> selected_cf_ids;
 
     while (reader->ReadRecord(&record, &scratch,
                               immutable_db_options_.wal_recovery_mode) &&
@@ -253,23 +258,12 @@ Status DBImplSecondary::RecoverLogFiles(
             continue;
           }
           cfds_changed->insert(cfd);
-          // Record the WAL this column family is about to receive entries
-          // from before inserting, not after: WriteBatch::Iterate() stops at
-          // its first failure with earlier entries already in the memtables.
-          // The seal gate drops a memtable only while the recorded WAL is
-          // below the installed Version's log number, so too low a value
-          // passes the gate early and drops a memtable the Version does not
-          // cover, while too high a value fails the gate for longer and
-          // merely retains it. Recording before the seal below is equivalent,
-          // because a column family's entry only feeds its own gate.
-          const auto [log_iter, inserted] =
-              cf_id_to_current_log_.insert({id, log_number});
-          const uint64_t curr_log_num =
-              inserted ? std::numeric_limits<uint64_t>::max()
-                       : log_iter->second;
-          if (log_number > curr_log_num) {
-            log_iter->second = log_number;
-          }
+          // The return value is what the seal below compares against
+          // `log_number`, so the call has to stay. The write also names a WAL
+          // for column families whose inserts are skipped as already flushed
+          // and never reach the set recorded after the insert.
+          const std::optional<uint64_t> prev_log_number =
+              RecordCurrentLog(id, log_number);
           const std::vector<FileMetaData*>& l0_files =
               cfd->current()->storage_info()->LevelFiles(0);
           SequenceNumber seq =
@@ -291,16 +285,35 @@ Status DBImplSecondary::RecoverLogFiles(
           // memtable holding entries from more than one WAL.
           // MaybeSealFullyFlushedActiveMemtable() tolerates that because
           // `cf_id_to_current_log_[id]` is the newest of them.
-          if (!cfd->mem()->IsEmpty() && curr_log_num != log_number) {
+          if (!cfd->mem()->IsEmpty() && prev_log_number != log_number) {
             SealActiveMemtable(cfd, log_number, seq_of_batch, job_context);
           }
         }
         bool has_valid_writes = false;
+        selected_cf_ids.clear();
         status = WriteBatchInternal::InsertInto(
             &batch, column_family_memtables_.get(),
             nullptr /* flush_scheduler */, nullptr /* trim_history_scheduler*/,
             true, log_number, this, false /* concurrent_memtable_writes */,
-            next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
+            next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_,
+            &selected_cf_ids);
+        // A 2PC commit marker names no column family yet replays its prepared
+        // batch into the memtables, so the recorded WAL would lag the committed
+        // data and the gate would drop it. Mark them changed too, or a
+        // commit-replay-only round skips the super version install and the
+        // retention warning.
+        //
+        // The seal loop above runs over named ids, so a commit marker takes no
+        // seal decision: its data joins the memtable's current WAL generation,
+        // which then stays until the primary flushes the commit's WAL.
+        for (const uint32_t id : selected_cf_ids) {
+          RecordCurrentLog(id, log_number);
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          if (cfd != nullptr) {
+            cfds_changed->insert(cfd);
+          }
+        }
       }
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
@@ -348,6 +361,21 @@ void DBImplSecondary::SealActiveMemtable(ColumnFamilyData* cfd,
   cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
+}
+
+std::optional<uint64_t> DBImplSecondary::RecordCurrentLog(uint32_t cf_id,
+                                                          uint64_t log_number) {
+  mutex_.AssertHeld();
+  const auto [log_iter, inserted] =
+      cf_id_to_current_log_.try_emplace(cf_id, log_number);
+  if (inserted) {
+    return std::nullopt;
+  }
+  const uint64_t prev_log_number = log_iter->second;
+  if (log_number > prev_log_number) {
+    log_iter->second = log_number;
+  }
+  return prev_log_number;
 }
 
 bool DBImplSecondary::MaybeSealFullyFlushedActiveMemtable(
@@ -417,7 +445,7 @@ void DBImplSecondary::MaybeWarnAboutRetainedMemtables(
     cf_id_to_retention_warning_.erase(cfd->GetID());
     return;
   }
-  // Report a change rather than a state. The condition lasts until the
+  // Warn only when either number changes. The condition lasts until the
   // primary's flushed files become readable, and TryCatchUpWithPrimary() is
   // called as often as the application chooses, so reporting it every round
   // would bury everything else in the log. Both values move only as the

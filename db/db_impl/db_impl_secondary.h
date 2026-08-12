@@ -5,7 +5,9 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -329,6 +331,13 @@ class DBImplSecondary : public DBImpl {
                          std::unordered_set<ColumnFamilyData*>* cfds_changed,
                          JobContext* job_context);
 
+  // Records `log_number` as the newest WAL whose entries `cf_id`'s active
+  // memtable may hold, never lowering what is already recorded. Returns what
+  // was recorded before this call, or nullopt if nothing was.
+  //
+  // REQUIRES: mutex_ held
+  std::optional<uint64_t> RecordCurrentLog(uint32_t cf_id, uint64_t log_number);
+
   // Seals the column family's active memtable if everything it holds is
   // already readable through the installed Version, so that a following
   // RemoveOldMemTables(installed_log_number) call drops it. Returns whether the
@@ -343,9 +352,9 @@ class DBImplSecondary : public DBImpl {
   // REQUIRES: installed_log_number <= cfd->GetLogNumber()
   // REQUIRES: cf_id_to_current_log_[cfd->GetID()] is at least as new as the
   // newest WAL whose entries the active memtable holds, i.e. any WAL replay for
-  // this round has run. RecoverLogFiles() records a WAL there before inserting
-  // from it, so a replay that fails partway through leaves the map naming a WAL
-  // no older than what the memtable holds, which is the safe direction.
+  // this round has run. Too low a value drops a memtable the installed Version
+  // does not cover; too high only retains it for longer. RecoverLogFiles()
+  // records both before and after each insert to keep that true; see there.
   bool MaybeSealFullyFlushedActiveMemtable(ColumnFamilyData* cfd,
                                            uint64_t installed_log_number,
                                            JobContext* job_context);
@@ -467,9 +476,11 @@ class DBImplSecondary : public DBImpl {
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 
-  // Current WAL number replayed for each column family. Column family ids are
-  // never reused, so an entry left behind by a dropped column family can never
-  // be mistaken for a new column family's.
+  // The newest WAL whose entries each column family's active memtable may
+  // hold, keyed by column family id. An upper bound, not necessarily a WAL the
+  // memtable took entries from. Column family ids are never reused, so an entry
+  // left behind by a dropped column family can never be mistaken for a new
+  // column family's.
   std::unordered_map<uint32_t, uint64_t> cf_id_to_current_log_;
 
   // The installed Version's log number and retained memtable count last
