@@ -1,6 +1,27 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.9.0 (08/10/2026)
+### New Features
+* Added an experimental lazy wide-column read API, `DB::GetEntityLazy()` / `DB::MultiGetEntityLazy()` (see `include/rocksdb/lazy_wide_columns.h`). The returned `LazyWideColumns` leaves blob-backed columns as unresolved references and, like an iterator, stays valid after the call returns, so the caller resolves only the columns -- and only the byte ranges -- it needs; a byte-range read of an uncompressed blob (separate-file or embedded) reads just those bytes from storage. Adds `Env::IOActivity::kLazyResolve` and `rocksdb.blobdb.lazy.*` statistics. Requires `max_open_files == -1`.
+* Added DB property `rocksdb.num-unscheduled-compactions`, reporting compactions waiting in the DB's internal compaction queue but not yet assigned to a background job.
+* Added `DB::AbortCompactions()` and `DB::ResumeCompactions()` for per-column-family compaction abort and resume, with the same active-abort semantics as the DB-wide `AbortAllCompactions()`/`ResumeAllCompactions()` but scoped to a single column family. Calls are reference-counted independently per column family and compose with the DB-wide abort.
+
+### Public API Changes
+* Add IndexFactory compatibility names for the existing user-defined index API.
+* Added the experimental `CoroDB` capability, exposed by `DB::GetCoroDB()`, with lazy native coroutine variants of `Get` and `MultiGet`. The existing `DB::GetAsync()` and `DB::MultiGetAsync()` APIs dispatch through it.
+* Added `rocksdb_batched_multi_get_pinned_cf()` to return batch-owned pinned MultiGet values and per-key errors without allocating one wrapper per found value.
+* Add `DBOptions::read_io_executor_threads` to increase the maximum thread count of the shared filesystem read I/O executor used for asynchronous reads when opening a DB. Opening a DB never reduces the shared executor thread count. Change the experimental `FSRandomAccessFile::SubmitReadAsync()` API to return whether the asynchronous path was used, and add the `FILE_SUBMIT_ASYNC_READ_FALLBACK` ticker to count calls that fall back to synchronous reads.
+* `ReadOptions::table_filter` is now a *pointer* to a caller-owned `std::function` instead of a `std::function` value, to improve efficiency in copying and destroying `ReadOptions` objects (which RocksDB does internally). This is a breaking change for users of this relatively obscure option, who will now need to declare a `std::function` that outlives the read. As a side effect of `ReadOptions` being trivially copyable, new but legitimate compiler warnings may surface.
+* Renamed `TransactionLogIterator` to `WalIterator` (and `include/rocksdb/transaction_log.h` to `include/rocksdb/wal_iterator.h`), because it iterates the write-ahead log and is unrelated to `TransactionDB`. The old names still work. `DB::GetUpdatesSince()` is unchanged. In Java, `WalIterator` is the new name and `TransactionLogIterator` remains as a subclass. Also documented existing behavior that was previously unstated: only writes that reached the WAL are visible (so `WriteOptions::disableWAL` and `IngestExternalFile()` leave holes that end iteration), what each iterator state means, and that `GetUpdatesSince()` silently starts later when the requested sequence number is unavailable.
+
+### Bug Fixes
+* Fixed a bug where `BlobFileBuilder` passed an SST path to `OnBlobFileCompleted()` instead of the completed blob path during BlobDB garbage-collection compactions, causing incorrect `SstFileManager` accounting and compaction failures on filesystems where the SST was not yet pathname-visible.
+
+### Performance Improvements
+* When `DBOptions::avoid_unnecessary_blocking_io` is true, obsolete `OPTIONS-*` files found during DB open are deleted by background purge instead of synchronously on the opening thread.
+
+
 ## 11.8.0 (07/28/2026)
 ### Public API Changes
 * Add callback-based asynchronous read APIs, `DB::GetAsync()` and `DB::MultiGetAsync()`. The idea is that when IO is required, RocksDB can suspend its internal coroutine read path, allowing the read executor thread to do other work. When the IO is complete, RocksDB invokes the user callback. This requires filesystem support for full performance benefits. A new filesystem API `FSRandomAccessFile::SubmitReadAsync()` is introduced for this. Unlike `ReadAsync`, the filesystem is responsible for eventually calling the callback. `FileSystem::GetReadExecutor()` returns the IO executor whose EventBases run coroutine read processing. In the Posix filesystem, an IO-uring based event loop is used to complete the IO.
