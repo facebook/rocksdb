@@ -2597,6 +2597,13 @@ class DB {
   // secondary instance does not delete the corresponding column family
   // handles, the data of the column family is still accessible to the
   // secondary.
+  // If the primary has flushed data that this instance cannot read, because the
+  // flushed file is missing or unreadable for example, the memtables holding
+  // that data are kept rather than dropped, so that reads do not lose it. That
+  // memory, which is charged to `write_buffer_manager` when one is configured,
+  // is reclaimed only once those files become readable or this instance is
+  // reopened; `rocksdb.num-immutable-mem-table` reports how many memtables are
+  // being held.
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }

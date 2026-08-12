@@ -510,10 +510,12 @@ class MemTableList {
     }
   }
 
-  // Used only by DBImplSecondary during log replay.
-  // Remove memtables whose data were written before the WAL with log_number
-  // was created, i.e. mem->GetNextLogNumber() <= log_number. The memtables are
-  // not freed, but put into a vector for future deref and reclamation.
+  // Used only by secondary and follower instances, which collect memtables by
+  // the log number that follows their contents rather than by flushing them.
+  // Scanning from the oldest memtable, removes those with
+  // mem->GetNextLogNumber() <= log_number and stops at the first one without,
+  // so a memtable is kept while an older one is. The memtables are not freed,
+  // but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<ReadOnlyMemTable*>* to_delete);
 

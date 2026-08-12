@@ -293,9 +293,9 @@ class DBImplSecondary : public DBImpl {
   // writer queue and no WAL of this instance's own.
   //
   // `next_log_number` is recorded on the sealed memtable. A subsequent
-  // MemTableList::RemoveOldMemTables(log_number) call collects the sealed
-  // memtable if and only if `next_log_number <= log_number`, so pass the log
-  // number of the WAL that follows the memtable's contents.
+  // MemTableList::RemoveOldMemTables(log_number) call considers the sealed
+  // memtable collectible once `next_log_number <= log_number`, so pass a log
+  // number above every WAL whose entries the memtable holds.
   // `new_mem_earliest_seq` becomes the replacement memtable's earliest
   // sequence number.
   //
@@ -330,8 +330,13 @@ class DBImplSecondary : public DBImpl {
 
   // Seals the column family's active memtable if everything it holds is
   // already readable through the installed Version, so that a following
-  // RemoveOldMemTables(cfd->GetLogNumber()) call drops it. Returns whether the
+  // RemoveOldMemTables(installed_log_number) call drops it. Returns whether the
   // memtable was sealed; in the common case it is not, and this is a no-op.
+  //
+  // `installed_log_number` is the column family's log number as of the Version
+  // most recently installed for it, from
+  // ReactiveVersionSet::GetInstalledVersionLogNumber(). It gates the seal, and
+  // the sealed memtable's next log number is at most that value.
   //
   // REQUIRES: mutex_ held
   // REQUIRES: cfd_to_current_log_[cfd] is the newest WAL whose entries the
@@ -342,6 +347,7 @@ class DBImplSecondary : public DBImpl {
   // same failure leaves LogReaderContainer::status_ permanently non-OK, which
   // fails every later round before it reaches this function.
   bool MaybeSealFullyFlushedActiveMemtable(ColumnFamilyData* cfd,
+                                           uint64_t installed_log_number,
                                            JobContext* job_context);
 
   // Run compaction without installation, the output files will be placed in the

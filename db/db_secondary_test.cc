@@ -133,6 +133,12 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
     return aside_path;
   }
 
+  // Returns the secondary's ColumnFamilyData behind `cfh`, for the tests that
+  // assert on memtable state directly rather than through a read.
+  static ColumnFamilyData* GetSecondaryCfd(ColumnFamilyHandle* cfh) {
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  }
+
   DBImplSecondary* db_secondary_full() {
     return static_cast<DBImplSecondary*>(db_secondary_.get());
   }
@@ -1232,6 +1238,63 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsCorrupt) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   VerifySecondaryValue("foo", "v1");
+}
+
+// The same hazard for an *immutable* memtable, which is reached without any
+// failed catch-up round. RecoverLogFiles() seals the active memtable when
+// replay moves to a newer WAL, recording that newer WAL as the sealed
+// memtable's next log number, so the watermark that collects it has to come
+// from the installed Version too: the column family's log number reaches the
+// newer WAL as soon as the primary's flush record is read, while the sealed
+// memtable still holds the only readable copy of what was flushed.
+TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Options secondary_options;
+  secondary_options.env = env_;
+  secondary_options.max_open_files = -1;
+  OpenSecondaryOnWalOnlyPut(options, secondary_options);
+
+  // "bar" joins "foo" in the primary's current WAL, and the secondary replays
+  // both into its active memtable. Only "foo" is overwritten later, so the
+  // memtable holding "bar" is the only place it can come from once the flushed
+  // file is unreadable.
+  ASSERT_OK(Put("bar", "w1"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue("foo", "v1");
+  VerifySecondaryValue("bar", "w1");
+
+  // The primary flushes that WAL into a file and starts a new one, then writes
+  // "v2" to the new WAL. The write goes through the WAL, so closing the primary
+  // does not flush "v2" out of its memtable and the secondary still has a WAL
+  // to replay after the flush record. The flushed file goes away before the
+  // secondary reads the MANIFEST record that adds it.
+  ASSERT_OK(Flush());
+  const std::string table_file =
+      GetNewestTableFilePath(kDefaultColumnFamilyName);
+  ASSERT_OK(Put("foo", "v2"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  Close();
+  const std::string aside_file = MoveFileAside(table_file);
+
+  // In this round the secondary reads the flush record, which advances the
+  // column family's log number to the new WAL, and then replays the new WAL,
+  // which seals the memtable holding "foo"="v1" and "bar"="w1" with the new
+  // WAL as its next log number. No Version covering the flush can be installed,
+  // so that memtable must survive: "v2" supersedes "foo" from the new WAL, but
+  // nothing supersedes "bar".
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  // The surviving copy of "bar" is in an immutable memtable, which is what
+  // distinguishes this from KeepsMemtableWhenFlushedFileIsMissing above.
+  ASSERT_EQ(1, GetSecondaryCfd(db_secondary_->DefaultColumnFamily())
+                   ->imm()
+                   ->NumNotFlushed());
+  VerifySecondaryValue("foo", "v2");
+  VerifySecondaryValue("bar", "w1");
+
+  ASSERT_OK(env_->RenameFile(aside_file, table_file));
 }
 
 // A secondary replays the primary's WAL into its own active memtable. Once the
