@@ -339,13 +339,12 @@ class DBImplSecondary : public DBImpl {
   // the sealed memtable's next log number is at most that value.
   //
   // REQUIRES: mutex_ held
-  // REQUIRES: cfd_to_current_log_[cfd] is the newest WAL whose entries the
-  // active memtable holds, i.e. any WAL replay for this round has run.
-  // RecoverLogFiles() only records a WAL there once its batches have been
-  // inserted, so a replay that fails partway through can leave the map naming
-  // an older WAL than the memtable holds. That is unreachable here because the
-  // same failure leaves LogReaderContainer::status_ permanently non-OK, which
-  // fails every later round before it reaches this function.
+  // REQUIRES: installed_log_number <= cfd->GetLogNumber()
+  // REQUIRES: cf_id_to_current_log_[cfd->GetID()] is at least as new as the
+  // newest WAL whose entries the active memtable holds, i.e. any WAL replay for
+  // this round has run. RecoverLogFiles() records a WAL there before inserting
+  // from it, so a replay that fails partway through leaves the map naming a WAL
+  // no older than what the memtable holds, which is the safe direction.
   bool MaybeSealFullyFlushedActiveMemtable(ColumnFamilyData* cfd,
                                            uint64_t installed_log_number,
                                            JobContext* job_context);
@@ -454,8 +453,10 @@ class DBImplSecondary : public DBImpl {
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 
-  // Current WAL number replayed for each column family.
-  std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
+  // Current WAL number replayed for each column family. Column family ids are
+  // never reused, so an entry left behind by a dropped column family can never
+  // be mistaken for a new column family's.
+  std::unordered_map<uint32_t, uint64_t> cf_id_to_current_log_;
 
   const std::string secondary_path_;
 

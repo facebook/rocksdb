@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -1295,6 +1296,74 @@ TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
   VerifySecondaryValue("bar", "w1");
 
   ASSERT_OK(env_->RenameFile(aside_file, table_file));
+}
+
+// WriteBatch::Iterate() stops at its first failure with earlier entries already
+// inserted, so a batch this secondary rejects partway leaves entries from the
+// newer WAL in the active memtable. The WAL recorded for the column family has
+// to cover them: if it still named the older WAL, the seal gate would pass as
+// soon as the installed Version reached the newer one and drop entries that no
+// readable file covers.
+TEST_F(DBSecondaryTest, KeepsMemtableAfterPartialReplayFailure) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  // Rejecting memtable writes to "cf1" on the secondary only is what makes a
+  // batch fail partway through replay: MemTableInserter inserts the default
+  // column family's entry, then stops at "cf1". The primary allows both, so it
+  // can write such a batch in the first place.
+  Options secondary_options;
+  secondary_options.env = env_;
+  secondary_options.max_open_files = -1;
+  Options secondary_cf1_options = secondary_options;
+  secondary_cf1_options.disallow_memtable_writes = true;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, secondary_options);
+  cf_descs.emplace_back("cf1", secondary_cf1_options);
+  ASSERT_OK(DB::OpenAsSecondary(secondary_options, dbname_, secondary_path_,
+                                cf_descs, &handles_secondary_, &db_secondary_));
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  // Record a WAL for the default column family older than the one the failing
+  // batch arrives in. With no entry recorded at all the gate keeps the memtable
+  // regardless, so the hazard needs this one.
+  ASSERT_OK(Put(0, "keep", "v1"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue(handles_secondary_[0], "keep", "v1");
+
+  // Flush so "keep" becomes readable from a file and the primary moves to a new
+  // WAL, which is the WAL the rejected batch below is written to.
+  ASSERT_OK(Flush(0));
+
+  {
+    WriteBatch batch;
+    ASSERT_OK(batch.Put(handles_[0], "lost", "w1"));
+    ASSERT_OK(batch.Put(handles_[1], "x", "y"));
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  }
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_NOK(db_secondary_->TryCatchUpWithPrimary());
+
+  // Flush both column families so that WAL becomes obsolete: until it does, the
+  // reader the failed round left in an error state fails every later round
+  // before it reaches the gate. The default column family's new file then goes
+  // missing, so no Version covering "lost" can be installed.
+  ASSERT_OK(Flush({0, 1}));
+  const std::string table_file =
+      GetNewestTableFilePath(kDefaultColumnFamilyName);
+  Close();
+  const std::string aside_file = MoveFileAside(table_file);
+  Defer restore_file(
+      [&]() { EXPECT_OK(env_->RenameFile(aside_file, table_file)); });
+
+  // "lost" is readable only from the memtable the rejected batch wrote to, so
+  // that memtable must survive.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue(handles_secondary_[0], "keep", "v1");
+  VerifySecondaryValue(handles_secondary_[0], "lost", "w1");
 }
 
 // A secondary replays the primary's WAL into its own active memtable. Once the
