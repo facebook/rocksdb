@@ -274,10 +274,9 @@ Status DBImplSecondary::RecoverLogFiles(
               cfd->current()->storage_info()->LevelFiles(0);
           SequenceNumber seq =
               l0_files.empty() ? 0 : l0_files.back()->fd.largest_seqno;
-          // If the write batch's sequence number is smaller than the last
-          // sequence number of the largest sequence persisted for this column
-          // family, then its data must reside in an SST that has already been
-          // added in the prior MANIFEST replay.
+          // `l0_files` is ordered newest first, so `seq` is the largest
+          // sequence number in the oldest L0 file. A write batch at or below it
+          // must reside in an SST that a prior MANIFEST replay already added.
           if (seq_of_batch <= seq) {
             continue;
           }
@@ -602,10 +601,10 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
       // ReadAndApply() had already advanced the log number must still be
       // dropped, and that column family may have no new MANIFEST record in this
       // round. Column families dropped in this round are skipped, unlike with
-      // `cfds_changed`, which could still name a column family that
-      // VersionEditHandler::DestroyCfAndCleanup() has already unreferenced.
-      // Column families that neither changed nor have anything to collect are
-      // skipped below, so this installs no extra super versions.
+      // `cfds_changed`, which can still name a column family that a later
+      // record in the same round made VersionEditHandler::DestroyCfAndCleanup()
+      // drop. Column families that neither changed nor have anything to collect
+      // are skipped below, so this installs no extra super versions.
       for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
         if (cfd->IsDropped()) {
           // Nothing more can ever be replayed into a dropped column family, so

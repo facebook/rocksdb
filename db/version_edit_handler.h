@@ -305,11 +305,12 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   // Returns the column family's log number as of the Version most recently
   // installed for it by this handler, i.e. the log number that the MANIFEST
   // records reflected by that Version had put in effect. Data in WALs older
-  // than the returned number has been flushed by the primary into files that
-  // the installed Version references, so it is readable without the WALs.
+  // than the returned number is readable from the files that Version
+  // references, without those WALs.
   //
-  // Returns 0 when no Version has been installed for `cf_id`, which callers
-  // read as "cannot vouch for anything".
+  // Returns 0 when no Version has been installed for `cf_id`.
+  //
+  // REQUIRES: db mutex
   uint64_t GetInstalledVersionLogNumber(uint32_t cf_id) const;
 
   virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
@@ -362,13 +363,12 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   bool AtomicUpdateVersionsContains(uint32_t cfid);
   void AtomicUpdateVersionsDropCf(uint32_t cfid);
 
-  // This function is called for `Version*` updates for column families in an
-  // incomplete atomic update. It buffers `Version*` updates in
-  // `atomic_update_versions_`.
+  // This function is called for Version updates for column families in an
+  // incomplete atomic update. It buffers them in `atomic_update_versions_`.
   void AtomicUpdateVersionsPut(PointInTimeVersion pit_version);
 
-  // This function is called upon completion of an atomic update. It applies
-  // `Version*` updates in `atomic_update_versions_` to `versions_`.
+  // This function is called upon completion of an atomic update. It applies the
+  // updates buffered in `atomic_update_versions_` to `versions_`.
   void AtomicUpdateVersionsApply();
 
   // The log number of the Version last installed for each column family. See

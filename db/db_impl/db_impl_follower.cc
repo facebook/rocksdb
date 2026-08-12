@@ -141,6 +141,11 @@ Status DBImplFollower::TryCatchUpWithLeader() {
                              versions_->LastSequence(), &job_context);
         }
 
+        // `cfd->GetLogNumber()` is a safe watermark here, unlike in
+        // DBImplSecondary::TryCatchUpWithPrimary(): this catch-up path never
+        // replays WALs, so the memtables it collects hold nothing that only a
+        // not-yet-installed Version could make readable.
+        //
         // This will check if the old memtable is still referenced
         cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
                                        &job_context.memtables_to_free);

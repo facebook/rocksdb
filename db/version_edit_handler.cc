@@ -902,10 +902,9 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
       builder->RollbackLastApply();
     }
     // `cfd->GetLogNumber()` describes exactly the state the Version about to be
-    // built reflects: VersionEditHandler::ApplyVersionEdit() applies `edit`'s
-    // own log number only after this function returns, so on a negative edge
-    // (where the Version reflects the state before `edit`) it is still the
-    // pre-edit value, and in the `force_create_version` case `edit` is empty.
+    // built reflects: VersionEditHandler::ExtractInfoFromVersionEdit() applies
+    // `edit`'s own log number only after this function returns, so on a
+    // negative edge it is still the pre-edit value.
     const uint64_t log_number = cfd->GetLogNumber();
     const auto& mopts = cfd->GetLatestMutableCFOptions();
     auto* version = new Version(

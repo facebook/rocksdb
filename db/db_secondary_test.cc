@@ -116,7 +116,7 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
     uint64_t newest_file_number = 0;
     for (const auto& md : live_files) {
       if (md.column_family_name == cf_name &&
-          md.file_number >= newest_file_number) {
+          md.file_number > newest_file_number) {
         newest_file_number = md.file_number;
         path = md.directory + "/" + md.relative_filename;
       }
@@ -127,7 +127,11 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
 
   // Moves `path` aside so that opening it fails, and returns where it went.
   // Every DB holding the file open must be closed first, because not every
-  // platform allows renaming an open file.
+  // platform allows renaming an open file. The caller must move it back before
+  // the fixture is destroyed - DestroyDB() does not recognize the new name, so
+  // it would otherwise be left behind for the next test sharing `dbname_` - and
+  // must do so with a Defer, since a failing assertion leaves the test body
+  // early.
   std::string MoveFileAside(const std::string& path) {
     const std::string aside_path = path + ".aside";
     EXPECT_OK(env_->RenameFile(path, aside_path));
@@ -1156,6 +1160,8 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsMissing) {
       GetNewestTableFilePath(kDefaultColumnFamilyName);
   Close();
   const std::string aside_file = MoveFileAside(table_file);
+  Defer restore_file(
+      [&] { EXPECT_OK(env_->RenameFile(aside_file, table_file)); });
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
@@ -1164,8 +1170,6 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenFlushedFileIsMissing) {
   // "v2" is obsolete. Getting to "v2" from here requires reopening the
   // secondary. What must not happen is the key disappearing.
   VerifySecondaryValue("foo", "v1");
-
-  ASSERT_OK(env_->RenameFile(aside_file, table_file));
 }
 
 // Same hazard reached without any missing file of the column family's own: an
@@ -1199,16 +1203,19 @@ TEST_F(DBSecondaryTest, KeepsMemtableWhenAtomicFlushSiblingFileIsMissing) {
   const std::string cf1_table_file = GetNewestTableFilePath("cf1");
   Close();
   const std::string aside_file = MoveFileAside(cf1_table_file);
+  Defer restore_file(
+      [&] { EXPECT_OK(env_->RenameFile(aside_file, cf1_table_file)); });
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
   // Neither column family may lose its key. The default column family has no
   // missing file of its own, but the Version that references its flushed file
-  // is not installed while the atomic group is incomplete.
+  // is not installed while the atomic group is incomplete, so its memtable is
+  // the only place "foo" can be read from. Assert that directly as well, so the
+  // test states the mechanism and not only its consequence.
+  ASSERT_FALSE(GetSecondaryCfd(handles_secondary_[0])->mem()->IsEmpty());
   VerifySecondaryValue(handles_secondary_[0], "foo", "v1");
   VerifySecondaryValue(handles_secondary_[1], "bar", "w1");
-
-  ASSERT_OK(env_->RenameFile(aside_file, cf1_table_file));
 }
 
 // Same hazard again for a flushed file that is present and the right size but
@@ -1279,6 +1286,8 @@ TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
   ASSERT_OK(db_->FlushWAL(/*sync=*/true));
   Close();
   const std::string aside_file = MoveFileAside(table_file);
+  Defer restore_file(
+      [&] { EXPECT_OK(env_->RenameFile(aside_file, table_file)); });
 
   // In this round the secondary reads the flush record, which advances the
   // column family's log number to the new WAL, and then replays the new WAL,
@@ -1294,8 +1303,6 @@ TEST_F(DBSecondaryTest, KeepsImmutableMemtableWhenFlushedFileIsMissing) {
                    ->NumNotFlushed());
   VerifySecondaryValue("foo", "v2");
   VerifySecondaryValue("bar", "w1");
-
-  ASSERT_OK(env_->RenameFile(aside_file, table_file));
 }
 
 // WriteBatch::Iterate() stops at its first failure with earlier entries already
@@ -1427,10 +1434,10 @@ TEST_F(DBSecondaryTest, CatchUpKeepsUnflushedWalData) {
   options.disable_auto_compactions = true;
   CreateAndReopenWithCF({"cf1"}, options);
 
-  Options options1;
-  options1.env = env_;
-  options1.max_open_files = -1;
-  OpenSecondaryWithColumnFamilies({"cf1"}, options1);
+  Options secondary_options;
+  secondary_options.env = env_;
+  secondary_options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, secondary_options);
   ASSERT_EQ(2, handles_secondary_.size());
 
   // Both column families write to the same WAL and neither is flushed, so the
