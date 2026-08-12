@@ -72,6 +72,29 @@ class ReadPathBlobResolver {
   // - I/O error occurred while fetching the blob
   Status ResolveColumn(size_t column_index, Slice* resolved_value);
 
+  // Resolve a byte sub-range [range_offset, range_offset + range_length) of the
+  // column at `column_index` into *result (zero-copy). `range_length` may be
+  // larger than the remaining bytes (or SIZE_MAX for "to the end"); it is
+  // clamped to the column's logical size. An offset at/past the end yields an
+  // empty result (not an error).
+  //
+  // Reads only the requested bytes -- skipping whole-record checksum
+  // verification and blob-cache population -- only for a strict sub-range of an
+  // uncompressed blob reference (in a separate blob file, or
+  // embedded/same-file) that is not already resolved, when !force_verify and
+  // the read is servable (a Version-backed range read for separate-file refs,
+  // or a SameFileBlobReader for embedded refs). Every other case (inline
+  // column, already-resolved column, inlined blob, compressed reference, a
+  // whole-column read, or force_verify) resolves the whole column (caching it,
+  // verifying under ReadOptions::verify_checksums) and slices the requested
+  // range out of it.
+  //
+  // Unlike ResolveColumn, a partial read is NOT cached: *result owns (or pins)
+  // its own bytes, independent of this resolver's whole-column cache.
+  Status ResolveColumnRange(size_t column_index, uint64_t range_offset,
+                            size_t range_length, bool force_verify,
+                            PinnableSlice* result);
+
   // Resolve multiple columns in the order provided by `column_indices`.
   // Resolved blob values are cached exactly as if ResolveColumn() were called
   // repeatedly.
@@ -101,6 +124,13 @@ class ReadPathBlobResolver {
   }
 
  private:
+  // Shared implementation of ResolveColumn / the whole-column path of
+  // ResolveColumnRange. When force_verify is set, a separate-file blob
+  // reference is read with checksum verification forced on even if
+  // ReadOptions::verify_checksums is off (see LazyColumnReadRequest).
+  Status ResolveColumnInternal(size_t column_index, bool force_verify,
+                               Slice* resolved_value);
+
   // Owns its ReadOptions: a resolver's lifetime is independent of the caller
   // that created it (e.g. it may outlive the originating ReadOptions once
   // returned as part of a lazy result).

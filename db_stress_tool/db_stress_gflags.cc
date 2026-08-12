@@ -156,6 +156,16 @@ DEFINE_bool(verbose, false, "Verbose");
 DEFINE_bool(progress_reports, true,
             "If true, db_stress will report number of finished operations");
 
+DEFINE_uint64(
+    liveness_check_interval_sec, 0,
+    "If non-zero, check periodically whether db_stress operations are making "
+    "progress. Requires --liveness_no_progress_timeout_sec to be non-zero.");
+
+DEFINE_uint64(
+    liveness_no_progress_timeout_sec, 0,
+    "If non-zero with --liveness_check_interval_sec, terminate db_stress when "
+    "no operation completes for this many seconds during the operation phase.");
+
 DEFINE_uint64(db_write_buffer_size,
               ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
               "Number of bytes to buffer in all memtables before compacting");
@@ -527,6 +537,13 @@ DEFINE_uint64(blob_file_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_size,
               "[Integrated BlobDB] The size limit for blob files.");
 
+DEFINE_uint64(
+    blob_file_writable_file_max_buffer_size,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+        .blob_file_writable_file_max_buffer_size,
+    "[Integrated BlobDB] Max WritableFileWriter buffer size for blob files. "
+    "0 means inherit writable_file_max_buffer_size.");
+
 DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");
@@ -874,6 +891,12 @@ DEFINE_int32(parallel_checkpoint_one_in, 0,
              "probability 1/N, else the legacy serial API (0 = always serial, "
              "1 = always parallel).");
 
+DEFINE_int32(subset_cf_checkpoint_one_in, 0,
+             "Each checkpoint covers only a random proper subset of the column "
+             "families with probability 1/N (0 = always all column families, "
+             "1 = always a subset). Ignored when there is only the default "
+             "column family.");
+
 DEFINE_int32(ingest_external_file_one_in, 0,
              "If non-zero, then IngestExternalFile() will be called once for "
              "every N operations on average.  0 indicates IngestExternalFile() "
@@ -1108,6 +1131,15 @@ DEFINE_int32(compression_parallel_threads, 1,
 DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
               "Buffering limit for SST file data to sample for dictionary "
               "compression.");
+
+DEFINE_bool(compression_auto_skip, false,
+            "Enable AutoSkip compression: stop attempting compression on data "
+            "blocks once it is not paying off (reuses max_compressed_bytes_per_"
+            "kb as the bar).");
+
+DEFINE_int32(compression_auto_skip_min_sample_every, 0,
+             "AutoSkip nominal sampling interval (skipped data blocks between "
+             "forced compression samples). 0 selects an internal default.");
 
 DEFINE_bool(
     compression_use_zstd_dict_trainer, true,

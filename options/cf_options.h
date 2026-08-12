@@ -166,6 +166,8 @@ struct MutableCFOptions {
         enable_blob_files(options.enable_blob_files),
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
+        blob_file_writable_file_max_buffer_size(
+            options.blob_file_writable_file_max_buffer_size),
         blob_compression_type(options.blob_compression_type),
         blob_compression_opts(options.blob_compression_opts),
         enable_blob_garbage_collection(options.enable_blob_garbage_collection),
@@ -242,6 +244,7 @@ struct MutableCFOptions {
         enable_blob_files(false),
         min_blob_size(0),
         blob_file_size(0),
+        blob_file_writable_file_max_buffer_size(0),
         blob_compression_type(kNoCompression),
         blob_compression_opts(),
         enable_blob_garbage_collection(false),
@@ -349,6 +352,7 @@ struct MutableCFOptions {
   bool enable_blob_files;
   uint64_t min_blob_size;
   uint64_t blob_file_size;
+  uint64_t blob_file_writable_file_max_buffer_size;
   CompressionType blob_compression_type;
   CompressionOptions blob_compression_opts;
   bool enable_blob_garbage_collection;

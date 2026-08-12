@@ -308,9 +308,15 @@ static const std::string aggregated_table_properties =
 static const std::string aggregated_table_properties_at_level =
     aggregated_table_properties + "-at-level";
 static const std::string num_running_compactions = "num-running-compactions";
+static const std::string num_running_remote_compactions =
+    "num-running-remote-compactions";
+static const std::string num_running_bottom_compactions =
+    "num-running-bottom-compactions";
 static const std::string num_running_compaction_sorted_runs =
     "num-running-compaction-sorted-runs";
 static const std::string compaction_abort_count = "compaction-abort-count";
+static const std::string num_unscheduled_compactions =
+    "num-unscheduled-compactions";
 static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
@@ -361,10 +367,16 @@ const std::string DB::Properties::kCompactionPending =
     rocksdb_prefix + compaction_pending;
 const std::string DB::Properties::kNumRunningCompactions =
     rocksdb_prefix + num_running_compactions;
+const std::string DB::Properties::kNumRunningRemoteCompactions =
+    rocksdb_prefix + num_running_remote_compactions;
+const std::string DB::Properties::kNumRunningBottomCompactions =
+    rocksdb_prefix + num_running_bottom_compactions;
 const std::string DB::Properties::kNumRunningCompactionSortedRuns =
     rocksdb_prefix + num_running_compaction_sorted_runs;
 const std::string DB::Properties::kCompactionAbortCount =
     rocksdb_prefix + compaction_abort_count;
+const std::string DB::Properties::kNumUnscheduledCompactions =
+    rocksdb_prefix + num_unscheduled_compactions;
 const std::string DB::Properties::kNumRunningFlushes =
     rocksdb_prefix + num_running_flushes;
 const std::string DB::Properties::kBackgroundErrors =
@@ -594,12 +606,21 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kNumRunningCompactions,
          {false, nullptr, &InternalStats::HandleNumRunningCompactions, nullptr,
           nullptr}},
+        {DB::Properties::kNumRunningRemoteCompactions,
+         {false, nullptr, &InternalStats::HandleNumRunningRemoteCompactions,
+          nullptr, nullptr}},
+        {DB::Properties::kNumRunningBottomCompactions,
+         {false, nullptr, &InternalStats::HandleNumRunningBottomCompactions,
+          nullptr, nullptr}},
         {DB::Properties::kNumRunningCompactionSortedRuns,
          {false, nullptr, &InternalStats::HandleNumRunningCompactionSortedRuns,
           nullptr, nullptr}},
         {DB::Properties::kCompactionAbortCount,
          {false, nullptr, &InternalStats::HandleCompactionAbortCount, nullptr,
           nullptr}},
+        {DB::Properties::kNumUnscheduledCompactions,
+         {false, nullptr, &InternalStats::HandleNumUnscheduledCompactions,
+          nullptr, nullptr}},
         {DB::Properties::kActualDelayedWriteRate,
          {false, nullptr, &InternalStats::HandleActualDelayedWriteRate, nullptr,
           nullptr}},
@@ -1286,6 +1307,23 @@ bool InternalStats::HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
   return true;
 }
 
+bool InternalStats::HandleNumRunningRemoteCompactions(uint64_t* value,
+                                                      DBImpl* db,
+                                                      Version* /*version*/) {
+  const int num_running =
+      db->num_running_remote_compactions_.load(std::memory_order_relaxed);
+  assert(num_running >= 0);
+  *value = static_cast<uint64_t>(num_running);
+  return true;
+}
+
+bool InternalStats::HandleNumRunningBottomCompactions(uint64_t* value,
+                                                      DBImpl* db,
+                                                      Version* /*version*/) {
+  *value = static_cast<uint64_t>(db->num_running_bottom_compactions_);
+  return true;
+}
+
 bool InternalStats::HandleNumRunningCompactionSortedRuns(uint64_t* value,
                                                          DBImpl* db,
                                                          Version* /*version*/) {
@@ -1302,6 +1340,14 @@ bool InternalStats::HandleCompactionAbortCount(uint64_t* value, DBImpl* db,
                                                Version* /*version*/) {
   *value = static_cast<uint64_t>(
       db->compaction_aborted_.load(std::memory_order_acquire));
+  return true;
+}
+
+bool InternalStats::HandleNumUnscheduledCompactions(uint64_t* value, DBImpl* db,
+                                                    Version* /*version*/) {
+  db->mutex()->AssertHeld();
+  assert(db->unscheduled_compactions_ >= 0);
+  *value = static_cast<uint64_t>(db->unscheduled_compactions_);
   return true;
 }
 

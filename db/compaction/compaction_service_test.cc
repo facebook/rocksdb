@@ -360,6 +360,7 @@ class CompactionServiceTest : public DBTestBase {
 
 TEST_F(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();
+  options.max_open_files = -1;
   ReopenWithCompactionService(&options);
 
   Statistics* primary_statistics = GetPrimaryStatistics();
@@ -1761,6 +1762,109 @@ TEST_F(CompactionServiceTest, SubCompaction) {
   ASSERT_GE(compaction_num, 2);
 }
 
+class PropertySamplingCompactionService : public MyTestCompactionService {
+ public:
+  using MyTestCompactionService::MyTestCompactionService;
+
+  void SetPrimaryDB(DB* db) { db_ = db; }
+
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
+    EXPECT_TRUE(
+        db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                            &num_running_while_waiting_));
+    return MyTestCompactionService::Wait(scheduled_job_id, result);
+  }
+
+  uint64_t GetNumRunningWhileWaiting() const {
+    return num_running_while_waiting_;
+  }
+
+ private:
+  DB* db_ = nullptr;
+  uint64_t num_running_while_waiting_ = 0;
+};
+
+TEST_F(CompactionServiceTest, NumRunningRemoteCompactionsProperty) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  auto statistics = CreateDBStatistics();
+  auto compaction_service = std::make_shared<PropertySamplingCompactionService>(
+      dbname_, options, statistics,
+      std::vector<std::shared_ptr<EventListener>>{},
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+  options.compaction_service = compaction_service;
+  DestroyAndReopen(options);
+  compaction_service->SetPrimaryDB(db_.get());
+
+  // Overlapping key ranges across files so the compaction is not a trivial
+  // move, which would bypass the compaction service entirely.
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(Key(j), "value" + std::to_string(i * 10 + j)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // No remote compaction is in flight yet.
+  uint64_t num_running = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                                  &num_running));
+  ASSERT_EQ(num_running, 0U);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_GE(compaction_service->GetCompactionNum(), 1);
+  ASSERT_GE(compaction_service->GetNumRunningWhileWaiting(), 1U);
+
+  // The counter is back to 0 once the remote jobs are installed.
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                                  &num_running));
+  ASSERT_EQ(num_running, 0U);
+}
+
+TEST_F(CompactionServiceTest, NumRunningRemoteCompactionsPropertyLocalOnly) {
+  // Without a compaction_service configured, the property stays 0.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Overlapping key ranges across files so the compaction is not a trivial
+  // move, which would bypass the compaction service entirely.
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(Key(j), "value" + std::to_string(i * 10 + j)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  std::atomic<int> property_samples{0};
+  std::atomic_bool observed_non_zero{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing",
+      [&](void* /*arg*/) {
+        uint64_t num_running = 0;
+        EXPECT_TRUE(db_->GetIntProperty(
+            DB::Properties::kNumRunningRemoteCompactions, &num_running));
+        property_samples.fetch_add(1);
+        if (num_running != 0) {
+          observed_non_zero.store(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GT(property_samples.load(), 0);
+  ASSERT_FALSE(observed_non_zero.load());
+
+  uint64_t num_running = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                                  &num_running));
+  ASSERT_EQ(num_running, 0U);
+}
+
 class PartialDeleteCompactionFilter : public CompactionFilter {
  public:
   CompactionFilter::Decision FilterV2(
@@ -1779,6 +1883,7 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
 
 TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   std::unique_ptr<CompactionFilter> delete_comp_filter(
       new PartialDeleteCompactionFilter());
   options.compaction_filter = delete_comp_filter.get();

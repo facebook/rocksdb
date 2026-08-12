@@ -337,6 +337,9 @@ Status SstFileDumper::ShowAllCompressionSizes(
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Cx level: %d", j);
         compress_opt.level = j;
+        // Measure each (type, level) independently: clear any AutoSkip
+        // inter-file estimate left by the previous iteration on this thread.
+        BlockBasedTableBuilder::ResetThreadLocalAutoSkipCarryover();
         Status s = ShowCompressionSize(ctype, compress_opt);
         if (!s.ok()) {
           return s;

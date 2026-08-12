@@ -1519,9 +1519,6 @@ Status DB::OpenAndCompact(
   db_options.statistics = override_options.statistics;
   db_options.listeners = override_options.listeners;
   db_options.compaction_service = nullptr;
-  // We will close the DB after the compaction anyway.
-  // Open as many files as needed for the compaction.
-  db_options.max_open_files = -1;
   db_options.info_log = override_options.info_log;
 
   // 4. Filter CFs that are needed for OpenAndCompact()

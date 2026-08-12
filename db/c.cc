@@ -10372,6 +10372,16 @@ uint64_t rocksdb_options_get_blob_file_size(rocksdb_options_t* opt) {
   return opt->rep.blob_file_size;
 }
 
+void rocksdb_options_set_blob_file_writable_file_max_buffer_size(
+    rocksdb_options_t* opt, uint64_t v) {
+  opt->rep.blob_file_writable_file_max_buffer_size = v;
+}
+
+uint64_t rocksdb_options_get_blob_file_writable_file_max_buffer_size(
+    rocksdb_options_t* opt) {
+  return opt->rep.blob_file_writable_file_max_buffer_size;
+}
+
 void rocksdb_options_set_blob_compression_type(rocksdb_options_t* opt, int v) {
   opt->rep.blob_compression_type =
       static_cast<decltype(opt->rep.blob_compression_type)>(v);

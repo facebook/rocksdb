@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <algorithm>
 #include <cstdlib>
 #include <iomanip>
 #include <ios>
@@ -57,6 +58,44 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+constexpr int kMaxAbortResumeCompactionsSleepMicros = 3 * 1000 * 1000;
+
+class ScopedThreadOperation {
+ public:
+  enum class FinishAction { kPop, kFinishSingleOp };
+
+  ScopedThreadOperation(ThreadState* thread, StressOperationType type,
+                        FinishAction finish_action = FinishAction::kPop)
+      : thread_(thread),
+        type_(type),
+        finish_action_(finish_action),
+        tracking_(false) {
+    tracking_ = thread_->BeginOperation(type);
+  }
+
+  ~ScopedThreadOperation() {
+    if (tracking_) {
+      thread_->CompletedOpForDiagnostics(type_);
+    }
+    switch (finish_action_) {
+      case FinishAction::kPop:
+        break;
+      case FinishAction::kFinishSingleOp:
+        thread_->RecordSingleOpFinished();
+        break;
+    }
+    if (tracking_) {
+      thread_->EndOperation(type_);
+    }
+  }
+
+ private:
+  ThreadState* thread_;
+  StressOperationType type_;
+  FinishAction finish_action_;
+  bool tracking_;
+};
 
 class StressReadScopedBlockBufferProvider
     : public ReadScopedBlockBufferProvider {
@@ -374,6 +413,45 @@ void WriteDataCorruption(uint32_t thread_id, int cf, int64_t key,
   }
 }
 
+std::string JoinSorted(std::vector<std::string> names) {
+  std::sort(names.begin(), names.end());
+  std::string out;
+  for (const auto& name : names) {
+    if (!out.empty()) {
+      out += ", ";
+    }
+    out += name;
+  }
+  return out;
+}
+
+// Checks that a column-family-subset checkpoint holds exactly the requested
+// families: the excluded ones must have been recorded as dropped in the copied
+// MANIFEST, and the requested ones must have survived that rewrite.
+Status VerifyCheckpointColumnFamilies(
+    const std::string& checkpoint_dir, const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& expected_cf_descs) {
+  std::vector<std::string> actual_names;
+  Status s = DB::ListColumnFamilies(db_options, checkpoint_dir, &actual_names);
+  if (!s.ok()) {
+    return s;
+  }
+  std::vector<std::string> expected_names;
+  expected_names.reserve(expected_cf_descs.size());
+  for (const auto& desc : expected_cf_descs) {
+    expected_names.push_back(desc.name);
+  }
+  const std::string actual = JoinSorted(std::move(actual_names));
+  const std::string expected = JoinSorted(std::move(expected_names));
+  if (actual == expected) {
+    return Status::OK();
+  }
+  std::ostringstream oss;
+  oss << "Subset checkpoint " << checkpoint_dir << " has column families {"
+      << actual << "} but {" << expected << "} were requested";
+  return Status::Corruption(oss.str());
+}
+
 }  // namespace
 
 bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
@@ -510,6 +588,51 @@ void StressTest::MaybeTestGetEntityLazy(
   // eager reference when we have one.
   ResolveLazyEntity(thread, key.ToString(), reference, lazy);
 }
+
+namespace {
+// Chooses a byte range for a lazy column read in db_stress fuzzing. Half the
+// time (or when the size is unknown or zero) reads the whole column; otherwise
+// a random sub-range, occasionally with an offset past the end or a length
+// beyond the remainder to exercise the API's clamp-to-empty /
+// clamp-to-remainder behavior. `known_size` is the column's logical size when
+// known without I/O.
+void PickLazyReadRange(Random* rand, std::optional<uint64_t> known_size,
+                       uint64_t* offset, size_t* length) {
+  if (!known_size.has_value() || *known_size == 0 || rand->OneIn(2)) {
+    *offset = 0;
+    *length = kLazyWholeColumn;
+    return;
+  }
+  // A small over-range so ~1/16 of picks land past the end or beyond the
+  // remainder, exercising the API's clamp-to-empty / clamp-to-remainder
+  // behavior. db_stress column values fit comfortably in int.
+  const int size_plus_some = static_cast<int>(*known_size + (*known_size >> 4));
+  // Offset in [0, size_plus_some); occasionally past the end to exercise
+  // clamping.
+  *offset = rand->Uniform(size_plus_some);
+  // Length: usually a bounded sub-range (which may exceed the remainder),
+  // sometimes to the end of the column.
+  if (rand->OneIn(4)) {
+    *length = kLazyWholeColumn;
+  } else {
+    *length = rand->Uniform(size_plus_some);
+  }
+}
+
+// The sub-range of `value` that a partial read with (offset, length) should
+// return, applying the API's documented clamping: an offset at/past the end
+// yields empty, length is clamped to the remainder, and kLazyWholeColumn reads
+// to the end.
+Slice ExpectedLazySlice(const Slice& value, uint64_t offset, size_t length) {
+  if (offset >= value.size()) {
+    return Slice();
+  }
+  const size_t off = static_cast<size_t>(offset);
+  const size_t avail = value.size() - off;
+  const size_t len = length > avail ? avail : length;
+  return Slice(value.data() + off, len);
+}
+}  // namespace
 
 void StressTest::MaybeTestMultiGetEntityLazy(
     ThreadState* thread, const ReadOptions& read_opts, ColumnFamilyHandle* cfh,
@@ -659,9 +782,17 @@ void StressTest::MaybeTestMultiGetEntityLazy(
   std::vector<Status> statuses(chosen.size());
   std::vector<LazyColumnReadRequest> reads(chosen.size());
   for (size_t j = 0; j < chosen.size(); ++j) {
-    reads[j].column = &batch[chosen[j].first][chosen[j].second];
-    reads[j].offset = 0;
-    reads[j].length = kLazyWholeColumn;
+    const size_t i = chosen[j].first;
+    const size_t c = chosen[j].second;
+    // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
+    // against the reference when available, else the known logical size.
+    const WideColumns* reference = entity_ref[i];
+    const std::optional<uint64_t> size_hint =
+        reference ? std::optional<uint64_t>((*reference)[c].value().size())
+                  : batch[i][c].logical_size();
+    reads[j].column = &batch[i][c];
+    PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
+                      &reads[j].length);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -692,14 +823,17 @@ void StressTest::MaybeTestMultiGetEntityLazy(
       }
       continue;
     }
-    const Slice& expected = (*reference)[chosen[j].second].value();
+    const Slice expected =
+        ExpectedLazySlice((*reference)[chosen[j].second].value(),
+                          reads[j].offset, reads[j].length);
     if (Slice(results[j]) != expected) {
       shared->SetVerificationFailure();
       fprintf(stderr,
-              "MultiGetEntityLazy value mismatch for key %s column %zu: lazy "
-              "%s, reference %s\n",
+              "MultiGetEntityLazy value mismatch for key %s column %zu "
+              "[offset %" PRIu64 " len %zu]: lazy %s, reference %s\n",
               StringToHex(keys[chosen[j].first].ToString()).c_str(),
-              chosen[j].second, Slice(results[j]).ToString(true).c_str(),
+              chosen[j].second, reads[j].offset, reads[j].length,
+              Slice(results[j]).ToString(true).c_str(),
               expected.ToString(true).c_str());
     }
   }
@@ -774,9 +908,15 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   std::vector<Status> statuses(chosen.size());
   std::vector<LazyColumnReadRequest> reads(chosen.size());
   for (size_t j = 0; j < chosen.size(); ++j) {
-    reads[j].column = &lazy[chosen[j]];
-    reads[j].offset = 0;
-    reads[j].length = kLazyWholeColumn;
+    const size_t c = chosen[j];
+    // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
+    // against the reference when available, else the known logical size.
+    const std::optional<uint64_t> size_hint =
+        reference ? std::optional<uint64_t>((*reference)[c].value().size())
+                  : lazy[c].logical_size();
+    reads[j].column = &lazy[c];
+    PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
+                      &reads[j].length);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -806,14 +946,16 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
       }
       continue;
     }
-    if (Slice(results[j]) != (*reference)[chosen[j]].value()) {
+    const Slice expected = ExpectedLazySlice((*reference)[chosen[j]].value(),
+                                             reads[j].offset, reads[j].length);
+    if (Slice(results[j]) != expected) {
       shared->SetVerificationFailure();
       fprintf(stderr,
-              "GetEntityLazy value mismatch for key %s column %zu: lazy %s, "
-              "reference %s\n",
-              StringToHex(key).c_str(), chosen[j],
-              Slice(results[j]).ToString(true).c_str(),
-              (*reference)[chosen[j]].value().ToString(true).c_str());
+              "GetEntityLazy value mismatch for key %s column %zu "
+              "[offset %" PRIu64 " len %zu]: lazy %s, reference %s\n",
+              StringToHex(key).c_str(), chosen[j], reads[j].offset,
+              reads[j].length, Slice(results[j]).ToString(true).c_str(),
+              expected.ToString(true).c_str());
     }
   }
 }
@@ -1997,7 +2139,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       break;
     }
     if (open_cnt != 0) {
-      thread->stats.FinishedSingleOp();
+      ScopedThreadOperation op(
+          thread, StressOperationType::kReopen,
+          ScopedThreadOperation::FinishAction::kFinishSingleOp);
       MutexLock l(thread->shared->GetMutex());
       while (!thread->snapshot_queue.empty()) {
         db_->ReleaseSnapshot(thread->snapshot_queue.front().second.snapshot);
@@ -2058,9 +2202,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-
       // Change Options
       if (thread->rand.OneInOpt(FLAGS_set_options_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kSetOptions);
         Status s = SetOptions(thread);
         ProcessStatus(shared, "SetOptions", s);
       }
@@ -2071,6 +2215,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->tid == 0 && FLAGS_verify_db_one_in > 0 &&
           thread->rand.OneIn(FLAGS_verify_db_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kVerifyDb);
         //  Temporarily disable error injection for verification
         if (db_fault_injection_fs_) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
@@ -2090,6 +2235,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       MaybeClearOneColumnFamily(thread);
 
       if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kManualWalFlush);
         bool sync = thread->rand.OneIn(2) ? true : false;
         Status s = db_->FlushWAL(sync);
         if (!s.ok() && !IsErrorInjectedAndRetryable(s) &&
@@ -2100,6 +2246,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_lock_wal_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kLockWal);
         Status s = db_->LockWAL();
         if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
           fprintf(stderr, "LockWAL() failed: %s\n", s.ToString().c_str());
@@ -2167,6 +2314,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kSyncWal);
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported() && !IsErrorInjectedAndRetryable(s)) {
           fprintf(stderr, "SyncWAL() failed: %s\n", s.ToString().c_str());
@@ -2177,6 +2325,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
       if (thread->rand.OneInOpt(FLAGS_compact_files_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kCompactFiles);
         TestCompactFiles(thread, column_family);
       }
 
@@ -2185,6 +2334,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       Slice key = keystr;
 
       if (thread->rand.OneInOpt(FLAGS_compact_range_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kCompactRange);
         TestCompactRange(thread, rand_key, key, column_family);
         if (thread->shared->HasVerificationFailedYet()) {
           break;
@@ -2199,10 +2349,12 @@ void StressTest::OperateDb(ThreadState* thread) {
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kFlush);
         TestFlush(thread, rand_column_families);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_live_files_apis_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kGetLiveFiles);
         Status s_1 = TestGetLiveFiles();
         ProcessStatus(shared, "GetLiveFiles", s_1);
         Status s_2 = TestGetLiveFilesMetaData();
@@ -2216,16 +2368,19 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_all_column_family_metadata_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kMetadata);
         Status status = TestGetAllColumnFamilyMetaData();
         ProcessStatus(shared, "GetAllColumnFamilyMetaData", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_sorted_wal_files_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kMetadata);
         Status status = TestGetSortedWalFiles();
         ProcessStatus(shared, "GetSortedWalFiles", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kMetadata);
         Status status = TestGetCurrentWalFile();
         ProcessStatus(shared, "GetCurrentWalFile", status);
       }
@@ -2236,16 +2391,21 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kPauseBackground);
         Status status = TestPauseBackground(thread);
         ProcessStatus(shared, "Pause/ContinueBackgroundWork", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_disable_file_deletions_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kDisableFileDeletions);
         Status status = TestDisableFileDeletions(thread);
         ProcessStatus(shared, "TestDisableFileDeletions", status);
       }
 
       if (thread->rand.OneInOpt(FLAGS_disable_manual_compaction_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kDisableManualCompaction);
         Status status = TestDisableManualCompaction(thread);
         ProcessStatus(shared, "TestDisableManualCompaction", status);
       }
@@ -2261,6 +2421,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kVerifyChecksum);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
             ThreadStatus::OperationType::OP_VERIFY_DB_CHECKSUM);
@@ -2270,6 +2431,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_verify_file_checksums_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kVerifyFileChecksums);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         ThreadStatusUtil::SetThreadOperation(
             ThreadStatus::OperationType::OP_VERIFY_FILE_CHECKSUMS);
@@ -2279,6 +2442,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kGetProperty);
         // TestGetProperty doesn't return status for us to tell whether it has
         // failed due to injected error. So we disable fault injection to avoid
         // false positive
@@ -2294,6 +2458,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_properties_of_all_tables_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kTableProperties);
         Status status = TestGetPropertiesOfAllTables();
         ProcessStatus(shared, "TestGetPropertiesOfAllTables", status);
       }
@@ -2301,10 +2466,13 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (thread->rand.OneInOpt(FLAGS_ingest_external_file_one_in)) {
+        ScopedThreadOperation op(thread,
+                                 StressOperationType::kIngestExternalFile);
         TestIngestExternalFile(thread, rand_column_families, rand_keys);
       }
 
       if (thread->rand.OneInOpt(FLAGS_backup_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kBackup);
         // Beyond a certain DB size threshold, this test becomes heavier than
         // it's worth.
         uint64_t total_size = 0;
@@ -2331,20 +2499,24 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kCheckpoint);
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
         ProcessStatus(shared, "Checkpoint", s);
       }
 
       if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kApproximateSize);
         Status s =
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
         ProcessStatus(shared, "ApproximateSize", s);
       }
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kSnapshot);
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
       }
 
       /*always*/ {
+        ScopedThreadOperation op(thread, StressOperationType::kSnapshot);
         Status s = MaybeReleaseSnapshots(thread, i);
         ProcessStatus(shared, "Snapshot", s);
       }
@@ -2359,6 +2531,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
+        ScopedThreadOperation op(thread, StressOperationType::kKeyMayExist);
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
       // Historical expected-state restore replays exactly
@@ -2369,12 +2542,12 @@ void StressTest::OperateDb(ThreadState* thread) {
       bool disable_fault_injection_during_user_write =
           db_fault_injection_fs_ && MightHaveUnsyncedDataLoss();
       int prob_op = thread->rand.Uniform(100);
-      // Reset this in case we pick something other than a read op. We don't
-      // want to use a stale value when deciding at the beginning of the loop
-      // whether to vote to reopen
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
+        ScopedThreadOperation op(
+            thread, StressOperationType::kRead,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
         if (FLAGS_use_multi_get_entity) {
           constexpr uint64_t max_batch_size = 64;
@@ -2418,6 +2591,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < prefix_bound) {
         assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
         // OPERATION prefix scan
+        ScopedThreadOperation op(
+            thread, StressOperationType::kPrefixScan,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
@@ -2426,6 +2602,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < write_bound) {
         assert(prefix_bound <= prob_op);
         // OPERATION write
+        ScopedThreadOperation op(
+            thread, StressOperationType::kWrite,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2437,6 +2616,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < del_bound) {
         assert(write_bound <= prob_op);
         // OPERATION delete
+        ScopedThreadOperation op(
+            thread, StressOperationType::kDelete,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2447,6 +2629,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < delrange_bound) {
         assert(del_bound <= prob_op);
         // OPERATION delete range
+        ScopedThreadOperation op(
+            thread, StressOperationType::kDeleteRange,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2457,6 +2642,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
+        ScopedThreadOperation op(
+            thread, StressOperationType::kIterate,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         if (FLAGS_use_multiscan) {
           int num_seeks = static_cast<int>(
               std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
@@ -2505,9 +2693,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       } else {
         assert(iterate_bound <= prob_op);
+        ScopedThreadOperation op(
+            thread, StressOperationType::kCustom,
+            ScopedThreadOperation::FinishAction::kFinishSingleOp);
         TestCustomOperations(thread, rand_column_families);
       }
-      thread->stats.FinishedSingleOp();
     }
 
 #ifndef NDEBUG
@@ -4030,18 +4220,66 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_fault_injection_fs_) {
     db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
   }
+  const size_t num_cfs = column_families_.size();
+  const bool use_cf_subset =
+      num_cfs > 1 && thread->rand.OneInOpt(FLAGS_subset_cf_checkpoint_one_in);
   const bool use_parallel_engine =
       thread->rand.OneInOpt(FLAGS_parallel_checkpoint_one_in);
+
+  // `in_checkpoint[i]` is whether column family `i` is expected to exist in the
+  // checkpoint; all of them unless subset mode picked otherwise.
+  std::vector<bool> in_checkpoint(num_cfs, true);
+
+  // Picks a random non-empty proper subset of the column families, marking the
+  // excluded ones in `in_checkpoint` and returning the handles to pass to the
+  // Checkpoint API.
+  auto pick_cf_subset = [&]() {
+    // Index 0 is the default column family, which is in every checkpoint
+    // whether or not it is requested (it cannot be dropped), so only the
+    // non-default families at indices [1, num_cfs) can be excluded.
+    for (size_t i = 1; i < num_cfs; ++i) {
+      in_checkpoint[i] = thread->rand.OneIn(2);
+    }
+    // Force one exclusion so every subset checkpoint exercises the MANIFEST
+    // column-family-drop rewrite instead of degenerating into a whole-DB
+    // checkpoint.
+    in_checkpoint[1 + thread->rand.Uniform(static_cast<int>(num_cfs) - 1)] =
+        false;
+
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(num_cfs);
+    for (size_t i = 1; i < num_cfs; ++i) {
+      if (in_checkpoint[i]) {
+        cfhs.push_back(column_families_[i]);
+      }
+    }
+    // Pass the default column family only half the time, to cover both sides
+    // of the "included whether or not you pass it" contract. An empty vector
+    // means "all column families" to the API, so it has to go in when nothing
+    // else did.
+    if (cfhs.empty() || thread->rand.OneIn(2)) {
+      cfhs.push_back(column_families_[0]);
+    }
+    return cfhs;
+  };
+
+  std::vector<ColumnFamilyHandle*> subset_cfhs;
+  if (use_cf_subset) {
+    subset_cfhs = pick_cf_subset();
+  }
+
   Checkpoint* checkpoint = nullptr;
   Status s;
   if (use_parallel_engine) {
-    const IOStatus io_s =
-        checkpoint_engine_->CreateCheckpoint(db_, checkpoint_dir);
+    CreateCheckpointOptions create_options;
+    create_options.column_families = subset_cfhs;
+    const IOStatus io_s = checkpoint_engine_->CreateCheckpoint(
+        db_, checkpoint_dir, /*sequence_number_ptr=*/nullptr, create_options);
     s = io_s;
   } else {
     s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
-      s = checkpoint->CreateCheckpoint(checkpoint_dir);
+      s = checkpoint->CreateCheckpoint(checkpoint_dir, subset_cfhs);
     }
   }
   if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
@@ -4076,6 +4314,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
   std::unique_ptr<DB> checkpoint_db;
+  // Maps a column family index in `column_families_` to its index in
+  // `cf_handles`, or -1 when it was left out of a subset checkpoint.
+  std::vector<int> cf_handle_index(num_cfs, -1);
   if (s.ok()) {
     Options options(options_);
     options.best_efforts_recovery = false;
@@ -4089,11 +4330,22 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // the same order as `column_family_names_`.
     assert(FLAGS_clear_column_family_one_in == 0);
     if (FLAGS_clear_column_family_one_in == 0) {
-      for (const auto& name : column_family_names_) {
-        cf_descs.emplace_back(name, ColumnFamilyOptions(options));
+      for (size_t i = 0; i < num_cfs; ++i) {
+        if (!in_checkpoint[i]) {
+          continue;
+        }
+        cf_handle_index[i] = static_cast<int>(cf_descs.size());
+        cf_descs.emplace_back(column_family_names_[i],
+                              ColumnFamilyOptions(options));
       }
-      s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
-                              &cf_handles, &checkpoint_db);
+      if (use_cf_subset) {
+        s = VerifyCheckpointColumnFamilies(checkpoint_dir, DBOptions(options),
+                                           cf_descs);
+      }
+      if (s.ok()) {
+        s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
+                                &cf_handles, &checkpoint_db);
+      }
     }
   }
   if (checkpoint_db != nullptr) {
@@ -4101,6 +4353,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     // dropped while the locks for `rand_keys` are held. So we should not have
     // to worry about accessing those column families throughout this function.
     for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
+      const int handle_index = cf_handle_index[rand_column_families[i]];
+      if (handle_index < 0) {
+        // Left out of this subset checkpoint, so there is nothing to compare.
+        continue;
+      }
       std::string key_str = Key(rand_keys[0]);
       Slice key = key_str;
       std::string ts_str;
@@ -4112,9 +4369,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
         read_opts.timestamp = &ts;
       }
       std::string value;
-      Status get_status =
-          DbStressGet(checkpoint_db.get(), read_opts,
-                      cf_handles[rand_column_families[i]], key, &value);
+      Status get_status = DbStressGet(checkpoint_db.get(), read_opts,
+                                      cf_handles[handle_index], key, &value);
       bool exists =
           thread->shared->Exists(rand_column_families[i], rand_keys[0]);
       if (get_status.ok()) {
@@ -4402,17 +4658,79 @@ Status StressTest::TestDisableManualCompaction(ThreadState* thread) {
   return Status::OK();
 }
 
+bool StressTest::ShouldAbortAndResumeCompactions() const {
+  uint64_t is_write_stopped = 0;
+  if (db_->GetIntProperty(DB::Properties::kIsWriteStopped, &is_write_stopped) &&
+      is_write_stopped != 0) {
+    return false;
+  }
+
+  uint64_t delayed_write_rate = 0;
+  if (db_->GetIntProperty(DB::Properties::kActualDelayedWriteRate,
+                          &delayed_write_rate) &&
+      delayed_write_rate != 0) {
+    return false;
+  }
+
+  uint64_t running_compactions = 0;
+  const bool has_running_compactions =
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                          &running_compactions) &&
+      running_compactions != 0;
+
+  uint64_t pending_compactions = 0;
+  uint64_t pending_compaction_bytes = 0;
+  for (auto* column_family : column_families_) {
+    uint64_t cf_pending_compactions = 0;
+    if (db_->GetIntProperty(column_family, DB::Properties::kCompactionPending,
+                            &cf_pending_compactions)) {
+      pending_compactions += cf_pending_compactions;
+    }
+
+    uint64_t cf_pending_compaction_bytes = 0;
+    if (db_->GetIntProperty(column_family,
+                            DB::Properties::kEstimatePendingCompactionBytes,
+                            &cf_pending_compaction_bytes)) {
+      pending_compaction_bytes += cf_pending_compaction_bytes;
+    }
+  }
+
+  return has_running_compactions || pending_compactions != 0 ||
+         pending_compaction_bytes != 0;
+}
+
 Status StressTest::TestAbortAndResumeCompactions(ThreadState* thread) {
+  uint64_t successful_compactions = 0;
+  if (!thread->shared->TryBeginAbortAndResumeCompactions(
+          &successful_compactions)) {
+    return Status::OK();
+  }
+
+  if (!ShouldAbortAndResumeCompactions()) {
+    thread->shared->EndAbortAndResumeCompactions();
+    return Status::OK();
+  }
+
+  // Each abort must be paid for by at least one completed non-aborted
+  // compaction, and concurrent abort/resume sections are serialized. This keeps
+  // aggressive random sampling from starving compactions and causing unrelated
+  // write stalls.
+  thread->shared->MarkAbortAndResumeCompactions(successful_compactions);
+  ScopedThreadOperation op(thread,
+                           StressOperationType::kAbortResumeCompactions);
+
   // Abort all running compactions and prevent new ones from starting
   db_->AbortAllCompactions();
   // Sleep to allow other threads to attempt operations while aborted
-  // Uses same sleep pattern as TestPauseBackground and
-  // TestDisableManualCompaction
+  // Uses the same short-skewed pattern as TestPauseBackground, capped to avoid
+  // creating long compaction starvation windows.
   int pwr2_micros =
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
-  clock_->SleepForMicroseconds(1 << pwr2_micros);
+  clock_->SleepForMicroseconds(
+      std::min(1 << pwr2_micros, kMaxAbortResumeCompactionsSleepMicros));
   // Resume compactions
   db_->ResumeAllCompactions();
+  thread->shared->EndAbortAndResumeCompactions();
   return Status::OK();
 }
 
@@ -4944,9 +5262,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     options_.compression_manager =
         std::make_shared<RandomMixedCompressionManager>(
             GetBuiltinV2CompressionManager());
-  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-    options_.compression_manager =
-        CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {
@@ -5005,12 +5320,14 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
           ", direct write enabled %d, direct write partitions %" PRIu32
           ", blob file size %" PRIu64
+          ", blob file writable file max buffer size %" PRIu64
           ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
           "threshold %f, blob compaction readahead size %" PRIu64
           ", blob file starting level %d\n",
           options_.enable_blob_files, options_.min_blob_size,
           options_.enable_blob_direct_write,
           options_.blob_direct_write_partitions, options_.blob_file_size,
+          options_.blob_file_writable_file_max_buffer_size,
           CompressionTypeToString(options_.blob_compression_type).c_str(),
           options_.enable_blob_garbage_collection,
           options_.blob_garbage_collection_age_cutoff,
@@ -5326,7 +5643,7 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
 
   // A read-only instance opened concurrently with the primary can trip over
   // injected faults or files the primary mutates underneath it, so disable
-  // error injection while we open, read, and close the reader. The primary's
+  // error injection while we open and close the reader. The primary's
   // own subsequent operations run with injection re-enabled, so a genuinely
   // deleted live file still surfaces on the normal verification path.
   if (db_fault_injection_fs_) {
@@ -5348,16 +5665,6 @@ void StressTest::MaybeOpenReadOnlyOnPrimary(ThreadState* thread) {
   // Opening read-only while the primary mutates the same directory is
   // best-effort; a transient failure here is expected and not a bug.
   if (s.ok()) {
-    // Exercise the lazy wide-column read path on the read-only instance: the
-    // differential self-checks lazy vs eager on this same reader. No-op unless
-    // the lazy API is enabled (open_files == -1, no UDT/txn) and sampled.
-    {
-      const size_t cf = thread->rand.Next() % ro_cfhs.size();
-      const std::string key_str = Key(thread->rand.Next() % FLAGS_max_key);
-      MaybeTestGetEntityLazy(thread, ReadOptions(), ro_cfhs[cf], key_str,
-                             /*eager_reference=*/nullptr, ro_db.get());
-    }
-
     // Create new SST files in the primary that are absent from the reader's
     // frozen live-file snapshot, so that a read-only close wrongly running
     // obsolete-file cleanup would delete these live files. Flush all column
@@ -6020,6 +6327,9 @@ void InitializeOptionsFromFlags(
       FLAGS_compression_parallel_threads;
   options.compression_opts.max_dict_buffer_bytes =
       FLAGS_compression_max_dict_buffer_bytes;
+  options.compression_opts.auto_skip = FLAGS_compression_auto_skip;
+  options.compression_opts.auto_skip_min_sample_every =
+      FLAGS_compression_auto_skip_min_sample_every;
   if (ZSTD_FinalizeDictionarySupported()) {
     options.compression_opts.use_zstd_dict_trainer =
         FLAGS_compression_use_zstd_dict_trainer;
@@ -6098,6 +6408,8 @@ void InitializeOptionsFromFlags(
       static_cast<uint32_t>(FLAGS_blob_direct_write_partitions);
   options.min_blob_size = FLAGS_min_blob_size;
   options.blob_file_size = FLAGS_blob_file_size;
+  options.blob_file_writable_file_max_buffer_size =
+      FLAGS_blob_file_writable_file_max_buffer_size;
   options.blob_compression_type =
       StringToCompressionType(FLAGS_blob_compression_type.c_str());
   options.enable_blob_garbage_collection = FLAGS_enable_blob_garbage_collection;

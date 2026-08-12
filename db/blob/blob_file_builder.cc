@@ -67,6 +67,8 @@ BlobFileBuilder::BlobFileBuilder(
       immutable_options_(immutable_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
+      blob_file_writable_file_max_buffer_size_(
+          mutable_cf_options->blob_file_writable_file_max_buffer_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       // TODO with schema change: support custom compression manager and options
       // such as max_compressed_bytes_per_kb
@@ -208,6 +210,10 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
     fo_copy.open_contract = FileOpenContract::kNoReopenForWrite |
                             FileOpenContract::kNoReadersWhileOpenForWrite;
     fo_copy.write_hint = write_hint_;
+    if (blob_file_writable_file_max_buffer_size_ > 0) {
+      fo_copy.writable_file_max_buffer_size =
+          blob_file_writable_file_max_buffer_size_;
+    }
     Status s = NewWritableFile(fs_, blob_file_path, &file, fo_copy);
 
     TEST_SYNC_POINT_CALLBACK(
@@ -232,7 +238,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), output_file_paths_->back(), *file_options_,
+      std::move(file), output_file_paths_->back(), fo_copy,
       immutable_options_->clock, io_tracer_, statistics,
       Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS, immutable_options_->listeners,
       immutable_options_->file_checksum_gen_factory.get(),

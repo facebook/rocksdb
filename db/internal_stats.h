@@ -850,10 +850,16 @@ class InternalStats {
   bool HandleCompactionPending(uint64_t* value, DBImpl* db, Version* version);
   bool HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleNumRunningRemoteCompactions(uint64_t* value, DBImpl* db,
+                                         Version* version);
+  bool HandleNumRunningBottomCompactions(uint64_t* value, DBImpl* db,
+                                         Version* version);
   bool HandleNumRunningCompactionSortedRuns(uint64_t* value, DBImpl* db,
                                             Version* version);
   bool HandleCompactionAbortCount(uint64_t* value, DBImpl* db,
                                   Version* version);
+  bool HandleNumUnscheduledCompactions(uint64_t* value, DBImpl* db,
+                                       Version* version);
   bool HandleBackgroundErrors(uint64_t* value, DBImpl* db, Version* version);
   bool HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* db,
                                    Version* version);

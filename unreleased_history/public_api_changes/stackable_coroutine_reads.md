@@ -1,0 +1,1 @@
+Added `CoroStackableDB` for implementing wrappers over native coroutine reads and used it to add coroutine `Get` and `MultiGet` support to `DBWithTTL` and WritePrepared `TransactionDB`. A stackable wrapper advertises coroutine support only when its wrapped DB supports it; TTL value decoding and transaction visibility semantics are preserved.

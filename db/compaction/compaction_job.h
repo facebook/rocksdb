@@ -166,7 +166,8 @@ class CompactionJob {
                 std::string full_history_ts_low = "", std::string trim_ts = "",
                 BlobFileCompletionCallback* blob_callback = nullptr,
                 int* bg_compaction_scheduled = nullptr,
-                int* bg_bottom_compaction_scheduled = nullptr);
+                int* bg_bottom_compaction_scheduled = nullptr,
+                std::atomic<int>* num_running_remote_compactions = nullptr);
 
   virtual ~CompactionJob();
 
@@ -499,6 +500,12 @@ class CompactionJob {
   // or updating it.
   int* bg_compaction_scheduled_;
   int* bg_bottom_compaction_scheduled_;
+
+  // Stores the pointer to DBImpl::num_running_remote_compactions_, backing the
+  // public rocksdb.num-running-remote-compactions property. Null when the job
+  // has no owning DBImpl to report to (compaction service workers, unit tests).
+  // Updated without the DB mutex held.
+  std::atomic<int>* num_running_remote_compactions_;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.

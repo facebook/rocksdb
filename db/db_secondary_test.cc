@@ -830,8 +830,7 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
                   "blob_compaction_readahead_size=4194304;"
                   "some_invalid_option=ignore_me;"
                   "env=this_should_not_fail;"
-                  "max_open_files=100;",  // this should be always overriden as
-                                          // -1 in remote compaction
+                  "max_open_files=100;",
                   &override_options.options_map));
 
   bool verified = false;
@@ -842,7 +841,7 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
         auto secondary_db_options = secondary_db->GetOptions();
         // DBOption
         ASSERT_EQ(secondary_db_options.compaction_readahead_size, 8388608);
-        ASSERT_EQ(secondary_db_options.max_open_files, -1);
+        ASSERT_EQ(secondary_db_options.max_open_files, 100);
         // CFOption
         ASSERT_EQ(secondary_db_options.blob_compaction_readahead_size, 4194304);
         verified = true;

@@ -1102,6 +1102,15 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t blob_file_size = 1ULL << 28;
 
+  // Max size of the in-memory write buffer for blob files only, overriding
+  // DBOptions::writable_file_max_buffer_size for blob writers.
+  // 0 => inherit DBOptions::writable_file_max_buffer_size.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_file_writable_file_max_buffer_size = 0;
+
   // The compression algorithm to use for large values stored in blob files.
   // Note that enable_blob_files has to be set in order for this option to have
   // any effect.

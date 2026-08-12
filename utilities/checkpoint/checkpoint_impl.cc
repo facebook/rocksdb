@@ -82,11 +82,19 @@ class CheckpointEngineImpl : public CheckpointEngine {
           create_options.background_thread_cpu_priority);
     }
 
+    std::vector<uint32_t> include_cf_ids;
+    Status resolve_s = CheckpointImpl::ResolveIncludeColumnFamilyIds(
+        source_db, create_options.column_families, &include_cf_ids);
+    if (!resolve_s.ok()) {
+      return status_to_io_status(std::move(resolve_s));
+    }
+
     const bool use_link = options_.use_link_file_when_available;
     CheckpointImpl impl(source_db);
     return status_to_io_status(impl.CreateCheckpointImpl(
         destination_dir, create_options.log_size_for_flush, sequence_number_ptr,
-        copy_engine_.get(), use_link, options_.backup_rate_limiter.get()));
+        copy_engine_.get(), use_link, options_.backup_rate_limiter.get(),
+        include_cf_ids));
   }
 
   IOStatus ExportColumnFamily(
@@ -336,22 +344,20 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                               /*use_link=*/true, /*copy_rate_limiter=*/nullptr);
 }
 
-Status CheckpointImpl::CreateCheckpoint(
-    const std::string& checkpoint_dir,
-    const std::vector<ColumnFamilyHandle*>& column_families,
-    uint64_t log_size_for_flush, uint64_t* sequence_number_ptr) {
+Status CheckpointImpl::ResolveIncludeColumnFamilyIds(
+    DB* db, const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<uint32_t>* include_cf_ids) {
+  assert(include_cf_ids != nullptr);
+  include_cf_ids->clear();
   // Empty list means "all column families" -- identical to the whole-DB API.
   if (column_families.empty()) {
-    return CreateCheckpointImpl(checkpoint_dir, log_size_for_flush,
-                                sequence_number_ptr, /*engine=*/nullptr,
-                                /*use_link=*/true,
-                                /*copy_rate_limiter=*/nullptr);
+    return Status::OK();
   }
 
   // Reject handles that do not belong to this DB. handle->GetID() alone would
   // silently coerce a foreign CF id into whatever CF in this DB happens to
   // share that id, producing a wrong-data subset checkpoint.
-  DBImpl* this_db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  DBImpl* this_db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   std::unordered_set<uint32_t> id_set;
   for (auto* handle : column_families) {
     if (handle == nullptr) {
@@ -370,9 +376,22 @@ Status CheckpointImpl::CreateCheckpoint(
   }
   // The default column family cannot be dropped and must exist in every
   // openable DB, so it is always included and never eligible for exclusion.
-  id_set.insert(db_->DefaultColumnFamily()->GetID());
+  id_set.insert(db->DefaultColumnFamily()->GetID());
 
-  std::vector<uint32_t> include_cf_ids(id_set.begin(), id_set.end());
+  include_cf_ids->assign(id_set.begin(), id_set.end());
+  return Status::OK();
+}
+
+Status CheckpointImpl::CreateCheckpoint(
+    const std::string& checkpoint_dir,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    uint64_t log_size_for_flush, uint64_t* sequence_number_ptr) {
+  std::vector<uint32_t> include_cf_ids;
+  Status s =
+      ResolveIncludeColumnFamilyIds(db_, column_families, &include_cf_ids);
+  if (!s.ok()) {
+    return s;
+  }
   return CreateCheckpointImpl(checkpoint_dir, log_size_for_flush,
                               sequence_number_ptr, /*engine=*/nullptr,
                               /*use_link=*/true, /*copy_rate_limiter=*/nullptr,

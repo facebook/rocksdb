@@ -53,6 +53,12 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
 
+  // Resets this thread's AutoSkip inter-file estimate carryover (see
+  // CompressionOptions::auto_skip). Tools that build many independent files on
+  // a single thread (e.g. sst_dump --command=recompress) call this between
+  // files so each is measured without inheriting the previous file's estimate.
+  static void ResetThreadLocalAutoSkipCarryover();
+
   // Add key,value to the table being constructed.
   // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any
   //           previously added non-kTypeRangeDeletion key according to
@@ -228,7 +234,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   void BGWorker(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
-  // compression type
+  // compression type. Only ever called to attempt compression; the auto-skip
+  // skip/bypass decision is made by the caller (emit thread).
   Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
                                 bool is_data_block,
                                 WorkingAreaPair& working_area,

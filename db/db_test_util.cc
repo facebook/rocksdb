@@ -25,6 +25,7 @@
 
 #if USE_COROUTINES
 #include "folly/coro/BlockingWait.h"
+#include "rocksdb/coro_db.h"
 #endif  // USE_COROUTINES
 
 namespace ROCKSDB_NAMESPACE {
@@ -872,8 +873,8 @@ std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot,
 #if USE_COROUTINES
   if (use_coroutine) {
     PinnableSlice pinnable_value(&result);
-    s = folly::coro::blockingWait(dbfull()->GetCoroutine(
-        options, dbfull()->DefaultColumnFamily(), k, &pinnable_value,
+    s = folly::coro::blockingWait(CoroDB::CoGet(
+        dbfull(), options, dbfull()->DefaultColumnFamily(), k, &pinnable_value,
         /*timestamp=*/nullptr));
     if (s.ok() && pinnable_value.IsPinned()) {
       result.assign(pinnable_value.data(), pinnable_value.size());
@@ -903,8 +904,9 @@ std::string DBTestBase::Get(int cf, const std::string& k,
 #if USE_COROUTINES
   if (use_coroutine) {
     PinnableSlice pinnable_value(&result);
-    s = folly::coro::blockingWait(dbfull()->GetCoroutine(
-        options, handles_[cf], k, &pinnable_value, /*timestamp=*/nullptr));
+    s = folly::coro::blockingWait(CoroDB::CoGet(dbfull(), options, handles_[cf],
+                                                k, &pinnable_value,
+                                                /*timestamp=*/nullptr));
     if (s.ok() && pinnable_value.IsPinned()) {
       result.assign(pinnable_value.data(), pinnable_value.size());
     }
@@ -956,9 +958,10 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
     s.resize(cfs.size());
 #if USE_COROUTINES
     if (use_coroutine) {
-      folly::coro::blockingWait(dbfull()->MultiGetCoroutine(
-          options, cfs.size(), handles.data(), keys.data(), pin_values.data(),
-          /*timestamps=*/nullptr, s.data(), /*sorted_input=*/false));
+      folly::coro::blockingWait(CoroDB::CoMultiGet(
+          dbfull(), options, cfs.size(), handles.data(), keys.data(),
+          pin_values.data(), /*timestamps=*/nullptr, s.data(),
+          /*sorted_input=*/false));
     } else
 #else
     (void)use_coroutine;
@@ -1005,9 +1008,10 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
   if (use_coroutine) {
     std::vector<ColumnFamilyHandle*> cfs(keys.size(),
                                          dbfull()->DefaultColumnFamily());
-    folly::coro::blockingWait(dbfull()->MultiGetCoroutine(
-        options, keys.size(), cfs.data(), keys.data(), pin_values.data(),
-        /*timestamps=*/nullptr, statuses.data(), /*sorted_input=*/false));
+    folly::coro::blockingWait(CoroDB::CoMultiGet(
+        dbfull(), options, keys.size(), cfs.data(), keys.data(),
+        pin_values.data(), /*timestamps=*/nullptr, statuses.data(),
+        /*sorted_input=*/false));
   } else
 #else
   (void)use_coroutine;
@@ -1038,8 +1042,8 @@ Status DBTestBase::Get(const std::string& k, PinnableSlice* v,
 #if USE_COROUTINES
   if (use_coroutine) {
     return folly::coro::blockingWait(
-        dbfull()->GetCoroutine(options, dbfull()->DefaultColumnFamily(), k, v,
-                               /*timestamp=*/nullptr));
+        CoroDB::CoGet(dbfull(), options, dbfull()->DefaultColumnFamily(), k, v,
+                      /*timestamp=*/nullptr));
   }
 #else
   (void)use_coroutine;

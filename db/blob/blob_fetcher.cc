@@ -44,6 +44,45 @@ Status VersionBlobFetcherBase::FetchBlob(const Slice& user_key,
       prefetch_buffer, blob_value, bytes_read);
 }
 
+Status VersionBlobFetcherBase::FetchBlobRange(const Slice& user_key,
+                                              const BlobIndex& blob_index,
+                                              uint64_t range_offset,
+                                              size_t range_length,
+                                              PinnableSlice* blob_value,
+                                              uint64_t* bytes_read) const {
+  // Only ever called when SupportsRangeRead() holds (a Version to read through,
+  // no direct-write fallback); the direct-write path resolves whole records and
+  // has no range variant.
+  assert(SupportsRangeRead());
+  assert(version_);
+  return version_->GetBlobRange(read_options(), user_key, blob_index,
+                                range_offset, range_length, blob_value,
+                                bytes_read);
+}
+
+Status VersionBlobFetcherBase::FetchBlobForceVerify(
+    const Slice& user_key, const BlobIndex& blob_index,
+    FilePrefetchBuffer* prefetch_buffer, PinnableSlice* blob_value,
+    uint64_t* bytes_read) const {
+  if (read_options().verify_checksums) {
+    // Verification already happens on the normal path.
+    return FetchBlob(user_key, blob_index, prefetch_buffer, blob_value,
+                     bytes_read);
+  }
+
+  // Force verification via a transient fetcher over a verify-enabled copy of
+  // the read options. `verify_read_options` outlives `verifying_fetcher` (both
+  // are local to this call), so the borrowed-options VersionBlobFetcher is
+  // safe.
+  ReadOptions verify_read_options = read_options();
+  verify_read_options.verify_checksums = true;
+  VersionBlobFetcher verifying_fetcher(version_, verify_read_options,
+                                       blob_file_cache_,
+                                       allow_write_path_fallback_);
+  return verifying_fetcher.FetchBlob(user_key, blob_index, prefetch_buffer,
+                                     blob_value, bytes_read);
+}
+
 Status EmbeddedAwareBlobFetcher::FetchBlob(const Slice& user_key,
                                            const BlobIndex& blob_index,
                                            FilePrefetchBuffer* prefetch_buffer,

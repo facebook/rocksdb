@@ -1374,6 +1374,58 @@ Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
   return ResolveEmbeddedBlobPinned(read_options, blob_index, value);
 }
 
+Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    uint64_t range_offset, size_t range_length, PinnableSlice* value) const {
+  assert(value != nullptr);
+  assert(rep_->blob_source_ != nullptr);
+  size_t payload_size = 0;
+  size_t record_size = 0;
+  // TODO(lazy-blob-resolution-quirks): ValidateEmbeddedBlobIndex rejects
+  // read_tier == kBlockCacheTier up front (before the blob-cache probe in
+  // GetSimpleGen2BlobRange), so a block-cache-only read of an embedded column
+  // returns Incomplete even when the whole payload is already cached. This
+  // mirrors the whole-value embedded path (ResolveEmbeddedBlobCached) but
+  // differs from the separate-file GetBlobRange, which probes the cache first
+  // and can serve a kBlockCacheTier read from cache. Unify the two (probe cache
+  // before rejecting kBlockCacheTier) in a later quirk-cleanup phase; see the
+  // lazy blob resolution plan.
+  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
+                                       &record_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return rep_->blob_source_->GetSimpleGen2BlobRange(
+      read_options, rep_->base_cache_key, rep_->file.get(), blob_index.offset(),
+      payload_size, rep_->footer.checksum_type(),
+      rep_->footer.base_context_checksum(), blob_index.compression(),
+      range_offset, range_length, value, /*bytes_read=*/nullptr);
+}
+
+Status BlockBasedTable::GetSameFileBlobRange(const ReadOptions& read_options,
+                                             const BlobIndex& blob_index,
+                                             uint64_t range_offset,
+                                             size_t range_length,
+                                             PinnableSlice* value) const {
+  // Byte-range embedded reads are only issued while resolving a lazy result,
+  // which always runs against an open DB column family (so a BlobSource is
+  // wired); unlike the whole-value GetSameFileBlob there is no direct-pinned
+  // (no-BlobSource, e.g. SstFileReader) range path. Reaching here without a
+  // BlobSource therefore means a same-file/embedded reference was routed from
+  // an unexpected context -- which a corrupt index can cause in production
+  // (e.g. an entry decoding to the file_number 0 same-file sentinel) -- so
+  // report it as corruption, mirroring Version::GetBlobRange's "Invalid blob
+  // file number".
+  assert(rep_->blob_source_ != nullptr);
+  if (rep_->blob_source_ == nullptr) {
+    return Status::Corruption(
+        "Invalid same-file blob reference (no BlobSource for range read)");
+  }
+  return ResolveEmbeddedBlobRangeCached(read_options, blob_index, range_offset,
+                                        range_length, value);
+}
+
 Status BlockBasedTable::MaybeResolveEmbeddedValue(
     const ReadOptions& read_options, const Slice& internal_key,
     const Slice& value, std::string* resolved_internal_key,

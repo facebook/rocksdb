@@ -239,6 +239,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompressionOptions, max_compressed_bytes_per_kb),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"auto_skip",
+         {offsetof(struct CompressionOptions, auto_skip), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"auto_skip_min_sample_every",
+         {offsetof(struct CompressionOptions, auto_skip_min_sample_every),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"max_dict_bytes",
          {offsetof(struct CompressionOptions, max_dict_bytes), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
@@ -616,6 +623,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"blob_file_size",
          {offsetof(struct MutableCFOptions, blob_file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"blob_file_writable_file_max_buffer_size",
+         {offsetof(struct MutableCFOptions,
+                   blob_file_writable_file_max_buffer_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"blob_compression_type",
@@ -1342,6 +1354,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  min_blob_size);
   ROCKS_LOG_INFO(log, "                           blob_file_size: %" PRIu64,
                  blob_file_size);
+  ROCKS_LOG_INFO(log, "  blob_file_writable_file_max_buffer_size: %" PRIu64,
+                 blob_file_writable_file_max_buffer_size);
   ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
                  CompressionTypeToString(blob_compression_type).c_str());
   ROCKS_LOG_INFO(log, "             blob_compression_opts.level: %d",
