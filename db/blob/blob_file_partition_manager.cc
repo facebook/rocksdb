@@ -100,7 +100,8 @@ BlobFilePartitionManager::BlobFilePartitionManager(
     FileNumberAllocator file_number_allocator, FileSystem* fs,
     SystemClock* clock, Statistics* statistics, const FileOptions& file_options,
     std::string db_path, std::string column_family_name,
-    uint64_t blob_file_size, bool use_fsync, BlobFileCache* blob_file_cache,
+    uint64_t blob_file_size, bool use_fsync,
+    uint64_t blob_writer_max_buffer_size, BlobFileCache* blob_file_cache,
     BlobFileCompletionCallback* blob_callback,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     FileChecksumGenFactory* file_checksum_gen_factory,
@@ -120,6 +121,7 @@ BlobFilePartitionManager::BlobFilePartitionManager(
       column_family_name_(std::move(column_family_name)),
       blob_file_size_(blob_file_size),
       use_fsync_(use_fsync),
+      blob_writer_max_buffer_size_(blob_writer_max_buffer_size),
       blob_file_cache_(blob_file_cache),
       blob_callback_(blob_callback),
       listeners_(listeners),
@@ -202,6 +204,11 @@ Status BlobFilePartitionManager::OpenNewBlobFile(Partition* partition,
   std::unique_ptr<FSWritableFile> file;
   FileOptions writer_file_options = file_options_;
   writer_file_options.open_contract = FileOpenContract::kNoReopenForWrite;
+  const uint64_t max_buffer_size =
+      blob_writer_max_buffer_size_.load(std::memory_order_relaxed);
+  if (max_buffer_size > 0) {
+    writer_file_options.writable_file_max_buffer_size = max_buffer_size;
+  }
   Status s = NewWritableFile(fs_, blob_file_path, &file, writer_file_options);
   if (!s.ok()) {
     RemoveFilePartitionMapping(blob_file_number);

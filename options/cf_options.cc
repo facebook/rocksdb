@@ -625,6 +625,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_file_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_file_writable_file_max_buffer_size",
+         {offsetof(struct MutableCFOptions,
+                   blob_file_writable_file_max_buffer_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"blob_compression_type",
          {offsetof(struct MutableCFOptions, blob_compression_type),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
@@ -1349,6 +1354,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  min_blob_size);
   ROCKS_LOG_INFO(log, "                           blob_file_size: %" PRIu64,
                  blob_file_size);
+  ROCKS_LOG_INFO(log, "  blob_file_writable_file_max_buffer_size: %" PRIu64,
+                 blob_file_writable_file_max_buffer_size);
   ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
                  CompressionTypeToString(blob_compression_type).c_str());
   ROCKS_LOG_INFO(log, "             blob_compression_opts.level: %d",
