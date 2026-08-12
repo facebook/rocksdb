@@ -14,6 +14,11 @@
       "kind": "removed",
       "function": "rocksdb_writebatch_wi_create_from",
       "reason": "Declared in c.h but never implemented anywhere in RocksDB (WriteBatchWithIndex has no constructor from a serialized representation). The symbol never existed, so no consumer could have linked against it; the dead declaration was removed."
+    },
+    {
+      "kind": "removed",
+      "function": "rocksdb_table_properties_user_key_common_prefix",
+      "reason": "Getter for the format_version 8 'user_key_common_prefix' table property, which a predecessor (D116105558) reserved for a whole-file common-prefix optimization that was investigated and rejected. The property and this generated getter are removed before format_version 8 (and thus the property) appears in any release, so no released consumer could depend on it."
     }
   ]
 }

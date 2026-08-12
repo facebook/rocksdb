@@ -1171,6 +1171,14 @@ rocksdb_block_based_options_get_uniform_cv_threshold(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt, int v);
+
+extern ROCKSDB_LIBRARY_API int
+rocksdb_block_based_options_get_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_enable_index_compression(
     rocksdb_block_based_table_options_t* opt, unsigned char v);
 

@@ -96,7 +96,7 @@ BlockBuilder::BlockBuilder(
     double data_block_hash_table_util_ratio, size_t ts_sz,
     bool persist_user_defined_timestamps, bool is_user_key,
     bool use_separated_kv_storage, Statistics* statistics,
-    double uniform_cv_threshold)
+    double uniform_cv_threshold, bool use_common_prefix)
     : block_restart_interval_(block_restart_interval),
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
@@ -108,7 +108,8 @@ BlockBuilder::BlockBuilder(
       is_uniform_(false),
       uniform_cv_threshold_(uniform_cv_threshold),
       statistics_(statistics),
-      use_separated_kv_storage_(use_separated_kv_storage) {
+      use_separated_kv_storage_(use_separated_kv_storage),
+      use_common_prefix_(use_common_prefix) {
   switch (index_type) {
     case BlockBasedTableOptions::kDataBlockBinarySearch:
       break;
@@ -120,14 +121,20 @@ BlockBuilder::BlockBuilder(
       assert(0);
   }
   assert(block_restart_interval_ >= 1);
+  // The common-prefix feature relies on delta encoding and requires user keys
+  // without stripped timestamps. Value delta encoding (fv4 index blocks) is
+  // supported: the restart-key rewrite branches on use_value_delta_encoding_.
+  assert(!use_common_prefix_ || (use_delta_encoding_ && strip_ts_sz_ == 0));
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t) +
               (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
 }
 
 void BlockBuilder::Reset() {
   buffer_.clear();
-  restarts_.resize(1);  // First restart point is at offset 0
-  assert(restarts_[0] == 0);
+  // First restart point is at offset 0. The common-prefix rewrite may have set
+  // restarts_[0] to the prefix-section offset, so reset it explicitly rather
+  // than assuming resize(1) leaves it at 0.
+  restarts_.assign(1, 0);
   estimate_ = sizeof(uint32_t) + sizeof(uint32_t) +
               (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
   counter_ = 0;
@@ -138,6 +145,9 @@ void BlockBuilder::Reset() {
     data_block_hash_index_builder_.Reset();
   }
   values_buffer_.clear();
+
+  first_key_prefix_.clear();
+  finishing_ = false;
 
 #ifndef NDEBUG
   add_with_last_key_called_ = false;
@@ -187,6 +197,15 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
 }
 
 Slice BlockBuilder::Finish() {
+  // Common-prefix feature: rewrite restart-point keys in place, stripping the
+  // block's common user-key prefix (stored once in the block's leading bytes,
+  // [0, restarts[0])). No footer bit is needed -- a non-zero restarts[0]
+  // self-signals the prefix to the reader. Only done when there is a non-empty
+  // common prefix to remove.
+  if (use_common_prefix_ && !buffer_.empty() && !first_key_prefix_.empty()) {
+    RewriteRestartKeysStrippingPrefix();
+  }
+
   is_uniform_ = ScanForUniformity();
 
   // Append restart array
@@ -298,6 +317,41 @@ inline void BlockBuilder::AddWithLastKeyImpl(
         key_to_persist.difference_offset(last_key_persisted));
   }
 
+  // Common-prefix feature: track the running common user-key prefix across all
+  // keys in the block. The prefix is removed from restart-point keys later, in
+  // RewriteRestartKeysStrippingPrefix() at Finish(). To keep this nearly free
+  // in the common (stable-prefix) case, we exploit `shared` (bytes shared with
+  // the previous key): a non-restart key that shares >= prefix_len bytes with
+  // its predecessor still starts with the whole running prefix (keys are
+  // sorted), so the prefix can only shrink when shared < prefix_len, in which
+  // case the new prefix length is exactly `shared`. Restart entries have shared
+  // forced to 0, so they are rechecked with a real comparison (cheap:
+  // 1/restart_interval).
+  if (use_common_prefix_) {
+    // The reader treats every shared==0 entry as a stripped restart key and
+    // prepends the block's common prefix. skip_delta_encoding would create a
+    // non-restart shared==0 entry (full key stored) that the reader would
+    // wrongly re-prefix, so common-prefix is gated off wherever
+    // skip_delta_encoding can occur (index blocks: super_block_alignment_size
+    // == 0). Enforce that invariant here.
+    assert(!skip_delta_encoding);
+    if (buffer_size == 0) {
+      const Slice uk =
+          is_user_key_ ? key_to_persist : ExtractUserKey(key_to_persist);
+      first_key_prefix_.assign(uk.data(), uk.size());
+    } else if (counter_ == 0) {
+      // Restart entry (shared was forced to 0); recompute the real overlap.
+      const Slice uk =
+          is_user_key_ ? key_to_persist : ExtractUserKey(key_to_persist);
+      size_t common = Slice(first_key_prefix_).difference_offset(uk);
+      if (common < first_key_prefix_.size()) {
+        first_key_prefix_.resize(common);
+      }
+    } else if (shared < first_key_prefix_.size()) {
+      first_key_prefix_.resize(shared);
+    }
+  }
+
   const uint32_t non_shared =
       static_cast<uint32_t>(key_to_persist.size()) - shared;
   const size_t prev_values_size = values_buffer_.size();
@@ -364,6 +418,97 @@ inline void BlockBuilder::AddWithLastKeyImpl(
   counter_++;
   estimate_ +=
       buffer_.size() - buffer_size + values_buffer_.size() - prev_values_size;
+}
+
+void BlockBuilder::RewriteRestartKeysStrippingPrefix() {
+  assert(use_common_prefix_);
+  assert(!first_key_prefix_.empty());
+  assert(!buffer_.empty());
+
+  finishing_ = true;
+  const uint32_t p = static_cast<uint32_t>(first_key_prefix_.size());
+  const char* base = buffer_.data();
+  // At this point buffer_ holds only the entries section (inline values for
+  // non-separated storage; keys-only for separated, values in values_buffer_).
+  const size_t keys_end = buffer_.size();
+
+  std::string new_buf;
+  new_buf.reserve(keys_end + p);
+  // Common user-key prefix section at the start of the block: the raw prefix
+  // bytes, with no length field. restarts[0] (the offset of the first entry,
+  // recorded below) is the prefix length.
+  new_buf.append(first_key_prefix_.data(), p);
+
+  std::vector<uint32_t> new_restarts;
+  const size_t num_restarts = restarts_.size();
+  new_restarts.reserve(num_restarts);
+
+  for (size_t k = 0; k < num_restarts; ++k) {
+    const size_t r_start = restarts_[k];
+    const size_t interval_end =
+        (k + 1 < num_restarts) ? restarts_[k + 1] : keys_end;
+    const char* in = base + r_start;
+    const char* limit = base + interval_end;
+
+    // Decode the restart-point entry header. The layout differs by value
+    // encoding:
+    //   non-V4 (data blocks):
+    //     <shared=0><non_shared><value_size>[<value_offset> if separated]<key>
+    //     [<value> if not separated]
+    //   V4 (index blocks with value delta encoding): no value_size field --
+    //     the value is a self-delimiting BlockHandle.
+    //     <shared=0><non_shared>[<value_offset> if separated]<key><value>
+    uint32_t shared = 0, non_shared = 0, value_size = 0, value_offset = 0;
+    in = GetVarint32Ptr(in, limit, &shared);
+    in = GetVarint32Ptr(in, limit, &non_shared);
+    if (!use_value_delta_encoding_) {
+      in = GetVarint32Ptr(in, limit, &value_size);
+    }
+    if (use_separated_kv_storage_) {
+      in = GetVarint32Ptr(in, limit, &value_offset);
+    }
+    assert(in != nullptr);
+    assert(shared == 0);
+    assert(non_shared >= p);
+    const char* key_ptr = in;
+
+    // Re-emit the restart entry header with the common prefix removed from the
+    // key length. `shared` stays 0 so the reader still recognizes a restart
+    // point (and prepends the block's common prefix).
+    new_restarts.push_back(static_cast<uint32_t>(new_buf.size()));
+    if (!use_value_delta_encoding_) {
+      if (use_separated_kv_storage_) {
+        PutVarint32(&new_buf, 0, non_shared - p, value_size, value_offset);
+      } else {
+        PutVarint32(&new_buf, 0, non_shared - p, value_size);
+      }
+    } else {
+      if (use_separated_kv_storage_) {
+        PutVarint32(&new_buf, 0, non_shared - p, value_offset);
+      } else {
+        PutVarint32(&new_buf, 0, non_shared - p);
+      }
+    }
+    new_buf.append(key_ptr + p, non_shared - p);
+
+    // Bulk-copy the rest of the interval verbatim: the inline value (full or
+    // delta BlockHandle for V4; sized value for non-V4 non-separated; nothing
+    // inline for separated storage) plus all non-restart entries, whose encoded
+    // bytes are independent of the block's common prefix.
+    const size_t after_key_off = (key_ptr - base) + non_shared;
+    new_buf.append(base + after_key_off, interval_end - after_key_off);
+  }
+
+  buffer_.swap(new_buf);
+  restarts_.swap(new_restarts);
+
+  // Recompute estimate_ for the post-strip block so the hash-index size gate in
+  // Finish() (via CurrentSizeEstimate(), which no longer adjusts once
+  // finishing_ is set) sees the actual size.
+  estimate_ = buffer_.size() +
+              (use_separated_kv_storage_ ? values_buffer_.size() : 0) +
+              restarts_.size() * sizeof(uint32_t) + sizeof(uint32_t) +
+              (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
 }
 
 const Slice BlockBuilder::MaybeStripTimestampFromKey(std::string* key_buf,

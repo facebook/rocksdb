@@ -684,6 +684,13 @@ DEFINE_int32(
         ROCKSDB_NAMESPACE::BlockBasedTableOptions().data_block_index_type),
     "Index type for data blocks (see `enum DataBlockIndexType` in table.h)");
 
+DEFINE_int32(optimize_key_common_prefix,
+             static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+                                      .optimize_key_common_prefix),
+             "When/whether data blocks store the common user-key prefix once "
+             "(see `enum OptimizeKeyCommonPrefix` in table.h): 0=kDisabled, "
+             "1=kIfFastSeek, 2=kEnabled. Requires format_version >= 8.");
+
 DEFINE_int32(index_block_search_type,
              static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions()
                                       .index_block_search_type),

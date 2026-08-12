@@ -1816,10 +1816,6 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_table_properties_db_host_id(
     const rocksdb_table_properties_t* props, size_t* size);
 
 extern ROCKSDB_LIBRARY_API const char*
-rocksdb_table_properties_user_key_common_prefix(
-    const rocksdb_table_properties_t* props, size_t* size);
-
-extern ROCKSDB_LIBRARY_API const char*
 rocksdb_table_properties_column_family_name(
     const rocksdb_table_properties_t* props, size_t* size);
 
@@ -6157,6 +6153,14 @@ rocksdb_block_based_options_set_uniform_cv_threshold(
 
 extern ROCKSDB_LIBRARY_API double
 rocksdb_block_based_options_get_uniform_cv_threshold(
+    rocksdb_block_based_table_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt, int v);
+
+extern ROCKSDB_LIBRARY_API int
+rocksdb_block_based_options_get_optimize_key_common_prefix(
     rocksdb_block_based_table_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API void

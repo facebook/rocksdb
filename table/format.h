@@ -182,11 +182,10 @@ inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
 
 // Latest format_version supported for both reading and writing new SST files in
 // block-based format. Newer "draft" format_versions that are still in
-// development (e.g. the format_version 8 index value-delta escape) are not
-// published: they are exercised only in tests, gated behind the TEST-only
-// TEST_AllowUnsupportedFormatVersion() hook, and are neither readable nor
-// writable in production until finalized by bumping this constant.
-constexpr uint32_t kLatestBbtFormatVersion = 7;
+// development are not published: they are exercised only in tests, gated behind
+// the TEST-only TEST_AllowUnsupportedFormatVersion() hook, and are neither
+// readable nor writable in production until finalized by bumping this constant.
+constexpr uint32_t kLatestBbtFormatVersion = 8;
 
 // Sentinel for "no format_version known yet," e.g. a Footer that has not been
 // populated by DecodeFrom. Deliberately larger than any real version so that
@@ -285,6 +284,18 @@ inline bool FormatVersionUsesValueDeltaEscape(uint32_t version) {
 // arbitrary gap due to inefficient metaindex handle encoding, but that's
 // obsolete.)
 inline bool FormatVersionUsesMetaindexGap(uint32_t version) {
+  AssertKnownFormatVersion(version);
+  return version >= 8;
+}
+
+// format_version >= 8 allows blocks with sorted keys (data and index blocks) to
+// store the common user-key prefix of all keys in the block once (in the
+// leading bytes, before restarts[0]) instead of re-storing it at every restart
+// point. Only used for (reverse-)bytewise comparators without user-defined
+// timestamps; signaled per-block by a nonzero stored prefix length
+// (restarts[0] > 0), not by a footer bit. Older readers reject format_version 8
+// at footer decode (fail-safe).
+inline bool FormatVersionUsesCommonKeyPrefix(uint32_t version) {
   AssertKnownFormatVersion(version);
   return version >= 8;
 }

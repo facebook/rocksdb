@@ -185,6 +185,7 @@ DECLARE_uint32(sqfc_version);
 DECLARE_bool(use_sqfc_for_range_queries);
 DECLARE_int32(index_type);
 DECLARE_int32(data_block_index_type);
+DECLARE_int32(optimize_key_common_prefix);
 DECLARE_int32(index_block_search_type);
 DECLARE_double(uniform_cv_threshold);
 DECLARE_bool(use_trie_index);

@@ -1,0 +1,1 @@
+Added `BlockBasedTableOptions::optimize_key_common_prefix` as part of new `format_version=8`. When enabled, each data block and index block stores the common user-key prefix of its keys once instead of at every restart point, reducing block size and block-cache footprint for prefix-heavy data and speeding up Seek for bytewise-ordered keys.

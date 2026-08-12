@@ -649,6 +649,19 @@ class IterKey {
     key_size_ = total_size;
   }
 
+  // Sets the key to `prefix` immediately followed by `suffix`, always copying
+  // into buf_. Used by the data-block common-prefix feature to reconstruct a
+  // restart-point key from the block's stored common user-key prefix plus the
+  // key's stored (prefix-stripped) bytes. is_user_key_ is left unchanged.
+  void SetKeyPrependingPrefix(const Slice& prefix, const Slice& suffix) {
+    const size_t total_size = prefix.size() + suffix.size();
+    EnlargeBufferIfNeeded(total_size);
+    memcpy(buf_, prefix.data(), prefix.size());
+    memcpy(buf_ + prefix.size(), suffix.data(), suffix.size());
+    key_ = buf_;
+    key_size_ = total_size;
+  }
+
   // A version of `TrimAppend` assuming the last bytes of length `ts_sz` in the
   // user key part of `key_` is not counted towards shared bytes. And the
   // decoded key needed a min timestamp of length `ts_sz` pad to the user key.

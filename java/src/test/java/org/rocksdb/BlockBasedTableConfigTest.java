@@ -433,6 +433,21 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.indexSearchType()).isEqualTo(IndexSearchType.kAuto);
   }
 
+  @Test
+  public void optimizeKeyCommonPrefix() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    assertThat(OptimizeKeyCommonPrefix.values().length).isEqualTo(3);
+    // Default is kIfFastSeek.
+    assertThat(blockBasedTableConfig.optimizeKeyCommonPrefix())
+        .isEqualTo(OptimizeKeyCommonPrefix.kIfFastSeek);
+    blockBasedTableConfig.setOptimizeKeyCommonPrefix(OptimizeKeyCommonPrefix.kDisabled);
+    assertThat(blockBasedTableConfig.optimizeKeyCommonPrefix())
+        .isEqualTo(OptimizeKeyCommonPrefix.kDisabled);
+    blockBasedTableConfig.setOptimizeKeyCommonPrefix(OptimizeKeyCommonPrefix.kEnabled);
+    assertThat(blockBasedTableConfig.optimizeKeyCommonPrefix())
+        .isEqualTo(OptimizeKeyCommonPrefix.kEnabled);
+  }
+
   @Deprecated
   @Test
   public void hashIndexAllowCollision() {

@@ -363,60 +363,6 @@ TEST_F(BlockBasedTableReaderFormatVersion8Test, MetaindexGap) {
   }
 }
 
-// format_version 8 reserves the "user_key_common_prefix" table property for a
-// future feature that would change the interpretation of the entire file (all
-// user keys sharing a common prefix stored once). No writer emits it yet, so a
-// reader that finds it non-empty must refuse to open the file rather than
-// mis-read the keys. A sync point injects the property at build time; this
-// verifies the reader returns NotSupported, and that an ordinary file (without
-// the property) still opens.
-TEST_F(BlockBasedTableReaderFormatVersion8Test, ReservedUserKeyCommonPrefix) {
-  // Writing the unpublished draft format_version 8 requires this opt-in.
-  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
-
-  Options options;
-  const ImmutableOptions ioptions(options);
-  const InternalKeyComparator comparator(options.comparator);
-  const std::vector<std::pair<std::string, std::string>> kv =
-      GenerateKVMap(/*num_block=*/4);
-
-  // Sanity: without the reserved property, the file opens fine.
-  const std::string ok_name = "user_key_common_prefix_absent";
-  CreateTable(ok_name, ioptions, kNoCompression, kv);
-  {
-    std::unique_ptr<BlockBasedTable> table;
-    FileOptions foptions;
-    Status status;
-    NewBlockBasedTableReader(foptions, ioptions, comparator, ok_name, &table,
-                             /*prefetch_index_and_filter_in_cache=*/true,
-                             &status);
-    ASSERT_OK(status);
-  }
-
-  // Inject a non-empty reserved property; the reader must reject the file.
-  const std::string prefix_name = "user_key_common_prefix_present";
-  int injected = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "BlockBasedTableBuilder::WritePropertiesBlock:TableProps",
-      [&injected](void* arg) {
-        static_cast<TableProperties*>(arg)->user_key_common_prefix = "prefix";
-        ++injected;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  CreateTable(prefix_name, ioptions, kNoCompression, kv);
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  ASSERT_EQ(injected, 1);
-
-  std::unique_ptr<BlockBasedTable> table;
-  FileOptions foptions;
-  Status status;
-  NewBlockBasedTableReader(foptions, ioptions, comparator, prefix_name, &table,
-                           /*prefetch_index_and_filter_in_cache=*/true,
-                           &status);
-  EXPECT_TRUE(status.IsNotSupported()) << status.ToString();
-}
-
 struct BlockBasedTableReaderTestParam {
   BlockBasedTableReaderTestParam(
       CompressionType _compression_type, bool _use_direct_reads,

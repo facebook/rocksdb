@@ -5138,12 +5138,6 @@ const char* rocksdb_table_properties_db_host_id(
   return props->rep.db_host_id.data();
 }
 
-const char* rocksdb_table_properties_user_key_common_prefix(
-    const rocksdb_table_properties_t* props, size_t* size) {
-  *size = props->rep.user_key_common_prefix.size();
-  return props->rep.user_key_common_prefix.data();
-}
-
 const char* rocksdb_table_properties_column_family_name(
     const rocksdb_table_properties_t* props, size_t* size) {
   *size = props->rep.column_family_name.size();
@@ -11585,6 +11579,17 @@ void rocksdb_block_based_options_set_uniform_cv_threshold(
 double rocksdb_block_based_options_get_uniform_cv_threshold(
     rocksdb_block_based_table_options_t* opt) {
   return opt->rep.uniform_cv_threshold;
+}
+
+void rocksdb_block_based_options_set_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt, int v) {
+  opt->rep.optimize_key_common_prefix =
+      static_cast<decltype(opt->rep.optimize_key_common_prefix)>(v);
+}
+
+int rocksdb_block_based_options_get_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt) {
+  return static_cast<int>(opt->rep.optimize_key_common_prefix);
 }
 
 void rocksdb_block_based_options_set_enable_index_compression(

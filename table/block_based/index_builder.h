@@ -41,7 +41,8 @@ class IndexBuilder {
       const InternalKeySliceTransform* int_key_slice_transform,
       bool use_value_delta_encoding, const BlockBasedTableOptions& table_opt,
       size_t ts_sz, bool persist_user_defined_timestamps,
-      Statistics* statistics = nullptr);
+      Statistics* statistics = nullptr, bool use_common_prefix_leaf = false,
+      bool use_common_prefix_top = false);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -232,7 +233,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
       bool include_first_key, size_t ts_sz,
       const bool persist_user_defined_timestamps, Statistics* statistics,
-      double uniform_cv_threshold)
+      double uniform_cv_threshold, bool use_common_prefix = false)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         index_block_builder_(
             index_block_restart_interval, true /*use_delta_encoding*/,
@@ -241,7 +242,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps, false /* is_user_key */,
             false /* use_separated_kv_storage */, statistics,
-            uniform_cv_threshold),
+            uniform_cv_threshold, use_common_prefix),
         index_block_builder_without_seq_(
             index_block_restart_interval, true /*use_delta_encoding*/,
             use_value_delta_encoding,
@@ -249,11 +250,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
             0.75 /* data_block_hash_table_util_ratio */, ts_sz,
             persist_user_defined_timestamps, true /* is_user_key */,
             false /* use_separated_kv_storage */, statistics,
-            uniform_cv_threshold),
+            uniform_cv_threshold, use_common_prefix),
         use_value_delta_encoding_(use_value_delta_encoding),
         value_delta_escape_(FormatVersionUsesValueDeltaEscape(format_version)),
         include_first_key_(include_first_key),
-        shortening_mode_(shortening_mode) {
+        shortening_mode_(shortening_mode),
+        use_common_prefix_(use_common_prefix) {
     // Making the default true will disable the feature for old versions
     must_use_separator_with_seq_.StoreRelaxed(format_version <= 2);
   }
@@ -284,8 +286,20 @@ class ShortenedIndexBuilder : public IndexBuilder {
         must_use_separator_with_seq_.StoreRelaxed(true);
       }
     } else {
+      // Last index entry of the file: an upper bound on the highest key.
+      // kShortenSeparatorsAndSuccessor would replace it with a short successor
+      // (FindShortSuccessor increments the first non-0xff byte and truncates),
+      // which shares ~no prefix with the file's keys. In a common-prefix index
+      // block that single outlier would collapse the block's common user-key
+      // prefix -- fatal for the top-level (and non-partitioned) index, which is
+      // one block whose last entry is this separator. So with common-prefix
+      // encoding we fall back to kShortenSeparators behavior for this one entry
+      // (the full last key), keeping every index tier's stripping uniform. The
+      // full key is a tighter upper bound anyway (avoids an occasional
+      // last-block over-read), so this is strictly not worse.
       if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
-                                  kShortenSeparatorsAndSuccessor) {
+                                  kShortenSeparatorsAndSuccessor &&
+          !use_common_prefix_) {
         separator_with_seq = FindShortInternalKeySuccessor(
             *comparator_->user_comparator(), last_key_in_current_block,
             separator_scratch);
@@ -499,6 +513,10 @@ class ShortenedIndexBuilder : public IndexBuilder {
   RelaxedAtomic<bool> must_use_separator_with_seq_;
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
+  // When true, this index uses common-prefix encoding, so the file's last
+  // separator is kept as the full last key instead of a short successor (see
+  // GetSeparatorWithSeq) to avoid collapsing a block's common prefix.
+  const bool use_common_prefix_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   bool is_uniform_ = false;
   std::string current_block_first_internal_key_;
@@ -542,13 +560,14 @@ class HashIndexBuilder : public IndexBuilder {
                    bool use_value_delta_encoding,
                    BlockBasedTableOptions::IndexShorteningMode shortening_mode,
                    size_t ts_sz, const bool persist_user_defined_timestamps,
-                   double uniform_cv_threshold)
+                   double uniform_cv_threshold, bool use_common_prefix = false)
       : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
                                shortening_mode, /* include_first_key */ false,
                                ts_sz, persist_user_defined_timestamps,
-                               nullptr /* statistics */, uniform_cv_threshold),
+                               nullptr /* statistics */, uniform_cv_threshold,
+                               use_common_prefix),
         hash_key_extractor_(hash_key_extractor) {}
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
@@ -680,13 +699,16 @@ class PartitionedIndexBuilder : public IndexBuilder {
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const InternalKeyComparator* comparator, bool use_value_delta_encoding,
       const BlockBasedTableOptions& table_opt, size_t ts_sz,
-      bool persist_user_defined_timestamps, Statistics* statistics = nullptr);
+      bool persist_user_defined_timestamps, Statistics* statistics = nullptr,
+      bool use_common_prefix_top = false, bool use_common_prefix_sub = false);
 
   PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                           const BlockBasedTableOptions& table_opt,
                           bool use_value_delta_encoding, size_t ts_sz,
                           bool persist_user_defined_timestamps,
-                          Statistics* statistics = nullptr);
+                          Statistics* statistics = nullptr,
+                          bool use_common_prefix_top = false,
+                          bool use_common_prefix_sub = false);
 
   Slice AddIndexEntry(const Slice& last_key_in_current_block,
                       const Slice* first_key_in_next_block,
@@ -782,6 +804,11 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // format_version >= 8 value-delta codec for the top-level index (see
   // IndexValue::EncodeTo). Must match what the reader of this block uses.
   const bool value_delta_escape_;
+  // Common-prefix feature (format_version >= 8): whether to strip the common
+  // user-key prefix in the sub (partition/leaf) index builders created by
+  // MakeNewSubIndexBuilder(). The top-level builders' toggle is applied
+  // directly at their construction in the ctor.
+  bool use_common_prefix_sub_ = false;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition
   bool partition_cut_requested_ = true;

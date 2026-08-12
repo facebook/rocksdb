@@ -144,13 +144,54 @@ AutoSkipCarry& AutoSkipCarryTLS() {
   return carry;
 }
 
+// Whether data blocks should store the common user-key prefix once (see
+// BlockBasedTableOptions::optimize_key_common_prefix). Requires
+// format_version >= 8, delta encoding, and no user-defined-timestamp stripping.
+bool UseCommonPrefixForDataBlock(const BlockBasedTableOptions& table_options,
+                                 const Comparator* ucmp, size_t ts_sz) {
+  if (table_options.format_version < 8 || !table_options.use_delta_encoding ||
+      ts_sz != 0) {
+    return false;
+  }
+  const bool is_bytewise =
+      ucmp == BytewiseComparator() || ucmp == ReverseBytewiseComparator();
+  switch (table_options.optimize_key_common_prefix) {
+    case BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled:
+      return false;
+    case BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek:
+      return is_bytewise;
+    case BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled:
+      // (Reverse-)bytewise get the space savings + suffix-seek speedup; other
+      // comparators get the space savings only, read via the DataBlockIter
+      // full-key reconstruction path.
+      return true;
+  }
+  return false;
+}
+
+// Whether index-like blocks (leaf/partition index, and the partitioned index /
+// partitioned filter top-level) should store the common user-key prefix once.
+// Identical to the data-block gate, but additionally requires
+// super_block_alignment_size == 0: super block alignment triggers
+// skip_delta_encoding on index entries, which stores a non-restart key with
+// shared==0 that the reader cannot distinguish from a stripped restart key.
+// Like data blocks, kEnabled extends stripping to custom comparators; the
+// reader reconstructs probed restart keys for non-(reverse-)bytewise index
+// blocks (IndexBlockIter::SeekImpl falls through to the reconstructing binary
+// search).
+bool UseCommonPrefixForIndex(const BlockBasedTableOptions& table_options,
+                             const Comparator* ucmp, size_t ts_sz) {
+  return table_options.super_block_alignment_size == 0 &&
+         UseCommonPrefixForDataBlock(table_options, ucmp, ts_sz);
+}
+
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
     const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
     PartitionedIndexBuilder* const p_index_builder, size_t ts_sz,
-    const bool persist_user_defined_timestamps) {
+    const bool persist_user_defined_timestamps, bool use_common_prefix) {
   const BlockBasedTableOptions& table_opt = context.table_options;
   assert(table_opt.filter_policy);  // precondition
 
@@ -178,7 +219,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
           use_delta_encoding_for_index_values, table_opt.format_version,
           p_index_builder, partition_size, ts_sz,
           persist_user_defined_timestamps,
-          table_opt.decouple_partitioned_filters);
+          table_opt.decouple_partitioned_filters, use_common_prefix);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
@@ -1357,7 +1398,10 @@ struct BlockBasedTableBuilder::Rep {
                    table_options.data_block_hash_table_util_ratio, ts_sz,
                    persist_user_defined_timestamps, false /* is_user_key */,
                    table_options.separate_key_value_in_data_block,
-                   tbo.ioptions.stats),
+                   tbo.ioptions.stats, -1.0 /* uniform_cv_threshold */,
+                   UseCommonPrefixForDataBlock(
+                       table_options, tbo.internal_comparator.user_comparator(),
+                       ts_sz)),
         range_del_block(
             1 /* block_restart_interval */, true /* use_delta_encoding */,
             false /* use_value_delta_encoding */,
@@ -1599,19 +1643,28 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
 
+    // Common user-key prefix feature (format_version >= 8) for index-like
+    // blocks: gated uniformly for all index tiers (leaf/partition and the
+    // partitioned index / partitioned filter top-level). See
+    // UseCommonPrefixForIndex.
+    const bool use_common_prefix_index = UseCommonPrefixForIndex(
+        table_options, internal_comparator.user_comparator(), ts_sz);
+
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps,
-          ioptions.stats);
+          table_options, ts_sz, persist_user_defined_timestamps, ioptions.stats,
+          /*use_common_prefix_top=*/use_common_prefix_index,
+          /*use_common_prefix_sub=*/use_common_prefix_index);
       index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
-          table_options, ts_sz, persist_user_defined_timestamps,
-          ioptions.stats));
+          table_options, ts_sz, persist_user_defined_timestamps, ioptions.stats,
+          /*use_common_prefix_leaf=*/use_common_prefix_index,
+          /*use_common_prefix_top=*/use_common_prefix_index));
     }
 
     // If user_defined_index_factory is provided, wrap the index builder with
@@ -1669,7 +1722,7 @@ struct BlockBasedTableBuilder::Rep {
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, tbo.moptions, filter_context,
           use_delta_encoding_for_index_values, p_index_builder_, ts_sz,
-          persist_user_defined_timestamps));
+          persist_user_defined_timestamps, use_common_prefix_index));
     }
 
     assert(tbo.internal_tbl_prop_coll_factories);
@@ -3152,12 +3205,6 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         rep_->num_data_blocks_compression_bypassed.LoadRelaxed();
 
     assert(IsEmpty() || rep_->props.key_largest_seqno != UINT64_MAX);
-    // TEST-only hook: allows injecting reserved properties (e.g. the
-    // format_version >= 8 "user_key_common_prefix") to exercise reader
-    // handling. Compiled out in release builds.
-    TEST_SYNC_POINT_CALLBACK(
-        "BlockBasedTableBuilder::WritePropertiesBlock:TableProps",
-        &rep_->props);
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
 

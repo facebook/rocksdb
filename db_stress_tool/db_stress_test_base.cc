@@ -6195,6 +6195,9 @@ void InitializeOptionsFromFlags(
   block_based_options.data_block_index_type =
       static_cast<BlockBasedTableOptions::DataBlockIndexType>(
           FLAGS_data_block_index_type);
+  block_based_options.optimize_key_common_prefix =
+      static_cast<BlockBasedTableOptions::OptimizeKeyCommonPrefix>(
+          FLAGS_optimize_key_common_prefix);
   block_based_options.index_block_search_type =
       static_cast<BlockBasedTableOptions::BlockSearchType>(
           FLAGS_index_block_search_type);

@@ -36,6 +36,14 @@ namespace ROCKSDB_NAMESPACE {
 //     - Bit 28: Separated KV storage (keys and values stored in separate
 //       sections within the block)
 //
+// The format_version 8 common user-key prefix feature does NOT use a footer
+// bit: the prefix occupies the leading bytes [0, restarts[0]) of the block, so
+// a non-zero restarts[0] self-signals it. restarts[0] is always 0 in every
+// other block (all versions, all block types), so the reader detects the prefix
+// without a bit and without knowing format_version. Older readers would
+// misinterpret it, which is why it is gated on format_version 8 at the file
+// level (older readers reject the whole file).
+//
 // Note on forward compatibility: Bits 28-29 can be read by older versions of
 // RocksDB and interpreted as an extremely large num_restarts, which will be
 // caught as a corruption. Bit 30 is special because num_restarts is multipled

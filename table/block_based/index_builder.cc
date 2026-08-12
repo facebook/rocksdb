@@ -29,7 +29,8 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
     const InternalKeySliceTransform* int_key_slice_transform,
     const bool use_value_delta_encoding,
     const BlockBasedTableOptions& table_opt, size_t ts_sz,
-    const bool persist_user_defined_timestamps, Statistics* statistics) {
+    const bool persist_user_defined_timestamps, Statistics* statistics,
+    bool use_common_prefix_leaf, bool use_common_prefix_top) {
   IndexBuilder* result = nullptr;
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
@@ -38,7 +39,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ false, ts_sz,
           persist_user_defined_timestamps, statistics,
-          table_opt.uniform_cv_threshold);
+          table_opt.uniform_cv_threshold, use_common_prefix_leaf);
       break;
     }
     case BlockBasedTableOptions::kHashSearch: {
@@ -49,13 +50,15 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, int_key_slice_transform,
           table_opt.index_block_restart_interval, table_opt.format_version,
           use_value_delta_encoding, table_opt.index_shortening, ts_sz,
-          persist_user_defined_timestamps, table_opt.uniform_cv_threshold);
+          persist_user_defined_timestamps, table_opt.uniform_cv_threshold,
+          use_common_prefix_leaf);
       break;
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       result = PartitionedIndexBuilder::CreateIndexBuilder(
           comparator, use_value_delta_encoding, table_opt, ts_sz,
-          persist_user_defined_timestamps);
+          persist_user_defined_timestamps, statistics, use_common_prefix_top,
+          use_common_prefix_leaf);
       break;
     }
     case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
@@ -64,7 +67,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ true, ts_sz,
           persist_user_defined_timestamps, statistics,
-          table_opt.uniform_cv_threshold);
+          table_opt.uniform_cv_threshold, use_common_prefix_leaf);
       break;
     }
     default: {
@@ -137,17 +140,20 @@ PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const bool use_value_delta_encoding,
     const BlockBasedTableOptions& table_opt, size_t ts_sz,
-    const bool persist_user_defined_timestamps, Statistics* statistics) {
+    const bool persist_user_defined_timestamps, Statistics* statistics,
+    bool use_common_prefix_top, bool use_common_prefix_sub) {
   return new PartitionedIndexBuilder(
       comparator, table_opt, use_value_delta_encoding, ts_sz,
-      persist_user_defined_timestamps, statistics);
+      persist_user_defined_timestamps, statistics, use_common_prefix_top,
+      use_common_prefix_sub);
 }
 
 PartitionedIndexBuilder::PartitionedIndexBuilder(
     const InternalKeyComparator* comparator,
     const BlockBasedTableOptions& table_opt,
     const bool use_value_delta_encoding, size_t ts_sz,
-    const bool persist_user_defined_timestamps, Statistics* statistics)
+    const bool persist_user_defined_timestamps, Statistics* statistics,
+    bool use_common_prefix_top, bool use_common_prefix_sub)
     : IndexBuilder(comparator, ts_sz, persist_user_defined_timestamps),
       index_block_builder_(
           table_opt.index_block_restart_interval, true /*use_delta_encoding*/,
@@ -155,14 +161,16 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, false /* is_user_key */,
-          /*use_separated_kv_storage=*/false),
+          /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+          /*uniform_cv_threshold=*/-1.0, use_common_prefix_top),
       index_block_builder_without_seq_(
           table_opt.index_block_restart_interval, true /*use_delta_encoding*/,
           use_value_delta_encoding,
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, true /* is_user_key */,
-          /*use_separated_kv_storage=*/false),
+          /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+          /*uniform_cv_threshold=*/-1.0, use_common_prefix_top),
       table_opt_(table_opt),
       // We start by false. After each partition we revise the value based on
       // what the sub_index_builder has decided. If the feature is disabled
@@ -174,6 +182,7 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       use_value_delta_encoding_(use_value_delta_encoding),
       value_delta_escape_(
           FormatVersionUsesValueDeltaEscape(table_opt.format_version)),
+      use_common_prefix_sub_(use_common_prefix_sub),
       statistics_(statistics) {
   MakeNewSubIndexBuilder();
 }
@@ -184,7 +193,7 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       table_opt_.format_version, use_value_delta_encoding_,
       table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
       persist_user_defined_timestamps_, statistics_,
-      table_opt_.uniform_cv_threshold);
+      table_opt_.uniform_cv_threshold, use_common_prefix_sub_);
   sub_index_builder_ = new_builder.get();
   // Start next partition entry, where we will modify the key
   entries_.push_back({{}, std::move(new_builder)});

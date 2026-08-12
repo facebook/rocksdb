@@ -753,11 +753,10 @@ static std::vector<TestArgs> GenerateArgList() {
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : GetSupportedCompressions()) {
           for (auto num_threads : compression_parallel_threads) {
-            // format_version = 7 changes some compression handling; 8 is the
-            // unpublished draft that exercises the fv8 index value-delta escape
-            // read/write path (table_test opts in via
-            // TEST_AllowUnsupportedFormatVersion in main()).
-            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U, 8U}) {
+            // format_version = 7 changes some compression handling; 8 adds the
+            // index value-delta escape and the common-key-prefix feature.
+            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U,
+                                kLatestBbtFormatVersion}) {
               TestArgs one_arg;
               one_arg.type = test_type;
               one_arg.reverse_compare = reverse_compare;
@@ -1809,6 +1808,243 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.ResetTableReader();
 }
 
+namespace {
+// A total-order comparator that behaves exactly like the built-in bytewise
+// comparator but is a distinct object (distinct Name). The common-prefix
+// feature treats it as "non-bytewise" (pointer identity), so the writer still
+// strips (keys are byte-clustered) while the reader must use the full-key
+// reconstruction seek path.
+class ForwardingBytewiseComparator : public Comparator {
+ public:
+  const char* Name() const override { return "test.ForwardingBytewise"; }
+  int Compare(const Slice& a, const Slice& b) const override {
+    return BytewiseComparator()->Compare(a, b);
+  }
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {
+    BytewiseComparator()->FindShortestSeparator(start, limit);
+  }
+  void FindShortSuccessor(std::string* key) const override {
+    BytewiseComparator()->FindShortSuccessor(key);
+  }
+};
+const Comparator* ForwardingBytewise() {
+  static ForwardingBytewiseComparator cmp;
+  return &cmp;
+}
+
+Options MakeCommonPrefixOptions(
+    const Comparator* ucmp,
+    BlockBasedTableOptions::OptimizeKeyCommonPrefix mode,
+    BlockBasedTableOptions* table_options_out) {
+  Options options;
+  options.comparator = ucmp;
+  options.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.format_version = 8;
+  table_options.optimize_key_common_prefix = mode;
+  table_options.block_restart_interval = 16;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  *table_options_out = table_options;
+  return options;
+}
+
+// Adds prefix-heavy keys and finishes `c`, returning its data_size. All the
+// referenced options must outlive later reader use, because the table reader
+// holds references to `ioptions`/`moptions`.
+uint64_t FinishCommonPrefixTable(TableConstructor* c, const std::string& prefix,
+                                 int num_keys, const Options& options,
+                                 const ImmutableOptions& ioptions,
+                                 const MutableCFOptions& moptions,
+                                 const BlockBasedTableOptions& table_options,
+                                 const InternalKeyComparator& icmp,
+                                 stl_wrappers::KVMap* kvmap) {
+  for (int i = 0; i < num_keys; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%06d", i);
+    c->Add(prefix + buf, "value_" + std::to_string(i));
+  }
+  std::vector<std::string> keys;
+  c->Finish(options, ioptions, moptions, table_options, icmp, &keys, kvmap);
+  return c->GetTableReader()->GetTableProperties()->data_size;
+}
+}  // namespace
+
+// Focused test for optimize_key_common_prefix (format_version 8): prefix-heavy
+// keys should make data blocks smaller when the optimization is on, and reads
+// must stay correct (including Seek targets that straddle the common prefix).
+TEST_F(GeneralTableTest, OptimizeKeyCommonPrefix) {
+  const std::string kPrefix = "this_is_a_long_shared_user_key_prefix_";
+  constexpr int kNumKeys = 2000;
+  const Comparator* ucmp = BytewiseComparator();
+  const InternalKeyComparator& icmp = GetPlainInternalComparator(ucmp);
+
+  BlockBasedTableOptions tbo_on, tbo_off;
+  Options options_on = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek,
+      &tbo_on);
+  Options options_off = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled,
+      &tbo_off);
+  ImmutableOptions ioptions_on(options_on);
+  MutableCFOptions moptions_on(options_on);
+  ImmutableOptions ioptions_off(options_off);
+  MutableCFOptions moptions_off(options_off);
+
+  TableConstructor c_on(ucmp, true /* convert_to_internal_key */);
+  TableConstructor c_off(ucmp, true /* convert_to_internal_key */);
+  stl_wrappers::KVMap kv_on, kv_off;
+  uint64_t size_on =
+      FinishCommonPrefixTable(&c_on, kPrefix, kNumKeys, options_on, ioptions_on,
+                              moptions_on, tbo_on, icmp, &kv_on);
+  uint64_t size_off = FinishCommonPrefixTable(
+      &c_off, kPrefix, kNumKeys, options_off, ioptions_off, moptions_off,
+      tbo_off, icmp, &kv_off);
+
+  // The optimization engaged and shrank the (prefix-heavy) data blocks.
+  ASSERT_LT(size_on, size_off);
+
+  auto* reader = c_on.GetTableReader();
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      ro, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Full forward iteration matches every stored key/value.
+  auto expect = kv_on.begin();
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(expect != kv_on.end());
+    ASSERT_EQ(expect->first, ExtractUserKey(iter->key()).ToString());
+    ASSERT_EQ(expect->second, iter->value().ToString());
+    ++expect;
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(expect == kv_on.end());
+
+  auto user_key = [&](const Slice& internal_key) {
+    return ExtractUserKey(internal_key).ToString();
+  };
+
+  // Seek to an existing key.
+  iter->Seek(
+      InternalKey(kPrefix + "001234", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  // Missing key that still shares the common prefix lands on the next key.
+  iter->Seek(InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+                 .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001235", user_key(iter->key()));
+
+  // Target diverging below the common prefix sorts before all keys.
+  iter->Seek(InternalKey("aaaa", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "000000", user_key(iter->key()));
+
+  // Target diverging above the common prefix sorts after all keys.
+  iter->Seek(InternalKey("zzzz", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  // SeekForPrev to a missing key lands on the previous key.
+  iter->SeekForPrev(
+      InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+          .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  c_on.ResetTableReader();
+  c_off.ResetTableReader();
+}
+
+// optimize_key_common_prefix=kEnabled strips data blocks even for a
+// non-bytewise comparator; the reader reconstructs full keys (no suffix-seek
+// shortcut).
+TEST_F(GeneralTableTest, OptimizeKeyCommonPrefixNonBytewise) {
+  const std::string kPrefix = "this_is_a_long_shared_user_key_prefix_";
+  constexpr int kNumKeys = 2000;
+  const Comparator* ucmp = ForwardingBytewise();
+  const InternalKeyComparator& icmp = GetPlainInternalComparator(ucmp);
+
+  BlockBasedTableOptions tbo_on, tbo_off;
+  Options options_on = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled, &tbo_on);
+  Options options_off = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled,
+      &tbo_off);
+  ImmutableOptions ioptions_on(options_on);
+  MutableCFOptions moptions_on(options_on);
+  ImmutableOptions ioptions_off(options_off);
+  MutableCFOptions moptions_off(options_off);
+
+  TableConstructor c_on(ucmp, true /* convert_to_internal_key */);
+  TableConstructor c_off(ucmp, true /* convert_to_internal_key */);
+  stl_wrappers::KVMap kv_on, kv_off;
+  uint64_t size_on =
+      FinishCommonPrefixTable(&c_on, kPrefix, kNumKeys, options_on, ioptions_on,
+                              moptions_on, tbo_on, icmp, &kv_on);
+  uint64_t size_off = FinishCommonPrefixTable(
+      &c_off, kPrefix, kNumKeys, options_off, ioptions_off, moptions_off,
+      tbo_off, icmp, &kv_off);
+
+  // kEnabled strips even for a non-bytewise comparator.
+  ASSERT_LT(size_on, size_off);
+
+  auto* reader = c_on.GetTableReader();
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      ro, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Full forward iteration reconstructs every key/value correctly.
+  auto expect = kv_on.begin();
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(expect != kv_on.end());
+    ASSERT_EQ(expect->first, ExtractUserKey(iter->key()).ToString());
+    ASSERT_EQ(expect->second, iter->value().ToString());
+    ++expect;
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(expect == kv_on.end());
+
+  auto user_key = [&](const Slice& internal_key) {
+    return ExtractUserKey(internal_key).ToString();
+  };
+
+  // Seek (reconstruction path): existing key, missing-with-shared-prefix key,
+  // and SeekForPrev.
+  iter->Seek(
+      InternalKey(kPrefix + "001234", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  iter->Seek(InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+                 .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001235", user_key(iter->key()));
+
+  iter->SeekForPrev(
+      InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+          .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  c_on.ResetTableReader();
+  c_off.ResetTableReader();
+}
+
 #ifdef SNAPPY
 uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
@@ -1839,8 +2075,25 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
 TEST_P(BlockBasedTableTest, IndexUncompressed) {
   uint64_t tbl1_compressed_cnt = IndexUncompressedHelper(true);
   uint64_t tbl2_compressed_cnt = IndexUncompressedHelper(false);
-  // tbl1_compressed_cnt should include 1 index block
-  EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
+  // Normally, enabling index compression compresses exactly one more block (the
+  // index block). At format_version >= 8 (without super block alignment) the
+  // index block uses the common user-key prefix section, which strips shared
+  // prefixes from the index separators. The resulting index block can be small
+  // enough that compression no longer clears the storage threshold, so it may
+  // be stored uncompressed even when index compression is enabled. Allow that
+  // (0 or 1 extra compressed block) in that case; keep the exact invariant for
+  // every other format.
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  const bool index_uses_common_prefix =
+      table_options.format_version >= 8 &&
+      table_options.super_block_alignment_size == 0;
+  if (index_uses_common_prefix) {
+    EXPECT_GE(tbl1_compressed_cnt, tbl2_compressed_cnt);
+    EXPECT_LE(tbl1_compressed_cnt, tbl2_compressed_cnt + 1);
+  } else {
+    // tbl1_compressed_cnt should include 1 index block
+    EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
+  }
 }
 #endif  // SNAPPY
 
@@ -2351,7 +2604,7 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
   // We construct a block directly rather than going through the full table
   // iterator path to avoid issues with iterator error handling.
 
-  // Build a simple data block
+  // Build a simple data block.
   BlockBuilder builder(16 /* restart_interval */);
   InternalKey key("abc", 1, kTypeValue);
   builder.Add(key.Encode(), "test_value");
@@ -2879,6 +3132,201 @@ TEST_P(BlockBasedTableTest, PartitionedIndexAndFilterValueDelta) {
   c.ResetTableReader();
 }
 
+// format_version 8 extends the data-block common user-key prefix feature to
+// index blocks (leaf, partitioned top-level) and the partitioned-filter
+// top-level index. This test verifies that, for prefix-heavy keys, an fv8 table
+// reads *identically* to an fv7 table (the trusted baseline) across index
+// types, partitioned filters, and (reverse-)bytewise comparators: full forward
+// scan, random Seek positioning, and point Get all match. It also asserts the
+// index actually shrank at fv8, so the feature is genuinely engaged (not a
+// silently-disabled no-op).
+TEST_F(GeneralTableTest, IndexBlockCommonPrefixEquivalence) {
+  struct Config {
+    const char* name;
+    BlockBasedTableOptions::IndexType index_type;
+    bool partition_filters;
+    bool reverse;
+    bool hash;        // needs a prefix extractor for the hash index
+    bool custom_cmp;  // non-(reverse-)bytewise comparator; forces kEnabled and
+                      // the reader's reconstruction (non-suffix-seek) path
+  };
+  const std::vector<Config> configs = {
+      {"leaf_binary", BlockBasedTableOptions::kBinarySearch, false, false,
+       false},
+      {"leaf_binary_reverse", BlockBasedTableOptions::kBinarySearch, false,
+       true, false},
+      {"leaf_first_key", BlockBasedTableOptions::kBinarySearchWithFirstKey,
+       false, false, false},
+      {"leaf_hash", BlockBasedTableOptions::kHashSearch, false, false, true},
+      {"partitioned", BlockBasedTableOptions::kTwoLevelIndexSearch, false,
+       false, false},
+      {"partitioned_reverse", BlockBasedTableOptions::kTwoLevelIndexSearch,
+       false, true, false},
+      {"partitioned_filters", BlockBasedTableOptions::kTwoLevelIndexSearch,
+       true, false, false},
+      // Non-(reverse-)bytewise comparator with kEnabled: exercises the reader's
+      // reconstruction path for stripped index blocks (leaf + partitioned).
+      {"leaf_binary_custom_cmp", BlockBasedTableOptions::kBinarySearch, false,
+       false, false, true},
+      {"partitioned_custom_cmp", BlockBasedTableOptions::kTwoLevelIndexSearch,
+       false, false, false, true},
+  };
+
+  // Long user-key prefix shared by every key, so data-block, index-separator,
+  // and filter-separator keys are all prefix-heavy.
+  const std::string shared = "abcdefghij_common_index_prefix_v1_";
+  const int kNum = 2000;
+
+  std::vector<std::string> user_keys;
+  std::vector<std::string> values;
+  user_keys.reserve(kNum);
+  values.reserve(kNum);
+  for (int i = 0; i < kNum; i++) {
+    char kbuf[16];
+    snprintf(kbuf, sizeof(kbuf), "%08d", i);
+    user_keys.push_back(shared + kbuf);
+    char vbuf[16];
+    snprintf(vbuf, sizeof(vbuf), "V%06d", i);
+    values.emplace_back(vbuf);
+  }
+
+  // Probe targets. All of these stay within the shared prefix so they are valid
+  // for the hash index's prefix extractor. Diverging (out-of-prefix) targets
+  // are added only for the non-hash configs (see below), where they exercise
+  // the StripSeekTargetPrefix before-all / after-all paths.
+  std::vector<std::string> base_probes;
+  for (int i : {0, 1, 2, 137, 500, 999, 1000, 1998, 1999}) {
+    base_probes.push_back(user_keys[i]);
+  }
+  base_probes.push_back(shared + "00000005x");  // gap between existing keys
+  base_probes.push_back(shared + "!!!!!!!!");   // before all keys, in-prefix
+  base_probes.push_back(shared + "99999999");   // after all keys, in-prefix
+  const std::vector<std::string> diverge_probes = {
+      "AAAA_before_all",  // diverges before the shared prefix
+      "zzzz_after_all",   // diverges after the shared prefix
+  };
+
+  struct ProbeResult {
+    std::vector<std::pair<std::string, std::string>> scan;
+    std::vector<std::string> seek_key;  // "" when Seek lands invalid
+    std::vector<int> get_found;
+    std::vector<std::string> get_val;
+    uint64_t index_size = 0;
+  };
+
+  auto run = [&](const Config& cfg, uint32_t fv,
+                 const std::vector<std::string>& probes) -> ProbeResult {
+    const Comparator* ucmp = cfg.custom_cmp
+                                 ? ForwardingBytewise()
+                                 : (cfg.reverse ? ReverseBytewiseComparator()
+                                                : BytewiseComparator());
+    InternalKeyComparator icmp(ucmp);
+
+    Options options;
+    options.comparator = ucmp;
+    if (cfg.hash) {
+      options.prefix_extractor.reset(
+          NewFixedPrefixTransform(shared.size() + 2));
+    }
+    BlockBasedTableOptions table_options;
+    table_options.format_version = fv;
+    table_options.index_type = cfg.index_type;
+    if (cfg.custom_cmp) {
+      // A custom comparator only strips under kEnabled (kIfFastSeek is
+      // (reverse-)bytewise only); at fv7 the option is inert.
+      table_options.optimize_key_common_prefix =
+          BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled;
+    }
+    // Exercise the last-separator successor path (and its suppression under
+    // common-prefix): with this mode fv7 emits a short successor as the file's
+    // last separator, while fv8 keeps the full last key so the top-level /
+    // non-partitioned index still strips. Read results must match regardless.
+    table_options.index_shortening = BlockBasedTableOptions::
+        IndexShorteningMode::kShortenSeparatorsAndSuccessor;
+    table_options.block_size = 100;
+    table_options.index_block_restart_interval =
+        cfg.index_type == BlockBasedTableOptions::kHashSearch ? 1 : 4;
+    table_options.metadata_block_size = 256;  // force many index partitions
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    table_options.whole_key_filtering = true;
+    if (cfg.partition_filters) {
+      table_options.partition_filters = true;
+      table_options.cache_index_and_filter_blocks = true;
+    }
+    table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    TableConstructor c(ucmp, /*convert_to_internal_key=*/true);
+    for (int i = 0; i < kNum; i++) {
+      c.Add(user_keys[i], values[i]);
+    }
+
+    std::vector<std::string> keys;
+    stl_wrappers::KVMap kvmap;
+    const ImmutableOptions ioptions(options);
+    const MutableCFOptions moptions(options);
+    c.Finish(options, ioptions, moptions, table_options, icmp, &keys, &kvmap);
+
+    ProbeResult r;
+    auto reader = c.GetTableReader();
+    r.index_size = reader->GetTableProperties()->index_size;
+
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      r.scan.emplace_back(iter->key().ToString(), iter->value().ToString());
+    }
+    EXPECT_OK(iter->status());
+
+    for (const auto& uk : probes) {
+      InternalKey target(uk, kMaxSequenceNumber, kValueTypeForSeek);
+      iter->Seek(target.Encode());
+      EXPECT_OK(iter->status());
+      r.seek_key.push_back(iter->Valid() ? iter->key().ToString() : "");
+    }
+
+    for (const auto& uk : probes) {
+      PinnableSlice value;
+      GetContext get_context(ucmp, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, uk, &value, nullptr,
+                             nullptr, nullptr, true, nullptr, nullptr);
+      InternalKey lkey(uk, kMaxSequenceNumber, kValueTypeForSeek);
+      Status s = reader->Get(ro, lkey.Encode(), &get_context,
+                             moptions.prefix_extractor.get());
+      EXPECT_OK(s);
+      if (get_context.State() == GetContext::kFound) {
+        r.get_found.push_back(1);
+        r.get_val.push_back(value.ToString());
+      } else {
+        r.get_found.push_back(0);
+        r.get_val.emplace_back("");
+      }
+    }
+    return r;
+  };
+
+  for (const auto& cfg : configs) {
+    SCOPED_TRACE(cfg.name);
+    std::vector<std::string> probes = base_probes;
+    if (!cfg.hash) {
+      // Out-of-prefix targets are only valid without a prefix extractor.
+      probes.insert(probes.end(), diverge_probes.begin(), diverge_probes.end());
+    }
+    ProbeResult r7 = run(cfg, 7, probes);
+    ProbeResult r8 = run(cfg, 8, probes);
+    EXPECT_EQ(r7.scan, r8.scan);
+    EXPECT_EQ(r7.seek_key, r8.seek_key);
+    EXPECT_EQ(r7.get_found, r8.get_found);
+    EXPECT_EQ(r7.get_val, r8.get_val);
+    // Sanity: every key is found, and the scan reproduces the input.
+    EXPECT_EQ(r8.scan.size(), static_cast<size_t>(kNum));
+    // Feature is genuinely engaged: the prefix-heavy index shrinks at fv8.
+    EXPECT_LT(r8.index_size, r7.index_size);
+  }
+}
 TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
@@ -4396,7 +4844,10 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                          nullptr, nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
-  ASSERT_STREQ(value.data(), "hello");
+  // Length-aware compare: with format_version 8 the data-block common-prefix
+  // section leaves a non-NUL byte after the value, so strcmp (ASSERT_STREQ)
+  // would read past the value. The value bytes themselves are unchanged.
+  ASSERT_EQ(value.ToString(), "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
   c3.ResetTableReader();
@@ -4507,7 +4958,10 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
                     get_perf_context()->data_block_read_byte);
         }
         ASSERT_EQ(get_context.State(), GetContext::kFound);
-        ASSERT_STREQ(value.data(), "hello");
+        // Length-aware compare: format_version 8's common-prefix section leaves
+        // a non-NUL byte after the value; strcmp would over-read. Value bytes
+        // are unchanged.
+        ASSERT_EQ(value.ToString(), "hello");
       }
 
       // Get non-existing key
@@ -5199,8 +5653,6 @@ TEST(TableTest, FooterTests) {
   uint64_t metaindex_size = r->Uniform(1000000);
   // 5 == block trailer size
   BlockHandle index(data_size + 5, index_size);
-  BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
-  uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
   uint32_t base_context_checksum = 123456789;
   // block based, various checksums, various versions (format_version >= 2)
   for (auto t : GetSupportedChecksums()) {
@@ -5209,6 +5661,17 @@ TEST(TableTest, FooterTests) {
          ++fv) {
       uint32_t maybe_bcc =
           FormatVersionUsesContextChecksum(fv) ? base_context_checksum : 0U;
+      // format_version >= 8 stores the metaindex block size in only the low 16
+      // bits of the footer (the high 16 bits hold the metaindex-to-footer gap),
+      // so cap the size for those versions; metaindex blocks are small in
+      // practice.
+      uint64_t this_metaindex_size = FormatVersionUsesMetaindexGap(fv)
+                                         ? (metaindex_size & 0xFFFFU)
+                                         : metaindex_size;
+      BlockHandle meta_index(data_size + index_size + 2 * 5,
+                             this_metaindex_size);
+      uint64_t footer_offset =
+          data_size + this_metaindex_size + index_size + 3 * 5;
       FooterBuilder footer;
       ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
                              meta_index, index, maybe_bcc));

@@ -2514,6 +2514,17 @@ double rocksdb_block_based_options_get_uniform_cv_threshold(
   return opt->rep.uniform_cv_threshold;
 }
 
+void rocksdb_block_based_options_set_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt, int v) {
+  opt->rep.optimize_key_common_prefix =
+      static_cast<decltype(opt->rep.optimize_key_common_prefix)>(v);
+}
+
+int rocksdb_block_based_options_get_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt) {
+  return static_cast<int>(opt->rep.optimize_key_common_prefix);
+}
+
 void rocksdb_block_based_options_set_enable_index_compression(
     rocksdb_block_based_table_options_t* opt, unsigned char v) {
   opt->rep.enable_index_compression = v;

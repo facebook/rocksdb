@@ -816,6 +816,10 @@ DEFINE_bool(separate_key_value_in_data_block,
                 .separate_key_value_in_data_block,
             "If true, data blocks store keys and values separately.");
 
+DEFINE_string(optimize_key_common_prefix, "",
+              "BlockBasedTableOptions::optimize_key_common_prefix: one of "
+              "'disabled', 'auto', 'enabled'. Empty leaves the default.");
+
 DEFINE_int64(prepopulate_block_cache, 0,
              "Pre-populate hot/warm blocks in block cache. 0 to disable, 1 "
              "to insert during flush, and 2 to insert during flush and "
@@ -5529,6 +5533,22 @@ class Benchmark {
       block_based_options.block_align = FLAGS_block_align;
       block_based_options.separate_key_value_in_data_block =
           FLAGS_separate_key_value_in_data_block;
+      if (!FLAGS_optimize_key_common_prefix.empty()) {
+        if (FLAGS_optimize_key_common_prefix == "disabled") {
+          block_based_options.optimize_key_common_prefix =
+              BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled;
+        } else if (FLAGS_optimize_key_common_prefix == "auto") {
+          block_based_options.optimize_key_common_prefix =
+              BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek;
+        } else if (FLAGS_optimize_key_common_prefix == "enabled") {
+          block_based_options.optimize_key_common_prefix =
+              BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled;
+        } else {
+          fprintf(stderr, "Unknown --optimize_key_common_prefix: %s\n",
+                  FLAGS_optimize_key_common_prefix.c_str());
+          exit(1);
+        }
+      }
       block_based_options.uniform_cv_threshold = FLAGS_uniform_cv_threshold;
       block_based_options.whole_key_filtering = FLAGS_whole_key_filtering;
       block_based_options.max_auto_readahead_size =
