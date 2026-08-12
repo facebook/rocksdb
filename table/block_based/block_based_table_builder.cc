@@ -368,7 +368,18 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     // so no worker should compress it -- StateTransition auto-completes it
     // straight to the write stage. Set on every emit (true=skip,
     // false=attempt).
-    bool auto_skip_bypassed = false;
+    //
+    // Atomic purely for TSAN suppression (and technical UB). In cases where a
+    // race would be reported, a later atomic CAS would discover that (among
+    // other things) the value read was potentially stale; in that case, the
+    // read value and all downstream decisions based on it are abandoned.
+    // See StateTransition(). Specifically, if a thread is lagging, it could
+    // read this value after the slot was opened for recycling and would
+    // discover its speculated state transition is stale and rejected by the
+    // CAS. If the CAS succeeds, the value of this field was published by the
+    // emit thread with acquire/release of atomic_state and not modified
+    // elsewhere.
+    RelaxedAtomic<bool> auto_skip_bypassed{false};
     std::unique_ptr<IndexBuilder::PreparedIndexEntry> prepared_index_entry;
   };
 
@@ -680,7 +691,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
         while (next_state.Get<NextToCompress>() !=
                next_state.Get<NextToEmit>()) {
           uint32_t cslot = next_state.Get<NextToCompress>() & ring_buffer_mask;
-          if (!ring_buffer[cslot].auto_skip_bypassed) {
+          if (!ring_buffer[cslot].auto_skip_bypassed.LoadRelaxed()) {
             break;
           }
           next_state.Ref<NeedsWriter>() |= uint32_t{1} << cslot;
@@ -2116,11 +2127,12 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
   // Emit thread makes the auto-skip decision here so skipped blocks are never
   // dispatched to a worker for (no-op) compression; StateTransition
   // auto-completes them straight to the write stage.
-  block_rep->auto_skip_bypassed =
+  bool auto_skip_bypassed =
       r->AutoSkipEnabled() &&
       block_rep->uncompressed.size() < kCompressionSizeLimit &&
       r->AutoSkipDecideBypassEligible();
-  if (block_rep->auto_skip_bypassed) {
+  block_rep->auto_skip_bypassed.StoreRelaxed(auto_skip_bypassed);
+  if (auto_skip_bypassed) {
     r->AutoSkipRecordBypass(block_rep->uncompressed.size());
   }
 
