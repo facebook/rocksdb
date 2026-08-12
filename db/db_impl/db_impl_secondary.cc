@@ -402,6 +402,49 @@ bool DBImplSecondary::MaybeSealFullyFlushedActiveMemtable(
   return true;
 }
 
+void DBImplSecondary::MaybeWarnAboutRetainedMemtables(
+    ColumnFamilyData* cfd, uint64_t installed_log_number) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  // Tested before the count below because it is false whenever the secondary
+  // is keeping up with the primary, which is the normal case.
+  if (installed_log_number >= cfd->GetLogNumber()) {
+    cf_id_to_retention_warning_.erase(cfd->GetID());
+    return;
+  }
+  const int retained = cfd->imm()->NumNotFlushed();
+  if (retained == 0) {
+    cf_id_to_retention_warning_.erase(cfd->GetID());
+    return;
+  }
+  // Report a change rather than a state. The condition lasts until the
+  // primary's flushed files become readable, and TryCatchUpWithPrimary() is
+  // called as often as the application chooses, so reporting it every round
+  // would bury everything else in the log. Both values move only as the
+  // condition worsens, making this one line per newly retained memtable.
+  const std::pair<uint64_t, int> warning{installed_log_number, retained};
+  const auto [warning_iter, inserted] =
+      cf_id_to_retention_warning_.insert({cfd->GetID(), warning});
+  if (!inserted) {
+    if (warning_iter->second == warning) {
+      return;
+    }
+    warning_iter->second = warning;
+  }
+  // ColumnFamilyData::RecalculateWriteStallConditions() also counts this as a
+  // memtable limit stop, but attributes it to a flush that is not coming and to
+  // a `max_write_buffer_number` that no writer of this instance's own can hit,
+  // so name the actual cause.
+  ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                 "[%s] Retaining %d immutable memtable(s): the primary has "
+                 "flushed up to log number %" PRIu64
+                 " but no Version past log number %" PRIu64
+                 " could be installed, so they may hold the only readable copy "
+                 "of what was flushed",
+                 cfd->GetName().c_str(), retained, cfd->GetLogNumber(),
+                 installed_log_number);
+}
+
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
                                        ColumnFamilyHandle* column_family) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
@@ -613,6 +656,7 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
           // still left behind by a column family destroyed before this loop
           // next runs.
           cf_id_to_current_log_.erase(cfd->GetID());
+          cf_id_to_retention_warning_.erase(cfd->GetID());
           continue;
         }
         if (!cfd->initialized()) {
@@ -643,6 +687,7 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
         }
         cfd->imm()->RemoveOldMemTables(installed_log_number,
                                        &job_context.memtables_to_free);
+        MaybeWarnAboutRetainedMemtables(cfd, installed_log_number);
         auto& sv_context = job_context.superversion_contexts.back();
         cfd->InstallSuperVersion(&sv_context, &mutex_);
         sv_context.NewSuperVersion();

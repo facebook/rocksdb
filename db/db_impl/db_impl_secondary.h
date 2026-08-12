@@ -6,6 +6,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
@@ -349,6 +350,19 @@ class DBImplSecondary : public DBImpl {
                                            uint64_t installed_log_number,
                                            JobContext* job_context);
 
+  // Warns while `installed_log_number` lags behind cfd->GetLogNumber() and the
+  // column family is holding immutable memtables that RemoveOldMemTables()
+  // cannot collect as a result. Nothing on a secondary flushes them, so their
+  // number grows by one per WAL switch until the primary's flushed files become
+  // readable or the instance is reopened.
+  //
+  // Warns only when what it would report has changed, since the condition can
+  // persist across arbitrarily many catch-up calls.
+  //
+  // REQUIRES: mutex_ held
+  void MaybeWarnAboutRetainedMemtables(ColumnFamilyData* cfd,
+                                       uint64_t installed_log_number);
+
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still
   // in read-only mode.
@@ -457,6 +471,11 @@ class DBImplSecondary : public DBImpl {
   // never reused, so an entry left behind by a dropped column family can never
   // be mistaken for a new column family's.
   std::unordered_map<uint32_t, uint64_t> cf_id_to_current_log_;
+
+  // The installed Version's log number and retained memtable count last
+  // reported by MaybeWarnAboutRetainedMemtables() for each column family.
+  std::unordered_map<uint32_t, std::pair<uint64_t, int>>
+      cf_id_to_retention_warning_;
 
   const std::string secondary_path_;
 
