@@ -49,7 +49,8 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        SequenceNumber* out_seq, const ReadOptions&,
                        bool immutable_memtable, ReadCallback* callback,
                        bool* is_blob_index, bool do_merge,
-                       const BlobFetcher* blob_fetcher) {
+                       const BlobFetcher* blob_fetcher,
+                       const MetadataReadCtx* metadata_ctx) {
   assert(s->ok() || s->IsMergeInProgress());
   (void)immutable_memtable;
   (void)timestamp;
@@ -89,6 +90,10 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
     assert(type != kTypeWideColumnEntity);
     assert(type != kTypeValuePreferredSeqno);
     assert(type != kTypeDeletionWithTimestamp);
+    if (UNLIKELY(metadata_ctx != nullptr) && IsValueType(type) &&
+        metadata_ctx->ShouldRecordNewerVersion(seq, callback)) {
+      metadata_ctx->MarkNewerVersionPresent();
+    }
     if (!callback || callback->IsVisible(seq)) {
       if (*out_seq == kMaxSequenceNumber) {
         *out_seq = std::max(seq, *max_covering_tombstone_seq);
@@ -171,11 +176,11 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
   // TODO: reuse the InternalIterator created in Get().
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     SequenceNumber dummy_seq = 0;
-    bool found_final_value =
-        Get(*iter->lkey, iter->value ? iter->value->GetSelf() : nullptr,
-            iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
-            &(iter->max_covering_tombstone_seq), &dummy_seq, read_options, true,
-            callback, nullptr, true);
+    bool found_final_value = Get(
+        *iter->lkey, iter->value ? iter->value->GetSelf() : nullptr,
+        iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
+        &(iter->max_covering_tombstone_seq), &dummy_seq, read_options, true,
+        callback, nullptr, true, /*blob_fetcher=*/nullptr, iter->metadata_ctx);
     if (found_final_value) {
       if (iter->s->ok() || iter->s->IsNotFound()) {
         if (iter->value) {

@@ -178,6 +178,19 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   ASSERT_OK(ReopenAsSecondary(options));
   ASSERT_EQ("foo_value", Get("foo"));
   ASSERT_EQ("bar_value", Get("bar"));
+
+  MultiGetOutputMetadata output_metadata;
+  output_metadata.WantNewerVersionPresent();
+  std::vector<Slice> metadata_keys{"foo", "missing"};
+  std::vector<std::string> metadata_values;
+  const std::vector<Status> metadata_statuses = db_->MultiGetWithMetadata(
+      ReadOptions(), metadata_keys, &metadata_values, &output_metadata);
+  ASSERT_OK(metadata_statuses[0]);
+  ASSERT_EQ("foo_value", metadata_values[0]);
+  ASSERT_FALSE((*output_metadata.newer_version_present)[0]);
+  ASSERT_TRUE(metadata_statuses[1].IsNotFound());
+  ASSERT_FALSE((*output_metadata.newer_version_present)[1]);
+
   PinnableWideColumns result;
   ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "baz",
                            &result));

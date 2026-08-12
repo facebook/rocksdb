@@ -17,7 +17,8 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
  MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
  PinnedIteratorsManager* pinned_iters_mgr, bool* value_found, bool* key_exists,
  SequenceNumber* seq, ReadCallback* callback, bool* is_blob, bool do_merge,
- const SameFileBlobReader** lazy_columns_same_file_reader) {
+ const SameFileBlobReader** lazy_columns_same_file_reader,
+ const MetadataReadCtx* metadata_ctx) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -50,6 +51,7 @@ DEFINE_SYNC_AND_ASYNC(void, Version::Get)
       max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id, &blob_fetcher, lazy_columns_same_file_reader);
+  get_context.SetMetadataReadCtx(metadata_ctx);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -415,6 +417,7 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
         &iter->max_covering_tombstone_seq, clock_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
         &iter->is_blob_index, tracing_mget_id, &blob_fetcher);
+    get_ctx.back().SetMetadataReadCtx(iter->metadata_ctx);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any

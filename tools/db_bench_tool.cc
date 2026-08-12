@@ -1473,6 +1473,10 @@ DEFINE_bool(explicit_snapshot, false,
             "When set to true iterators will be initialized with explicit "
             "snapshot");
 
+DEFINE_bool(read_with_metadata, false,
+            "Use GetWithMetadata/MultiGetWithMetadata with an explicit "
+            "snapshot in readrandom and multireadrandom");
+
 DEFINE_uint32(memtable_op_scan_flush_trigger,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .memtable_op_scan_flush_trigger,
@@ -7463,6 +7467,8 @@ class Benchmark {
     }
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
+    std::unordered_map<DB*, std::unique_ptr<ManagedSnapshot>>
+        metadata_snapshots;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
@@ -7508,6 +7514,13 @@ class Benchmark {
       } else {
         cfh = db_with_cfh->db->DefaultColumnFamily();
       }
+      if (FLAGS_read_with_metadata) {
+        auto& snapshot = metadata_snapshots[db_with_cfh->db];
+        if (snapshot == nullptr) {
+          snapshot = std::make_unique<ManagedSnapshot>(db_with_cfh->db);
+        }
+        options.snapshot = snapshot->snapshot();
+      }
       if (read_operands_) {
         GetMergeOperandsOptions get_merge_operands_options;
         get_merge_operands_options.expected_max_number_of_operands =
@@ -7531,7 +7544,17 @@ class Benchmark {
       } else if (read_entity_) {
         s = db_with_cfh->db->GetEntity(options, cfh, key, &pinnable_columns);
       } else {
-        s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
+        if (FLAGS_read_with_metadata) {
+          OutputMetadata output_metadata;
+          output_metadata.WantNewerVersionPresent();
+          if (ts_ptr != nullptr) {
+            output_metadata.WantTimestamp();
+          }
+          s = db_with_cfh->db->GetWithMetadata(options, cfh, key, &pinnable_val,
+                                               &output_metadata);
+        } else {
+          s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
+        }
       }
 
       if (s.ok()) {
@@ -7600,6 +7623,8 @@ class Benchmark {
     }
 
     std::unique_ptr<char[]> ts_guard;
+    std::unordered_map<DB*, std::unique_ptr<ManagedSnapshot>>
+        metadata_snapshots;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
@@ -7627,6 +7652,13 @@ class Benchmark {
         ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
         options.timestamp = &ts;
       }
+      if (FLAGS_read_with_metadata) {
+        auto& snapshot = metadata_snapshots[db];
+        if (snapshot == nullptr) {
+          snapshot = std::make_unique<ManagedSnapshot>(db);
+        }
+        options.snapshot = snapshot->snapshot();
+      }
       if (multiread_entity_) {
         db->MultiGetEntity(options, db->DefaultColumnFamily(), keys.size(),
                            keys.data(), pin_columns, stat_list.data());
@@ -7649,7 +7681,18 @@ class Benchmark {
           pin_columns[i].Reset();
         }
       } else if (!FLAGS_multiread_batched) {
-        std::vector<Status> statuses = db->MultiGet(options, keys, &values);
+        std::vector<Status> statuses;
+        if (FLAGS_read_with_metadata) {
+          MultiGetOutputMetadata output_metadata;
+          output_metadata.WantNewerVersionPresent();
+          if (user_timestamp_size_ > 0) {
+            output_metadata.WantTimestamps();
+          }
+          statuses = db->MultiGetWithMetadata(options, keys, &values,
+                                              &output_metadata);
+        } else {
+          statuses = db->MultiGet(options, keys, &values);
+        }
         assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
         read += entries_per_batch_;
@@ -7664,8 +7707,19 @@ class Benchmark {
           }
         }
       } else {
-        db->MultiGet(options, db->DefaultColumnFamily(), keys.size(),
-                     keys.data(), pin_values, stat_list.data());
+        if (FLAGS_read_with_metadata) {
+          MultiGetOutputMetadata output_metadata;
+          output_metadata.WantNewerVersionPresent();
+          if (user_timestamp_size_ > 0) {
+            output_metadata.WantTimestamps();
+          }
+          db->MultiGetWithMetadata(options, db->DefaultColumnFamily(),
+                                   keys.size(), keys.data(), pin_values,
+                                   stat_list.data(), &output_metadata);
+        } else {
+          db->MultiGet(options, db->DefaultColumnFamily(), keys.size(),
+                       keys.data(), pin_values, stat_list.data());
+        }
 
         read += entries_per_batch_;
         num_multireads++;

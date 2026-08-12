@@ -32,6 +32,46 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, GetWithMetadataTimestampAndNewerVersion) {
+  Options options = CurrentOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  const std::string old_timestamp = EncodeAsUint64(1);
+  const std::string new_timestamp = EncodeAsUint64(2);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", old_timestamp, "old"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->Put(WriteOptions(), "key", new_timestamp, "new"));
+  ASSERT_OK(Flush());
+
+  Slice read_timestamp(new_timestamp);
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  read_options.timestamp = &read_timestamp;
+
+  OutputMetadata output_metadata;
+  output_metadata.WantTimestamp().WantNewerVersionPresent();
+  std::string value;
+  ASSERT_OK(
+      db_->GetWithMetadata(read_options, "key", &value, &output_metadata));
+  ASSERT_EQ("old", value);
+  ASSERT_EQ(old_timestamp, *output_metadata.timestamp);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  MultiGetOutputMetadata multiget_output_metadata;
+  multiget_output_metadata.WantTimestamps().WantNewerVersionPresent();
+  std::vector<Slice> keys{"key"};
+  std::vector<std::string> values;
+  const std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, keys, &values, &multiget_output_metadata);
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_EQ(old_timestamp, (*multiget_output_metadata.timestamps)[0]);
+  ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
   Options options = CurrentOptions();
   options.env = env_;

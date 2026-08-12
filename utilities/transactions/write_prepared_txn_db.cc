@@ -246,6 +246,15 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   return s;
 }
 
+Status WritePreparedTxnDB::GetWithMetadata(const ReadOptions& options,
+                                           ColumnFamilyHandle* column_family,
+                                           const Slice& key,
+                                           PinnableSlice* value,
+                                           OutputMetadata* output_metadata) {
+  return DB::GetWithMetadata(options, column_family, key, value,
+                             output_metadata);
+}
+
 void WritePreparedTxnDB::UpdateCFComparatorMap(
     const std::vector<ColumnFamilyHandle*>& handles) {
   auto cf_map = new std::map<uint32_t, const Comparator*>();
@@ -280,6 +289,15 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   (*handle_map)[id] = h;
   cf_map_.reset(cf_map);
   handle_map_.reset(handle_map);
+}
+
+void WritePreparedTxnDB::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  DB::MultiGetWithMetadata(options, num_keys, column_families, keys, values,
+                           statuses, output_metadata, sorted_input);
 }
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.

@@ -1568,6 +1568,79 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
   }
 }
 
+jobject Java_org_rocksdb_RocksDB_getWithMetadata(
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle, jbyteArray jkey,
+    jint jkey_off, jint jkey_len, jlong jcf_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle =
+      jcf_handle == 0
+          ? db->DefaultColumnFamily()
+          : ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handleFromJLong(
+                env, jcf_handle);
+  if (cf_handle == nullptr) {
+    return nullptr;
+  }
+
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::OutputMetadata output_metadata;
+    output_metadata.WantTimestamp().WantNewerVersionPresent();
+    const ROCKSDB_NAMESPACE::Status s = db->GetWithMetadata(
+        *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+        cf_handle, key.slice(), &value.pinnable_slice(), &output_metadata);
+    if (!s.ok() && !s.IsNotFound()) {
+      ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
+    }
+
+    jclass result_class = env->FindClass("org/rocksdb/GetWithMetadataResult");
+    if (result_class == nullptr) {
+      return nullptr;
+    }
+    jmethodID constructor =
+        env->GetMethodID(result_class, "<init>", "([B[BZ)V");
+    if (constructor == nullptr) {
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    jbyteArray jvalue_array = s.ok() ? value.NewByteArray() : nullptr;
+    if (s.ok() && jvalue_array == nullptr) {
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    jbyteArray jtimestamp =
+        ROCKSDB_NAMESPACE::JniUtil::createJavaByteArrayWithSizeCheck(
+            env, output_metadata.timestamp->data(),
+            static_cast<jint>(output_metadata.timestamp->size()));
+    if (jtimestamp == nullptr) {
+      if (jvalue_array != nullptr) {
+        env->DeleteLocalRef(jvalue_array);
+      }
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    jobject result = env->NewObject(
+        result_class, constructor, jvalue_array, jtimestamp,
+        static_cast<jboolean>(*output_metadata.newer_version_present));
+    if (result == nullptr) {
+      if (jvalue_array != nullptr) {
+        env->DeleteLocalRef(jvalue_array);
+      }
+      env->DeleteLocalRef(jtimestamp);
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    if (jvalue_array != nullptr) {
+      env->DeleteLocalRef(jvalue_array);
+    }
+    env->DeleteLocalRef(jtimestamp);
+    env->DeleteLocalRef(result_class);
+    return result;
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return nullptr;
+  }
+}
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
@@ -1805,6 +1878,105 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I_3J(
 
   return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays(env, values,
                                                           statuses);
+}
+
+jobjectArray Java_org_rocksdb_RocksDB_multiGetWithMetadata(
+    JNIEnv* env, jclass, jlong jdb_handle, jlong jropt_handle,
+    jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens,
+    jlongArray jcolumn_family_handles) {
+  ROCKSDB_NAMESPACE::MultiGetJNIKeys keys;
+  if (!keys.fromByteArrays(env, jkeys, jkey_offs, jkey_lens)) {
+    return nullptr;
+  }
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
+  if (jcolumn_family_handles == nullptr) {
+    cf_handles.assign(keys.size(), db->DefaultColumnFamily());
+  } else {
+    auto handles =
+        ROCKSDB_NAMESPACE::ColumnFamilyJNIHelpers::handlesFromJLongArray(
+            env, jcolumn_family_handles);
+    if (!handles) {
+      return nullptr;
+    }
+    cf_handles = std::move(*handles);
+  }
+
+  std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(keys.size());
+  std::vector<ROCKSDB_NAMESPACE::Status> statuses(keys.size());
+  ROCKSDB_NAMESPACE::MultiGetOutputMetadata output_metadata;
+  output_metadata.WantTimestamps().WantNewerVersionPresent();
+  db->MultiGetWithMetadata(
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
+      keys.size(), cf_handles.data(), keys.data(), values.data(),
+      statuses.data(), &output_metadata);
+
+  jclass result_class = env->FindClass("org/rocksdb/GetWithMetadataResult");
+  if (result_class == nullptr) {
+    return nullptr;
+  }
+  jmethodID constructor = env->GetMethodID(result_class, "<init>", "([B[BZ)V");
+  if (constructor == nullptr) {
+    env->DeleteLocalRef(result_class);
+    return nullptr;
+  }
+  jobjectArray results = env->NewObjectArray(static_cast<jsize>(keys.size()),
+                                             result_class, nullptr);
+  if (results == nullptr) {
+    env->DeleteLocalRef(result_class);
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < keys.size(); ++i) {
+    if (!statuses[i].ok() && !statuses[i].IsNotFound()) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, statuses[i]);
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    jbyteArray jvalue_array =
+        statuses[i].ok()
+            ? ROCKSDB_NAMESPACE::JniUtil::createJavaByteArrayWithSizeCheck(
+                  env, values[i].data(), static_cast<jint>(values[i].size()))
+            : nullptr;
+    if (statuses[i].ok() && jvalue_array == nullptr) {
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    const std::string& timestamp = (*output_metadata.timestamps)[i];
+    jbyteArray jtimestamp =
+        ROCKSDB_NAMESPACE::JniUtil::createJavaByteArrayWithSizeCheck(
+            env, timestamp.data(), static_cast<jint>(timestamp.size()));
+    if (jtimestamp == nullptr) {
+      if (jvalue_array != nullptr) {
+        env->DeleteLocalRef(jvalue_array);
+      }
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    jobject result = env->NewObject(
+        result_class, constructor, jvalue_array, jtimestamp,
+        static_cast<jboolean>((*output_metadata.newer_version_present)[i]));
+    if (result == nullptr) {
+      if (jvalue_array != nullptr) {
+        env->DeleteLocalRef(jvalue_array);
+      }
+      env->DeleteLocalRef(jtimestamp);
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+    env->SetObjectArrayElement(results, static_cast<jsize>(i), result);
+    if (jvalue_array != nullptr) {
+      env->DeleteLocalRef(jvalue_array);
+    }
+    env->DeleteLocalRef(jtimestamp);
+    env->DeleteLocalRef(result);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(result_class);
+      return nullptr;
+    }
+  }
+  env->DeleteLocalRef(result_class);
+  return results;
 }
 
 /*

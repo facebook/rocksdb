@@ -238,18 +238,20 @@ class ReadOnlyMemTable {
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback = nullptr,
                    bool* is_blob_index = nullptr, bool do_merge = true,
-                   const BlobFetcher* blob_fetcher = nullptr) = 0;
+                   const BlobFetcher* blob_fetcher = nullptr,
+                   const MetadataReadCtx* metadata_ctx = nullptr) = 0;
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr) {
+           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr,
+           const MetadataReadCtx* metadata_ctx = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
-               callback, is_blob_index, do_merge, blob_fetcher);
+               callback, is_blob_index, do_merge, blob_fetcher, metadata_ctx);
   }
 
   // @param immutable_memtable Whether this memtable is immutable. Used
@@ -691,8 +693,8 @@ class MemTable final : public ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true,
-           const BlobFetcher* blob_fetcher = nullptr) override;
+           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr,
+           const MetadataReadCtx* metadata_ctx = nullptr) override;
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool immutable_memtable,
@@ -1001,7 +1003,8 @@ class MemTable final : public ReadOnlyMemTable {
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress,
-                    const BlobFetcher* blob_fetcher);
+                    const BlobFetcher* blob_fetcher,
+                    const MetadataReadCtx* metadata_ctx = nullptr);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime

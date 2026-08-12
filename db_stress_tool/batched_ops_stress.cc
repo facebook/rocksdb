@@ -163,7 +163,14 @@ class BatchedOpsStressTest : public StressTest {
     for (int i = 0; i < 10; i++) {
       keys[i] += key.ToString();
       key_slices[i] = keys[i];
-      s = DbStressGet(db_, readoptionscopy, cfh, key_slices[i], &from_db);
+      if (i == 0) {
+        OutputMetadata output_metadata;
+        output_metadata.WantNewerVersionPresent();
+        s = db_->GetWithMetadata(readoptionscopy, cfh, key_slices[i], &from_db,
+                                 &output_metadata);
+      } else {
+        s = DbStressGet(db_, readoptionscopy, cfh, key_slices[i], &from_db);
+      }
       if (!s.ok() && !s.IsNotFound()) {
         fprintf(stderr, "get error: %s\n", s.ToString().c_str());
         values[i] = "";
@@ -235,8 +242,25 @@ class BatchedOpsStressTest : public StressTest {
         key_str.emplace_back(keys[key] + Key(rand_keys[rand_key]));
         key_slices.emplace_back(key_str.back());
       }
-      DbStressMultiGet(db_, readoptionscopy, cfh, num_prefixes,
-                       key_slices.data(), values.data(), statuses.data());
+      MultiGetOutputMetadata output_metadata;
+      output_metadata.WantNewerVersionPresent();
+      db_->MultiGetWithMetadata(readoptionscopy, cfh, num_prefixes,
+                                key_slices.data(), values.data(),
+                                statuses.data(), &output_metadata);
+      const std::vector<bool>& newer_versions =
+          *output_metadata.newer_version_present;
+      if (newer_versions.size() != num_prefixes ||
+          !std::all_of(newer_versions.begin(), newer_versions.end(),
+                       [&](bool present) {
+                         return present == newer_versions.front();
+                       })) {
+        fprintf(stderr,
+                "multiget error: inconsistent newer-version metadata for "
+                "atomic batch\n");
+        thread->stats.AddErrors(1);
+        ret_status[rand_key] = Status::Corruption(
+            "Inconsistent newer-version metadata for atomic batch");
+      }
       for (size_t i = 0; i < num_prefixes; i++) {
         Status s = statuses[i];
         if (!s.ok() && !s.IsNotFound()) {

@@ -1261,6 +1261,43 @@ void BlobDBImpl::MultiGet(const ReadOptions& _read_options, size_t num_keys,
                           const Slice* keys, PinnableSlice* values,
                           std::string* timestamps, Status* statuses,
                           const bool /*sorted_input*/) {
+  MultiGetImpl(_read_options, num_keys, column_families, keys, values,
+               timestamps, statuses);
+}
+
+void BlobDBImpl::MultiGetWithMetadata(
+    const ReadOptions& _read_options, size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool /*sorted_input*/) {
+  std::vector<std::string>* timestamps =
+      output_metadata != nullptr && output_metadata->timestamps.has_value()
+          ? &*output_metadata->timestamps
+          : nullptr;
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<bool>* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  const bool newer_version_present_requested =
+      newer_version_present != nullptr && _read_options.snapshot != nullptr;
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  MultiGetImpl(
+      _read_options, num_keys, column_families, keys, values,
+      timestamps != nullptr ? timestamps->data() : nullptr, statuses,
+      newer_version_present_requested ? newer_version_present : nullptr);
+}
+
+void BlobDBImpl::MultiGetImpl(const ReadOptions& _read_options, size_t num_keys,
+                              ColumnFamilyHandle* const* column_families,
+                              const Slice* keys, PinnableSlice* values,
+                              std::string* timestamps, Status* statuses,
+                              std::vector<bool>* newer_version_present) {
   StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
@@ -1299,11 +1336,29 @@ void BlobDBImpl::MultiGet(const ReadOptions& _read_options, size_t num_keys,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kMultiGet;
   }
+  if (newer_version_present != nullptr && _read_options.snapshot != nullptr &&
+      read_options.read_tier == kPersistedTier) {
+    const Status not_supported = Status::NotSupported(
+        "MultiGetWithMetadata is not supported with kPersistedTier");
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = not_supported;
+    }
+    return;
+  }
   bool snapshot_created = SetSnapshotIfNeeded(&read_options);
 
   for (size_t i = 0; i < num_keys; i++) {
     PinnableSlice& value = values[i];
-    statuses[i] = GetImpl(read_options, DefaultColumnFamily(), keys[i], &value);
+    bool key_newer_version_present = false;
+    statuses[i] = GetImpl(
+        read_options, DefaultColumnFamily(), keys[i], &value,
+        /*expiration=*/nullptr,
+        _read_options.snapshot != nullptr && newer_version_present != nullptr
+            ? &key_newer_version_present
+            : nullptr);
+    if (newer_version_present != nullptr) {
+      (*newer_version_present)[i] = key_newer_version_present;
+    }
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(read_options.snapshot);
@@ -1476,7 +1531,54 @@ Status BlobDBImpl::Get(const ReadOptions& _read_options,
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
     read_options.io_activity = Env::IOActivity::kGet;
   }
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value,
+                 /*expiration=*/nullptr, /*newer_version_present=*/nullptr);
+}
+
+Status BlobDBImpl::GetWithMetadata(const ReadOptions& _read_options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Slice& key, PinnableSlice* value,
+                                   OutputMetadata* output_metadata) {
+  std::string* timestamp =
+      output_metadata != nullptr && output_metadata->timestamp.has_value()
+          ? &*output_metadata->timestamp
+          : nullptr;
+  bool* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented.");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+  if (newer_version_present != nullptr && read_options.snapshot != nullptr &&
+      read_options.read_tier == kPersistedTier) {
+    return Status::NotSupported(
+        "GetWithMetadata is not supported with kPersistedTier");
+  }
+  return GetImpl(
+      read_options, column_family, key, value,
+      /*expiration=*/nullptr,
+      read_options.snapshot != nullptr ? newer_version_present : nullptr);
 }
 
 Status BlobDBImpl::Get(const ReadOptions& _read_options,
@@ -1500,7 +1602,8 @@ Status BlobDBImpl::Get(const ReadOptions& _read_options,
 
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* value, uint64_t* expiration) {
+                           PinnableSlice* value, uint64_t* expiration,
+                           bool* newer_version_present) {
   if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
@@ -1518,6 +1621,9 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   get_impl_options.column_family = column_family;
   get_impl_options.value = &index_entry;
   get_impl_options.is_blob_index = &is_blob_index;
+  if (newer_version_present != nullptr && read_options.snapshot != nullptr) {
+    get_impl_options.newer_version_present = newer_version_present;
+  }
   s = db_impl_->GetImpl(ro, key, get_impl_options);
   if (expiration != nullptr) {
     *expiration = kNoExpiration;

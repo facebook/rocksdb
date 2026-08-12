@@ -13,6 +13,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -74,6 +75,85 @@ struct ColumnFamilyDescriptor {
   ColumnFamilyDescriptor(const std::string& _name,
                          const ColumnFamilyOptions& _options)
       : name(_name), options(_options) {}
+};
+
+struct OutputMetadata {
+  // For each field, std::nullopt means the metadata was not requested.
+
+  // If engaged, receives the key timestamp.
+  std::optional<std::string> timestamp;
+
+  OutputMetadata& WantTimestamp(bool want = true) {
+    if (want) {
+      timestamp.emplace();
+    } else {
+      timestamp.reset();
+    }
+    return *this;
+  }
+
+  // If engaged, set to true when an explicit-snapshot read observed a later
+  // write for the same key than the snapshot can return. May be true when the
+  // read returns NotFound because the key was created after the snapshot.
+  //
+  // A "later write" is any committed (visible) point operation of type Put,
+  // Delete, Merge, SingleDelete, BlobIndex, DeletionWithTimestamp,
+  // WideColumnEntity, or ValuePreferredSeqno, as well as a covering range
+  // tombstone (DeleteRange) with sequence number greater than the snapshot.
+  // Transaction reads that require a custom visibility callback are not
+  // supported.
+  //
+  // Caveats:
+  //   * Best-effort: false negatives are possible because the latest visible
+  //     sequence is sampled after the SuperVersion is pinned for this read.
+  //     Writes published in the narrow window between SuperVersion pin and
+  //     sequence sampling may be missed.
+  //   * When `Options::row_cache` is configured, tracking bypasses cached rows
+  //     until a newer version is observed because cached rows do not expose
+  //     sequence numbers. Remaining snapshot-visible lookups can use the cache.
+  //   * `ReadOptions::ignore_range_deletions` does not affect metadata
+  //     tracking: newer covering range tombstones are still reported.
+  //   * Has no effect when `read_options.snapshot` is null; the field is
+  //     always left as false in that case.
+  std::optional<bool> newer_version_present;
+
+  OutputMetadata& WantNewerVersionPresent(bool want = true) {
+    if (want) {
+      newer_version_present.emplace(false);
+    } else {
+      newer_version_present.reset();
+    }
+    return *this;
+  }
+};
+
+struct MultiGetOutputMetadata {
+  // For each field, std::nullopt means the metadata was not requested.
+
+  // If engaged, resized to num_keys and filled with key timestamps.
+  std::optional<std::vector<std::string>> timestamps;
+
+  MultiGetOutputMetadata& WantTimestamps(bool want = true) {
+    if (want) {
+      timestamps.emplace();
+    } else {
+      timestamps.reset();
+    }
+    return *this;
+  }
+
+  // If engaged, resized to num_keys and filled with newer-version metadata.
+  // See OutputMetadata::newer_version_present.
+  std::optional<std::vector<bool>> newer_version_present;
+
+  MultiGetOutputMetadata& WantNewerVersionPresent(bool want = true) {
+    if (want) {
+      newer_version_present.emplace();
+    } else {
+      newer_version_present.reset();
+    }
+    return *this;
+  }
 };
 
 class ColumnFamilyHandle {
@@ -657,6 +737,28 @@ class DB {
     return s;
   }
 
+  inline Status GetWithMetadata(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family,
+                                const Slice& key, std::string* value,
+                                OutputMetadata* output_metadata) {
+    if (output_metadata != nullptr &&
+        output_metadata->newer_version_present.has_value()) {
+      *output_metadata->newer_version_present = false;
+    }
+    if (value == nullptr) {
+      return Status::InvalidArgument(
+          "Cannot call GetWithMetadata with a null value");
+    }
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = GetWithMetadata(options, column_family, key, &pinnable_val,
+                             output_metadata);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+
   // No timestamp, and value is returned in a PinnableSlice
   // NOTE: virtual final => disallow override (was previously allowed)
   virtual Status Get(const ReadOptions& options,
@@ -694,6 +796,12 @@ class DB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value, std::string* timestamp) final {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
+  }
+
+  Status GetWithMetadata(const ReadOptions& options, const Slice& key,
+                         std::string* value, OutputMetadata* output_metadata) {
+    return GetWithMetadata(options, DefaultColumnFamily(), key, value,
+                           output_metadata);
   }
 
   // If the column family specified by "column_family" contains an entry for
@@ -834,6 +942,42 @@ class DB {
     return statuses;
   }
 
+  std::vector<Status> MultiGetWithMetadata(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      MultiGetOutputMetadata* output_metadata) {
+    size_t num_keys = keys.size();
+    values->resize(num_keys);
+    if (column_families.size() != num_keys) {
+      if (output_metadata != nullptr) {
+        if (output_metadata->timestamps.has_value()) {
+          output_metadata->timestamps->resize(num_keys);
+        }
+        if (output_metadata->newer_version_present.has_value()) {
+          output_metadata->newer_version_present->assign(num_keys, false);
+        }
+      }
+      return std::vector<Status>(
+          num_keys,
+          Status::InvalidArgument("Number of column families does not match "
+                                  "number of keys"));
+    }
+
+    std::vector<Status> statuses(num_keys);
+    std::vector<PinnableSlice> pin_values(num_keys);
+
+    MultiGetWithMetadata(options, num_keys, column_families.data(), keys.data(),
+                         pin_values.data(), statuses.data(), output_metadata,
+                         /*sorted_input=*/false);
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
+      }
+    }
+    return statuses;
+  }
+
   // No timestamps are returned
   // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(
@@ -854,6 +998,17 @@ class DB {
         options,
         std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
         keys, values);
+  }
+
+  std::vector<Status> MultiGetWithMetadata(
+      const ReadOptions& options, const std::vector<Slice>& keys,
+      std::vector<std::string>* values,
+      MultiGetOutputMetadata* output_metadata) {
+    values->resize(keys.size());
+    return MultiGetWithMetadata(
+        options,
+        std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
+        keys, values, output_metadata);
   }
 
   // MultiGet for default column family
@@ -910,6 +1065,15 @@ class DB {
                         PinnableSlice* values, std::string* timestamps,
                         Status* statuses,
                         const bool sorted_input = false) final;
+
+  // MultiGet for single column family with optional output metadata vectors.
+  // Non-null vectors in output_metadata are resized to num_keys entries.
+  void MultiGetWithMetadata(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family,
+                            const size_t num_keys, const Slice* keys,
+                            PinnableSlice* values, Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false);
 
   // MultiGet for single column family, no timestamps returned
   // NOTE: virtual final => disallow override (was previously allowed)
@@ -2619,6 +2783,27 @@ class DB {
   // Returns the non-owning native coroutine interface, or nullptr when this DB
   // does not support it. The returned pointer must not outlive this DB.
   virtual CoroDB* GetCoroDB() { return nullptr; }
+
+  // EXPERIMENTAL, subject to change.
+  // Returns the same value as Get() and populates requested output metadata.
+  // Newer-version tracking is supported for explicit-snapshot reads on the
+  // primary DB implementation. It is not supported with kPersistedTier or by
+  // transaction reads that require a custom visibility callback.
+  virtual Status GetWithMetadata(const ReadOptions& options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, PinnableSlice* value,
+                                 OutputMetadata* output_metadata);
+
+  // EXPERIMENTAL, subject to change.
+  // MultiGet equivalent of GetWithMetadata(). Requested output vectors are
+  // resized to num_keys entries.
+  virtual void MultiGetWithMetadata(const ReadOptions& options,
+                                    const size_t num_keys,
+                                    ColumnFamilyHandle* const* column_families,
+                                    const Slice* keys, PinnableSlice* values,
+                                    Status* statuses,
+                                    MultiGetOutputMetadata* output_metadata,
+                                    const bool sorted_input = false);
 };
 
 struct WriteStallStatsMapKeys {

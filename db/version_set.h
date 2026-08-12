@@ -971,7 +971,8 @@ class Version {
       bool* key_exists = nullptr, SequenceNumber* seq = nullptr,
       ReadCallback* callback = nullptr, bool* is_blob = nullptr,
       bool do_merge = true,
-      const SameFileBlobReader** lazy_columns_same_file_reader = nullptr);
+      const SameFileBlobReader** lazy_columns_same_file_reader = nullptr,
+      const MetadataReadCtx* metadata_ctx = nullptr);
 
   DECLARE_SYNC_AND_ASYNC(void, MultiGet, const ReadOptions&,
                          MultiGetRange* range,

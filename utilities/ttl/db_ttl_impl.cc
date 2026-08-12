@@ -5,6 +5,7 @@
 
 #include "utilities/ttl/db_ttl_impl.h"
 
+#include <array>
 #include <memory>
 #include <utility>
 
@@ -18,6 +19,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "table/multiget_context.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -517,6 +519,106 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
     st = Write(options, &batch);
   }
   return st;
+}
+
+Status DBWithTTLImpl::GetWithMetadata(const ReadOptions& options,
+                                      ColumnFamilyHandle* column_family,
+                                      const Slice& key, PinnableSlice* value,
+                                      OutputMetadata* output_metadata) {
+  std::string* timestamp =
+      output_metadata != nullptr && output_metadata->timestamp.has_value()
+          ? &*output_metadata->timestamp
+          : nullptr;
+  bool* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  if (timestamp) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not supported");
+  }
+  Status st = newer_version_present != nullptr && options.snapshot != nullptr
+                  ? DBWithTTLImplBase::GetWithMetadata(
+                        options, column_family, key, value, output_metadata)
+                  : DBWithTTLImplBase::Get(options, column_family, key, value,
+                                           /*timestamp=*/nullptr);
+  if (!st.ok()) {
+    return st;
+  }
+  return CheckAndStripTimestamp(value);
+}
+
+void DBWithTTLImpl::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  std::vector<std::string>* timestamps =
+      output_metadata != nullptr && output_metadata->timestamps.has_value()
+          ? &*output_metadata->timestamps
+          : nullptr;
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<bool>* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  MultiGetInternal(options, num_keys, column_families, keys, values,
+                   timestamps != nullptr ? timestamps->data() : nullptr,
+                   statuses, output_metadata, newer_version_present,
+                   sorted_input);
+}
+
+void DBWithTTLImpl::MultiGetInternal(const ReadOptions& options,
+                                     const size_t num_keys,
+                                     ColumnFamilyHandle* const* column_families,
+                                     const Slice* keys, PinnableSlice* values,
+                                     std::string* timestamps, Status* statuses,
+                                     MultiGetOutputMetadata* output_metadata,
+                                     std::vector<bool>* newer_version_present,
+                                     const bool sorted_input) {
+  if (timestamps) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported(
+          "MultiGet() returning timestamps not implemented.");
+    }
+    return;
+  }
+
+  if (newer_version_present != nullptr && options.snapshot != nullptr) {
+    DBWithTTLImplBase::MultiGetWithMetadata(options, num_keys, column_families,
+                                            keys, values, statuses,
+                                            output_metadata, sorted_input);
+  } else {
+    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        stack_column_families{};
+    std::unique_ptr<ColumnFamilyHandle*[]> heap_column_families;
+    ColumnFamilyHandle** mutable_column_families = stack_column_families.data();
+    if (num_keys > stack_column_families.size()) {
+      heap_column_families.reset(new ColumnFamilyHandle*[num_keys]);
+      mutable_column_families = heap_column_families.get();
+    }
+    for (size_t i = 0; i < num_keys; ++i) {
+      mutable_column_families[i] = column_families[i];
+    }
+    DBWithTTLImplBase::MultiGet(
+        options, num_keys, num_keys == 0 ? nullptr : mutable_column_families,
+        keys, values, /*timestamps=*/nullptr, statuses, sorted_input);
+  }
+  ProcessMultiGetResults(num_keys, values, statuses);
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,

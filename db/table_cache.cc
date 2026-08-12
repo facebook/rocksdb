@@ -9,6 +9,8 @@
 
 #include "db/table_cache.h"
 
+#include <algorithm>
+
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/snapshot_impl.h"
@@ -548,7 +550,10 @@ uint64_t TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
     // We should consider to use options.snapshot->GetSequenceNumber()
     // instead of GetInternalKeySeqno(k), which will make the code
     // easier to understand.
-    cache_entry_seq_no = 1 + GetInternalKeySeqno(internal_key);
+    const MetadataReadCtx* metadata_ctx = get_context->metadata_read_ctx();
+    cache_entry_seq_no =
+        1 + (metadata_ctx != nullptr ? metadata_ctx->read_snapshot_seq
+                                     : GetInternalKeySeqno(internal_key));
   }
 
   // Compute row cache key.
@@ -597,10 +602,47 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
 void TableCache::UpdateRangeTombstoneSeqnums(
     const ReadOptions& options, TableReader* t,
     MultiGetContext::Range& table_range) {
-  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      t->NewRangeTombstoneIterator(options));
-  if (range_del_iter != nullptr) {
+  std::unique_ptr<FragmentedRangeTombstoneIterator> latest_range_del_iter;
+  bool track_newer_versions = false;
+  if (table_range.context()->HasMetadataReadCtx()) {
     for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+      if (iter->get_context->NeedToTrackNewerVersions()) {
+        track_newer_versions = true;
+        break;
+      }
+    }
+  }
+  if (track_newer_versions) {
+    SequenceNumber latest_range_del_read_seq = 0;
+    for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+      if (iter->get_context->NeedToTrackNewerVersions()) {
+        latest_range_del_read_seq = std::max(latest_range_del_read_seq,
+                                             GetInternalKeySeqno(iter->ikey));
+      }
+    }
+    if (latest_range_del_read_seq > 0) {
+      latest_range_del_iter.reset(t->NewRangeTombstoneIterator(
+          latest_range_del_read_seq, options.timestamp));
+    }
+  }
+
+  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
+  if (!options.ignore_range_deletions) {
+    range_del_iter.reset(t->NewRangeTombstoneIterator(options));
+  }
+  if (range_del_iter != nullptr || latest_range_del_iter != nullptr) {
+    for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+      if (latest_range_del_iter != nullptr &&
+          iter->get_context->NeedToTrackNewerVersions()) {
+        if (latest_range_del_iter->MaxCoveringTombstoneSeqnum(
+                iter->ukey_with_ts, *iter->get_context->metadata_read_ctx(),
+                iter->get_context->read_callback()) != 0) {
+          iter->get_context->MarkNewerVersionPresent();
+        }
+      }
+      if (range_del_iter == nullptr) {
+        continue;
+      }
       SequenceNumber* max_covering_tombstone_seq =
           iter->get_context->max_covering_tombstone_seq();
       SequenceNumber seq =
@@ -630,7 +672,19 @@ Status TableCache::MultiGetFilter(
   // filtering here, since the filtering needs to happen after the row cache
   // lookup.
   KeyContext& first_key = *mget_range->begin();
-  if (ioptions_.row_cache && !first_key.get_context->NeedToReadSequence()) {
+  const bool has_metadata_read_ctx =
+      mget_range->context()->HasMetadataReadCtx();
+  bool track_newer_versions = false;
+  if (has_metadata_read_ctx) {
+    for (auto iter = mget_range->begin(); iter != mget_range->end(); ++iter) {
+      if (iter->get_context->NeedToTrackNewerVersions()) {
+        track_newer_versions = true;
+        break;
+      }
+    }
+  }
+  if (ioptions_.row_cache && !first_key.get_context->NeedToReadSequence() &&
+      !track_newer_versions) {
     return Status::NotSupported();
   }
   Status s;
@@ -649,7 +703,7 @@ Status TableCache::MultiGetFilter(
     s = t->MultiGetFilter(options, mutable_cf_options.prefix_extractor.get(),
                           mget_range);
   }
-  if (s.ok() && !options.ignore_range_deletions) {
+  if (s.ok() && (!options.ignore_range_deletions || track_newer_versions)) {
     // Update the range tombstone sequence numbers for the keys here
     // as TableCache::MultiGet may or may not be called, and even if it
     // is, it may be called with fewer keys in the rangedue to filtering.

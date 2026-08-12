@@ -336,6 +336,54 @@ Status DBImplSecondary::RecoverLogFiles(
   return status;
 }
 
+void DBImplSecondary::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  std::vector<std::string>* timestamps =
+      output_metadata != nullptr && output_metadata->timestamps.has_value()
+          ? &*output_metadata->timestamps
+          : nullptr;
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<bool>* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+    if (options.snapshot != nullptr) {
+      const Status s = Status::NotSupported(
+          "MultiGetWithMetadata is not supported in secondary DB mode");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = nullptr;
+  if (num_keys <= MultiGetContext::MAX_BATCH_SIZE) {
+    stack_column_families.resize(num_keys);
+    mutable_column_families =
+        num_keys == 0 ? nullptr : &stack_column_families[0];
+  } else {
+    heap_column_families.resize(num_keys);
+    mutable_column_families = heap_column_families.data();
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    mutable_column_families[i] = column_families[i];
+  }
+  DBImpl::MultiGet(options, num_keys, mutable_column_families, keys, values,
+                   timestamps != nullptr ? timestamps->data() : nullptr,
+                   statuses, sorted_input);
+}
+
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
                                        ColumnFamilyHandle* column_family) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&

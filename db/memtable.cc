@@ -1307,11 +1307,17 @@ struct Saver {
   bool* is_blob_index;
   bool allow_data_in_errors;
   uint32_t protection_bytes_per_key;
+  // nullptr when newer-version metadata tracking is not requested.
+  const MetadataReadCtx* metadata_ctx;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsVisible(_seq);
     }
     return true;
+  }
+  bool CanRecordNewerVersion(SequenceNumber _seq) {
+    assert(metadata_ctx != nullptr);
+    return metadata_ctx->ShouldRecordNewerVersion(_seq, callback_);
   }
 };
 }  // anonymous namespace
@@ -1366,6 +1372,10 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     SequenceNumber seq;
     UnPackSequenceAndType(tag, &seq, &type);
+    if (UNLIKELY(s->metadata_ctx != nullptr) && IsValueType(type) &&
+        s->CanRecordNewerVersion(seq)) {
+      s->metadata_ctx->MarkNewerVersionPresent();
+    }
     // If the value is not in the snapshot, skip it
     if (!s->CheckCallback(seq)) {
       return true;  // to continue to the next seq
@@ -1572,7 +1582,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback,
                    bool* is_blob_index, bool do_merge,
-                   const BlobFetcher* blob_fetcher) {
+                   const BlobFetcher* blob_fetcher,
+                   const MetadataReadCtx* metadata_ctx) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -1581,9 +1592,29 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
 
   PERF_TIMER_GUARD(get_from_memtable_time);
 
+  // Metadata reads widen the lookup seq to detect newer range tombstones. The
+  // regular masking iterator must stay at the user's snapshot seq so such
+  // tombstones only set metadata and do not hide snapshot-visible values.
+  const SequenceNumber lookup_seq = GetInternalKeySeqno(key.internal_key());
+  const SequenceNumber range_del_read_seq =
+      metadata_ctx != nullptr ? metadata_ctx->read_snapshot_seq : lookup_seq;
+  assert(range_del_read_seq <= lookup_seq);
+  if (metadata_ctx != nullptr && !metadata_ctx->HasNewerVersion() &&
+      !is_range_del_table_empty_.LoadRelaxed()) {
+    std::unique_ptr<FragmentedRangeTombstoneIterator> latest_range_del_iter(
+        NewRangeTombstoneIteratorInternal(read_opts, lookup_seq,
+                                          immutable_memtable));
+    const SequenceNumber covering_seq =
+        latest_range_del_iter != nullptr
+            ? latest_range_del_iter->MaxCoveringTombstoneSeqnum(
+                  key.user_key(), *metadata_ctx, callback)
+            : 0;
+    if (covering_seq != 0) {
+      metadata_ctx->MarkNewerVersionPresent();
+    }
+  }
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts,
-                                GetInternalKeySeqno(key.internal_key()),
+      NewRangeTombstoneIterator(read_opts, range_del_read_seq,
                                 immutable_memtable));
   if (range_del_iter != nullptr) {
     SequenceNumber covering_seq =
@@ -1630,7 +1661,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
                  is_blob_index, value, columns, timestamp, s, merge_context,
-                 seq, &found_final_value, &merge_in_progress, blob_fetcher);
+                 seq, &found_final_value, &merge_in_progress, blob_fetcher,
+                 metadata_ctx);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -1646,15 +1678,13 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   return found_final_value;
 }
 
-void MemTable::GetFromTable(const LookupKey& key,
-                            SequenceNumber max_covering_tombstone_seq,
-                            bool do_merge, ReadCallback* callback,
-                            bool* is_blob_index, std::string* value,
-                            PinnableWideColumns* columns,
-                            std::string* timestamp, Status* s,
-                            MergeContext* merge_context, SequenceNumber* seq,
-                            bool* found_final_value, bool* merge_in_progress,
-                            const BlobFetcher* blob_fetcher) {
+void MemTable::GetFromTable(
+    const LookupKey& key, SequenceNumber max_covering_tombstone_seq,
+    bool do_merge, ReadCallback* callback, bool* is_blob_index,
+    std::string* value, PinnableWideColumns* columns, std::string* timestamp,
+    Status* s, MergeContext* merge_context, SequenceNumber* seq,
+    bool* found_final_value, bool* merge_in_progress,
+    const BlobFetcher* blob_fetcher, const MetadataReadCtx* metadata_ctx) {
   Saver saver;
   saver.status = s;
   saver.found_final_value = found_final_value;
@@ -1678,6 +1708,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.do_merge = do_merge;
   saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
+  saver.metadata_ctx = metadata_ctx;
 
   if (!moptions_.paranoid_memory_checks &&
       !moptions_.memtable_verify_per_key_checksum_on_seek) {
@@ -1711,13 +1742,25 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
-  // For now, memtable Bloom filter is effectively disabled if there are any
-  // range tombstones. This is the simplest way to ensure range tombstones are
-  // handled. TODO: allow Bloom checks where max_covering_tombstone_seq==0
-  bool no_range_del = read_options.ignore_range_deletions ||
-                      is_range_del_table_empty_.LoadRelaxed();
   MultiGetRange temp_range(*range, range->begin(), range->end());
-  if (bloom_filter_ && no_range_del) {
+  const bool has_range_del = !is_range_del_table_empty_.LoadRelaxed();
+  const bool apply_range_del =
+      has_range_del && !read_options.ignore_range_deletions;
+  bool track_range_del_metadata = false;
+  if (has_range_del && range->context()->HasMetadataReadCtx()) {
+    for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+      if (iter->metadata_ctx != nullptr &&
+          !iter->metadata_ctx->HasNewerVersion()) {
+        track_range_del_metadata = true;
+        break;
+      }
+    }
+  }
+
+  // For now, memtable Bloom filter is effectively disabled if there are range
+  // tombstones that must affect either read results or metadata.
+  // TODO: allow Bloom checks where max_covering_tombstone_seq==0.
+  if (bloom_filter_ && !apply_range_del && !track_range_del_metadata) {
     bool whole_key =
         !prefix_extractor_ || moptions_.memtable_whole_key_filtering;
     std::array<Slice, MultiGetContext::MAX_BATCH_SIZE> bloom_keys;
@@ -1750,6 +1793,26 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   bool validate = moptions_.paranoid_memory_checks ||
                   moptions_.memtable_verify_per_key_checksum_on_seek;
 
+  // For metadata-tracking reads, allocate one "latest" range tombstone
+  // iterator per memtable batch (highest seq across the keys that requested
+  // metadata that has not already observed newer data) instead of one per key.
+  std::unique_ptr<FragmentedRangeTombstoneIterator> latest_range_del_iter;
+  if (track_range_del_metadata) {
+    SequenceNumber latest_range_del_read_seq = 0;
+    for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+      if (iter->metadata_ctx != nullptr &&
+          !iter->metadata_ctx->HasNewerVersion()) {
+        latest_range_del_read_seq =
+            std::max(latest_range_del_read_seq,
+                     GetInternalKeySeqno(iter->lkey->internal_key()));
+      }
+    }
+    if (latest_range_del_read_seq > 0) {
+      latest_range_del_iter.reset(NewRangeTombstoneIteratorInternal(
+          read_options, latest_range_del_read_seq, immutable_memtable));
+    }
+  }
+
   if (use_batch_optimization) {
     // Phase 1: Handle range tombstones and set up Savers for batched lookup
     std::array<Saver, MultiGetContext::MAX_BATCH_SIZE> savers{};
@@ -1760,18 +1823,36 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     size_t num_keys = 0;
 
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-      if (!no_range_del) {
-        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-            NewRangeTombstoneIteratorInternal(
-                read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
-                immutable_memtable));
-        SequenceNumber covering_seq =
-            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
-        if (covering_seq > iter->max_covering_tombstone_seq) {
-          iter->max_covering_tombstone_seq = covering_seq;
-          if (iter->timestamp) {
-            iter->timestamp->assign(range_del_iter->timestamp().data(),
-                                    range_del_iter->timestamp().size());
+      if (apply_range_del || latest_range_del_iter != nullptr) {
+        if (latest_range_del_iter != nullptr && iter->metadata_ctx != nullptr &&
+            !iter->metadata_ctx->HasNewerVersion()) {
+          const SequenceNumber covering_seq =
+              latest_range_del_iter->MaxCoveringTombstoneSeqnum(
+                  iter->lkey->user_key(), *iter->metadata_ctx, callback);
+          if (covering_seq != 0) {
+            iter->metadata_ctx->MarkNewerVersionPresent();
+          }
+        }
+        if (apply_range_del) {
+          const SequenceNumber lookup_seq =
+              GetInternalKeySeqno(iter->lkey->internal_key());
+          const SequenceNumber range_del_read_seq =
+              iter->metadata_ctx != nullptr
+                  ? iter->metadata_ctx->read_snapshot_seq
+                  : lookup_seq;
+          assert(range_del_read_seq <= lookup_seq);
+          std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+              NewRangeTombstoneIteratorInternal(
+                  read_options, range_del_read_seq, immutable_memtable));
+          SequenceNumber covering_seq =
+              range_del_iter->MaxCoveringTombstoneSeqnum(
+                  iter->lkey->user_key());
+          if (covering_seq > iter->max_covering_tombstone_seq) {
+            iter->max_covering_tombstone_seq = covering_seq;
+            if (iter->timestamp) {
+              iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                      range_del_iter->timestamp().size());
+            }
           }
         }
       }
@@ -1801,6 +1882,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       saver.do_merge = true;
       saver.allow_data_in_errors = moptions_.allow_data_in_errors;
       saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
+      saver.metadata_ctx = iter->metadata_ctx;
 
       memtable_keys[num_keys] = iter->lkey->memtable_key().data();
       callback_args[num_keys] = &savers[num_keys];
@@ -1867,27 +1949,46 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
       bool found_final_value{false};
       bool merge_in_progress = iter->s->IsMergeInProgress();
-      if (!no_range_del) {
-        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-            NewRangeTombstoneIteratorInternal(
-                read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
-                immutable_memtable));
-        SequenceNumber covering_seq =
-            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
-        if (covering_seq > iter->max_covering_tombstone_seq) {
-          iter->max_covering_tombstone_seq = covering_seq;
-          if (iter->timestamp) {
-            iter->timestamp->assign(range_del_iter->timestamp().data(),
-                                    range_del_iter->timestamp().size());
+      if (apply_range_del || latest_range_del_iter != nullptr) {
+        if (latest_range_del_iter != nullptr && iter->metadata_ctx != nullptr &&
+            !iter->metadata_ctx->HasNewerVersion()) {
+          const SequenceNumber covering_seq =
+              latest_range_del_iter->MaxCoveringTombstoneSeqnum(
+                  iter->lkey->user_key(), *iter->metadata_ctx, callback);
+          if (covering_seq != 0) {
+            iter->metadata_ctx->MarkNewerVersionPresent();
+          }
+        }
+        if (apply_range_del) {
+          const SequenceNumber lookup_seq =
+              GetInternalKeySeqno(iter->lkey->internal_key());
+          const SequenceNumber range_del_read_seq =
+              iter->metadata_ctx != nullptr
+                  ? iter->metadata_ctx->read_snapshot_seq
+                  : lookup_seq;
+          assert(range_del_read_seq <= lookup_seq);
+          std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+              NewRangeTombstoneIteratorInternal(
+                  read_options, range_del_read_seq, immutable_memtable));
+          SequenceNumber covering_seq =
+              range_del_iter->MaxCoveringTombstoneSeqnum(
+                  iter->lkey->user_key());
+          if (covering_seq > iter->max_covering_tombstone_seq) {
+            iter->max_covering_tombstone_seq = covering_seq;
+            if (iter->timestamp) {
+              iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                      range_del_iter->timestamp().size());
+            }
           }
         }
       }
       SequenceNumber dummy_seq;
-      GetFromTable(
-          *(iter->lkey), iter->max_covering_tombstone_seq, true, callback,
-          &iter->is_blob_index, iter->value ? iter->value->GetSelf() : nullptr,
-          iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
-          &dummy_seq, &found_final_value, &merge_in_progress, blob_fetcher);
+      GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
+                   callback, &iter->is_blob_index,
+                   iter->value ? iter->value->GetSelf() : nullptr,
+                   iter->columns, iter->timestamp, iter->s,
+                   &(iter->merge_context), &dummy_seq, &found_final_value,
+                   &merge_in_progress, blob_fetcher, iter->metadata_ctx);
 
       if (!found_final_value && merge_in_progress) {
         if (iter->s->ok()) {
