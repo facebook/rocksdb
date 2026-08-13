@@ -372,6 +372,24 @@ class DBImplSecondary : public DBImpl {
   void MaybeWarnAboutRetainedMemtables(ColumnFamilyData* cfd,
                                        uint64_t installed_log_number);
 
+  // Drops every recovered transaction whose batches all sit below
+  // min_log_number_to_keep. The primary holds that watermark at or below the
+  // WAL of every prepared section it has not both resolved and flushed, so a
+  // prepared section below it is one the primary resolved; see
+  // PrecomputeMinLogNumberToKeep2PC(). FindNewLogNumbers() gates WAL discovery
+  // on the same watermark, so a marker below it can never be replayed here
+  // either, and this threshold must stay no looser than that gate. The marker
+  // resolving a prepared section below the watermark can instead be in a WAL
+  // above it, but only in one this round already replayed or one the primary
+  // has since purged, which no round can replay: the watermark passes a
+  // prepared section only once the primary has durably resolved and flushed
+  // it, and a round reads the watermark from the MANIFEST before listing the
+  // WAL dir.
+  //
+  // REQUIRES: mutex_ held
+  // REQUIRES: called after a round that replayed every WAL it found
+  void DeleteResolvedRecoveredTransactions();
+
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still
   // in read-only mode.

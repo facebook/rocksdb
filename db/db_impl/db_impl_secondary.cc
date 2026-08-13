@@ -473,6 +473,38 @@ void DBImplSecondary::MaybeWarnAboutRetainedMemtables(
                  installed_log_number);
 }
 
+void DBImplSecondary::DeleteResolvedRecoveredTransactions() {
+  mutex_.AssertHeld();
+  if (recovered_transactions_.empty()) {
+    return;
+  }
+  const uint64_t min_log_number_to_keep = versions_->min_log_number_to_keep();
+  size_t deleted = 0;
+  for (RecoveredTransactionMap::iterator it = recovered_transactions_.begin();
+       it != recovered_transactions_.end();) {
+    assert(!it->second->batches_.empty());
+    bool all_batches_below_watermark = true;
+    for (const auto& batch_info : it->second->batches_) {
+      if (batch_info.second.log_number_ >= min_log_number_to_keep) {
+        all_batches_below_watermark = false;
+        break;
+      }
+    }
+    if (all_batches_below_watermark) {
+      it = DeleteRecoveredTransaction(it);
+      ++deleted;
+    } else {
+      ++it;
+    }
+  }
+  if (deleted > 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Dropped %" ROCKSDB_PRIszt
+                   " recovered transaction(s) prepared before WAL %" PRIu64,
+                   deleted, min_log_number_to_keep);
+  }
+}
+
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
                                        ColumnFamilyHandle* column_family) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
@@ -656,8 +688,10 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 
     // list wal_dir to discover new WALs and apply new changes to the secondary
     // instance
+    bool replayed_every_wal_found = false;
     if (s.ok()) {
       s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+      replayed_every_wal_found = s.ok();
       if (s.IsPathNotFound()) {
         ROCKS_LOG_INFO(
             immutable_db_options_.info_log,
@@ -719,6 +753,13 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
         auto& sv_context = job_context.superversion_contexts.back();
         cfd->InstallSuperVersion(&sv_context, &mutex_);
         sv_context.NewSuperVersion();
+      }
+      if (replayed_every_wal_found) {
+        // A WAL this round left unreplayed can still hold the marker that
+        // resolves a prepared section: RecoverLogFiles() opens every reader
+        // before replaying any record, so one WAL the primary deleted mid-round
+        // means nothing was replayed at all.
+        DeleteResolvedRecoveredTransactions();
       }
     }
   }
