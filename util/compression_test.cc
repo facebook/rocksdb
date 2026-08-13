@@ -16,6 +16,7 @@
 #include "table/block_based/block_builder.h"
 #include "table/block_based/data_block_footer.h"
 #include "test_util/testutil.h"
+#include "util/aligned_buffer.h"
 #include "util/auto_tune_compressor.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -928,6 +929,74 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
     ASSERT_EQ(s.code(), Status::kCorruption);
     ASSERT_NE(st, nullptr);
     ASSERT_EQ(std::string(st), "Seeded failure");
+  }
+}
+
+TEST_F(DBCompressionTest, VerifyCompressionChecksFinalCompressedBlockContents) {
+  CompressionType compression_type = kNoCompression;
+  for (CompressionType supported : GetSupportedCompressions()) {
+    if (supported != kNoCompression) {
+      compression_type = supported;
+      break;
+    }
+  }
+  if (compression_type == kNoCompression) {
+    return;
+  }
+
+  struct SyncPointCleanup {
+    ~SyncPointCleanup() {
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+    }
+  } sync_point_cleanup;
+
+  for (uint32_t parallel_threads : {1, 4}) {
+    SCOPED_TRACE("parallel_threads=" + std::to_string(parallel_threads));
+
+    Options options = CurrentOptions();
+    options.compression = compression_type;
+    options.compression_opts.max_compressed_bytes_per_kb = 1024;
+    options.compression_opts.parallel_threads = parallel_threads;
+
+    BlockBasedTableOptions table_options;
+    table_options.block_size = 512;
+    table_options.verify_compression = true;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    DestroyAndReopen(options);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    std::atomic<int> tamper_count{0};
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::CompressAndVerifyBlock:"
+        "TamperWithCompressedDataBeforeVerify",
+        [&](void* arg) {
+          auto* output = static_cast<GrowableBuffer*>(arg);
+          ASSERT_FALSE(output->empty());
+          output->data()[output->size() - 1]++;
+          tamper_count++;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(405);
+    constexpr int kValUnitSize = 16;
+    constexpr int kValSize = 256;
+    for (int i = 0; i < 5; i++) {
+      std::string value_unit = rnd.RandomString(kValUnitSize);
+      std::string value;
+      for (int j = 0; j < kValSize; j += kValUnitSize) {
+        value += value_unit;
+      }
+      ASSERT_OK(Put(Key(i), value));
+    }
+
+    Status s = Flush();
+
+    ASSERT_GT(tamper_count.load(), 0);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
   }
 }
 

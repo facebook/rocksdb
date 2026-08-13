@@ -364,6 +364,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     std::string uncompressed;
     GrowableBuffer compressed;
     CompressionType compression_type = kNoCompression;
+    uint32_t contents_checksum = 0;
     // Set by the emit thread: this data block's compression was auto-skipped,
     // so no worker should compress it -- StateTransition auto-completes it
     // straight to the write stage. Set on every emit (true=skip,
@@ -2124,6 +2125,7 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
                                       block_rep->prepared_index_entry.get());
   block_rep->compressed.Reset();
   block_rep->compression_type = kNoCompression;
+  block_rep->contents_checksum = 0;
   // Emit thread makes the auto-skip decision here so skipped blocks are never
   // dispatched to a worker for (no-op) compression; StateTransition
   // auto-completes them straight to the write stage.
@@ -2148,7 +2150,7 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
       Status s = CompressAndVerifyBlock(
           block_rep->uncompressed, /*is_data_block=*/true,
           r->data_block_working_area, &block_rep->compressed,
-          &block_rep->compression_type);
+          &block_rep->compression_type, &block_rep->contents_checksum);
       if (UNLIKELY(!s.ok())) {
         r->SetStatus(s);
         pc_rep.SetAbort(pc_rep.emit_thread_state);
@@ -2208,6 +2210,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   // Single-threaded context only
   assert(!r->IsParallelCompressionActive());
   CompressionType type = kNoCompression;
+  uint32_t contents_checksum = 0;
   bool is_data_block = block_type == BlockType::kData;
   // NOTE: only index and data blocks are currently compressed
   assert(is_data_block || block_type == BlockType::kIndex);
@@ -2219,11 +2222,11 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
       r->AutoSkipDecideBypassEligible()) {
     r->AutoSkipRecordBypass(uncompressed_block_data.size());
   } else {
-    Status compress_status =
-        CompressAndVerifyBlock(uncompressed_block_data, is_data_block,
-                               is_data_block ? r->data_block_working_area
-                                             : r->index_block_working_area,
-                               &r->single_threaded_compressed_output, &type);
+    Status compress_status = CompressAndVerifyBlock(
+        uncompressed_block_data, is_data_block,
+        is_data_block ? r->data_block_working_area
+                      : r->index_block_working_area,
+        &r->single_threaded_compressed_output, &type, &contents_checksum);
     r->SetStatus(compress_status);
     if (UNLIKELY(!ok())) {
       return;
@@ -2235,7 +2238,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   WriteMaybeCompressedBlock(
       type == kNoCompression ? uncompressed_block_data
                              : Slice(r->single_threaded_compressed_output),
-      type, handle, block_type, &uncompressed_block_data, skip_delta_encoding);
+      type, handle, block_type, &uncompressed_block_data, skip_delta_encoding,
+      type == kNoCompression ? nullptr : &contents_checksum);
   r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
@@ -2274,7 +2278,8 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
     auto compress_fn = [this, block_rep, &ios, &working_area]() {
       ios = status_to_io_status(CompressAndVerifyBlock(
           block_rep->uncompressed, /*is_data_block=*/true, working_area,
-          &block_rep->compressed, &block_rep->compression_type));
+          &block_rep->compressed, &block_rep->compression_type,
+          &block_rep->contents_checksum));
     };
     auto write_fn = [this, block_rep, &ios]() {
       Slice compressed = block_rep->compressed;
@@ -2284,7 +2289,10 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
           block_rep->compression_type == kNoCompression ? uncompressed
                                                         : compressed,
           block_rep->compression_type, &rep_->pending_handle, BlockType::kData,
-          &uncompressed, &skip_delta_encoding);
+          &uncompressed, &skip_delta_encoding,
+          block_rep->compression_type == kNoCompression
+              ? nullptr
+              : &block_rep->contents_checksum);
       if (LIKELY(ios.ok())) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
@@ -2332,9 +2340,10 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
 Status BlockBasedTableBuilder::CompressAndVerifyBlock(
     const Slice& uncompressed_block_data, bool is_data_block,
     WorkingAreaPair& working_area, GrowableBuffer* compressed_output,
-    CompressionType* result_compression_type) {
+    CompressionType* result_compression_type, uint32_t* result_checksum) {
   Rep* r = rep_.get();
   Status status;
+  *result_checksum = 0;
 
   UnownedPtr<Compressor> compressor = nullptr;
   Decompressor* verify_decomp = nullptr;
@@ -2379,6 +2388,16 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
       TEST_SYNC_POINT_CALLBACK(
           "BlockBasedTableBuilder::CompressAndVerifyBlock:TamperWithResultType",
           &type);
+
+      if (type != kNoCompression) {
+        *result_checksum = ComputeBuiltinChecksumWithLastByte(
+            r->table_options.checksum, compressed_output->data(),
+            compressed_output->size(), /*last_byte*/ type);
+        TEST_SYNC_POINT_CALLBACK(
+            "BlockBasedTableBuilder::CompressAndVerifyBlock:"
+            "TamperWithCompressedDataBeforeVerify",
+            compressed_output);
+      }
 
       // Some of the compression algorithms are known to be unreliable. If
       // the verify_compression flag is set then try to de-compress the
@@ -2485,19 +2504,19 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
-    bool* skip_delta_encoding) {
+    bool* skip_delta_encoding, const uint32_t* precomputed_checksum) {
   // Must have pre-checked status in single-threaded context
   assert(status().ok());
   assert(io_status().ok());
   rep_->SetIOStatus(WriteMaybeCompressedBlockImpl(
       block_contents, comp_type, handle, block_type, uncompressed_block_data,
-      skip_delta_encoding));
+      skip_delta_encoding, precomputed_checksum));
 }
 
 IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
-    bool* skip_delta_encoding) {
+    bool* skip_delta_encoding, const uint32_t* precomputed_checksum) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    compression_type: uint8
@@ -2567,6 +2586,18 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     uncompressed_block_data = &block_contents;
     assert(comp_type == kNoCompression);
   }
+  assert(precomputed_checksum == nullptr || comp_type != kNoCompression);
+
+  r->compression_types_used.Add(comp_type);
+  std::array<char, kBlockTrailerSize> trailer;
+  trailer[0] = comp_type;
+  uint32_t checksum =
+      precomputed_checksum != nullptr
+          ? *precomputed_checksum
+          : ComputeBuiltinChecksumWithLastByte(
+                r->table_options.checksum, block_contents.data(),
+                block_contents.size(), /*last_byte*/ comp_type);
+  checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   // TODO: consider a variant of this function that puts the trailer after
   // block_contents (if it comes from a std::string) so we only need one
@@ -2577,14 +2608,6 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
       return io_s;
     }
   }
-
-  r->compression_types_used.Add(comp_type);
-  std::array<char, kBlockTrailerSize> trailer;
-  trailer[0] = comp_type;
-  uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
-      r->table_options.checksum, block_contents.data(), block_contents.size(),
-      /*last_byte*/ comp_type);
-  checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   if (block_type == BlockType::kFilter) {
     io_s = status_to_io_status(
