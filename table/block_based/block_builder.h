@@ -52,7 +52,7 @@ class BlockBuilder {
   // dedicated Slice32 type would likely incur data movement overheads for this
   // inner-loop code.)
   void Add(const Slice& key, const Slice& value,
-           const Slice* const delta_value = nullptr,
+           const Slice& delta_value = Slice(),
            bool skip_delta_encoding = false);
 
   // A faster version of Add() if the previous key is already known for all
@@ -67,8 +67,7 @@ class BlockBuilder {
   // For efficiency, the implementation assumes the sizes of the input slices
   // are each < 4GB, and only uses the bottom 32 bits of each size.
   void AddWithLastKey(const Slice& key, const Slice& value,
-                      const Slice& last_key,
-                      const Slice* const delta_value = nullptr,
+                      const Slice& last_key, const Slice& delta_value = Slice(),
                       bool skip_delta_encoding = false);
 
   // Finish building the block and return a slice that refers to the
@@ -99,7 +98,7 @@ class BlockBuilder {
  private:
   inline void AddWithLastKeyImpl(const Slice& key, const Slice& value,
                                  const Slice& last_key,
-                                 const Slice* const delta_value,
+                                 const Slice& delta_value,
                                  bool skip_delta_encoding, size_t buffer_size);
 
   bool ScanForUniformity() const;

@@ -933,7 +933,8 @@ Status BlockBasedTable::Open(
       rep->decompressor.get(), block_protection_bytes_per_key,
       rep->internal_comparator.user_comparator(), rep->index_value_is_full,
       rep->index_has_first_key, rep->data_block_restart_interval,
-      rep->index_block_restart_interval);
+      rep->index_block_restart_interval,
+      FormatVersionUsesValueDeltaEscape(rep->footer.format_version()));
 
   // Check expected unique id if provided
   if (expected_unique_id != kNullUniqueId64x2) {
@@ -1171,6 +1172,15 @@ Status BlockBasedTable::ReadPropertiesBlock(
 
   assert(table_properties != nullptr);
   rep_->table_properties = std::move(table_properties);
+
+  // Reserved for format_version >= 8 (see
+  // TableProperties::user_key_common_prefix). No reader knows how to interpret
+  // a file with a user-key common prefix yet, so refuse to open it rather than
+  // mis-reading the keys.
+  if (!rep_->table_properties->user_key_common_prefix.empty()) {
+    return Status::NotSupported(
+        "Unsupported user_key_common_prefix table property");
+  }
 
   rep_->data_block_restart_interval = static_cast<uint32_t>(
       rep_->table_properties->data_block_restart_interval);
@@ -2183,7 +2193,8 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
       block_contents_pinned, rep->user_defined_timestamps_persisted,
-      nullptr /* prefix_index */, rep->table_options.index_block_search_type);
+      nullptr /* prefix_index */, rep->table_options.index_block_search_type,
+      FormatVersionUsesValueDeltaEscape(rep->footer.format_version()));
 }
 
 // Right now only called for Data blocks.
@@ -2538,7 +2549,9 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
       rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
       rep->index_has_first_key, rep->index_key_includes_seq,
       rep->index_value_is_full, /*block_contents_pinned=*/false,
-      rep->user_defined_timestamps_persisted);
+      rep->user_defined_timestamps_persisted, nullptr /* prefix_index */,
+      BlockBasedTableOptions::kBinary,
+      FormatVersionUsesValueDeltaEscape(rep->footer.format_version()));
 }
 
 // This will be broken if the user specifies an unusual implementation

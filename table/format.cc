@@ -28,6 +28,7 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
+#include "test_util/sync_point.h"
 #include "unique_id_impl.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -100,13 +101,35 @@ std::string BlockHandle::ToString(bool hex) const {
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
 void IndexValue::EncodeTo(std::string* dst, bool have_first_key,
-                          const BlockHandle* previous_handle) const {
+                          const BlockHandle* previous_handle,
+                          bool use_value_delta_escape) const {
   if (previous_handle) {
     // WART: this is specific to Block-based table
-    assert(handle.offset() == previous_handle->offset() +
-                                  previous_handle->size() +
-                                  BlockBasedTable::kBlockTrailerSize);
-    PutVarsignedint64(dst, handle.size() - previous_handle->size());
+    const uint64_t contiguous_offset = previous_handle->offset() +
+                                       previous_handle->size() +
+                                       BlockBasedTable::kBlockTrailerSize;
+    if (use_value_delta_escape) {
+      // format_version >= 8: reserve varint 0 as an escape so a non-contiguous
+      // handle can still be a (key-delta-encoded) non-restart entry. Genuine
+      // size deltas are remapped to zigzag(delta)+1 (always >= 1) to keep 0
+      // free.
+      if (handle.offset() == contiguous_offset) {
+        int64_t size_delta = static_cast<int64_t>(handle.size()) -
+                             static_cast<int64_t>(previous_handle->size());
+        // +1 could only overflow for |size_delta| ~ 2^63, which is impossible
+        // for block-size deltas (block size is 32-bit).
+        assert(i64ToZigzag(size_delta) != ~uint64_t{0});
+        PutVarint64(dst, i64ToZigzag(size_delta) + 1);
+      } else {
+        // Escape: a full BlockHandle (offset + size) follows.
+        TEST_SYNC_POINT("IndexValue::EncodeTo:ValueDeltaEscape");
+        PutVarint64(dst, 0);
+        handle.EncodeTo(dst);
+      }
+    } else {
+      assert(handle.offset() == contiguous_offset);
+      PutVarsignedint64(dst, handle.size() - previous_handle->size());
+    }
   } else {
     handle.EncodeTo(dst);
   }
@@ -118,16 +141,36 @@ void IndexValue::EncodeTo(std::string* dst, bool have_first_key,
 }
 
 Status IndexValue::DecodeFrom(Slice* input, bool have_first_key,
-                              const BlockHandle* previous_handle) {
+                              const BlockHandle* previous_handle,
+                              bool use_value_delta_escape) {
   if (previous_handle) {
-    int64_t delta;
-    if (!GetVarsignedint64(input, &delta)) {
-      return Status::Corruption("bad delta-encoded index value");
-    }
     // WART: this is specific to Block-based table
-    handle = BlockHandle(previous_handle->offset() + previous_handle->size() +
-                             BlockBasedTable::kBlockTrailerSize,
-                         previous_handle->size() + delta);
+    const uint64_t contiguous_offset = previous_handle->offset() +
+                                       previous_handle->size() +
+                                       BlockBasedTable::kBlockTrailerSize;
+    if (use_value_delta_escape) {
+      uint64_t u;
+      if (!GetVarint64(input, &u)) {
+        return Status::Corruption("bad delta-encoded index value");
+      }
+      if (u == 0) {
+        // Escape: a full BlockHandle (offset + size) follows.
+        Status s = handle.DecodeFrom(input);
+        if (!s.ok()) {
+          return s;
+        }
+      } else {
+        int64_t delta = zigzagToI64(u - 1);
+        handle =
+            BlockHandle(contiguous_offset, previous_handle->size() + delta);
+      }
+    } else {
+      int64_t delta;
+      if (!GetVarsignedint64(input, &delta)) {
+        return Status::Corruption("bad delta-encoded index value");
+      }
+      handle = BlockHandle(contiguous_offset, previous_handle->size() + delta);
+    }
   } else {
     Status s = handle.DecodeFrom(input);
     if (!s.ok()) {
@@ -208,8 +251,12 @@ inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
 //        - Checksum of above checksum type of whole footer, with this field
 //          set to all zeros.
 //      base_context_checksum (uint32LE, 4 bytes)
-//      metaindex block size (uint32LE, 4 bytes)
-//        - Assumed to be immediately before footer, < 4GB
+//      metaindex block size (& offset from footer) (uint32LE, 4 bytes)
+//        -> format_version < 8
+//           - Assumed to be immediately before footer, < 4GB
+//        -> format_version >= 8
+//           - Top 16 bits are number of bytes gap between start of footer and
+//             end of metaindex block (space for future file checksum data)
 //      <zero padding> (24 bytes, reserved for future use)
 //        - Brings part2 size also to 40 bytes
 //        - Checked that last eight bytes == 0, so reserved for a future
@@ -289,16 +336,37 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     // Save base context checksum
     EncodeFixed32(cur, base_context_checksum);
     cur += 4;
-    // Compute and save metaindex size
-    uint32_t metaindex_size = static_cast<uint32_t>(metaindex_handle.size());
-    if (metaindex_size != metaindex_handle.size()) {
-      return Status::NotSupported("Metaindex block size > 4GB");
+    // Compute and save the metaindex block size, and (format_version >= 8) the
+    // gap between the end of the metaindex block and the start of the footer.
+    const uint64_t metaindex_block_end =
+        metaindex_handle.offset() + metaindex_handle.size() +
+        BlockTrailerSizeForMagicNumber(magic_number);
+    if (FormatVersionUsesMetaindexGap(format_version)) {
+      // Low 16 bits: metaindex block size. High 16 bits: gap in bytes.
+      if (metaindex_handle.size() > 0xFFFF) {
+        return Status::NotSupported(
+            "Metaindex block size > 64KB with format_version >= 8");
+      }
+      uint32_t metaindex_size = static_cast<uint32_t>(metaindex_handle.size());
+      uint64_t gap = 0;
+      if (metaindex_size != 0) {
+        assert(metaindex_block_end <= footer_offset);
+        gap = footer_offset - metaindex_block_end;
+      }
+      if (gap > 0xFFFF) {
+        return Status::NotSupported(
+            "Gap between metaindex block and footer > 64KB");
+      }
+      EncodeFixed32(cur, (static_cast<uint32_t>(gap) << 16) | metaindex_size);
+    } else {
+      uint32_t metaindex_size = static_cast<uint32_t>(metaindex_handle.size());
+      if (metaindex_size != metaindex_handle.size()) {
+        return Status::NotSupported("Metaindex block size > 4GB");
+      }
+      // Metaindex must be adjacent to footer
+      assert(metaindex_size == 0 || metaindex_block_end == footer_offset);
+      EncodeFixed32(cur, metaindex_size);
     }
-    // Metaindex must be adjacent to footer
-    assert(metaindex_size == 0 ||
-           metaindex_handle.offset() + metaindex_handle.size() ==
-               footer_offset - BlockTrailerSizeForMagicNumber(magic_number));
-    EncodeFixed32(cur, metaindex_size);
     cur += 4;
 
     // Zero pad remainder (for future use)
@@ -437,7 +505,18 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
     success = GetFixed32(&input, &metaindex_size);
     assert(success);
     (void)success;
-    uint64_t metaindex_end = footer_offset - GetBlockTrailerSize();
+    // For format_version >= 8, the high 16 bits are the gap (in bytes) between
+    // the end of the metaindex block and the start of the footer (reserved for
+    // future file checksum data), and the low 16 bits are the metaindex block
+    // size. For older versions the whole field is the metaindex block size and
+    // the metaindex is adjacent to the footer.
+    uint64_t metaindex_gap = 0;
+    if (FormatVersionUsesMetaindexGap(format_version_)) {
+      metaindex_gap = metaindex_size >> 16;
+      metaindex_size &= 0xFFFF;
+    }
+    uint64_t metaindex_end =
+        footer_offset - GetBlockTrailerSize() - metaindex_gap;
     metaindex_handle_ =
         BlockHandle(metaindex_end - metaindex_size, metaindex_size);
 

@@ -232,6 +232,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       {offsetof(struct TableProperties, db_id), sizeof(std::string)},
       {offsetof(struct TableProperties, db_session_id), sizeof(std::string)},
       {offsetof(struct TableProperties, db_host_id), sizeof(std::string)},
+      {offsetof(struct TableProperties, user_key_common_prefix),
+       sizeof(std::string)},
       {offsetof(struct TableProperties, column_family_name),
        sizeof(std::string)},
       {offsetof(struct TableProperties, filter_policy_name),
@@ -291,7 +293,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "size=0;filter_size=0;orig_file_number=3;num_deletions=0;num_range_"
       "deletions=0;format_version=0;comparator_name="
       "636F6D70617261746F725F6E616D65;num_filter_entries=0;db_id="
-      "64625F686F73745F6964;column_family_id=2147483647;fixed_key_len=0;fast_"
+      "64625F686F73745F6964;user_key_common_prefix=707265666978;"
+      "column_family_id=2147483647;fixed_key_len=0;fast_"
       "compression_estimated_data_size=0;filter_policy_name="
       "66696C7465725F706F6C6963795F6E616D65;oldest_key_time=0;newest_key_time="
       "0;column_family_"

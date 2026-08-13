@@ -18,8 +18,10 @@
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
+#include "table/format.h"
 #include "table/prepared_file_info.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "util/thread_guard.h"
 #include "utilities/fault_injection_env.h"
@@ -3528,6 +3530,9 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, ExternalSSTBlockChecksumTest,
 TEST_P(ExternalSSTBlockChecksumTest, DISABLED_HugeBlockChecksum) {
   BlockBasedTableOptions table_options;
   table_options.format_version = GetParam();
+  // kFooterFormatVersionsToTest includes the unpublished draft format_version
+  // 8; writing it requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
   for (auto t : GetSupportedChecksums()) {
     table_options.checksum = t;
     Options options = CurrentOptions();

@@ -49,6 +49,23 @@ class SstPartitioner {
   // Return the name of this partitioner.
   virtual const char* Name() const = 0;
 
+  // Called for the start of an SST file or block. When return value is
+  // present, it must be a prefix of user_key. Partitioning is requested
+  // EXACTLY at the next future key that does not share that same prefix
+  // with user_key. Implications for returned prefix p on recursive next
+  // user key k:
+  // * if k.size() < p.size(), partition is requested before k
+  // * if k[0..p-1] != p, same
+  // * if p.size() == 0, no further partitions are requested (odd 0-len prefix)
+  // * if !p, ambiguous; must consult ShouldPartition on every key transition
+  // Expected to be consistent with ShouldPartition for predictable
+  // partitioning behavior.
+  // NOTE: not currently used; in place for future optimization
+  virtual OptSlice ShouldPartitionByPrefix(const Slice& /*user_key*/) {
+    // Default: must consult ShouldPartition()
+    return {};
+  }
+
   // It is called for all keys in compaction. When partitioner want to create
   // new SST file it needs to return true. It means compaction job will finish
   // current SST file where last key is "prev_user_key" parameter and start new
@@ -107,6 +124,8 @@ class SstPartitionerFixedPrefix : public SstPartitioner {
   ~SstPartitionerFixedPrefix() override {}
 
   const char* Name() const override { return "SstPartitionerFixedPrefix"; }
+
+  OptSlice ShouldPartitionByPrefix(const Slice& user_key) override;
 
   PartitionerResult ShouldPartition(const PartitionerRequest& request) override;
 

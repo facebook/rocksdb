@@ -1816,6 +1816,10 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_table_properties_db_host_id(
     const rocksdb_table_properties_t* props, size_t* size);
 
 extern ROCKSDB_LIBRARY_API const char*
+rocksdb_table_properties_user_key_common_prefix(
+    const rocksdb_table_properties_t* props, size_t* size);
+
+extern ROCKSDB_LIBRARY_API const char*
 rocksdb_table_properties_column_family_name(
     const rocksdb_table_properties_t* props, size_t* size);
 

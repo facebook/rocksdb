@@ -25,6 +25,18 @@ SstPartitionerFixedPrefixFactory::SstPartitionerFixedPrefixFactory(size_t len)
   RegisterOptions("Length", &len_, &sst_fixed_prefix_type_info);
 }
 
+OptSlice SstPartitionerFixedPrefix::ShouldPartitionByPrefix(
+    const Slice& user_key) {
+  if (user_key.size() >= len_) {
+    return {user_key.data(), len_};
+  } else {
+    // ShouldPartition() cuts a partition for EVERY UNIQUE KEY outside the
+    // prefix length domain, for better or worse. We can't directly represent
+    // that so we defer to ShouldPartition().
+    return {};
+  }
+}
+
 PartitionerResult SstPartitionerFixedPrefix::ShouldPartition(
     const PartitionerRequest& request) {
   Slice last_key_fixed(*request.prev_user_key);

@@ -175,8 +175,9 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          use_delta_encoding_for_index_values, p_index_builder, partition_size,
-          ts_sz, persist_user_defined_timestamps,
+          use_delta_encoding_for_index_values, table_opt.format_version,
+          p_index_builder, partition_size, ts_sz,
+          persist_user_defined_timestamps,
           table_opt.decouple_partitioned_filters);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
@@ -1370,8 +1371,15 @@ struct BlockBasedTableBuilder::Rep {
             tbo.compression_opts.max_compressed_bytes_per_kb),
         use_delta_encoding_for_index_values(
             table_opt.format_version >= 4 && !table_opt.block_align &&
-            /* surely no embedded blobs */ tbo.embedded_blob_options ==
-                nullptr),
+            // Embedded blob records are interleaved between data blocks, which
+            // breaks the "next block starts where the last one ended"
+            // contiguity that plain index value-delta encoding assumes.
+            // format_version >= 8 handles non-contiguous index entries with the
+            // in-value escape (see IndexValue::EncodeTo), so value-delta
+            // encoding is safe with embedded blobs there; older versions must
+            // fall back to full handles.
+            (tbo.embedded_blob_options == nullptr ||
+             FormatVersionUsesValueDeltaEscape(table_opt.format_version))),
         reason(tbo.reason),
         target_file_size_is_upper_bound(
             tbo.moptions.target_file_size_is_upper_bound),
@@ -3119,6 +3127,12 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         rep_->num_data_blocks_compression_bypassed.LoadRelaxed();
 
     assert(IsEmpty() || rep_->props.key_largest_seqno != UINT64_MAX);
+    // TEST-only hook: allows injecting reserved properties (e.g. the
+    // format_version >= 8 "user_key_common_prefix") to exercise reader
+    // handling. Compiled out in release builds.
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WritePropertiesBlock:TableProps",
+        &rep_->props);
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
 
@@ -3194,6 +3208,30 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
   assert(LIKELY(ok()));
   Rep* r = rep_.get();
+  IOOptions io_options;
+  IOStatus ios =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!ios.ok()) {
+    r->SetIOStatus(ios);
+    return;
+  }
+  // TEST-only hook: inject a gap of the requested number of bytes between the
+  // metaindex block and the footer, to exercise format_version >= 8 footer
+  // metaindex-gap decoding. The gap is reserved for future file checksum data;
+  // no production writer emits one yet. Compiled out in release builds.
+  size_t footer_gap = 0;
+  TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::WriteFooter:MetaindexGap",
+                           &footer_gap);
+  if (footer_gap > 0) {
+    std::string gap_bytes(footer_gap, '\0');
+    ios = r->file->Append(io_options, Slice(gap_bytes));
+    if (!ios.ok()) {
+      r->SetIOStatus(ios);
+      return;
+    }
+    r->pre_compression_size += footer_gap;
+    r->set_offset(r->get_offset() + footer_gap);
+  }
   FooterBuilder footer;
   Status s = footer.Build(kBlockBasedTableMagicNumber,
                           r->table_options.format_version, r->get_offset(),
@@ -3201,13 +3239,6 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                           index_block_handle, r->base_context_checksum);
   if (!s.ok()) {
     r->SetStatus(s);
-    return;
-  }
-  IOOptions io_options;
-  IOStatus ios =
-      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
-  if (!ios.ok()) {
-    r->SetIOStatus(ios);
     return;
   }
   ios = r->file->Append(io_options, footer.GetSlice());

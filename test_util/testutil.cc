@@ -46,6 +46,10 @@ const std::set<uint32_t> kFooterFormatVersionsToTest{
     // In case any interesting future changes
     kDefaultFormatVersion,
     kLatestBbtFormatVersion,
+    // Unpublished draft format_version 8 (index value-delta escape). Writing it
+    // requires the TEST_AllowUnsupportedFormatVersion() opt-in, enabled by the
+    // test files that instantiate parameterized suites over this set.
+    8U,
 };
 const ReadOptionsNoIo kReadOptionsNoIo;
 

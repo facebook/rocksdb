@@ -23,7 +23,9 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/format.h"
 #include "test_util/sync_point.h"
+#include "util/defer.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/counted_fs.h"
@@ -2227,6 +2229,9 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, DBBlockChecksumTest,
 TEST_P(DBBlockChecksumTest, BlockChecksumTest) {
   BlockBasedTableOptions table_options;
   table_options.format_version = GetParam();
+  // kFooterFormatVersionsToTest includes the unpublished draft format_version
+  // 8; writing it requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
   Options options = CurrentOptions();
   const int kNumPerFile = 2;
 

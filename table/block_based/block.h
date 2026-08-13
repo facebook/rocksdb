@@ -220,13 +220,23 @@ class Block {
   // closed).
   MetaBlockIter* NewMetaIterator(bool block_contents_pinned = false);
 
+  // Returns an IndexBlockIter for iterating over a block containing index
+  // entries (the index itself, an index partition, a top-level index of index
+  // partitions, or the index of filter partitions).
+  //
+  // No parameter here is defaulted on purpose: `value_delta_escape` in
+  // particular must match how the block was written (see
+  // BlockBasedTable::Rep::index_value_delta_escape), and a silent default
+  // would mis-decode fv8 index values rather than fail to compile.
+  //
   // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
   //
-  // key_includes_seq, default true, means that the keys are in internal key
-  // format.
-  // value_is_full, default true, means that no delta encoding is
-  // applied to values.
+  // key_includes_seq means that the keys are in internal key format.
+  // value_is_full means that no delta encoding is applied to values.
+  // value_delta_escape selects the format_version >= 8 value-delta codec,
+  // which reserves an in-value escape codepoint (see IndexValue::DecodeFrom).
+  // It is only consulted when values are delta encoded.
   //
   // If `prefix_index` is not nullptr this block will do hash lookup for the key
   // prefix. If total_order_seek is true, prefix_index_ is ignored.
@@ -245,11 +255,10 @@ class Block {
       const Comparator* raw_ucmp, SequenceNumber global_seqno,
       IndexBlockIter* iter, Statistics* stats, bool total_order_seek,
       bool have_first_key, bool key_includes_seq, bool value_is_full,
-      bool block_contents_pinned = false,
-      bool user_defined_timestamps_persisted = true,
-      BlockPrefixIndex* prefix_index = nullptr,
-      BlockBasedTableOptions::BlockSearchType index_block_search_type =
-          BlockBasedTableOptions::kBinary);
+      bool block_contents_pinned, bool user_defined_timestamps_persisted,
+      BlockPrefixIndex* prefix_index,
+      BlockBasedTableOptions::BlockSearchType index_block_search_type,
+      bool value_delta_escape);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -271,7 +280,8 @@ class Block {
   void InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
                                           const Comparator* raw_ucmp,
                                           bool value_is_full,
-                                          bool index_has_first_key);
+                                          bool index_has_first_key,
+                                          bool value_delta_escape);
 
   // Initializes per key-value checksum protection.
   // After this method is called, each MetaBlockIter returned
@@ -912,6 +922,9 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   // format.
   // value_is_full, default true, means that no delta encoding is
   // applied to values.
+  // value_delta_escape means the value-delta codec is the format_version >= 8
+  // variant that reserves an in-value escape codepoint (see
+  // IndexValue::DecodeFrom). Only relevant when values are delta encoded.
   void Initialize(
       const Comparator* raw_ucmp, const char* data, uint32_t restarts,
       uint32_t num_restarts, SequenceNumber global_seqno,
@@ -920,7 +933,8 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       bool user_defined_timestamps_persisted, uint8_t protection_bytes_per_key,
       const char* kv_checksum, uint32_t block_restart_interval,
       const char* values_section,
-      BlockBasedTableOptions::BlockSearchType index_block_search_type) {
+      BlockBasedTableOptions::BlockSearchType index_block_search_type,
+      bool value_delta_escape) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
                    user_defined_timestamps_persisted, protection_bytes_per_key,
@@ -928,6 +942,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
+    value_delta_escape_ = value_delta_escape;
     have_first_key_ = have_first_key;
     index_search_type_ = index_block_search_type;
     if (have_first_key_ && global_seqno != kDisableGlobalSequenceNumber) {
@@ -995,6 +1010,9 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
  private:
   bool value_delta_encoded_;
+  // format_version >= 8 value-delta codec (reserves an in-value escape). Only
+  // consulted when value_delta_encoded_ and the entry is a non-restart entry.
+  bool value_delta_escape_ = false;
   bool have_first_key_;  // value includes first_internal_key
   BlockPrefixIndex* prefix_index_;
   // Whether the value is delta encoded. In that case the value is assumed to be

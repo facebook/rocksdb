@@ -220,8 +220,7 @@ Slice BlockBuilder::Finish() {
 }
 
 void BlockBuilder::Add(const Slice& key, const Slice& value,
-                       const Slice* const delta_value,
-                       bool skip_delta_encoding) {
+                       const Slice& delta_value, bool skip_delta_encoding) {
   // Ensure no unsafe mixing of Add and AddWithLastKey
   assert(!add_with_last_key_called_);
 
@@ -237,7 +236,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
 
 void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
                                   const Slice& last_key_param,
-                                  const Slice* const delta_value,
+                                  const Slice& delta_value,
                                   bool skip_delta_encoding) {
   // Ensure no unsafe mixing of Add and AddWithLastKey
   assert(last_key_.empty());
@@ -261,19 +260,16 @@ void BlockBuilder::AddWithLastKey(const Slice& key, const Slice& value,
                      buffer_size);
 }
 
-inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
-                                             const Slice& value,
-                                             const Slice& last_key,
-                                             const Slice* const delta_value,
-                                             bool skip_delta_encoding,
-                                             size_t buffer_size) {
+inline void BlockBuilder::AddWithLastKeyImpl(
+    const Slice& key, const Slice& value, const Slice& last_key,
+    const Slice& delta_value, bool skip_delta_encoding, size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
   // Verify < 4GB assumption (see API comments on Add())
   assert(key.size() < uint64_t{1} << 32);
   assert(value.size() < uint64_t{1} << 32);
   assert(last_key.size() < uint64_t{1} << 32);
-  assert(delta_value == nullptr || delta_value->size() < uint64_t{1} << 32);
+  assert(delta_value.size() < uint64_t{1} << 32);
   std::string key_buf;
   std::string last_key_buf;
   const Slice key_to_persist = MaybeStripTimestampFromKey(&key_buf, key);
@@ -342,9 +338,13 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   if (shared != 0 && use_value_delta_encoding_) {
     // Using only bottom 32 bits of size for consistent treatment in case of
     // corruption
-    assert(delta_value != nullptr);
-    values_buffer.append(delta_value->data(),
-                         static_cast<uint32_t>(delta_value->size()));
+    // NOTE: callers may pass an empty delta_value when they had no previous
+    // handle to delta against, relying on shared == 0 for a block's first
+    // entry. Catch that coupling breaking, which would otherwise silently
+    // write a zero-length value: a real delta encoding is never empty.
+    assert(!delta_value.empty());
+    values_buffer.append(delta_value.data(),
+                         static_cast<uint32_t>(delta_value.size()));
   } else {
     // Using only bottom 32 bits of size for consistent treatment in case of
     // corruption

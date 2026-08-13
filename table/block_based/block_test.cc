@@ -608,7 +608,96 @@ void AddIndexBlockEntry(BlockBuilder& builder, const Slice& key,
     entry.EncodeTo(&delta_encoded_entry, include_first_key, prev);
   }
   const Slice delta_slice(delta_encoded_entry);
-  builder.Add(key, encoded_entry, &delta_slice);
+  builder.Add(key, encoded_entry, delta_slice);
+}
+
+// Directly exercises the format_version >= 8 index value-delta escape codec
+// (IndexValue::EncodeTo/DecodeFrom), independent of block/table machinery.
+// See table/format.h FormatVersionUsesValueDeltaEscape.
+TEST(IndexValueDeltaEscapeTest, EncodeDecodeRoundTrip) {
+  constexpr uint64_t kTrailer = BlockBasedTable::kBlockTrailerSize;
+  // Previous block handle. Size is large enough that prev.size() + delta stays
+  // positive for all deltas below.
+  const BlockHandle prev(1000, 4 * 1024 * 1024);
+  const uint64_t contiguous_offset = prev.offset() + prev.size() + kTrailer;
+
+  // Size deltas relative to prev.size(), including 0 (whose legacy encoding is
+  // a bare 0x00 -- the byte fv8 reuses as the escape), negatives, and large
+  // ones.
+  const int64_t deltas[] = {0,    1,     -1,     5,       -5,        255,
+                            -255, 12345, -12345, 1 << 20, -(1 << 20)};
+  for (int64_t d : deltas) {
+    SCOPED_TRACE("delta=" + std::to_string(d));
+    const uint64_t new_size =
+        static_cast<uint64_t>(static_cast<int64_t>(prev.size()) + d);
+    const BlockHandle contig(contiguous_offset, new_size);
+    const IndexValue iv(contig, Slice());
+
+    // format_version <= 7 (escape disabled): bytes must be byte-identical to
+    // the legacy PutVarsignedint64(size delta), and must round-trip.
+    std::string fv7;
+    iv.EncodeTo(&fv7, /*have_first_key=*/false, &prev,
+                /*use_value_delta_escape=*/false);
+    std::string expected_fv7;
+    PutVarsignedint64(&expected_fv7, d);
+    EXPECT_EQ(expected_fv7, fv7);
+    {
+      Slice in(fv7);
+      IndexValue dec;
+      ASSERT_OK(dec.DecodeFrom(&in, false, &prev, false));
+      EXPECT_EQ(contig.offset(), dec.handle.offset());
+      EXPECT_EQ(contig.size(), dec.handle.size());
+      EXPECT_EQ(0u, in.size());
+    }
+
+    // format_version >= 8 (escape enabled): a genuine (contiguous) delta is
+    // remapped so it never collides with the single-byte 0x00 escape, and it
+    // round-trips.
+    std::string fv8;
+    iv.EncodeTo(&fv8, false, &prev, /*use_value_delta_escape=*/true);
+    EXPECT_FALSE(fv8.size() == 1 && fv8[0] == '\0')
+        << "a real delta must not encode to the reserved escape byte";
+    {
+      Slice in(fv8);
+      IndexValue dec;
+      ASSERT_OK(dec.DecodeFrom(&in, false, &prev, true));
+      EXPECT_EQ(contig.offset(), dec.handle.offset());
+      EXPECT_EQ(contig.size(), dec.handle.size());
+      EXPECT_EQ(0u, in.size());
+    }
+  }
+
+  // format_version >= 8 escape: a NON-contiguous handle is encoded as the 0x00
+  // escape followed by a full BlockHandle, and decodes back to the exact
+  // (offset, size) -- ignoring prev's implied contiguous offset.
+  {
+    const BlockHandle noncontig(contiguous_offset + 777 /* gap */, 4096);
+    const IndexValue iv(noncontig, Slice());
+    std::string fv8;
+    iv.EncodeTo(&fv8, false, &prev, /*use_value_delta_escape=*/true);
+    ASSERT_GE(fv8.size(), 1u);
+    EXPECT_EQ('\0', fv8[0]);  // escape sentinel
+    Slice in(fv8);
+    IndexValue dec;
+    ASSERT_OK(dec.DecodeFrom(&in, false, &prev, true));
+    EXPECT_EQ(noncontig.offset(), dec.handle.offset());
+    EXPECT_EQ(noncontig.size(), dec.handle.size());
+    EXPECT_EQ(0u, in.size());
+  }
+
+  // A genuine legacy (fv7) 0x00 (delta 0) still decodes as delta 0 under fv7.
+  {
+    std::string bytes;
+    PutVarsignedint64(&bytes, 0);
+    ASSERT_EQ(1u, bytes.size());
+    ASSERT_EQ('\0', bytes[0]);
+    Slice in(bytes);
+    IndexValue dec;
+    ASSERT_OK(dec.DecodeFrom(&in, false, &prev,
+                             /*use_value_delta_escape=*/false));
+    EXPECT_EQ(contiguous_offset, dec.handle.offset());
+    EXPECT_EQ(prev.size(), dec.handle.size());  // delta 0 -> unchanged size
+  }
 }
 
 enum class KeyDistribution { kUniform, kNonUniform };
@@ -773,7 +862,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), keyIncludesSeq(),
       !useValueDeltaEncoding(), false /* block_contents_pinned */,
-      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType());
+      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType(),
+      false /* value_delta_escape */);
   iter->SeekToFirst();
   for (int index = 0; index < num_records; ++index) {
     ASSERT_TRUE(iter->Valid());
@@ -812,7 +902,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), keyIncludesSeq(),
       !useValueDeltaEncoding(), false /* block_contents_pinned */,
-      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType());
+      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType(),
+      false /* value_delta_escape */);
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -920,7 +1011,8 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary) {
           false /* block_contents_pinned */,
           true /* user_defined_timestamps_persisted */,
           nullptr /* prefix_index */,
-          BlockBasedTableOptions::BlockSearchType::kInterpolation));
+          BlockBasedTableOptions::BlockSearchType::kInterpolation,
+          false /* value_delta_escape */));
 
   // Case 1: target prefix < shared prefix
   iter->Seek(make_target("AAAAAA"));
@@ -1004,7 +1096,8 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary2) {
           false /* block_contents_pinned */,
           true /* user_defined_timestamps_persisted */,
           nullptr /* prefix_index */,
-          BlockBasedTableOptions::BlockSearchType::kInterpolation));
+          BlockBasedTableOptions::BlockSearchType::kInterpolation,
+          false /* value_delta_escape */));
 
   // Seek to each existing sequence number
   for (int i = 0; i < kNumKeys; i++) {
@@ -1204,7 +1297,9 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
     create_context.Create(&index_block, std::move(contents));
     std::unique_ptr<IndexBlockIter> iter{index_block->NewIndexIterator(
         options.comparator, kDisableGlobalSequenceNumber, nullptr, nullptr,
-        true, false, true, true)};
+        true, false, true, true, /*block_contents_pinned=*/false,
+        /*user_defined_timestamps_persisted=*/true, /*prefix_index=*/nullptr,
+        BlockBasedTableOptions::kBinary, /*value_delta_escape=*/false)};
     ASSERT_TRUE(iter->status().IsCorruption());
   }
   {
@@ -1269,6 +1364,36 @@ TEST_F(BlockPerKVChecksumTest, CorruptHashIndexNumBucketsNoOverRead) {
     return;
   }
   ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+// A data block footer with the reserved "extended metadata" bit (bit 30) set
+// must be rejected as corruption. No writer sets it yet; format_version 8
+// reserves it so a future extension can be added in the one shared decoder.
+TEST(DataBlockFooterTest, ExtendedMetadataBitRejected) {
+  DataBlockFooter footer;
+  footer.num_restarts = 3;
+  footer.index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
+  std::string encoded;
+  footer.EncodeTo(&encoded);
+  ASSERT_EQ(sizeof(uint32_t), encoded.size());
+
+  // Sanity: the unmodified footer decodes fine.
+  {
+    Slice in(encoded);
+    DataBlockFooter decoded;
+    ASSERT_OK(decoded.DecodeFrom(&in));
+    EXPECT_EQ(3u, decoded.num_restarts);
+  }
+
+  // Set bit 30 in the packed footer word and confirm it is rejected.
+  uint32_t packed = DecodeFixed32(encoded.data());
+  packed |= (uint32_t{1} << 30);
+  std::string corrupt;
+  PutFixed32(&corrupt, packed);
+  Slice in(corrupt);
+  DataBlockFooter decoded;
+  Status s = decoded.DecodeFrom(&in);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
 TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
@@ -1349,7 +1474,7 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
         entry.EncodeTo(&encoded_entry, false, nullptr);
         last_encoded_handle = entry.handle;
         const Slice delta_encoded_entry_slice(delta_encoded_entry);
-        builder->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+        builder->Add(separators[i], encoded_entry, delta_encoded_entry_slice);
       }
       Slice raw_block = builder->Finish();
       BlockContents contents;
@@ -1545,7 +1670,7 @@ class IndexBlockKVChecksumTest
 
       last_encoded_handle = entry.handle;
       const Slice delta_encoded_entry_slice(delta_encoded_entry);
-      builder_->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+      builder_->Add(separators[i], encoded_entry, delta_encoded_entry_slice);
     }
     // read serialized contents of the block
     Slice raw_block = builder_->Finish();
@@ -1610,7 +1735,8 @@ TEST_P(IndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
           !UseValueDeltaEncoding() /* value_is_full */,
           true /* block_contents_pinned*/,
           true /* user_defined_timestamps_persisted */,
-          nullptr /* prefix_index */)};
+          nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+          false /* value_delta_escape */)};
       biter->SeekToFirst();
       const char* checksum_ptr = index_block->TEST_GetKVChecksum();
       // Check checksum of correct length is generated
@@ -1851,7 +1977,8 @@ class IndexBlockKVChecksumCorruptionTest : public IndexBlockKVChecksumTest {
         !UseValueDeltaEncoding() /* value_is_full */,
         true /* block_contents_pinned */,
         true /* user_defined_timestamps_persisted */,
-        nullptr /* prefix_index */)};
+        nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+        false /* value_delta_escape */)};
     SyncPoint::GetInstance()->EnableProcessing();
     return biter;
   }
