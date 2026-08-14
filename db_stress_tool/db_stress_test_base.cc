@@ -3932,6 +3932,10 @@ Status StressTest::TestBackupRestore(
       from = "BackupEngine::PurgeOldBackups";
     }
   }
+  // Prevent the backup env from being destroyed while IO executor coroutines
+  // that referenced it during async reads may still be completing.  Declared
+  // before `restored_db` so it outlives the DB (reverse destruction order).
+  std::shared_ptr<Env> restored_db_env_holder;
   std::unique_ptr<DB> restored_db;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
 
@@ -3955,7 +3959,8 @@ Status StressTest::TestBackupRestore(
     }
     if (inplace_not_restore) {
       BackupInfo& info = backup_info[thread->rand.Uniform(count)];
-      db_opt.env = info.env_for_open.get();
+      restored_db_env_holder = info.env_for_open;
+      db_opt.env = restored_db_env_holder.get();
       s = DB::OpenForReadOnly(DBOptions(db_opt), info.name_for_open,
                               cf_descriptors, &restored_cf_handles,
                               &restored_db);
