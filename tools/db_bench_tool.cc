@@ -1703,6 +1703,10 @@ DEFINE_int32(stats_per_interval, 0,
              "Reports additional stats per interval when this is greater than "
              "0.");
 
+DEFINE_bool(report_interval_percentiles, false,
+            "Report aggregate per-interval latency percentiles when histogram "
+            "and stats_interval_seconds are enabled.");
+
 DEFINE_uint64(slow_usecs, 1000000,
               "A message is printed for operations that take at least this "
               "many microseconds.");
@@ -2664,9 +2668,56 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
     OperationTypeString = {{kRead, "read"},         {kWrite, "write"},
                            {kDelete, "delete"},     {kSeek, "seek"},
                            {kMerge, "merge"},       {kUpdate, "update"},
-                           {kCompress, "compress"}, {kCompress, "uncompress"},
+                           {kCompress, "compress"}, {kUncompress, "uncompress"},
                            {kCrc, "crc"},           {kHash, "hash"},
                            {kOthers, "op"},         {kMultiScan, "multiscan"}};
+
+static const OperationType kAllOperationTypes[] = {
+    kRead,     kWrite,      kDelete, kSeek, kMerge,  kUpdate,
+    kCompress, kUncompress, kCrc,    kHash, kOthers, kMultiScan,
+};
+
+using OperationHistograms =
+    std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
+                       std::hash<unsigned char>>;
+using OperationCounts =
+    std::unordered_map<OperationType, uint64_t, std::hash<unsigned char>>;
+using OperationAtomicCounts =
+    std::unordered_map<OperationType, std::shared_ptr<std::atomic<uint64_t>>,
+                       std::hash<unsigned char>>;
+
+class Stats;
+
+class IntervalStatsReporter {
+ public:
+  IntervalStatsReporter(SystemClock* clock, uint64_t report_interval_secs)
+      : clock_(clock), report_interval_secs_(report_interval_secs) {}
+
+  ~IntervalStatsReporter();
+  IntervalStatsReporter(const IntervalStatsReporter&) = delete;
+  IntervalStatsReporter& operator=(const IntervalStatsReporter&) = delete;
+  IntervalStatsReporter(IntervalStatsReporter&&) = delete;
+  IntervalStatsReporter& operator=(IntervalStatsReporter&&) = delete;
+
+  void RegisterStats(Stats* stats);
+  void Start(uint64_t start);
+  void Stop();
+
+ private:
+  void SleepAndReport();
+  void ReportAndReset(uint64_t now);
+
+  SystemClock* clock_;
+  const uint64_t report_interval_secs_;
+  uint64_t start_ = 0;
+  uint64_t interval_index_ = 0;
+  std::vector<Stats*> stats_;
+  ROCKSDB_NAMESPACE::port::Thread reporting_thread_;
+  std::mutex mutex_;
+  std::condition_variable stop_cv_;
+  bool stop_ = false;
+  bool started_ = false;
+};
 
 class CombinedStats;
 class Stats {
@@ -2683,13 +2734,84 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
-  std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
-                     std::hash<unsigned char>>
-      hist_;
+  OperationHistograms hist_;
+  OperationHistograms interval_hist_;
+  OperationAtomicCounts interval_ops_;
   std::string message_;
-  bool exclude_from_merge_;
-  ReporterAgent* reporter_agent_;  // does not own
+  std::shared_ptr<std::atomic<bool>> exclude_from_merge_ =
+      std::make_shared<std::atomic<bool>>(false);
+  ReporterAgent* reporter_agent_ = nullptr;                   // does not own
+  IntervalStatsReporter* interval_stats_reporter_ = nullptr;  // does not own
   friend class CombinedStats;
+  friend class IntervalStatsReporter;
+
+  void InitializeIntervalHistograms() {
+    for (OperationType op_type : kAllOperationTypes) {
+      if (interval_hist_.find(op_type) == interval_hist_.end()) {
+        interval_hist_.insert({op_type, std::make_shared<HistogramImpl>()});
+      }
+      if (interval_ops_.find(op_type) == interval_ops_.end()) {
+        interval_ops_.insert(
+            {op_type, std::make_shared<std::atomic<uint64_t>>(0)});
+      }
+    }
+  }
+
+  void ResetIntervalHistograms() {
+    for (auto& entry : interval_hist_) {
+      entry.second->Clear();
+    }
+    for (auto& entry : interval_ops_) {
+      entry.second->store(0, std::memory_order_relaxed);
+    }
+  }
+
+  void AddIntervalMicros(OperationType op_type, uint64_t micros,
+                         uint64_t num_ops) {
+    const OperationHistograms& interval_histograms = interval_hist_;
+    auto it = interval_histograms.find(op_type);
+    if (it != interval_histograms.end()) {
+      it->second->Add(micros);
+    }
+    const OperationAtomicCounts& interval_ops = interval_ops_;
+    auto ops_it = interval_ops.find(op_type);
+    if (ops_it != interval_ops.end()) {
+      ops_it->second->fetch_add(num_ops, std::memory_order_relaxed);
+    }
+  }
+
+  void MergeAndResetIntervalHistograms(OperationHistograms* merged_histograms,
+                                       OperationCounts* merged_ops) {
+    if (exclude_from_merge_->load(std::memory_order_acquire)) {
+      ResetIntervalHistograms();
+      return;
+    }
+
+    const OperationHistograms& interval_histograms = interval_hist_;
+    for (const auto& entry : interval_histograms) {
+      HistogramImpl* histogram = entry.second.get();
+      if (histogram == nullptr || histogram->num() == 0) {
+        continue;
+      }
+
+      auto& merged_histogram = (*merged_histograms)[entry.first];
+      if (merged_histogram == nullptr) {
+        merged_histogram = std::make_shared<HistogramImpl>();
+      }
+      merged_histogram->Merge(*histogram);
+      // Boundaries are best effort: the worker stays lock-free while the
+      // reporter clears atomics between intervals.
+      histogram->Clear();
+    }
+
+    const OperationAtomicCounts& interval_ops = interval_ops_;
+    for (const auto& entry : interval_ops) {
+      uint64_t count = entry.second->exchange(0, std::memory_order_relaxed);
+      if (count > 0) {
+        (*merged_ops)[entry.first] += count;
+      }
+    }
+  }
 
  public:
   Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
@@ -2698,11 +2820,23 @@ class Stats {
     reporter_agent_ = reporter_agent;
   }
 
+  void SetIntervalStatsReporter(
+      IntervalStatsReporter* interval_stats_reporter) {
+    interval_stats_reporter_ = interval_stats_reporter;
+    if (interval_stats_reporter_ != nullptr) {
+      InitializeIntervalHistograms();
+      ResetIntervalHistograms();
+    }
+  }
+
   void Start(int id) {
     id_ = id;
     next_report_ = FLAGS_stats_interval ? FLAGS_stats_interval : 100;
     last_op_finish_ = start_;
     hist_.clear();
+    if (interval_stats_reporter_ != nullptr) {
+      ResetIntervalHistograms();
+    }
     done_ = 0;
     last_report_done_ = 0;
     bytes_ = 0;
@@ -2713,11 +2847,11 @@ class Stats {
     last_report_finish_ = start_;
     message_.clear();
     // When set, stats from this thread won't be merged with others.
-    exclude_from_merge_ = false;
+    exclude_from_merge_->store(false, std::memory_order_release);
   }
 
   void Merge(const Stats& other) {
-    if (other.exclude_from_merge_) {
+    if (other.exclude_from_merge_->load(std::memory_order_acquire)) {
       return;
     }
 
@@ -2754,7 +2888,9 @@ class Stats {
   void AddMessage(Slice msg) { AppendWithSpace(&message_, msg); }
 
   void SetId(int id) { id_ = id; }
-  void SetExcludeFromMerge() { exclude_from_merge_ = true; }
+  void SetExcludeFromMerge() {
+    exclude_from_merge_->store(true, std::memory_order_release);
+  }
 
   void PrintThreadStatus() {
     std::vector<ThreadStatus> thread_list;
@@ -2799,24 +2935,38 @@ class Stats {
 
   void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops,
                    enum OperationType op_type = kOthers) {
+    const bool report_interval_percentiles =
+        interval_stats_reporter_ != nullptr;
+    uint64_t micros = 0;
+    uint64_t op_finish = 0;
+    if (FLAGS_histogram) {
+      op_finish = clock_->NowMicros();
+      micros = op_finish - last_op_finish_;
+    }
+
     if (reporter_agent_) {
       reporter_agent_->ReportFinishedOps(num_ops);
     }
-    if (FLAGS_histogram) {
-      uint64_t now = clock_->NowMicros();
-      uint64_t micros = now - last_op_finish_;
 
-      if (hist_.find(op_type) == hist_.end()) {
+    if (FLAGS_histogram) {
+      auto hist_it = hist_.find(op_type);
+      if (hist_it == hist_.end()) {
         auto hist_temp = std::make_shared<HistogramImpl>();
-        hist_.insert({op_type, std::move(hist_temp)});
+        hist_it = hist_.insert({op_type, std::move(hist_temp)}).first;
       }
-      hist_[op_type]->Add(micros);
+      hist_it->second->Add(micros);
+      if (interval_stats_reporter_ != nullptr) {
+        AddIntervalMicros(op_type, micros,
+                          num_ops > 0 ? static_cast<uint64_t>(num_ops) : 0);
+      }
 
       if (micros >= FLAGS_slow_usecs && !FLAGS_stats_interval) {
         fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
         fflush(stderr);
       }
-      last_op_finish_ = now;
+      if (!report_interval_percentiles) {
+        last_op_finish_ = op_finish;
+      }
     }
 
     done_ += num_ops;
@@ -2921,6 +3071,9 @@ class Stats {
       }
       fflush(stderr);
     }
+    if (FLAGS_histogram && report_interval_percentiles) {
+      last_op_finish_ = clock_->NowMicros();
+    }
   }
 
   void AddBytes(int64_t n) { bytes_ += n; }
@@ -2967,6 +3120,81 @@ class Stats {
     fflush(stdout);
   }
 };
+
+IntervalStatsReporter::~IntervalStatsReporter() { Stop(); }
+
+void IntervalStatsReporter::RegisterStats(Stats* stats) {
+  assert(!started_);
+  stats_.push_back(stats);
+}
+
+void IntervalStatsReporter::Start(uint64_t start) {
+  assert(!started_);
+  start_ = start;
+  stop_ = false;
+  started_ = true;
+  reporting_thread_ = port::Thread([this]() { SleepAndReport(); });
+}
+
+void IntervalStatsReporter::Stop() {
+  if (!started_) {
+    return;
+  }
+  {
+    std::unique_lock<std::mutex> lk(mutex_);
+    stop_ = true;
+    stop_cv_.notify_all();
+  }
+  reporting_thread_.join();
+  ReportAndReset(clock_->NowMicros());
+  started_ = false;
+}
+
+void IntervalStatsReporter::SleepAndReport() {
+  while (true) {
+    {
+      std::unique_lock<std::mutex> lk(mutex_);
+      if (stop_ ||
+          stop_cv_.wait_for(lk, std::chrono::seconds(report_interval_secs_),
+                            [this]() { return stop_; })) {
+        break;
+      }
+    }
+    ReportAndReset(clock_->NowMicros());
+  }
+}
+
+void IntervalStatsReporter::ReportAndReset(uint64_t now) {
+  ++interval_index_;
+  const double elapsed = (now - start_) * 1e-6;
+  OperationHistograms merged_histograms;
+  OperationCounts merged_ops;
+
+  for (Stats* stats : stats_) {
+    stats->MergeAndResetIntervalHistograms(&merged_histograms, &merged_ops);
+  }
+
+  for (auto& entry : merged_histograms) {
+    HistogramImpl* histogram = entry.second.get();
+    if (histogram == nullptr || histogram->num() == 0) {
+      continue;
+    }
+
+    auto op_type_it = OperationTypeString.find(entry.first);
+    const char* op_type = op_type_it == OperationTypeString.end()
+                              ? "op"
+                              : op_type_it->second.c_str();
+    const uint64_t interval_ops = merged_ops[entry.first];
+    fprintf(stderr,
+            "IntervalPercentiles: interval=%" PRIu64
+            " elapsed=%.6f op=%s count=%" PRIu64 " ops=%" PRIu64
+            " P50: %.2f P75: %.2f P99: %.2f P99.9: %.2f P99.99: %.2f\n",
+            interval_index_, elapsed, op_type, histogram->num(), interval_ops,
+            histogram->Median(), histogram->Percentile(75),
+            histogram->Percentile(99), histogram->Percentile(99.9),
+            histogram->Percentile(99.99));
+  }
+}
 
 class CombinedStats {
  public:
@@ -4909,6 +5137,17 @@ class Benchmark {
       reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
                                              FLAGS_report_interval_seconds));
     }
+    std::unique_ptr<IntervalStatsReporter> interval_stats_reporter;
+    if (FLAGS_report_interval_percentiles) {
+      if (FLAGS_histogram && FLAGS_stats_interval_seconds > 0) {
+        interval_stats_reporter.reset(new IntervalStatsReporter(
+            FLAGS_env->GetSystemClock().get(), FLAGS_stats_interval_seconds));
+      } else {
+        fprintf(stderr,
+                "WARNING: --report_interval_percentiles requires --histogram "
+                "and --stats_interval_seconds > 0\n");
+      }
+    }
 
     ThreadArg* arg = new ThreadArg[n];
 
@@ -4936,6 +5175,11 @@ class Benchmark {
       total_thread_count_++;
       arg[i].thread = new ThreadState(i, total_thread_count_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
+      arg[i].thread->stats.SetIntervalStatsReporter(
+          interval_stats_reporter.get());
+      if (interval_stats_reporter != nullptr) {
+        interval_stats_reporter->RegisterStats(&arg[i].thread->stats);
+      }
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
     }
@@ -4945,12 +5189,24 @@ class Benchmark {
       shared.cv.Wait();
     }
 
+    const uint64_t benchmark_start = FLAGS_env->GetSystemClock()->NowMicros();
     shared.start = true;
     shared.cv.SignalAll();
+    shared.mu.Unlock();
+
+    if (interval_stats_reporter != nullptr) {
+      interval_stats_reporter->Start(benchmark_start);
+    }
+
+    shared.mu.Lock();
     while (shared.num_done < n) {
       shared.cv.Wait();
     }
     shared.mu.Unlock();
+
+    if (interval_stats_reporter != nullptr) {
+      interval_stats_reporter->Stop();
+    }
 
     // Stats for some threads can be excluded.
     Stats merge_stats;
