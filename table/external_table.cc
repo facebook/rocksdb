@@ -8,6 +8,7 @@
 #include <chrono>
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/statistics.h"
@@ -22,38 +23,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-
-Histograms GetExternalTableFileReadHistogram(Statistics* stats,
-                                             Env::IOActivity io_activity) {
-  switch (io_activity) {
-    case Env::IOActivity::kFlush:
-      return Histograms::FILE_READ_FLUSH_MICROS;
-    case Env::IOActivity::kCompaction:
-      return Histograms::FILE_READ_COMPACTION_MICROS;
-    case Env::IOActivity::kDBOpen:
-      return Histograms::FILE_READ_DB_OPEN_MICROS;
-    default:
-      break;
-  }
-
-  if (stats && stats->get_stats_level() > StatsLevel::kExceptDetailedTimers) {
-    switch (io_activity) {
-      case Env::IOActivity::kGet:
-        return Histograms::FILE_READ_GET_MICROS;
-      case Env::IOActivity::kMultiGet:
-        return Histograms::FILE_READ_MULTIGET_MICROS;
-      case Env::IOActivity::kDBIterator:
-        return Histograms::FILE_READ_DB_ITERATOR_MICROS;
-      case Env::IOActivity::kVerifyDBChecksum:
-        return Histograms::FILE_READ_VERIFY_DB_CHECKSUM_MICROS;
-      case Env::IOActivity::kVerifyFileChecksums:
-        return Histograms::FILE_READ_VERIFY_FILE_CHECKSUMS_MICROS;
-      default:
-        break;
-    }
-  }
-  return Histograms::HISTOGRAM_ENUM_MAX;
-}
 
 class ExternalTableMetricsRandomAccessFile
     : public FSRandomAccessFileOwnerWrapper {
@@ -147,7 +116,7 @@ class ExternalTableMetricsRandomAccessFile
     }
     statistics_->reportTimeToHistogram(Histograms::SST_READ_MICROS, elapsed);
     const auto histogram =
-        GetExternalTableFileReadHistogram(statistics_, options.io_activity);
+        GetFileReadHistograms(statistics_, options.io_activity);
     if (histogram != Histograms::HISTOGRAM_ENUM_MAX) {
       statistics_->reportTimeToHistogram(histogram, elapsed);
     }

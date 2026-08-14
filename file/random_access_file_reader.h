@@ -38,6 +38,11 @@ struct AlignedBufferAllocationContext {
   const AlignedBuffer::Allocator* allocator = nullptr;
 };
 
+// Map an IOActivity to the corresponding file-read-latency histogram.
+// Returns HISTOGRAM_ENUM_MAX when no per-activity histogram applies.
+Histograms GetFileReadHistograms(Statistics* stats,
+                                 Env::IOActivity io_activity);
+
 // Align the request r according to alignment and return the aligned result.
 FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 
