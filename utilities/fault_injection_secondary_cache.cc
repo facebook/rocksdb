@@ -8,6 +8,8 @@
 
 #include "utilities/fault_injection_secondary_cache.h"
 
+#include "utilities/fault_injection_fs.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 void FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(
@@ -81,7 +83,11 @@ Status FaultInjectionSecondaryCache::Insert(
     const Cache::CacheItemHelper* helper, bool force_insert) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
-    return Status::IOError();
+    // Tag the status with the standard injected-error marker so callers can
+    // distinguish a fault-injected failure from a genuine one via
+    // FaultInjectionTestFS::IsInjectedError / StressTest::IsErrorInjectedAndRetryable.
+    return Status::IOError(FaultInjectionTestFS::kInjected +
+                           " secondary cache insert error");
   }
 
   return base_->Insert(key, value, helper, force_insert);
