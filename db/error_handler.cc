@@ -433,13 +433,12 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
-    CheckAndSetRecoveryAndBGError(bg_err);
+    CheckAndSetRecoveryAndBGError(bg_err, context);
     ROCKS_LOG_INFO(
         db_options_.info_log,
         "ErrorHandler: Set background IO error as unrecoverable error\n");
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &bg_err, db_mutex_, &auto_recovery);
-    recover_context_ = context;
     return;
   }
   if (wal_related) {
@@ -457,13 +456,12 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     //  from WAL write failures.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kFatalError);
-    CheckAndSetRecoveryAndBGError(bg_err);
+    CheckAndSetRecoveryAndBGError(bg_err, context);
     ROCKS_LOG_WARN(db_options_.info_log,
                    "ErrorHandler: A potentially WAL error happened, set "
                    "background IO error as fatal error\n");
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &bg_err, db_mutex_, &auto_recovery);
-    recover_context_ = context;
     return;
   }
 
@@ -519,8 +517,7 @@ void ErrorHandler::SetBGError(const Status& bg_status,
       severity = Status::Severity::kHardError;
     }
     Status bg_err(new_bg_io_err, severity);
-    CheckAndSetRecoveryAndBGError(bg_err);
-    recover_context_ = context;
+    CheckAndSetRecoveryAndBGError(bg_err, context);
     bool auto_recovery = db_options_.max_bgerror_resume_count > 0;
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &new_bg_io_err, db_mutex_,
@@ -632,7 +629,7 @@ Status ErrorHandler::ClearBGError() {
 
 Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   InstrumentedMutexLock l(db_mutex_);
-  bool no_bg_work_original_flag = soft_error_no_bg_work_;
+  const bool soft_error_no_bg_work_on_entry = soft_error_no_bg_work_;
   if (is_manual) {
     // If its a manual recovery and there's a background recovery in progress
     // return busy status
@@ -644,21 +641,15 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
     // In manual resume, we allow the bg work to run. If it is a auto resume,
     // the bg work should follow this tag.
     soft_error_no_bg_work_ = false;
-
-    // In manual resume, if the bg error is a soft error and also requires
-    // no bg work, the error must be recovered by call the flush with
-    // flush reason: kErrorRecoveryRetryFlush. In other case, the flush
-    // reason is set to kErrorRecovery.
-    if (no_bg_work_original_flag) {
-      recover_context_.flush_reason = FlushReason::kErrorRecoveryRetryFlush;
-    } else {
-      recover_context_.flush_reason = FlushReason::kErrorRecovery;
-    }
   }
 
+  // kErrorRecovery can be the default context for a generic soft error that
+  // needs no flush. It can also remain from an earlier error after a later
+  // no-WAL soft error sets soft_error_no_bg_work_. Only the first case may be
+  // cleared directly.
   if (bg_error_.severity() == Status::Severity::kSoftError &&
-      recover_context_.flush_reason == FlushReason::kErrorRecovery) {
-    // Simply clear the background error and return
+      recover_context_.flush_reason == FlushReason::kErrorRecovery &&
+      !soft_error_no_bg_work_on_entry) {
     recovery_error_ = IOStatus::OK();
     return ClearBGError();
   }
@@ -672,7 +663,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   if (s.ok()) {
     soft_error_no_bg_work_ = false;
   } else {
-    soft_error_no_bg_work_ = no_bg_work_original_flag;
+    soft_error_no_bg_work_ = soft_error_no_bg_work_on_entry;
   }
 
   // For manual recover, shutdown, and fatal error  cases, set
@@ -746,8 +737,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     recovery_in_prog_ = false;
     return;
   }
-  DBRecoverContext context = recover_context_;
-  context.flush_after_recovery = true;
   int resume_count = db_options_.max_bgerror_resume_count;
   uint64_t wait_interval = db_options_.bgerror_resume_retry_interval;
   uint64_t retry_count = 0;
@@ -763,6 +752,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
     recovery_error_ = IOStatus::OK();
+    // An error during the previous attempt can require stronger recovery.
+    DBRecoverContext context = recover_context_;
+    context.flush_after_recovery = true;
     retry_count++;
     Status s = db_->ResumeImpl(context, Env::IOActivity::kFlush);
     RecordStats({ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT},
@@ -822,12 +814,16 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
               {{ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count}});
 }
 
-void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
+void ErrorHandler::CheckAndSetRecoveryAndBGError(
+    const Status& bg_err, const DBRecoverContext& context) {
+  assert(context.flush_reason != FlushReason::kErrorRecoveryRetryFlush ||
+         bg_err.severity() == Status::Severity::kSoftError);
   if (recovery_in_prog_ && recovery_error_.ok()) {
     recovery_error_ = status_to_io_status(Status(bg_err));
   }
   if (bg_err.severity() > bg_error_.severity()) {
     bg_error_ = bg_err;
+    recover_context_ = context;
   }
   if (bg_error_.severity() >= Status::Severity::kHardError) {
     is_db_stopped_.store(true, std::memory_order_release);

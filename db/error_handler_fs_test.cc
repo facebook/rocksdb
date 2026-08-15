@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
+#include <chrono>
+#include <future>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -1996,6 +1999,139 @@ TEST_F(DBErrorHandlingFSTest, FlushWritNoWALRetryableErrorAutoRecover2) {
   // be successful.
   ASSERT_OK(s);
   ASSERT_EQ("val2", Get(Key(2)));
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, AutoRecoveryEscalationSwitchesWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.max_bgerror_resume_count = 3;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  DestroyAndReopen(options);
+
+  struct ErrorInjectionState {
+    std::atomic<bool> fail_flush{true};
+    std::atomic<bool> fail_manifest{false};
+    std::atomic<bool> manifest_error_injected{false};
+    std::atomic<bool> recovery_notified{false};
+    std::promise<void> recovery_finished;
+  };
+  auto state = std::make_shared<ErrorInjectionState>();
+  auto recovery_finished = state->recovery_finished.get_future();
+  // Keep the failed flush counted as background work while the first recovery
+  // attempt waits without the DB mutex. This lets the foreground write safely
+  // escalate the retained recovery context.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"AutoRecoveryEscalationSwitchesWAL:ReleaseFailedFlush",
+        "DBImpl::BackgroundCallFlush:FilesFound"},
+       {"RecoverFromRetryableBGIOError:BeforeResume0",
+        "AutoRecoveryEscalationSwitchesWAL:RecoveryStarted"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::Run:PostBuildTable", [state](void* arg) {
+        if (state->fail_flush.exchange(false)) {
+          IOStatus error = IOStatus::IOError("injected retryable flush error");
+          error.SetRetryable(true);
+          *static_cast<Status*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest",
+      [state](void* arg) {
+        if (state->fail_manifest.exchange(false)) {
+          IOStatus error =
+              IOStatus::IOError("injected retryable MANIFEST error");
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+          state->manifest_error_injected.store(true);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "RecoverFromRetryableBGIOError:RecoverSuccess", [state](void*) {
+        if (!state->recovery_notified.exchange(true)) {
+          state->recovery_finished.set_value();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(Key(0), "value"));
+  const uint64_t initial_wal = dbfull()->TEST_GetCurrentLogNumber();
+  Status flush_status = Flush();
+  ASSERT_EQ(Status::Severity::kSoftError, flush_status.severity());
+  ASSERT_FALSE(state->fail_flush.load());
+  const uint64_t failed_write_wal = dbfull()->TEST_GetCurrentLogNumber();
+  ASSERT_GT(failed_write_wal, initial_wal);
+  TEST_SYNC_POINT("AutoRecoveryEscalationSwitchesWAL:RecoveryStarted");
+
+  const SequenceNumber sequence_before_delete = db_->GetLatestSequenceNumber();
+
+  state->fail_manifest.store(true);
+  WriteOptions write_options;
+  write_options.sync = true;
+  Status delete_status = db_->Delete(write_options, Key(0));
+  ASSERT_TRUE(delete_status.IsIOError()) << delete_status.ToString();
+  ASSERT_TRUE(state->manifest_error_injected.load());
+  ASSERT_EQ(sequence_before_delete, db_->GetLatestSequenceNumber());
+  ASSERT_EQ(Status::Severity::kHardError,
+            dbfull()->TEST_GetBGError().severity());
+  ASSERT_TRUE(dbfull()->TEST_IsRecoveryInProgress());
+
+  TEST_SYNC_POINT("AutoRecoveryEscalationSwitchesWAL:ReleaseFailedFlush");
+  ASSERT_EQ(std::future_status::ready,
+            recovery_finished.wait_for(std::chrono::seconds(10)))
+      << "automatic recovery did not finish";
+
+  const uint64_t wal_after_recovery = dbfull()->TEST_GetCurrentLogNumber();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GT(wal_after_recovery, failed_write_wal)
+      << "hard MANIFEST recovery must switch away from the WAL containing the "
+         "failed synced write";
+
+  ASSERT_OK(db_->Delete(write_options, Key(0)));
+  ASSERT_EQ("NOT_FOUND", Get(Key(0)));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get(Key(0)));
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, ManualResumePreservesStrongerRecoveryContext) {
+  auto listener = std::make_shared<ErrorHandlerFSListener>();
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  options.avoid_flush_during_shutdown = true;
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put(Key(0), "value"));
+  const uint64_t wal_before_recovery = dbfull()->TEST_GetCurrentLogNumber();
+
+  IOStatus soft_error = IOStatus::IOError("injected soft error");
+  dbfull()->TEST_SetBGError(soft_error, BackgroundErrorReason::kAsyncFileOpen);
+  ASSERT_EQ(Status::Severity::kSoftError,
+            dbfull()->TEST_GetBGError().severity());
+
+  IOStatus retryable_error = IOStatus::IOError("injected retryable error");
+  retryable_error.SetRetryable(true);
+  dbfull()->TEST_SetBGError(retryable_error,
+                            BackgroundErrorReason::kFlushNoWAL);
+  ASSERT_EQ(Status::Severity::kSoftError,
+            dbfull()->TEST_GetBGError().severity());
+
+  ASSERT_OK(dbfull()->Resume());
+  const uint64_t wal_after_recovery = dbfull()->TEST_GetCurrentLogNumber();
+  ASSERT_GT(wal_after_recovery, wal_before_recovery)
+      << "manual resume must execute the retained stronger recovery context";
+
+  Reopen(options);
+  ASSERT_EQ("value", Get(Key(0)));
   Destroy(options);
 }
 
