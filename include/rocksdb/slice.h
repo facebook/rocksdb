@@ -100,8 +100,10 @@ class Slice {
   // Decodes the current slice interpreted as an hexadecimal string into result,
   // if successful returns true, if this isn't a valid hex string
   // (e.g not coming from Slice::ToString(true)) DecodeHex returns false.
-  // This slice is expected to have an even number of 0-9A-F characters
-  // also accepts lowercase (a-f)
+  // On failure due to invalid hex characters, *result contains the bytes
+  // successfully decoded before the first invalid character; on failure due to
+  // null pointer or odd length, *result is unchanged. This slice is expected to
+  // have an even number of 0-9A-F characters, also accepts lowercase (a-f).
   bool DecodeHex(std::string* result) const;
 
   // Three-way comparison.  Returns value:

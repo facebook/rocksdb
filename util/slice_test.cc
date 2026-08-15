@@ -11,9 +11,12 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
+#include <ctime>
 #include <new>
 #include <semaphore>
+#include <sstream>
 
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -23,6 +26,7 @@
 #include "test_util/testutil.h"
 #include "util/bit_fields.h"
 #include "util/cast_util.h"
+#include "util/random.h"
 #include "util/semaphore.h"
 #include "util/string_util.h"
 
@@ -704,6 +708,223 @@ TEST(BitFieldsTest, BitFields) {
     acqrel.Store(MyState{}.With<Field4>(0U));
     ASSERT_TESTABLE_FAILURE(
         acqrel.Apply(Field4::MinusTransformPromiseNoUnderflow(1U)));
+  }
+}
+
+namespace {
+void VerifyHexRoundTrip(const std::string& input) {
+  Slice slice(input);
+
+  // Verify non-hex ToString matches original input
+  std::string normal_str = slice.ToString(false);
+  ASSERT_EQ(normal_str, input);
+
+  // Encode to hex
+  std::string hex_str = slice.ToString(true);
+
+  // Hex string should be exactly twice the length of the input
+  ASSERT_EQ(hex_str.size(), input.size() * 2);
+
+  // Verify all characters in hex string are valid hex digits
+  for (char c : hex_str) {
+    ASSERT_TRUE((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))
+        << "Invalid hex character: " << c;
+  }
+
+  // Decode hex back to original
+  Slice hex_slice(hex_str);
+  std::string decoded;
+  ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+
+  // Verify decoded output matches original input
+  ASSERT_EQ(decoded, input);
+  ASSERT_EQ(decoded.size(), input.size());
+}
+}  // namespace
+
+TEST(SliceHexTest, HexAndToStringRoundTrip) {
+  {
+    VerifyHexRoundTrip("");
+
+    // Additionally verify that decoding an empty hex string yields empty output
+    Slice empty_hex("");
+    std::string decoded;
+    ASSERT_TRUE(empty_hex.DecodeHex(&decoded));
+    ASSERT_TRUE(decoded.empty());
+  }
+
+  {
+    VerifyHexRoundTrip("A");
+
+    // Additionally verify the specific hex encoding of 'A'
+    Slice single_byte_slice("A");
+    ASSERT_EQ(single_byte_slice.ToString(true), "41");
+
+    // Verify decoding the known hex value yields the original character
+    Slice hex_slice("41");
+    std::string decoded;
+    ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+    ASSERT_EQ(decoded, "A");
+  }
+
+  {
+    Slice hex_slice("deadbeef");
+    std::string decoded;
+    ASSERT_TRUE(hex_slice.DecodeHex(&decoded));
+    ASSERT_EQ(decoded.size(), 4);
+
+    // Verify the decoded bytes match expected values
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[0]), 0xDE);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[1]), 0xAD);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[2]), 0xBE);
+    ASSERT_EQ(lossless_cast<unsigned char>(decoded[3]), 0xEF);
+
+    // Round-trip the decoded bytes back through VerifyHexRoundTrip
+    VerifyHexRoundTrip(decoded);
+
+    // Verify uppercase hex input also decodes correctly
+    Slice upper_hex_slice("DEADBEEF");
+    std::string upper_decoded;
+    ASSERT_TRUE(upper_hex_slice.DecodeHex(&upper_decoded));
+    ASSERT_EQ(upper_decoded, decoded);
+
+    // Verify mixed case hex input also decodes correctly
+    Slice mixed_hex_slice("dEaDbEeF");
+    std::string mixed_decoded;
+    ASSERT_TRUE(mixed_hex_slice.DecodeHex(&mixed_decoded));
+    ASSERT_EQ(mixed_decoded, decoded);
+  }
+
+  {
+    std::string all_bytes;
+    all_bytes.reserve(256);
+    for (int i = 0; i < 256; ++i) {
+      all_bytes.push_back(static_cast<char>(i));
+    }
+
+    VerifyHexRoundTrip(all_bytes);
+
+    // Additionally verify the exact output size for all-bytes case
+    Slice all_bytes_slice(all_bytes);
+    ASSERT_EQ(all_bytes_slice.ToString(true).size(), 512);
+  }
+}
+
+namespace {
+constexpr std::array<bool, 256> MakeValidHexLookup() {
+  std::array<bool, 256> table{};
+  for (char c : "0123456789abcdefABCDEF") {
+    if (c != '\0') {
+      table[static_cast<unsigned char>(c)] = true;
+    }
+  }
+  return table;
+}
+}  // namespace
+
+TEST(SliceDecodeHexTest, DecodeHexInvalidPairs) {
+  static constexpr std::array<bool, 256> kValidHexTable = MakeValidHexLookup();
+
+  // Identify all invalid hex characters (0-255 excluding valid ones)
+  std::vector<uint8_t> invalid_chars;
+  invalid_chars.reserve(256 - 22);  // 256 total minus 22 valid hex chars
+  for (int c = 0; c < 256; ++c) {
+    if (!kValidHexTable[c]) {
+      invalid_chars.push_back(static_cast<uint8_t>(c));
+    }
+  }
+
+  // Verify the expected number of invalid characters
+  // 256 total - 10 digits - 6 lowercase - 6 uppercase = 234 invalid chars
+  ASSERT_EQ(invalid_chars.size(), 234u)
+      << "Unexpected number of invalid hex characters";
+
+  // Pick an arbitrary valid hex character to pair with each invalid character
+  static constexpr char kValidHexChar = '0';
+
+  auto test_invalid_nibble = [&](uint8_t invalid_c, bool is_first_nibble) {
+    std::string hex_pair(2, '\0');
+    hex_pair[0] =
+        is_first_nibble ? static_cast<char>(invalid_c) : kValidHexChar;
+    hex_pair[1] =
+        is_first_nibble ? kValidHexChar : static_cast<char>(invalid_c);
+    Slice hex_slice(hex_pair);
+    std::string result = "sentinel";
+    bool success = hex_slice.DecodeHex(&result);
+    const char* position = is_first_nibble ? "first" : "second";
+    EXPECT_FALSE(success) << "Expected DecodeHex to fail for invalid "
+                          << position << " char: 0x" << std::hex
+                          << static_cast<int>(invalid_c);
+    EXPECT_TRUE(result.empty())
+        << "Expected empty result string after failure for invalid " << position
+        << " char: 0x" << std::hex << static_cast<int>(invalid_c);
+  };
+  for (uint8_t invalid_c : invalid_chars) {
+    test_invalid_nibble(invalid_c, true);   // Test invalid first char
+    test_invalid_nibble(invalid_c, false);  // Test invalid second char
+  }
+
+  // Test 500 randomized invalid pairs
+  const uint32_t seed = static_cast<uint32_t>(std::time(nullptr));
+  Random rand(seed);
+  SCOPED_TRACE("seed=" + std::to_string(seed));
+  const int num_invalid = static_cast<int>(invalid_chars.size());
+  for (int i = 0; i < 500; ++i) {
+    const uint8_t invalid_c1 = invalid_chars[rand.Uniform(num_invalid)];
+    const uint8_t invalid_c2 = invalid_chars[rand.Uniform(num_invalid)];
+    std::stringstream pair_stream;
+    pair_stream << "Testing invalid pair: 0x" << std::hex
+                << static_cast<int>(invalid_c1) << " 0x" << std::hex
+                << static_cast<int>(invalid_c2);
+    SCOPED_TRACE(pair_stream.str());
+    const std::string hex_pair{static_cast<char>(invalid_c1),
+                               static_cast<char>(invalid_c2)};
+    const Slice hex_slice(hex_pair);
+    std::string result = "sentinel";
+    bool success = hex_slice.DecodeHex(&result);
+    EXPECT_FALSE(success);
+    EXPECT_TRUE(result.empty());
+  }
+
+  // Test that a null result pointer returns false without crashing
+  {
+    Slice hex_slice("GG");  // Invalid hex pair
+    EXPECT_FALSE(hex_slice.DecodeHex(nullptr))
+        << "Expected DecodeHex to return false for null result pointer";
+  }
+
+  // Partial decode
+  {
+    Slice s("41GG");
+    std::string decoded;
+    ASSERT_FALSE(s.DecodeHex(&decoded));
+    ASSERT_EQ(decoded, "A");
+  }
+  {
+    Slice s("4142GG4546");
+    std::string decoded;
+    ASSERT_FALSE(s.DecodeHex(&decoded));
+    ASSERT_EQ(decoded, "AB");
+  }
+
+  // Test that an odd-length input returns false and leaves result unchanged
+  {
+    Slice odd_slice("A");  // Single character, odd length
+    std::string result = "sentinel";
+    EXPECT_FALSE(odd_slice.DecodeHex(&result))
+        << "Expected DecodeHex to fail for odd-length input";
+    // Odd-length check returns early before clearing, so result is unchanged
+    EXPECT_EQ(result, "sentinel")
+        << "Expected result to be unchanged for odd-length input";
+  }
+
+  // Test that an empty input succeeds and returns an empty string
+  {
+    Slice empty_slice("");
+    std::string result = "sentinel";
+    EXPECT_TRUE(empty_slice.DecodeHex(&result))
+        << "Expected DecodeHex to succeed for empty input";
+    EXPECT_TRUE(result.empty()) << "Expected empty result for empty input";
   }
 }
 
