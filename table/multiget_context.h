@@ -11,6 +11,7 @@
 #include "db/dbformat.h"
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
+#include "db/read_callback.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -36,10 +37,14 @@ struct KeyContext {
   SequenceNumber max_covering_tombstone_seq;
   bool key_exists;
   bool is_blob_index;
+  bool newer_version_present;
   void* cb_arg;
   PinnableSlice* value;
   PinnableWideColumns* columns;
   std::string* timestamp;
+  // Read-path metadata bundle; nullptr when not tracking newer versions.
+  // Storage owned by the caller (e.g., a per-batch array in MultiGetCommon).
+  const MetadataReadCtx* metadata_ctx;
   GetContext* get_context;
 
   KeyContext(ColumnFamilyHandle* col_family, const Slice& user_key,
@@ -52,10 +57,12 @@ struct KeyContext {
         max_covering_tombstone_seq(0),
         key_exists(false),
         is_blob_index(false),
+        newer_version_present(false),
         cb_arg(nullptr),
         value(val),
         columns(cols),
         timestamp(ts),
+        metadata_ctx(nullptr),
         get_context(nullptr) {}
 };
 
@@ -145,6 +152,9 @@ class MultiGetContext {
       sorted_keys_[iter]->timestamp = (*sorted_keys)[begin + iter]->timestamp;
       sorted_keys_[iter]->get_context =
           (*sorted_keys)[begin + iter]->get_context;
+      if (sorted_keys_[iter]->metadata_ctx != nullptr) {
+        has_metadata_read_ctx_ = true;
+      }
     }
   }
 
@@ -169,6 +179,7 @@ class MultiGetContext {
                                                     MAX_LOOKUP_KEYS_ON_STACK];
   std::array<KeyContext*, MAX_BATCH_SIZE> sorted_keys_;
   size_t num_keys_;
+  bool has_metadata_read_ctx_ = false;
   Mask value_mask_;
   uint64_t value_size_;
   std::unique_ptr<char[]> lookup_key_heap_buf;
@@ -180,6 +191,8 @@ class MultiGetContext {
 #endif  // USE_COROUTINES
 
  public:
+  bool HasMetadataReadCtx() const { return has_metadata_read_ctx_; }
+
   // MultiGetContext::Range - Specifies a range of keys, by start and end index,
   // from the parent MultiGetContext. Each range contains a bit vector that
   // indicates whether the corresponding keys need to be processed or skipped.

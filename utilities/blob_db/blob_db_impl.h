@@ -98,6 +98,12 @@ class BlobDBImpl : public BlobDB {
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, std::string* timestamp) override;
 
+  using BlobDB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& _read_options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override;
+
   Status Get(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, uint64_t* expiration) override;
@@ -118,6 +124,14 @@ class BlobDBImpl : public BlobDB {
                 ColumnFamilyHandle** column_families, const Slice* keys,
                 PinnableSlice* values, std::string* timestamps,
                 Status* statuses, const bool sorted_input) override;
+
+  using BlobDB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& _read_options, size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input) override;
 
   using BlobDB::Write;
   Status Write(const WriteOptions& opts, WriteBatch* updates) override;
@@ -210,7 +224,14 @@ class BlobDBImpl : public BlobDB {
 
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
-                 PinnableSlice* value, uint64_t* expiration = nullptr);
+                 PinnableSlice* value, uint64_t* expiration = nullptr,
+                 bool* newer_version_present = nullptr);
+
+  void MultiGetImpl(const ReadOptions& read_options, size_t num_keys,
+                    ColumnFamilyHandle* const* column_families,
+                    const Slice* keys, PinnableSlice* values,
+                    std::string* timestamps, Status* statuses,
+                    std::vector<bool>* newer_version_present = nullptr);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
                       PinnableSlice* value, uint64_t* expiration = nullptr);

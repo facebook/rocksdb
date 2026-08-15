@@ -66,6 +66,12 @@ class DBWithTTLImpl : public DBWithTTLImplBase {
                                   const Slice& key, PinnableSlice* value,
                                   std::string* timestamp);
 
+  using StackableDB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override;
+
   using StackableDB::MultiGet;
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet, const ReadOptions& options,
                                   const size_t num_keys,
@@ -73,6 +79,14 @@ class DBWithTTLImpl : public DBWithTTLImplBase {
                                   const Slice* keys, PinnableSlice* values,
                                   std::string* timestamps, Status* statuses,
                                   const bool sorted_input);
+
+  using StackableDB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input) override;
 
   using StackableDB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& options,
@@ -115,6 +129,14 @@ class DBWithTTLImpl : public DBWithTTLImplBase {
   Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) override;
 
  private:
+  void MultiGetInternal(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle* const* column_families,
+                        const Slice* keys, PinnableSlice* values,
+                        std::string* timestamps, Status* statuses,
+                        MultiGetOutputMetadata* output_metadata,
+                        std::vector<bool>* newer_version_present,
+                        const bool sorted_input);
+
   // remember whether the Close completes or not
   bool closed_;
 };

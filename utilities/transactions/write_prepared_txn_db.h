@@ -100,6 +100,12 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
                                   std::string* timestamp);
   using DB::GetAsync;
 
+  using DB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override;
+
   using DB::MultiGet;
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
                                   const ReadOptions& _read_options,
@@ -109,6 +115,14 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
                                   std::string* timestamps, Status* statuses,
                                   const bool sorted_input);
   using DB::MultiGetAsync;
+
+  using DB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input) override;
 
   using DB::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,

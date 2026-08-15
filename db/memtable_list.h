@@ -77,7 +77,8 @@ class MemTableListVersion {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr,
-           const BlobFetcher* blob_fetcher = nullptr);
+           const BlobFetcher* blob_fetcher = nullptr,
+           const MetadataReadCtx* metadata_ctx = nullptr);
 
   bool Get(const LookupKey& key, std::string* value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
@@ -85,11 +86,12 @@ class MemTableListVersion {
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr,
-           const BlobFetcher* blob_fetcher = nullptr) {
+           const BlobFetcher* blob_fetcher = nullptr,
+           const MetadataReadCtx* metadata_ctx = nullptr) {
     SequenceNumber seq;
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, callback,
-               is_blob_index, blob_fetcher);
+               is_blob_index, blob_fetcher, metadata_ctx);
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
@@ -216,7 +218,8 @@ class MemTableListVersion {
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    ReadCallback* callback = nullptr,
                    bool* is_blob_index = nullptr,
-                   const BlobFetcher* blob_fetcher = nullptr);
+                   const BlobFetcher* blob_fetcher = nullptr,
+                   const MetadataReadCtx* metadata_ctx = nullptr);
 
   void AddMemTable(ReadOnlyMemTable* m);
 

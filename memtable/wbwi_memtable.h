@@ -134,8 +134,8 @@ class WBWIMemTable final : public ReadOnlyMemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true,
-           const BlobFetcher* blob_fetcher = nullptr) override;
+           bool do_merge = true, const BlobFetcher* blob_fetcher = nullptr,
+           const MetadataReadCtx* metadata_ctx = nullptr) override;
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool immutable_memtable,

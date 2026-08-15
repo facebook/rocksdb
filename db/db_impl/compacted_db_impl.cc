@@ -34,6 +34,69 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
       files_.files);
 }
 
+Status CompactedDBImpl::GetWithMetadata(const ReadOptions& options,
+                                        ColumnFamilyHandle* column_family,
+                                        const Slice& key, PinnableSlice* value,
+                                        OutputMetadata* output_metadata) {
+  std::string* timestamp =
+      output_metadata != nullptr && output_metadata->timestamp.has_value()
+          ? &*output_metadata->timestamp
+          : nullptr;
+  bool* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  return Get(options, column_family, key, value, timestamp);
+}
+
+void CompactedDBImpl::MultiGetWithMetadata(
+    const ReadOptions& options, size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  std::vector<std::string>* timestamps =
+      output_metadata != nullptr && output_metadata->timestamps.has_value()
+          ? &*output_metadata->timestamps
+          : nullptr;
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<bool>* newer_version_present =
+      output_metadata != nullptr &&
+              output_metadata->newer_version_present.has_value()
+          ? &*output_metadata->newer_version_present
+          : nullptr;
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = nullptr;
+  if (num_keys <= MultiGetContext::MAX_BATCH_SIZE) {
+    stack_column_families.resize(num_keys);
+    mutable_column_families =
+        num_keys == 0 ? nullptr : &stack_column_families[0];
+  } else {
+    heap_column_families.resize(num_keys);
+    mutable_column_families = heap_column_families.data();
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    mutable_column_families[i] = column_families[i];
+  }
+  MultiGet(options, num_keys, mutable_column_families, keys, values,
+           timestamps != nullptr ? timestamps->data() : nullptr, statuses,
+           sorted_input);
+}
+
 Status CompactedDBImpl::Init(const Options& options) {
   SuperVersionContext sv_context(/* create_superversion */ true);
   mutex_.Lock();

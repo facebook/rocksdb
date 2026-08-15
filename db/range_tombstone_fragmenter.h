@@ -17,6 +17,10 @@
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class ReadCallback;
+struct MetadataReadCtx;
+
 struct FragmentedRangeTombstoneList {
  public:
   // A compact representation of a "stack" of range tombstone fragments, which
@@ -235,6 +239,13 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   // the given user key.
   // If there is no covering tombstone, then 0 is returned.
   SequenceNumber MaxCoveringTombstoneSeqnum(const Slice& user_key);
+
+  // Return the max sequence number of a covering range tombstone that should
+  // be reported as newer-version metadata. If there is no such tombstone, then
+  // 0 is returned.
+  SequenceNumber MaxCoveringTombstoneSeqnum(const Slice& user_key,
+                                            const MetadataReadCtx& metadata_ctx,
+                                            ReadCallback* callback);
 
   // Splits the iterator into n+1 iterators (where n is the number of
   // snapshots), each providing a view over a "stripe" of sequence numbers. The

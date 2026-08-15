@@ -31,6 +31,12 @@ class CompactedDBImpl : public DBImpl {
                                   const Slice& key, PinnableSlice* value,
                                   std::string* timestamp);
 
+  using DB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override;
+
   using DB::MultiGet;
   // Note that CompactedDBImpl::MultiGet is not the optimized version of
   // MultiGet to use.
@@ -41,6 +47,14 @@ class CompactedDBImpl : public DBImpl {
                                   const Slice* keys, PinnableSlice* values,
                                   std::string* timestamps, Status* statuses,
                                   const bool sorted_input);
+
+  using DB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input) override;
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,

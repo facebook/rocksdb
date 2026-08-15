@@ -290,6 +290,12 @@ class DBImpl : public DB
                                   const Slice& key, PinnableSlice* value,
                                   std::string* timestamp);
 
+  using DB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& _read_options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override;
+
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
@@ -331,6 +337,15 @@ class DBImpl : public DB
                                   const Slice* keys, PinnableSlice* values,
                                   std::string* timestamps, Status* statuses,
                                   const bool sorted_input = false);
+
+  using DB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& _read_options,
+                            const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false) override;
 
   void MultiGetWithCallback(
       const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
@@ -765,6 +780,7 @@ class DBImpl : public DB
     PinnableSlice* value = nullptr;
     PinnableWideColumns* columns = nullptr;
     std::string* timestamp = nullptr;
+    bool* newer_version_present = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
     bool* is_blob_index = nullptr;
@@ -804,6 +820,11 @@ class DBImpl : public DB
   DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          PinnableSlice* value, std::string* timestamp);
+
+  Status GetImpl(const ReadOptions& read_options,
+                 ColumnFamilyHandle* column_family, const Slice& key,
+                 PinnableSlice* value, std::string* timestamp,
+                 bool* newer_version_present);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
@@ -3085,14 +3106,17 @@ class DBImpl : public DB
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       PinnableWideColumns* columns, std::string* timestamps,
-                      Status* statuses, bool sorted_input);
+                      Status* statuses, bool* newer_version_present,
+                      bool sorted_input);
 
   DECLARE_SYNC_AND_ASYNC(void, MultiGetCommon, const ReadOptions& options,
                          const size_t num_keys,
                          ColumnFamilyHandle** column_families,
                          const Slice* keys, PinnableSlice* values,
                          PinnableWideColumns* columns, std::string* timestamps,
-                         Status* statuses, bool sorted_input);
+                         Status* statuses,
+                         std::vector<bool>* newer_version_present,
+                         bool sorted_input);
 
   // A structure to hold the information required to process MultiGet of keys
   // belonging to one column family. For a multi column family MultiGet, there
@@ -3176,7 +3200,8 @@ class DBImpl : public DB
   void MultiGetWithCallbackImpl(
       const ReadOptions& read_options, ColumnFamilyHandle* column_family,
       ReadCallback* callback,
-      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
+      bool newer_version_present_requested = false);
 
   Status DisableFileDeletionsWithLock();
 
@@ -3778,6 +3803,11 @@ class GetWithTimestampReadCallback : public ReadCallback {
       : ReadCallback(seq) {}
   bool IsVisibleFullCheck(SequenceNumber seq) override {
     return seq <= max_visible_seq_;
+  }
+  bool IsNewerVisibleForMetadataRead(SequenceNumber seq,
+                                     SequenceNumber snapshot,
+                                     SequenceNumber max_visible_seq) override {
+    return snapshot < seq && seq <= max_visible_seq;
   }
 };
 

@@ -28,7 +28,13 @@ class DBImplReadOnly : public DBImpl {
                                   const Slice& key,
                                   GetImplOptions& get_impl_options);
 
-  // TODO: Implement ReadOnly MultiGet?
+  using DBImpl::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false) override;
 
   using DBImpl::NewIterator;
   Iterator* NewIterator(const ReadOptions& _read_options,

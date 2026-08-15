@@ -69,6 +69,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 
   assert(get_impl_options.column_family);
 
+  if (get_impl_options.newer_version_present != nullptr &&
+      read_options.snapshot != nullptr &&
+      get_impl_options.callback != nullptr) {
+    CO_RETURN Status::NotSupported(
+        "Newer-version metadata is not supported with a read callback");
+  }
+
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
                                         *(read_options.timestamp));
@@ -173,6 +180,22 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       snapshot = get_impl_options.callback->max_visible_seq();
     }
   }
+  SequenceNumber lookup_snapshot = snapshot;
+  const bool newer_version_present_requested =
+      get_impl_options.newer_version_present != nullptr &&
+      read_options.snapshot != nullptr;
+  const SequenceNumber newer_version_upper_bound_seq =
+      newer_version_present_requested ? GetLastPublishedSequence() : snapshot;
+  const bool track_newer_versions = newer_version_present_requested &&
+                                    snapshot < newer_version_upper_bound_seq;
+  std::optional<MetadataReadCtx> metadata_ctx_storage;
+  const MetadataReadCtx* metadata_ctx = nullptr;
+  if (track_newer_versions) {
+    lookup_snapshot = newer_version_upper_bound_seq;
+    metadata_ctx_storage.emplace(snapshot, newer_version_upper_bound_seq,
+                                 *get_impl_options.newer_version_present);
+    metadata_ctx = &*metadata_ctx_storage;
+  }
   // If timestamp is used, we use read callback to ensure <key,t,s> is returned
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
@@ -182,6 +205,9 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   if (ucmp->timestamp_size() > 0) {
     assert(!get_impl_options
                 .callback);  // timestamp with callback is not supported
+    read_cb.Refresh(snapshot);
+    get_impl_options.callback = &read_cb;
+  } else if (track_newer_versions && get_impl_options.callback == nullptr) {
     read_cb.Refresh(snapshot);
     get_impl_options.callback = &read_cb;
   }
@@ -198,7 +224,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  LookupKey lkey(key, snapshot, read_options.timestamp);
+  LookupKey lkey(key, lookup_snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
@@ -230,15 +256,15 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(lkey,
-                       get_impl_options.value
-                           ? get_impl_options.value->GetSelf()
-                           : nullptr,
-                       get_impl_options.columns, timestamp, &s, &merge_context,
-                       &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */,
-                       get_impl_options.callback, is_blob_ptr,
-                       /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
+      if (sv->mem->Get(
+              lkey,
+              get_impl_options.value ? get_impl_options.value->GetSelf()
+                                     : nullptr,
+              get_impl_options.columns, timestamp, &s, &merge_context,
+              &max_covering_tombstone_seq, read_options,
+              false /* immutable_memtable */, get_impl_options.callback,
+              is_blob_ptr,
+              /*do_merge=*/true, memtable_blob_fetcher_ptr, metadata_ctx)) {
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
@@ -248,14 +274,14 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
-                              get_impl_options.columns, timestamp, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, get_impl_options.callback,
-                              is_blob_ptr, memtable_blob_fetcher_ptr)) {
+                 sv->imm->Get(
+                     lkey,
+                     get_impl_options.value ? get_impl_options.value->GetSelf()
+                                            : nullptr,
+                     get_impl_options.columns, timestamp, &s, &merge_context,
+                     &max_covering_tombstone_seq, read_options,
+                     get_impl_options.callback, is_blob_ptr,
+                     memtable_blob_fetcher_ptr, metadata_ctx)) {
         done = true;
         PostprocessDirectWriteValueRead(
             read_options, key, timestamp, resolve_direct_write_value,
@@ -302,7 +328,7 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value,
-        get_impl_options.lazy_columns_same_file_reader);
+        get_impl_options.lazy_columns_same_file_reader, metadata_ctx);
     if (get_impl_options.get_value && resolve_direct_write_value) {
       assert(memtable_blob_fetcher_ptr != nullptr);
       std::string blob_lookup_key_storage;
@@ -635,7 +661,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
 (const ReadOptions& read_options, const size_t num_keys,
  ColumnFamilyHandle** column_families, const Slice* keys, PinnableSlice* values,
  PinnableWideColumns* columns, std::string* timestamps, Status* statuses,
- const bool sorted_input) {
+ std::vector<bool>* newer_version_present, const bool sorted_input) {
   if (num_keys == 0) {
     CO_RETURN;
   }
@@ -754,7 +780,30 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
-  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+  SequenceNumber lookup_seqnum = consistent_seqnum;
+  const bool newer_version_present_requested =
+      newer_version_present != nullptr && read_options.snapshot != nullptr;
+  const SequenceNumber newer_version_upper_bound_seq =
+      newer_version_present_requested ? GetLastPublishedSequence()
+                                      : consistent_seqnum;
+  const bool track_newer_versions =
+      newer_version_present_requested &&
+      consistent_seqnum < newer_version_upper_bound_seq;
+  autovector<std::optional<MetadataReadCtx>, MultiGetContext::MAX_BATCH_SIZE>
+      metadata_ctxs;
+  if (track_newer_versions) {
+    lookup_seqnum = newer_version_upper_bound_seq;
+    metadata_ctxs.resize(key_context.size());
+    size_t i = 0;
+    for (auto& key_ctx : key_context) {
+      metadata_ctxs[i].emplace(consistent_seqnum, newer_version_upper_bound_seq,
+                               key_ctx.newer_version_present);
+      key_ctx.metadata_ctx = &*metadata_ctxs[i];
+      ++i;
+    }
+  }
+  if ((read_options.timestamp && read_options.timestamp->size() > 0) ||
+      track_newer_versions) {
     timestamp_read_callback.Refresh(consistent_seqnum);
     read_callback = &timestamp_read_callback;
   }
@@ -766,8 +815,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
          cf_sv_pair_iter != cf_sv_pairs.end()) {
     s = CO_AWAIT(MultiGetImpl, read_options, key_range_per_cf_iter->start,
                  key_range_per_cf_iter->num_keys, &sorted_keys,
-                 cf_sv_pair_iter->super_version, consistent_seqnum,
-                 read_callback);
+                 cf_sv_pair_iter->super_version, lookup_seqnum, read_callback);
     if (!s.ok()) {
       break;
     }
@@ -795,6 +843,7 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGetCommon)
       CleanupSuperVersion(cf_sv_pair.super_version);
     }
   }
+  CopyNewerVersionPresent(key_context, newer_version_present);
 }
 
 DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
@@ -823,7 +872,8 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
   }
   CO_AWAIT(MultiGetCommon, read_options, num_keys, column_families, keys,
            values,
-           /* columns */ nullptr, timestamps, statuses, sorted_input);
+           /* columns */ nullptr, timestamps, statuses,
+           /* newer_version_present */ nullptr, sorted_input);
   CO_RETURN;
 }
 

@@ -545,6 +545,33 @@ class WritePreparedTransactionTest
             std::get<4>(GetParam()), std::get<5>(GetParam())) {}
 };
 
+TEST_P(WritePreparedTransactionTest, SnapshotNewerVersionMetadataNotSupported) {
+  // Write-prepared DB-level snapshot reads require a custom visibility
+  // callback, so they must reject metadata tracking instead of forwarding past
+  // the transaction visibility layer.
+  assert(db);
+  ASSERT_OK(db->Put(WriteOptions(), "key", "value"));
+  const Snapshot* snapshot = db->GetSnapshot();
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+
+  OutputMetadata output_metadata;
+  output_metadata.WantNewerVersionPresent();
+  std::string value;
+  ASSERT_TRUE(db->GetWithMetadata(read_options, "key", &value, &output_metadata)
+                  .IsNotSupported());
+
+  MultiGetOutputMetadata multiget_output_metadata;
+  multiget_output_metadata.WantNewerVersionPresent();
+  std::vector<Slice> keys{"key"};
+  std::vector<std::string> values;
+  const std::vector<Status> statuses = db->MultiGetWithMetadata(
+      read_options, keys, &values, &multiget_output_metadata);
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+
+  db->ReleaseSnapshot(snapshot);
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,

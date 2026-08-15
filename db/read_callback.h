@@ -10,6 +10,40 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class ReadCallback;
+
+struct MetadataReadBounds {
+  // The snapshot-visible sequence and the upper bound sampled for this read.
+  // Lookups scan through the upper bound but return data only through the
+  // snapshot sequence.
+  SequenceNumber read_snapshot_seq;
+  SequenceNumber newer_version_upper_bound_seq;
+
+  bool IsNewerVersion(SequenceNumber seq, ReadCallback* callback) const;
+};
+
+// Single-key metadata state. MultiGet keeps each result directly in KeyContext
+// and binds it to a per-key MetadataReadCtx while tracking is active.
+struct MetadataReadCtx : MetadataReadBounds {
+  MetadataReadCtx(SequenceNumber snapshot_seq, SequenceNumber upper_bound_seq,
+                  bool& result)
+      : MetadataReadBounds{snapshot_seq, upper_bound_seq},
+        newer_version_present_(result) {}
+
+  bool HasNewerVersion() const { return newer_version_present_; }
+
+  void MarkNewerVersionPresent() const { newer_version_present_ = true; }
+
+  // LIFETIME: referenced output storage must outlive this context.
+  bool ShouldRecordNewerVersion(SequenceNumber seq,
+                                ReadCallback* callback) const {
+    return !newer_version_present_ && IsNewerVersion(seq, callback);
+  }
+
+ private:
+  bool& newer_version_present_;
+};
+
 class ReadCallback {
  public:
   explicit ReadCallback(SequenceNumber last_visible_seq)
@@ -38,6 +72,14 @@ class ReadCallback {
     }
   }
 
+  virtual bool IsNewerVisibleForMetadataRead(
+      SequenceNumber /*seq*/, SequenceNumber /*read_snapshot_seq*/,
+      SequenceNumber /*newer_version_upper_bound_seq*/) {
+    // Metadata reads with custom visibility callbacks are unsupported. The
+    // timestamp callback overrides this method for regular DB reads.
+    return false;
+  }
+
   inline SequenceNumber max_visible_seq() { return max_visible_seq_; }
 
   inline SequenceNumber min_uncommitted() const { return min_uncommitted_; }
@@ -52,5 +94,17 @@ class ReadCallback {
   // Any seq less than min_uncommitted_ is committed.
   const SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 };
+
+inline bool MetadataReadBounds::IsNewerVersion(SequenceNumber seq,
+                                               ReadCallback* callback) const {
+  if (seq == 0) {
+    return false;
+  }
+  if (callback != nullptr) {
+    return callback->IsNewerVisibleForMetadataRead(
+        seq, read_snapshot_seq, newer_version_upper_bound_seq);
+  }
+  return read_snapshot_seq < seq && seq <= newer_version_upper_bound_seq;
+}
 
 }  // namespace ROCKSDB_NAMESPACE

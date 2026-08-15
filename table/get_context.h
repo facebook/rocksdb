@@ -202,6 +202,27 @@ class GetContext {
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
 
+  // Do we need to track point versions skipped by the read visibility
+  // callback?
+  bool NeedToTrackNewerVersions() const {
+    return metadata_ctx_ != nullptr && !metadata_ctx_->HasNewerVersion();
+  }
+
+  void SetMetadataReadCtx(const MetadataReadCtx* metadata_ctx) {
+    metadata_ctx_ = metadata_ctx;
+  }
+
+  const MetadataReadCtx* metadata_read_ctx() const { return metadata_ctx_; }
+
+  ReadCallback* read_callback() const { return callback_; }
+
+  void RecordNewerVersionIfNeeded(SequenceNumber seq);
+
+  void MarkNewerVersionPresent() {
+    assert(metadata_ctx_ != nullptr);
+    metadata_ctx_->MarkNewerVersionPresent();
+  }
+
   bool sample() const { return sample_; }
 
   bool CheckCallback(SequenceNumber seq) {
@@ -297,6 +318,8 @@ class GetContext {
   // caller can resolve same-file/embedded references on demand later. Only the
   // SST read path (Version::Get) sets this; memtable hits are unaffected.
   const SameFileBlobReader** lazy_columns_same_file_reader_;
+  // nullptr when newer-version metadata tracking is not requested.
+  const MetadataReadCtx* metadata_ctx_ = nullptr;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

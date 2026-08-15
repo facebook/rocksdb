@@ -20,6 +20,10 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
          get_impl_options.merge_operands != nullptr);
   assert(get_impl_options.column_family);
 
+  // This instance cannot observe writes after one of its snapshots, so the
+  // false result initialized by GetWithMetadata is definitive.
+  get_impl_options.newer_version_present = nullptr;
+
   Status s;
 
   if (read_options.timestamp) {

@@ -113,6 +113,15 @@ void GetContext::MarkKeyMayExist() {
   }
 }
 
+void GetContext::RecordNewerVersionIfNeeded(SequenceNumber seq) {
+  // Caller already filtered out the no-tracking case via
+  // NeedToTrackNewerVersions().
+  assert(metadata_ctx_ != nullptr);
+  if (metadata_ctx_->ShouldRecordNewerVersion(seq, callback_)) {
+    metadata_ctx_->MarkNewerVersionPresent();
+  }
+}
+
 Status GetContext::SaveWideColumnEntityToPinnable(
     const Slice& user_key, const Slice& entity, Cleanable* value_pinner,
     const SameFileBlobReader* same_file_reader) {
@@ -361,6 +370,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
          merge_context_ != nullptr);
   if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key, user_key_)) {
     *matched = true;
+    if (UNLIKELY(NeedToTrackNewerVersions()) && IsValueType(parsed_key.type)) {
+      RecordNewerVersionIfNeeded(parsed_key.sequence);
+    }
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
       return true;  // to continue to the next seq
