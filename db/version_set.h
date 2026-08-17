@@ -1845,16 +1845,24 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
-  // File offset at the end of the last successfully completed logical
-  // record during MANIFEST recovery. Unlike manifest_file_size_ (the
-  // reader's I/O high-water mark, which includes any tolerated tail
-  // garbage), this value points to the byte after the last valid record.
-  // Used by ReopenManifestForAppend to detect intra-block tail
-  // corruption that doesn't extend the physical file size.
+  // File offset at the end of the last successfully completed logical unit
+  // during MANIFEST recovery. For atomic groups, this advances only after the
+  // whole group is buffered and applied. Unlike manifest_file_size_ (the
+  // reader's I/O high-water mark, which includes any tolerated tail garbage),
+  // this value points to the byte after the last valid record.
+  // Used by ReopenManifestForAppend to detect intra-block tail corruption that
+  // doesn't extend the physical file size, as well as partial atomic groups at
+  // EOF.
   // manifest_file_size_ is kept separate because it is used for
   // rotation decisions (ProcessManifestWrites), close-time verification
   // (Close), and backup metadata.
   uint64_t manifest_last_valid_record_end_;
+
+  // True when reuse_manifest_on_open was requested but the recovered MANIFEST
+  // could not be safely reopened for append. DB open must install a fresh
+  // MANIFEST before returning so other MANIFEST append paths never see the old
+  // tail.
+  bool force_new_manifest_on_open_;
 
   // Size of the populated manifest file last time it was re-written from
   // scratch.

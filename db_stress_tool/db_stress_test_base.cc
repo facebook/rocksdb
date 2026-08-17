@@ -5704,15 +5704,18 @@ void StressTest::RecordManifestStateBeforeReopen() {
     return;
   }
 
+  if (FLAGS_metadata_write_fault_one_in != 0 ||
+      FLAGS_open_metadata_write_fault_one_in != 0) {
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
   if (reuse_manifest && optimize_manifest) {
     // Check if ALL conditions for complete avoidance are met.
     // If so, use STRICT mode where failures are fatal.
-    const bool no_fault_injection = FLAGS_metadata_write_fault_one_in == 0 &&
-                                    FLAGS_open_metadata_write_fault_one_in == 0;
     const bool no_manifest_writes_expected =
         FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
-        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
-        no_fault_injection;
+        !FLAGS_write_dbid_to_manifest;        // No DB_ID write on open
     // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
     // If avoid_flush_during_shutdown=true leaves data in WAL, but
     // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST
