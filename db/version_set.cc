@@ -8184,6 +8184,12 @@ Status ReactiveVersionSet::ReadAndApply(
   return s;
 }
 
+uint64_t ReactiveVersionSet::GetInstalledVersionLogNumber(
+    uint32_t cf_id) const {
+  assert(manifest_tailer_ != nullptr);
+  return manifest_tailer_->GetInstalledVersionLogNumber(cf_id);
+}
+
 Status ReactiveVersionSet::MaybeSwitchManifest(
     log::Reader::Reporter* reporter,
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader) {

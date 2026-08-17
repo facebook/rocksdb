@@ -1949,6 +1949,22 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
+
+  // Returns the column family's log number as of the Version currently
+  // installed for it, i.e. the log number that the MANIFEST records that
+  // Version was built from had put in effect. Data written to WALs older than
+  // the returned number has been flushed by the primary into files the
+  // installed Version references, so it is readable without those WALs.
+  //
+  // This is not the same as ColumnFamilyData::GetLogNumber(), which advances as
+  // soon as a flush record is read from the MANIFEST even when no Version
+  // reflecting that record could be installed.
+  //
+  // Returns 0 if no Version has been installed for `cf_id`.
+  //
+  // REQUIRES: db mutex
+  uint64_t GetInstalledVersionLogNumber(uint32_t cf_id) const;
+
 #ifndef NDEBUG
   uint64_t TEST_read_edits_in_atomic_group() const;
 #endif  //! NDEBUG
