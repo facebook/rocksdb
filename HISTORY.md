@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 11.9.0 (08/12/2026)
+## 11.9.0 (08/14/2026)
 ### New Features
 * Added an integrated and improved compression auto-skip feature (new CompressionOptions, still experimental) that saves CPU by skipping compression when and where the overall ratio is inadequate. This improves on the previous auto-skip compression manager by (a) taking achieved compression ratios into account, (b) using a continuously evolving payoff estimate, and (c) combining natively with parallel compression.
 * Added the `blob_file_writable_file_max_buffer_size` mutable column family option. When set to a non-zero value, blob-file writers use it as their `WritableFileWriter` max buffer size instead of inheriting `DBOptions::writable_file_max_buffer_size`.
@@ -26,7 +26,6 @@
 
 ### Performance Improvements
 * When `DBOptions::avoid_unnecessary_blocking_io` is true, obsolete `OPTIONS-*` files found during DB open are deleted by background purge instead of synchronously on the opening thread.
-
 
 ## 11.8.0 (07/28/2026)
 ### Public API Changes
