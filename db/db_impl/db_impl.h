@@ -1318,6 +1318,8 @@ class DBImpl : public DB
   // Get the background error status
   Status TEST_GetBGError();
 
+  void TEST_SetBGError(const IOStatus& error, BackgroundErrorReason reason);
+
   bool TEST_IsRecoveryInProgress();
 
   Status TEST_ResumeImpl(DBRecoverContext context);
