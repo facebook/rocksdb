@@ -225,6 +225,12 @@ Status DBImpl::TEST_GetBGError() {
   return error_handler_.GetBGError();
 }
 
+void DBImpl::TEST_SetBGError(const IOStatus& error,
+                             BackgroundErrorReason reason) {
+  InstrumentedMutexLock l(&mutex_);
+  error_handler_.SetBGError(error, reason);
+}
+
 bool DBImpl::TEST_IsRecoveryInProgress() {
   InstrumentedMutexLock l(&mutex_);
   return error_handler_.IsRecoveryInProgress();
