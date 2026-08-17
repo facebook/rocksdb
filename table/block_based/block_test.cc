@@ -1236,10 +1236,15 @@ TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
   std::unique_ptr<Block_kData> data_block;
   Options options = Options();
   uint8_t protection_bytes_per_key = 8;
-  BlockCreateContext create_context{
-      kTableOptions(),          nullptr,
-      nullptr /* statistics */, kDecompressor(),
-      protection_bytes_per_key, options.comparator};
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    protection_bytes_per_key,
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
   create_context.Create(&data_block, std::move(contents));
   std::unique_ptr<DataBlockIter> biter{data_block->NewDataIterator(
       options.comparator, kDisableGlobalSequenceNumber)};
@@ -1273,9 +1278,15 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
   // when the block is itself already corrupted.
   Options options = Options();
   uint8_t protection_bytes_per_key = 8;
-  BlockCreateContext create_context{
-      kTableOptions(), nullptr /* ioptions */,   nullptr /* statistics */,
-      kDecompressor(), protection_bytes_per_key, options.comparator};
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr /* ioptions */,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    protection_bytes_per_key,
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
 
   {
     std::string invalid_content = "1";
@@ -1329,7 +1340,10 @@ TEST_F(BlockPerKVChecksumTest, CorruptHashIndexNumBucketsNoOverRead) {
                                     nullptr /* statistics */,
                                     kDecompressor(),
                                     0 /* protection_bytes_per_key */,
-                                    options.comparator};
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
 
   // Body bytes followed by a 2-byte NUM_BUCKETS field, then the encoded footer
   // (values_section_offset + packed). Layout mirrors what DecodeFrom expects.
@@ -1425,14 +1439,18 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
       kDecompressor(),
       protection_bytes_per_key,
       options.comparator,
-      true /* index_value_is_full */};
+      true /* index_value_is_full */,
+      /*index_has_first_key=*/false,
+      /*index_value_delta_escape=*/false};
   BlockCreateContext create_context{kTableOptions(),
                                     nullptr /* ioptions */,
                                     nullptr /* statistics */,
                                     kDecompressor(),
                                     0,
                                     options.comparator,
-                                    true /* index_value_is_full */};
+                                    true /* index_value_is_full */,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
 
   {
     std::unique_ptr<Block_kData> data_block;
@@ -1520,9 +1538,15 @@ class DataBlockKVChecksumTest
   std::unique_ptr<Block_kData> GenerateDataBlock(
       std::vector<std::string>& keys, std::vector<std::string>& values,
       int num_record) {
-    BlockCreateContext create_context{
-        kTableOptions(), nullptr /* statistics */, nullptr /* ioptions */,
-        kDecompressor(), GetChecksumLen(),         Options().comparator};
+    BlockCreateContext create_context{kTableOptions(),
+                                      nullptr /* statistics */,
+                                      nullptr /* ioptions */,
+                                      kDecompressor(),
+                                      GetChecksumLen(),
+                                      Options().comparator,
+                                      /*index_value_is_full=*/false,
+                                      /*index_has_first_key=*/false,
+                                      /*index_value_delta_escape=*/false};
     builder_ = std::make_unique<BlockBuilder>(
         static_cast<int>(GetRestartInterval()),
         GetUseDeltaEncoding() /* use_delta_encoding */,
@@ -1652,7 +1676,8 @@ class IndexBlockKVChecksumTest
         protection_bytes_per_key,
         options.comparator,
         !UseValueDeltaEncoding() /* value_is_full */,
-        IncludeFirstKey()};
+        IncludeFirstKey(),
+        /*index_value_delta_escape=*/false};
     builder_ = std::make_unique<BlockBuilder>(
         static_cast<int>(GetRestartInterval()), true /* use_delta_encoding */,
         UseValueDeltaEncoding() /* use_value_delta_encoding */,
@@ -1786,9 +1811,15 @@ class MetaIndexBlockKVChecksumTest
       int num_record) {
     Options options = Options();
     uint8_t protection_bytes_per_key = GetChecksumLen();
-    BlockCreateContext create_context{
-        kTableOptions(), nullptr /* ioptions */,   nullptr /* statistics */,
-        kDecompressor(), protection_bytes_per_key, options.comparator};
+    BlockCreateContext create_context{kTableOptions(),
+                                      nullptr /* ioptions */,
+                                      nullptr /* statistics */,
+                                      kDecompressor(),
+                                      protection_bytes_per_key,
+                                      options.comparator,
+                                      /*index_value_is_full=*/false,
+                                      /*index_has_first_key=*/false,
+                                      /*index_value_delta_escape=*/false};
     builder_ =
         std::make_unique<BlockBuilder>(static_cast<int>(GetRestartInterval()));
     // add a bunch of records to a block
@@ -1817,9 +1848,15 @@ INSTANTIATE_TEST_CASE_P(P, MetaIndexBlockKVChecksumTest,
 TEST_P(MetaIndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
   Options options = Options();
   uint8_t protection_bytes_per_key = GetChecksumLen();
-  BlockCreateContext create_context{
-      kTableOptions(), nullptr /* ioptions */,   nullptr /* statistics */,
-      kDecompressor(), protection_bytes_per_key, options.comparator};
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr /* ioptions */,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    protection_bytes_per_key,
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
   std::vector<int> num_restart_intervals = {1, 16};
   for (const auto num_restart_interval : num_restart_intervals) {
     const int kNumRecords = num_restart_interval * GetRestartInterval();

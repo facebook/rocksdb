@@ -1012,7 +1012,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   bool value_delta_encoded_;
   // format_version >= 8 value-delta codec (reserves an in-value escape). Only
   // consulted when value_delta_encoded_ and the entry is a non-restart entry.
-  bool value_delta_escape_ = false;
+  bool value_delta_escape_;
   bool have_first_key_;  // value includes first_internal_key
   BlockPrefixIndex* prefix_index_;
   // Whether the value is delta encoded. In that case the value is assumed to be

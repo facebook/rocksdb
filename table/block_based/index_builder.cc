@@ -332,8 +332,9 @@ Status PartitionedIndexBuilder::Finish(
     std::string handle_delta_encoding;
     // NOTE: must go through IndexValue::EncodeTo, whose encoding depends on
     // format_version; readers decode this block with IndexValue::DecodeFrom.
-    // Nothing to delta against for the first entry, whose value BlockBuilder
-    // writes in full anyway.
+    // Nothing to delta against for the first entry; it is a restart point
+    // (shared == 0), so BlockBuilder writes its value in full and never
+    // consults this (empty) delta.
     if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
       IndexValue(last_partition_block_handle, Slice())
           .EncodeTo(&handle_delta_encoding, /*have_first_key=*/false,

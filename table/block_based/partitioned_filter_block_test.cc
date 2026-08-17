@@ -30,7 +30,10 @@ class MockedBlockBasedTable : public BlockBasedTable {
     rep->index_key_includes_seq = pib->separator_is_key_plus_seq();
     rep->index_value_is_full = !pib->get_use_value_delta_encoding();
     // Open decodes the footer from the file; there is no file here, and an
-    // un-decoded Footer reports kInvalidFormatVersion.
+    // un-decoded Footer reports kInvalidFormatVersion. Match the format_version
+    // the test's builders encode the index and filter-partition-index blocks
+    // with, so reader-side codec selection (e.g. index_value_delta_escape())
+    // stays consistent with how they were written, at any format_version.
     rep->footer.TEST_SetFormatVersion(rep->table_options.format_version);
   }
 };

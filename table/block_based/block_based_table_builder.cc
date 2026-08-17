@@ -1388,15 +1388,17 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         warm_cache_config(WarmCacheConfig::Compute(
             table_options.prepopulate_block_cache, reason)),
-        create_context(&table_options, &ioptions, ioptions.stats,
-                       /*decompressor=*/nullptr,
-                       tbo.moptions.block_protection_bytes_per_key,
-                       tbo.internal_comparator.user_comparator(),
-                       !use_delta_encoding_for_index_values,
-                       table_opt.index_type ==
-                           BlockBasedTableOptions::kBinarySearchWithFirstKey,
-                       table_options.block_restart_interval,
-                       table_options.index_block_restart_interval),
+        create_context(
+            &table_options, &ioptions, ioptions.stats,
+            /*decompressor=*/nullptr,
+            tbo.moptions.block_protection_bytes_per_key,
+            tbo.internal_comparator.user_comparator(),
+            !use_delta_encoding_for_index_values,
+            table_opt.index_type ==
+                BlockBasedTableOptions::kBinarySearchWithFirstKey,
+            FormatVersionUsesValueDeltaEscape(table_opt.format_version),
+            table_options.block_restart_interval,
+            table_options.index_block_restart_interval),
         tail_size(0),
         embedded_blob_options(
             tbo.embedded_blob_options
