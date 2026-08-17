@@ -7486,9 +7486,9 @@ class Benchmark {
                 "readrandomentitylazy does not support user timestamps\n");
         db_bench_exit(1);
       }
-      if (FLAGS_open_files != -1) {
+      if (open_options_.max_open_files != -1) {
         // The lazy API pins table readers via the immortal-table-cache mode.
-        fprintf(stderr, "readrandomentitylazy requires -open_files=-1\n");
+        fprintf(stderr, "readrandomentitylazy requires max_open_files == -1\n");
         db_bench_exit(1);
       }
     }
