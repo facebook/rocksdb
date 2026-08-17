@@ -1629,6 +1629,15 @@ class DBImpl : public DB
       edit_lists_[i].emplace_back(new VersionEdit(edit));
     }
 
+    bool HasVersionEdits() const {
+      for (const auto& edit_list : edit_lists_) {
+        if (!edit_list.empty()) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
     autovector<ColumnFamilyData*> cfds_;
     autovector<autovector<VersionEdit*>> edit_lists_;
@@ -1998,7 +2007,7 @@ class DBImpl : public DB
   // LogAndApplyForRecovery should be called only once during recovery and it
   // should be called when RocksDB writes to a first new MANIFEST since this
   // recovery.
-  Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
+  Status LogAndApplyForRecovery(RecoveryContext& recovery_ctx);
 
   // Schedule background work to open and validate SST files asynchronously.
   // Called when open_files_async is enabled.
