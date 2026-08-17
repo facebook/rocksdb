@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "db/blob/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 
@@ -30,28 +31,28 @@ class SameFileBlobReader {
  public:
   virtual ~SameFileBlobReader() = default;
 
-  // Resolves a same-file blob reference (one for which blob_index.IsSameFile()
-  // is true) into `value`, pinning the payload zero-copy (from the blob cache
-  // or an owned buffer). read_tier == kBlockCacheTier without a cached record
-  // yields Status::Incomplete; a bad record yields Status::Corruption.
+  // Resolves a same-file ("embedded") blob reference (one for which
+  // blob_index.IsSameFile() is true) into `value`, pinning the payload
+  // zero-copy (from the blob cache or an owned buffer).
+  //
+  // range_length == kWholeBlobLength resolves the whole value. Any other length
+  // resolves only the sub-range [range_offset, range_offset + range_length),
+  // reading just those bytes on a cache miss -- skipping whole-record checksum
+  // verification (a strict sub-range cannot cover it) and never populating the
+  // blob cache; valid only for an uncompressed record and a verify_policy other
+  // than kVerifyIfPresent, with range_offset + range_length <=
+  // blob_index.size().
+  //
+  // verify_policy controls whole-record checksum verification (see
+  // BlobVerifyPolicy); a whole read under kVerifyIfPresent verifies even when
+  // ReadOptions::verify_checksums is off. read_tier == kBlockCacheTier without
+  // a cached record yields Status::Incomplete; a bad record yields
+  // Status::Corruption.
   virtual Status GetSameFileBlob(const ReadOptions& read_options,
                                  const BlobIndex& blob_index,
+                                 uint64_t range_offset, size_t range_length,
+                                 BlobVerifyPolicy verify_policy,
                                  PinnableSlice* value) const = 0;
-
-  // Resolves a byte sub-range [range_offset, range_offset + range_length) of an
-  // *uncompressed* same-file blob reference into `value`, reading only those
-  // bytes on a cache miss (the embedded counterpart of a separate-file blob
-  // range read). Pins the payload zero-copy (a sliced cached record, or an
-  // owned sub-range buffer). Unlike GetSameFileBlob it skips whole-record
-  // checksum verification (a strict sub-range cannot cover it) and never
-  // populates the blob cache. The caller must ensure range_offset +
-  // range_length <= blob_index.size(). read_tier == kBlockCacheTier without a
-  // cached record yields Status::Incomplete.
-  virtual Status GetSameFileBlobRange(const ReadOptions& read_options,
-                                      const BlobIndex& blob_index,
-                                      uint64_t range_offset,
-                                      size_t range_length,
-                                      PinnableSlice* value) const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
