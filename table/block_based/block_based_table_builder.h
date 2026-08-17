@@ -154,14 +154,16 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type, bool* skip_delta_encoding = nullptr);
   // Directly write data to the file.
-  void WriteMaybeCompressedBlock(const Slice& block_contents, CompressionType,
-                                 BlockHandle* handle, BlockType block_type,
-                                 const Slice* uncompressed_block_data = nullptr,
-                                 bool* skip_delta_encoding = nullptr);
+  void WriteMaybeCompressedBlock(
+      const Slice& block_contents, CompressionType, BlockHandle* handle,
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr,
+      bool* skip_delta_encoding = nullptr,
+      const uint32_t* precomputed_checksum = nullptr);
   IOStatus WriteMaybeCompressedBlockImpl(
       const Slice& block_contents, CompressionType, BlockHandle* handle,
       BlockType block_type, const Slice* uncompressed_block_data = nullptr,
-      bool* skip_delta_encoding = nullptr);
+      bool* skip_delta_encoding = nullptr,
+      const uint32_t* precomputed_checksum = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -240,7 +242,8 @@ class BlockBasedTableBuilder : public TableBuilder {
                                 bool is_data_block,
                                 WorkingAreaPair& working_area,
                                 GrowableBuffer* compressed_output,
-                                CompressionType* result_compression_type);
+                                CompressionType* result_compression_type,
+                                uint32_t* result_checksum);
 
   // If configured, start worker threads for parallel compression
   void MaybeStartParallelCompression();
