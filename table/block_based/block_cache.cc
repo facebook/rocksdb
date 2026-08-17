@@ -24,7 +24,7 @@ void BlockCreateContext::Create(std::unique_ptr<Block_kIndex>* parsed_out,
                                      index_block_restart_interval));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
-      index_has_first_key);
+      index_has_first_key, index_value_delta_escape);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kFilterPartitionIndex>* parsed_out,
@@ -34,7 +34,7 @@ void BlockCreateContext::Create(
       index_block_restart_interval));
   parsed_out->get()->InitializeIndexBlockProtectionInfo(
       protection_bytes_per_key, raw_ucmp, index_value_is_full,
-      index_has_first_key);
+      index_has_first_key, index_value_delta_escape);
 }
 void BlockCreateContext::Create(
     std::unique_ptr<Block_kRangeDeletion>* parsed_out, BlockContents&& block) {

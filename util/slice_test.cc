@@ -18,6 +18,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/types.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -704,6 +705,133 @@ TEST(BitFieldsTest, BitFields) {
     acqrel.Store(MyState{}.With<Field4>(0U));
     ASSERT_TESTABLE_FAILURE(
         acqrel.Apply(Field4::MinusTransformPromiseNoUnderflow(1U)));
+  }
+}
+
+namespace {
+// Whether the fixed-prefix partitioner cuts a new file between `prev` and
+// `cur`.
+bool FixedPrefixShouldPartition(SstPartitionerFixedPrefix& partitioner,
+                                const Slice& prev, const Slice& cur) {
+  return partitioner.ShouldPartition(PartitionerRequest(
+             prev, cur, /*current_output_file_size=*/0)) == kRequired;
+}
+
+// Given the prefix returned by ShouldPartitionByPrefix for some start key,
+// decide whether the transition to `next` requests a partition, per the
+// documented prefix contract (only meaningful when the prefix has a value).
+bool PrefixImpliesPartition(const Slice& prefix, const Slice& next) {
+  if (next.size() < prefix.size()) {
+    return true;
+  }
+  return Slice(next.data(), prefix.size()).compare(prefix) != 0;
+}
+}  // namespace
+
+TEST(SstPartitionerFixedPrefixTest, ShouldPartition) {
+  struct Case {
+    size_t len;
+    std::string prev;
+    std::string cur;
+    bool partition;
+  };
+  const Case kCases[] = {
+      // len 0 never partitions
+      {0, "", "", false},
+      {0, "abc", "xyz", false},
+      // equal prefixes -> no partition (differences beyond the prefix ignored)
+      {4, "abcd", "abcd", false},
+      {4, "abcd1", "abcd2", false},
+      {3, "abcX", "abcY", false},
+      // differences within the prefix -> partition
+      {4, "abcd", "abce", true},
+      {4, "abc1zzz", "abc2zzz", true},
+      // short keys (shorter than len are used as-is)
+      {4, "ab", "ab", false},  // identical short keys
+      {4, "ab", "abc", true},  // short vs longer sharing leading bytes
+      {4, "abc", "ab", true},  // longer vs short
+      {4, "ab", "ac", true},   // short, differing
+      {4, "", "a", true},      // empty vs non-empty
+      {4, "", "", false},      // empty vs empty
+  };
+  for (const auto& c : kCases) {
+    SCOPED_TRACE("len=" + std::to_string(c.len) + " prev=" + c.prev +
+                 " cur=" + c.cur);
+    SstPartitionerFixedPrefix partitioner(c.len);
+    EXPECT_EQ(FixedPrefixShouldPartition(partitioner, c.prev, c.cur),
+              c.partition);
+    // The decision is symmetric in prev/cur for this partitioner.
+    EXPECT_EQ(FixedPrefixShouldPartition(partitioner, c.cur, c.prev),
+              c.partition);
+  }
+}
+
+TEST(SstPartitionerFixedPrefixTest, ShouldPartitionByPrefix) {
+  // len 0: present but empty prefix, meaning "no further partitions".
+  {
+    SstPartitionerFixedPrefix partitioner(0);
+    std::string key = "anything";
+    OptSlice r = partitioner.ShouldPartitionByPrefix(key);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->size(), 0u);
+  }
+  // key longer than len: the len-byte prefix, as a view into the key.
+  {
+    SstPartitionerFixedPrefix partitioner(3);
+    std::string key = "abcdef";
+    OptSlice r = partitioner.ShouldPartitionByPrefix(key);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(*r, Slice("abc"));
+    EXPECT_EQ(r->data(), key.data());  // does not copy
+  }
+  // key exactly len: the whole key.
+  {
+    SstPartitionerFixedPrefix partitioner(3);
+    std::string key = "abc";
+    OptSlice r = partitioner.ShouldPartitionByPrefix(key);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(*r, Slice("abc"));
+  }
+  // key shorter than len: no value (cannot be represented as a prefix).
+  {
+    SstPartitionerFixedPrefix partitioner(4);
+    EXPECT_FALSE(partitioner.ShouldPartitionByPrefix("ab").has_value());
+    EXPECT_FALSE(partitioner.ShouldPartitionByPrefix("").has_value());
+  }
+}
+
+// Whenever ShouldPartitionByPrefix returns a prefix, using that prefix to
+// decide partitioning must match calling ShouldPartition on every transition.
+TEST(SstPartitionerFixedPrefixTest, PrefixConsistentWithShouldPartition) {
+  const std::string kKeys[] = {"",     "a",      "ab",  "abc", "abcd", "abce",
+                               "abcz", "abcdef", "abd", "b",   "xyz",  "abcde"};
+  for (size_t len : {size_t{0}, size_t{1}, size_t{3}, size_t{4}, size_t{8}}) {
+    SstPartitionerFixedPrefix partitioner(len);
+    for (const std::string& start : kKeys) {
+      OptSlice prefix = partitioner.ShouldPartitionByPrefix(start);
+      if (!prefix.has_value()) {
+        // Contract allows deferring to ShouldPartition; nothing to cross-check.
+        continue;
+      }
+      for (const std::string& next : kKeys) {
+        SCOPED_TRACE("len=" + std::to_string(len) + " start=" + start +
+                     " next=" + next);
+        EXPECT_EQ(PrefixImpliesPartition(*prefix, next),
+                  FixedPrefixShouldPartition(partitioner, start, next));
+      }
+    }
+  }
+}
+
+TEST(SstPartitionerFixedPrefixTest, CanDoTrivialMove) {
+  {
+    SstPartitionerFixedPrefix partitioner(3);
+    EXPECT_TRUE(partitioner.CanDoTrivialMove("abc1", "abc2"));  // same prefix
+    EXPECT_FALSE(partitioner.CanDoTrivialMove("abc", "abd"));   // differ
+  }
+  {
+    SstPartitionerFixedPrefix partitioner(0);
+    EXPECT_TRUE(partitioner.CanDoTrivialMove("abc", "xyz"));  // len 0
   }
 }
 

@@ -140,6 +140,7 @@ class OptSlice {
   /*implicit*/ OptSlice(const std::string& s) : slice_(s) {}
   /*implicit*/ OptSlice(const std::string_view& sv) : slice_(sv) {}
   /*implicit*/ OptSlice(const char* c_str) : slice_(c_str) {}
+  OptSlice(const char* d, size_t n) : slice_(d, n) {}
   // For easier migrating from APIs uing Slice* as an optional type.
   // CAUTION: OptSlice{nullptr} is "no value" while Slice{nullptr} is "empty"
   /*implicit*/ OptSlice(std::nullptr_t) : OptSlice() {}

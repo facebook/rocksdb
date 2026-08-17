@@ -27,6 +27,7 @@
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 
 // Enable io_uring support for this test
@@ -128,7 +129,8 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                    const CompressionType& compression_type,
                    const std::vector<std::pair<std::string, std::string>>& kv,
                    uint32_t compression_parallel_threads = 1,
-                   uint32_t compression_dict_bytes = 0) {
+                   uint32_t compression_dict_bytes = 0,
+                   Status* out_status = nullptr) {
     std::unique_ptr<WritableFileWriter> writer;
     NewFileWriter(table_name, &writer);
 
@@ -160,7 +162,12 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
       std::string v = it->second;
       table_builder->Add(it->first, v);
     }
-    ASSERT_OK(table_builder->Finish());
+    Status s = table_builder->Finish();
+    if (out_status != nullptr) {
+      *out_status = s;
+    } else {
+      ASSERT_OK(s);
+    }
   }
 
   void NewBlockBasedTableReader(const FileOptions& foptions,
@@ -245,6 +252,170 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                                              /*stats=*/stats));
   }
 };
+
+// Fixture for format_version 8 features tested at the builder+reader layer:
+// builds SSTs at format_version 8 through the real table builder and reads them
+// back.
+class BlockBasedTableReaderFormatVersion8Test
+    : public BlockBasedTableReaderBaseTest {
+ protected:
+  void ConfigureTableFactory() override {
+    BlockBasedTableOptions opts;
+    opts.format_version = 8;
+    options_.table_factory.reset(NewBlockBasedTableFactory(opts));
+  }
+};
+
+// format_version 8 records, in the footer, the gap (in bytes) between the end
+// of the metaindex block and the start of the footer, so the metaindex can be
+// located even when it is not adjacent to the footer (space reserved for future
+// file checksum data). No production writer emits a gap yet, so a sync point
+// injects one at build time. This verifies (1) the gap bytes are actually
+// written (the file grows by exactly the gap), (2) the table still reads back
+// correctly (i.e. the reader locates the metaindex via the recorded gap), and
+// (3) a gap too large to encode surfaces as an error from the table builder.
+TEST_F(BlockBasedTableReaderFormatVersion8Test, MetaindexGap) {
+  // Writing the unpublished draft format_version 8 requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
+
+  Options options;
+  const ImmutableOptions ioptions(options);
+  const InternalKeyComparator comparator(options.comparator);
+  // Enough blocks that a mislocated metaindex (hence index) would clearly fail.
+  const std::vector<std::pair<std::string, std::string>> kv =
+      GenerateKVMap(/*num_block=*/8);
+
+  auto set_gap_injection = [](size_t gap, int* count) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::WriteFooter:MetaindexGap",
+        [gap, count](void* arg) {
+          *static_cast<size_t*>(arg) = gap;
+          ++*count;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+  };
+  auto clear_gap_injection = []() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  };
+
+  auto read_back_and_verify = [&](const std::string& name) {
+    std::unique_ptr<BlockBasedTable> table;
+    FileOptions foptions;
+    NewBlockBasedTableReader(foptions, ioptions, comparator, name, &table);
+    ReadOptions read_opts;
+    ASSERT_OK(table->VerifyChecksum(read_opts,
+                                    TableReaderCaller::kUserVerifyChecksum));
+    std::unique_ptr<InternalIterator> iter(table->NewIterator(
+        read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    for (const auto& expected : kv) {
+      ASSERT_TRUE(iter->Valid());
+      EXPECT_EQ(iter->key().ToString(), expected.first);
+      EXPECT_EQ(iter->value().ToString(), expected.second);
+      iter->Next();
+      ASSERT_OK(iter->status());
+    }
+    EXPECT_FALSE(iter->Valid());
+  };
+
+  // Baseline: no gap. The build is deterministic (no wall-clock properties in
+  // this path), so its size is the reference for the gap-size assertions below.
+  const std::string baseline_name = "footer_gap_baseline";
+  CreateTable(baseline_name, ioptions, kNoCompression, kv);
+  uint64_t baseline_size = 0;
+  ASSERT_OK(env_->GetFileSize(Path(baseline_name), &baseline_size));
+  read_back_and_verify(baseline_name);
+
+  // A gap of the given size is physically inserted between the metaindex block
+  // and the footer (file grows by exactly `gap`), and the table still reads
+  // back correctly -- proving the reader located the metaindex via the recorded
+  // gap.
+  for (size_t gap : {size_t{1}, size_t{1234}, size_t{0xFFFF}}) {
+    SCOPED_TRACE("gap=" + std::to_string(gap));
+    const std::string name = "footer_gap_" + std::to_string(gap);
+    int injected = 0;
+    set_gap_injection(gap, &injected);
+    CreateTable(name, ioptions, kNoCompression, kv);
+    clear_gap_injection();
+    ASSERT_EQ(injected, 1);
+    uint64_t gapped_size = 0;
+    ASSERT_OK(env_->GetFileSize(Path(name), &gapped_size));
+    EXPECT_EQ(gapped_size, baseline_size + gap);
+    read_back_and_verify(name);
+  }
+
+  // A gap too large to encode in the footer's 16-bit field surfaces as an error
+  // from the full table builder (not just the low-level footer encoder).
+  {
+    const std::string name = "footer_gap_too_big";
+    int injected = 0;
+    set_gap_injection(/*gap=*/0x10000, &injected);
+    Status build_status;
+    CreateTable(name, ioptions, kNoCompression, kv,
+                /*compression_parallel_threads=*/1,
+                /*compression_dict_bytes=*/0, &build_status);
+    clear_gap_injection();
+    ASSERT_EQ(injected, 1);
+    EXPECT_TRUE(build_status.IsNotSupported()) << build_status.ToString();
+  }
+}
+
+// format_version 8 reserves the "user_key_common_prefix" table property for a
+// future feature that would change the interpretation of the entire file (all
+// user keys sharing a common prefix stored once). No writer emits it yet, so a
+// reader that finds it non-empty must refuse to open the file rather than
+// mis-read the keys. A sync point injects the property at build time; this
+// verifies the reader returns NotSupported, and that an ordinary file (without
+// the property) still opens.
+TEST_F(BlockBasedTableReaderFormatVersion8Test, ReservedUserKeyCommonPrefix) {
+  // Writing the unpublished draft format_version 8 requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
+
+  Options options;
+  const ImmutableOptions ioptions(options);
+  const InternalKeyComparator comparator(options.comparator);
+  const std::vector<std::pair<std::string, std::string>> kv =
+      GenerateKVMap(/*num_block=*/4);
+
+  // Sanity: without the reserved property, the file opens fine.
+  const std::string ok_name = "user_key_common_prefix_absent";
+  CreateTable(ok_name, ioptions, kNoCompression, kv);
+  {
+    std::unique_ptr<BlockBasedTable> table;
+    FileOptions foptions;
+    Status status;
+    NewBlockBasedTableReader(foptions, ioptions, comparator, ok_name, &table,
+                             /*prefetch_index_and_filter_in_cache=*/true,
+                             &status);
+    ASSERT_OK(status);
+  }
+
+  // Inject a non-empty reserved property; the reader must reject the file.
+  const std::string prefix_name = "user_key_common_prefix_present";
+  int injected = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:TableProps",
+      [&injected](void* arg) {
+        static_cast<TableProperties*>(arg)->user_key_common_prefix = "prefix";
+        ++injected;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CreateTable(prefix_name, ioptions, kNoCompression, kv);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_EQ(injected, 1);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  Status status;
+  NewBlockBasedTableReader(foptions, ioptions, comparator, prefix_name, &table,
+                           /*prefetch_index_and_filter_in_cache=*/true,
+                           &status);
+  EXPECT_TRUE(status.IsNotSupported()) << status.ToString();
+}
 
 struct BlockBasedTableReaderTestParam {
   BlockBasedTableReaderTestParam(

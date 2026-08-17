@@ -29,6 +29,7 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "table/format.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -123,6 +124,15 @@ int db_stress_tool(int argc, char** argv) {
   SanitizeDoubleParam(&FLAGS_bloom_bits);
   SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
   SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
+
+  // db_stress may read and write in-development draft format_versions that are
+  // not yet published to users. Enable the TEST-only opt-in once, centrally,
+  // for the whole run. It stays on regardless of this run's --format_version:
+  // the crash test re-randomizes format_version per invocation on the same DB,
+  // so a run picking an older version may still need to READ draft-version SSTs
+  // written by an earlier run. The opt-in is inert unless an unsupported
+  // format_version is actually requested.
+  TEST_AllowUnsupportedFormatVersion() = true;
 
 #ifndef NDEBUG
   if (FLAGS_mock_direct_io) {

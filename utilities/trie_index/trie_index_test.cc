@@ -4760,7 +4760,10 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
         BytewiseComparator(), kDisableGlobalSequenceNumber,
         /*iter=*/nullptr, /*stats=*/nullptr,
         /*total_order_seek=*/true, /*have_first_key=*/false,
-        /*key_includes_seq=*/true, /*value_is_full=*/true));
+        /*key_includes_seq=*/true, /*value_is_full=*/true,
+        /*block_contents_pinned=*/false,
+        /*user_defined_timestamps_persisted=*/true, /*prefix_index=*/nullptr,
+        BlockBasedTableOptions::kBinary, /*value_delta_escape=*/false));
 
     volatile uint64_t ibi_checksum = 0;
     auto t2 = std::chrono::high_resolution_clock::now();

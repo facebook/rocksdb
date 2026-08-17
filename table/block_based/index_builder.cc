@@ -172,6 +172,8 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       // wil be enforced on all sub_index_builders on ::Finish.
       must_use_separator_with_seq_(false),
       use_value_delta_encoding_(use_value_delta_encoding),
+      value_delta_escape_(
+          FormatVersionUsesValueDeltaEscape(table_opt.format_version)),
       statistics_(statistics) {
   MakeNewSubIndexBuilder();
 }
@@ -328,18 +330,25 @@ Status PartitionedIndexBuilder::Finish(
     Entry& last_entry = entries_.front();
     EncodedBlockHandle handle_encoding(last_partition_block_handle);
     std::string handle_delta_encoding;
-    PutVarsignedint64(
-        &handle_delta_encoding,
-        last_partition_block_handle.size() - last_encoded_handle_.size());
+    // NOTE: must go through IndexValue::EncodeTo, whose encoding depends on
+    // format_version; readers decode this block with IndexValue::DecodeFrom.
+    // Nothing to delta against for the first entry; it is a restart point
+    // (shared == 0), so BlockBuilder writes its value in full and never
+    // consults this (empty) delta.
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+      IndexValue(last_partition_block_handle, Slice())
+          .EncodeTo(&handle_delta_encoding, /*have_first_key=*/false,
+                    &last_encoded_handle_, value_delta_escape_);
+    }
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
     // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_block_builder_.Add(last_entry.key, handle_encoding.AsSlice(),
-                             &handle_delta_encoding_slice);
+                             handle_delta_encoding_slice);
     if (!must_use_separator_with_seq_.LoadRelaxed()) {
       index_block_builder_without_seq_.Add(ExtractUserKey(last_entry.key),
                                            handle_encoding.AsSlice(),
-                                           &handle_delta_encoding_slice);
+                                           handle_delta_encoding_slice);
     }
     entries_.pop_front();
   }

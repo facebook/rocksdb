@@ -677,7 +677,8 @@ void IndexBlockIter::DecodeCurrentValue(bool is_shared) {
   assert(!value_delta_encoded_ || value_.size() == 0);
   Status decode_s __attribute__((__unused__)) = decoded_value_.DecodeFrom(
       &v, have_first_key_,
-      (value_delta_encoded_ && is_shared) ? &decoded_value_.handle : nullptr);
+      (value_delta_encoded_ && is_shared) ? &decoded_value_.handle : nullptr,
+      value_delta_escape_);
   assert(decode_s.ok());
   value_ = Slice(value_.data(), v.data() - value_.data());
   if (!values_section_ && value_delta_encoded_) {
@@ -1420,7 +1421,8 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
 void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
                                                const Comparator* raw_ucmp,
                                                bool value_is_full,
-                                               bool index_has_first_key) {
+                                               bool index_has_first_key,
+                                               bool value_delta_escape) {
   protection_bytes_per_key_ = 0;
   if (num_restarts_ > 0 && protection_bytes_per_key > 0) {
     // Note that `global_seqno` and `key_includes_seq` are hardcoded here.
@@ -1436,8 +1438,8 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
         nullptr /* Statistics */, true /* total_order_seek */,
         index_has_first_key /* have_first_key */, false /* key_includes_seq */,
         value_is_full, true /* block_contents_pinned */,
-        true /* user_defined_timestamps_persisted*/,
-        nullptr /* prefix_index */)};
+        true /* user_defined_timestamps_persisted*/, nullptr /* prefix_index */,
+        BlockBasedTableOptions::kBinary, value_delta_escape)};
     if (iter->status().ok()) {
       // Only calculate restart interval if not already set via table properties
       if (block_restart_interval_ == 0) {
@@ -1564,7 +1566,8 @@ IndexBlockIter* Block::NewIndexIterator(
     bool have_first_key, bool key_includes_seq, bool value_is_full,
     bool block_contents_pinned, bool user_defined_timestamps_persisted,
     BlockPrefixIndex* prefix_index,
-    BlockBasedTableOptions::BlockSearchType index_block_search_type) {
+    BlockBasedTableOptions::BlockSearchType index_block_search_type,
+    bool value_delta_escape) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1598,7 +1601,7 @@ IndexBlockIter* Block::NewIndexIterator(
         prefix_index_ptr, have_first_key, key_includes_seq, value_is_full,
         block_contents_pinned, user_defined_timestamps_persisted,
         protection_bytes_per_key_, kv_checksum_, block_restart_interval_,
-        values_section_, resolved_search_type);
+        values_section_, resolved_search_type, value_delta_escape);
   }
 
   return ret_iter;

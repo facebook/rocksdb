@@ -8,11 +8,13 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 ### Code Quality and Maintainability
 
-**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary. Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
+**Clarity and Readability:** Write clear, self-documenting code. Use meaningful variable names, add comments for complex logic, and structure code to minimize cognitive load. Avoid clever tricks that sacrifice readability for marginal performance gains unless absolutely necessary.
 
 **Consistent Style:** Follow existing code style conventions. RocksDB uses `.clang-format` for formatting, specific naming conventions, and structural patterns. Deviations from these patterns are frequently flagged in reviews.
 
 **Error Handling:** Ensure robust error handling throughout the codebase. Use RocksDB's `Status` type consistently, propagate errors appropriately, and avoid silently ignoring failures. Reviewers pay close attention to edge cases and failure modes.
+
+**Refactoring traps:** At least in production code, avoid constructs that could allow existing code to unexpectedly, quietly change meaning, such as new defaulted parameters and declared type `auto` (`auto&`, `auto*` OK). Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
 
 ### Testing Philosophy
 
@@ -32,7 +34,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 **Memory Copy:** Avoid unnecessary memory copies. Use move semantics, `std::string_view`, `Slice`, and pass-by-reference where appropriate. Be aware of implicit copies in STL containers and function returns. Prefer in-place operations over copy-and-modify patterns.
 
-**CPU Cache Efficiency:** Design data structures and access patterns to be cache-friendly. Keep frequently accessed data together (data locality). Prefer sequential memory access over random access. Be mindful of cache line sizes (typically 64 bytes) and avoid false sharing in concurrent code. Consider struct packing and field ordering to improve cache utilization.
+**CPU Cache Efficiency:** Design data structures and access patterns to be cache-friendly. Keep frequently accessed data together (data locality). Prefer sequential memory access over random access. Be mindful of cache line sizes (CACHE_LINE_SIZE, typically 64 bytes) and avoid false sharing in concurrent code (see CacheAlignedWrapper). Especially when adding new data members, be mindful of ordering within structs and classes to reduce unnecessary padding (special care with bool members) and avoid larger-than-necessary types (e.g. prefer OptSlice to std::optional<Slice>).
 
 **Loop Optimization:** Look for opportunities to collapse nested loops, reduce loop overhead, and minimize branch mispredictions. Hoist invariant computations out of loops. Consider loop unrolling for tight inner loops. Batch operations when possible to amortize per-operation overhead.
 
@@ -47,7 +49,7 @@ This document provides guidance for generating and reviewing code in the RocksDB
 - **Cold path** (executed rarely, e.g., DB open, configuration parsing, error handling): Maintainability and clarity are more important. Prefer readable code over micro-optimizations. Complex optimizations here add maintenance burden with negligible performance benefit.
 - **Warm path** (moderate frequency): Balance both concerns. Use profiling data to guide optimization decisions.
 
-**Avoid Premature Optimization:** While performance is critical, focus on correctness first, then optimize based on profiling data. However, be performance-aware from the start—choosing the right algorithm and data structure upfront is not premature optimization. Use the hot path analysis above to decide how much optimization effort is warranted.
+**Avoid Premature Optimization:** Performance is known critical in places like inner loops of compaction, read path and write path. Elsewhere, try to find a "holy trinity" solution of *correct, simple, and reasonably efficient*. More complex solutions are only appropriate when profiling/benchmarking data shows a measurable payoff.
 
 ### API Design and Compatibility
 
@@ -73,7 +75,7 @@ The database core handles write-ahead logging (WAL), memtables, compaction, and 
 
 **Testing:** Database core changes require extensive testing, including unit tests, integration tests, and stress tests. Test with various configurations, compaction styles, and concurrent workloads.
 
-### Public Headers (`include`)
+### Public Headers / "Public API" (`include/rocksdb/`)
 
 Public headers define RocksDB's API surface. Changes here have the highest compatibility impact.
 

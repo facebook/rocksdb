@@ -20,9 +20,11 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/block_based/block_based_table_builder.h"
+#include "table/format.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
+#include "util/defer.h"
 #include "util/mutexlock.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -4006,6 +4008,112 @@ INSTANTIATE_TEST_CASE_P(
                      // the case where required padded bytes is
                      // larger than the max allowed padding size
                      testing::Values(4, kLowSpaceOverheadRatio)));
+
+// super_block_alignment pads data blocks, giving the padded block's index entry
+// a non-contiguous handle. At format_version <= 7 the writer forces that index
+// entry to shared==0 (full key AND full value). format_version 8 instead uses
+// the index value-delta escape (see IndexValue::EncodeTo), keeping the key
+// delta-encoded and the restart cadence intact. This verifies that fv8 returns
+// byte-identical read results to fv7 for the same keys (also with
+// separate_key_value_in_data_block, the intersection that motivated the
+// escape), that padding -- and hence the escape -- is actually exercised, and
+// that fv8 index values are delta encoded.
+TEST_F(DBFlushTest, SuperBlockAlignmentValueDeltaEscape) {
+  // Writing the unpublished draft format_version 8 requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
+
+  constexpr int kKeyCount = 5000;
+  auto format_key = [](int i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%010d", i);
+    return std::string(buf);
+  };
+
+  // Deterministic values so fv7 and fv8 see identical input.
+  Random rnd(test::RandomSeed());
+  std::vector<std::string> values;
+  values.reserve(kKeyCount);
+  for (int i = 0; i < kKeyCount; ++i) {
+    values.push_back(rnd.RandomString(static_cast<int>(rnd.Uniform(1000))));
+  }
+
+  auto build_and_read = [&](uint32_t format_version, bool separate_kv,
+                            std::vector<std::string>* got_get,
+                            std::vector<std::string>* got_iter, int* pad_count,
+                            bool* index_delta_encoded) {
+    Options options = CurrentOptions();
+    options.compression = kNoCompression;
+    BlockBasedTableOptions bbto;
+    bbto.format_version = format_version;
+    bbto.index_block_restart_interval = 3;  // > 1 so value delta encoding is on
+    bbto.super_block_alignment_size = 16 * 1024;
+    bbto.super_block_alignment_space_overhead_ratio = 8;
+    bbto.separate_key_value_in_data_block = separate_kv;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+
+    int local_pad = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::WriteMaybeCompressedBlock:SuperBlockAlignment",
+        [&local_pad](void*) { local_pad++; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    for (int i = 0; i < kKeyCount; ++i) {
+      ASSERT_OK(Put(format_key(i), values[i]));
+    }
+    ASSERT_OK(Flush());
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    *pad_count = local_pad;
+
+    got_get->clear();
+    for (int i = 0; i < kKeyCount; ++i) {
+      PinnableSlice v;
+      ASSERT_OK(Get(format_key(i), &v));
+      got_get->push_back(v.ToString());
+    }
+    got_iter->clear();
+    {
+      std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        ASSERT_OK(it->status());
+        got_iter->push_back(it->value().ToString());
+      }
+      ASSERT_OK(it->status());
+    }
+
+    // Confirm the index value encoding of the produced SST(s).
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_FALSE(props.empty());
+    *index_delta_encoded = true;
+    for (const auto& kv : props) {
+      if (kv.second->index_value_is_delta_encoded == 0) {
+        *index_delta_encoded = false;
+      }
+    }
+  };
+
+  for (bool separate_kv : {false, true}) {
+    SCOPED_TRACE("separate_kv=" + std::to_string(separate_kv));
+    std::vector<std::string> get7, iter7, get8, iter8;
+    int pad7 = 0, pad8 = 0;
+    bool delta7 = false, delta8 = false;
+    build_and_read(7, separate_kv, &get7, &iter7, &pad7, &delta7);
+    build_and_read(/*format_version=*/8, separate_kv, &get8, &iter8, &pad8,
+                   &delta8);
+
+    // Reads must be identical across versions.
+    ASSERT_EQ(get7, get8);
+    ASSERT_EQ(iter7, iter8);
+    ASSERT_EQ(static_cast<int>(iter8.size()), kKeyCount);
+    // Padding (the non-contiguity that drives the escape) actually happened.
+    EXPECT_GT(pad8, 0);
+    // fv8 index values are delta encoded, so the escape path was exercised.
+    EXPECT_TRUE(delta8);
+  }
+}
 
 // Test that when the table builder's io_status becomes bad during flush
 // (simulating write fault injection), BuildTable properly propagates the

@@ -124,13 +124,24 @@ struct IndexValue {
 
   // have_first_key indicates whether the `first_internal_key` is used.
   // If previous_handle is not null, delta encoding is used;
-  // in this case, the two handles must point to consecutive blocks:
+  // in this case, the two handles normally point to consecutive blocks:
   // handle.offset() ==
   //     previous_handle->offset() + previous_handle->size() + kBlockTrailerSize
+  //
+  // use_value_delta_escape enables the format_version >= 8 value-delta codec:
+  // genuine size deltas are remapped (zigzag(delta)+1, always >= 1) so that the
+  // varint 0 is free to act as an escape meaning "a full BlockHandle follows."
+  // The escape is emitted (only) for a non-contiguous handle, so such an entry
+  // does not have to be forced to a restart. When use_value_delta_escape is
+  // false (format_version <= 7), the encoding is byte-identical to the legacy
+  // PutVarsignedint64(size delta). Only meaningful when previous_handle !=
+  // null.
   void EncodeTo(std::string* dst, bool have_first_key,
-                const BlockHandle* previous_handle) const;
+                const BlockHandle* previous_handle,
+                bool use_value_delta_escape = false) const;
   Status DecodeFrom(Slice* input, bool have_first_key,
-                    const BlockHandle* previous_handle);
+                    const BlockHandle* previous_handle,
+                    bool use_value_delta_escape = false);
 
   std::string ToString(bool hex, bool have_first_key) const;
 };
@@ -169,7 +180,19 @@ inline uint32_t ChecksumModifierForContext(uint32_t base_context_checksum,
   return modifier & all_or_nothing;
 }
 
+// Latest format_version supported for both reading and writing new SST files in
+// block-based format. Newer "draft" format_versions that are still in
+// development (e.g. the format_version 8 index value-delta escape) are not
+// published: they are exercised only in tests, gated behind the TEST-only
+// TEST_AllowUnsupportedFormatVersion() hook, and are neither readable nor
+// writable in production until finalized by bumping this constant.
 constexpr uint32_t kLatestBbtFormatVersion = 7;
+
+// Sentinel for "no format_version known yet," e.g. a Footer that has not been
+// populated by DecodeFrom. Deliberately larger than any real version so that
+// accidentally treating it as one is caught by the FormatVersionUses*
+// predicates below rather than silently reading as "newest of everything."
+constexpr uint32_t kInvalidFormatVersion = 0xffffffffU;
 
 // Minimum format version supported for reading SST files in block-based format.
 //
@@ -214,17 +237,56 @@ inline bool IsSupportedFormatVersionForWrite(uint64_t magic, uint32_t version) {
   }
 }
 
+// The FormatVersionUses* predicates below answer "does this (known) format
+// version use feature X". Every one of them is a `version >= N` test, so
+// kInvalidFormatVersion would satisfy all of them and quietly report "uses the
+// newest of everything." Callers must therefore pass a real version -- from
+// BlockBasedTableOptions, or from a Footer that has actually been decoded.
+inline void AssertKnownFormatVersion(uint32_t version) {
+  assert(version != kInvalidFormatVersion);
+  (void)version;
+}
+
 // Same as having a unique id in footer.
 inline bool FormatVersionUsesContextChecksum(uint32_t version) {
+  AssertKnownFormatVersion(version);
   return version >= 6;
 }
 
 inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
+  AssertKnownFormatVersion(version);
   return version < 6;
 }
 
 inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
+  AssertKnownFormatVersion(version);
   return version >= 7;
+}
+
+// format_version >= 8 decouples the index block's value-delta encoding from the
+// key "shared" sentinel by reserving an in-value escape codepoint that means "a
+// full BlockHandle follows" (see IndexValue::EncodeTo/DecodeFrom). This lets a
+// non-contiguous index entry (whose block handle does NOT start where the
+// previous one ended, e.g. because of super_block_alignment padding or
+// interleaved embedded blob records) remain a normal key-delta-encoded,
+// on-cadence index entry instead of being forced to a restart (shared==0).
+inline bool FormatVersionUsesValueDeltaEscape(uint32_t version) {
+  AssertKnownFormatVersion(version);
+  return version >= 8;
+}
+
+// format_version >= 8 repurposes the top 16 bits of the footer's 4-byte
+// "metaindex block size" field to record the number of bytes of gap between the
+// end of the metaindex block (including its trailer) and the start of the
+// footer (space reserved for future file checksum data). The low 16 bits hold
+// the metaindex block size. For format_version < 8 the whole field is the
+// metaindex block size and the metaindex is assumed adjacent to the footer.
+// See Footer format documentation in format.cc. (Note: fv < 6 allowed an
+// arbitrary gap due to inefficient metaindex handle encoding, but that's
+// obsolete.)
+inline bool FormatVersionUsesMetaindexGap(uint32_t version) {
+  AssertKnownFormatVersion(version);
+  return version >= 8;
 }
 
 // Footer encapsulates the fixed information stored at the tail end of every
@@ -264,6 +326,13 @@ class Footer {
   // unnecessary complexity to separate footer versions and
   // BBTO::format_version.)
   uint32_t format_version() const { return format_version_; }
+
+  // Test-only: set just the format_version, for unit tests that construct a
+  // BlockBasedTable::Rep without a real file to decode a footer from.
+  // Production code must populate the whole footer via DecodeFrom.
+  void TEST_SetFormatVersion(uint32_t format_version) {
+    format_version_ = format_version;
+  }
 
   // See ChecksumModifierForContext()
   uint32_t base_context_checksum() const { return base_context_checksum_; }
@@ -306,8 +375,6 @@ class Footer {
   static constexpr uint32_t kMaxEncodedLength = kNewVersionsEncodedLength;
 
   static constexpr uint64_t kNullTableMagicNumber = 0;
-
-  static constexpr uint32_t kInvalidFormatVersion = 0xffffffffU;
 
  private:
   static constexpr int kInvalidChecksumType =

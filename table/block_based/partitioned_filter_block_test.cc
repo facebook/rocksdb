@@ -29,6 +29,12 @@ class MockedBlockBasedTable : public BlockBasedTable {
     // Initialize what Open normally does as much as necessary for the test
     rep->index_key_includes_seq = pib->separator_is_key_plus_seq();
     rep->index_value_is_full = !pib->get_use_value_delta_encoding();
+    // Open decodes the footer from the file; there is no file here, and an
+    // un-decoded Footer reports kInvalidFormatVersion. Match the format_version
+    // the test's builders encode the index and filter-partition-index blocks
+    // with, so reader-side codec selection (e.g. index_value_delta_escape())
+    // stays consistent with how they were written, at any format_version.
+    rep->footer.TEST_SetFormatVersion(rep->table_options.format_version);
   }
 };
 
@@ -162,7 +168,7 @@ class PartitionedFilterBlockTest
         BloomFilterPolicy::GetBuilderFromContext(
             FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
-        p_index_builder, partition_size, ts_sz_,
+        table_options_.format_version, p_index_builder, partition_size, ts_sz_,
         user_defined_timestamps_persisted_, decouple_partitioned_filters);
   }
 

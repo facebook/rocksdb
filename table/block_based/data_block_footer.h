@@ -26,16 +26,23 @@ namespace ROCKSDB_NAMESPACE {
 //   - The low 28 bits store the number of restart points (num_restarts)
 //   - The high 4 bits are reserved for metadata/features:
 //     - Bit 31: Hash index present (kDataBlockBinaryAndHash)
-//     - Bit 30: IMPORTANT: Cannot be used without format version bump.
+//     - Bit 30: RESERVED "extended metadata present" escape (format_version >=
+//       8). No feature defines it yet, so it must be 0; a set bit is rejected
+//       as unsupported/corrupt. It lets a future extension add block metadata
+//       by setting this bit and writing an additional section -- handled in the
+//       one shared DataBlockFooter decoder -- without another format_version
+//       bump or plumbing format_version into every kind of block parser.
 //     - Bit 29: Uniform keys flag (for kAuto index block search)
 //     - Bit 28: Separated KV storage (keys and values stored in separate
 //       sections within the block)
 //
 // Note on forward compatibility: Bits 28-29 can be read by older versions of
-// RocksDB and interpreted as an extremely large, which will be caught as a
-// corruption. Bit 30 is special because num_restarts is multipled by 4, causing
-// overflow and the corruption check to be silently ignored
+// RocksDB and interpreted as an extremely large num_restarts, which will be
+// caught as a corruption. Bit 30 is special because num_restarts is multipled
+// by 4, causing overflow and the corruption check to be silently ignored
 // (https://github.com/facebook/rocksdb/blob/10.11.fb/table/block_based/block.cc#L1070-L1103)
+// Now format_version >= 8 officially unlocks use of that bit because we know
+// the reader isn't going to ignore it.
 //
 // When separated KV is enabled, an additional uint32_t is prepended before the
 // packed footer, storing the offset to the values section within the block.
