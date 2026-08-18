@@ -34,12 +34,46 @@ void ReadPathBlobResolver::Reset(
 
 Status ReadPathBlobResolver::ResolveColumn(size_t column_index,
                                            Slice* resolved_value) {
-  return ResolveColumnInternal(column_index, /*force_verify=*/false,
-                               resolved_value);
+  // Whole-column resolution uses the captured ReadOptions' verify_checksums
+  // (no force_verify).
+  return ResolveColumnInternal(
+      column_index,
+      DeriveVerifyPolicy(blob_fetcher_.read_options().verify_checksums,
+                         /*force_verify=*/false),
+      resolved_value);
+}
+
+BlobVerifyPolicy ReadPathBlobResolver::DeriveVerifyPolicy(bool verify_checksums,
+                                                          bool force_verify) {
+  if (force_verify) {
+    return BlobVerifyPolicy::kVerifyIfPresent;
+  }
+  return verify_checksums ? BlobVerifyPolicy::kVerifyIfNoAmplification
+                          : BlobVerifyPolicy::kSkip;
+}
+
+Status ReadPathBlobResolver::FetchBlobRef(const BlobIndex& blob_index,
+                                          uint64_t range_offset,
+                                          size_t range_length,
+                                          BlobVerifyPolicy policy,
+                                          PinnableSlice* out) {
+  if (blob_index.IsSameFile()) {
+    // Same-file ("embedded") references need the originating SST's reader.
+    if (same_file_reader_ == nullptr) {
+      return Status::Corruption(
+          "Cannot resolve same-file blob reference: no same-file reader");
+    }
+    return same_file_reader_->GetSameFileBlob(blob_fetcher_.read_options(),
+                                              blob_index, range_offset,
+                                              range_length, policy, out);
+  }
+  return blob_fetcher_.FetchBlobRange(user_key_, blob_index, range_offset,
+                                      range_length, policy, out,
+                                      /*bytes_read=*/nullptr);
 }
 
 Status ReadPathBlobResolver::ResolveColumnInternal(size_t column_index,
-                                                   bool force_verify,
+                                                   BlobVerifyPolicy policy,
                                                    Slice* resolved_value) {
   assert(columns_);
   assert(resolved_value);
@@ -72,53 +106,13 @@ Status ReadPathBlobResolver::ResolveColumnInternal(size_t column_index,
                                        std::make_unique<PinnableSlice>());
           auto& new_entry = resolved_cache_.back();
 
-          constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-          constexpr uint64_t* bytes_read = nullptr;
-
-          // TODO(lazy-blob-resolution-cleanup): the force_verify branching here
-          // (and the whole-vs-range split in ResolveColumnRange) is really a
-          // single 3-valued verify policy -- must-verify-if-present (today's
-          // force_verify), verify-if-no-amplification (verify_checksums on: a
-          // whole read verifies, a partial read skips), and ignore. Map
-          // (verify_checksums, force_verify) to that internal enum once at this
-          // boundary and thread it down, collapsing these branches. Deferred
-          // for feature velocity; see the lazy blob resolution plan.
-          if (force_verify && !blob_index.IsSameFile()) {
-            // Honor force_verify for separate-file references: read and verify
-            // the whole record even if ReadOptions::verify_checksums is off.
-            status = blob_fetcher_.FetchBlobForceVerify(
-                user_key_, blob_index, prefetch_buffer, new_entry.second.get(),
-                bytes_read);
-          } else if (force_verify && blob_index.IsSameFile()) {
-            // Honor force_verify for same-file (embedded) references the same
-            // way: force checksum verification on via a verify-enabled copy of
-            // the read options. A same-file reference is only produced when the
-            // entity was read from an SST that supplied its SameFileBlobReader,
-            // so it is expected to be set; surface a clean error rather than
-            // silently dropping force_verify (and taking the unverified path
-            // below) if it somehow is not.
-            assert(same_file_reader_ != nullptr);
-            if (same_file_reader_ == nullptr) {
-              status = Status::Corruption(
-                  "Cannot force-verify same-file blob: no same-file reader");
-            } else {
-              ReadOptions verify_read_options = blob_fetcher_.read_options();
-              verify_read_options.verify_checksums = true;
-              status = same_file_reader_->GetSameFileBlob(
-                  verify_read_options, blob_index, new_entry.second.get());
-            }
-          } else {
-            // Route same-file ("embedded") references through the current SST's
-            // SameFileBlobReader when one is set; separate-file references (and
-            // the no-same-file-reader case) go straight to the Version-backed
-            // fetcher. EffectiveFetcher() returns the plain base fetcher when
-            // there is no same-file reader, adding no indirection.
-            EmbeddedAwareBlobFetcher embedded_fetcher(&blob_fetcher_,
-                                                      same_file_reader_);
-            status = embedded_fetcher.EffectiveFetcher()->FetchBlob(
-                user_key_, blob_index, prefetch_buffer, new_entry.second.get(),
-                bytes_read);
-          }
+          // Whole-column read of a blob reference, cached. FetchBlobRef routes
+          // same-file vs separate-file references and applies the verify policy
+          // (which folds in force_verify: kVerifyIfPresent verifies the whole
+          // record even when ReadOptions::verify_checksums is off).
+          status =
+              FetchBlobRef(blob_index, /*range_offset=*/0, kWholeBlobLength,
+                           policy, new_entry.second.get());
           if (!status.ok()) {
             resolved_cache_.pop_back();
           } else {
@@ -164,12 +158,17 @@ Status ReadPathBlobResolver::ResolveColumnRange(size_t column_index,
     return Status::InvalidArgument("Column index out of bounds");
   }
 
+  // Derive the verify policy once from (verify_checksums, force_verify) and let
+  // it drive both the partial-vs-whole decision below and the downstream read.
+  const BlobVerifyPolicy policy = DeriveVerifyPolicy(
+      blob_fetcher_.read_options().verify_checksums, force_verify);
+
   // No output buffer: the caller only wants to surface any I/O / integrity
   // error (and honor force_verify). Resolve the whole column and return; there
   // is nothing to slice into.
   if (result == nullptr) {
     Slice ignored;
-    return ResolveColumnInternal(column_index, force_verify, &ignored);
+    return ResolveColumnInternal(column_index, policy, &ignored);
   }
 
   const BlobIndex* blob_index_ptr =
@@ -179,10 +178,12 @@ Status ReadPathBlobResolver::ResolveColumnRange(size_t column_index,
   // reference that is: not already resolved (else we slice the cached whole
   // value), uncompressed (a strict sub-range of a compressed record can't be
   // decompressed in isolation), a strict sub-range (a whole-column read takes
-  // the verifying + cache-filling path), and not force_verify. The read then
+  // the verifying + cache-filling path), and a policy that permits skipping
+  // verification (kVerifyIfPresent forces a whole verified read). The read then
   // goes to either the separate-file range fetcher (needs a Version) or, for a
   // same-file / embedded reference, the current SST's SameFileBlobReader.
-  if (blob_index_ptr != nullptr && !force_verify &&
+  if (blob_index_ptr != nullptr &&
+      policy != BlobVerifyPolicy::kVerifyIfPresent &&
       blob_resolver_util::FindInCache(resolved_cache_, column_index) ==
           nullptr) {
     const BlobIndex& blob_index = *blob_index_ptr;
@@ -204,24 +205,17 @@ Status ReadPathBlobResolver::ResolveColumnRange(size_t column_index,
         }
         const size_t avail = static_cast<size_t>(value_size - range_offset);
         const size_t actual_len = range_length > avail ? avail : range_length;
-        if (blob_index.IsSameFile()) {
-          return same_file_reader_->GetSameFileBlobRange(
-              blob_fetcher_.read_options(), blob_index, range_offset,
-              actual_len, result);
-        }
-        return blob_fetcher_.FetchBlobRange(user_key_, blob_index, range_offset,
-                                            actual_len, result,
-                                            /*bytes_read=*/nullptr);
+        return FetchBlobRef(blob_index, range_offset, actual_len, policy,
+                            result);
       }
     }
   }
 
   // Full path: resolve the whole column (inline value directly, blob reference
-  // via the resolver's cache, filling it on a miss and verifying under
-  // ReadOptions::verify_checksums or force_verify), then slice out the
-  // requested range.
+  // via the resolver's cache, filling it on a miss and verifying per policy),
+  // then slice out the requested range.
   Slice whole;
-  Status s = ResolveColumnInternal(column_index, force_verify, &whole);
+  Status s = ResolveColumnInternal(column_index, policy, &whole);
   if (!s.ok()) {
     return s;
   }

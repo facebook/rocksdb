@@ -1149,6 +1149,62 @@ TEST_F(DBLazyEntityTest, BlockCacheTierYieldsIncompleteOnMiss) {
   ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
 }
 
+// The embedded (same-file) read path probes the blob cache before honoring
+// read_tier == kBlockCacheTier, so a cached embedded record serves a
+// block-cache-only read -- whole column or sub-range -- instead of returning
+// Incomplete. Regression test for the former quirk where
+// ValidateEmbeddedBlobIndex rejected kBlockCacheTier up front, before the cache
+// probe (unlike the separate-file range path, which always probed first).
+TEST_F(DBLazyEntityTest, EmbeddedBlockCacheTierServedFromCachedValue) {
+  Options options = GetLazyTestOptionsWithBlobCache();
+  DestroyAndReopen(options);
+
+  const std::string key = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  IngestEmbeddedEntity(options, key, columns);
+
+  // Warm the blob cache with a whole-column read of the embedded record.
+  {
+    LazyWideColumns warm;
+    ASSERT_OK(db_->GetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), key,
+                                 &warm));
+    PinnableSlice whole;
+    ASSERT_OK(warm.ResolveColumn(warm[1], &whole));
+    ASSERT_EQ(whole, big);
+  }
+
+  ASSERT_OK(options.statistics->Reset());
+
+  ReadOptions block_cache_only;
+  block_cache_only.read_tier = kBlockCacheTier;
+
+  // Sub-range read on a fresh result (resolver cache empty) exercises the
+  // embedded range path's blob-cache probe under kBlockCacheTier.
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(block_cache_only, db_->DefaultColumnFamily(),
+                                 key, &lazy));
+    PinnableSlice range;
+    ASSERT_OK(lazy.ResolveColumnRange(lazy[1], /*offset=*/1000, /*length=*/100,
+                                      &range));
+    ASSERT_EQ(range, big.substr(1000, 100));
+  }
+
+  // Whole-column read on a fresh result, also served from the cache.
+  {
+    LazyWideColumns lazy;
+    ASSERT_OK(db_->GetEntityLazy(block_cache_only, db_->DefaultColumnFamily(),
+                                 key, &lazy));
+    PinnableSlice whole;
+    ASSERT_OK(lazy.ResolveColumn(lazy[1], &whole));
+    ASSERT_EQ(whole, big);
+  }
+
+  // Everything came from the blob cache: no disk blob bytes were read.
+  ASSERT_EQ(BlobBytesRead(options), 0U);
+}
+
 // A column that belongs to a different result is rejected with InvalidArgument
 // on the per-read status (columns identify their owning result, so there is no
 // untyped index to run out of range).

@@ -785,7 +785,10 @@ void StressTest::MaybeTestMultiGetEntityLazy(
     const size_t i = chosen[j].first;
     const size_t c = chosen[j].second;
     // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
-    // against the reference when available, else the known logical size.
+    // against the reference when available, else the known logical size; and
+    // independently fuzz force_verify (which forces a whole, checksum-verified
+    // read even for a sub-range) -- the resolved bytes are unchanged either
+    // way.
     const WideColumns* reference = entity_ref[i];
     const std::optional<uint64_t> size_hint =
         reference ? std::optional<uint64_t>((*reference)[c].value().size())
@@ -793,6 +796,7 @@ void StressTest::MaybeTestMultiGetEntityLazy(
     reads[j].column = &batch[i][c];
     PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
                       &reads[j].length);
+    reads[j].force_verify = thread->rand.OneIn(4);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -910,13 +914,17 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   for (size_t j = 0; j < chosen.size(); ++j) {
     const size_t c = chosen[j];
     // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
-    // against the reference when available, else the known logical size.
+    // against the reference when available, else the known logical size; and
+    // independently fuzz force_verify (which forces a whole, checksum-verified
+    // read even for a sub-range) -- the resolved bytes are unchanged either
+    // way.
     const std::optional<uint64_t> size_hint =
         reference ? std::optional<uint64_t>((*reference)[c].value().size())
                   : lazy[c].logical_size();
     reads[j].column = &lazy[c];
     PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
                       &reads[j].length);
+    reads[j].force_verify = thread->rand.OneIn(4);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
