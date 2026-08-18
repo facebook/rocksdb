@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.9.1 (08/18/2026)
+### Public API Changes
+* Added an immutable `external_table_config` option that is persisted in OPTIONS files and passed to external table factories during bootstrap.
+
 ## 11.9.0 (08/14/2026)
 ### New Features
 * Added an integrated and improved compression auto-skip feature (new CompressionOptions, still experimental) that saves CPU by skipping compression when and where the overall ratio is inadequate. This improves on the previous auto-skip compression manager by (a) taking achieved compression ratios into account, (b) using a continuously evolving payoff estimate, and (c) combining natively with parallel compression.
