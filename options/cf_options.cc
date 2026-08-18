@@ -134,6 +134,22 @@ static Status ParseCompressionOptions(const std::string& value,
   return Status::OK();
 }
 
+static Status CloneTableFactoryForOptionsUpdate(
+    TableFactory* table_factory,
+    std::shared_ptr<TableFactory>* cloned_factory) {
+  assert(table_factory != nullptr);
+  assert(cloned_factory != nullptr);
+
+  std::unique_ptr<TableFactory> clone = table_factory->Clone();
+  if (clone == nullptr) {
+    return Status::InvalidArgument(
+        "Table factory does not support option updates: " +
+        std::string(table_factory->Name()));
+  }
+  *cloned_factory = std::move(clone);
+  return Status::OK();
+}
+
 static Status TableFactoryParseFn(const ConfigOptions& opts,
                                   const std::string& name,
                                   const std::string& value, void* addr) {
@@ -170,7 +186,11 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     if (table_factory->get() != nullptr) {
       std::string factory_name = table_factory->get()->Name();
       if (factory_name == TableFactory::kBlockBasedTableName()) {
-        new_factory = table_factory->get()->Clone();
+        s = CloneTableFactoryForOptionsUpdate(table_factory->get(),
+                                              &new_factory);
+        if (!s.ok()) {
+          return s;
+        }
       } else {
         s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
                                     name);
@@ -185,7 +205,11 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     if (table_factory->get() != nullptr) {
       std::string factory_name = table_factory->get()->Name();
       if (factory_name == TableFactory::kPlainTableName()) {
-        new_factory = table_factory->get()->Clone();
+        s = CloneTableFactoryForOptionsUpdate(table_factory->get(),
+                                              &new_factory);
+        if (!s.ok()) {
+          return s;
+        }
       } else {
         s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
                                     name);
@@ -204,7 +228,10 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
       s = TableFactory::CreateFromString(opts, value, &new_factory);
     }
   } else if (table_factory->get() != nullptr) {
-    new_factory = table_factory->get()->Clone();
+    s = CloneTableFactoryForOptionsUpdate(table_factory->get(), &new_factory);
+    if (!s.ok()) {
+      return s;
+    }
     // Presumably passing a value for a specific field of the table factory
     s = new_factory->ConfigureOption(opts, name, value);
   } else {
