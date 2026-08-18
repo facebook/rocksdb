@@ -6,18 +6,22 @@
 #include "rocksdb/external_table.h"
 
 #include <chrono>
+#include <cstddef>
+#include <unordered_map>
 
 #include "db/dbformat.h"
 #include "logging/logging.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -640,13 +644,45 @@ class ExternalTableBuilderAdapter : public TableBuilder {
       table_properties_collectors_;
 };
 
+struct ExternalTableFactoryAdapterOptions {
+  static const char* kName() { return "ExternalTableFactoryAdapterOptions"; }
+
+  std::string config;
+};
+
+static const std::unordered_map<std::string, OptionTypeInfo>&
+GetExternalTableFactoryAdapterOptionsTypeInfo() {
+  static const std::unordered_map<std::string, OptionTypeInfo> type_info = {
+      {"external_table_config",
+       OptionTypeInfo(offsetof(ExternalTableFactoryAdapterOptions, config),
+                      OptionType::kString)
+           .SetSerializeFunc([](const ConfigOptions&, const std::string&,
+                                const void* addr, std::string* value) {
+             const std::string* config = static_cast<const std::string*>(addr);
+             *value = "{" + EscapeOptionString(*config) + "}";
+             return Status::OK();
+           })}};
+  return type_info;
+}
+
 class ExternalTableFactoryAdapter : public TableFactory {
  public:
   explicit ExternalTableFactoryAdapter(
       std::shared_ptr<ExternalTableFactory> inner)
-      : inner_(std::move(inner)) {}
+      : inner_(std::move(inner)) {
+    RegisterOptions(&options_,
+                    &GetExternalTableFactoryAdapterOptionsTypeInfo());
+  }
 
   const char* Name() const override { return inner_->Name(); }
+
+  Status PrepareOptions(const ConfigOptions& config_options) override {
+    Status status = TableFactory::PrepareOptions(config_options);
+    if (status.ok()) {
+      status = inner_->Configure(options_.config);
+    }
+    return status;
+  }
 
   using TableFactory::NewTableReader;
   Status NewTableReader(
@@ -746,6 +782,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
   };
 
   std::shared_ptr<ExternalTableFactory> inner_;
+  ExternalTableFactoryAdapterOptions options_;
 };
 
 }  // namespace
