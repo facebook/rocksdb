@@ -1211,7 +1211,9 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
       // Use >= so a crashed-mid-allocation file at exactly
       // prev_next_file_number triggers the advance -- otherwise the next
       // NewFileNumber() would collide with it.
-      if (number >= prev_next_file_number) {
+      const bool must_reserve_file_number =
+          type != kOptionsFile && type != kTempFile;
+      if (must_reserve_file_number && number >= prev_next_file_number) {
         on_disk_file_advanced_counter = true;
       }
       largest_file_number = std::max(largest_file_number, number);
