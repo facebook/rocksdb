@@ -82,7 +82,9 @@ Status DBImplSecondary::FindAndRecoverLogFiles(
   Status s;
   std::vector<uint64_t> logs;
   s = FindNewLogNumbers(&logs);
-  if (s.ok() && !logs.empty()) {
+  if (s.ok()) {
+    // Empty recovery rounds still prune resolved transactions and completed
+    // prep tracking.
     SequenceNumber next_sequence(kMaxSequenceNumber);
     s = RecoverLogFiles(logs, &next_sequence, cfds_changed, job_context);
   }
@@ -204,6 +206,8 @@ Status DBImplSecondary::RecoverLogFiles(
     }
     assert(reader != nullptr);
   }
+
+  DeleteResolvedRecoveredTransactions();
 
   const UnorderedMap<uint32_t, size_t>& running_ts_sz =
       versions_->GetRunningColumnFamiliesTimestampSize();
@@ -473,6 +477,18 @@ void DBImplSecondary::MaybeWarnAboutRetainedMemtables(
                  installed_log_number);
 }
 
+// The primary keeps min_log_number_to_keep at or below every unresolved prepare
+// and every prepare with unflushed committed data. A recovered transaction
+// entirely below it is therefore committed and flushed, or rolled back; see
+// PrecomputeMinLogNumberToKeep2PC(). FindNewLogNumbers() uses the same
+// threshold, so no marker below it can be replayed. If a resolution marker
+// appears in a later WAL, its handler tolerates missing recovery state.
+// Committed writes are skipped because the column family's log number is
+// already past their WAL.
+//
+// Drop before replay so a reused name starts a new generation instead of
+// merging with stale state. Open every reader first so a round that cannot
+// replay drops nothing.
 void DBImplSecondary::DeleteResolvedRecoveredTransactions() {
   mutex_.AssertHeld();
   if (recovered_transactions_.empty()) {
@@ -498,10 +514,10 @@ void DBImplSecondary::DeleteResolvedRecoveredTransactions() {
     }
   }
   if (deleted > 0) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Dropped %" ROCKSDB_PRIszt
-                   " recovered transaction(s) prepared before WAL %" PRIu64,
-                   deleted, min_log_number_to_keep);
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                    "Dropped %" ROCKSDB_PRIszt
+                    " recovered transaction(s) prepared before WAL %" PRIu64,
+                    deleted, min_log_number_to_keep);
   }
 }
 
@@ -755,14 +771,9 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
         sv_context.NewSuperVersion();
       }
       if (replayed_every_wal_found) {
-        // A WAL this round left unreplayed can still hold the marker that
-        // resolves a prepared section: RecoverLogFiles() opens every reader
-        // before replaying any record, so one WAL the primary deleted mid-round
-        // means nothing was replayed at all.
-        DeleteResolvedRecoveredTransactions();
         // Secondary catch-up does not run the primary paths that prune the
-        // completed tracker prefix. Replay can complete an entry without
-        // leaving a recovered transaction; an outstanding prepare stops it.
+        // completed tracker prefix. Replay and pre-replay cleanup add
+        // completions; an outstanding prepare stops the scan.
         (void)logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
       }
     }

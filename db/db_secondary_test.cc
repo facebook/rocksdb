@@ -1546,6 +1546,46 @@ TEST_F(DBSecondaryTest, DropsRecoveredTransactionAfterCommitWalIsPurged) {
   ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
 }
 
+// A primary can reuse a transaction name after commit unregisters it. If the
+// secondary missed the old marker, it must remove that generation before
+// replaying a new prepare with the same name.
+TEST_F(DBSecondaryTest, ReusesTransactionNameAfterResolvedBatchIsPurged) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+  OpenSecondaryFor2PC(options);
+
+  std::unique_ptr<Transaction> old_txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t6", "reuse", "v1", &old_txn));
+  uint64_t old_commit_log_number = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      CommitAndPurgeMarkerWal(txn_db, &old_txn, &old_commit_log_number));
+
+  std::unique_ptr<Transaction> new_txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t6", "reuse", "v2", &new_txn));
+  // The drop, not a replayed marker, is what removed the old generation.
+  ASSERT_GT(db_secondary_full()->GetVersionSet()->min_log_number_to_keep(),
+            old_commit_log_number);
+  DBImpl::RecoveredTransaction* recovered =
+      db_secondary_full()->GetRecoveredTransaction("t6");
+  ASSERT_NE(nullptr, recovered);
+  ASSERT_EQ(1, recovered->batches_.size());
+  VerifySecondaryValue("reuse", "v1");
+
+  ASSERT_OK(new_txn->Commit());
+  new_txn.reset();
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t6"));
+  VerifySecondaryValue("reuse", "v2");
+  ASSERT_EQ(0, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+}
+
 // Commit replay deletes the recovered transaction and records its prepare WAL
 // as complete. A secondary never runs the primary flush and write paths that
 // normally prune that tracking state, so catch-up must do it.
@@ -1580,7 +1620,7 @@ TEST_F(DBSecondaryTest, KeepsRecoveredTransactionWhilePrepareIsOutstanding) {
 
   TransactionDB* txn_db = nullptr;
   ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
-  DBImpl* primary = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+  DBImpl* primary = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
   OpenSecondaryFor2PC(options);
 
