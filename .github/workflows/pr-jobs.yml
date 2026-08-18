@@ -4,7 +4,8 @@ permissions: {}
 env:
   # Set to a job name to run only that job (on any repo), or leave empty for
   # normal behavior (all jobs on facebook repo only).
-  ONLY_JOB: ''
+  # TEMPORARY: isolate the ARM ConcurrentCompaction reproduction job.
+  ONLY_JOB: 'build-linux-arm-concurrent-compaction-repro'
 jobs:
   config:
     runs-on: ubuntu-latest
@@ -771,3 +772,93 @@ jobs:
         if: always()
         shell: bash
       - uses: "./.github/actions/post-steps"
+  build-linux-arm-concurrent-compaction-repro:
+    if: needs.config.outputs.only_job == 'build-linux-arm-concurrent-compaction-repro' || (needs.config.outputs.only_job == '' && github.repository_owner == 'facebook')
+    needs: config
+    runs-on:
+      labels: 4-core-ubuntu-arm
+    timeout-minutes: 180
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - name: Install build and repro dependencies
+      run: sudo apt-get update && sudo apt-get install -y build-essential libgflags-dev python3 util-linux
+    - name: Verify ARM runner
+      run: |-
+        uname -a
+        lscpu
+        case "$(uname -m)" in
+          aarch64|arm64) ;;
+          *) echo "Expected an ARM64 runner" >&2; exit 1 ;;
+        esac
+    - name: Build compaction_service_test
+      run: AUTO_CLEAN=1 make V=1 J=4 -j4 compaction_service_test
+    - name: Repeat ConcurrentCompaction serially
+      run: |-
+        timeout 60s ./compaction_service_test \
+          --gtest_filter=CompactionServiceTest.ConcurrentCompaction \
+          --gtest_repeat=20
+    - name: Run normal-build high-contention repro
+      run: |-
+        python3 tools/gtest_parallel_repro.py \
+          --binary=./compaction_service_test \
+          --gtest-filter=CompactionServiceTest.ConcurrentCompaction \
+          --processes-per-iteration=96 \
+          --iteration-count=30 \
+          --cpu-count=2 \
+          --timeout=240 \
+          --stop-on-failure \
+          --out="$RUNNER_TEMP/concurrent-compaction-normal-heavy"
+    - name: Run normal-build shard 29 repro
+      run: |-
+        # GTest shard indices are zero-based, so index 28 is shard 29 of 32.
+        python3 tools/gtest_parallel_repro.py \
+          --binary=./compaction_service_test \
+          --processes-per-iteration=64 \
+          --iteration-count=30 \
+          --cpu-count=2 \
+          --timeout=240 \
+          --stop-on-failure \
+          --env=GTEST_TOTAL_SHARDS=32 \
+          --env=GTEST_SHARD_INDEX=28 \
+          --out="$RUNNER_TEMP/concurrent-compaction-normal-shard-29"
+    - name: Rebuild with coerced context switches
+      run: AUTO_CLEAN=1 COERCE_CONTEXT_SWITCH=1 make V=1 J=4 -j4 compaction_service_test
+    - name: Repeat ConcurrentCompaction serially with coerced context switches
+      run: |-
+        timeout 60s ./compaction_service_test \
+          --gtest_filter=CompactionServiceTest.ConcurrentCompaction \
+          --gtest_repeat=20
+    - name: Run coerced high-contention repro
+      run: |-
+        python3 tools/gtest_parallel_repro.py \
+          --binary=./compaction_service_test \
+          --gtest-filter=CompactionServiceTest.ConcurrentCompaction \
+          --processes-per-iteration=64 \
+          --iteration-count=20 \
+          --cpu-count=2 \
+          --timeout=240 \
+          --stop-on-failure \
+          --out="$RUNNER_TEMP/concurrent-compaction-coerce-heavy"
+    - name: Run coerced shard 29 repro
+      run: |-
+        # GTest shard indices are zero-based, so index 28 is shard 29 of 32.
+        python3 tools/gtest_parallel_repro.py \
+          --binary=./compaction_service_test \
+          --processes-per-iteration=64 \
+          --iteration-count=30 \
+          --cpu-count=2 \
+          --timeout=240 \
+          --stop-on-failure \
+          --env=GTEST_TOTAL_SHARDS=32 \
+          --env=GTEST_SHARD_INDEX=28 \
+          --out="$RUNNER_TEMP/concurrent-compaction-coerce-shard-29"
+    - name: Upload ConcurrentCompaction repro artifacts
+      if: always()
+      uses: actions/upload-artifact@v4.0.0
+      with:
+        name: concurrent-compaction-arm-repro
+        path: ${{ runner.temp }}/concurrent-compaction-*/**
+        if-no-files-found: ignore
+    - uses: "./.github/actions/post-steps"
+      if: always()
