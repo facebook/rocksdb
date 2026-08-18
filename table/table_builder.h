@@ -21,6 +21,7 @@
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
 #include "table/embedded_blob_sst.h"
 #include "table/unique_id_impl.h"
@@ -138,6 +139,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
       const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0,
       const SequenceNumber _last_level_inclusive_max_seqno_threshold =
           kMaxSequenceNumber,
+      const Slice _db_name = Slice(), const bool _is_remote_compaction = false,
       const EmbeddedBlobSstBuilderOptions* _embedded_blob_options = nullptr)
       : TablePropertiesCollectorFactory::Context(
             _column_family_id, _level, _ioptions.num_levels,
@@ -159,6 +161,8 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
         db_session_id(_db_session_id),
         is_bottommost(_is_bottommost),
         reason(_reason),
+        db_name(_db_name),
+        is_remote_compaction(_is_remote_compaction),
         cur_file_num(_cur_file_num),
         embedded_blob_options(_embedded_blob_options) {}
 
@@ -180,6 +184,8 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   // BEGIN for FilterBuildingContext
   const bool is_bottommost;
   const TableFileCreationReason reason;
+  const Slice db_name;
+  const bool is_remote_compaction;
   // END for FilterBuildingContext
 
   const uint64_t cur_file_num;

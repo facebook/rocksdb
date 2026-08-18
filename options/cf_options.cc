@@ -134,6 +134,22 @@ static Status ParseCompressionOptions(const std::string& value,
   return Status::OK();
 }
 
+static Status CloneTableFactoryForOptionsUpdate(
+    TableFactory* table_factory,
+    std::shared_ptr<TableFactory>* cloned_factory) {
+  assert(table_factory != nullptr);
+  assert(cloned_factory != nullptr);
+
+  std::unique_ptr<TableFactory> clone = table_factory->Clone();
+  if (clone == nullptr) {
+    return Status::InvalidArgument(
+        "Table factory does not support option updates: " +
+        std::string(table_factory->Name()));
+  }
+  *cloned_factory = std::move(clone);
+  return Status::OK();
+}
+
 static Status TableFactoryParseFn(const ConfigOptions& opts,
                                   const std::string& name,
                                   const std::string& value, void* addr) {
@@ -170,7 +186,11 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     if (table_factory->get() != nullptr) {
       std::string factory_name = table_factory->get()->Name();
       if (factory_name == TableFactory::kBlockBasedTableName()) {
-        new_factory = table_factory->get()->Clone();
+        s = CloneTableFactoryForOptionsUpdate(table_factory->get(),
+                                              &new_factory);
+        if (!s.ok()) {
+          return s;
+        }
       } else {
         s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
                                     name);
@@ -185,7 +205,11 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     if (table_factory->get() != nullptr) {
       std::string factory_name = table_factory->get()->Name();
       if (factory_name == TableFactory::kPlainTableName()) {
-        new_factory = table_factory->get()->Clone();
+        s = CloneTableFactoryForOptionsUpdate(table_factory->get(),
+                                              &new_factory);
+        if (!s.ok()) {
+          return s;
+        }
       } else {
         s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
                                     name);
@@ -204,7 +228,10 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
       s = TableFactory::CreateFromString(opts, value, &new_factory);
     }
   } else if (table_factory->get() != nullptr) {
-    new_factory = table_factory->get()->Clone();
+    s = CloneTableFactoryForOptionsUpdate(table_factory->get(), &new_factory);
+    if (!s.ok()) {
+      return s;
+    }
     // Presumably passing a value for a specific field of the table factory
     s = new_factory->ConfigureOption(opts, name, value);
   } else {
@@ -237,6 +264,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
         {"max_compressed_bytes_per_kb",
          {offsetof(struct CompressionOptions, max_compressed_bytes_per_kb),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"auto_skip",
+         {offsetof(struct CompressionOptions, auto_skip), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"auto_skip_min_sample_every",
+         {offsetof(struct CompressionOptions, auto_skip_min_sample_every),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"max_dict_bytes",
@@ -616,6 +650,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"blob_file_size",
          {offsetof(struct MutableCFOptions, blob_file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"blob_file_writable_file_max_buffer_size",
+         {offsetof(struct MutableCFOptions,
+                   blob_file_writable_file_max_buffer_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"blob_compression_type",
@@ -1342,6 +1381,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  min_blob_size);
   ROCKS_LOG_INFO(log, "                           blob_file_size: %" PRIu64,
                  blob_file_size);
+  ROCKS_LOG_INFO(log, "  blob_file_writable_file_max_buffer_size: %" PRIu64,
+                 blob_file_writable_file_max_buffer_size);
   ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
                  CompressionTypeToString(blob_compression_type).c_str());
   ROCKS_LOG_INFO(log, "             blob_compression_opts.level: %d",

@@ -1,0 +1,1 @@
+Removed the experimental `CreateAutoSkipCompressionManager()`. Auto-skip compression is now a first-class feature of the block-based table builder, controlled by the new experimental `CompressionOptions::auto_skip`.

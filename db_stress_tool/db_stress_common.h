@@ -275,6 +275,8 @@ DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
+DECLARE_bool(compression_auto_skip);
+DECLARE_int32(compression_auto_skip_min_sample_every);
 DECLARE_bool(compression_use_zstd_dict_trainer);
 DECLARE_bool(compression_checksum);
 DECLARE_string(checksum_type);
@@ -347,6 +349,7 @@ DECLARE_bool(enable_blob_direct_write);
 DECLARE_uint64(blob_direct_write_partitions);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);
+DECLARE_uint64(blob_file_writable_file_max_buffer_size);
 DECLARE_string(blob_compression_type);
 DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
@@ -824,6 +827,8 @@ inline void SanitizeDoubleParam(double* param) {
 void PoolSizeChangeThread(void* v);
 
 void DbVerificationThread(void* v);
+
+void LivenessWatchdogThread(void* v);
 
 void RemoteCompactionWorkerThread(void* v);
 

@@ -17,14 +17,13 @@
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-    const bool use_value_delta_encoding,
+    const bool use_value_delta_encoding, uint32_t format_version,
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size, size_t ts_sz,
     const bool persist_user_defined_timestamps,
@@ -47,7 +46,9 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, true /* is_user_key */,
-          /*use_separated_kv_storage=*/false) {
+          /*use_separated_kv_storage=*/false),
+      use_value_delta_encoding_(use_value_delta_encoding),
+      value_delta_escape_(FormatVersionUsesValueDeltaEscape(format_version)) {
   // Compute keys_per_partition_
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
@@ -285,19 +286,24 @@ Status PartitionedFilterBlockBuilder::Finish(
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
-    PutVarsignedint64(
-        &handle_delta_encoding,
-        last_partition_block_handle.size() - last_encoded_handle_.size());
+    // NOTE: must go through IndexValue::EncodeTo, whose encoding depends on
+    // format_version; readers decode this block with IndexValue::DecodeFrom.
+    // Nothing to delta against for the first entry, whose value BlockBuilder
+    // writes in full anyway.
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+      IndexValue(last_partition_block_handle, Slice())
+          .EncodeTo(&handle_delta_encoding, /*have_first_key=*/false,
+                    &last_encoded_handle_, value_delta_escape_);
+    }
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
 
     // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
-                                       &handle_delta_encoding_slice);
+                                       handle_delta_encoding_slice);
     if (!p_index_builder_->separator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(e.ikey), handle_encoding,
-          &handle_delta_encoding_slice);
+          ExtractUserKey(e.ikey), handle_encoding, handle_delta_encoding_slice);
     }
 
     filters_.pop_front();
@@ -431,7 +437,8 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
       &iter, kNullStats, true /* total_order_seek */,
       false /* have_first_key */, index_key_includes_seq(),
       index_value_is_full(), false /* block_contents_pinned */,
-      user_defined_timestamps_persisted());
+      user_defined_timestamps_persisted(), nullptr /* prefix_index */,
+      BlockBasedTableOptions::kBinary, index_value_delta_escape());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -624,7 +631,9 @@ Status PartitionedFilterBlockReader::CacheDependencies(
       rep->get_global_seqno(BlockType::kFilterPartitionIndex), &biter,
       kNullStats, true /* total_order_seek */, false /* have_first_key */,
       index_key_includes_seq(), index_value_is_full(),
-      false /* block_contents_pinned */, user_defined_timestamps_persisted());
+      false /* block_contents_pinned */, user_defined_timestamps_persisted(),
+      nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+      index_value_delta_escape());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -713,7 +722,8 @@ void PartitionedFilterBlockReader::EraseFromCacheBeforeDestruction(
           &biter, kNullStats, true /* total_order_seek */,
           false /* have_first_key */, index_key_includes_seq(),
           index_value_is_full(), false /* block_contents_pinned */,
-          user_defined_timestamps_persisted());
+          user_defined_timestamps_persisted(), nullptr /* prefix_index */,
+          BlockBasedTableOptions::kBinary, index_value_delta_escape());
 
       UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
       for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();
@@ -750,6 +760,14 @@ bool PartitionedFilterBlockReader::index_value_is_full() const {
   assert(table()->get_rep());
 
   return table()->get_rep()->index_value_is_full;
+}
+
+bool PartitionedFilterBlockReader::index_value_delta_escape() const {
+  assert(table());
+  assert(table()->get_rep());
+
+  return FormatVersionUsesValueDeltaEscape(
+      table()->get_rep()->footer.format_version());
 }
 
 bool PartitionedFilterBlockReader::user_defined_timestamps_persisted() const {

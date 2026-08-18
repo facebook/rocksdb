@@ -890,8 +890,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_TRUE(to_flush5.empty());
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
-  ASSERT_FALSE(list.IsFlushPending());
-  ASSERT_FALSE(list.HasFlushRequested());
+  ASSERT_TRUE(list.IsFlushPending());
+  ASSERT_TRUE(list.HasFlushRequested());
 
   // Pick tables to flush. The tables to pick must have ID smaller than or
   // equal to 5. Therefore, only tables[5] will be selected.
@@ -918,6 +918,111 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     delete m;
   }
   to_delete.clear();
+}
+
+TEST_F(MemTableListTest, FlushRequestPersistsAfterPartialPick) {
+  SequenceNumber seq = 1;
+
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableOptions ioptions(options);
+  InternalKeyComparator cmp(BytewiseComparator());
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MutableCFOptions mutable_cf_options(options);
+  autovector<ReadOnlyMemTable*> to_delete;
+
+  MemTableList list(10 /* min_write_buffer_number_to_merge */,
+                    0 /* max_write_buffer_size_to_maintain */);
+
+  for (uint64_t memtable_id = 0; memtable_id < 2; ++memtable_id) {
+    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    mem->SetID(memtable_id);
+    mem->Ref();
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "key" + std::to_string(memtable_id),
+                       "value", nullptr /* kv_prot_info */));
+    list.Add(mem, &to_delete);
+  }
+
+  list.FlushRequested();
+  ASSERT_TRUE(list.IsFlushPending());
+
+  autovector<ReadOnlyMemTable*> to_flush;
+  list.PickMemtablesToFlush(0 /* max_memtable_id */, &to_flush);
+  ASSERT_EQ(1, to_flush.size());
+  ASSERT_TRUE(list.IsFlushPending());
+  ASSERT_TRUE(list.HasFlushRequested());
+
+  autovector<ReadOnlyMemTable*> to_flush2;
+  list.PickMemtablesToFlush(1 /* max_memtable_id */, &to_flush2);
+  ASSERT_EQ(1, to_flush2.size());
+  ASSERT_FALSE(list.IsFlushPending());
+  ASSERT_FALSE(list.HasFlushRequested());
+
+  list.current()->Unref(&to_delete);
+  ASSERT_EQ(2, to_delete.size());
+  for (ReadOnlyMemTable* m : to_delete) {
+    delete m;
+  }
+}
+
+TEST_F(MemTableListTest, RemoveOldMemTablesTest) {
+  // Covers the predicate that lets a caller skip RemoveOldMemTables(), and
+  // checks that it agrees with what the removal itself does. Both are used only
+  // by the secondary instance, which collects memtables by the log number that
+  // follows their contents rather than by flushing them.
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableOptions ioptions(options);
+  InternalKeyComparator cmp(BytewiseComparator());
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MutableCFOptions mutable_cf_options(options);
+  autovector<ReadOnlyMemTable*> to_delete;
+
+  MemTableList list(/*min_write_buffer_number_to_merge=*/1,
+                    /*max_write_buffer_size_to_maintain=*/0);
+
+  // An empty list has nothing to remove, whatever the log number.
+  ASSERT_FALSE(list.HasOldMemTablesToRemove(0));
+  ASSERT_FALSE(
+      list.HasOldMemTablesToRemove(std::numeric_limits<uint64_t>::max()));
+
+  // Two sealed memtables, the older one followed by WAL 10 and the newer one by
+  // WAL 20.
+  SequenceNumber seq = 1;
+  for (uint64_t next_log_number : {10, 20}) {
+    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    mem->Ref();
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "key", "value",
+                       nullptr /* kv_prot_info */));
+    mem->SetNextLogNumber(next_log_number);
+    mem->ConstructFragmentedRangeTombstones();
+    list.Add(mem, &to_delete);
+  }
+  ASSERT_EQ(2, list.NumNotFlushed());
+
+  // Neither memtable is superseded by a WAL older than the one following it.
+  ASSERT_FALSE(list.HasOldMemTablesToRemove(9));
+  list.RemoveOldMemTables(9, &to_delete);
+  ASSERT_EQ(2, list.NumNotFlushed());
+
+  // The older memtable is collected at exactly its own next log number.
+  ASSERT_TRUE(list.HasOldMemTablesToRemove(10));
+  list.RemoveOldMemTables(10, &to_delete);
+  ASSERT_EQ(1, list.NumNotFlushed());
+
+  ASSERT_FALSE(list.HasOldMemTablesToRemove(19));
+  ASSERT_TRUE(list.HasOldMemTablesToRemove(20));
+  list.RemoveOldMemTables(20, &to_delete);
+  ASSERT_EQ(0, list.NumNotFlushed());
+  ASSERT_FALSE(
+      list.HasOldMemTablesToRemove(std::numeric_limits<uint64_t>::max()));
+
+  list.current()->Unref(&to_delete);
+  for (ReadOnlyMemTable* m : to_delete) {
+    delete m;
+  }
 }
 
 TEST_F(MemTableListTest, EmptyAtomicFlushTest) {

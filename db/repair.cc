@@ -482,7 +482,9 @@ class Repairer {
           current_time /* newest_key_time */, false /* is_bottommost */,
           TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
           0 /* file_creation_time */, "DB Repairer" /* db_id */, db_session_id_,
-          0 /*target_file_size*/, meta.fd.GetNumber());
+          0 /*target_file_size*/, meta.fd.GetNumber(),
+          kMaxSequenceNumber /*last_level_inclusive_max_seqno_threshold*/,
+          dbname_ /*db_name*/);
 
       SeqnoToTimeMapping empty_seqno_to_time_mapping;
       status = BuildTable(

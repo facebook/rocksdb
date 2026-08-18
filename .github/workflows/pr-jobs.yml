@@ -427,13 +427,20 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/cache-getdeps-downloads"
+    - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/setup-ccache"
       with:
         cache-key-prefix: mini-crashtest
+    - uses: "./.github/actions/cache-folly"
+      id: cache-folly
+    - uses: "./.github/actions/build-folly"
+      with:
+        cache-hit: ${{ steps.cache-folly.outputs.cache-hit }}
     - run: |
         ulimit -S -n $(ulimit -Hn) # Raise open files soft limit to hard limit
         echo "Updated ulimit -Hn: $(ulimit -Hn) -Sn: $(ulimit -Sn)"
-        make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
+        USE_COROUTINES=1 USE_FOLLY=1 LIB_MODE=static make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=${{ matrix.crash_duration }} --max_key=2500000' ${{ matrix.crash_test_target }}
     - uses: "./.github/actions/teardown-ccache"
       if: always()
     - uses: "./.github/actions/post-steps"

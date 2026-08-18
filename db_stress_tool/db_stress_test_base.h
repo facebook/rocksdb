@@ -407,7 +407,9 @@ class StressTest {
     kLastOpSeekToLast
   };
 
-  // Enum used to track MANIFEST verification mode during DB reopen
+  // Enum used to track MANIFEST verification mode during DB reopen.
+  // Verification is skipped when metadata write fault injection is enabled
+  // because recovery may have to abandon a partially written MANIFEST.
   enum ManifestVerifyMode {
     MANIFEST_VERIFY_NONE,
     // MANIFEST file should be reused (same file number), CURRENT should not
@@ -477,6 +479,8 @@ class StressTest {
   Status TestDisableFileDeletions(ThreadState* thread);
 
   Status TestDisableManualCompaction(ThreadState* thread);
+
+  bool ShouldAbortAndResumeCompactions() const;
 
   Status TestAbortAndResumeCompactions(ThreadState* thread);
 

@@ -114,6 +114,22 @@ class PointLockValidationTestRunner {
     }
   }
 
+  // Ensure worker threads are always stopped and joined before this object is
+  // destroyed. This is critical because run() uses gtest ASSERT_* macros, which
+  // return early from run() on failure, skipping the normal shutdown/join at
+  // the end. Without this, worker threads would keep running and access members
+  // of this object after it is freed (heap-use-after-free), and destroying the
+  // still-joinable threads_ vector would call std::terminate.
+  ~PointLockValidationTestRunner() { StopAndJoinThreads(); }
+
+  // This object owns worker threads; it is neither copied nor moved.
+  PointLockValidationTestRunner(const PointLockValidationTestRunner&) = delete;
+  PointLockValidationTestRunner& operator=(
+      const PointLockValidationTestRunner&) = delete;
+  PointLockValidationTestRunner(PointLockValidationTestRunner&&) = delete;
+  PointLockValidationTestRunner& operator=(PointLockValidationTestRunner&&) =
+      delete;
+
   // Decide which lock type to acquire
   // If the key is already locked and only one type of locks to be tested,
   // return false, so caller could try to lock a different key.
@@ -352,6 +368,14 @@ class PointLockValidationTestRunner {
     std::vector<int64_t> prev_num_of_locks_acquired_per_thread(thread_count_,
                                                                0);
     int64_t measured_locks_acquired = 0;
+    // Under sanitizer builds (e.g. ASAN/UBSAN) combined with very short lock
+    // timeout/expiration and post-acquisition sleeps, it is possible for all
+    // threads to fail to acquire a single lock within a given one-second window
+    // without the lock manager actually being stuck. Only treat a sustained
+    // lack of progress as a failure; this still reliably detects a genuinely
+    // stuck (dead/livelocked) lock manager while avoiding flaky failures.
+    constexpr uint32_t kMaxNoProgressSeconds = 5;
+    uint32_t consecutive_no_progress_seconds = 0;
     for (uint32_t i = 0; i < execution_time_sec_; i++) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
       auto num_of_locks_acquired = num_of_locks_acquired_.load();
@@ -362,8 +386,16 @@ class PointLockValidationTestRunner {
                 num_of_shared_locks_acquired_.load());
       DEBUG_LOG("num_of_deadlock_detected: %" PRId64 "\n",
                 num_of_deadlock_detected_.load());
-      ASSERT_TRUE_WITH_MSG(num_of_locks_acquired > prev_num_of_locks_acquired,
-                           "No locks were acquired in the last 1 second");
+      if (num_of_locks_acquired > prev_num_of_locks_acquired) {
+        consecutive_no_progress_seconds = 0;
+      } else {
+        consecutive_no_progress_seconds++;
+        ASSERT_TRUE_WITH_MSG(
+            consecutive_no_progress_seconds < kMaxNoProgressSeconds,
+            "No locks were acquired in the last " +
+                std::to_string(consecutive_no_progress_seconds) +
+                " consecutive seconds");
+      }
       for (uint32_t thd_idx = 0; thd_idx < thread_count_; thd_idx++) {
         auto num_of_locks_acquired_per_thread =
             num_of_locks_acquired_per_thread_[thd_idx]->load();
@@ -395,10 +427,7 @@ class PointLockValidationTestRunner {
       }
     }
 
-    shutdown_ = true;
-    for (auto& t : threads_) {
-      t.join();
-    }
+    StopAndJoinThreads();
 
     // validate values against counters
     for (uint32_t i = 0; i < key_count_; i++) {
@@ -406,7 +435,7 @@ class PointLockValidationTestRunner {
                            "Exclusive lock guarantee is violated.");
     }
 
-    ASSERT_TRUE_WITH_MSG(num_of_locks_acquired_.load() >= 0,
+    ASSERT_TRUE_WITH_MSG(num_of_locks_acquired_.load() > 0,
                          "No lock were acquired at all");
     printf("num_of_locks_acquired: %" PRId64 "\n",
            num_of_locks_acquired_.load());
@@ -417,6 +446,18 @@ class PointLockValidationTestRunner {
   }
 
  private:
+  // Signal all worker threads to stop and join them. Safe to call multiple
+  // times (from run() on the normal path and again from the destructor);
+  // threads that were already joined are skipped.
+  void StopAndJoinThreads() {
+    shutdown_ = true;
+    for (auto& t : threads_) {
+      if (t.joinable()) {
+        t.join();
+      }
+    }
+  }
+
   // test configuration
   Env* env_;
   TransactionDBOptions txndb_opt_;

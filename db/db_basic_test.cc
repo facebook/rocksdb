@@ -11,6 +11,7 @@
 
 #include "db/db_test_util.h"
 #include "db/log_writer.h"
+#include "db/manifest_ops.h"
 #include "db/version_edit.h"
 #include "file/writable_file_writer.h"
 #include "options/options_helper.h"
@@ -23,7 +24,9 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/format.h"
 #include "test_util/sync_point.h"
+#include "util/defer.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/counted_fs.h"
@@ -141,6 +144,7 @@ struct RecoveryOptimizationCounters {
     sp->ClearAllCallBacks();
   }
 };
+
 }  // namespace
 
 // optimize_manifest_for_recovery=true: a clean reopen of a flushed DB must
@@ -978,27 +982,19 @@ TEST_F(DBBasicTest, WritableFileWriterInitialFileSizeAdoptsExistingSize) {
 TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
   options.reuse_manifest_on_open = true;
+  options.write_dbid_to_manifest = false;
   DestroyAndReopen(options);
   ASSERT_OK(Put("k", "v"));
   ASSERT_OK(Flush());
   Close();
 
-  // Find the MANIFEST file and append garbage to it.
   std::string manifest_path;
-  {
-    std::vector<std::string> files;
-    ASSERT_OK(env_->GetChildren(dbname_, &files));
-    for (const auto& f : files) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
-        manifest_path = dbname_ + "/" + f;
-        break;
-      }
-    }
-  }
-  ASSERT_FALSE(manifest_path.empty());
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path,
+                                   &manifest_file_number));
   {
     std::string contents;
     ASSERT_OK(ReadFileToString(env_, manifest_path, &contents));
@@ -1007,9 +1003,13 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   }
 
   std::atomic<int> reopened{0};
+  std::atomic<int> new_manifest{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ReopenManifestForAppend:Reopened",
       [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeNewManifest",
+      [&](void* /*arg*/) { new_manifest.fetch_add(1); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
@@ -1018,6 +1018,12 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ(1, new_manifest.load());
+  std::string manifest_path_after;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path, manifest_path_after);
   ASSERT_EQ("v", Get("k"));
 }
 
@@ -1030,27 +1036,19 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
 TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
   options.reuse_manifest_on_open = true;
+  options.write_dbid_to_manifest = false;
   DestroyAndReopen(options);
   ASSERT_OK(Put("k", "v"));
   ASSERT_OK(Flush());
   Close();
 
-  // Find the MANIFEST file.
   std::string manifest_path;
-  {
-    std::vector<std::string> files;
-    ASSERT_OK(env_->GetChildren(dbname_, &files));
-    for (const auto& f : files) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
-        manifest_path = dbname_ + "/" + f;
-        break;
-      }
-    }
-  }
-  ASSERT_FALSE(manifest_path.empty());
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path,
+                                   &manifest_file_number));
 
   // Append an incomplete atomic group (2 records of a 3-member group) to the
   // MANIFEST. These are valid log records with correct CRCs but the atomic
@@ -1088,11 +1086,29 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
     // Deliberately NOT writing the third record (remaining_entries=0)
   }
 
-  // Reopen: recovery should succeed (incomplete trailing group is ignored).
-  // With the fix, ReopenManifestForAppend will NOT reuse the MANIFEST because
-  // manifest_last_valid_record_end_ < physical_size (the incomplete group
-  // records are excluded from the valid end).
+  std::atomic<int> reopened{0};
+  std::atomic<int> new_manifest{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeNewManifest",
+      [&](void* /*arg*/) { new_manifest.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Reopen: recovery should succeed, but ReopenManifestForAppend must not
+  // reuse a MANIFEST ending with an incomplete atomic group.
   Reopen(options);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ(1, new_manifest.load());
+  std::string manifest_path_after;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path, manifest_path_after);
   ASSERT_EQ("v", Get("k"));
 
   // Write new data to create new MANIFEST records.
@@ -2227,6 +2243,9 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, DBBlockChecksumTest,
 TEST_P(DBBlockChecksumTest, BlockChecksumTest) {
   BlockBasedTableOptions table_options;
   table_options.format_version = GetParam();
+  // kFooterFormatVersionsToTest includes the unpublished draft format_version
+  // 8; writing it requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
   Options options = CurrentOptions();
   const int kNumPerFile = 2;
 
@@ -4020,7 +4039,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     AssertMultiGetIOBatchSize(3, 1);
   }
 #else   // ROCKSDB_IOURING_PRESENT
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 3 : 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4047,7 +4067,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
             UseCoroutineRead() ? 6 : 3);
 #else   // ROCKSDB_IOURING_PRESENT
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 6 : 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -4200,7 +4221,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
             UseCoroutineRead() ? 3 : 2);
 #else   // ROCKSDB_IOURING_PRESENT
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT),
+            UseCoroutineRead() ? 3 : 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 

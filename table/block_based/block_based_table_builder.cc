@@ -64,6 +64,7 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/defer.h"
+#include "util/random.h"
 #include "util/semaphore.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -77,6 +78,71 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 namespace {
 
 constexpr size_t kBlockTrailerSize = BlockBasedTable::kBlockTrailerSize;
+
+// ===================== AutoSkip compression =====================
+// Fixed-point scale for the continuous compression-ratio estimate q_hat and the
+// threshold derived from max_compressed_bytes_per_kb. A stored/uncompressed
+// ratio in [0,1] maps to [0, kAutoSkipScale]. Using a fine scale (2^20) so the
+// integer EWMA step never stalls short of the threshold (the threshold is at
+// most 1023/1024 -> ~kAutoSkipScale).
+constexpr uint32_t kAutoSkipScale = 1u << 20;
+// Asymmetric EWMA on the estimated stored ratio q_hat (lower ratio == better
+// compression). Slightly faster toward better compression (so we resume
+// attempting reasonably promptly when compressible data appears) than toward
+// worse (build confidence before skipping), expressed as right-shift amounts
+// (alpha_fast = 1/8, alpha_slow = 1/16).
+//
+// The fast side is deliberately NOT very aggressive: with a large alpha_fast a
+// single "compressible but not great" sample (ratio just under the bar) would
+// yank q_hat below the threshold and flip the whole file back to
+// attempt-everything, causing us to under-skip fine-grained marginal-payoff
+// mixes whose *aggregate* ratio does not clear the bar. A gentler alpha_fast
+// lets q_hat track the true aggregate, so such mixes are skipped as intended,
+// while genuinely compressible regions (large diff) still recover within a
+// region at negligible cost. Tentative; candidates for a tuning study (e.g.
+// remote compaction workers).
+constexpr int kAutoSkipAlphaFastShift = 3;
+constexpr int kAutoSkipAlphaSlowShift = 4;
+// q_hat starts at the best possible ratio ("attempt by default") absent
+// carryover, so a fresh file never skips a compressible workload before
+// observing it.
+constexpr uint32_t kAutoSkipInitialQHat = 0;
+// Default nominal sampling interval (skipped data blocks between samples) when
+// auto_skip_min_sample_every is left 0.
+constexpr uint32_t kAutoSkipDefaultMinSampleEvery = 64;
+
+// Inter-file carryover of the estimate, living on the emit/compaction thread so
+// a sustained-incompressible compaction stays confident across the files it
+// emits without re-ramping each file. A single slot suffices: consecutive files
+// from one flush/compaction thread almost always use the same compression type.
+// The slot records the (preferred) CompressionType its estimate was produced
+// with, so a file inherits carryover only when its type matches; a type change
+// (or an unset slot, marked by kNoCompression) simply starts fresh, so
+// different algorithms don't contaminate each other.
+//
+// Because this is a bare thread_local on a pooled flush/compaction thread, the
+// estimate also carries across unrelated jobs that happen to reuse the thread.
+// That is fine: job-to-job carryover is not meaningfully different from the
+// file-to-file recovery/hysteresis we already rely on within a job -- a fresh
+// job samples early (the per-worker sample countdown starts at 0) and keeps
+// sampling, so a stale estimate self-corrects quickly (fast toward better
+// compression). Scoping the carryover more tightly (per job/CF, with a TTL,
+// etc.) would add complexity for nuance that may not pay off, and if it does,
+// only negligibly.
+struct AutoSkipCarry {
+  uint32_t q_hat = kAutoSkipInitialQHat;
+  // Preferred CompressionType this estimate was produced with; kNoCompression
+  // marks the slot unset/invalid.
+  CompressionType type = kNoCompression;
+};
+// Accessor for the per-thread carryover slot. A function-local thread_local
+// (rather than a namespace-scope thread_local) keeps this mutable per-thread
+// state out of the global namespace (clang-tidy
+// cppcoreguidelines-avoid-non-const-global-variables).
+AutoSkipCarry& AutoSkipCarryTLS() {
+  thread_local AutoSkipCarry carry{};
+  return carry;
+}
 
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
@@ -109,8 +175,9 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          use_delta_encoding_for_index_values, p_index_builder, partition_size,
-          ts_sz, persist_user_defined_timestamps,
+          use_delta_encoding_for_index_values, table_opt.format_version,
+          p_index_builder, partition_size, ts_sz,
+          persist_user_defined_timestamps,
           table_opt.decouple_partitioned_filters);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
@@ -134,6 +201,15 @@ Compressor* MaybeCloneSpecialized(
   }
 }
 }  // namespace
+
+// Defined outside the anonymous namespace above (it is a static member of
+// BlockBasedTableBuilder) but relies on that namespace's AutoSkip carryover.
+// Lets tools that build many independent files on one thread (e.g. sst_dump
+// --command=recompress) clear the AutoSkip inter-file estimate between files,
+// so each is measured without inheriting the previous file's estimate.
+void BlockBasedTableBuilder::ResetThreadLocalAutoSkipCarryover() {
+  AutoSkipCarryTLS() = AutoSkipCarry{};
+}
 
 // kBlockBasedTableMagicNumber was picked by running
 //    echo rocksdb.table.block_based | sha1sum
@@ -289,6 +365,23 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     std::string uncompressed;
     GrowableBuffer compressed;
     CompressionType compression_type = kNoCompression;
+    uint32_t contents_checksum = 0;
+    // Set by the emit thread: this data block's compression was auto-skipped,
+    // so no worker should compress it -- StateTransition auto-completes it
+    // straight to the write stage. Set on every emit (true=skip,
+    // false=attempt).
+    //
+    // Atomic purely for TSAN suppression (and technical UB). In cases where a
+    // race would be reported, a later atomic CAS would discover that (among
+    // other things) the value read was potentially stale; in that case, the
+    // read value and all downstream decisions based on it are abandoned.
+    // See StateTransition(). Specifically, if a thread is lagging, it could
+    // read this value after the slot was opened for recycling and would
+    // discover its speculated state transition is stale and rejected by the
+    // CAS. If the CAS succeeds, the value of this field was published by the
+    // emit thread with acquire/release of atomic_state and not modified
+    // elsewhere.
+    RelaxedAtomic<bool> auto_skip_bypassed{false};
     std::unique_ptr<IndexBuilder::PreparedIndexEntry> prepared_index_entry;
   };
 
@@ -591,6 +684,22 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
           next_slot = next_state.Get<NextToEmit>() & ring_buffer_mask;
         }
       }
+      // Auto-complete any leading auto-skip-bypassed blocks: they need no
+      // compression, so advance NextToCompress past them and mark each
+      // writer-ready, WITHOUT dispatching a compression worker. Done here
+      // (after the emitter's emit priority, before the worker's write priority)
+      // so a worker still picks up writing them and the emitter never writes.
+      if (next_thread_state == ThreadState::kEnd) {
+        while (next_state.Get<NextToCompress>() !=
+               next_state.Get<NextToEmit>()) {
+          uint32_t cslot = next_state.Get<NextToCompress>() & ring_buffer_mask;
+          if (!ring_buffer[cslot].auto_skip_bypassed.LoadRelaxed()) {
+            break;
+          }
+          next_state.Ref<NeedsWriter>() |= uint32_t{1} << cslot;
+          next_state.Ref<NextToCompress>() += 1;
+        }
+      }
       if constexpr (thread_kind == ThreadKind::kWorker) {
         // First priority is writing next block to write, if it needs a writer
         // assigned to it
@@ -620,7 +729,15 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
           next_slot = next_state.Get<NextToCompress>() & ring_buffer_mask;
           next_state.Ref<NextToCompress>() += 1;
         } else if constexpr (thread_kind == ThreadKind::kEmitter) {
-          // Emitter thread goes idle
+          // Emitter thread goes idle. But if we just auto-completed skipped
+          // blocks (creating writer work) and all workers are idle, wake one to
+          // write them -- the emit thread never writes, so otherwise no one
+          // would.
+          if (!wake_idle && next_state.Get<NeedsWriter>() != 0 &&
+              next_state.Get<IdleWorkerCount>() == num_worker_threads) {
+            wake_idle = true;
+            next_state.Ref<IdleWorkerCount>() -= 1;
+          }
           next_thread_state = ThreadState::kIdle;
           assert(next_state.Get<IdleEmitFlag>() == false);
           assert(next_state.Get<NoMoreToEmitFlag>() == false);
@@ -865,6 +982,36 @@ struct BlockBasedTableBuilder::Rep {
   RelaxedAtomic<uint64_t> uncompressible_input_data_bytes{0};
   RelaxedAtomic<uint64_t> num_data_blocks_compression_rejected{0};
   RelaxedAtomic<uint64_t> num_data_blocks_compression_bypassed{0};
+
+  // ===================== AutoSkip compression state =====================
+  // See CompressAndVerifyBlock. Active iff auto_skip is true (which also
+  // requires a data-block compressor to exist). auto_skip_threshold_q and q_hat
+  // are estimated stored/uncompressed ratios in kAutoSkipScale fixed point.
+  bool auto_skip = false;
+  // Skip data blocks once the estimate q_hat exceeds this (i.e. attempting is
+  // not achieving at least this ratio). Derived from
+  // max_compressed_bytes_per_kb (the per-block "worth keeping" bar), scaled to
+  // kAutoSkipScale units.
+  uint32_t auto_skip_threshold_q = 0;
+  uint32_t auto_skip_min_sample_every = 0;
+  // Emit-thread-only countdown of skipped data blocks before the next forced
+  // compression "sample" in the skip regime. 0 => sample the next skip
+  // candidate, then draw a fresh randomized gap. Only the emit thread makes
+  // auto-skip decisions (serial: inline in WriteBlock; parallel: at emit time
+  // in EmitBlockForParallel), so this needs no synchronization.
+  uint32_t auto_skip_skips_until_sample = 0;
+  // Preferred CompressionType this file's carryover is keyed to, or
+  // kNoCompression if not seeded.
+  CompressionType auto_skip_carry_type = kNoCompression;
+  // Shared, continuously-updated estimate of the aggregate stored/uncompressed
+  // ratio q_hat (kAutoSkipScale units; lower == better compression), read and
+  // updated by all compression workers and the emit thread. Given its own full
+  // cache line via CacheAlignedWrapper -- which pads to CACHE_LINE_SIZE so both
+  // neighbors are isolated -- to avoid false sharing with the hot per-block
+  // counters that precede it and the sampling counters that follow it.
+  CacheAlignedWrapper<std::atomic<uint32_t>> auto_skip_q_hat{
+      {kAutoSkipInitialQHat}};
+
   RelaxedAtomic<uint64_t> sampled_input_data_bytes{0};
   RelaxedAtomic<uint64_t> sampled_output_slow_data_bytes{0};
   RelaxedAtomic<uint64_t> sampled_output_fast_data_bytes{0};
@@ -1002,6 +1149,113 @@ struct BlockBasedTableBuilder::Rep {
 
   bool IsParallelCompressionActive() const { return pc_rep != nullptr; }
 
+  bool AutoSkipEnabled() const { return auto_skip; }
+
+  // Draw a randomized sampling gap uniform in [(1-e)N, (1+e)N], e = 1/4, so
+  // samples don't cluster or fall in a predictable pattern.
+  uint32_t AutoSkipDrawGap() {
+    uint32_t n = auto_skip_min_sample_every;
+    uint32_t spread = n / 4;  // e = 0.25
+    uint32_t jitter = static_cast<uint32_t>(
+        Random::GetTLSInstance()->Uniform(static_cast<int>(2 * spread + 1)));
+    return n - spread + jitter;
+  }
+
+  // Emit-thread-only auto-skip decision for an ELIGIBLE data block (caller has
+  // already checked AutoSkipEnabled() and size < kCompressionSizeLimit).
+  // Returns true to bypass compression, advancing the sample countdown.
+  // Attempts while q_hat is at or below the bar (paying off), otherwise skips
+  // except for periodic samples that keep the estimate fresh and detect a
+  // return to compressible data.
+  bool AutoSkipDecideBypassEligible() {
+    if (auto_skip_q_hat.obj_.load(std::memory_order_relaxed) <=
+        auto_skip_threshold_q) {
+      return false;  // attempt regime
+    }
+    if (auto_skip_skips_until_sample == 0) {
+      auto_skip_skips_until_sample = AutoSkipDrawGap();
+      return false;  // periodic sample: attempt
+    }
+    auto_skip_skips_until_sample--;
+    return true;  // skip
+  }
+
+  // Bypass bookkeeping for an eligible data block whose compression was
+  // auto-skipped. Mirrors what CompressAndVerifyBlock records for a bypassed
+  // block, for the parallel path where skipped blocks never reach it. May be
+  // called from the emit thread; the counters/stats are thread-safe.
+  void AutoSkipRecordBypass(size_t uncompressed_size) {
+    compressible_input_data_bytes.FetchAddRelaxed(uncompressed_size);
+    uncompressible_input_data_bytes.FetchAddRelaxed(kBlockTrailerSize);
+    num_data_blocks_compression_bypassed.FetchAddRelaxed(1);
+    RecordTick(ioptions.stats, NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    RecordTick(ioptions.stats, BYTES_COMPRESSION_BYPASSED, uncompressed_size);
+  }
+
+  // Asymmetric EWMA update of the shared q_hat toward this block's observed
+  // stored ratio obs (kAutoSkipScale units; lower == better compression). Fast
+  // toward better compression (obs < q_hat), slow toward worse. Relaxed
+  // load/store: a lost update under concurrency only costs a little precision
+  // (acceptable within the limits of parallel compression).
+  void AutoSkipUpdateQHat(uint32_t obs) {
+    int32_t cur = static_cast<int32_t>(
+        auto_skip_q_hat.obj_.load(std::memory_order_relaxed));
+    int32_t diff = static_cast<int32_t>(obs) - cur;
+    int shift = diff < 0 ? kAutoSkipAlphaFastShift : kAutoSkipAlphaSlowShift;
+    int32_t step = diff >= 0 ? (diff >> shift) : -((-diff) >> shift);
+    if (step == 0) {
+      // Granularity floor so the estimate can converge all the way to the
+      // observation (and thus cross the threshold) rather than stalling.
+      step = diff > 0 ? 1 : (diff < 0 ? -1 : 0);
+    }
+    auto_skip_q_hat.obj_.store(static_cast<uint32_t>(cur + step),
+                               std::memory_order_relaxed);
+  }
+
+  // Resolve AutoSkip options into internal fixed-point form. The skip threshold
+  // reuses max_compressed_bytes_per_kb (the per-block "worth keeping" bar): a
+  // per-1024 ratio scaled to kAutoSkipScale (2^20) fixed point (x * 2^20 / 2^10
+  // == x << 10). Requires max_compressed_bytes_per_kb to be set already.
+  void AutoSkipSetup(const CompressionOptions& opts) {
+    auto_skip = opts.auto_skip;
+    if (!auto_skip) {
+      return;
+    }
+    auto_skip_threshold_q = static_cast<uint32_t>(max_compressed_bytes_per_kb)
+                            << 10;
+    int n = opts.auto_skip_min_sample_every;
+    auto_skip_min_sample_every =
+        n > 0 ? static_cast<uint32_t>(n) : kAutoSkipDefaultMinSampleEvery;
+  }
+
+  // Seed the estimate from this emit/compaction thread's carryover for the data
+  // block compressor's preferred type (if any). No-op until a data-block
+  // compressor exists (e.g. dictionary sampling defers this to
+  // MaybeEnterUnbuffered). Emit-thread only.
+  void AutoSkipSeed() {
+    if (!AutoSkipEnabled() || !data_block_compressor) {
+      return;
+    }
+    auto_skip_carry_type = data_block_compressor->GetPreferredCompressionType();
+    const AutoSkipCarry& c = AutoSkipCarryTLS();
+    // Inherit the carried estimate only if it was produced for the same
+    // compression type; otherwise start fresh.
+    auto_skip_q_hat.obj_.store(
+        c.type == auto_skip_carry_type ? c.q_hat : kAutoSkipInitialQHat,
+        std::memory_order_relaxed);
+  }
+
+  // Persist the final estimate back to thread-local carryover. Emit-thread
+  // only, after parallel workers have joined.
+  void AutoSkipWriteBack() {
+    if (auto_skip_carry_type == kNoCompression) {
+      return;
+    }
+    AutoSkipCarryTLS() =
+        AutoSkipCarry{auto_skip_q_hat.obj_.load(std::memory_order_relaxed),
+                      auto_skip_carry_type};
+  }
+
   Status GetStatus() { return GetIOStatus(); }
 
   bool StatusOk() {
@@ -1118,8 +1372,15 @@ struct BlockBasedTableBuilder::Rep {
             tbo.compression_opts.max_compressed_bytes_per_kb),
         use_delta_encoding_for_index_values(
             table_opt.format_version >= 4 && !table_opt.block_align &&
-            /* surely no embedded blobs */ tbo.embedded_blob_options ==
-                nullptr),
+            // Embedded blob records are interleaved between data blocks, which
+            // breaks the "next block starts where the last one ended"
+            // contiguity that plain index value-delta encoding assumes.
+            // format_version >= 8 handles non-contiguous index entries with the
+            // in-value escape (see IndexValue::EncodeTo), so value-delta
+            // encoding is safe with embedded blobs there; older versions must
+            // fall back to full handles.
+            (tbo.embedded_blob_options == nullptr ||
+             FormatVersionUsesValueDeltaEscape(table_opt.format_version))),
         reason(tbo.reason),
         target_file_size_is_upper_bound(
             tbo.moptions.target_file_size_is_upper_bound),
@@ -1128,15 +1389,17 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         warm_cache_config(WarmCacheConfig::Compute(
             table_options.prepopulate_block_cache, reason)),
-        create_context(&table_options, &ioptions, ioptions.stats,
-                       /*decompressor=*/nullptr,
-                       tbo.moptions.block_protection_bytes_per_key,
-                       tbo.internal_comparator.user_comparator(),
-                       !use_delta_encoding_for_index_values,
-                       table_opt.index_type ==
-                           BlockBasedTableOptions::kBinarySearchWithFirstKey,
-                       table_options.block_restart_interval,
-                       table_options.index_block_restart_interval),
+        create_context(
+            &table_options, &ioptions, ioptions.stats,
+            /*decompressor=*/nullptr,
+            tbo.moptions.block_protection_bytes_per_key,
+            tbo.internal_comparator.user_comparator(),
+            !use_delta_encoding_for_index_values,
+            table_opt.index_type ==
+                BlockBasedTableOptions::kBinarySearchWithFirstKey,
+            FormatVersionUsesValueDeltaEscape(table_opt.format_version),
+            table_options.block_restart_interval,
+            table_options.index_block_restart_interval),
         tail_size(0),
         embedded_blob_options(
             tbo.embedded_blob_options
@@ -1147,16 +1410,25 @@ struct BlockBasedTableBuilder::Rep {
 
     filter_context.info_log = ioptions.logger;
     filter_context.column_family_name = tbo.column_family_name;
+    filter_context.db_name = tbo.db_name;
     filter_context.reason = reason;
 
     // Only populate other fields if known to be in LSM rather than
     // generating external SST file
-    if (reason != TableFileCreationReason::kMisc) {
-      filter_context.compaction_style = ioptions.compaction_style;
-      filter_context.num_levels = ioptions.num_levels;
-      filter_context.level_at_creation = tbo.level_at_creation;
-      filter_context.is_bottommost = tbo.is_bottommost;
-      assert(filter_context.level_at_creation < filter_context.num_levels);
+    switch (reason) {
+      case TableFileCreationReason::kFlush:
+      case TableFileCreationReason::kCompaction:
+      case TableFileCreationReason::kRecovery:
+        filter_context.compaction_style = ioptions.compaction_style;
+        filter_context.num_levels = ioptions.num_levels;
+        filter_context.level_at_creation = tbo.level_at_creation;
+        filter_context.is_bottommost = tbo.is_bottommost;
+        filter_context.is_remote_compaction = tbo.is_remote_compaction;
+        assert(filter_context.level_at_creation < filter_context.num_levels);
+        break;
+      case TableFileCreationReason::kSstFileWriter:
+      case TableFileCreationReason::kMisc:
+        break;
     }
 
     props.compression_options =
@@ -1190,6 +1462,8 @@ struct BlockBasedTableBuilder::Rep {
     // Sanitize to only allowing compression when it saves space.
     max_compressed_bytes_per_kb =
         std::min(int{1023}, tbo.compression_opts.max_compressed_bytes_per_kb);
+
+    AutoSkipSetup(tbo.compression_opts);
 
     basic_compressor = compression_manager->GetCompressorForSST(
         filter_context, tbo.compression_opts, tbo.compression_type);
@@ -1262,6 +1536,14 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
+    // AutoSkip needs a data-block compressor to have anything to skip. If
+    // compression is entirely disabled (no compressor at all), keep AutoSkip
+    // inactive so the hot path does no pointless work and the state stays
+    // consistent with the "requires a data-block compressor" invariant.
+    if (!basic_compressor) {
+      auto_skip = false;
+    }
+
     // Allow Compressor to override parallel_threads
     if (basic_compressor) {
       uint32_t recommended = basic_compressor->GetRecommendedParallelThreads();
@@ -1278,6 +1560,11 @@ struct BlockBasedTableBuilder::Rep {
       // blob appends and data-block writes.
       compression_parallel_threads = 1;
     }
+
+    // Seed AutoSkip from this thread's inter-file carryover (no-op if disabled
+    // or if the data-block compressor isn't set up yet, e.g. dictionary
+    // sampling, which seeds later in MaybeEnterUnbuffered).
+    AutoSkipSeed();
 
     if (sample_for_compression > 0) {
       auto builtin = GetBuiltinV2CompressionManager();
@@ -1848,6 +2135,18 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
                                       block_rep->prepared_index_entry.get());
   block_rep->compressed.Reset();
   block_rep->compression_type = kNoCompression;
+  block_rep->contents_checksum = 0;
+  // Emit thread makes the auto-skip decision here so skipped blocks are never
+  // dispatched to a worker for (no-op) compression; StateTransition
+  // auto-completes them straight to the write stage.
+  bool auto_skip_bypassed =
+      r->AutoSkipEnabled() &&
+      block_rep->uncompressed.size() < kCompressionSizeLimit &&
+      r->AutoSkipDecideBypassEligible();
+  block_rep->auto_skip_bypassed.StoreRelaxed(auto_skip_bypassed);
+  if (auto_skip_bypassed) {
+    r->AutoSkipRecordBypass(block_rep->uncompressed.size());
+  }
 
   // Might need to take up some compression work before we are able to
   // resume emitting the next uncompressed block.
@@ -1861,7 +2160,7 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
       Status s = CompressAndVerifyBlock(
           block_rep->uncompressed, /*is_data_block=*/true,
           r->data_block_working_area, &block_rep->compressed,
-          &block_rep->compression_type);
+          &block_rep->compression_type, &block_rep->contents_checksum);
       if (UNLIKELY(!s.ok())) {
         r->SetStatus(s);
         pc_rep.SetAbort(pc_rep.emit_thread_state);
@@ -1920,26 +2219,37 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   assert(r->state == Rep::State::kUnbuffered);
   // Single-threaded context only
   assert(!r->IsParallelCompressionActive());
-  CompressionType type;
+  CompressionType type = kNoCompression;
+  uint32_t contents_checksum = 0;
   bool is_data_block = block_type == BlockType::kData;
   // NOTE: only index and data blocks are currently compressed
   assert(is_data_block || block_type == BlockType::kIndex);
-  Status compress_status = CompressAndVerifyBlock(
-      uncompressed_block_data, is_data_block,
-      is_data_block ? r->data_block_working_area : r->index_block_working_area,
-      &r->single_threaded_compressed_output, &type);
-  r->SetStatus(compress_status);
-  if (UNLIKELY(!ok())) {
-    return;
+  // Serial path: the emit thread makes the auto-skip decision here, inline. A
+  // bypassed block is stored raw without ever attempting compression (symmetric
+  // with the parallel path, which folds skips in StateTransition).
+  if (is_data_block && r->AutoSkipEnabled() &&
+      uncompressed_block_data.size() < kCompressionSizeLimit &&
+      r->AutoSkipDecideBypassEligible()) {
+    r->AutoSkipRecordBypass(uncompressed_block_data.size());
+  } else {
+    Status compress_status = CompressAndVerifyBlock(
+        uncompressed_block_data, is_data_block,
+        is_data_block ? r->data_block_working_area
+                      : r->index_block_working_area,
+        &r->single_threaded_compressed_output, &type, &contents_checksum);
+    r->SetStatus(compress_status);
+    if (UNLIKELY(!ok())) {
+      return;
+    }
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
+        &r->single_threaded_compressed_output);
   }
-
-  TEST_SYNC_POINT_CALLBACK(
-      "BlockBasedTableBuilder::WriteBlock:TamperWithCompressedData",
-      &r->single_threaded_compressed_output);
   WriteMaybeCompressedBlock(
       type == kNoCompression ? uncompressed_block_data
                              : Slice(r->single_threaded_compressed_output),
-      type, handle, block_type, &uncompressed_block_data, skip_delta_encoding);
+      type, handle, block_type, &uncompressed_block_data, skip_delta_encoding,
+      type == kNoCompression ? nullptr : &contents_checksum);
   r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
@@ -1978,7 +2288,8 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
     auto compress_fn = [this, block_rep, &ios, &working_area]() {
       ios = status_to_io_status(CompressAndVerifyBlock(
           block_rep->uncompressed, /*is_data_block=*/true, working_area,
-          &block_rep->compressed, &block_rep->compression_type));
+          &block_rep->compressed, &block_rep->compression_type,
+          &block_rep->contents_checksum));
     };
     auto write_fn = [this, block_rep, &ios]() {
       Slice compressed = block_rep->compressed;
@@ -1988,7 +2299,10 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
           block_rep->compression_type == kNoCompression ? uncompressed
                                                         : compressed,
           block_rep->compression_type, &rep_->pending_handle, BlockType::kData,
-          &uncompressed, &skip_delta_encoding);
+          &uncompressed, &skip_delta_encoding,
+          block_rep->compression_type == kNoCompression
+              ? nullptr
+              : &block_rep->contents_checksum);
       if (LIKELY(ios.ok())) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
@@ -2036,9 +2350,10 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
 Status BlockBasedTableBuilder::CompressAndVerifyBlock(
     const Slice& uncompressed_block_data, bool is_data_block,
     WorkingAreaPair& working_area, GrowableBuffer* compressed_output,
-    CompressionType* result_compression_type) {
+    CompressionType* result_compression_type, uint32_t* result_checksum) {
   Rep* r = rep_.get();
   Status status;
+  *result_checksum = 0;
 
   UnownedPtr<Compressor> compressor = nullptr;
   Decompressor* verify_decomp = nullptr;
@@ -2052,7 +2367,15 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
 
   compressed_output->Reset();
   CompressionType type = kNoCompression;
-  if (LIKELY(uncompressed_block_data.size() < kCompressionSizeLimit)) {
+  const bool compression_eligible =
+      uncompressed_block_data.size() < kCompressionSizeLimit;
+  // AutoSkip: this function is only ever called to ATTEMPT compression -- the
+  // skip/attempt decision (and any bypass) is handled by the caller (emit
+  // thread). We "learn" (update q_hat) only when auto-skip is on and we attempt
+  // compression on an eligible data block.
+  const bool auto_skip_learn = is_data_block && compressor &&
+                               r->AutoSkipEnabled() && compression_eligible;
+  if (LIKELY(compression_eligible)) {
     if (compressor) {
       StopWatchNano timer(
           r->ioptions.clock,
@@ -2075,6 +2398,16 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
       TEST_SYNC_POINT_CALLBACK(
           "BlockBasedTableBuilder::CompressAndVerifyBlock:TamperWithResultType",
           &type);
+
+      if (type != kNoCompression) {
+        *result_checksum = ComputeBuiltinChecksumWithLastByte(
+            r->table_options.checksum, compressed_output->data(),
+            compressed_output->size(), /*last_byte*/ type);
+        TEST_SYNC_POINT_CALLBACK(
+            "BlockBasedTableBuilder::CompressAndVerifyBlock:"
+            "TamperWithCompressedDataBeforeVerify",
+            compressed_output);
+      }
 
       // Some of the compression algorithms are known to be unreliable. If
       // the verify_compression flag is set then try to de-compress the
@@ -2108,17 +2441,41 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
                               timer.ElapsedNanos());
       }
     }
-    if (is_data_block) {
+  }
+  if (is_data_block) {
+    // Data blocks eligible for compression (normal size) count as
+    // "compressible input" whether or not compression was attempted this time.
+    // An auto-skip bypass is a CPU optimization, not a claim that the bytes are
+    // incompressible, so it must not bias the sample_for_compression size
+    // estimate, which extrapolates the randomly-sampled fast/slow ratio over
+    // compressible_input_data_bytes (the sampling itself is independent of
+    // auto-skip). Only ineligible (too-big) blocks and block trailers count as
+    // uncompressible.
+    if (LIKELY(compression_eligible)) {
       r->compressible_input_data_bytes.FetchAddRelaxed(
           uncompressed_block_data.size());
       r->uncompressible_input_data_bytes.FetchAddRelaxed(kBlockTrailerSize);
-    }
-  } else {
-    // Status is not OK, or block is too big to be compressed.
-    if (is_data_block) {
+    } else {
       r->uncompressible_input_data_bytes.FetchAddRelaxed(
           uncompressed_block_data.size() + kBlockTrailerSize);
     }
+  }
+
+  // AutoSkip: learn from this attempt's outcome (only when we actually
+  // attempted; skipped/bypassed blocks carry no compressibility signal). The
+  // observation is the realized stored ratio: the achieved ratio when the block
+  // was kept compressed, or 1.0 (stored raw) when compression was rejected or
+  // otherwise not kept -- so q_hat tracks the aggregate stored size auto-skip
+  // would produce by attempting.
+  if (auto_skip_learn) {
+    uint32_t obs = kAutoSkipScale;  // stored raw (ratio 1.0)
+    if (type != kNoCompression) {
+      uint64_t scaled = static_cast<uint64_t>(compressed_output->size()) *
+                        kAutoSkipScale / uncompressed_block_data.size();
+      obs = scaled < kAutoSkipScale ? static_cast<uint32_t>(scaled)
+                                    : kAutoSkipScale;
+    }
+    r->AutoSkipUpdateQHat(obs);
   }
 
   // Abort compression if the block is too big, or did not pass
@@ -2157,19 +2514,19 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
-    bool* skip_delta_encoding) {
+    bool* skip_delta_encoding, const uint32_t* precomputed_checksum) {
   // Must have pre-checked status in single-threaded context
   assert(status().ok());
   assert(io_status().ok());
   rep_->SetIOStatus(WriteMaybeCompressedBlockImpl(
       block_contents, comp_type, handle, block_type, uncompressed_block_data,
-      skip_delta_encoding));
+      skip_delta_encoding, precomputed_checksum));
 }
 
 IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
-    bool* skip_delta_encoding) {
+    bool* skip_delta_encoding, const uint32_t* precomputed_checksum) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    compression_type: uint8
@@ -2239,6 +2596,18 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     uncompressed_block_data = &block_contents;
     assert(comp_type == kNoCompression);
   }
+  assert(precomputed_checksum == nullptr || comp_type != kNoCompression);
+
+  r->compression_types_used.Add(comp_type);
+  std::array<char, kBlockTrailerSize> trailer;
+  trailer[0] = comp_type;
+  uint32_t checksum =
+      precomputed_checksum != nullptr
+          ? *precomputed_checksum
+          : ComputeBuiltinChecksumWithLastByte(
+                r->table_options.checksum, block_contents.data(),
+                block_contents.size(), /*last_byte*/ comp_type);
+  checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   // TODO: consider a variant of this function that puts the trailer after
   // block_contents (if it comes from a std::string) so we only need one
@@ -2249,14 +2618,6 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
       return io_s;
     }
   }
-
-  r->compression_types_used.Add(comp_type);
-  std::array<char, kBlockTrailerSize> trailer;
-  trailer[0] = comp_type;
-  uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
-      r->table_options.checksum, block_contents.data(), block_contents.size(),
-      /*last_byte*/ comp_type);
-  checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
   if (block_type == BlockType::kFilter) {
     io_s = status_to_io_status(
@@ -2791,6 +3152,12 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
         rep_->num_data_blocks_compression_bypassed.LoadRelaxed();
 
     assert(IsEmpty() || rep_->props.key_largest_seqno != UINT64_MAX);
+    // TEST-only hook: allows injecting reserved properties (e.g. the
+    // format_version >= 8 "user_key_common_prefix") to exercise reader
+    // handling. Compiled out in release builds.
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WritePropertiesBlock:TableProps",
+        &rep_->props);
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
 
@@ -2866,6 +3233,30 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
   assert(LIKELY(ok()));
   Rep* r = rep_.get();
+  IOOptions io_options;
+  IOStatus ios =
+      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
+  if (!ios.ok()) {
+    r->SetIOStatus(ios);
+    return;
+  }
+  // TEST-only hook: inject a gap of the requested number of bytes between the
+  // metaindex block and the footer, to exercise format_version >= 8 footer
+  // metaindex-gap decoding. The gap is reserved for future file checksum data;
+  // no production writer emits one yet. Compiled out in release builds.
+  size_t footer_gap = 0;
+  TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::WriteFooter:MetaindexGap",
+                           &footer_gap);
+  if (footer_gap > 0) {
+    std::string gap_bytes(footer_gap, '\0');
+    ios = r->file->Append(io_options, Slice(gap_bytes));
+    if (!ios.ok()) {
+      r->SetIOStatus(ios);
+      return;
+    }
+    r->pre_compression_size += footer_gap;
+    r->set_offset(r->get_offset() + footer_gap);
+  }
   FooterBuilder footer;
   Status s = footer.Build(kBlockBasedTableMagicNumber,
                           r->table_options.format_version, r->get_offset(),
@@ -2873,13 +3264,6 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                           index_block_handle, r->base_context_checksum);
   if (!s.ok()) {
     r->SetStatus(s);
-    return;
-  }
-  IOOptions io_options;
-  IOStatus ios =
-      WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
-  if (!ios.ok()) {
-    r->SetIOStatus(ios);
     return;
   }
   ios = r->file->Append(io_options, footer.GetSlice());
@@ -2926,6 +3310,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
     // For PostPopulateCompressionProperties()
     assert(!r->data_block_compressor);
     r->data_block_compressor = r->basic_compressor.get();
+    r->AutoSkipSeed();
     return;
   }
 
@@ -2975,6 +3360,7 @@ void BlockBasedTableBuilder::MaybeEnterUnbuffered(
   r->data_block_compressor =
       MaybeCloneSpecialized(r->basic_compressor.get(),
                             CacheEntryRole::kDataBlock, std::move(samples));
+  r->AutoSkipSeed();
 
   Slice serialized_dict = r->data_block_compressor->GetSerializedDict();
   if (r->verify_decompressor) {
@@ -3096,6 +3482,10 @@ Status BlockBasedTableBuilder::Finish() {
   if (r->IsParallelCompressionActive()) {
     StopParallelCompression(/*abort=*/false);
   }
+
+  // Persist the AutoSkip estimate for the next file this thread emits (workers,
+  // if any, have joined so the estimate is now quiescent).
+  r->AutoSkipWriteBack();
 
   r->props.tail_start_offset = r->offset.LoadRelaxed();
 

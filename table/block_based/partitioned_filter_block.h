@@ -30,7 +30,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   explicit PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-      const bool use_value_delta_encoding,
+      const bool use_value_delta_encoding, uint32_t format_version,
       PartitionedIndexBuilder* const p_index_builder,
       const uint32_t partition_size, size_t ts_sz,
       const bool persist_user_defined_timestamps,
@@ -140,7 +140,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // same for user keys
   BlockBuilder index_on_filter_block_builder_without_seq_;
   // For delta-encoding handles
-  BlockHandle last_encoded_handle_;
+  BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
+  const bool use_value_delta_encoding_;
+  // format_version >= 8 value-delta codec for the index on filter partitions
+  // (see IndexValue::EncodeTo). Must match what the reader of this block uses.
+  const bool value_delta_escape_;
   // True if we are between two calls to Finish(), because we have returned
   // the filter at the front of filters_ but haven't yet added it to the
   // partition index.
@@ -218,6 +222,7 @@ class PartitionedFilterBlockReader
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;
   bool index_value_is_full() const;
+  bool index_value_delta_escape() const;
   bool user_defined_timestamps_persisted() const;
 
  protected:

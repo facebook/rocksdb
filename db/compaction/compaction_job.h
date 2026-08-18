@@ -166,7 +166,8 @@ class CompactionJob {
                 std::string full_history_ts_low = "", std::string trim_ts = "",
                 BlobFileCompletionCallback* blob_callback = nullptr,
                 int* bg_compaction_scheduled = nullptr,
-                int* bg_bottom_compaction_scheduled = nullptr);
+                int* bg_bottom_compaction_scheduled = nullptr,
+                std::atomic<int>* num_running_remote_compactions = nullptr);
 
   virtual ~CompactionJob();
 
@@ -500,6 +501,12 @@ class CompactionJob {
   int* bg_compaction_scheduled_;
   int* bg_bottom_compaction_scheduled_;
 
+  // Stores the pointer to DBImpl::num_running_remote_compactions_, backing the
+  // public rocksdb.num-running-remote-compactions property. Null when the job
+  // has no owning DBImpl to report to (compaction service workers, unit tests).
+  // Updated without the DB mutex held.
+  std::atomic<int>* num_running_remote_compactions_;
+
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
   SeqnoToTimeMapping seqno_to_time_mapping_;
@@ -523,6 +530,10 @@ class CompactionJob {
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
+
+  // True if this job builds output files as a remote (offloaded)
+  // CompactionService worker. Overridden by CompactionServiceCompactionJob.
+  virtual bool IsRemoteCompaction() const { return false; }
   // The rate limiter priority (io_priority) is determined dynamically here.
   // The Compaction Read and Write priorities are the same for different
   // scenarios, such as write stalled.
@@ -730,6 +741,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
  private:
   // Get table file name in output_path
   std::string GetTableFileName(uint64_t file_number) override;
+  bool IsRemoteCompaction() const override { return true; }
   // Specific the compaction output path, otherwise it uses default DB path
   const std::string output_path_;
 

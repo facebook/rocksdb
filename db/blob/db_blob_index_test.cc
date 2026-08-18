@@ -1032,6 +1032,53 @@ TEST_F(DBBlobIndexTest, EmbeddedBlobWideColumnGetEntityBlockCacheTier) {
   ASSERT_TRUE(s.IsIncomplete()) << s.ToString();
 }
 
+// Companion to the test above (genuine miss -> Incomplete): with a blob cache
+// configured, a warm read populates the embedded record into the blob cache, so
+// a subsequent kBlockCacheTier GetEntity serves it from cache instead of
+// returning Incomplete. This exercises the non-lazy Get/GetEntity embedded path
+// (get_context -> EmbeddedAwareBlobFetcher -> GetSameFileBlob whole ->
+// ResolveEmbeddedBlobCached), which shares the block-cache-tier behavior with
+// the lazy resolver (a same-file column already in the blob cache is served).
+TEST_F(DBBlobIndexTest,
+       EmbeddedBlobWideColumnGetEntityBlockCacheTierServesCached) {
+  Options options = GetTestOptions();
+  options.create_if_missing = true;
+  LRUCacheOptions co;
+  co.capacity = 8 << 20;
+  options.blob_cache = NewLRUCache(co);
+  DestroyAndReopen(options);
+
+  const std::string sst_path = dbname_ + "/embedded_wc_blockcache_hit.sst";
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 8;
+
+  const std::string big1(1024, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "d"}, {"big", big1}};
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_path, embedded_blob_options));
+  ASSERT_OK(writer.PutEntity("k", columns));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({sst_path}, IngestExternalFileOptions()));
+
+  // Warm both the block cache (data block) and the blob cache (embedded record)
+  // with a full read.
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "k",
+                             &result));
+    ASSERT_EQ(result.columns(), columns);
+  }
+
+  // The embedded record is now cached, so a block-cache-only read serves it.
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(read_options, db_->DefaultColumnFamily(), "k", &result));
+  ASSERT_EQ(result.columns(), columns);
+}
+
 // A corrupt embedded blob record backing a wide-column column must surface an
 // error on GetEntity, not expose the raw same-file BlobIndex.
 // A failure resolving an embedded blob record backing a wide-column column

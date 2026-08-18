@@ -232,6 +232,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       {offsetof(struct TableProperties, db_id), sizeof(std::string)},
       {offsetof(struct TableProperties, db_session_id), sizeof(std::string)},
       {offsetof(struct TableProperties, db_host_id), sizeof(std::string)},
+      {offsetof(struct TableProperties, user_key_common_prefix),
+       sizeof(std::string)},
       {offsetof(struct TableProperties, column_family_name),
        sizeof(std::string)},
       {offsetof(struct TableProperties, filter_policy_name),
@@ -291,7 +293,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "size=0;filter_size=0;orig_file_number=3;num_deletions=0;num_range_"
       "deletions=0;format_version=0;comparator_name="
       "636F6D70617261746F725F6E616D65;num_filter_entries=0;db_id="
-      "64625F686F73745F6964;column_family_id=2147483647;fixed_key_len=0;fast_"
+      "64625F686F73745F6964;user_key_common_prefix=707265666978;"
+      "column_family_id=2147483647;fixed_key_len=0;fast_"
       "compression_estimated_data_size=0;filter_policy_name="
       "66696C7465725F706F6C6963795F6E616D65;oldest_key_time=0;newest_key_time="
       "0;column_family_"
@@ -645,11 +648,13 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "compression_opts={max_dict_buffer_bytes=5;use_zstd_dict_trainer=true;"
       "enabled=false;parallel_threads=6;zstd_max_train_bytes=7;strategy=8;max_"
       "dict_bytes=9;level=10;window_bits=11;max_compressed_bytes_per_kb=987;"
+      "auto_skip=true;auto_skip_min_sample_every=17;"
       "checksum=true};"
       "bottommost_compression_opts={max_dict_buffer_bytes=4;use_zstd_dict_"
       "trainer=true;enabled=true;parallel_threads=5;zstd_max_train_bytes=6;"
       "strategy=7;max_dict_bytes=8;level=9;window_bits=10;max_compressed_bytes_"
-      "per_kb=876;checksum=true};"
+      "per_kb=876;auto_skip=true;auto_skip_min_sample_"
+      "every=23;checksum=true};"
       "bottommost_compression=kDisableCompressionOption;"
       "compression_manager=BuiltinV2;"
       "level0_stop_writes_trigger=33;"
@@ -686,12 +691,14 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "enable_blob_direct_write=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
+      "blob_file_writable_file_max_buffer_size=131072;"
       "blob_compression_type=kBZip2Compression;"
       "blob_compression_opts={window_bits=-14;level=1;strategy=0;max_dict_"
       "bytes=0;"
       "zstd_max_train_bytes=0;enabled=true;parallel_threads=1;"
       "max_dict_buffer_bytes=0;use_zstd_dict_trainer=true;"
-      "max_compressed_bytes_per_kb=896;checksum=false};"
+      "max_compressed_bytes_per_kb=896;auto_skip=false;"
+      "auto_skip_min_sample_every=0;checksum=false};"
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
@@ -736,6 +743,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // kColumnFamilyOptionsExcluded
   ASSERT_TRUE(new_options->enable_blob_direct_write);
   ASSERT_EQ(new_options->blob_direct_write_partitions, 3U);
+  ASSERT_EQ(new_options->blob_file_writable_file_max_buffer_size, 131072U);
   ASSERT_EQ(new_options->compaction_options_fifo.max_table_files_size, 3);
   ASSERT_EQ(new_options->compaction_options_fifo.allow_compaction, true);
   ASSERT_EQ(new_options->compaction_options_fifo.file_temperature_age_thresholds

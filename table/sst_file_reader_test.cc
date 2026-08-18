@@ -31,6 +31,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/compression.h"
+#include "util/defer.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -604,6 +605,107 @@ TEST_F(SstFileReaderTest, EmbeddedBlobInterleavedLayout) {
   }
   ASSERT_OK(iter->status());
   EXPECT_EQ(idx, expected.size());
+}
+
+// format_version >= 8 lets embedded-blob SSTs use index value-delta encoding:
+// the interleaved blob records make some data blocks non-contiguous, and those
+// index entries use the in-value escape (see IndexValue::EncodeTo) while the
+// rest are delta encoded. This verifies correct round-trip at fv8 and that fv8
+// (unlike fv7) marks the index as delta encoded, all with a > 1 index restart
+// interval so deltas (and the escape) are actually produced.
+TEST_F(SstFileReaderTest, EmbeddedBlobValueDeltaEscapeFv8) {
+  // Writing the unpublished draft format_version 8 requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
+
+  SstFileWriterEmbeddedBlobOptions embedded_blob_options;
+  embedded_blob_options.min_blob_size = 64;
+
+  // Interleave small (inline) and large (embedded-blob) values so that some
+  // data blocks follow a blob record (non-contiguous -> escape) and some do
+  // not (contiguous -> delta).
+  std::vector<std::pair<std::string, std::string>> expected;
+  for (int i = 0; i < 200; ++i) {
+    char keybuf[16];
+    snprintf(keybuf, sizeof(keybuf), "%06d", i);
+    std::string key(keybuf);
+    std::string value =
+        (i % 2 == 0) ? std::string(4096, static_cast<char>('a' + (i % 26)))
+                     : ("tiny" + std::to_string(i));
+    expected.emplace_back(std::move(key), std::move(value));
+  }
+
+  auto build_and_read = [&](uint32_t format_version, bool* index_delta_encoded,
+                            int* escape_count, std::vector<std::string>* got) {
+    BlockBasedTableOptions bbto;
+    bbto.format_version = format_version;
+    bbto.block_size = 1;                    // one entry per data block
+    bbto.index_block_restart_interval = 4;  // > 1 so value delta encoding is on
+    options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+    // Count index entries actually written with the in-value escape, rather
+    // than inferring it from the layout.
+    *escape_count = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "IndexValue::EncodeTo:ValueDeltaEscape",
+        [escape_count](void*) { ++*escape_count; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    SstFileWriter writer(soptions_, options_);
+    ASSERT_OK(writer.OpenWithEmbeddedBlobs(sst_name_, embedded_blob_options));
+    for (const auto& kv : expected) {
+      ASSERT_OK(writer.Put(kv.first, kv.second));
+    }
+    ASSERT_OK(writer.Finish());
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    SstFileReader reader(options_);
+    ASSERT_OK(reader.Open(sst_name_));
+    ASSERT_OK(reader.VerifyChecksum());
+
+    std::shared_ptr<const TableProperties> props = reader.GetTableProperties();
+    ASSERT_NE(props, nullptr);
+    *index_delta_encoded = props->index_value_is_delta_encoded != 0;
+
+    got->clear();
+    std::unique_ptr<Iterator> iter(reader.NewIterator(ReadOptions()));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      got->push_back(iter->value().ToString());
+    }
+    ASSERT_OK(iter->status());
+
+    // Point lookups too (exercise index Seek + escape decode).
+    std::string value;
+    for (const auto& kv : expected) {
+      ASSERT_OK(reader.Get(ReadOptions(), kv.first, &value));
+      ASSERT_EQ(value, kv.second);
+    }
+  };
+
+  std::vector<std::string> got7, got8;
+  bool delta7 = false, delta8 = false;
+  int escapes7 = 0, escapes8 = 0;
+  build_and_read(7, &delta7, &escapes7, &got7);
+  build_and_read(/*format_version=*/8, &delta8, &escapes8, &got8);
+
+  // Reads identical across versions.
+  ASSERT_EQ(static_cast<int>(got8.size()), static_cast<int>(expected.size()));
+  ASSERT_EQ(got7, got8);
+  std::vector<std::string> expected_values;
+  for (const auto& kv : expected) {
+    expected_values.push_back(kv.second);
+  }
+  ASSERT_EQ(got8, expected_values);
+
+  // Escape entries were actually produced at fv8 (interleaved blob records
+  // make some data blocks non-contiguous), and never at fv7.
+  EXPECT_GT(escapes8, 0);
+  EXPECT_EQ(escapes7, 0);
+  // fv7 embedded blobs disable index value delta encoding; fv8 enables it.
+  EXPECT_FALSE(delta7);
+  EXPECT_TRUE(delta8);
 }
 
 TEST_F(SstFileReaderTest, EmbeddedBlobRecordCorruptionDetected) {

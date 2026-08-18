@@ -3,12 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <atomic>
 #include <cstdio>
 #include <memory>
 
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_compression.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
@@ -373,6 +377,7 @@ class CompactionServiceTest : public DBTestBase {
 
 TEST_F(CompactionServiceTest, BasicCompactions) {
   Options options = CurrentOptions();
+  options.max_open_files = -1;
   ReopenWithCompactionService(&options);
 
   Statistics* primary_statistics = GetPrimaryStatistics();
@@ -491,6 +496,113 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
 
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+namespace {
+
+// A CompressionManager that records, per GetCompressorForSST() call, whether
+// the FilterBuildingContext reports the SST as being built by a remote
+// (offloaded) compaction worker. Observations go into process-global counters
+// because the remote worker reconstructs its own manager instance from the
+// persisted OPTIONS file (same process in this test).
+struct RemoteAwareObservations {
+  std::atomic<int> num_remote{0};
+  std::atomic<int> num_non_remote{0};
+  void Reset() {
+    num_remote.store(0);
+    num_non_remote.store(0);
+  }
+};
+
+RemoteAwareObservations& GetRemoteAwareObservations() {
+  static RemoteAwareObservations obs;
+  return obs;
+}
+
+class RemoteAwareCompressionManager : public CompressionManagerWrapper {
+ public:
+  RemoteAwareCompressionManager()
+      : CompressionManagerWrapper(GetBuiltinV2CompressionManager()) {}
+
+  static const char* kClassName() { return "RemoteAwareCompressionManager"; }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext& context, const CompressionOptions& opts,
+      CompressionType preferred) override {
+    if (context.is_remote_compaction) {
+      GetRemoteAwareObservations().num_remote.fetch_add(1);
+    } else {
+      GetRemoteAwareObservations().num_non_remote.fetch_add(1);
+    }
+    return CompressionManagerWrapper::GetCompressorForSST(context, opts,
+                                                          preferred);
+  }
+};
+
+}  // namespace
+
+TEST_F(CompactionServiceTest, IsRemoteCompactionInCompressorContext) {
+  // Register so the remote worker's DB::OpenAndCompact can reconstruct the
+  // custom CompressionManager from the persisted OPTIONS file
+  // (CompactionServiceOptionsOverride does not carry a compression_manager).
+  ObjectLibrary::Default()->AddFactory<CompressionManager>(
+      RemoteAwareCompressionManager::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<CompressionManager>* guard,
+         std::string* /*errmsg*/) {
+        *guard = std::make_unique<RemoteAwareCompressionManager>();
+        return guard->get();
+      });
+
+  auto& obs = GetRemoteAwareObservations();
+  obs.Reset();
+
+  Options options = CurrentOptions();
+  options.compression_manager =
+      std::make_shared<RemoteAwareCompressionManager>();
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  VerifyTestData();
+
+  auto my_cs = GetCompactionService();
+  ASSERT_GE(my_cs->GetCompactionNum(), 1);
+
+  // The offloaded worker built the compaction output SSTs and therefore must
+  // have observed is_remote_compaction == true in GetCompressorForSST().
+  ASSERT_GT(obs.num_remote.load(), 0);
+  // The primary's own flushes, seen by the same manager, must report false
+  ASSERT_GT(obs.num_non_remote.load(), 0);
+
+  Close();
+}
+
+TEST_F(CompactionServiceTest, IsRemoteCompactionFalseForLocalCompaction) {
+  // Same custom manager, but no compaction_service: everything runs locally,
+  // so GetCompressorForSST() must never see is_remote_compaction == true.
+  auto& obs = GetRemoteAwareObservations();
+  obs.Reset();
+
+  Options options = CurrentOptions();
+  options.compression_manager =
+      std::make_shared<RemoteAwareCompressionManager>();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(64)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Local flushes and compactions must all report not-remote.
+  ASSERT_GT(obs.num_non_remote.load(), 0);
+  ASSERT_EQ(obs.num_remote.load(), 0);
+
+  Close();
 }
 
 TEST_F(CompactionServiceTest, SkipWALRecoveryInOpenAndCompact) {
@@ -1774,6 +1886,109 @@ TEST_F(CompactionServiceTest, SubCompaction) {
   ASSERT_GE(compaction_num, 2);
 }
 
+class PropertySamplingCompactionService : public MyTestCompactionService {
+ public:
+  using MyTestCompactionService::MyTestCompactionService;
+
+  void SetPrimaryDB(DB* db) { db_ = db; }
+
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
+    EXPECT_TRUE(
+        db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                            &num_running_while_waiting_));
+    return MyTestCompactionService::Wait(scheduled_job_id, result);
+  }
+
+  uint64_t GetNumRunningWhileWaiting() const {
+    return num_running_while_waiting_;
+  }
+
+ private:
+  DB* db_ = nullptr;
+  uint64_t num_running_while_waiting_ = 0;
+};
+
+TEST_F(CompactionServiceTest, NumRunningRemoteCompactionsProperty) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  auto statistics = CreateDBStatistics();
+  auto compaction_service = std::make_shared<PropertySamplingCompactionService>(
+      dbname_, options, statistics,
+      std::vector<std::shared_ptr<EventListener>>{},
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+  options.compaction_service = compaction_service;
+  DestroyAndReopen(options);
+  compaction_service->SetPrimaryDB(db_.get());
+
+  // Overlapping key ranges across files so the compaction is not a trivial
+  // move, which would bypass the compaction service entirely.
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(Key(j), "value" + std::to_string(i * 10 + j)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // No remote compaction is in flight yet.
+  uint64_t num_running = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                                  &num_running));
+  ASSERT_EQ(num_running, 0U);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_GE(compaction_service->GetCompactionNum(), 1);
+  ASSERT_GE(compaction_service->GetNumRunningWhileWaiting(), 1U);
+
+  // The counter is back to 0 once the remote jobs are installed.
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                                  &num_running));
+  ASSERT_EQ(num_running, 0U);
+}
+
+TEST_F(CompactionServiceTest, NumRunningRemoteCompactionsPropertyLocalOnly) {
+  // Without a compaction_service configured, the property stays 0.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Overlapping key ranges across files so the compaction is not a trivial
+  // move, which would bypass the compaction service entirely.
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(Key(j), "value" + std::to_string(i * 10 + j)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  std::atomic<int> property_samples{0};
+  std::atomic_bool observed_non_zero{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing",
+      [&](void* /*arg*/) {
+        uint64_t num_running = 0;
+        EXPECT_TRUE(db_->GetIntProperty(
+            DB::Properties::kNumRunningRemoteCompactions, &num_running));
+        property_samples.fetch_add(1);
+        if (num_running != 0) {
+          observed_non_zero.store(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GT(property_samples.load(), 0);
+  ASSERT_FALSE(observed_non_zero.load());
+
+  uint64_t num_running = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
+                                  &num_running));
+  ASSERT_EQ(num_running, 0U);
+}
+
 class PartialDeleteCompactionFilter : public CompactionFilter {
  public:
   CompactionFilter::Decision FilterV2(
@@ -1792,6 +2007,7 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
 
 TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   std::unique_ptr<CompactionFilter> delete_comp_filter(
       new PartialDeleteCompactionFilter());
   options.compaction_filter = delete_comp_filter.get();

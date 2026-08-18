@@ -33,6 +33,7 @@
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "options/options_helper.h"
+#include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -753,8 +754,11 @@ static std::vector<TestArgs> GenerateArgList() {
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : GetSupportedCompressions()) {
           for (auto num_threads : compression_parallel_threads) {
-            // format_version = 7 changes some compression handling
-            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U}) {
+            // format_version = 7 changes some compression handling; 8 is the
+            // unpublished draft that exercises the fv8 index value-delta escape
+            // read/write path (table_test opts in via
+            // TEST_AllowUnsupportedFormatVersion in main()).
+            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U, 8U}) {
               TestArgs one_arg;
               one_arg.type = test_type;
               one_arg.reverse_compare = reverse_compare;
@@ -2341,7 +2345,10 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
 }
 
 TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
-  // Test that reserved metadata bits in data block footer are detected.
+  // Bit 30 of the data block footer is the reserved "extended metadata present"
+  // escape (format_version >= 8). No feature defines it yet, so setting it must
+  // be detected as corruption rather than silently misread.
+  //
   // We construct a block directly rather than going through the full table
   // iterator path to avoid issues with iterator error handling.
 
@@ -2352,14 +2359,16 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
   Slice block_contents = builder.Finish();
   std::string block_data = block_contents.ToString();
 
-  // The footer is the last 4 bytes - corrupt it by setting reserved bit 30
+  // The footer is the last 4 bytes - set the reserved extended-metadata bit
+  // (bit 30).
   ASSERT_GE(block_data.size(), sizeof(uint32_t));
   size_t footer_offset = block_data.size() - sizeof(uint32_t);
   uint32_t footer = DecodeFixed32(block_data.data() + footer_offset);
-  footer |= (1u << 30);  // Set a reserved bit
+  footer |= (1u << 30);  // Set the reserved extended-metadata bit
   EncodeFixed32(&block_data[footer_offset], footer);
 
-  // Try to construct a Block from the corrupted data
+  // Try to construct a Block from the data with the reserved bit set. The
+  // footer decode must reject it.
   BlockContents contents(std::move(block_data));
   Block block(std::move(contents), 0 /* read_amp_bytes_per_bit */);
 
@@ -2372,9 +2381,6 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
                         /*stats=*/nullptr, /*block_contents_pinned=*/false);
   ASSERT_FALSE(iter.Valid());
   ASSERT_EQ(iter.status().code(), Status::kCorruption)
-      << iter.status().ToString();
-  ASSERT_NE(iter.status().ToString().find("reserved bits set"),
-            std::string::npos)
       << iter.status().ToString();
 }
 
@@ -2780,6 +2786,98 @@ TEST_P(BlockBasedTableTest, PartitionIndexTest) {
     table_options.metadata_block_size = i;
     IndexTest(table_options);
   }
+}
+
+// The index of index partitions and the index of filter partitions are written
+// by builders separate from the per-partition index builder, and their values
+// are only delta encoded when index_block_restart_interval > 1 (with the
+// default of 1 every entry is a restart and carries a full handle, so the
+// value-delta codec is never exercised). Cover that path here -- including at
+// the unpublished draft format_version 8, where the value-delta codec reserves
+// an in-value escape codepoint -- so that a codec mismatch between either
+// top-level index writer and its reader is caught.
+TEST_P(BlockBasedTableTest, PartitionedIndexAndFilterValueDelta) {
+  // BlockBasedTableTest is parameterized over kFooterFormatVersionsToTest,
+  // which includes the unpublished draft format_version 8. (table_test opts in
+  // globally via TEST_AllowUnsupportedFormatVersion in main().)
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  table_options.partition_filters = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  // Small blocks and partitions so there are many index and filter partitions,
+  // hence many top-level index entries.
+  table_options.block_size = 512;
+  table_options.metadata_block_size = 128;
+  // > 1 so top-level index values are actually delta encoded.
+  table_options.index_block_restart_interval = 3;
+  table_options.block_cache = NewLRUCache(1 << 20);
+  table_options.cache_index_and_filter_blocks = true;
+
+  TableConstructor c(BytewiseComparator());
+  // Vary value sizes so that consecutive partition handles have both zero and
+  // non-zero size deltas. Zero is the interesting one: it is the delta whose
+  // legacy encoding collides with the format_version 8 escape codepoint.
+  Random rnd(302);
+  std::vector<std::string> user_keys;
+  for (int i = 0; i < 1000; i++) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "key%06d", i);
+    std::string user_key(buf);
+    InternalKey ikey(user_key, 0, kTypeValue);
+    c.Add(ikey.Encode().ToString(),
+          rnd.RandomString(i % 3 == 0 ? 40 : 8) /* value */);
+    user_keys.push_back(std::move(user_key));
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator ikc(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
+
+  auto* reader = static_cast<BlockBasedTable*>(c.GetTableReader());
+  auto props = reader->GetTableProperties();
+  // Both top-level indexes must have enough entries that non-restart (i.e.
+  // delta encoded) entries exist, otherwise this test proves nothing.
+  ASSERT_GT(props->index_partitions,
+            static_cast<uint64_t>(table_options.index_block_restart_interval));
+  ASSERT_EQ(props->index_value_is_delta_encoded, 1);
+
+  // Full scan: drives the top-level index of index partitions.
+  ReadOptions read_options;
+  {
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+    size_t i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_LT(i, keys.size());
+      ASSERT_EQ(keys[i], iter->key().ToString());
+      ASSERT_EQ(kvmap[keys[i]], iter->value().ToString());
+      i++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, keys.size());
+  }
+
+  // Point lookups: drive the index of filter partitions as well.
+  for (size_t i = 0; i < user_keys.size(); i += 7) {
+    SCOPED_TRACE("user_key=" + user_keys[i]);
+    InternalKey ikey(user_keys[i], 0, kTypeValue);
+    PinnableSlice value;
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, user_keys[i], &value, nullptr,
+                           nullptr, nullptr, true, nullptr, nullptr);
+    ASSERT_OK(reader->Get(read_options, ikey.Encode(), &get_context,
+                          moptions.prefix_extractor.get()));
+    ASSERT_EQ(kvmap[ikey.Encode().ToString()], value.ToString());
+  }
+
+  c.ResetTableReader();
 }
 
 TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
@@ -7277,6 +7375,72 @@ class ExternalTableTest : public DBTestBase {
     bool read_via_options_fs_;
   };
 
+  class ConfigurableDummyExternalTableFactory
+      : public DummyExternalTableFactory {
+   public:
+    ConfigurableDummyExternalTableFactory()
+        : DummyExternalTableFactory(/*support_property_block=*/false) {}
+
+    static const char* kClassName() {
+      return "ConfigurableDummyExternalTableFactory";
+    }
+
+    static const char* kValidConfig() { return "mode=fast;limit=7"; }
+
+    static const char* kAlternateValidConfig() {
+      return "mode=compact;limit=11";
+    }
+
+    static std::string ValidFactoryConfig() {
+      return "{id=" + std::string(kClassName()) + ";external_table_config={" +
+             kValidConfig() + "}}";
+    }
+
+    static std::string SerializedValidConfig() {
+      return SerializeConfig(kValidConfig());
+    }
+
+    static std::string SerializedAlternateValidConfig() {
+      return SerializeConfig(kAlternateValidConfig());
+    }
+
+    const char* Name() const override { return kClassName(); }
+
+    Status Configure(const std::string& config) override {
+      if (config.empty() || config == kValidConfig() ||
+          config == kAlternateValidConfig()) {
+        config_ = config;
+        return Status::OK();
+      }
+      return Status::InvalidArgument("Invalid dummy external table config");
+    }
+
+    const std::string& config() const { return config_; }
+
+   private:
+    static std::string SerializeConfig(const std::string& config) {
+      return "{" + config + "}";
+    }
+
+    std::string config_;
+  };
+
+  static void RegisterConfigurableDummyExternalTableFactory() {
+    static FactoryFunc<TableFactory> registration =
+        ObjectLibrary::Default()->AddFactory<TableFactory>(
+            ConfigurableDummyExternalTableFactory::kClassName(),
+            [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+               std::string* /*errmsg*/) {
+              std::shared_ptr<ExternalTableFactory> inner =
+                  std::make_shared<ConfigurableDummyExternalTableFactory>();
+              std::unique_ptr<TableFactory> factory =
+                  NewExternalTableFactory(std::move(inner));
+              guard->reset(factory.release());
+              return guard->get();
+            });
+    (void)registration;
+  }
+
   class CountingFileReadListener : public EventListener {
    public:
     bool ShouldBeNotifiedOnFileIO() override { return true; }
@@ -7328,6 +7492,157 @@ class ExternalTableTest : public DBTestBase {
     mutable PinnedDummyExternalTableReader* last_reader_ = nullptr;
   };
 };
+
+TEST_F(ExternalTableTest, BootstrapConfig) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  ConfigOptions config_options;
+  std::shared_ptr<TableFactory> table_factory;
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &table_factory));
+  ASSERT_NE(table_factory, nullptr);
+
+  std::string serialized_config;
+  ASSERT_OK(table_factory->GetOption(config_options, "external_table_config",
+                                     &serialized_config));
+  ASSERT_EQ(serialized_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  std::shared_ptr<TableFactory> invalid_factory;
+  const std::string invalid_config =
+      "{id=" +
+      std::string(ConfigurableDummyExternalTableFactory::kClassName()) +
+      ";external_table_config={mode=invalid}}";
+  ASSERT_NOK(TableFactory::CreateFromString(config_options, invalid_config,
+                                            &invalid_factory));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigOptionsFileRoundTrip) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  DBOptions db_options;
+  db_options.env = env_;
+  ConfigOptions config_options(db_options);
+  std::shared_ptr<TableFactory> table_factory;
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &table_factory));
+
+  ColumnFamilyOptions cf_options;
+  cf_options.table_factory = table_factory;
+  const std::vector<std::string> cf_names{"default"};
+  const std::vector<ColumnFamilyOptions> all_cf_options{cf_options};
+  const std::string options_file =
+      test::PerThreadDBPath("external_table_config_options");
+  std::shared_ptr<FileSystem> fs = db_options.env->GetFileSystem();
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), config_options, db_options,
+                                  cf_names, all_cf_options, options_file,
+                                  fs.get()));
+
+  std::string contents;
+  ASSERT_OK(ReadFileToString(env_, options_file, &contents));
+  ASSERT_NE(contents.find("external_table_config={mode=fast;limit=7}"),
+            std::string::npos);
+
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(config_options, options_file, fs.get()));
+  ASSERT_EQ(parser.cf_opts()->size(), 1U);
+  ASSERT_NE(parser.cf_opts()->front().table_factory, nullptr);
+  std::string loaded_config;
+  ASSERT_OK(parser.cf_opts()->front().table_factory->GetOption(
+      config_options, "external_table_config", &loaded_config));
+  ASSERT_EQ(loaded_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  ASSERT_OK(env_->DeleteFile(options_file));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigIsImmutable) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  Options options = GetDefaultOptions();
+  ConfigOptions config_options(options);
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &options.table_factory));
+  options.create_if_missing = true;
+
+  const std::string dbname =
+      test::PerThreadDBPath("external_table_config_immutable");
+  ASSERT_OK(DestroyDB(dbname, options));
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  Status update_status =
+      db->SetOptions({{"table_factory.external_table_config", "{mode=slow}"}});
+  ASSERT_TRUE(update_status.IsInvalidArgument()) << update_status.ToString();
+
+  Options current_options = db->GetOptions();
+  std::string current_config;
+  ASSERT_OK(current_options.table_factory->GetOption(
+      config_options, "external_table_config", &current_config));
+  ASSERT_EQ(current_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  ASSERT_OK(db->Close());
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigCanChangeBetweenDBOpens) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+
+  std::shared_ptr<ConfigurableDummyExternalTableFactory> first_factory =
+      std::make_shared<ConfigurableDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(first_factory);
+  ConfigOptions config_options(options);
+  ASSERT_OK(options.table_factory->ConfigureFromString(
+      config_options,
+      "external_table_config=" +
+          ConfigurableDummyExternalTableFactory::SerializedValidConfig()));
+  ASSERT_EQ(first_factory->config(),
+            ConfigurableDummyExternalTableFactory::kValidConfig());
+
+  const std::string dbname =
+      test::PerThreadDBPath("external_table_config_reopen");
+  ASSERT_OK(DestroyDB(dbname, options));
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_EQ(first_factory->config(),
+            ConfigurableDummyExternalTableFactory::kValidConfig());
+  ASSERT_OK(db->Close());
+  db.reset();
+
+  std::shared_ptr<ConfigurableDummyExternalTableFactory> second_factory =
+      std::make_shared<ConfigurableDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(second_factory);
+  ConfigOptions reopen_config_options(options);
+  ASSERT_OK(options.table_factory->ConfigureFromString(
+      reopen_config_options, "external_table_config=" +
+                                 ConfigurableDummyExternalTableFactory::
+                                     SerializedAlternateValidConfig()));
+  ASSERT_EQ(second_factory->config(),
+            ConfigurableDummyExternalTableFactory::kAlternateValidConfig());
+
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_EQ(second_factory->config(),
+            ConfigurableDummyExternalTableFactory::kAlternateValidConfig());
+
+  std::string reopened_config;
+  ASSERT_OK(db->GetOptions().table_factory->GetOption(
+      reopen_config_options, "external_table_config", &reopened_config));
+  ASSERT_EQ(
+      reopened_config,
+      ConfigurableDummyExternalTableFactory::SerializedAlternateValidConfig());
+
+  ASSERT_OK(db->Close());
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
 
 TEST_F(ExternalTableTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =

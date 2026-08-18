@@ -193,6 +193,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSeparateKeyValueInDataBlock,
         props.separate_key_value_in_data_block);
   }
+  if (!props.user_key_common_prefix.empty()) {
+    Add(TablePropertiesNames::kUserKeyCommonPrefix,
+        props.user_key_common_prefix);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -405,6 +409,8 @@ Status ParsePropertiesBlock(
       *(pos->second) = val;
     } else if (key == TablePropertiesNames::kDbId) {
       new_table_properties->db_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kUserKeyCommonPrefix) {
+      new_table_properties->user_key_common_prefix = raw_val.ToString();
     } else if (key == TablePropertiesNames::kDbSessionId) {
       new_table_properties->db_session_id = raw_val.ToString();
     } else if (key == TablePropertiesNames::kDbHostId) {

@@ -52,6 +52,7 @@ struct TableProperties;
 struct WriteOptions;
 struct WaitForCompactOptions;
 class Env;
+class CoroDB;
 class EventListener;
 class FileSystem;
 class LazyWideColumns;
@@ -1164,18 +1165,21 @@ class DB {
 
   // EXPERIMENTAL
   //
-  // RocksDB async read variants of Get and MultiGet. Implementations may
-  // complete asynchronously. The default implementation runs synchronously and
-  // invokes the callback inline before returning.
+  // RocksDB async read variants of Get and MultiGet. The default implementation
+  // uses the native coroutine capability when exposed and a FileSystem read
+  // executor is available, and otherwise invokes the callback synchronously
+  // before returning.
   //
-  // Full async execution requires RocksDB to be built with coroutine support,
-  // a configured FileSystem read executor, and an underlying FileSystem that
-  // implements FSRandomAccessFile::SubmitReadAsync(). Without those
-  // requirements, implementations delegate to the synchronous Get/MultiGet path
-  // and invoke the callback inline before returning. When full async execution
-  // is available, RocksDB can run an internal read coroutine on the read
-  // executor, suspend while async file IO is outstanding, and resume when the
-  // filesystem signals completion. The callback is invoked after the requested
+  // Full async file IO requires RocksDB to be built with coroutine support, a
+  // DB implementation that exposes the native coroutine capability, a
+  // configured FileSystem read executor, and an underlying FileSystem that
+  // implements FSRandomAccessFile::SubmitReadAsync(). When the native
+  // coroutine capability and a read executor are available, RocksDB can run an
+  // internal read coroutine on the read executor, suspend while async file IO
+  // is outstanding, and resume when the filesystem signals completion. Without
+  // a native coroutine capability or read executor, the default implementation
+  // delegates to the synchronous Get/MultiGet path and invokes the callback
+  // inline before returning. The callback is invoked after the requested
   // statuses and output buffers have been populated. Applications can set
   // `DBOptions::read_io_executor_threads` before opening the DB to configure
   // executor parallelism for their workload.
@@ -1209,11 +1213,7 @@ class DB {
   virtual void GetAsync(const ReadOptions& options,
                         ColumnFamilyHandle* column_family, const Slice& key,
                         PinnableSlice* value, std::string* timestamp,
-                        Status& status, AsyncCallback& callback) {
-    status = Get(options, column_family, key, value, timestamp);
-    callback.OnComplete(/*callback_perf_context=*/nullptr,
-                        /*callback_iostats_context=*/nullptr);
-  }
+                        Status& status, AsyncCallback& callback);
 
   virtual void GetAsync(const ReadOptions& options,
                         ColumnFamilyHandle* column_family, const Slice& key,
@@ -1287,12 +1287,7 @@ class DB {
                              ColumnFamilyHandle** column_families,
                              const Slice* keys, PinnableSlice* values,
                              std::string* timestamps, Status* statuses,
-                             const bool sorted_input, AsyncCallback& callback) {
-    MultiGet(options, num_keys, column_families, keys, values, timestamps,
-             statuses, sorted_input);
-    callback.OnComplete(/*callback_perf_context=*/nullptr,
-                        /*callback_iostats_context=*/nullptr);
-  }
+                             const bool sorted_input, AsyncCallback& callback);
 
   virtual void MultiGetAsync(const ReadOptions& options, const size_t num_keys,
                              ColumnFamilyHandle** column_families,
@@ -1430,6 +1425,17 @@ class DB {
     //  "rocksdb.num-running-compactions" - returns the number of currently
     //      running compactions.
     static const std::string kNumRunningCompactions;
+
+    //  "rocksdb.num-running-remote-compactions" - returns the number of
+    //      compaction service jobs currently waiting in
+    //      `CompactionService::Wait()`. Remote work is scheduled per
+    //      subcompaction, so a single compaction may contribute more than one
+    //      to this count. Always 0 when no `compaction_service` is configured.
+    static const std::string kNumRunningRemoteCompactions;
+
+    //  "rocksdb.num-running-bottom-compactions" - returns the number of
+    //      currently running bottom-priority compactions.
+    static const std::string kNumRunningBottomCompactions;
 
     //  "rocksdb.num-running-compaction-sorted-runs" - returns the number of
     //  sorted runs being processed by currently running compactions.
@@ -1686,6 +1692,8 @@ class DB {
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
+  //  "rocksdb.num-running-remote-compactions"
+  //  "rocksdb.num-running-bottom-compactions"
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.num-unscheduled-compactions"
   //  "rocksdb.actual-delayed-write-rate"
@@ -2604,9 +2612,20 @@ class DB {
   // secondary instance does not delete the corresponding column family
   // handles, the data of the column family is still accessible to the
   // secondary.
+  // If the primary has flushed data that this instance cannot read, because the
+  // flushed file is missing or unreadable for example, the memtables holding
+  // that data are kept rather than dropped, so that reads do not lose it. That
+  // memory, which is charged to `write_buffer_manager` when one is configured,
+  // is reclaimed only once those files become readable or this instance is
+  // reopened; `rocksdb.num-immutable-mem-table` reports how many memtables are
+  // being held.
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
+
+  // Returns the non-owning native coroutine interface, or nullptr when this DB
+  // does not support it. The returned pointer must not outlive this DB.
+  virtual CoroDB* GetCoroDB() { return nullptr; }
 };
 
 struct WriteStallStatsMapKeys {

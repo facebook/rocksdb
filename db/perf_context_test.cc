@@ -112,44 +112,45 @@ TEST_F(PerfContextTest, CoroutineStatsContextScopeCollectsStats) {
            std::move(stats_config)]() mutable -> folly::coro::Task<void> {
         EXPECT_TRUE(event_base->isInEventBaseThread());
 
-        CoroutineStatsContextScope scope(std::move(stats_config),
-                                         Env::Default());
-
-        EXPECT_EQ(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex,
-                  GetPerfLevel());
-        EXPECT_EQ(0, get_perf_context()->block_read_count);
-        EXPECT_TRUE(get_perf_context()->per_level_perf_context_enabled);
-
-        get_perf_context()->block_read_count += 3;
-        (*get_perf_context()->level_to_perf_context)[2].block_cache_hit_count +=
-            5;
-        EXPECT_EQ(0, get_iostats_context()->bytes_read);
-        get_iostats_context()->bytes_read += 7;
-        get_iostats_context()->cpu_read_nanos += 11;
-        get_iostats_context()
-            ->file_io_stats_by_temperature.hot_file_read_count += 1;
-
         {
-          PERF_TIMER_GUARD_WITH_CLOCK(block_read_time, clock);
-          clock->SleepForMicroseconds(7);
+          CoroutineStatsContextScope scope(std::move(stats_config),
+                                           Env::Default());
+
+          EXPECT_EQ(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex,
+                    GetPerfLevel());
+          EXPECT_EQ(0, get_perf_context()->block_read_count);
+          EXPECT_TRUE(get_perf_context()->per_level_perf_context_enabled);
+
+          get_perf_context()->block_read_count += 3;
+          (*get_perf_context()->level_to_perf_context)[2]
+              .block_cache_hit_count += 5;
+          EXPECT_EQ(0, get_iostats_context()->bytes_read);
+          get_iostats_context()->bytes_read += 7;
+          get_iostats_context()->cpu_read_nanos += 11;
+          get_iostats_context()
+              ->file_io_stats_by_temperature.hot_file_read_count += 1;
+
+          {
+            PERF_TIMER_GUARD_WITH_CLOCK(block_read_time, clock);
+            clock->SleepForMicroseconds(7);
+          }
+
+          co_await folly::coro::co_reschedule_on_current_executor;
+
+          EXPECT_TRUE(event_base->isInEventBaseThread());
+          EXPECT_EQ(3, get_perf_context()->block_read_count);
+          EXPECT_TRUE(get_perf_context()->per_level_perf_context_enabled);
+
+          get_perf_context()->block_read_count += 5;
+          (*get_perf_context()->level_to_perf_context)[2]
+              .block_cache_hit_count += 2;
+          EXPECT_EQ(7, get_iostats_context()->bytes_read);
+          get_iostats_context()->bytes_read += 11;
+          get_iostats_context()->cpu_read_nanos += 13;
+          get_iostats_context()
+              ->file_io_stats_by_temperature.hot_file_read_count += 2;
         }
 
-        co_await folly::coro::co_reschedule_on_current_executor;
-
-        EXPECT_TRUE(event_base->isInEventBaseThread());
-        EXPECT_EQ(3, get_perf_context()->block_read_count);
-        EXPECT_TRUE(get_perf_context()->per_level_perf_context_enabled);
-
-        get_perf_context()->block_read_count += 5;
-        (*get_perf_context()->level_to_perf_context)[2].block_cache_hit_count +=
-            2;
-        EXPECT_EQ(7, get_iostats_context()->bytes_read);
-        get_iostats_context()->bytes_read += 11;
-        get_iostats_context()->cpu_read_nanos += 13;
-        get_iostats_context()
-            ->file_io_stats_by_temperature.hot_file_read_count += 2;
-
-        scope.Finalize();
         auto verify_stats = [] {
           const PerfContext* captured_perf_context = get_perf_context();
           ASSERT_NE(nullptr, captured_perf_context);
@@ -199,32 +200,33 @@ TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
           const bool expected_per_level_perf_context_enabled =
               stats_config.per_level_perf_context_enabled;
           const bool expected_iostats_disabled = stats_config.iostats_disabled;
-          CoroutineStatsContextScope scope(std::move(stats_config),
-                                           Env::Default());
+          {
+            CoroutineStatsContextScope scope(std::move(stats_config),
+                                             Env::Default());
 
-          EXPECT_EQ(expected_perf_level, GetPerfLevel());
-          EXPECT_EQ(expected_per_level_perf_context_enabled,
-                    get_perf_context()->per_level_perf_context_enabled);
-          EXPECT_EQ(expected_iostats_disabled,
-                    get_iostats_context()->disable_iostats);
-          EXPECT_EQ(0, get_perf_context()->block_read_count);
-          EXPECT_EQ(0, get_iostats_context()->bytes_read);
+            EXPECT_EQ(expected_perf_level, GetPerfLevel());
+            EXPECT_EQ(expected_per_level_perf_context_enabled,
+                      get_perf_context()->per_level_perf_context_enabled);
+            EXPECT_EQ(expected_iostats_disabled,
+                      get_iostats_context()->disable_iostats);
+            EXPECT_EQ(0, get_perf_context()->block_read_count);
+            EXPECT_EQ(0, get_iostats_context()->bytes_read);
 
-          get_perf_context()->block_read_count += first;
-          get_iostats_context()->bytes_read += first;
-          co_await folly::coro::co_reschedule_on_current_executor;
+            get_perf_context()->block_read_count += first;
+            get_iostats_context()->bytes_read += first;
+            co_await folly::coro::co_reschedule_on_current_executor;
 
-          EXPECT_EQ(expected_perf_level, GetPerfLevel());
-          EXPECT_EQ(expected_per_level_perf_context_enabled,
-                    get_perf_context()->per_level_perf_context_enabled);
-          EXPECT_EQ(expected_iostats_disabled,
-                    get_iostats_context()->disable_iostats);
-          EXPECT_EQ(first, get_perf_context()->block_read_count);
-          EXPECT_EQ(first, get_iostats_context()->bytes_read);
-          get_perf_context()->block_read_count += second;
-          get_iostats_context()->bytes_read += second;
+            EXPECT_EQ(expected_perf_level, GetPerfLevel());
+            EXPECT_EQ(expected_per_level_perf_context_enabled,
+                      get_perf_context()->per_level_perf_context_enabled);
+            EXPECT_EQ(expected_iostats_disabled,
+                      get_iostats_context()->disable_iostats);
+            EXPECT_EQ(first, get_perf_context()->block_read_count);
+            EXPECT_EQ(first, get_iostats_context()->bytes_read);
+            get_perf_context()->block_read_count += second;
+            get_iostats_context()->bytes_read += second;
+          }
 
-          scope.Finalize();
           EXPECT_EQ(first + second, get_iostats_context()->bytes_read);
           co_return get_perf_context()->block_read_count;
         };
@@ -250,17 +252,18 @@ TEST_F(PerfContextTest, CoroutineStatsContextScopeCollectsGetCpuNanos) {
   CompositeEnvWrapper env(Env::Default(), clock);
   clock->SetCurrentCPUTimeNanos(0);
   {
-    CoroutineStatsContextScope scope(CaptureCoroutineStatsConfig(), &env);
-
-    clock->MockSleepForCPUNanos(17);
-    clock->MockSleepForCPUNanos(5);
-    // Time while the request context is unset is not charged to the request.
     {
-      folly::RequestContextScopeGuard context_scope;
-      clock->MockSleepForCPUNanos(13);
+      CoroutineStatsContextScope scope(CaptureCoroutineStatsConfig(), &env);
+
+      clock->MockSleepForCPUNanos(17);
+      clock->MockSleepForCPUNanos(5);
+      // Time while the request context is unset is not charged to the request.
+      {
+        folly::RequestContextScopeGuard context_scope;
+        clock->MockSleepForCPUNanos(13);
+      }
+      clock->MockSleepForCPUNanos(7);
     }
-    clock->MockSleepForCPUNanos(7);
-    scope.Finalize();
     EXPECT_EQ(29, get_perf_context()->get_cpu_nanos);
   }
 }

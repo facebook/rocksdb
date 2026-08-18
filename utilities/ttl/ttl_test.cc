@@ -19,6 +19,11 @@
 #include <unistd.h>
 #endif
 
+#if USE_COROUTINES
+#include "folly/coro/BlockingWait.h"
+#include "rocksdb/coro_db.h"
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -411,6 +416,56 @@ class TtlTest : public testing::Test {
   const std::string kNewValue_ = "new_value";
   std::unique_ptr<CompactionFilter> test_comp_filter_;
 };  // class TtlTest
+
+#if USE_COROUTINES
+TEST_F(TtlTest, GetCoroutine) {
+  options_.env = Env::Default();
+  OpenTtl();
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "key", "value"));
+
+  PinnableSlice value;
+  CoroDB* coro_db = db_ttl_->GetCoroDB();
+  ASSERT_NE(nullptr, coro_db);
+  std::string timestamp;
+  ASSERT_TRUE(
+      folly::coro::blockingWait(CoroDB::CoGet(db_ttl_, ReadOptions(),
+                                              db_ttl_->DefaultColumnFamily(),
+                                              "key", &value, &timestamp))
+          .IsNotSupported());
+
+  Status status = folly::coro::blockingWait(CoroDB::CoGet(
+      db_ttl_, ReadOptions(), db_ttl_->DefaultColumnFamily(), "key", &value,
+      /*timestamp=*/nullptr));
+
+  ASSERT_OK(status);
+  ASSERT_EQ("value", value.ToString());
+}
+
+TEST_F(TtlTest, MultiGetCoroutine) {
+  options_.env = Env::Default();
+  OpenTtl();
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "key", "value"));
+
+  ColumnFamilyHandle* column_families[] = {db_ttl_->DefaultColumnFamily()};
+  const Slice keys[] = {Slice("key")};
+  PinnableSlice values[1];
+  Status statuses[1];
+  CoroDB* coro_db = db_ttl_->GetCoroDB();
+  ASSERT_NE(nullptr, coro_db);
+  std::string timestamps[1];
+  folly::coro::blockingWait(
+      CoroDB::CoMultiGet(db_ttl_, ReadOptions(), 1, column_families, keys,
+                         values, timestamps, statuses, /*sorted_input=*/false));
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+
+  folly::coro::blockingWait(CoroDB::CoMultiGet(
+      db_ttl_, ReadOptions(), 1, column_families, keys, values,
+      /*timestamps=*/nullptr, statuses, /*sorted_input=*/false));
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("value", values[0].ToString());
+}
+#endif  // USE_COROUTINES
 
 // If TTL is non positive or not provided, the behaviour is TTL = infinity
 // This test opens the db 3 times with such default behavior and inserts a

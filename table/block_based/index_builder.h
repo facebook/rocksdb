@@ -251,6 +251,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
             false /* use_separated_kv_storage */, statistics,
             uniform_cv_threshold),
         use_value_delta_encoding_(use_value_delta_encoding),
+        value_delta_escape_(FormatVersionUsesValueDeltaEscape(format_version)),
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
     // Making the default true will disable the feature for old versions
@@ -324,10 +325,16 @@ class ShortenedIndexBuilder : public IndexBuilder {
     std::string encoded_entry;
     std::string delta_encoded_entry;
     entry.EncodeTo(&encoded_entry, include_first_key_, nullptr);
+    // Under format_version >= 8, a non-contiguous handle (skip_delta_encoding)
+    // is expressed with the in-value escape (see IndexValue::EncodeTo), so we
+    // still delta-encode the value AND keep the key delta-encoded (do not force
+    // the entry to a restart). Under format_version <= 7, keep legacy behavior:
+    // skip_delta_encoding forces both a full value and a full (shared==0) key.
+    const bool force_full_key = skip_delta_encoding && !value_delta_escape_;
     if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull() &&
-        !skip_delta_encoding) {
+        (value_delta_escape_ || !skip_delta_encoding)) {
       entry.EncodeTo(&delta_encoded_entry, include_first_key_,
-                     &last_encoded_handle_);
+                     &last_encoded_handle_, value_delta_escape_);
     } else {
       // If it's the first block, or delta encoding is disabled,
       // BlockBuilder::Add() below won't use delta-encoded slice.
@@ -346,11 +353,11 @@ class ShortenedIndexBuilder : public IndexBuilder {
     // optimization is provided.
     // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_block_builder_.Add(separator_with_seq, encoded_entry,
-                             &delta_encoded_entry_slice, skip_delta_encoding);
+                             delta_encoded_entry_slice, force_full_key);
     if (!must_use_separator_with_seq) {
       index_block_builder_without_seq_.Add(
           ExtractUserKey(separator_with_seq), encoded_entry,
-          &delta_encoded_entry_slice, skip_delta_encoding);
+          delta_encoded_entry_slice, force_full_key);
     }
 
     ++num_index_entries_;
@@ -486,6 +493,9 @@ class ShortenedIndexBuilder : public IndexBuilder {
   // before).
   BlockBuilder index_block_builder_without_seq_;
   const bool use_value_delta_encoding_;
+  // format_version >= 8: emit the in-value escape for non-contiguous handles
+  // instead of forcing the index entry to a restart (see IndexValue::EncodeTo).
+  const bool value_delta_escape_;
   RelaxedAtomic<bool> must_use_separator_with_seq_;
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
@@ -769,12 +779,16 @@ class PartitionedIndexBuilder : public IndexBuilder {
   const BlockBasedTableOptions& table_opt_;
   RelaxedAtomic<bool> must_use_separator_with_seq_;
   bool use_value_delta_encoding_;
+  // format_version >= 8 value-delta codec for the top-level index (see
+  // IndexValue::EncodeTo). Must match what the reader of this block uses.
+  const bool value_delta_escape_;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition
   bool partition_cut_requested_ = true;
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
-  BlockHandle last_encoded_handle_;
+  // Start in a usable "no previous handle" state
+  BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   Statistics* statistics_;
   // Cached estimate of current index size, updated when data blocks are added
   RelaxedAtomic<uint64_t> estimated_index_size_{0};

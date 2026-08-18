@@ -53,6 +53,12 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
 
+  // Resets this thread's AutoSkip inter-file estimate carryover (see
+  // CompressionOptions::auto_skip). Tools that build many independent files on
+  // a single thread (e.g. sst_dump --command=recompress) call this between
+  // files so each is measured without inheriting the previous file's estimate.
+  static void ResetThreadLocalAutoSkipCarryover();
+
   // Add key,value to the table being constructed.
   // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any
   //           previously added non-kTypeRangeDeletion key according to
@@ -148,14 +154,16 @@ class BlockBasedTableBuilder : public TableBuilder {
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type, bool* skip_delta_encoding = nullptr);
   // Directly write data to the file.
-  void WriteMaybeCompressedBlock(const Slice& block_contents, CompressionType,
-                                 BlockHandle* handle, BlockType block_type,
-                                 const Slice* uncompressed_block_data = nullptr,
-                                 bool* skip_delta_encoding = nullptr);
+  void WriteMaybeCompressedBlock(
+      const Slice& block_contents, CompressionType, BlockHandle* handle,
+      BlockType block_type, const Slice* uncompressed_block_data = nullptr,
+      bool* skip_delta_encoding = nullptr,
+      const uint32_t* precomputed_checksum = nullptr);
   IOStatus WriteMaybeCompressedBlockImpl(
       const Slice& block_contents, CompressionType, BlockHandle* handle,
       BlockType block_type, const Slice* uncompressed_block_data = nullptr,
-      bool* skip_delta_encoding = nullptr);
+      bool* skip_delta_encoding = nullptr,
+      const uint32_t* precomputed_checksum = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -228,12 +236,14 @@ class BlockBasedTableBuilder : public TableBuilder {
   void BGWorker(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
-  // compression type
+  // compression type. Only ever called to attempt compression; the auto-skip
+  // skip/bypass decision is made by the caller (emit thread).
   Status CompressAndVerifyBlock(const Slice& uncompressed_block_data,
                                 bool is_data_block,
                                 WorkingAreaPair& working_area,
                                 GrowableBuffer* compressed_output,
-                                CompressionType* result_compression_type);
+                                CompressionType* result_compression_type,
+                                uint32_t* result_checksum);
 
   // If configured, start worker threads for parallel compression
   void MaybeStartParallelCompression();

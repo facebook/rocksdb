@@ -5376,6 +5376,7 @@ VersionSet::VersionSet(
       current_version_number_(0),
       manifest_file_size_(0),
       manifest_last_valid_record_end_(0),
+      force_new_manifest_on_open_(false),
       last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
@@ -5586,6 +5587,7 @@ void VersionSet::Reset() {
   manifest_writers_.clear();
   manifest_file_size_ = 0;
   manifest_last_valid_record_end_ = 0;
+  force_new_manifest_on_open_ = false;
   last_compacted_manifest_file_size_ = 0;
   TuneMaxManifestFileSize();
   obsolete_files_.clear();
@@ -6502,6 +6504,10 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
     return Status::OK();
   }
 
+  auto force_new_manifest_on_open = [&]() {
+    force_new_manifest_on_open_ = true;
+  };
+
   FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
 
   // Bail if the on-disk size diverges from what Recover's Reader
@@ -6514,8 +6520,9 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: physical size %" PRIu64
                    " != last valid record end %" PRIu64
-                   " (tail corruption?); falling back to fresh MANIFEST",
+                   " (tail corruption?); creating fresh MANIFEST during open",
                    physical_size, manifest_last_valid_record_end_);
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6525,7 +6532,8 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   if (opt_file_opts.use_direct_writes) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: direct writes enabled; "
-                   "falling back to fresh MANIFEST");
+                   "creating fresh MANIFEST during open");
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6536,6 +6544,7 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "Failed to reopen MANIFEST for append: %s",
                    io_s.ToString().c_str());
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6545,8 +6554,9 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: reopened handle size %" PRIu64
                    " != last valid record end %" PRIu64
-                   "; falling back to fresh MANIFEST",
+                   "; creating fresh MANIFEST during open",
                    reopened_size, manifest_last_valid_record_end_);
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6727,6 +6737,7 @@ Status VersionSet::Recover(
   uint64_t current_manifest_file_size = 0;
   uint64_t log_number = 0;
   {
+    force_new_manifest_on_open_ = false;
     VersionSet::LogReporter reporter;
     Status log_read_status;
     reporter.status = &log_read_status;
@@ -8182,6 +8193,12 @@ Status ReactiveVersionSet::ReadAndApply(
   }
 
   return s;
+}
+
+uint64_t ReactiveVersionSet::GetInstalledVersionLogNumber(
+    uint32_t cf_id) const {
+  assert(manifest_tailer_ != nullptr);
+  return manifest_tailer_->GetInstalledVersionLogNumber(cf_id);
 }
 
 Status ReactiveVersionSet::MaybeSwitchManifest(

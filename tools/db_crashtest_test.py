@@ -12,6 +12,8 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from types import SimpleNamespace
+from unittest import mock
 
 
 _DB_CRASHTEST_PATH = os.path.join(os.path.dirname(__file__), "db_crashtest.py")
@@ -23,14 +25,14 @@ _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
 _TSAN_OPTIONS_ENV_VAR = "TSAN_OPTIONS"
 
 
-def load_db_crashtest_module():
+def load_db_crashtest_module(args=None):
     spec = importlib.util.spec_from_file_location(
         "db_crashtest_under_test", _DB_CRASHTEST_PATH
     )
     module = importlib.util.module_from_spec(spec)
     old_argv = sys.argv[:]
     try:
-        sys.argv = [_DB_CRASHTEST_PATH]
+        sys.argv = [_DB_CRASHTEST_PATH] + list(args or [])
         spec.loader.exec_module(module)
     finally:
         sys.argv = old_argv
@@ -76,8 +78,18 @@ class DBCrashTestTest(unittest.TestCase):
 
         shutil.rmtree(self.test_tmpdir)
 
-    def load_db_crashtest(self):
-        return load_db_crashtest_module()
+    def load_db_crashtest(self, args=None):
+        return load_db_crashtest_module(args)
+
+    def register_expected_values_dir_cleanup(self, db_crashtest):
+        def cleanup_expected_values_dir():
+            if db_crashtest.ev_parent_dir_global:
+                shutil.rmtree(
+                    db_crashtest.ev_parent_dir_global,
+                    ignore_errors=True,
+                )
+
+        self.addCleanup(cleanup_expected_values_dir)
 
     def load_fault_injection_log_parser(self):
         return load_fault_injection_log_parser_module()
@@ -88,6 +100,22 @@ class DBCrashTestTest(unittest.TestCase):
         if overrides:
             params.update(overrides)
         return params
+
+    def build_mode_args(self, test_type="liveness", **overrides):
+        args = {
+            "test_type": test_type,
+            "simple": False,
+            "cf_consistency": False,
+            "txn": False,
+            "optimistic_txn": False,
+            "test_best_efforts_recovery": False,
+            "enable_ts": False,
+            "test_multiops_txn": False,
+            "test_tiered_storage": False,
+            "print_stderr_separately": False,
+        }
+        args.update(overrides)
+        return SimpleNamespace(**args)
 
     def test_stress_cmd_env_defaults_tsan_suppressions(self):
         os.environ.pop(_TSAN_OPTIONS_ENV_VAR, None)
@@ -110,6 +138,20 @@ class DBCrashTestTest(unittest.TestCase):
         env = db_crashtest.stress_cmd_env()
 
         self.assertEqual("halt_on_error=1", env[_TSAN_OPTIONS_ENV_VAR])
+
+    def test_generated_command_uses_async_db_api(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {"use_async_db_api": 1},
+        )
+
+        command, _ = db_crashtest.gen_cmd(params, [])
+
+        self.assertIn("--use_async_db_api=1", command)
+        self.assertFalse(
+            any(arg.startswith("--use_coro_db_api=") for arg in command)
+        )
 
     def test_get_ev_parent_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
@@ -454,6 +496,341 @@ class DBCrashTestTest(unittest.TestCase):
             f"{remote_output_dir} subtree=5B local=5B local_files=1 local_dirs=0",
             diagnostics,
         )
+
+    def test_liveness_params_keep_mixed_workload_and_enable_watchdog(self):
+        db_crashtest = self.load_db_crashtest()
+
+        # Liveness mode should inherit the normal mixed workload. The C++
+        # watchdog tracks per-thread active operation type, so Python does not
+        # need to force an all-write workload to keep the signal readable.
+        params = db_crashtest.gen_cmd_params(self.build_mode_args())
+        params["db"] = self.test_tmpdir
+        finalized_params = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC, params["duration"])
+        self.assertEqual(1, params["liveness_check_interval_sec"])
+        self.assertEqual(300, params["liveness_no_progress_timeout_sec"])
+        self.assertEqual(1, params["enable_thread_tracking"])
+        self.assertEqual(1, params["progress_reports"])
+        self.assertEqual(100000000, params["ops_per_thread"])
+        for fault_param in [
+            "error_recovery_with_no_fault_injection",
+            "exclude_wal_from_write_fault_injection",
+            "metadata_read_fault_one_in",
+            "metadata_write_fault_one_in",
+            "open_metadata_read_fault_one_in",
+            "open_metadata_write_fault_one_in",
+            "open_read_fault_one_in",
+            "open_write_fault_one_in",
+            "read_fault_one_in",
+            "secondary_cache_fault_one_in",
+            "sync_fault_injection",
+            "write_fault_one_in",
+        ]:
+            self.assertEqual(0, finalized_params[fault_param])
+        self.assertIn(
+            finalized_params["abort_and_resume_compactions_one_in"],
+            [0, 1000, 10000],
+        )
+        self.assertEqual(db_crashtest.default_params["readpercent"], params["readpercent"])
+        self.assertEqual(
+            db_crashtest.default_params["prefixpercent"], params["prefixpercent"]
+        )
+        self.assertEqual(
+            db_crashtest.default_params["writepercent"], params["writepercent"]
+        )
+        self.assertGreaterEqual(params["writepercent"], 20)
+        self.assertEqual(db_crashtest.default_params["delpercent"], params["delpercent"])
+        self.assertEqual(
+            db_crashtest.default_params["delrangepercent"], params["delrangepercent"]
+        )
+        self.assertEqual(db_crashtest.default_params["iterpercent"], params["iterpercent"])
+
+        params = db_crashtest.gen_cmd_params(
+            self.build_mode_args(read_fault_one_in=32, sync_fault_injection=1)
+        )
+        self.assertEqual(0, params["read_fault_one_in"])
+        self.assertEqual(0, params["sync_fault_injection"])
+
+    def test_liveness_command_passes_watchdog_flags_not_wrapper_duration(self):
+        db_crashtest = self.load_db_crashtest()
+        check_interval_sec = 2
+        no_progress_timeout_sec = 7
+        wrapper_duration_sec = 17
+        args = self.build_mode_args(
+            duration=wrapper_duration_sec,
+            liveness_check_interval_sec=check_interval_sec,
+            liveness_no_progress_timeout_sec=no_progress_timeout_sec,
+        )
+        params = db_crashtest.gen_cmd_params(args)
+        params["db"] = self.test_tmpdir
+
+        # The Python wrapper owns duration; db_stress only needs the watchdog
+        # interval and no-progress timeout flags.
+        cmd, _ = db_crashtest.gen_cmd(params, [])
+        cmd_flags = {}
+        for arg in cmd:
+            if arg.startswith("--") and "=" in arg:
+                key, value = arg[2:].split("=", 1)
+                cmd_flags[key] = value
+
+        self.assertEqual(
+            str(check_interval_sec), cmd_flags["liveness_check_interval_sec"]
+        )
+        self.assertEqual(
+            str(no_progress_timeout_sec),
+            cmd_flags["liveness_no_progress_timeout_sec"],
+        )
+        self.assertNotIn("duration", cmd_flags)
+
+    def test_liveness_timeout_zero_uses_default_duration(self):
+        db_crashtest = self.load_db_crashtest()
+
+        # A zero/None duration still needs a finite wrapper runtime.
+        self.assertEqual(
+            db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC,
+            db_crashtest.liveness_timeout({"duration": 0}),
+        )
+        self.assertEqual(
+            db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC,
+            db_crashtest.liveness_timeout({"duration": None}),
+        )
+        self.assertEqual(30, db_crashtest.liveness_timeout({"duration": 30}))
+
+    def test_liveness_remote_db_uses_longer_timeouts(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = True
+
+        params = db_crashtest.gen_cmd_params(self.build_mode_args())
+
+        self.assertEqual(
+            db_crashtest.DEFAULT_LIVENESS_TIMEOUT_SEC
+            * db_crashtest.REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER,
+            params["duration"],
+        )
+        self.assertEqual(
+            db_crashtest.DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC
+            * db_crashtest.REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER,
+            params["liveness_no_progress_timeout_sec"],
+        )
+        self.assertEqual(
+            params["duration"], db_crashtest.liveness_timeout({"duration": 0})
+        )
+
+        params = db_crashtest.gen_cmd_params(
+            self.build_mode_args(duration=17, liveness_no_progress_timeout_sec=7)
+        )
+
+        self.assertEqual(17, params["duration"])
+        self.assertEqual(7, params["liveness_no_progress_timeout_sec"])
+
+    def test_liveness_wrapper_timeout_is_successful_end_of_run(self):
+        db_crashtest = self.load_db_crashtest()
+        execute_calls = []
+        cleanups = []
+
+        def fake_execute_cmd(cmd, timeout=None, timeout_pstack=False, expected_to_timeout=True):
+            execute_calls.append((cmd, timeout, timeout_pstack, expected_to_timeout))
+            return (
+                True,
+                -15,
+                "Received signal 15 (Terminated)\n",
+                "",
+                123,
+            )
+
+        db_crashtest.execute_cmd = fake_execute_cmd
+        db_crashtest.print_fault_injection_log = lambda pid: None
+        db_crashtest.cleanup_after_success = lambda db_arg, num_dbs=1: cleanups.append(
+            (db_arg, num_dbs)
+        )
+
+        db_crashtest.liveness_main(self.build_mode_args(duration=17), [])
+
+        self.assertEqual(1, len(execute_calls))
+        self.assertEqual(17, execute_calls[0][1])
+        self.assertFalse(execute_calls[0][2])
+        self.assertFalse(execute_calls[0][3])
+        self.assertIn("--expected_values_dir=", execute_calls[0][0])
+        self.assertEqual(1, len(cleanups))
+
+    def test_remote_liveness_uses_local_expected_values_dir(self):
+        db_crashtest = self.load_db_crashtest()
+        os.environ[_TEST_DIR_ENV_VAR] = "/dev_test/rocksdb_crash_test/job123"
+        db_crashtest.is_remote_db = True
+        self.register_expected_values_dir_cleanup(db_crashtest)
+        execute_calls = []
+
+        def fake_execute_cmd(
+            cmd, timeout=None, timeout_pstack=False, expected_to_timeout=True
+        ):
+            execute_calls.append(cmd)
+            return (
+                True,
+                -15,
+                "Received signal 15 (Terminated)\n",
+                "",
+                123,
+            )
+
+        def expected_values_dir_from(cmd):
+            values = [
+                arg.split("=", 1)[1]
+                for arg in cmd
+                if arg.startswith("--expected_values_dir=")
+            ]
+            self.assertEqual(1, len(values))
+            return values[0]
+
+        db_crashtest.execute_cmd = fake_execute_cmd
+        db_crashtest.print_fault_injection_log = lambda pid: None
+        db_crashtest.cleanup_after_success = lambda db_arg, num_dbs=1: None
+
+        db_crashtest.liveness_main(self.build_mode_args(duration=17), [])
+
+        self.assertEqual(1, len(execute_calls))
+        expected_values_dir = expected_values_dir_from(execute_calls[0])
+        self.assertTrue(expected_values_dir)
+        self.assertEqual(
+            os.path.realpath(tempfile.gettempdir()),
+            os.path.dirname(os.path.realpath(expected_values_dir)),
+        )
+        self.assertTrue(os.path.isdir(expected_values_dir))
+
+        explicit_dir = os.path.join(self.test_tmpdir, "explicit_expected")
+        db_crashtest.get_ev_parent_dir = lambda: self.fail(
+            "explicit expected_values_dir should not allocate a default"
+        )
+        db_crashtest.liveness_main(
+            self.build_mode_args(duration=17, expected_values_dir=explicit_dir), []
+        )
+
+        self.assertEqual(2, len(execute_calls))
+        self.assertEqual(explicit_dir, expected_values_dir_from(execute_calls[1]))
+        self.assertTrue(os.path.isdir(explicit_dir))
+
+    def test_remote_uri_forms_are_normalized_for_workload_and_cleanup(self):
+        os.environ[_TEST_DIR_ENV_VAR] = "/dev_test/rocksdb_crash_test/job123"
+        uri = "remote://example/db"
+
+        for flag in ("--env_uri", "--fs_uri"):
+            for form in ("equals", "spaced"):
+                with self.subTest(flag=flag, form=form):
+                    remote_args = (
+                        [flag + "=" + uri] if form == "equals" else [flag, uri]
+                    )
+                    db_crashtest = self.load_db_crashtest(
+                        [
+                            "liveness",
+                            "--duration=17",
+                            "--stress_cmd=/bin/db_stress",
+                        ]
+                        + remote_args
+                    )
+                    self.register_expected_values_dir_cleanup(db_crashtest)
+                    workload_calls = []
+                    cleanup_calls = []
+                    expected_values_dirs = []
+
+                    def fake_execute_cmd(
+                        cmd,
+                        timeout=None,
+                        timeout_pstack=False,
+                        expected_to_timeout=True,
+                    ):
+                        workload_calls.append(cmd)
+                        expected_values_dirs.extend(
+                            arg.split("=", 1)[1]
+                            for arg in cmd
+                            if arg.startswith("--expected_values_dir=")
+                        )
+                        return (
+                            True,
+                            -15,
+                            "Received signal 15 (Terminated)\n",
+                            "",
+                            123,
+                        )
+
+                    def fake_cleanup_call(cmd, env=None):
+                        cleanup_calls.append(cmd)
+                        return 0
+
+                    db_crashtest.execute_cmd = fake_execute_cmd
+                    db_crashtest.print_fault_injection_log = lambda pid: None
+                    with mock.patch.object(
+                        db_crashtest.subprocess,
+                        "call",
+                        side_effect=fake_cleanup_call,
+                    ):
+                        db_crashtest.main()
+
+                    normalized_arg = flag + "=" + uri
+                    self.assertTrue(db_crashtest.is_remote_db)
+                    self.assertEqual(1, db_crashtest.remain_args.count(normalized_arg))
+                    self.assertEqual(1, len(workload_calls))
+                    self.assertEqual(1, workload_calls[0].count(normalized_arg))
+                    self.assertNotIn(flag, workload_calls[0])
+                    self.assertEqual(1, len(cleanup_calls))
+                    self.assertEqual(1, cleanup_calls[0].count(normalized_arg))
+                    self.assertNotIn(flag, cleanup_calls[0])
+                    self.assertEqual(1, len(expected_values_dirs))
+                    self.assertTrue(expected_values_dirs[0])
+                    self.assertEqual(
+                        os.path.realpath(tempfile.gettempdir()),
+                        os.path.dirname(os.path.realpath(expected_values_dirs[0])),
+                    )
+
+    def test_remote_uri_missing_value_does_not_consume_following_option(self):
+        db_crashtest = self.load_db_crashtest()
+
+        for flag in ("--env_uri", "--fs_uri"):
+            for following_option in ("-x", "--duration=17"):
+                with self.subTest(flag=flag, following_option=following_option):
+                    args = [flag, following_option]
+                    self.assertEqual(
+                        args,
+                        db_crashtest.normalize_remote_db_args(args),
+                    )
+                    self.assertFalse(db_crashtest.remote_db_enabled(args))
+
+    def test_remote_uri_last_value_wins_and_cleanup_preserves_order(self):
+        cases = (
+            (["--env_uri=first", "--env_uri="], False),
+            (["--env_uri=", "--env_uri=last"], True),
+            (["--env_uri=first", "--fs_uri="], True),
+            (["--env_uri=", "--fs_uri="], False),
+        )
+
+        for remote_args, expected_remote in cases:
+            with self.subTest(remote_args=remote_args):
+                db_crashtest = self.load_db_crashtest(
+                    ["liveness"] + remote_args
+                )
+                db_crashtest.stress_cmd = "/bin/db_stress"
+
+                self.assertEqual(expected_remote, db_crashtest.is_remote_db)
+                self.assertEqual(remote_args, db_crashtest.remain_args[1:])
+                with mock.patch.object(
+                    db_crashtest.subprocess,
+                    "call",
+                    return_value=0,
+                ) as cleanup_call:
+                    db_crashtest.cleanup_after_success("/remote/db")
+                self.assertEqual(remote_args, cleanup_call.call_args.args[0][4:])
+
+    def test_liveness_can_target_transaction_lock_manager(self):
+        db_crashtest = self.load_db_crashtest()
+
+        # Transaction mode remains composable with liveness mode, which lets
+        # the same watchdog cover point-lock-manager deadlocks/livelocks.
+        params = db_crashtest.gen_cmd_params(self.build_mode_args(txn=True))
+
+        self.assertEqual(1, params["use_txn"])
+        self.assertEqual(0, params["use_optimistic_txn"])
+        self.assertIn("use_per_key_point_lock_mgr", params)
+        self.assertEqual(0, params.get("kill_random_test", 0))
+        self.assertGreater(params["liveness_no_progress_timeout_sec"], 0)
 
     # Goal: verify db_crashtest decodes the headerless streaming binary fault
     # injection log format used on crash paths while keeping stdout concise.

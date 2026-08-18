@@ -43,7 +43,11 @@ _TSAN_OPTIONS_ENV_VAR = "TSAN_OPTIONS"
 _TSAN_SUPPRESSIONS_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "tsan_suppressions.txt")
 )
+DEFAULT_LIVENESS_TIMEOUT_SEC = 3600
+DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC = 300
+REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER = 2
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
+_REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
 
 
 def get_random_seed(override):
@@ -72,6 +76,43 @@ def stress_cmd_env():
     return env
 
 
+def normalize_remote_db_args(args):
+    """Normalize supported remote URI flags to --flag=value form."""
+    normalized_args = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if (
+            arg in _REMOTE_DB_URI_FLAGS
+            and index + 1 < len(args)
+            and args[index + 1]
+            and not args[index + 1].startswith("-")
+        ):
+            normalized_args.append(arg + "=" + args[index + 1])
+            index += 2
+            continue
+        normalized_args.append(arg)
+        index += 1
+    return normalized_args
+
+
+def parse_remote_db_uri_arg(arg):
+    flag, separator, value = arg.partition("=")
+    if flag not in _REMOTE_DB_URI_FLAGS or not separator:
+        return None
+    return flag, value
+
+
+def remote_db_enabled(args):
+    effective_values = {}
+    for arg in args:
+        parsed_arg = parse_remote_db_uri_arg(arg)
+        if parsed_arg is not None:
+            flag, value = parsed_arg
+            effective_values[flag] = value
+    return any(effective_values.values())
+
+
 def early_argument_parsing_before_main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -92,16 +133,14 @@ def early_argument_parsing_before_main():
 
     global remain_args
     args, remain_args = parser.parse_known_args()
+    remain_args = normalize_remote_db_args(remain_args)
     init_random_seed = get_random_seed(args.initial_random_seed_override)
     global per_iteration_random_seed_override
     per_iteration_random_seed_override = args.per_iteration_random_seed_override
     global is_remote_db
-    # Set is_remote_db if remain_args has a non-empty --env_uri= or --fs_uri= argument
-    for arg in remain_args:
-        parts = arg.split("=", 1)
-        if parts[0] in ["--env_uri", "--fs_uri"] and len(parts) > 1 and parts[1]:
-            is_remote_db = True
-            break
+    # Remote URI arguments are normalized above so all later consumers see
+    # the same representation.
+    is_remote_db = remote_db_enabled(remain_args)
 
     print(f"Start with random seed {init_random_seed}")
     random.seed(init_random_seed)
@@ -120,20 +159,25 @@ early_argument_parsing_before_main()
 
 # params overwrite priority:
 #   for default:
-#       default_params < {blackbox,whitebox}_default_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params < args
 #   for simple:
-#       default_params < {blackbox,whitebox}_default_params <
+#       default_params < {blackbox,whitebox,liveness}_default_params <
 #       simple_default_params <
 #       {blackbox,whitebox}_simple_default_params < args
 #   for cf_consistency:
-#       default_params < {blackbox,whitebox}_default_params <
+#       default_params < {blackbox,whitebox,liveness}_default_params <
 #       cf_consistency_params < args
 #   for txn:
-#       default_params < {blackbox,whitebox}_default_params < txn_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params <
+#       txn_params < args
 #   for ts:
-#       default_params < {blackbox,whitebox}_default_params < ts_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params <
+#       ts_params < args
 #   for multiops_txn:
-#       default_params < {blackbox,whitebox}_default_params < multiops_txn_params < args
+#       default_params < {blackbox,whitebox,liveness}_default_params <
+#       multiops_txn_params < args
+# Liveness mode reapplies liveness_fault_injection_params after args so the
+# base liveness profile cannot accidentally turn fault injection back on.
 
 
 default_params = {
@@ -254,7 +298,7 @@ default_params = {
     "pause_background_one_in": lambda: random.choice([10000, 1000000]),
     "disable_file_deletions_one_in": lambda: random.choice([10000, 1000000]),
     "disable_manual_compaction_one_in": lambda: random.choice([10000, 1000000]),
-    "abort_and_resume_compactions_one_in": lambda: random.choice([10000, 1000000]),
+    "abort_and_resume_compactions_one_in": lambda: random.choice([0, 1000, 10000]),
     "abort_and_resume_cf_compactions_one_in": lambda: random.choice([10000, 1000000]),
     "prefix_size": lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
@@ -315,7 +359,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
     "writepercent": 35,
-    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 8, 8]),
     "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
@@ -531,9 +575,13 @@ default_params = {
     "compression_manager": lambda: random.choice(
         ["mixed"] * 1
         + ["none"] * 2
-        + ["autoskip"] * 2
         + ["randommixed"] * 2
         + ["custom"] * 3
+    ),
+    # AutoSkip compression is now a CompressionOptions feature (bool).
+    "compression_auto_skip": lambda: random.choice([0] * 4 + [1]),
+    "compression_auto_skip_min_sample_every": lambda: random.choice(
+        [0, 16, 64, 256]
     ),
     # fixed within a run for easier debugging
     # actual frequency is lower after option sanitization
@@ -660,6 +708,65 @@ whitebox_default_params = {
     "reopen": 20,
 }
 
+# Liveness mode inherits the normal randomized stress-test matrix and mixed
+# workload by default. The C++ watchdog tracks the active operation and
+# per-operation completion counts, so liveness does not need to force an
+# all-write workload to keep the failure signal understandable. Keep fault
+# injection disabled, though: injected read/open/write/sync/cache faults can
+# legitimately put the DB into background-error recovery or a no-progress write
+# stall for longer than the liveness timeout. Those cases are covered by other
+# test modes.
+# The Python wrapper owns duration, so keep db_stress's operation budget high
+# enough for long liveness runs. The C++ abort/resume path is additionally
+# gated on completed compaction progress and backs off when write stall pressure
+# is already visible.
+liveness_fault_injection_params = {
+    "error_recovery_with_no_fault_injection": 0,
+    "exclude_wal_from_write_fault_injection": 0,
+    "metadata_read_fault_one_in": 0,
+    "metadata_write_fault_one_in": 0,
+    "open_metadata_read_fault_one_in": 0,
+    "open_metadata_write_fault_one_in": 0,
+    "open_read_fault_one_in": 0,
+    "open_write_fault_one_in": 0,
+    "read_fault_one_in": 0,
+    "secondary_cache_fault_one_in": 0,
+    "sync_fault_injection": 0,
+    "write_fault_one_in": 0,
+}
+
+liveness_default_params = {
+    "duration": DEFAULT_LIVENESS_TIMEOUT_SEC,
+    "enable_thread_tracking": 1,
+    "liveness_check_interval_sec": 1,
+    "liveness_no_progress_timeout_sec": DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC,
+    "ops_per_thread": 100000000,
+    "progress_reports": 1,
+}
+liveness_default_params.update(liveness_fault_injection_params)
+
+
+def liveness_default_timeout_sec():
+    multiplier = REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER if is_remote_db else 1
+    return DEFAULT_LIVENESS_TIMEOUT_SEC * multiplier
+
+
+def apply_liveness_remote_defaults(params, args):
+    if not is_remote_db:
+        return
+
+    # Keep the wrapper duration in the same ratio as the no-progress timeout so
+    # the longer remote DB timeout still has enough run time to exercise
+    # liveness.
+    if getattr(args, "duration", None) is None:
+        params["duration"] = liveness_default_timeout_sec()
+    if getattr(args, "liveness_no_progress_timeout_sec", None) is None:
+        params["liveness_no_progress_timeout_sec"] = (
+            DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC
+            * REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER
+        )
+
+
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
@@ -768,6 +875,9 @@ blob_params = {
     ),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
+    "blob_file_writable_file_max_buffer_size": lambda: random.choice(
+        [0, 65536, 131072, 1048576]
+    ),
     "blob_file_starting_level": lambda: random.choice(
         [0] * 4 + [1] * 3 + [2] * 2 + [3]
     ),
@@ -789,6 +899,9 @@ blob_direct_write_params = {
     "inplace_update_support": 0,
     "min_blob_size": lambda: random.choice([8, 16, 64]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456]),
+    "blob_file_writable_file_max_buffer_size": lambda: random.choice(
+        [0, 65536, 131072, 1048576]
+    ),
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": 0,
     "blob_garbage_collection_age_cutoff": 0.0,
@@ -982,13 +1095,13 @@ def finalize_and_sanitize(src_params):
 
     # Blob direct write requires concurrent read visibility of files still open
     # for writing (BlobFileReader calls GetFileSize() on active partition files).
-    # Remote file systems such as Warm Storage do not guarantee that writes from
-    # a WritableFile are visible to a separate RandomAccessFile until the writer
-    # is closed, causing "Malformed blob file" corruption.  Disable BDW when a
-    # remote --env_uri / --fs_uri is in use.
+    # Some remote file systems do not guarantee that writes from a WritableFile
+    # are visible to a separate RandomAccessFile until the writer is closed,
+    # causing "Malformed blob file" corruption. Disable BDW when a remote
+    # --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
-    
+
     # Not to accidentally ignore errors on local dbs
     # (e.g. errors on IO Uring would be categorized as IO error)
     if not is_remote_db:
@@ -1487,22 +1600,26 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("compression_manager") == "randommixed"
     ):
         dest_params["block_align"] = 0
-    elif dest_params.get("compression_manager") == "autoskip":
-        # ensuring the compression is being used
-        if dest_params.get("compression_type") == "none":
-            dest_params["compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
-            )
-        if dest_params.get("bottommost_compression_type") == "none":
-            dest_params["bottommost_compression_type"] = random.choice(
-                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
-            )
-        dest_params["block_align"] = 0
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
             dest_params["compression_type"] = "none"
             dest_params["bottommost_compression_type"] = "none"
+    if dest_params.get("compression_auto_skip", 0) == 1:
+        # AutoSkip only does anything when compression is actually configured,
+        # and it is incompatible with block_align (like other compression).
+        dest_params["block_align"] = 0
+        if dest_params.get("compression_type") == "none":
+            dest_params["compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        # Also ensure the bottommost level actually compresses, so AutoSkip is
+        # exercised on bottommost output too (parity with the pre-integration
+        # autoskip compression manager coverage).
+        if dest_params.get("bottommost_compression_type") == "none":
+            dest_params["bottommost_compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
@@ -1632,6 +1749,8 @@ def gen_cmd_params(args):
         params.update(blackbox_default_params)
     if args.test_type == "whitebox":
         params.update(whitebox_default_params)
+    if args.test_type == "liveness":
+        params.update(liveness_default_params)
     if args.simple:
         params.update(simple_default_params)
         if args.test_type == "blackbox":
@@ -1660,6 +1779,7 @@ def gen_cmd_params(args):
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
+        and args.test_type != "liveness"
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
@@ -1685,6 +1805,9 @@ def gen_cmd_params(args):
     for k, v in vars(args).items():
         if v is not None:
             params[k] = v
+    if args.test_type == "liveness":
+        apply_liveness_remote_defaults(params, args)
+        params.update(liveness_fault_injection_params)
     return params
 
 
@@ -1984,7 +2107,7 @@ def diagnostic_paths(finalized_params):
     ]
 
 
-def execute_cmd(cmd, timeout=None, timeout_pstack=False):
+def execute_cmd(cmd, timeout=None, timeout_pstack=False, expected_to_timeout=True):
     child = subprocess.Popen(
         cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=stress_cmd_env()
     )
@@ -1997,11 +2120,20 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     try:
         outs, errs = child.communicate(timeout=timeout)
         hit_timeout = False
-        print("WARNING: db_stress ended before kill: exitcode=%d\n" % child.returncode)
+        if expected_to_timeout:
+            print(
+                "WARNING: db_stress ended before kill: exitcode=%d\n"
+                % child.returncode
+            )
+        else:
+            print("db_stress ended: exitcode=%d\n" % child.returncode)
     except subprocess.TimeoutExpired:
         hit_timeout = True
         if timeout_pstack:
-            os.system("pstack %d" % pid)
+            try:
+                subprocess.call(["pstack", str(pid)], env=stress_cmd_env())
+            except OSError as exc:
+                print("WARNING: failed to run pstack for pid %d: %s\n" % (pid, exc))
         child.terminate()  # SIGTERM -- triggers TerminationHandler
         try:
             outs, errs = child.communicate(timeout=3)
@@ -2091,8 +2223,7 @@ def cleanup_after_success(db_arg, num_dbs=1):
     ]
     # Pass through relevant arguments for remote DB access
     for arg in remain_args:
-        parts = arg.split("=", 1)
-        if parts[0] in ["--env_uri", "--fs_uri"]:
+        if parse_remote_db_uri_arg(arg) is not None:
             cleanup_cmd_parts.append(arg)
     print("Running DB cleanup command - %s\n" % " ".join(cleanup_cmd_parts))
     ret = subprocess.call(cleanup_cmd_parts, env=stress_cmd_env())
@@ -2136,6 +2267,62 @@ def print_fault_injection_log(pid):
                 "WARNING: failed to decode fault injection log %s: %s\n"
                 % (raw_log, exc)
             )
+
+
+def liveness_timeout(cmd_params):
+    duration = cmd_params.get("duration", 0)
+    if duration is None or duration <= 0:
+        return liveness_default_timeout_sec()
+    return duration
+
+
+def liveness_main(args, unknown_args):
+    cmd_params = gen_cmd_params(args)
+    db_parent_dir = get_db_parent_dir("liveness")
+    num_dbs = cmd_params.get("num_dbs", 1)
+
+    if not cmd_params.get("db"):
+        cmd_params["db"] = db_parent_dir
+    if is_remote_db and not cmd_params.get("expected_values_dir"):
+        cmd_params["expected_values_dir"] = get_ev_parent_dir()
+
+    apply_random_seed_per_iteration()
+    wrapper_timeout = liveness_timeout(cmd_params)
+
+    print(
+        "Running liveness-test with \n"
+        + "liveness_check_interval_sec="
+        + str(cmd_params["liveness_check_interval_sec"])
+        + "\n"
+        + "liveness_no_progress_timeout_sec="
+        + str(cmd_params["liveness_no_progress_timeout_sec"])
+        + "\n"
+        + "wrapper-duration="
+        + str(wrapper_timeout)
+        + "\n"
+    )
+
+    cmd, finalized_params = gen_cmd(dict(list(cmd_params.items())), unknown_args)
+    hit_timeout, retcode, outs, errs, pid = execute_cmd(
+        cmd, wrapper_timeout, False, False
+    )
+
+    print_fault_injection_log(pid)
+    outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
+    print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+
+    if hit_timeout:
+        if retcode == -9:
+            print("TEST FAILED. db_stress ignored SIGTERM on wrapper timeout\n")
+            sys.exit(1)
+        print("db_stress reached liveness wrapper duration\n")
+        cleanup_after_success(cmd_params["db"], num_dbs)
+        return
+    if retcode != 0:
+        print("TEST FAILED. db_stress exited with code %d\n" % retcode)
+        sys.exit(1)
+
+    cleanup_after_success(cmd_params["db"], num_dbs)
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
@@ -2400,7 +2587,7 @@ def main():
         description="This script runs and kills \
         db_stress multiple times"
     )
-    parser.add_argument("test_type", choices=["blackbox", "whitebox"])
+    parser.add_argument("test_type", choices=["blackbox", "whitebox", "liveness"])
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action="store_true")
     parser.add_argument("--txn", action="store_true")
@@ -2417,6 +2604,7 @@ def main():
         list(default_params.items())
         + list(blackbox_default_params.items())
         + list(whitebox_default_params.items())
+        + list(liveness_default_params.items())
         + list(simple_default_params.items())
         + list(blackbox_simple_default_params.items())
         + list(whitebox_simple_default_params.items())
@@ -2458,6 +2646,8 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == "whitebox":
         whitebox_crash_main(args, unknown_args)
+    if args.test_type == "liveness":
+        liveness_main(args, unknown_args)
     # Delete the expected values base dir if test passes.
     # Per-DB subdirectories (db_0, db_1, ...) live under the base,
     # so rmtree of the parent cleans everything.

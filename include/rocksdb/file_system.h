@@ -463,7 +463,8 @@ class FileSystem : public Customizable {
   //
   // Used in the RocksDB coroutine query interface. Coroutine-based read
   // requests will run on an EventBase from this executor. Returns nullptr when
-  // coroutine read execution is not supported.
+  // coroutine read execution is not supported. When called from one of its
+  // EventBases, the executor's getEventBase() must return that EventBase.
   virtual folly::IOExecutor* GetReadExecutor() { return nullptr; }
 
   // Increase the maximum number of threads used by the FileSystem-owned read

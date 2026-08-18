@@ -85,6 +85,7 @@ struct TablePropertiesNames {
   static const std::string kDataBlockRestartInterval;
   static const std::string kIndexBlockRestartInterval;
   static const std::string kSeparateKeyValueInDataBlock;
+  static const std::string kUserKeyCommonPrefix;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -368,6 +369,15 @@ struct TableProperties {
   // (hostname by default, but can also be any string of the user's choosing).
   // It can potentially change whenever the DB is opened
   std::string db_host_id;
+
+  // Reserved for format_version >= 8: when non-empty, all user keys in the file
+  // share this common prefix, which is stored once here instead of in every
+  // key, changing the interpretation of the entire file. No writer emits this
+  // yet; a reader that finds it non-empty does not know how to interpret the
+  // file and returns NotSupported.
+  // NOTE: kept within the contiguous std::string region of this struct (see
+  // TEST_SetRandomTableProperties in table_properties.cc).
+  std::string user_key_common_prefix;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.

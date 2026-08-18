@@ -15,6 +15,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/utilities/options_type.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
@@ -114,9 +115,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       break;
   }
 
-  std::string debug_str_before_wait =
-      compaction->input_version()->DebugString(/*hex=*/true);
-
   // TODO: Update CompactionService API to support abort and resume
   // functionality. Currently, remote compaction jobs cannot be aborted via
   // AbortAllCompactions() because the CompactionService interface lacks methods
@@ -129,18 +127,29 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                  "[%s] [JOB %d] Waiting for remote compaction...",
                  compaction->column_family_data()->GetName().c_str(), job_id_);
   std::string compaction_result_binary;
-  CompactionServiceJobStatus compaction_status =
-      db_options_.compaction_service->Wait(response.scheduled_job_id,
-                                           &compaction_result_binary);
+  CompactionServiceJobStatus compaction_status;
+  {
+    // Increment rocksdb.num-running-remote-compactions while this compaction
+    // service job is waiting in CompactionService::Wait().
+    std::atomic<int>* const num_running = num_running_remote_compactions_;
+    if (num_running != nullptr) {
+      num_running->fetch_add(1, std::memory_order_relaxed);
+    }
+    Defer decrement_num_running([num_running]() {
+      if (num_running != nullptr) {
+        num_running->fetch_sub(1, std::memory_order_relaxed);
+      }
+    });
+    compaction_status = db_options_.compaction_service->Wait(
+        response.scheduled_job_id, &compaction_result_binary);
+  }
 
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
         "[%s] [JOB %d] Wait() status is not kSuccess. "
-        "\nDebugString Before Wait():\n%s"
         "\nDebugString After Wait():\n%s",
         compaction->column_family_data()->GetName().c_str(), job_id_,
-        debug_str_before_wait.c_str(),
         compaction->input_version()->DebugString(/*hex=*/true).c_str());
   }
 

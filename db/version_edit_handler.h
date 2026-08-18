@@ -302,6 +302,17 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
   bool HasMissingFiles() const;
 
+  // Returns the column family's log number as of the Version most recently
+  // installed for it by this handler, i.e. the log number that the MANIFEST
+  // records reflected by that Version had put in effect. Data in WALs older
+  // than the returned number is readable from the files that Version
+  // references, without those WALs.
+  //
+  // Returns 0 when no Version has been installed for `cf_id`.
+  //
+  // REQUIRES: db mutex
+  uint64_t GetInstalledVersionLogNumber(uint32_t cf_id) const;
+
   virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
                             int level, const FileMetaData& fmeta) override;
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
@@ -326,13 +337,22 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
                     bool prefetch_index_and_filter_in_cache,
                     bool is_initial_load) override;
 
-  std::unordered_map<uint32_t, Version*> versions_;
+  // A Version built from the MANIFEST records read up to some point in time,
+  // together with the column family's log number that those records had put in
+  // effect. Keeping the two together is what lets an installed Version report
+  // the log number it covers.
+  struct PointInTimeVersion {
+    Version* version = nullptr;
+    uint64_t log_number = 0;
+  };
+
+  std::unordered_map<uint32_t, PointInTimeVersion> versions_;
 
   // `atomic_update_versions_` is for ensuring all-or-nothing AtomicGroup
   // recoveries.  When `atomic_update_versions_` is nonempty, it serves as a
   // barrier to updating `versions_` until all its values are populated.
-  std::unordered_map<uint32_t, Version*> atomic_update_versions_;
-  // `atomic_update_versions_missing_` counts the nullptr values in
+  std::unordered_map<uint32_t, PointInTimeVersion> atomic_update_versions_;
+  // `atomic_update_versions_missing_` counts the null `version`s in
   // `atomic_update_versions_`.
   size_t atomic_update_versions_missing_;
 
@@ -343,14 +363,17 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   bool AtomicUpdateVersionsContains(uint32_t cfid);
   void AtomicUpdateVersionsDropCf(uint32_t cfid);
 
-  // This function is called for `Version*` updates for column families in an
-  // incomplete atomic update. It buffers `Version*` updates in
-  // `atomic_update_versions_`.
-  void AtomicUpdateVersionsPut(Version* version);
+  // This function is called for Version updates for column families in an
+  // incomplete atomic update. It buffers them in `atomic_update_versions_`.
+  void AtomicUpdateVersionsPut(PointInTimeVersion pit_version);
 
-  // This function is called upon completion of an atomic update. It applies
-  // `Version*` updates in `atomic_update_versions_` to `versions_`.
+  // This function is called upon completion of an atomic update. It applies the
+  // updates buffered in `atomic_update_versions_` to `versions_`.
   void AtomicUpdateVersionsApply();
+
+  // The log number of the Version last installed for each column family. See
+  // GetInstalledVersionLogNumber().
+  std::unordered_map<uint32_t, uint64_t> installed_version_log_numbers_;
 };
 
 // A class similar to `VersionEditHandlerPointInTime` that parse MANIFEST and

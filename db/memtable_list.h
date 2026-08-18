@@ -402,11 +402,11 @@ class MemTableList {
   // Returns an estimate of the timestamp of the earliest key.
   uint64_t ApproximateOldestKeyTime() const;
 
-  // Request a flush of all existing memtables to storage.  This will
-  // cause future calls to IsFlushPending() to return true if this list is
-  // non-empty (regardless of the min_write_buffer_number_to_merge
-  // parameter). This flush request will persist until the next time
-  // PickMemtablesToFlush() is called.
+  // Request a flush of all existing memtables to storage. This will cause
+  // future calls to IsFlushPending() to return true if this list is non-empty
+  // (regardless of the min_write_buffer_number_to_merge parameter). This flush
+  // request will persist until PickMemtablesToFlush() has picked all unstarted
+  // memtables.
   void FlushRequested() {
     flush_requested_ = true;
     // If there are some memtables stored in imm() that don't trigger
@@ -510,12 +510,25 @@ class MemTableList {
     }
   }
 
-  // Used only by DBImplSecondary during log replay.
-  // Remove memtables whose data were written before the WAL with log_number
-  // was created, i.e. mem->GetNextLogNumber() <= log_number. The memtables are
-  // not freed, but put into a vector for future deref and reclamation.
+  // Used only by secondary and follower instances, which collect memtables by
+  // the log number that follows their contents rather than by flushing them.
+  // Scanning from the oldest memtable, removes those with
+  // mem->GetNextLogNumber() <= log_number and stops at the first one without,
+  // so a memtable is kept while an older one is. The memtables are not freed,
+  // but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<ReadOnlyMemTable*>* to_delete);
+
+  // Returns whether RemoveOldMemTables(log_number) would remove anything, so
+  // that a caller can skip the call and the bookkeeping that follows it. O(1):
+  // the scan stops at the oldest memtable that does not qualify, so only the
+  // oldest one can decide this.
+  //
+  // REQUIRES: db mutex held.
+  bool HasOldMemTablesToRemove(uint64_t log_number) const {
+    const auto& memlist = current_->memlist_;
+    return !memlist.empty() && memlist.back()->GetNextLogNumber() <= log_number;
+  }
 
   // This API is only used by atomic date replacement. To get an edit for
   // dropping the current `MemTableListVersion`.

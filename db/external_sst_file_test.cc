@@ -18,8 +18,10 @@
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
+#include "table/format.h"
 #include "table/prepared_file_info.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "util/thread_guard.h"
 #include "utilities/fault_injection_env.h"
@@ -2415,6 +2417,253 @@ TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
   ASSERT_OK(DeprecatedAddFile({file_path}));
 }
 
+TEST_F(ExternalSSTFileTest, IngestFlushRequestNotLostBehindQueuedFlush) {
+  // These waits only prevent broken test paths from hanging forever. Keep them
+  // large enough to avoid treating slow CI scheduling as a regression.
+  constexpr uint64_t kHangGuardMicros = 30 * 1000 * 1000;
+  constexpr uint64_t kSetupWaitMicros = kHangGuardMicros;
+  constexpr uint64_t kIngestWaitMicros = kHangGuardMicros;
+  constexpr uint64_t kPollMicros = 1000;
+
+  Options options = CurrentOptions();
+  options.atomic_flush = false;
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 1024;
+  options.max_write_buffer_number = 8;
+  options.min_write_buffer_number_to_merge = 2;
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  Reopen(options);
+
+  std::string external_file_path;
+  std::vector<std::pair<std::string, std::string>> external_file_data = {
+      {"ingest_key", "ingested_value"}};
+  ASSERT_OK(GenerateOneExternalFile(options, nullptr, external_file_data, -1,
+                                    true /* sort_data */, &external_file_path,
+                                    nullptr /* true_data */));
+
+  auto sleeping_task = std::make_shared<test::SleepingBackgroundTask>();
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  std::atomic<int> atomic_flush_scheduled{0};
+  std::atomic<int> get_live_files_done{0};
+  std::atomic<bool> ingest_waiting_for_flush{false};
+  std::atomic<bool> ingest_done{false};
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush", [&](void*) {
+        atomic_flush_scheduled.fetch_add(1, std::memory_order_acq_rel);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTable:BeforeWaitForBgFlush", [&](void*) {
+        ingest_waiting_for_flush.store(true, std::memory_order_release);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto wait_until = [&](const std::function<bool()>& predicate,
+                        uint64_t timeout_micros) {
+    for (uint64_t waited_micros = 0; waited_micros < timeout_micros;
+         waited_micros += kPollMicros) {
+      if (predicate()) {
+        return true;
+      }
+      env_->SleepForMicroseconds(kPollMicros);
+    }
+    return predicate();
+  };
+
+  auto wake_sleeping_task = [&] {
+    if (!sleeping_task->WokenUp()) {
+      sleeping_task->WakeUp();
+    }
+    return !sleeping_task->TimedWaitUntilDone(kSetupWaitMicros);
+  };
+
+  auto wait_or_cancel_background_work =
+      [&](const std::function<bool()>& predicate, uint64_t timeout_micros) {
+        if (wait_until(predicate, timeout_micros)) {
+          return true;
+        }
+        dbfull()->CancelAllBackgroundWork(false /* wait */);
+        if (wait_until(predicate, timeout_micros)) {
+          return true;
+        }
+        dbfull()->CancelAllBackgroundWork(true /* wait */);
+        return wait_until(predicate, timeout_micros);
+      };
+
+  ASSERT_OK(Put("atomic_flush_key", "value"));
+
+  Status get_live_files_status[2];
+  std::vector<LiveFileStorageInfo> live_files[2];
+  ThreadGuard get_live_files_thread_1(port::Thread([&] {
+    LiveFilesStorageInfoOptions lfsi_opts;
+    lfsi_opts.wal_size_for_flush = 0;
+    lfsi_opts.atomic_flush = true;
+    get_live_files_status[0] =
+        db_->GetLiveFilesStorageInfo(lfsi_opts, &live_files[0]);
+    get_live_files_done.fetch_add(1, std::memory_order_acq_rel);
+  }));
+  ThreadGuard get_live_files_thread_2(port::Thread([&] {
+    LiveFilesStorageInfoOptions lfsi_opts;
+    lfsi_opts.wal_size_for_flush = 0;
+    lfsi_opts.atomic_flush = true;
+    get_live_files_status[1] =
+        db_->GetLiveFilesStorageInfo(lfsi_opts, &live_files[1]);
+    get_live_files_done.fetch_add(1, std::memory_order_acq_rel);
+  }));
+  ThreadGuard ingest_thread;
+
+  auto get_live_files_finished = [&] {
+    return get_live_files_done.load(std::memory_order_acquire) == 2;
+  };
+  auto ingest_finished = [&] {
+    return ingest_done.load(std::memory_order_acquire);
+  };
+  auto wait_for_get_live_files_finished = [&] {
+    return wait_or_cancel_background_work(get_live_files_finished,
+                                          kSetupWaitMicros);
+  };
+  auto wait_for_ingest_finished = [&](uint64_t timeout_micros) {
+    return wait_or_cancel_background_work(ingest_finished, timeout_micros);
+  };
+  auto join_get_live_files_threads = [&] {
+    if (get_live_files_thread_1.GetThread().joinable()) {
+      get_live_files_thread_1.GetThread().join();
+    }
+    if (get_live_files_thread_2.GetThread().joinable()) {
+      get_live_files_thread_2.GetThread().join();
+    }
+  };
+  auto join_ingest_thread = [&] {
+    if (ingest_thread.GetThread().joinable()) {
+      ingest_thread.GetThread().join();
+    }
+  };
+
+  class CleanupGuard {
+   public:
+    explicit CleanupGuard(const std::function<void()>& cleanup)
+        : cleanup_(cleanup) {}
+
+    ~CleanupGuard() {
+      if (armed_) {
+        cleanup_();
+      }
+    }
+
+    void Disarm() { armed_ = false; }
+
+   private:
+    std::function<void()> cleanup_;
+    bool armed_ = true;
+  };
+
+  CleanupGuard cleanup_guard([&] {
+    wake_sleeping_task();
+    wait_for_get_live_files_finished();
+    if (ingest_thread.GetThread().joinable()) {
+      wait_for_ingest_finished(kSetupWaitMicros);
+    }
+    join_get_live_files_threads();
+    join_ingest_thread();
+  });
+
+  const bool saw_both_atomic_flushes = wait_until(
+      [&] {
+        return atomic_flush_scheduled.load(std::memory_order_acquire) >= 2;
+      },
+      kSetupWaitMicros);
+
+  if (!saw_both_atomic_flushes) {
+    const bool sleeping_task_done = wake_sleeping_task();
+    const bool get_live_files_finished_after_cleanup =
+        wait_for_get_live_files_finished();
+    join_get_live_files_threads();
+    EXPECT_OK(get_live_files_status[0]);
+    EXPECT_OK(get_live_files_status[1]);
+    EXPECT_TRUE(get_live_files_finished_after_cleanup);
+    ASSERT_TRUE(saw_both_atomic_flushes)
+        << "Timed out waiting for both GetLiveFilesStorageInfo calls to "
+           "schedule their flushes. scheduled="
+        << atomic_flush_scheduled.load(std::memory_order_acquire)
+        << " get_live_files_done="
+        << get_live_files_done.load(std::memory_order_acquire)
+        << " sleeping_task_done=" << sleeping_task_done;
+  }
+
+  ASSERT_OK(Put("ingest_key", "memtable_value"));
+
+  Status ingest_status;
+  ingest_thread = ThreadGuard(port::Thread([&] {
+    IngestExternalFileOptions ifo;
+    ingest_status = db_->IngestExternalFile({external_file_path}, ifo);
+    ingest_done.store(true, std::memory_order_release);
+  }));
+
+  const bool saw_ingest_wait = wait_until(
+      [&] {
+        return ingest_waiting_for_flush.load(std::memory_order_acquire) ||
+               ingest_done.load(std::memory_order_acquire);
+      },
+      kSetupWaitMicros);
+  const bool ingest_finished_before_wait =
+      ingest_done.load(std::memory_order_acquire);
+
+  if (!saw_ingest_wait || ingest_finished_before_wait) {
+    const bool sleeping_task_done = wake_sleeping_task();
+    const bool get_live_files_finished_after_cleanup =
+        wait_for_get_live_files_finished();
+    join_get_live_files_threads();
+    const bool ingest_finished_after_cleanup =
+        wait_for_ingest_finished(kSetupWaitMicros);
+    join_ingest_thread();
+    EXPECT_OK(get_live_files_status[0]);
+    EXPECT_OK(get_live_files_status[1]);
+    EXPECT_OK(ingest_status);
+    EXPECT_TRUE(get_live_files_finished_after_cleanup);
+    EXPECT_TRUE(ingest_finished_after_cleanup);
+    ASSERT_TRUE(sleeping_task_done);
+    ASSERT_TRUE(saw_ingest_wait)
+        << "Timed out waiting for IngestExternalFile to enter its flush wait";
+    ASSERT_FALSE(ingest_finished_before_wait)
+        << "IngestExternalFile finished before entering the expected flush "
+           "wait";
+  }
+
+  const bool sleeping_task_done = wake_sleeping_task();
+  join_get_live_files_threads();
+
+  const bool ingest_completed_without_unblock =
+      wait_until(ingest_finished, kIngestWaitMicros);
+
+  if (!ingest_completed_without_unblock) {
+    FlushOptions unblock_flush_options;
+    unblock_flush_options.wait = false;
+    const Status unblock_flush_status = db_->Flush(unblock_flush_options);
+    const bool ingest_finished_after_unblock =
+        wait_for_ingest_finished(kIngestWaitMicros);
+    join_ingest_thread();
+    ASSERT_TRUE(sleeping_task_done);
+    ASSERT_OK(get_live_files_status[0]);
+    ASSERT_OK(get_live_files_status[1]);
+    ASSERT_OK(unblock_flush_status);
+    ASSERT_TRUE(ingest_finished_after_unblock);
+    FAIL() << "IngestExternalFile remained blocked waiting for a flush that "
+              "was deduped behind an older queued flush request";
+  }
+
+  join_ingest_thread();
+  ASSERT_TRUE(sleeping_task_done);
+  ASSERT_OK(get_live_files_status[0]);
+  ASSERT_OK(get_live_files_status[1]);
+  ASSERT_OK(ingest_status);
+  ASSERT_EQ("ingested_value", Get("ingest_key"));
+  cleanup_guard.Disarm();
+}
+
 TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
@@ -3281,6 +3530,9 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, ExternalSSTBlockChecksumTest,
 TEST_P(ExternalSSTBlockChecksumTest, DISABLED_HugeBlockChecksum) {
   BlockBasedTableOptions table_options;
   table_options.format_version = GetParam();
+  // kFooterFormatVersionsToTest includes the unpublished draft format_version
+  // 8; writing it requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
   for (auto t : GetSupportedChecksums()) {
     table_options.checksum = t;
     Options options = CurrentOptions();

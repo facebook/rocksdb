@@ -236,6 +236,8 @@ struct ExternalTableBuilderOptions {
   const std::string db_session_id;
   const TableFileCreationReason reason;
   const std::shared_ptr<FileSystem>& fs;
+  // NOTE: a number of internal TableBuilderOptions could also be plumbed
+  // through to here
 
   ExternalTableBuilderOptions(
       const ReadOptions& _read_options, const WriteOptions& _write_options,
@@ -268,6 +270,23 @@ class ExternalTableFactory : public Customizable {
   virtual ExternalTableBuilder* NewTableBuilder(
       const ExternalTableBuilderOptions& builder_options,
       const std::string& file_path, FSWritableFile* file) const = 0;
+
+  // Configures this factory using an implementation-defined string. RocksDB
+  // calls this method while preparing the table factory, before it is used to
+  // create table readers or builders. The configuration is immutable after
+  // the DB is opened and is persisted in the RocksDB OPTIONS file.
+  //
+  // Implementations must copy any needed data from config and should make this
+  // method idempotent because RocksDB may prepare an object more than once.
+  // The configuration must not contain secrets because OPTIONS files are
+  // stored as plaintext.
+  virtual Status Configure(const std::string& config) {
+    if (config.empty()) {
+      return Status::OK();
+    }
+    return Status::NotSupported(
+        "External table factory does not support configuration");
+  }
 };
 
 // Allocate a TableFactory that wraps around an ExternalTableFactory. Use this
