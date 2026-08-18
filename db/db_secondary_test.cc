@@ -1542,6 +1542,34 @@ TEST_F(DBSecondaryTest, DropsRecoveredTransactionAfterCommitWalIsPurged) {
   ASSERT_GT(db_secondary_full()->GetVersionSet()->min_log_number_to_keep(),
             commit_log_number);
   ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t2"));
+  ASSERT_EQ(0, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+}
+
+// Commit replay deletes the recovered transaction and records its prepare WAL
+// as complete. A secondary never runs the primary flush and write paths that
+// normally prune that tracking state, so catch-up must do it.
+TEST_F(DBSecondaryTest, PrunesRecoveredTransactionTrackingAfterCommitReplay) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+  OpenSecondaryFor2PC(options);
+
+  std::unique_ptr<Transaction> txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t5", "k3", "v3", &txn));
+  ASSERT_EQ(1, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+
+  ASSERT_OK(txn->Commit());
+  txn.reset();
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t5"));
+  ASSERT_EQ(0, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
 }
 
 // A transaction whose prepare is still outstanding must be kept, no matter how

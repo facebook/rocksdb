@@ -760,6 +760,10 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
         // before replaying any record, so one WAL the primary deleted mid-round
         // means nothing was replayed at all.
         DeleteResolvedRecoveredTransactions();
+        // Secondary catch-up does not run the primary paths that prune the
+        // completed tracker prefix. Replay can complete an entry without
+        // leaving a recovered transaction; an outstanding prepare stops it.
+        (void)logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
       }
     }
   }
