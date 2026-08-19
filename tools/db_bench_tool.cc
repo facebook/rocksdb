@@ -67,6 +67,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
 #include "rocksdb/tool_hooks.h"
@@ -1996,6 +1997,11 @@ DEFINE_bool(
     seek_missing_prefix, false,
     "Iterator seek to keys with non-exist prefixes. Require prefix_size > 8");
 
+DEFINE_int32(sst_partitioner_fixed_prefix_len, 0,
+             "If non-zero, configure a SstPartitionerFixedPrefixFactory with "
+             "this prefix length so compaction splits output SST files on that "
+             "fixed key prefix. 0 disables (no SST partitioner).");
+
 DEFINE_int32(memtable_insert_with_hint_prefix_size, 0,
              "If non-zero, enable "
              "memtable insert with hint with the given prefix size.");
@@ -3569,6 +3575,10 @@ class Benchmark {
     fprintf(stdout, "Entries:    %" PRIu64 "\n", num_);
     fprintf(stdout, "Prefix:    %d bytes\n", FLAGS_prefix_size);
     fprintf(stdout, "Keys per prefix:    %" PRIu64 "\n", keys_per_prefix_);
+    if (FLAGS_sst_partitioner_fixed_prefix_len > 0) {
+      fprintf(stdout, "SST partitioner: fixed prefix len %d\n",
+              FLAGS_sst_partitioner_fixed_prefix_len);
+    }
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
             ((static_cast<int64_t>(FLAGS_key_size + avg_value_size) * num_) /
              1048576.0));
@@ -5334,6 +5344,10 @@ class Benchmark {
     options.compaction_options_fifo.use_kv_ratio_compaction =
         FLAGS_fifo_compaction_use_kv_ratio_compaction;
     options.prefix_extractor = prefix_extractor_;
+    if (FLAGS_sst_partitioner_fixed_prefix_len > 0) {
+      options.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(
+          FLAGS_sst_partitioner_fixed_prefix_len);
+    }
     if (FLAGS_use_uint64_comparator) {
       options.comparator = test::Uint64Comparator();
       if (FLAGS_key_size != 8) {

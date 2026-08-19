@@ -58,9 +58,14 @@ class SstPartitioner {
   // * if k[0..p-1] != p, same
   // * if p.size() == 0, no further partitions are requested (odd 0-len prefix)
   // * if !p, ambiguous; must consult ShouldPartition on every key transition
+  // Note that any prefix code (https://en.wikipedia.org/wiki/Prefix_code)
+  // can be used with this optimization, not just fixed-size prefixes.
+  //
   // Expected to be consistent with ShouldPartition for predictable
   // partitioning behavior.
-  // NOTE: not currently used; in place for future optimization
+  //
+  // Implementing this function (built-in SstPartitionerFixedPrefix does) is
+  // highly recommended for compaction CPU efficiency.
   virtual OptSlice ShouldPartitionByPrefix(const Slice& /*user_key*/) {
     // Default: must consult ShouldPartition()
     return {};
