@@ -1663,9 +1663,6 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("user_timestamp_size", 0)
     ):
         dest_params["ingest_wbwi_one_in"] = 0
-    # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
-    if dest_params.get("test_secondary") == 1:
-        dest_params["continuous_verification_interval"] = 0
     # Opening a read-only DB on the primary's directory needs a plain read-write
     # primary; it is not wired up for transactions, BlobDB, or TTL DBs.
     if (

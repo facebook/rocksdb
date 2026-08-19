@@ -525,12 +525,9 @@ class NonBatchedOpsStressTest : public StressTest {
       read_opts.timestamp = &ts;
     }
 
-    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
-    if (FLAGS_auto_refresh_iterator_with_snapshot) {
-      snapshot = std::make_unique<ManagedSnapshot>(db_);
-      read_opts.snapshot = snapshot->snapshot();
-      read_opts.auto_refresh_iterator_with_snapshot = true;
-    }
+    // Secondary mode does not support snapshots. This verifier reads from the
+    // secondary, so ignore auto_refresh_iterator_with_snapshot here; the
+    // primary iterator verification path still exercises that option.
 
     static Random64 rand64(shared->GetSeed());
 
@@ -557,10 +554,6 @@ class NonBatchedOpsStressTest : public StressTest {
         s.PermitUncheckedError();
       } else {
         // Use range scan
-        if (read_opts.auto_refresh_iterator_with_snapshot) {
-          snapshot = std::make_unique<ManagedSnapshot>(db_);
-          read_opts.snapshot = snapshot->snapshot();
-        }
         std::unique_ptr<Iterator> iter(
             secondary_db_->NewIterator(read_opts, handle));
         // Skip SeekToFirst, SeekToLast, SeekForPrev, and Prev when backward
@@ -593,9 +586,6 @@ class NonBatchedOpsStressTest : public StressTest {
           iter->SeekForPrev(key_str);
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
           }
-        }
-        if (read_opts.auto_refresh_iterator_with_snapshot) {
-          read_opts.snapshot = nullptr;
         }
       }
     }
