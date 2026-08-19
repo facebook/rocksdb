@@ -524,6 +524,13 @@ class CompactionJob {
   // Setting this requires DBMutex.
   uint64_t options_file_number_ = 0;
 
+  // MANIFEST position (file number and size, in bytes) captured in Prepare()
+  // (mutex held) to send to the remote worker as a floor. Zero when
+  // DBOptions::remote_compaction_manifest_floor is off (or this is not a remote
+  // compaction), meaning no floor is sent. Setting these requires DBMutex.
+  uint64_t min_manifest_file_number_ = 0;
+  uint64_t min_manifest_file_size_ = 0;
+
   // Writer for persisting compaction progress during compaction
   log::Writer* compaction_progress_writer_ = nullptr;
 
@@ -602,6 +609,18 @@ struct CompactionServiceInput {
   std::string end;
 
   uint64_t options_file_number = 0;
+
+  // MANIFEST position (file number and size, in bytes) the primary scheduled
+  // this compaction from, used as a floor by the remote worker: it refuses to
+  // reconstruct the compaction against an older MANIFEST view (an older file
+  // number, or the same file number read to a smaller size) and falls back to
+  // local compaction. A non-zero min_manifest_file_number also signals the
+  // worker to use "trust the MANIFEST" recovery. Zero means the primary did not
+  // provide a floor (kill switch off, or an older primary); the worker then
+  // uses the original recovery with no floor check.
+  // See DBOptions::remote_compaction_manifest_floor.
+  uint64_t min_manifest_file_number = 0;
+  uint64_t min_manifest_file_size = 0;
 
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);

@@ -766,7 +766,7 @@ Status DB::OpenAsSecondary(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   return DBImplSecondary::OpenAsSecondaryImpl(
       db_options, dbname, secondary_path, column_families, handles, dbptr,
-      /*recover_wal=*/true);
+      /*recover_wal=*/true, /*trust_manifest_recovery=*/false);
 }
 
 Status DBImplSecondary::OpenAsSecondaryImpl(
@@ -774,7 +774,7 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
-    bool recover_wal) {
+    bool recover_wal, bool trust_manifest_recovery) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -815,6 +815,8 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
       impl->file_options_, impl->table_cache_.get(),
       impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_,
       impl->db_id_, impl->db_session_id_));
+  static_cast_with_check<ReactiveVersionSet>(impl->versions_.get())
+      ->SetTrustManifestRecovery(trust_manifest_recovery);
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
@@ -1589,12 +1591,21 @@ Status DB::OpenAndCompact(
 
   // 5. Open db As Secondary (skip WAL recovery -- remote compaction only
   //    needs LSM state from MANIFEST, not memtable data from WAL replay)
+  //
+  // A non-zero min_manifest_file_number means the primary provided a MANIFEST
+  // floor (DBOptions::remote_compaction_manifest_floor was on when it scheduled
+  // the job). Its presence couples on both (a) "trust the MANIFEST" recovery
+  // and (b) the floor check below. Absence -> the worker uses the original
+  // point-in-time recovery with no floor check (kill switch off, or an older
+  // primary).
+  const bool floor_provided = compaction_input.min_manifest_file_number != 0;
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   const uint64_t db_open_start_micros = db_options.env->NowMicros();
-  s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
-                                           column_families, &handles, &db,
-                                           /*recover_wal=*/false);
+  s = DBImplSecondary::OpenAsSecondaryImpl(
+      db_options, name, output_directory, column_families, &handles, &db,
+      /*recover_wal=*/false,
+      /*trust_manifest_recovery=*/floor_provided);
   RecordTimeToHistogram(db_options.statistics.get(),
                         OPEN_AND_COMPACT_DB_OPEN_MICROS,
                         db_options.env->NowMicros() - db_open_start_micros);
@@ -1605,6 +1616,47 @@ Status DB::OpenAndCompact(
 
   TEST_SYNC_POINT_CALLBACK(
       "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db.get());
+
+  // 5b. Manifest floor check. Refuse to reconstruct the compaction against an
+  // older MANIFEST view than the primary scheduled from (e.g. an
+  // eventually-consistent filesystem returning a stale CURRENT, or a truncated
+  // MANIFEST): an older LSM shape could wrongly drop keys that should be kept.
+  // Accept-equal-or-later is safe by monotonicity while the inputs stay locked;
+  // only an older view is unsafe. On rejection, return Status::Incomplete so
+  // the CompactionService implementation can fall back to a local compaction
+  // (kUseLocal) rather than install a possibly-incorrect result.
+  if (floor_provided) {
+    VersionSet* recovered_versions =
+        static_cast_with_check<DBImplSecondary>(db.get())->GetVersionSet();
+    const uint64_t recovered_number =
+        recovered_versions->manifest_file_number();
+    const uint64_t recovered_size = recovered_versions->manifest_file_size();
+    bool below_floor =
+        recovered_number < compaction_input.min_manifest_file_number ||
+        (recovered_number == compaction_input.min_manifest_file_number &&
+         recovered_size < compaction_input.min_manifest_file_size);
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImplSecondary::OpenAndCompact::ManifestFloorCheck", &below_floor);
+    if (below_floor) {
+      ROCKS_LOG_WARN(
+          db_options.info_log,
+          "Remote compaction recovered an older MANIFEST view (file number "
+          "%" PRIu64 " size %" PRIu64
+          ") than the primary scheduled from "
+          "(min file number %" PRIu64 " size %" PRIu64
+          "); declining so the job can fall back to local compaction.",
+          recovered_number, recovered_size,
+          compaction_input.min_manifest_file_number,
+          compaction_input.min_manifest_file_size);
+      for (auto& handle : handles) {
+        delete handle;
+      }
+      db.reset();
+      return Status::Incomplete(
+          "Remote compaction worker recovered an older MANIFEST view than the "
+          "primary scheduled from");
+    }
+  }
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;

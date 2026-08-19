@@ -1958,6 +1958,11 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
 
+  // Must be called before Recover(). When set, Recover() trusts the MANIFEST
+  // and reconstructs the version from FileMetaData without stat-ing/opening SST
+  // or blob files. Only used by the DB::OpenAndCompact remote-compaction path.
+  void SetTrustManifestRecovery(bool v) { trust_manifest_recovery_ = v; }
+
   // Returns the column family's log number as of the Version currently
   // installed for it, i.e. the log number that the MANIFEST records that
   // Version was built from had put in effect. Data written to WALs older than
@@ -1991,6 +1996,11 @@ class ReactiveVersionSet : public VersionSet {
 
  private:
   std::unique_ptr<ManifestTailer> manifest_tailer_;
+  // When true, MANIFEST recovery trusts the manifest and does not stat/open SST
+  // or blob files (see
+  // VersionEditHandlerPointInTime::trust_manifest_recovery_). Set only for the
+  // DB::OpenAndCompact remote-compaction path.
+  bool trust_manifest_recovery_ = false;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options_;
   using VersionSet::LogAndApply;

@@ -465,12 +465,17 @@ class DBImplSecondary : public DBImpl {
   // MANIFEST only. When recover_wal is true, WAL files are also replayed
   // (needed by DB::OpenAsSecondary). When false, WAL replay is skipped
   // (used by DB::OpenAndCompact which only needs LSM state).
+  //
+  // When trust_manifest_recovery is true (only DB::OpenAndCompact), MANIFEST
+  // recovery trusts the manifest and does not stat/open SST or blob files, so
+  // only the compaction's (deletion-protected) input files are opened later, on
+  // demand. Must be false for normal secondary opens.
   static Status OpenAsSecondaryImpl(
       const DBOptions& db_options, const std::string& dbname,
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
-      bool recover_wal);
+      bool recover_wal, bool trust_manifest_recovery);
 
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery

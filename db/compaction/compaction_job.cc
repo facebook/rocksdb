@@ -423,6 +423,15 @@ void CompactionJob::Prepare(
                                    c->GetKeepInLastLevelThroughSeqno());
 
   options_file_number_ = versions_->options_file_number();
+
+  // For remote compaction hardening: capture the current MANIFEST position as a
+  // floor for the worker's recovery. This is >= the compaction input version
+  // (already committed) and <= what the worker later reads, so it never
+  // false-rejects a healthy filesystem. Gated by the mutable kill switch.
+  if (mutable_db_options_copy_.remote_compaction_manifest_floor) {
+    min_manifest_file_number_ = versions_->manifest_file_number();
+    min_manifest_file_size_ = versions_->manifest_file_size();
+  }
 }
 
 void CompactionJob::MaybeAssignCompactionProgressAndWriter(

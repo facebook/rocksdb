@@ -163,6 +163,12 @@ class MyTestCompactionService : public CompactionService {
     compaction_num_.fetch_add(1);
     if (s.ok()) {
       return CompactionServiceJobStatus::kSuccess;
+    } else if (s.IsIncomplete() && !s.IsManualCompactionPaused()) {
+      // The remote worker declined the job (e.g. the MANIFEST floor check
+      // rejected an older/stale filesystem view). Fall back to running the
+      // compaction locally rather than failing it. Cancellation
+      // (kManualCompactionPaused) is handled as a failure, as before.
+      return CompactionServiceJobStatus::kUseLocal;
     } else {
       return CompactionServiceJobStatus::kFailure;
     }
@@ -399,8 +405,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
             compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES));
   ASSERT_GE(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 1);
-  ASSERT_GT(primary_statistics->getTickerCount(COMPACT_READ_BYTES),
-            primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES));
+  // The remote worker reads the full compaction inputs on demand, while the
+  // primary only re-reads the (smaller) output files for verify_table(), so
+  // remote read bytes dominate. (The worker no longer eagerly opens every file
+  // during secondary recovery, so its input reads are attributed accurately.)
+  ASSERT_GT(primary_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES),
+            primary_statistics->getTickerCount(COMPACT_READ_BYTES));
   // compactor is already the remote side, which doesn't have remote
   ASSERT_EQ(compactor_statistics->getTickerCount(REMOTE_COMPACT_READ_BYTES), 0);
   ASSERT_EQ(compactor_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES),
@@ -2167,6 +2177,286 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   auto my_cs = GetCompactionService();
   ASSERT_EQ(my_cs->GetCompactionNum(), 10);
   ASSERT_EQ(FilesPerLevel(), "0,0,10");
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionMissingLowerFileTrustsManifest) {
+  // A remote compaction reconstructs its view of the LSM (which files sit below
+  // the output level) from the secondary's recovered MANIFEST version. That
+  // view drives correctness-critical decisions like whether a deletion
+  // tombstone can be dropped (Compaction::KeyNotExistsBeyondOutputLevel /
+  // IsBottommostLevel, which read input_version_'s VersionStorageInfo).
+  //
+  // If a non-input file that is still referenced by the MANIFEST is momentarily
+  // missing (as on a live primary), the OLD point-in-time recovery rolls back
+  // to an earlier version. Here that rollback drops the (later, whole-DB)
+  // manifest record entirely, so the remote worker can no longer find the
+  // compaction input and the job fails ("cannot find matched SST files") --
+  // i.e. it fails safe rather than mis-compacting. The fix makes recovery TRUST
+  // the manifest: it keeps the current version, the job completes, and the
+  // deleted key correctly stays deleted (the below-output tombstone is
+  // retained).
+  Options options = CurrentOptions();
+  options.num_levels = 7;
+  // -1 keeps the primary's descriptor for the (unlinked) lower file valid, so
+  // the final read below is served from the primary regardless of the deletion.
+  options.max_open_files = -1;
+  options.level0_file_num_compaction_trigger = 100;  // no auto compaction
+  ReopenWithCompactionService(&options);
+
+  // Old value for "k", pushed down to L2 (below the compaction output level).
+  ASSERT_OK(Put("k", "OLD"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);  // L2 file contains k=OLD
+
+  // Newer tombstone for "k" at L0 (the compaction input).
+  ASSERT_OK(Delete("k"));
+  ASSERT_OK(Flush());  // L0 file contains Delete(k)
+
+  // Reopen so the MANIFEST is rewritten as current state before we perturb it.
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
+                           options);
+  // Closing on reopen cancels pending remote jobs; re-arm the service.
+  GetCompactionService()->SetCanceled(false);
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);  // default CF
+  ASSERT_EQ(meta.levels[0].files.size(), 1);
+  ASSERT_EQ(meta.levels[2].files.size(), 1);
+  const auto& f_del = meta.levels[0].files[0];
+  const auto& f_old = meta.levels[2].files[0];
+
+  // Make the lower (L2) file momentarily unavailable to a fresh open, as a live
+  // primary would if it had compacted it away. It is NOT a compaction input.
+  ASSERT_OK(env_->DeleteFile(f_old.db_path + "/" + f_old.name));
+
+  // Remote-compact the L0 tombstone into L1. L2 (with k=OLD) is below the
+  // output level, so a correct compaction must retain the tombstone. Without
+  // the fix, recovery rolls back and this job fails; with the fix it completes.
+  std::string fname = f_del.db_path + "/" + f_del.name;
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), {fname}, 1));
+
+  // Deleted key stays deleted (tombstone retained above the still-present L2
+  // value, which the primary can still read via its open descriptor).
+  ASSERT_EQ("NOT_FOUND", Get("k"));
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorSendsPosition) {
+  // By default (remote_compaction_manifest_floor=true), the primary attaches a
+  // non-zero MANIFEST floor to every remote compaction request, and the worker
+  // runs its floor check. Here the worker recovers the same-or-later MANIFEST
+  // position the primary scheduled from, so the check accepts (the
+  // later-manifest positive case).
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  ASSERT_TRUE(db_->GetDBOptions().remote_compaction_manifest_floor);
+  GenerateTestData();
+
+  uint64_t floor_number = 0;
+  uint64_t floor_size = 0;
+  int floor_check_count = 0;
+  bool floor_check_rejected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        floor_number = input->min_manifest_file_number;
+        floor_size = input->min_manifest_file_size;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::ManifestFloorCheck", [&](void* arg) {
+        floor_check_count++;
+        if (*static_cast<bool*>(arg)) {
+          floor_check_rejected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // A floor was populated and the worker accepted its (later-or-equal) view.
+  ASSERT_GT(floor_number, 0U);
+  ASSERT_GT(floor_size, 0U);
+  ASSERT_GE(floor_check_count, 1);
+  ASSERT_FALSE(floor_check_rejected);
+  VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorRejectsStaleView) {
+  // If the worker recovers an OLDER MANIFEST view than the primary scheduled
+  // from (simulated here by inflating the floor above the real position), the
+  // floor check rejects the job and the primary falls back to a correct local
+  // compaction rather than compacting against a stale/older LSM shape.
+  Options options = CurrentOptions();
+  options.num_levels = 7;
+  options.level0_file_num_compaction_trigger = 100;  // no auto compaction
+  ReopenWithCompactionService(&options);
+
+  // Old value for "k", pushed down to L2 (below the compaction output level).
+  ASSERT_OK(Put("k", "OLD"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);  // L2: k=OLD
+
+  // Newer tombstone for "k" at L0 (the compaction input).
+  ASSERT_OK(Delete("k"));
+  ASSERT_OK(Flush());  // L0: Delete(k)
+
+  int floor_check_rejected = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        // Simulate the worker seeing an older MANIFEST than the primary
+        // scheduled from by raising the floor above the real position.
+        input->min_manifest_file_number += 1000000;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::ManifestFloorCheck", [&](void* arg) {
+        if (*static_cast<bool*>(arg)) {
+          floor_check_rejected++;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);  // default CF
+  ASSERT_EQ(meta.levels[0].files.size(), 1);
+  const auto& f_del = meta.levels[0].files[0];
+  std::string fname = f_del.db_path + "/" + f_del.name;
+
+  // The worker rejects the stale view -> local fallback -> the compaction still
+  // completes correctly (CompactFiles returns OK).
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), {fname}, 1));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_GE(floor_check_rejected, 1);
+  // Deleted key stays deleted: the local fallback retained the below-output
+  // tombstone. A silent mis-compaction against the older view would resurrect
+  // "OLD".
+  ASSERT_EQ("NOT_FOUND", Get("k"));
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorKillSwitchOff) {
+  // With the kill switch off, the primary sends no floor, so the worker uses
+  // the original point-in-time recovery (no trust-manifest, no floor check). A
+  // transiently-missing non-input file then rolls recovery back and fails the
+  // job -- confirming the escape hatch reverts to the pre-fix behavior.
+  Options options = CurrentOptions();
+  options.num_levels = 7;
+  options.max_open_files = -1;
+  options.level0_file_num_compaction_trigger = 100;  // no auto compaction
+  options.remote_compaction_manifest_floor = false;  // kill switch OFF
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("k", "OLD"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);  // L2: k=OLD
+
+  ASSERT_OK(Delete("k"));
+  ASSERT_OK(Flush());  // L0: Delete(k)
+
+  // Reopen so the MANIFEST is rewritten as current state before we perturb it.
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
+                           options);
+  GetCompactionService()->SetCanceled(false);
+
+  bool floor_provided_seen = true;
+  int floor_check_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        floor_provided_seen = (input->min_manifest_file_number != 0);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::ManifestFloorCheck",
+      [&](void* /*arg*/) { floor_check_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[0].files.size(), 1);
+  ASSERT_EQ(meta.levels[2].files.size(), 1);
+  const auto& f_del = meta.levels[0].files[0];
+  const auto& f_old = meta.levels[2].files[0];
+
+  // Make the lower (L2) non-input file momentarily unavailable, as a live
+  // primary would if it had compacted it away.
+  ASSERT_OK(env_->DeleteFile(f_old.db_path + "/" + f_old.name));
+
+  std::string fname = f_del.db_path + "/" + f_del.name;
+  Status s = db_->CompactFiles(CompactionOptions(), {fname}, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // No floor was sent and the worker skipped the floor check; the original
+  // recovery rolled back and failed the job (reverted behavior).
+  ASSERT_FALSE(floor_provided_seen);
+  ASSERT_EQ(0, floor_check_count);
+  ASSERT_NOK(s);
+}
+
+TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorMutable) {
+  // remote_compaction_manifest_floor is a mutable DB option: flipping it via
+  // SetDBOptions changes whether the primary attaches a floor to subsequent
+  // remote compaction requests (and thus whether the worker runs the floor
+  // check).
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  bool floor_provided = false;
+  int floor_check_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        auto* input = static_cast<CompactionServiceInput*>(arg);
+        floor_provided = (input->min_manifest_file_number != 0);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::ManifestFloorCheck",
+      [&](void* /*arg*/) { floor_check_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+
+  // Default on: floor attached, floor check runs.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_TRUE(floor_provided);
+  ASSERT_GE(floor_check_count, 1);
+
+  // Turn the kill switch off dynamically.
+  ASSERT_OK(db_->SetDBOptions({{"remote_compaction_manifest_floor", "false"}}));
+  ASSERT_FALSE(db_->GetDBOptions().remote_compaction_manifest_floor);
+
+  floor_provided = true;
+  floor_check_count = 0;
+
+  // Create a fresh compaction target overlapping the range and re-compact.
+  ASSERT_OK(Put(Key(20), "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Now no floor is attached and the worker skips the floor check.
+  ASSERT_FALSE(floor_provided);
+  ASSERT_EQ(0, floor_check_count);
 }
 
 TEST_F(CompactionServiceTest, CompactionInfo) {

@@ -157,6 +157,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableDBOptions, fast_sst_open),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"remote_compaction_manifest_floor",
+         {offsetof(struct MutableDBOptions, remote_compaction_manifest_floor),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1113,7 +1117,9 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       fast_sst_open(options.fast_sst_open),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
-          options.max_compaction_trigger_wakeup_seconds) {}
+          options.max_compaction_trigger_wakeup_seconds),
+      remote_compaction_manifest_floor(
+          options.remote_compaction_manifest_floor) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1177,6 +1183,8 @@ void MutableDBOptions::Dump(Logger* log) const {
                    max_compaction_trigger_wakeup_seconds);
   ROCKS_LOG_HEADER(log, "                         Options.fast_sst_open: %d",
                    fast_sst_open);
+  ROCKS_LOG_HEADER(log, "      Options.remote_compaction_manifest_floor: %d",
+                   remote_compaction_manifest_floor);
 }
 
 Status GetMutableDBOptionsFromStrings(

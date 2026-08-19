@@ -718,12 +718,14 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options, bool allow_incomplete_valid_version,
+    bool trust_manifest_recovery,
     EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_found_and_missing_files=*/true,
                          /*no_error_if_files_missing=*/true, io_tracer,
                          read_options, allow_incomplete_valid_version,
-                         epoch_number_requirement) {}
+                         epoch_number_requirement),
+      trust_manifest_recovery_(trust_manifest_recovery) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& cfid_and_version : atomic_update_versions_) {
@@ -910,21 +912,23 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     auto* version = new Version(
         cfd, version_set_, version_set_->file_options_, mopts, io_tracer_,
         version_set_->current_version_number_++, epoch_number_requirement_);
-    s = builder->LoadTableHandlers(
-        cfd->internal_stats(),
-        version_set_->db_options_->max_file_opening_threads, false, true, mopts,
-        MaxFileSizeForL0MetaPin(mopts), read_options_);
-    if (!s.ok()) {
-      delete version;
-      if (negative_edge) {
-        builder->RedoLastApply();
+    if (!trust_manifest_recovery_) {
+      s = builder->LoadTableHandlers(
+          cfd->internal_stats(),
+          version_set_->db_options_->max_file_opening_threads, false, true,
+          mopts, MaxFileSizeForL0MetaPin(mopts), read_options_);
+      if (!s.ok()) {
+        delete version;
+        if (negative_edge) {
+          builder->RedoLastApply();
+        }
+        if (s.IsCorruption()) {
+          // This point in time cannot be recovered; skip it and continue.
+          s = Status::OK();
+        }
+        builder->CommitLastApply();
+        return s;
       }
-      if (s.IsCorruption()) {
-        // This point in time cannot be recovered; skip it and continue.
-        s = Status::OK();
-      }
-      builder->CommitLastApply();
-      return s;
     }
     s = builder->SaveTo(version->storage_info());
     if (negative_edge) {
@@ -962,6 +966,11 @@ Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
                                                  const std::string& fpath,
                                                  int level,
                                                  const FileMetaData& fmeta) {
+  if (trust_manifest_recovery_) {
+    // Trust the MANIFEST: do not stat/open the file to classify it. The
+    // compaction opens (and unique-id verifies) only its input files on demand.
+    return Status::OK();
+  }
   return version_set_->VerifyFileMetadata(read_options_, cfd, fpath, level,
                                           fmeta);
 }
@@ -969,6 +978,10 @@ Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
     ColumnFamilyData* cfd, uint64_t blob_file_num,
     const BlobFileAddition& blob_addition) {
+  if (trust_manifest_recovery_) {
+    // Trust the MANIFEST: do not open the blob file to classify it.
+    return Status::OK();
+  }
   BlobSource* blob_source = cfd->blob_source();
   assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;

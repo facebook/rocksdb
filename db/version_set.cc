@@ -6930,7 +6930,7 @@ Status VersionSet::TryRecoverFromOneManifest(
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
       read_options, /*allow_incomplete_valid_version=*/true,
-      EpochNumberRequirement::kMightMissing);
+      /*trust_manifest_recovery=*/false, EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -8153,9 +8153,10 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(new ManifestTailer(
-      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
-      read_options_, EpochNumberRequirement::kMightMissing));
+  manifest_tailer_.reset(
+      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
+                         io_tracer_, read_options_, trust_manifest_recovery_,
+                         EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
