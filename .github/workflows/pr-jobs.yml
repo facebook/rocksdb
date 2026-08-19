@@ -784,7 +784,7 @@ jobs:
     needs: config
     runs-on:
       labels: 4-core-ubuntu-arm
-    timeout-minutes: 180
+    timeout-minutes: 360
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -802,7 +802,7 @@ jobs:
       run: AUTO_CLEAN=1 make V=1 J=4 -j4 compaction_service_test
     - name: Repeat ConcurrentCompaction serially
       run: |-
-        timeout 60s ./compaction_service_test \
+        ./compaction_service_test \
           --gtest_filter=CompactionServiceTest.ConcurrentCompaction \
           --gtest_repeat=20
     - name: Run normal-build high-contention repro
@@ -833,7 +833,7 @@ jobs:
       run: AUTO_CLEAN=1 COERCE_CONTEXT_SWITCH=1 make V=1 J=4 -j4 compaction_service_test
     - name: Repeat ConcurrentCompaction serially with coerced context switches
       run: |-
-        timeout 60s ./compaction_service_test \
+        ./compaction_service_test \
           --gtest_filter=CompactionServiceTest.ConcurrentCompaction \
           --gtest_repeat=20
     - name: Run coerced high-contention repro
@@ -847,13 +847,16 @@ jobs:
           --timeout=240 \
           --stop-on-failure \
           --out="$RUNNER_TEMP/concurrent-compaction-coerce-heavy"
-    - name: Run coerced shard 29 repro
+    - name: Run coerced shard 29 repro until failure
       run: |-
         # GTest shard indices are zero-based, so index 28 is shard 29 of 32.
+        # GitHub caps the job at six hours. This deliberately unreachable
+        # iteration count keeps the strongest repro profile running until the
+        # test fails or the job reaches that overall limit.
         python3 tools/gtest_parallel_repro.py \
           --binary=./compaction_service_test \
           --processes-per-iteration=64 \
-          --iteration-count=30 \
+          --iteration-count=1000000 \
           --cpu-count=2 \
           --timeout=240 \
           --stop-on-failure \
