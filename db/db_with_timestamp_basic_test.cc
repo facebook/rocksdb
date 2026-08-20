@@ -4101,6 +4101,93 @@ TEST_F(DBBasicTestWithTimestamp, FullHistoryTsLowSanityCheckFail) {
   Close();
 }
 
+// Verifies that reading with a snapshot and a FRESH timestamp succeeds even
+// after full_history_ts_low advances past the snapshot's original timestamp.
+// This models the db_stress scenario where a long-running snapshot's saved
+// timestamp becomes stale due to concurrent flushes advancing
+// full_history_ts_low (persist_user_defined_timestamps=false).
+TEST_F(DBBasicTestWithTimestamp,
+       SnapshotReadWithFreshTimestampAfterTsLowAdvances) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+  DestroyAndReopen(options);
+
+  // Write a key at timestamp 100.
+  std::string write_ts;
+  PutFixed64(&write_ts, 100);
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", write_ts, "value1"));
+
+  // Take a snapshot (pins the data at this sequence number).
+  const Snapshot* snap = db_->GetSnapshot();
+  ASSERT_NE(snap, nullptr);
+
+  // Simulate what happens in the stress test: the original read timestamp at
+  // snapshot time would have been ~100. Now advance full_history_ts_low well
+  // past 100 by writing more data and flushing.
+  std::string write_ts2;
+  PutFixed64(&write_ts2, 500);
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", write_ts2, "value2"));
+
+  // Advance full_history_ts_low to 400 (past the original timestamp 100).
+  std::string ts_low;
+  PutFixed64(&ts_low, 400);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low));
+  ASSERT_OK(Flush());
+
+  // Omitting ReadOptions.timestamp is not a valid way to bypass the stale
+  // timestamp check because this column family enables user-defined timestamps.
+  {
+    ReadOptions read_opts;
+    read_opts.snapshot = snap;
+    std::string value;
+    Status s = db_->Get(read_opts, "key1", &value);
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  }
+
+  // With persist_user_defined_timestamps=false and the flush,
+  // full_history_ts_low auto-advances past 500 (the highest write). Reading
+  // with the snapshot but the OLD (stale) timestamp of 100, which is below the
+  // auto-advanced threshold, should fail with InvalidArgument because
+  // read_ts < full_history_ts_low.
+  {
+    ReadOptions read_opts;
+    read_opts.snapshot = snap;
+    std::string stale_ts;
+    PutFixed64(&stale_ts, 100);
+    Slice stale_ts_slice = stale_ts;
+    read_opts.timestamp = &stale_ts_slice;
+    std::string value;
+    Status s = db_->Get(read_opts, "key1", &value);
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  }
+
+  // Reading with the snapshot but a FRESH timestamp (>= full_history_ts_low)
+  // should succeed. The snapshot pins data visibility by sequence number, so
+  // the fresh timestamp only needs to pass the full_history_ts_low check.
+  // When persist_user_defined_timestamps=false and we flush,
+  // full_history_ts_low automatically advances to just above the newest write
+  // timestamp in the flushed memtable (i.e. just above 500). So we use 1000 to
+  // have comfortable margin above 500.
+  {
+    ReadOptions read_opts;
+    read_opts.snapshot = snap;
+    std::string fresh_ts;
+    PutFixed64(&fresh_ts, 1000);
+    Slice fresh_ts_slice = fresh_ts;
+    read_opts.timestamp = &fresh_ts_slice;
+    std::string value;
+    Status s = db_->Get(read_opts, "key1", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, "value1");
+  }
+
+  db_->ReleaseSnapshot(snap);
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp,
        GCPreserveRangeTombstoneWhenNoOrSmallFullHistoryLow) {
   Options options = CurrentOptions();

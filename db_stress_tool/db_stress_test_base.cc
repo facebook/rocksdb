@@ -1497,8 +1497,19 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   ropt.auto_refresh_iterator_with_snapshot =
       FLAGS_auto_refresh_iterator_with_snapshot;
   Slice ts;
+  std::string validation_ts_str;
   if (!snap_state.timestamp.empty()) {
-    ts = snap_state.timestamp;
+    if (!FLAGS_persist_user_defined_timestamps) {
+      // Timestamp-enabled reads require a read timestamp. In memtable-only UDT
+      // mode, the saved timestamp is not part of the long-running snapshot
+      // contract because full_history_ts_low can advance while the snapshot is
+      // held. Use a fresh timestamp to validate the pinned sequence-number
+      // view.
+      validation_ts_str = GetReadTimestamp();
+      ts = validation_ts_str;
+    } else {
+      ts = snap_state.timestamp;
+    }
     ropt.timestamp = &ts;
   }
   PinnableSlice exp_v(&snap_state.value);
