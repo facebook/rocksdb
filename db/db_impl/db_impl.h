@@ -2785,7 +2785,11 @@ class DBImpl : public DB
     // equal to this per-column-family specified value, this flush request is
     // considered to have completed its work of flushing this column family.
     // After completing the work for all column families in this request, this
-    // flush is considered complete.
+    // flush is considered complete. EnqueuePendingFlush() acquires one
+    // reference for each CFD when it successfully queues this request.
+    // PopFirstFromFlushQueue() transfers responsibility for those references
+    // to its caller, which must release each one with UnrefAndTryDelete() after
+    // processing or discarding the request.
     std::unordered_map<ColumnFamilyData*, uint64_t>
         cfd_to_max_mem_id_to_persist;
 
