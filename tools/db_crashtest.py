@@ -48,6 +48,7 @@ DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC = 300
 REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER = 2
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
 _REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
+_MIN_WRITE_BUFFER_SIZE = 64 * 1024
 
 
 def get_random_seed(override):
@@ -74,6 +75,25 @@ def stress_cmd_env():
     if _TSAN_OPTIONS_ENV_VAR not in env and os.path.exists(_TSAN_SUPPRESSIONS_FILE):
         env[_TSAN_OPTIONS_ENV_VAR] = "suppressions=" + _TSAN_SUPPRESSIONS_FILE
     return env
+
+
+def apply_cache_and_write_buffer_size_multiplier(params):
+    """Scale selected per-iteration memory sizes while preserving randomization."""
+    multiplier = params.pop("cache_and_write_buffer_size_multiplier", None)
+    if multiplier is None:
+        return
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError(
+            "cache_and_write_buffer_size_multiplier must be finite and greater than zero"
+        )
+
+    for name, minimum in (
+        ("cache_size", 1),
+        ("write_buffer_size", _MIN_WRITE_BUFFER_SIZE),
+    ):
+        value = params.get(name)
+        if value is not None and value > 0:
+            params[name] = max(int(value * multiplier), minimum)
 
 
 def normalize_remote_db_args(args):
@@ -1053,6 +1073,7 @@ multiops_txn_params = {
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
+    apply_cache_and_write_buffer_size_multiplier(dest_params)
     if is_release_mode():
         dest_params["read_fault_one_in"] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
@@ -2586,6 +2607,11 @@ def main():
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")  # ignore old option for now
     parser.add_argument("--print_stderr_separately", action="store_true", default=False)
+    parser.add_argument(
+        "--cache_and_write_buffer_size_multiplier",
+        type=float,
+        help="Scale each iteration's cache_size and write_buffer_size",
+    )
 
     all_params = dict(
         list(default_params.items())
@@ -2613,6 +2639,11 @@ def main():
     # unknown_args are passed directly to db_stress
 
     args, unknown_args = parser.parse_known_args(remain_args)
+    multiplier = args.cache_and_write_buffer_size_multiplier
+    if multiplier is not None and (not math.isfinite(multiplier) or multiplier <= 0):
+        parser.error(
+            "--cache_and_write_buffer_size_multiplier must be finite and greater than zero"
+        )
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is not None and not is_remote_db:
         isdir = False
