@@ -4,13 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "db/parallel_wal_ack_queue.h"
+#include "db/wal_lane.h"
 #include "db/write_batch_internal.h"
 #include "db/write_thread.h"
 #include "port/port.h"
@@ -22,6 +27,71 @@
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+TEST(ParallelWalAckQueueTest, RetiresOnlyCompletedPrefix) {
+  ParallelWalAckQueue queue(/*max_inflight_batches=*/0,
+                            /*max_inflight_bytes=*/0);
+  WalLane lane;
+  WriteTicket first(nullptr, nullptr, nullptr);
+  WriteTicket second(nullptr, nullptr, nullptr);
+
+  ASSERT_OK(queue.Enqueue({&first, &lane, 10}));
+  ASSERT_OK(queue.Enqueue({&second, &lane, 20}));
+
+  queue.MarkWalFinished(&second, IOStatus::IOError("second"));
+  ASSERT_FALSE(queue.TryClaimFront().has_value());
+
+  queue.MarkWalFinished(&first, IOStatus::OK());
+  ASSERT_TRUE(queue.WaitForRetirableHead());
+  std::optional<ParallelWalAckQueue::Entry> entry = queue.TryClaimFront();
+  ASSERT_TRUE(entry.has_value());
+  ASSERT_EQ(&first, entry->ticket);
+  IOStatus first_status = first.WalResult();
+  ASSERT_OK(first_status);
+  queue.PopClaimedFront(&first);
+  first.SetFinalResult(std::move(first_status));
+  first.WaitUntilAcknowledged();
+  ASSERT_OK(first.FinalStatus());
+
+  ASSERT_TRUE(queue.WaitForRetirableHead());
+  entry = queue.TryClaimFront();
+  ASSERT_TRUE(entry.has_value());
+  ASSERT_EQ(&second, entry->ticket);
+  IOStatus second_status = second.WalResult();
+  ASSERT_TRUE(second_status.IsIOError());
+  queue.PopClaimedFront(&second);
+  second.SetFinalResult(std::move(second_status));
+  second.WaitUntilAcknowledged();
+  ASSERT_TRUE(second.FinalStatus().IsIOError());
+
+  queue.Shutdown();
+  ASSERT_FALSE(queue.WaitForRetirableHead());
+}
+
+TEST(ParallelWalAckQueueTest, AbortReturnsEntriesWithoutEarlyWakeup) {
+  ParallelWalAckQueue queue(/*max_inflight_batches=*/0,
+                            /*max_inflight_bytes=*/0);
+  WalLane lane;
+  WriteTicket first(nullptr, nullptr, nullptr);
+  WriteTicket second(nullptr, nullptr, nullptr);
+
+  ASSERT_OK(queue.Enqueue({&first, &lane, 10}));
+  ASSERT_OK(queue.Enqueue({&second, &lane, 20}));
+
+  const Status abort_status = Status::Aborted("test abort");
+  std::vector<ParallelWalAckQueue::Entry> aborted =
+      queue.AbortAll(abort_status);
+  ASSERT_EQ(2, aborted.size());
+  ASSERT_EQ(TicketState::kQueued, first.state.load());
+  ASSERT_EQ(TicketState::kQueued, second.state.load());
+
+  for (const ParallelWalAckQueue::Entry& entry : aborted) {
+    entry.ticket->MarkCancelled();
+    entry.ticket->WaitUntilAcknowledged();
+    ASSERT_TRUE(entry.ticket->FinalStatus().IsAborted());
+  }
+  ASSERT_TRUE(queue.Enqueue({&first, &lane, 10}).IsShutdownInProgress());
+}
 
 // Test variations of WriteImpl.
 class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
@@ -48,6 +118,103 @@ TEST_P(DBWriteTest, SyncAndDisableWAL) {
   WriteBatch batch;
   ASSERT_OK(batch.Put("foo", "bar"));
   ASSERT_TRUE(dbfull()->Write(write_options, &batch).IsInvalidArgument());
+}
+
+TEST_P(DBWriteTest, PartitionedWALDisabledByDefault) {
+  Options options = GetOptions();
+  ASSERT_FALSE(options.enable_partitioned_wal);
+  Reopen(options);
+
+  ASSERT_FALSE(dbfull()->TEST_PartitionedWALWorkersRunning());
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_EQ("value", Get("key"));
+}
+
+TEST_P(DBWriteTest, WALWriteAndAcknowledgementRunOnDedicatedThreads) {
+  Options options = GetOptions();
+  options.enable_partitioned_wal = true;
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->TEST_PartitionedWALWorkersRunning());
+
+  const std::thread::id application_thread_id = std::this_thread::get_id();
+  std::thread::id wal_lane_thread_id;
+  std::thread::id acknowledgement_thread_id;
+  bool wal_callback_called = false;
+  bool acknowledgement_callback_called = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALLaneWorker:BeforeWrite", [&](void*) {
+        wal_lane_thread_id = std::this_thread::get_id();
+        wal_callback_called = true;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALAcknowledgementWorker:BeforeAcknowledge", [&](void*) {
+        acknowledgement_thread_id = std::this_thread::get_id();
+        acknowledgement_callback_called = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status status = Put("key", "value");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(status);
+  ASSERT_TRUE(wal_callback_called);
+  ASSERT_TRUE(acknowledgement_callback_called);
+  ASSERT_NE(application_thread_id, wal_lane_thread_id);
+  ASSERT_NE(application_thread_id, acknowledgement_thread_id);
+  ASSERT_NE(wal_lane_thread_id, acknowledgement_thread_id);
+  ASSERT_EQ("value", Get("key"));
+}
+
+TEST_P(DBWriteTest, WriteWaitsForAcknowledgement) {
+  Options options = GetOptions();
+  options.enable_partitioned_wal = true;
+  Reopen(options);
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool acknowledgement_entered = false;
+  bool release_acknowledgement = false;
+  std::atomic<bool> write_finished{false};
+  Status write_status;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALAcknowledgementWorker:BeforeAcknowledge", [&](void*) {
+        std::unique_lock<std::mutex> lock(mutex);
+        acknowledgement_entered = true;
+        cv.notify_one();
+        cv.wait(lock, [&] { return release_acknowledgement; });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread writer([&] {
+    write_status = Put("key", "value");
+    write_finished.store(true, std::memory_order_release);
+  });
+
+  bool observed_acknowledgement = false;
+  bool finished_before_release = false;
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    observed_acknowledgement = cv.wait_for(lock, std::chrono::seconds(10), [&] {
+      return acknowledgement_entered;
+    });
+    finished_before_release = write_finished.load(std::memory_order_acquire);
+    release_acknowledgement = true;
+  }
+  cv.notify_one();
+  writer.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(observed_acknowledgement);
+  ASSERT_FALSE(finished_before_release);
+  ASSERT_OK(write_status);
+  ASSERT_TRUE(write_finished.load(std::memory_order_acquire));
+  ASSERT_EQ("value", Get("key"));
 }
 
 TEST_P(DBWriteTest, WriteStallRemoveNoSlowdownWrite) {

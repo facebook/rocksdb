@@ -88,13 +88,16 @@ class FileIngestionHandleImpl;
 class SameFileBlobReader;
 class InMemoryStatsHistoryIterator;
 class MemTable;
+class ParallelWalAckQueue;
 class PersistentStatsHistoryIterator;
 class TableCache;
 class TaskLimiterToken;
 class Version;
 class VersionEdit;
 class VersionSet;
+struct WalLane;
 class WriteCallback;
+struct WriteTicket;
 struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
@@ -1386,6 +1389,13 @@ class DBImpl : public DB
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   int TEST_NumRunningBottomCompactions() const;
+  bool TEST_PartitionedWALWorkersRunning() const {
+    const bool running = wal_lane_ != nullptr;
+    assert((wal_lane_thread_ != nullptr) == running);
+    assert((wal_ack_queue_ != nullptr) == running);
+    assert((wal_ack_thread_ != nullptr) == running);
+    return running;
+  }
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
@@ -2716,6 +2726,24 @@ class DBImpl : public DB
                            SequenceNumber sequence,
                            WalFileNumberSize& wal_file_number_size);
 
+  struct WriteGroupToWALLaneRequest;
+  struct ConcurrentWriteGroupToWALLaneRequest;
+
+  IOStatus WriteGroupToWALLane(const WriteThread::WriteGroup& write_group,
+                               log::Writer* log_writer, uint64_t* wal_used,
+                               bool need_wal_sync, bool need_wal_dir_sync,
+                               SequenceNumber sequence,
+                               WalFileNumberSize& wal_file_number_size);
+
+  IOStatus ConcurrentWriteGroupToWALLane(
+      const WriteThread::WriteGroup& write_group, uint64_t* wal_used,
+      SequenceNumber* last_sequence, size_t seq_inc);
+
+  IOStatus SubmitToWALLane(WriteTicket* ticket, size_t charged_bytes);
+  void WALLaneWorker();
+  void WALAcknowledgementWorker();
+  void ShutdownParallelWALWorkers();
+
   IOStatus ConcurrentWriteGroupToWAL(const WriteThread::WriteGroup& write_group,
                                      uint64_t* wal_used,
                                      SequenceNumber* last_sequence,
@@ -3462,6 +3490,16 @@ class DBImpl : public DB
   // The write thread when the writers have no memtable write. This will be used
   // in 2PC to batch the prepares separately from the serial commit.
   WriteThread nonmem_write_thread_;
+
+  // When enable_partitioned_wal is true, executes all WAL group writes on one
+  // dedicated thread and retires their tickets in submission order.
+  // WriteThread still owns batching, memtable insertion, sequence publication,
+  // and final caller completion in this single-lane compatibility stage.
+  InstrumentedMutex wal_ticket_admission_mutex_;
+  std::unique_ptr<WalLane> wal_lane_;
+  std::unique_ptr<port::Thread> wal_lane_thread_;
+  std::unique_ptr<ParallelWalAckQueue> wal_ack_queue_;
+  std::unique_ptr<port::Thread> wal_ack_thread_;
 
   WriteController write_controller_;
 

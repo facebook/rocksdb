@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <atomic>
 
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
@@ -3508,6 +3509,7 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   options.env = fault_fs_env.get();
   options.avoid_flush_during_shutdown = true;
+  options.enable_partitioned_wal = true;
   DestroyAndReopen(options);
 
   // Make sure the memtable switch in recovery flush happened after test checks
@@ -3516,16 +3518,28 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
       {{"DBWALTest.RecoveryFlushSwitchWALOnEmptyMemtable:"
         "AfterCheckMemtableEmpty",
         "RecoverFromRetryableBGIOError:BeforeStart"}});
+  std::atomic<bool> inject_error{true};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALLaneWorker:BeforeWrite", [&](void*) {
+        if (inject_error.exchange(false)) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kMetadataWrite, 7 /* seed*/, 1 /* one_in */,
+              true /* retryable */, false /* has_data_loss*/);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kMetadataWrite);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALLaneWorker:AfterWrite", [&](void*) {
+        fault_fs->DisableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataWrite);
+      });
   SyncPoint::GetInstance()->EnableProcessing();
-  fault_fs->SetThreadLocalErrorContext(
-      FaultInjectionIOType::kMetadataWrite, 7 /* seed*/, 1 /* one_in */,
-      true /* retryable */, false /* has_data_loss*/);
-  fault_fs->EnableThreadLocalErrorInjection(
-      FaultInjectionIOType::kMetadataWrite);
 
   WriteOptions wo;
   wo.sync = true;
   Status s = Put("k", "old_v", wo);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   ASSERT_TRUE(s.IsIOError());
   // To verify the key is not in memtable nor SST
   ASSERT_TRUE(static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
@@ -3537,9 +3551,6 @@ TEST_F(DBWALTest, RecoveryFlushSwitchWALOnEmptyMemtable) {
       "DBWALTest.RecoveryFlushSwitchWALOnEmptyMemtable:"
       "AfterCheckMemtableEmpty");
   SyncPoint::GetInstance()->DisableProcessing();
-
-  fault_fs->DisableThreadLocalErrorInjection(
-      FaultInjectionIOType::kMetadataWrite);
 
   // Keep trying write until recovery of the previous IO error finishes
   while (!s.ok()) {

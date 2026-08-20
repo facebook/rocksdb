@@ -15,7 +15,10 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/parallel_wal_ack_queue.h"
+#include "db/wal_lane.h"
 #include "db/wide/wide_columns_helper.h"
+#include "db/write_ticket.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "memtable/wbwi_memtable.h"
@@ -81,7 +84,72 @@ class PutEntityFastPathWriteCallback final : public WriteCallback {
   bool AllowWriteBatching() override { return false; }
 };
 
+size_t WALWriteGroupBytes(const WriteThread::WriteGroup& write_group) {
+  size_t bytes = 0;
+  for (WriteThread::Writer* writer : write_group) {
+    if (writer->ShouldWriteToWAL()) {
+      bytes = WriteBatchInternal::AppendedByteSize(
+          bytes, WriteBatchInternal::ByteSize(writer->batch));
+    }
+  }
+  return bytes;
+}
+
 }  // namespace
+
+struct DBImpl::WriteGroupToWALLaneRequest final : public WalWriteRequest {
+  WriteGroupToWALLaneRequest(DBImpl* db_impl,
+                             const WriteThread::WriteGroup* write_group,
+                             log::Writer* log_writer, uint64_t* wal_used,
+                             bool need_wal_sync, bool need_wal_dir_sync,
+                             SequenceNumber sequence,
+                             WalFileNumberSize* wal_file_number_size)
+      : db(db_impl),
+        group(write_group),
+        writer(log_writer),
+        wal_used_out(wal_used),
+        sync(need_wal_sync),
+        sync_dir(need_wal_dir_sync),
+        first_sequence(sequence),
+        file_number_size(wal_file_number_size) {}
+
+  IOStatus Run() override {
+    return db->WriteGroupToWAL(*group, writer, wal_used_out, sync, sync_dir,
+                               first_sequence, *file_number_size);
+  }
+
+  DBImpl* db;
+  const WriteThread::WriteGroup* group;
+  log::Writer* writer;
+  uint64_t* wal_used_out;
+  bool sync;
+  bool sync_dir;
+  SequenceNumber first_sequence;
+  WalFileNumberSize* file_number_size;
+};
+
+struct DBImpl::ConcurrentWriteGroupToWALLaneRequest final
+    : public WalWriteRequest {
+  ConcurrentWriteGroupToWALLaneRequest(
+      DBImpl* db_impl, const WriteThread::WriteGroup* write_group,
+      uint64_t* wal_used, SequenceNumber* last_sequence, size_t seq_inc)
+      : db(db_impl),
+        group(write_group),
+        wal_used_out(wal_used),
+        last_sequence_out(last_sequence),
+        sequence_increment(seq_inc) {}
+
+  IOStatus Run() override {
+    return db->ConcurrentWriteGroupToWAL(*group, wal_used_out,
+                                         last_sequence_out, sequence_increment);
+  }
+
+  DBImpl* db;
+  const WriteThread::WriteGroup* group;
+  uint64_t* wal_used_out;
+  SequenceNumber* last_sequence_out;
+  size_t sequence_increment;
+};
 
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
@@ -1364,18 +1432,18 @@ Status DBImpl::WriteImpl(
         assert(wal_context.wal_file_number_size);
         wal_context.prev_size = wal_context.writer->file()->GetFileSize();
         PERF_TIMER_GUARD(write_wal_time);
-        io_s = WriteGroupToWAL(write_group, wal_context.writer, wal_used,
-                               wal_context.need_wal_sync,
-                               wal_context.need_wal_dir_sync, last_sequence + 1,
-                               *wal_context.wal_file_number_size);
+        io_s = WriteGroupToWALLane(
+            write_group, wal_context.writer, wal_used,
+            wal_context.need_wal_sync, wal_context.need_wal_dir_sync,
+            last_sequence + 1, *wal_context.wal_file_number_size);
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
         // LastAllocatedSequence is increased inside WriteToWAL under
         // wal_write_mutex_ to ensure ordered events in WAL
-        io_s = ConcurrentWriteGroupToWAL(write_group, wal_used, &last_sequence,
-                                         seq_inc);
+        io_s = ConcurrentWriteGroupToWALLane(write_group, wal_used,
+                                             &last_sequence, seq_inc);
       } else {
         // Otherwise we inc seq number for memtable writes
         last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
@@ -1670,10 +1738,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       assert(wal_context.wal_file_number_size);
       WalFileNumberSize& wal_file_number_size =
           *(wal_context.wal_file_number_size);
-      io_s = WriteGroupToWAL(wal_write_group, wal_context.writer, wal_used,
-                             wal_context.need_wal_sync,
-                             wal_context.need_wal_dir_sync, current_sequence,
-                             wal_file_number_size);
+      io_s = WriteGroupToWALLane(wal_write_group, wal_context.writer, wal_used,
+                                 wal_context.need_wal_sync,
+                                 wal_context.need_wal_dir_sync,
+                                 current_sequence, wal_file_number_size);
       w.status = io_s;
     }
 
@@ -1964,8 +2032,8 @@ Status DBImpl::WriteImplWALOnly(
   }
   Status status;
   if (!write_options.disableWAL) {
-    IOStatus io_s = ConcurrentWriteGroupToWAL(write_group, wal_used,
-                                              &last_sequence, seq_inc);
+    IOStatus io_s = ConcurrentWriteGroupToWALLane(write_group, wal_used,
+                                                  &last_sequence, seq_inc);
     status = io_s;
     // last_sequence may not be set if there is an error
     // This error checking and return is moved up to avoid using uninitialized
@@ -2257,8 +2325,129 @@ Status DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
   return Status::OK();
 }
 
-// When two_write_queues_ is disabled, this function is called from the only
-// write thread. Otherwise this must be called holding wal_write_mutex_.
+IOStatus DBImpl::WriteGroupToWALLane(const WriteThread::WriteGroup& write_group,
+                                     log::Writer* log_writer,
+                                     uint64_t* wal_used, bool need_wal_sync,
+                                     bool need_wal_dir_sync,
+                                     SequenceNumber sequence,
+                                     WalFileNumberSize& wal_file_number_size) {
+  if (!immutable_db_options_.enable_partitioned_wal) {
+    return WriteGroupToWAL(write_group, log_writer, wal_used, need_wal_sync,
+                           need_wal_dir_sync, sequence, wal_file_number_size);
+  }
+
+  WriteGroupToWALLaneRequest request(this, &write_group, log_writer, wal_used,
+                                     need_wal_sync, need_wal_dir_sync, sequence,
+                                     &wal_file_number_size);
+  WriteTicket ticket(write_group.leader->batch, write_group.leader, &request);
+  return SubmitToWALLane(&ticket, WALWriteGroupBytes(write_group));
+}
+
+IOStatus DBImpl::ConcurrentWriteGroupToWALLane(
+    const WriteThread::WriteGroup& write_group, uint64_t* wal_used,
+    SequenceNumber* last_sequence, size_t seq_inc) {
+  if (!immutable_db_options_.enable_partitioned_wal) {
+    return ConcurrentWriteGroupToWAL(write_group, wal_used, last_sequence,
+                                     seq_inc);
+  }
+
+  ConcurrentWriteGroupToWALLaneRequest request(this, &write_group, wal_used,
+                                               last_sequence, seq_inc);
+  WriteTicket ticket(write_group.leader->batch, write_group.leader, &request);
+  return SubmitToWALLane(&ticket, WALWriteGroupBytes(write_group));
+}
+
+IOStatus DBImpl::SubmitToWALLane(WriteTicket* ticket, size_t charged_bytes) {
+  assert(immutable_db_options_.enable_partitioned_wal);
+  if (wal_lane_ == nullptr || wal_ack_queue_ == nullptr) {
+    return status_to_io_status(
+        Status::ShutdownInProgress("WAL workers are not running"));
+  }
+
+  {
+    // Admission into the global queue and the lane must have the same order.
+    // Otherwise two submitters can invert those orders, leaving the lane held
+    // by a later global entry while the acknowledgement worker waits for the
+    // earlier entry to finish.
+    InstrumentedMutexLock admission_lock(&wal_ticket_admission_mutex_);
+    Status status = wal_ack_queue_->Enqueue(
+        ParallelWalAckQueue::Entry{ticket, wal_lane_.get(), charged_bytes});
+    if (!status.ok()) {
+      return status_to_io_status(std::move(status));
+    }
+
+    status = wal_lane_->Enqueue(ticket);
+    if (!status.ok()) {
+      wal_ack_queue_->MarkWalFinished(ticket,
+                                      status_to_io_status(std::move(status)));
+    }
+  }
+
+  ticket->WaitUntilAcknowledged();
+  return ticket->FinalStatus();
+}
+
+void DBImpl::WALLaneWorker() {
+  while (WriteTicket* ticket = wal_lane_->WaitForWork()) {
+    TEST_SYNC_POINT_CALLBACK("DBImpl::WALLaneWorker:BeforeWrite", ticket);
+    IOStatus status = ticket->RunWalWrite();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::WALLaneWorker:AfterWrite", ticket);
+    wal_ack_queue_->MarkWalFinished(ticket, std::move(status));
+  }
+}
+
+void DBImpl::WALAcknowledgementWorker() {
+  while (wal_ack_queue_->WaitForRetirableHead()) {
+    while (std::optional<ParallelWalAckQueue::Entry> entry =
+               wal_ack_queue_->TryClaimFront()) {
+      WriteTicket* ticket = entry->ticket;
+      IOStatus status = ticket->WalResult();
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::WALAcknowledgementWorker:BeforeAcknowledge", ticket);
+
+      // This compatibility stage acknowledges completion of the WAL portion.
+      // The existing write-group leader resumes to apply the memtable update
+      // and publish its sequence before DB::Write() returns.
+      // Remove all lane and queue references before waking the caller because
+      // the ticket is owned by the caller's stack.
+      if (ticket->WasLaneAdmitted()) {
+        entry->lane->FinishWork(ticket);
+      }
+      wal_ack_queue_->PopClaimedFront(ticket);
+      ticket->SetFinalResult(std::move(status));
+    }
+  }
+}
+
+void DBImpl::ShutdownParallelWALWorkers() {
+  // Stop both admission points first. Already-admitted tickets are drained:
+  // the lane completes their WAL work and the acknowledgement worker retires
+  // them before either thread exits.
+  if (wal_ack_queue_ != nullptr) {
+    wal_ack_queue_->Shutdown();
+  }
+  if (wal_lane_ != nullptr) {
+    wal_lane_->Shutdown();
+  }
+
+  if (wal_lane_thread_ != nullptr && wal_lane_thread_->joinable()) {
+    wal_lane_thread_->join();
+  }
+
+  if (wal_ack_thread_ != nullptr && wal_ack_thread_->joinable()) {
+    wal_ack_thread_->join();
+  }
+
+  wal_lane_thread_.reset();
+  wal_ack_thread_.reset();
+  wal_lane_.reset();
+  wal_ack_queue_.reset();
+}
+
+// When two_write_queues_ is disabled, this function is called by the write
+// group leader or, with enable_partitioned_wal, by the single WAL lane while
+// the write group leader retains exclusive write ownership. Otherwise this
+// must be called holding wal_write_mutex_.
 IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             const WriteOptions& write_options,
                             log::Writer* log_writer, uint64_t* wal_used,

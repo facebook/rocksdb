@@ -1024,6 +1024,7 @@ TEST_P(WriteUnpreparedTransactionTest,
   // unprep_seqs_ even on failure, making subsequent Rollback() hit
   // assertion `unprep_seqs.size() > 0`.
   options.max_bgerror_resume_count = 0;
+  options.enable_partitioned_wal = true;
   ASSERT_OK(ReOpen());
 
   // Use fault injection to cause commit write to fail.
@@ -1044,19 +1045,40 @@ TEST_P(WriteUnpreparedTransactionTest,
   ASSERT_OK(txn->Prepare());
 
   // Inject a write error so that Commit() fails.
-  fault_fs->SetThreadLocalErrorContext(FaultInjectionIOType::kWrite,
-                                       /*seed=*/0, /*one_in=*/1,
-                                       /*retryable=*/true,
-                                       /*has_data_loss=*/false);
-  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  int injected_error_count = 0;
+  bool error_context_installed = false;
+  bool error_count_collected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALLaneWorker:BeforeWrite", [&](void*) {
+        if (!error_context_installed) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/true, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+          error_context_installed = true;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WALLaneWorker:AfterWrite", [&](void*) {
+        if (error_context_installed && !error_count_collected) {
+          fault_fs->DisableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+          injected_error_count =
+              fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+                  FaultInjectionIOType::kWrite);
+          error_count_collected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
   const Status commit_s = txn->Commit();
-  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_NOK(commit_s);
   ASSERT_TRUE(FaultInjectionTestFS::IsInjectedError(commit_s))
       << commit_s.ToString();
-  fault_fs->GetAndResetInjectedThreadLocalErrorCount(
-      FaultInjectionIOType::kWrite);
+  ASSERT_EQ(1, injected_error_count);
 
   // Resume the DB to clear the error state.
   ASSERT_OK(db->Resume());

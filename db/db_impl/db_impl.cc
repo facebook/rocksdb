@@ -56,12 +56,14 @@
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
+#include "db/parallel_wal_ack_queue.h"
 #include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/wal_iterator_impl.h"
+#include "db/wal_lane.h"
 #include "db/wide/lazy_wide_columns_helper.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
@@ -304,6 +306,18 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                             std::memory_order_relaxed);
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
+  }
+
+  if (!read_only_ && immutable_db_options_.enable_partitioned_wal) {
+    // Admission limits are intentionally disabled for the initial single-lane
+    // implementation. The queue still owns the accounting needed to add
+    // bounded admission with the multi-lane configuration later.
+    wal_ack_queue_.reset(new ParallelWalAckQueue(
+        /*max_inflight_batches=*/0, /*max_inflight_bytes=*/0));
+    wal_lane_.reset(new WalLane());
+    wal_ack_thread_.reset(
+        new port::Thread(&DBImpl::WALAcknowledgementWorker, this));
+    wal_lane_thread_.reset(new port::Thread(&DBImpl::WALLaneWorker, this));
   }
 }
 
@@ -811,6 +825,8 @@ Status DBImpl::CloseHelper() {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
+
+  ShutdownParallelWALWorkers();
 
   // Below check is added as recovery_error_ is not checked and it causes crash
   // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is

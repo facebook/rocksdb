@@ -2406,6 +2406,7 @@ TEST_P(WritePreparedTransactionTest, RollbackPreparedAfterCommitWriteFailure) {
   // verifies rollback can still be retried to remove the prepared entry before
   // DB teardown.
   options.max_bgerror_resume_count = 0;
+  options.enable_partitioned_wal = true;
   ASSERT_OK(ReOpen());
   fault_fs->SetFileTypesExcludedFromFaultInjection({FileType::kInfoLogFile});
 
@@ -2418,35 +2419,55 @@ TEST_P(WritePreparedTransactionTest, RollbackPreparedAfterCommitWriteFailure) {
   ASSERT_OK(txn->Put(Slice("key"), Slice("value")));
   ASSERT_OK(txn->Prepare());
 
-  fault_fs->SetThreadLocalErrorContext(FaultInjectionIOType::kWrite,
-                                       /*seed=*/0, /*one_in=*/1,
-                                       /*retryable=*/true,
-                                       /*has_data_loss=*/false);
-  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
-  const Status commit_s = txn->Commit();
-  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  auto run_with_injected_wal_error = [&](uint32_t seed, auto&& write) {
+    int injected_error_count = 0;
+    bool error_context_installed = false;
+    bool error_count_collected = false;
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::WALLaneWorker:BeforeWrite", [&](void*) {
+          if (!error_context_installed) {
+            fault_fs->SetThreadLocalErrorContext(
+                FaultInjectionIOType::kWrite, seed, /*one_in=*/1,
+                /*retryable=*/true, /*has_data_loss=*/false);
+            fault_fs->EnableThreadLocalErrorInjection(
+                FaultInjectionIOType::kWrite);
+            error_context_installed = true;
+          }
+        });
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::WALLaneWorker:AfterWrite", [&](void*) {
+          if (error_context_installed && !error_count_collected) {
+            fault_fs->DisableThreadLocalErrorInjection(
+                FaultInjectionIOType::kWrite);
+            injected_error_count =
+                fault_fs->GetAndResetInjectedThreadLocalErrorCount(
+                    FaultInjectionIOType::kWrite);
+            error_count_collected = true;
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    Status status = write();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    EXPECT_EQ(1, injected_error_count);
+    return status;
+  };
+
+  const Status commit_s =
+      run_with_injected_wal_error(/*seed=*/0, [&] { return txn->Commit(); });
 
   ASSERT_NOK(commit_s);
   ASSERT_TRUE(FaultInjectionTestFS::IsInjectedError(commit_s))
       << commit_s.ToString();
-  ASSERT_EQ(1, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
-                   FaultInjectionIOType::kWrite));
 
   ASSERT_OK(db->Resume());
 
-  fault_fs->SetThreadLocalErrorContext(FaultInjectionIOType::kWrite,
-                                       /*seed=*/1, /*one_in=*/1,
-                                       /*retryable=*/true,
-                                       /*has_data_loss=*/false);
-  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
-  const Status rollback_s = txn->Rollback();
-  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  const Status rollback_s =
+      run_with_injected_wal_error(/*seed=*/1, [&] { return txn->Rollback(); });
 
   ASSERT_NOK(rollback_s);
   ASSERT_TRUE(FaultInjectionTestFS::IsInjectedError(rollback_s))
       << rollback_s.ToString();
-  ASSERT_EQ(1, fault_fs->GetAndResetInjectedThreadLocalErrorCount(
-                   FaultInjectionIOType::kWrite));
 
   ASSERT_OK(db->Resume());
   ASSERT_OK(txn->Rollback());
