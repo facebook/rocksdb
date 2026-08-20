@@ -785,7 +785,10 @@ void StressTest::MaybeTestMultiGetEntityLazy(
     const size_t i = chosen[j].first;
     const size_t c = chosen[j].second;
     // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
-    // against the reference when available, else the known logical size.
+    // against the reference when available, else the known logical size; and
+    // independently fuzz force_verify (which forces a whole, checksum-verified
+    // read even for a sub-range) -- the resolved bytes are unchanged either
+    // way.
     const WideColumns* reference = entity_ref[i];
     const std::optional<uint64_t> size_hint =
         reference ? std::optional<uint64_t>((*reference)[c].value().size())
@@ -793,6 +796,7 @@ void StressTest::MaybeTestMultiGetEntityLazy(
     reads[j].column = &batch[i][c];
     PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
                       &reads[j].length);
+    reads[j].force_verify = thread->rand.OneIn(4);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -910,13 +914,17 @@ void StressTest::ResolveLazyEntity(ThreadState* thread, const std::string& key,
   for (size_t j = 0; j < chosen.size(); ++j) {
     const size_t c = chosen[j];
     // Randomly fuzz a partial (byte-range) read vs a whole-column read, sized
-    // against the reference when available, else the known logical size.
+    // against the reference when available, else the known logical size; and
+    // independently fuzz force_verify (which forces a whole, checksum-verified
+    // read even for a sub-range) -- the resolved bytes are unchanged either
+    // way.
     const std::optional<uint64_t> size_hint =
         reference ? std::optional<uint64_t>((*reference)[c].value().size())
                   : lazy[c].logical_size();
     reads[j].column = &lazy[c];
     PickLazyReadRange(&thread->rand, size_hint, &reads[j].offset,
                       &reads[j].length);
+    reads[j].force_verify = thread->rand.OneIn(4);
     reads[j].result = &results[j];
     reads[j].status = &statuses[j];
   }
@@ -5704,15 +5712,20 @@ void StressTest::RecordManifestStateBeforeReopen() {
     return;
   }
 
+  if (FLAGS_metadata_write_fault_one_in != 0 ||
+      FLAGS_open_metadata_write_fault_one_in != 0) {
+    manifest_verify_mode_ = MANIFEST_VERIFY_NONE;
+    return;
+  }
+
   if (reuse_manifest && optimize_manifest) {
     // Check if ALL conditions for complete avoidance are met.
     // If so, use STRICT mode where failures are fatal.
-    const bool no_fault_injection = FLAGS_metadata_write_fault_one_in == 0 &&
-                                    FLAGS_open_metadata_write_fault_one_in == 0;
+    const bool no_fault_injection = !NeedsFaultInjection();
     const bool no_manifest_writes_expected =
+        no_fault_injection &&
         FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
-        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
-        no_fault_injection;
+        !FLAGS_write_dbid_to_manifest;        // No DB_ID write on open
     // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
     // If avoid_flush_during_shutdown=true leaves data in WAL, but
     // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST

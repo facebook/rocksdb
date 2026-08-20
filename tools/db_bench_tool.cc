@@ -57,6 +57,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/io_status.h"
+#include "rocksdb/lazy_wide_columns.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -66,6 +67,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
 #include "rocksdb/tool_hooks.h"
@@ -265,6 +267,10 @@ DEFINE_string(
     "\tfillembeddedblob -- Create and ingest an SST of whole-value embedded "
     "(same-file) blobs; read with readrandom. Requires format_version>=7\n"
     "\treadrandomentity -- read N times in random order via GetEntity\n"
+    "\treadrandomentitylazy -- read N times in random order via GetEntityLazy, "
+    "resolving lazy_entity_read_length bytes of each column "
+    "(byte-range/partial "
+    "blob reads); requires open_files=-1\n"
     "\tmultireadentity -- read N in random batches via MultiGetEntity\n"
     "\topenandcompact -- Open DB and compact all files to bottommost level, "
     "writing output to separate directory without modifying source DB. "
@@ -1293,6 +1299,14 @@ DEFINE_int32(num_short_wide_columns, 1,
              "default column is one of these inline columns; if 0, the default "
              "column is an embedded blob.");
 
+DEFINE_int64(
+    lazy_entity_read_length, -1,
+    "For the readrandomentitylazy benchmark: number of bytes to resolve from "
+    "the start of each column via LazyWideColumns::MultiResolve. -1 resolves "
+    "the whole column; a smaller value exercises byte-range (partial) blob "
+    "reads, which read only the requested bytes of an uncompressed blob column "
+    "(see rocksdb.blobdb.lazy.* statistics). Requires -open_files=-1.");
+
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
             "Open a RocksDB secondary instance. A primary instance can be "
@@ -1986,6 +2000,11 @@ DEFINE_bool(prefix_same_as_start, false,
 DEFINE_bool(
     seek_missing_prefix, false,
     "Iterator seek to keys with non-exist prefixes. Require prefix_size > 8");
+
+DEFINE_int32(sst_partitioner_fixed_prefix_len, 0,
+             "If non-zero, configure a SstPartitionerFixedPrefixFactory with "
+             "this prefix length so compaction splits output SST files on that "
+             "fixed key prefix. 0 disables (no SST partitioner).");
 
 DEFINE_int32(memtable_insert_with_hint_prefix_size, 0,
              "If non-zero, enable "
@@ -3448,6 +3467,7 @@ class Benchmark {
   bool read_operands_;     // read via GetMergeOperands()
   bool read_entity_;       // read via GetEntity() (readrandomentity)
   bool multiread_entity_;  // read via MultiGetEntity() (multireadentity)
+  bool read_entity_lazy_;  // read via GetEntityLazy() (readrandomentitylazy)
   std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
@@ -3559,6 +3579,10 @@ class Benchmark {
     fprintf(stdout, "Entries:    %" PRIu64 "\n", num_);
     fprintf(stdout, "Prefix:    %d bytes\n", FLAGS_prefix_size);
     fprintf(stdout, "Keys per prefix:    %" PRIu64 "\n", keys_per_prefix_);
+    if (FLAGS_sst_partitioner_fixed_prefix_len > 0) {
+      fprintf(stdout, "SST partitioner: fixed prefix len %d\n",
+              FLAGS_sst_partitioner_fixed_prefix_len);
+    }
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
             ((static_cast<int64_t>(FLAGS_key_size + avg_value_size) * num_) /
              1048576.0));
@@ -3966,7 +3990,8 @@ class Benchmark {
         use_blob_db_(FLAGS_use_blob_db),  // Stacked BlobDB
         read_operands_(false),
         read_entity_(false),
-        multiread_entity_(false) {
+        multiread_entity_(false),
+        read_entity_lazy_(false) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -4252,6 +4277,7 @@ class Benchmark {
       read_operands_ = false;
       read_entity_ = false;
       multiread_entity_ = false;
+      read_entity_lazy_ = false;
 
       int num_repeat = 1;
       int num_warmup = 0;
@@ -4385,6 +4411,9 @@ class Benchmark {
       } else if (name == "readrandomentity") {
         method = &Benchmark::ReadRandom;
         read_entity_ = true;
+      } else if (name == "readrandomentitylazy") {
+        method = &Benchmark::ReadRandom;
+        read_entity_lazy_ = true;
       } else if (name == "multireadentity") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
@@ -5319,6 +5348,10 @@ class Benchmark {
     options.compaction_options_fifo.use_kv_ratio_compaction =
         FLAGS_fifo_compaction_use_kv_ratio_compaction;
     options.prefix_extractor = prefix_extractor_;
+    if (FLAGS_sst_partitioner_fixed_prefix_len > 0) {
+      options.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(
+          FLAGS_sst_partitioner_fixed_prefix_len);
+    }
     if (FLAGS_use_uint64_comparator) {
       options.comparator = test::Uint64Comparator();
       if (FLAGS_key_size != 8) {
@@ -7481,6 +7514,29 @@ class Benchmark {
       fprintf(stderr, "readrandomentity does not support user timestamps\n");
       db_bench_exit(1);
     }
+    if (read_entity_lazy_) {
+      if (user_timestamp_size_ > 0) {
+        fprintf(stderr,
+                "readrandomentitylazy does not support user timestamps\n");
+        db_bench_exit(1);
+      }
+      if (open_options_.max_open_files != -1) {
+        // The lazy API pins table readers via the immortal-table-cache mode.
+        fprintf(stderr, "readrandomentitylazy requires max_open_files == -1\n");
+        db_bench_exit(1);
+      }
+    }
+    // Reusable buffers for the lazy (readrandomentitylazy) path; empty and
+    // unused otherwise. lazy_read_length == kLazyWholeColumn resolves whole
+    // columns; a smaller value drives byte-range (partial) blob reads.
+    LazyWideColumns lazy_columns;
+    std::vector<PinnableSlice> lazy_results;
+    std::vector<Status> lazy_statuses;
+    std::vector<LazyColumnReadRequest> lazy_reads;
+    const size_t lazy_read_length =
+        FLAGS_lazy_entity_read_length < 0
+            ? kLazyWholeColumn
+            : static_cast<size_t>(FLAGS_lazy_entity_read_length);
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -7519,6 +7575,9 @@ class Benchmark {
       Status s;
       pinnable_val.Reset();
       pinnable_columns.Reset();
+      // Release the previous iteration's resolved slices before GetEntityLazy
+      // resets lazy_columns (whose resolver backs those slices).
+      lazy_results.clear();
       for (size_t i = 0; i < pinnable_vals.size(); ++i) {
         pinnable_vals[i].Reset();
       }
@@ -7550,6 +7609,8 @@ class Benchmark {
         }
       } else if (read_entity_) {
         s = db_with_cfh->db->GetEntity(options, cfh, key, &pinnable_columns);
+      } else if (read_entity_lazy_) {
+        s = db_with_cfh->db->GetEntityLazy(options, cfh, key, &lazy_columns);
       } else {
         s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
       }
@@ -7564,6 +7625,37 @@ class Benchmark {
         if (read_entity_) {
           for (const auto& column : pinnable_columns.columns()) {
             bytes += column.name().size() + column.value().size();
+          }
+        }
+        if (read_entity_lazy_) {
+          // Resolve lazy_read_length bytes of each column in one MultiResolve
+          // call. For an uncompressed blob column a strict sub-range reads only
+          // the requested bytes from storage (see rocksdb.blobdb.lazy.*);
+          // inline columns and whole-column reads resolve as usual.
+          const size_t n = lazy_columns.size();
+          lazy_results.resize(n);
+          lazy_statuses.assign(n, Status::OK());
+          lazy_reads.resize(n);
+          for (size_t c = 0; c < n; ++c) {
+            lazy_reads[c].column = &lazy_columns[c];
+            lazy_reads[c].offset = 0;
+            lazy_reads[c].length = lazy_read_length;
+            lazy_reads[c].result = &lazy_results[c];
+            lazy_reads[c].status = &lazy_statuses[c];
+          }
+          const Status rs = lazy_columns.MultiResolve(lazy_reads);
+          if (rs.ok()) {
+            for (size_t c = 0; c < n; ++c) {
+              if (lazy_statuses[c].ok()) {
+                bytes += lazy_columns[c].name().size() + lazy_results[c].size();
+              } else if (!lazy_statuses[c].IsNotFound()) {
+                HandleBenchmarkIOError(lazy_statuses[c],
+                                       "MultiResolve column read returned "
+                                       "an error");
+              }
+            }
+          } else if (!rs.IsNotFound()) {
+            HandleBenchmarkIOError(rs, "MultiResolve returned an error");
           }
         }
       } else if (!s.IsNotFound()) {

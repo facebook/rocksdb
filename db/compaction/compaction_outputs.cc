@@ -267,11 +267,22 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     return true;
   }
 
-  // If there's user defined partitioner, check that first
-  if (partitioner_ && partitioner_->ShouldPartition(PartitionerRequest(
-                          last_key_for_partitioner_, c_iter.user_key(),
-                          current_output_file_size_)) == kRequired) {
-    return true;
+  if (partitioner_) {
+    if (partitioner_prefix_valid_) {
+      // Fast path: no per-key copy or virtual call. A partition is requested at
+      // the first key that no longer shares the established prefix. An empty
+      // prefix means no further partitions (every key "starts with" it).
+      if (UNLIKELY(!c_iter.user_key().starts_with(partitioner_prefix_))) {
+        return true;
+      }
+    } else {
+      // Slow path: per-key callback (and copy elsewhere)
+      if (UNLIKELY(partitioner_->ShouldPartition(PartitionerRequest(
+                       last_key_for_partitioner_, c_iter.user_key(),
+                       current_output_file_size_)) == kRequired)) {
+        return true;
+      }
+    }
   }
 
   // files output to Level 0 won't be split
@@ -401,11 +412,27 @@ Status CompactionOutputs::AddToOutput(
     if (!s.ok()) {
       return s;
     }
+    // A new output file starts a fresh partition-tracking window. Establish the
+    // partitioner fast path from this file's first key: if the partitioner can
+    // express its next boundary as "first key not sharing this prefix", cache
+    // that prefix; otherwise fall back to per-key ShouldPartition(). This is
+    // the only place the prefix needs to be (re)derived, since a partition
+    // boundary always forces a file cut, and re-deriving on non-partition cuts
+    // just recomputes the same still-valid prefix.
+    if (partitioner_) {
+      OptSlice prefix =
+          partitioner_->ShouldPartitionByPrefix(c_iter.user_key());
+      partitioner_prefix_valid_ = prefix.has_value();
+      if (partitioner_prefix_valid_) {
+        partitioner_prefix_.assign(prefix->data(), prefix->size());
+      }
+    }
   }
 
   // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
-  // here before returning below when `is_range_del` is true
-  if (partitioner_) {
+  // here before returning below when `is_range_del` is true. Only needed in the
+  // fallback mode; the prefix fast path does not use it.
+  if (partitioner_ && !partitioner_prefix_valid_) {
     last_key_for_partitioner_.assign(c_iter.user_key().data_,
                                      c_iter.user_key().size_);
   }

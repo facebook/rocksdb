@@ -407,7 +407,9 @@ class StressTest {
     kLastOpSeekToLast
   };
 
-  // Enum used to track MANIFEST verification mode during DB reopen
+  // Enum used to track MANIFEST verification mode during DB reopen.
+  // Verification is skipped when metadata write fault injection is enabled
+  // because recovery may have to abandon a partially written MANIFEST.
   enum ManifestVerifyMode {
     MANIFEST_VERIFY_NONE,
     // MANIFEST file should be reused (same file number), CURRENT should not
@@ -427,8 +429,7 @@ class StressTest {
     // - Not in best_efforts_recovery mode
     // - avoid_flush_during_recovery=true (no flush during recovery)
     // - write_dbid_to_manifest=0 (no DB_ID write on open)
-    // - metadata_write_fault_one_in=0 (no fault injection)
-    // - open_metadata_write_fault_one_in=0 (no fault injection)
+    // - all fault injection flags are disabled
     // - MANIFEST not corrupted, not at size limit
     // Note: avoid_flush_during_shutdown is NOT required. If it leaves data
     // in WAL but avoid_flush_during_recovery=true prevents flushing it,

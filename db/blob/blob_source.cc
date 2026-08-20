@@ -416,7 +416,8 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
-    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    return s;
   }
 
   // Cache miss: read only the requested sub-range from the file. The result is
@@ -501,7 +502,8 @@ Status BlobSource::GetSimpleGen2Blob(
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
-    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    return s;
   }
 
   // Cache miss (or no cache configured). Read the record into a buffer
@@ -601,7 +603,8 @@ Status BlobSource::GetSimpleGen2BlobRange(
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
-    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    return s;
   }
 
   // Cache miss: read only the requested sub-range from the file. The result is

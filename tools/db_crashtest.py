@@ -44,7 +44,11 @@ _TSAN_SUPPRESSIONS_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "tsan_suppressions.txt")
 )
 DEFAULT_LIVENESS_TIMEOUT_SEC = 3600
+DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC = 300
+REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER = 2
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
+_REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
+_MIN_WRITE_BUFFER_SIZE = 64 * 1024
 
 
 def get_random_seed(override):
@@ -73,6 +77,62 @@ def stress_cmd_env():
     return env
 
 
+def apply_cache_and_write_buffer_size_multiplier(params):
+    """Scale selected per-iteration memory sizes while preserving randomization."""
+    multiplier = params.pop("cache_and_write_buffer_size_multiplier", None)
+    if multiplier is None:
+        return
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError(
+            "cache_and_write_buffer_size_multiplier must be finite and greater than zero"
+        )
+
+    for name, minimum in (
+        ("cache_size", 1),
+        ("write_buffer_size", _MIN_WRITE_BUFFER_SIZE),
+    ):
+        value = params.get(name)
+        if value is not None and value > 0:
+            params[name] = max(int(value * multiplier), minimum)
+
+
+def normalize_remote_db_args(args):
+    """Normalize supported remote URI flags to --flag=value form."""
+    normalized_args = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if (
+            arg in _REMOTE_DB_URI_FLAGS
+            and index + 1 < len(args)
+            and args[index + 1]
+            and not args[index + 1].startswith("-")
+        ):
+            normalized_args.append(arg + "=" + args[index + 1])
+            index += 2
+            continue
+        normalized_args.append(arg)
+        index += 1
+    return normalized_args
+
+
+def parse_remote_db_uri_arg(arg):
+    flag, separator, value = arg.partition("=")
+    if flag not in _REMOTE_DB_URI_FLAGS or not separator:
+        return None
+    return flag, value
+
+
+def remote_db_enabled(args):
+    effective_values = {}
+    for arg in args:
+        parsed_arg = parse_remote_db_uri_arg(arg)
+        if parsed_arg is not None:
+            flag, value = parsed_arg
+            effective_values[flag] = value
+    return any(effective_values.values())
+
+
 def early_argument_parsing_before_main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -93,16 +153,14 @@ def early_argument_parsing_before_main():
 
     global remain_args
     args, remain_args = parser.parse_known_args()
+    remain_args = normalize_remote_db_args(remain_args)
     init_random_seed = get_random_seed(args.initial_random_seed_override)
     global per_iteration_random_seed_override
     per_iteration_random_seed_override = args.per_iteration_random_seed_override
     global is_remote_db
-    # Set is_remote_db if remain_args has a non-empty --env_uri= or --fs_uri= argument
-    for arg in remain_args:
-        parts = arg.split("=", 1)
-        if parts[0] in ["--env_uri", "--fs_uri"] and len(parts) > 1 and parts[1]:
-            is_remote_db = True
-            break
+    # Remote URI arguments are normalized above so all later consumers see
+    # the same representation.
+    is_remote_db = remote_db_enabled(remain_args)
 
     print(f"Start with random seed {init_random_seed}")
     random.seed(init_random_seed)
@@ -700,11 +758,33 @@ liveness_default_params = {
     "duration": DEFAULT_LIVENESS_TIMEOUT_SEC,
     "enable_thread_tracking": 1,
     "liveness_check_interval_sec": 1,
-    "liveness_no_progress_timeout_sec": 300,
+    "liveness_no_progress_timeout_sec": DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC,
     "ops_per_thread": 100000000,
     "progress_reports": 1,
 }
 liveness_default_params.update(liveness_fault_injection_params)
+
+
+def liveness_default_timeout_sec():
+    multiplier = REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER if is_remote_db else 1
+    return DEFAULT_LIVENESS_TIMEOUT_SEC * multiplier
+
+
+def apply_liveness_remote_defaults(params, args):
+    if not is_remote_db:
+        return
+
+    # Keep the wrapper duration in the same ratio as the no-progress timeout so
+    # the longer remote DB timeout still has enough run time to exercise
+    # liveness.
+    if getattr(args, "duration", None) is None:
+        params["duration"] = liveness_default_timeout_sec()
+    if getattr(args, "liveness_no_progress_timeout_sec", None) is None:
+        params["liveness_no_progress_timeout_sec"] = (
+            DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC
+            * REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER
+        )
+
 
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
@@ -994,6 +1074,7 @@ multiops_txn_params = {
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
+    apply_cache_and_write_buffer_size_multiplier(dest_params)
     if is_release_mode():
         dest_params["read_fault_one_in"] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
@@ -1034,10 +1115,10 @@ def finalize_and_sanitize(src_params):
 
     # Blob direct write requires concurrent read visibility of files still open
     # for writing (BlobFileReader calls GetFileSize() on active partition files).
-    # Remote file systems such as Warm Storage do not guarantee that writes from
-    # a WritableFile are visible to a separate RandomAccessFile until the writer
-    # is closed, causing "Malformed blob file" corruption.  Disable BDW when a
-    # remote --env_uri / --fs_uri is in use.
+    # Some remote file systems do not guarantee that writes from a WritableFile
+    # are visible to a separate RandomAccessFile until the writer is closed,
+    # causing "Malformed blob file" corruption. Disable BDW when a remote
+    # --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
 
@@ -1604,9 +1685,6 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("user_timestamp_size", 0)
     ):
         dest_params["ingest_wbwi_one_in"] = 0
-    # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
-    if dest_params.get("test_secondary") == 1:
-        dest_params["continuous_verification_interval"] = 0
     # Opening a read-only DB on the primary's directory needs a plain read-write
     # primary; it is not wired up for transactions, BlobDB, or TTL DBs.
     if (
@@ -1737,6 +1815,7 @@ def gen_cmd_params(args):
         if v is not None:
             params[k] = v
     if args.test_type == "liveness":
+        apply_liveness_remote_defaults(params, args)
         params.update(liveness_fault_injection_params)
     return params
 
@@ -2153,8 +2232,7 @@ def cleanup_after_success(db_arg, num_dbs=1):
     ]
     # Pass through relevant arguments for remote DB access
     for arg in remain_args:
-        parts = arg.split("=", 1)
-        if parts[0] in ["--env_uri", "--fs_uri"]:
+        if parse_remote_db_uri_arg(arg) is not None:
             cleanup_cmd_parts.append(arg)
     print("Running DB cleanup command - %s\n" % " ".join(cleanup_cmd_parts))
     ret = subprocess.call(cleanup_cmd_parts, env=stress_cmd_env())
@@ -2203,7 +2281,7 @@ def print_fault_injection_log(pid):
 def liveness_timeout(cmd_params):
     duration = cmd_params.get("duration", 0)
     if duration is None or duration <= 0:
-        return DEFAULT_LIVENESS_TIMEOUT_SEC
+        return liveness_default_timeout_sec()
     return duration
 
 
@@ -2214,6 +2292,8 @@ def liveness_main(args, unknown_args):
 
     if not cmd_params.get("db"):
         cmd_params["db"] = db_parent_dir
+    if is_remote_db and not cmd_params.get("expected_values_dir"):
+        cmd_params["expected_values_dir"] = get_ev_parent_dir()
 
     apply_random_seed_per_iteration()
     wrapper_timeout = liveness_timeout(cmd_params)
@@ -2528,6 +2608,11 @@ def main():
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")  # ignore old option for now
     parser.add_argument("--print_stderr_separately", action="store_true", default=False)
+    parser.add_argument(
+        "--cache_and_write_buffer_size_multiplier",
+        type=float,
+        help="Scale each iteration's cache_size and write_buffer_size",
+    )
 
     all_params = dict(
         list(default_params.items())
@@ -2555,6 +2640,11 @@ def main():
     # unknown_args are passed directly to db_stress
 
     args, unknown_args = parser.parse_known_args(remain_args)
+    multiplier = args.cache_and_write_buffer_size_multiplier
+    if multiplier is not None and (not math.isfinite(multiplier) or multiplier <= 0):
+        parser.error(
+            "--cache_and_write_buffer_size_multiplier must be finite and greater than zero"
+        )
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is not None and not is_remote_db:
         isdir = False

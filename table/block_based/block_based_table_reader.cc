@@ -1240,9 +1240,9 @@ bool BlockBasedTable::HasEmbeddedBlobRecords() const {
   return rep_->has_embedded_blobs;
 }
 
-Status BlockBasedTable::ValidateEmbeddedBlobIndex(
-    const ReadOptions& read_options, const BlobIndex& blob_index,
-    size_t* payload_size, size_t* record_size) const {
+Status BlockBasedTable::ValidateEmbeddedBlobIndex(const BlobIndex& blob_index,
+                                                  size_t* payload_size,
+                                                  size_t* record_size) const {
   assert(payload_size != nullptr);
   assert(record_size != nullptr);
   if (!blob_index.IsSameFile()) {
@@ -1255,10 +1255,6 @@ Status BlockBasedTable::ValidateEmbeddedBlobIndex(
   if (!rep_->has_embedded_blobs) {
     return Status::Corruption(
         "Same-file blob index found without embedded blob records");
-  }
-  if (read_options.read_tier == kBlockCacheTier) {
-    return Status::Incomplete(
-        "Cannot read embedded blob in block-cache-only mode");
   }
 
   const uint64_t payload_size_u64 = blob_index.size();
@@ -1289,10 +1285,14 @@ Status BlockBasedTable::ResolveEmbeddedBlob(const ReadOptions& read_options,
   assert(value != nullptr);
   size_t payload_size = 0;
   size_t record_size = 0;
-  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
-                                       &record_size);
+  Status s = ValidateEmbeddedBlobIndex(blob_index, &payload_size, &record_size);
   if (!s.ok()) {
     return s;
+  }
+  // Direct file read (no blob cache): a block-cache-only read cannot be served.
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete(
+        "Cannot read embedded blob in block-cache-only mode");
   }
   // Read the record (payload + trailer) directly into `value`, then drop the
   // trailer with a shrink (no extra copy on the common non-mmap path).
@@ -1315,10 +1315,14 @@ Status BlockBasedTable::ResolveEmbeddedBlobPinned(
   assert(value != nullptr);
   size_t payload_size = 0;
   size_t record_size = 0;
-  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
-                                       &record_size);
+  Status s = ValidateEmbeddedBlobIndex(blob_index, &payload_size, &record_size);
   if (!s.ok()) {
     return s;
+  }
+  // Direct file read (no blob cache): a block-cache-only read cannot be served.
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete(
+        "Cannot read embedded blob in block-cache-only mode");
   }
   // Read into a heap buffer owned by `value` via a registered cleanup, so the
   // payload can be pinned (no copy) and outlive this reader. The trailer just
@@ -1344,8 +1348,7 @@ Status BlockBasedTable::ResolveEmbeddedBlobCached(
   assert(rep_->blob_source_ != nullptr);
   size_t payload_size = 0;
   size_t record_size = 0;
-  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
-                                       &record_size);
+  Status s = ValidateEmbeddedBlobIndex(blob_index, &payload_size, &record_size);
   if (!s.ok()) {
     return s;
   }
@@ -1363,16 +1366,46 @@ Status BlockBasedTable::ResolveEmbeddedBlobCached(
 
 Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
                                         const BlobIndex& blob_index,
+                                        uint64_t range_offset,
+                                        size_t range_length,
+                                        BlobVerifyPolicy verify_policy,
                                         PinnableSlice* value) const {
-  // Mirror the whole-value same-file path in MaybeResolveEmbeddedValue: prefer
-  // the blob-cache-backed read (BLOB_DB_* stats) when a BlobSource is wired,
-  // otherwise a direct pinned read (SstFileReader/sst_dump/repair). Both pin
-  // the payload zero-copy and run ValidateEmbeddedBlobIndex (which enforces
-  // read_tier == kBlockCacheTier -> Incomplete and record bounds).
-  if (rep_->blob_source_ != nullptr) {
-    return ResolveEmbeddedBlobCached(read_options, blob_index, value);
+  if (range_length != kWholeBlobLength) {
+    // Byte-range embedded read: value bytes only, no whole-record checksum, no
+    // cache fill (see ResolveEmbeddedBlobRangeCached). Only issued while
+    // resolving a lazy result, which always runs against an open column family
+    // (so a BlobSource is wired) and never forces verification of a strict
+    // sub-range. Reaching here without a BlobSource means a same-file reference
+    // was routed from an unexpected context (a corrupt index can produce the
+    // file_number 0 same-file sentinel), so report corruption -- mirroring
+    // Version::GetBlobRange's "Invalid blob file number".
+    assert(verify_policy != BlobVerifyPolicy::kVerifyIfPresent);
+    assert(rep_->blob_source_ != nullptr);
+    if (rep_->blob_source_ == nullptr) {
+      return Status::Corruption(
+          "Invalid same-file blob reference (no BlobSource for range read)");
+    }
+    return ResolveEmbeddedBlobRangeCached(read_options, blob_index,
+                                          range_offset, range_length, value);
   }
-  return ResolveEmbeddedBlobPinned(read_options, blob_index, value);
+
+  // Whole-value read: prefer the blob-cache-backed read (BLOB_DB_* stats) when
+  // a BlobSource is wired, otherwise a direct pinned read
+  // (SstFileReader/sst_dump/repair). For kVerifyIfPresent, force whole-record
+  // checksum verification even when ReadOptions::verify_checksums is off.
+  if (verify_policy == BlobVerifyPolicy::kVerifyIfPresent &&
+      !read_options.verify_checksums) {
+    ReadOptions verify_read_options = read_options;
+    verify_read_options.verify_checksums = true;
+    return rep_->blob_source_ != nullptr
+               ? ResolveEmbeddedBlobCached(verify_read_options, blob_index,
+                                           value)
+               : ResolveEmbeddedBlobPinned(verify_read_options, blob_index,
+                                           value);
+  }
+  return rep_->blob_source_ != nullptr
+             ? ResolveEmbeddedBlobCached(read_options, blob_index, value)
+             : ResolveEmbeddedBlobPinned(read_options, blob_index, value);
 }
 
 Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
@@ -1382,17 +1415,11 @@ Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
   assert(rep_->blob_source_ != nullptr);
   size_t payload_size = 0;
   size_t record_size = 0;
-  // TODO(lazy-blob-resolution-quirks): ValidateEmbeddedBlobIndex rejects
-  // read_tier == kBlockCacheTier up front (before the blob-cache probe in
-  // GetSimpleGen2BlobRange), so a block-cache-only read of an embedded column
-  // returns Incomplete even when the whole payload is already cached. This
-  // mirrors the whole-value embedded path (ResolveEmbeddedBlobCached) but
-  // differs from the separate-file GetBlobRange, which probes the cache first
-  // and can serve a kBlockCacheTier read from cache. Unify the two (probe cache
-  // before rejecting kBlockCacheTier) in a later quirk-cleanup phase; see the
-  // lazy blob resolution plan.
-  Status s = ValidateEmbeddedBlobIndex(read_options, blob_index, &payload_size,
-                                       &record_size);
+  // A block-cache-only read is handled after the blob-cache probe inside
+  // GetSimpleGen2BlobRange (a cached whole payload can still serve a sub-range;
+  // only a genuine miss yields Incomplete), matching the separate-file
+  // GetBlobRange path.
+  Status s = ValidateEmbeddedBlobIndex(blob_index, &payload_size, &record_size);
   if (!s.ok()) {
     return s;
   }
@@ -1402,29 +1429,6 @@ Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
       payload_size, rep_->footer.checksum_type(),
       rep_->footer.base_context_checksum(), blob_index.compression(),
       range_offset, range_length, value, /*bytes_read=*/nullptr);
-}
-
-Status BlockBasedTable::GetSameFileBlobRange(const ReadOptions& read_options,
-                                             const BlobIndex& blob_index,
-                                             uint64_t range_offset,
-                                             size_t range_length,
-                                             PinnableSlice* value) const {
-  // Byte-range embedded reads are only issued while resolving a lazy result,
-  // which always runs against an open DB column family (so a BlobSource is
-  // wired); unlike the whole-value GetSameFileBlob there is no direct-pinned
-  // (no-BlobSource, e.g. SstFileReader) range path. Reaching here without a
-  // BlobSource therefore means a same-file/embedded reference was routed from
-  // an unexpected context -- which a corrupt index can cause in production
-  // (e.g. an entry decoding to the file_number 0 same-file sentinel) -- so
-  // report it as corruption, mirroring Version::GetBlobRange's "Invalid blob
-  // file number".
-  assert(rep_->blob_source_ != nullptr);
-  if (rep_->blob_source_ == nullptr) {
-    return Status::Corruption(
-        "Invalid same-file blob reference (no BlobSource for range read)");
-  }
-  return ResolveEmbeddedBlobRangeCached(read_options, blob_index, range_offset,
-                                        range_length, value);
 }
 
 Status BlockBasedTable::MaybeResolveEmbeddedValue(

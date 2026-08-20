@@ -33,6 +33,7 @@
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "options/options_helper.h"
+#include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -7837,6 +7838,72 @@ class ExternalTableTest : public DBTestBase {
     bool read_via_options_fs_;
   };
 
+  class ConfigurableDummyExternalTableFactory
+      : public DummyExternalTableFactory {
+   public:
+    ConfigurableDummyExternalTableFactory()
+        : DummyExternalTableFactory(/*support_property_block=*/false) {}
+
+    static const char* kClassName() {
+      return "ConfigurableDummyExternalTableFactory";
+    }
+
+    static const char* kValidConfig() { return "mode=fast;limit=7"; }
+
+    static const char* kAlternateValidConfig() {
+      return "mode=compact;limit=11";
+    }
+
+    static std::string ValidFactoryConfig() {
+      return "{id=" + std::string(kClassName()) + ";external_table_config={" +
+             kValidConfig() + "}}";
+    }
+
+    static std::string SerializedValidConfig() {
+      return SerializeConfig(kValidConfig());
+    }
+
+    static std::string SerializedAlternateValidConfig() {
+      return SerializeConfig(kAlternateValidConfig());
+    }
+
+    const char* Name() const override { return kClassName(); }
+
+    Status Configure(const std::string& config) override {
+      if (config.empty() || config == kValidConfig() ||
+          config == kAlternateValidConfig()) {
+        config_ = config;
+        return Status::OK();
+      }
+      return Status::InvalidArgument("Invalid dummy external table config");
+    }
+
+    const std::string& config() const { return config_; }
+
+   private:
+    static std::string SerializeConfig(const std::string& config) {
+      return "{" + config + "}";
+    }
+
+    std::string config_;
+  };
+
+  static void RegisterConfigurableDummyExternalTableFactory() {
+    static FactoryFunc<TableFactory> registration =
+        ObjectLibrary::Default()->AddFactory<TableFactory>(
+            ConfigurableDummyExternalTableFactory::kClassName(),
+            [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+               std::string* /*errmsg*/) {
+              std::shared_ptr<ExternalTableFactory> inner =
+                  std::make_shared<ConfigurableDummyExternalTableFactory>();
+              std::unique_ptr<TableFactory> factory =
+                  NewExternalTableFactory(std::move(inner));
+              guard->reset(factory.release());
+              return guard->get();
+            });
+    (void)registration;
+  }
+
   class CountingFileReadListener : public EventListener {
    public:
     bool ShouldBeNotifiedOnFileIO() override { return true; }
@@ -7888,6 +7955,157 @@ class ExternalTableTest : public DBTestBase {
     mutable PinnedDummyExternalTableReader* last_reader_ = nullptr;
   };
 };
+
+TEST_F(ExternalTableTest, BootstrapConfig) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  ConfigOptions config_options;
+  std::shared_ptr<TableFactory> table_factory;
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &table_factory));
+  ASSERT_NE(table_factory, nullptr);
+
+  std::string serialized_config;
+  ASSERT_OK(table_factory->GetOption(config_options, "external_table_config",
+                                     &serialized_config));
+  ASSERT_EQ(serialized_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  std::shared_ptr<TableFactory> invalid_factory;
+  const std::string invalid_config =
+      "{id=" +
+      std::string(ConfigurableDummyExternalTableFactory::kClassName()) +
+      ";external_table_config={mode=invalid}}";
+  ASSERT_NOK(TableFactory::CreateFromString(config_options, invalid_config,
+                                            &invalid_factory));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigOptionsFileRoundTrip) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  DBOptions db_options;
+  db_options.env = env_;
+  ConfigOptions config_options(db_options);
+  std::shared_ptr<TableFactory> table_factory;
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &table_factory));
+
+  ColumnFamilyOptions cf_options;
+  cf_options.table_factory = table_factory;
+  const std::vector<std::string> cf_names{"default"};
+  const std::vector<ColumnFamilyOptions> all_cf_options{cf_options};
+  const std::string options_file =
+      test::PerThreadDBPath("external_table_config_options");
+  std::shared_ptr<FileSystem> fs = db_options.env->GetFileSystem();
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), config_options, db_options,
+                                  cf_names, all_cf_options, options_file,
+                                  fs.get()));
+
+  std::string contents;
+  ASSERT_OK(ReadFileToString(env_, options_file, &contents));
+  ASSERT_NE(contents.find("external_table_config={mode=fast;limit=7}"),
+            std::string::npos);
+
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(config_options, options_file, fs.get()));
+  ASSERT_EQ(parser.cf_opts()->size(), 1U);
+  ASSERT_NE(parser.cf_opts()->front().table_factory, nullptr);
+  std::string loaded_config;
+  ASSERT_OK(parser.cf_opts()->front().table_factory->GetOption(
+      config_options, "external_table_config", &loaded_config));
+  ASSERT_EQ(loaded_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  ASSERT_OK(env_->DeleteFile(options_file));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigIsImmutable) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  Options options = GetDefaultOptions();
+  ConfigOptions config_options(options);
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &options.table_factory));
+  options.create_if_missing = true;
+
+  const std::string dbname =
+      test::PerThreadDBPath("external_table_config_immutable");
+  ASSERT_OK(DestroyDB(dbname, options));
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  Status update_status =
+      db->SetOptions({{"table_factory.external_table_config", "{mode=slow}"}});
+  ASSERT_TRUE(update_status.IsInvalidArgument()) << update_status.ToString();
+
+  Options current_options = db->GetOptions();
+  std::string current_config;
+  ASSERT_OK(current_options.table_factory->GetOption(
+      config_options, "external_table_config", &current_config));
+  ASSERT_EQ(current_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  ASSERT_OK(db->Close());
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigCanChangeBetweenDBOpens) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+
+  std::shared_ptr<ConfigurableDummyExternalTableFactory> first_factory =
+      std::make_shared<ConfigurableDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(first_factory);
+  ConfigOptions config_options(options);
+  ASSERT_OK(options.table_factory->ConfigureFromString(
+      config_options,
+      "external_table_config=" +
+          ConfigurableDummyExternalTableFactory::SerializedValidConfig()));
+  ASSERT_EQ(first_factory->config(),
+            ConfigurableDummyExternalTableFactory::kValidConfig());
+
+  const std::string dbname =
+      test::PerThreadDBPath("external_table_config_reopen");
+  ASSERT_OK(DestroyDB(dbname, options));
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_EQ(first_factory->config(),
+            ConfigurableDummyExternalTableFactory::kValidConfig());
+  ASSERT_OK(db->Close());
+  db.reset();
+
+  std::shared_ptr<ConfigurableDummyExternalTableFactory> second_factory =
+      std::make_shared<ConfigurableDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(second_factory);
+  ConfigOptions reopen_config_options(options);
+  ASSERT_OK(options.table_factory->ConfigureFromString(
+      reopen_config_options, "external_table_config=" +
+                                 ConfigurableDummyExternalTableFactory::
+                                     SerializedAlternateValidConfig()));
+  ASSERT_EQ(second_factory->config(),
+            ConfigurableDummyExternalTableFactory::kAlternateValidConfig());
+
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_EQ(second_factory->config(),
+            ConfigurableDummyExternalTableFactory::kAlternateValidConfig());
+
+  std::string reopened_config;
+  ASSERT_OK(db->GetOptions().table_factory->GetOption(
+      reopen_config_options, "external_table_config", &reopened_config));
+  ASSERT_EQ(
+      reopened_config,
+      ConfigurableDummyExternalTableFactory::SerializedAlternateValidConfig());
+
+  ASSERT_OK(db->Close());
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
 
 TEST_F(ExternalTableTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =

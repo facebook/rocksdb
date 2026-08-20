@@ -262,8 +262,8 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
 // Regression test for a use-after-free where an obsolete-file purge started
 // DURING DB close -- after CloseHelper's early purge drain -- continued using
 // DBImpl after ~DBImpl destroyed mutex_. Seen as a vhost-user-blk SIGABRT when
-// many RocksDB instances closed concurrently under a Warm Storage fault, with
-// avoid_unnecessary_blocking_io=true on a shared, process-wide Env.
+// many RocksDB instances closed concurrently under a remote file-system fault
+// while using avoid_unnecessary_blocking_io=true on a shared, process-wide Env.
 //
 // Here we make the straggler deterministic: keep a dropped column family handle
 // alive, delete it only after CloseHelper has passed its early purge drain,
