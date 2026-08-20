@@ -153,6 +153,49 @@ class DBCrashTestTest(unittest.TestCase):
             any(arg.startswith("--use_coro_db_api=") for arg in command)
         )
 
+    def test_cache_and_write_buffer_size_multiplier_preserves_randomization(self):
+        db_crashtest = self.load_db_crashtest()
+        cache_sizes = iter([8 * 1024 * 1024, 32 * 1024 * 1024])
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "cache_size": lambda: next(cache_sizes),
+                "write_buffer_size": 32 * 1024 * 1024,
+                "cache_and_write_buffer_size_multiplier": 0.5,
+            },
+        )
+
+        first_command, _ = db_crashtest.gen_cmd(params, [])
+        second_command, _ = db_crashtest.gen_cmd(params, [])
+
+        self.assertIn("--cache_size=4194304", first_command)
+        self.assertIn("--cache_size=16777216", second_command)
+        self.assertIn("--write_buffer_size=16777216", first_command)
+        self.assertIn("--write_buffer_size=16777216", second_command)
+        self.assertFalse(
+            any(
+                arg.startswith("--cache_and_write_buffer_size_multiplier=")
+                for arg in first_command
+            )
+        )
+
+    def test_cache_and_write_buffer_size_multiplier_respects_write_buffer_minimum(
+        self,
+    ):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "write_buffer_size": 64 * 1024,
+                "cache_and_write_buffer_size_multiplier": 0.5,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(64 * 1024, finalized["write_buffer_size"])
+        self.assertNotIn("cache_and_write_buffer_size_multiplier", finalized)
+
     def test_get_ev_parent_dir_preserves_existing_contents(self):
         os.makedirs(self.expected_dir)
         marker = os.path.join(self.expected_dir, "marker")

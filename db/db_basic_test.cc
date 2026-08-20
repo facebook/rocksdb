@@ -355,6 +355,36 @@ TEST_F(DBBasicTest,
             synthetic_number);
 }
 
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryIgnoresOptionsFilesForNextFileNumber) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t next_before_close =
+      dbfull()->GetVersionSet()->current_next_file_number();
+  Close();
+
+  const uint64_t options_number = next_before_close + 100;
+  ASSERT_OK(WriteStringToFile(env_, "" /*data*/,
+                              dbname_ + "/" + OptionsFileName(options_number),
+                              /*should_sync=*/true));
+  ASSERT_OK(WriteStringToFile(env_, "" /*data*/,
+                              TempOptionsFileName(dbname_, options_number + 1),
+                              /*should_sync=*/true));
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(1, counters.next_file_number.load());
+  ASSERT_EQ("v", Get("k"));
+}
+
 // optimize_manifest_for_recovery=true: after a clean Put + Flush + Close, the
 // next Open's min_log_number_to_keep equals (max_wal_before_close + 1),
 // proving the close-time MANIFEST write took effect.

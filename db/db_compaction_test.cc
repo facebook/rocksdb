@@ -1334,6 +1334,118 @@ TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
   ASSERT_EQ("B", Get("bbbb1"));
 }
 
+TEST_F(DBCompactionTest, CompactionSstPartitionerPrefixFastPath) {
+  // Exercises the ShouldPartitionByPrefix() fast path in CompactionOutputs:
+  // multiple keys sharing a fixed prefix must stay together in one output file
+  // (no spurious cuts), with boundaries landing exactly at prefix changes.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+  DestroyAndReopen(options);
+
+  // Three prefixes with multiple keys each, spread across two flushed files so
+  // that a non-trivial compaction merges them.
+  ASSERT_OK(Put("aaaa1", "v"));
+  ASSERT_OK(Put("aaaa3", "v"));
+  ASSERT_OK(Put("bbbb1", "v"));
+  ASSERT_OK(Put("cccc2", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_OK(Put("aaaa2", "v"));
+  ASSERT_OK(Put("bbbb2", "v"));
+  ASSERT_OK(Put("cccc1", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Exactly one output file per distinct 4-byte prefix.
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(3, files.size());
+  // Each file holds a whole prefix group (multiple keys => the fast path
+  // correctly did NOT cut within a shared prefix).
+  for (const auto& f : files) {
+    ASSERT_EQ(f.smallestkey.substr(0, 4), f.largestkey.substr(0, 4));
+  }
+  for (const std::string k :
+       {"aaaa1", "aaaa2", "aaaa3", "bbbb1", "bbbb2", "cccc1", "cccc2"}) {
+    ASSERT_EQ("v", Get(k));
+  }
+}
+
+TEST_F(DBCompactionTest, CompactionSstPartitionerPrefixShortKeyFallback) {
+  // Keys shorter than the fixed prefix length cannot be represented as a
+  // prefix, so ShouldPartitionByPrefix() returns no value and CompactionOutputs
+  // falls back to per-key ShouldPartition(). This also exercises short->long
+  // and long->short mode transitions across output file boundaries.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(4);
+  DestroyAndReopen(options);
+
+  // "a" and "bb" are shorter than len 4 (fallback, each in its own file);
+  // "cccc1"/"cccc2" share prefix "cccc" (fast path, one file); "dd" is short
+  // again (fallback, own file).
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Put("bb", "v"));
+  ASSERT_OK(Put("cccc1", "v"));
+  ASSERT_OK(Put("dd", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Second file overlaps to force a non-trivial (rewriting) compaction.
+  ASSERT_OK(Put("cccc2", "v"));
+  ASSERT_OK(Put("a", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // "a" | "bb" | {"cccc1","cccc2"} | "dd" => 4 files.
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(4, files.size());
+  ASSERT_EQ("v2", Get("a"));
+  for (const std::string k : {"bb", "cccc1", "cccc2", "dd"}) {
+    ASSERT_EQ("v", Get(k));
+  }
+}
+
+TEST_F(DBCompactionTest, CompactionSstPartitionerZeroLenNoSplit) {
+  // A zero-length fixed prefix yields an empty (but present) prefix from
+  // ShouldPartitionByPrefix(), which means "no further partitions": every key
+  // "starts with" the empty prefix, so the fast path never cuts.
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.sst_partitioner_factory = NewSstPartitionerFixedPrefixFactory(0);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("aaaa1", "v1"));
+  ASSERT_OK(Put("bbbb1", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // Overlapping key forces a non-trivial compaction (not a trivial move).
+  ASSERT_OK(Put("aaaa1", "v2"));
+  ASSERT_OK(Put("cccc1", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(1, files.size());
+  ASSERT_EQ("v2", Get("aaaa1"));
+  ASSERT_EQ("v1", Get("bbbb1"));
+  ASSERT_EQ("v2", Get("cccc1"));
+}
+
 TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
