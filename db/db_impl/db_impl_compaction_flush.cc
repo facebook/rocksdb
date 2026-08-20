@@ -3512,14 +3512,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   } else if (error_handler_.IsBGWorkStopped() &&
              !error_handler_.IsRecoveryInProgress()) {
-    // There has been a hard error and this call is not part of the recovery
-    // sequence. Bail out here so we don't get into an endless loop of
-    // scheduling BG work which will again call this function
-    //
-    // Note that a non-recovery flush can still be scheduled if
-    // error_handler_.IsRecoveryInProgress() returns true. We rely on
-    // BackgroundCallFlush() to check flush reason and drop non-recovery
-    // flushes.
+    // Recovery must be able to schedule its flushes while background work is
+    // stopped. New non-recovery requests are rejected by EnqueuePendingFlush,
+    // and BackgroundFlush drops any request queued before the error.
     return;
   } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
@@ -3817,6 +3812,10 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
   if (reject_new_background_jobs_) {
     return enqueued;
   }
+  if (error_handler_.IsBGWorkStopped() &&
+      !IsRecoveryFlush(flush_req.flush_reason)) {
+    return enqueued;
+  }
   if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
     return enqueued;
   }
@@ -3973,8 +3972,8 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 
   Status status;
   *reason = FlushReason::kOthers;
-  // If BG work is stopped due to an error, but a recovery is in progress,
-  // that means this flush is part of the recovery. So allow it to go through
+  // During recovery, allow flush workers to inspect the queue. Non-recovery
+  // requests are dropped below.
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
@@ -3996,12 +3995,9 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     FlushRequest flush_req = PopFirstFromFlushQueue();
     FlushReason flush_reason = flush_req.flush_reason;
     if (!error_handler_.GetBGError().ok() && error_handler_.IsBGWorkStopped() &&
-        flush_reason != FlushReason::kErrorRecovery &&
-        flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
-      // Stop non-recovery flush when bg work is stopped
-      // Note that we drop the flush request here.
-      // Recovery thread should schedule further flushes after bg error
-      // is cleared.
+        !IsRecoveryFlush(flush_reason)) {
+      // A request queued before the error can reach a worker before recovery
+      // clears the queue. Drop it; recovery rebuilds flush work for all CFs.
       status = error_handler_.GetBGError();
       assert(!status.ok());
       ROCKS_LOG_BUFFER(log_buffer,
