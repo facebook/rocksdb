@@ -453,6 +453,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "max_log_file_size=4607;"
       "advise_random_on_open=true;"
       "enable_pipelined_write=false;"
+      "enable_partitioned_wal=true;"
       "unordered_write=false;"
       "allow_concurrent_memtable_write=true;"
       "wal_recovery_mode=kPointInTimeRecovery;"

@@ -100,6 +100,7 @@ DECLARE_int32(ttl);
 DECLARE_int32(value_size_mult);
 DECLARE_int32(compaction_readahead_size);
 DECLARE_bool(enable_pipelined_write);
+DECLARE_bool(enable_partitioned_wal);
 DECLARE_bool(verify_before_write);
 DECLARE_bool(histogram);
 DECLARE_bool(destroy_db_initially);

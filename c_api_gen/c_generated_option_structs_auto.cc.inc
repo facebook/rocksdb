@@ -543,6 +543,16 @@ unsigned char rocksdb_options_get_enable_pipelined_write(
   return opt->rep.enable_pipelined_write;
 }
 
+void rocksdb_options_set_enable_partitioned_wal(rocksdb_options_t* opt,
+                                                unsigned char v) {
+  opt->rep.enable_partitioned_wal = v;
+}
+
+unsigned char rocksdb_options_get_enable_partitioned_wal(
+    rocksdb_options_t* opt) {
+  return opt->rep.enable_partitioned_wal;
+}
+
 void rocksdb_options_set_unordered_write(rocksdb_options_t* opt,
                                          unsigned char v) {
   opt->rep.unordered_write = v;

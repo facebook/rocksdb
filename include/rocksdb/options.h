@@ -1397,6 +1397,14 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
+  // EXPERIMENTAL: If true, WAL writes are routed through the partitioned WAL
+  // infrastructure. The initial implementation uses one dedicated WAL lane
+  // thread and one acknowledgement thread per writable DB. Writes without WAL
+  // remain on the calling thread.
+  //
+  // Default: false
+  bool enable_partitioned_wal = false;
+
   // Setting unordered_write to true trades higher write throughput with
   // relaxing the immutability guarantee of snapshots. This violates the
   // repeatability one expects from ::Get from a snapshot, as well as

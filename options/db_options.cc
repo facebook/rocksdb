@@ -361,6 +361,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, enable_pipelined_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"enable_partitioned_wal",
+         {offsetof(struct ImmutableDBOptions, enable_partitioned_wal),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"unordered_write",
          {offsetof(struct ImmutableDBOptions, unordered_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -808,6 +812,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       enable_pipelined_write(options.enable_pipelined_write),
+      enable_partitioned_wal(options.enable_partitioned_wal),
       unordered_write(options.unordered_write),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
@@ -970,6 +975,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    enable_thread_tracking);
   ROCKS_LOG_HEADER(log, "                 Options.enable_pipelined_write: %d",
                    enable_pipelined_write);
+  ROCKS_LOG_HEADER(log, "                 Options.enable_partitioned_wal: %d",
+                   enable_partitioned_wal);
   ROCKS_LOG_HEADER(log, "                 Options.unordered_write: %d",
                    unordered_write);
   ROCKS_LOG_HEADER(log, "        Options.allow_concurrent_memtable_write: %d",

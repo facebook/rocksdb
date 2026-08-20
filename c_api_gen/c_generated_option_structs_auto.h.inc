@@ -142,6 +142,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_delayed_write_rate(
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_options_get_delayed_write_rate(rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_enable_partitioned_wal(
+    rocksdb_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_enable_partitioned_wal(rocksdb_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_max_write_batch_group_size_bytes(rocksdb_options_t* opt,
                                                      uint64_t v);

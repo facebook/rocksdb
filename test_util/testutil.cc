@@ -306,6 +306,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
   db_opt->enable_thread_tracking = rnd->Uniform(2);
+  db_opt->enable_partitioned_wal = rnd->Uniform(2);
   db_opt->error_if_exists = rnd->Uniform(2);
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);

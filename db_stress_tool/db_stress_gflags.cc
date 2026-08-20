@@ -128,6 +128,9 @@ DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
 DEFINE_bool(enable_pipelined_write, false, "Pipeline WAL/memtable writes");
 
+DEFINE_bool(enable_partitioned_wal, false,
+            "Route WAL writes through the partitioned WAL infrastructure");
+
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
 DEFINE_string(

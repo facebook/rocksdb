@@ -69,6 +69,7 @@ struct ImmutableDBOptions {
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;
   bool enable_pipelined_write;
+  bool enable_partitioned_wal;
   bool unordered_write;
   bool allow_concurrent_memtable_write;
   bool enable_write_thread_adaptive_yield;

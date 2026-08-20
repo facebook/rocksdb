@@ -1735,6 +1735,9 @@ DEFINE_uint64(delayed_write_rate, 8388608u,
 DEFINE_bool(enable_pipelined_write, true,
             "Allow WAL and memtable writes to be pipelined");
 
+DEFINE_bool(enable_partitioned_wal, false,
+            "Route WAL writes through the partitioned WAL infrastructure");
+
 DEFINE_bool(
     unordered_write, false,
     "Enable the unordered write feature, which provides higher throughput but "
@@ -5734,6 +5737,7 @@ class Benchmark {
     options.enable_write_thread_adaptive_yield =
         FLAGS_enable_write_thread_adaptive_yield;
     options.enable_pipelined_write = FLAGS_enable_pipelined_write;
+    options.enable_partitioned_wal = FLAGS_enable_partitioned_wal;
     options.unordered_write = FLAGS_unordered_write;
     options.write_thread_max_yield_usec = FLAGS_write_thread_max_yield_usec;
     options.write_thread_slow_yield_usec = FLAGS_write_thread_slow_yield_usec;

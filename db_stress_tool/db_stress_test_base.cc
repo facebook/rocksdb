@@ -6360,6 +6360,7 @@ void InitializeOptionsFromFlags(
       FLAGS_max_compaction_trigger_wakeup_seconds;
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
+  options.enable_partitioned_wal = FLAGS_enable_partitioned_wal;
   options.enable_write_thread_adaptive_yield =
       FLAGS_enable_write_thread_adaptive_yield;
   options.compaction_options_universal.size_ratio = FLAGS_universal_size_ratio;
