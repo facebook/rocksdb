@@ -123,7 +123,9 @@ TEST_P(BlockTest, SimpleTest) {
       static_cast<int>(getRestartInterval()), keyUseDeltaEncoding(),
       false /* use_value_delta_encoding */, index_type,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
-      false /* is_user_key */, useSeparatedKVStorage());
+      false /* is_user_key */, useSeparatedKVStorage(),
+      nullptr /* statistics */, -1.0 /* uniform_cv_threshold */,
+      false /* use_common_prefix */);
   int num_records = 20;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */,
@@ -463,7 +465,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(16);
+  BlockBuilder builder(BlockBuilder::ForMetaBlock{}, 16);
   int num_records = 10000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */);
@@ -820,7 +822,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
       !keyIncludesSeq(), useSeparatedKVStorage(), nullptr /* statistics */,
-      0.2 /* uniform_cv_threshold */);
+      0.2 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   int num_records = numRecords();
 
@@ -984,7 +986,9 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary) {
       1 /* restart_interval */, true /* use_delta_encoding */,
       kUseValueDeltaEncoding, BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
-      false /* persist_udt */, true /* is_user_key */);
+      false /* persist_udt */, true /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   for (int i = 0; i < kNumKeys; i++) {
     BlockHandle* prev = i > 0 ? &handles[i - 1] : nullptr;
@@ -1069,7 +1073,9 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary2) {
       1 /* restart_interval */, true /* use_delta_encoding */,
       kUseValueDeltaEncoding, BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
-      false /* persist_udt */, false /* is_user_key */);
+      false /* persist_udt */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   for (int i = 0; i < kNumKeys; i++) {
     BlockHandle* prev = i > 0 ? &handles[i - 1] : nullptr;
@@ -1229,7 +1235,11 @@ TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
   BlockBuilder builder(
       16 /* block_restart_interval */, true /* use_delta_encoding */,
       false /* use_value_delta_encoding */,
-      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch);
+      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
   Slice raw_block = builder.Finish();
   BlockContents contents;
   contents.data = raw_block;
@@ -1421,7 +1431,8 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
                     24 /* padding_size */);
   std::unique_ptr<BlockBuilder> builder;
   auto generate_block_content = [&]() {
-    builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+    builder = std::make_unique<BlockBuilder>(BlockBuilder::ForMetaBlock{},
+                                             16 /* restart_interval */);
     for (int i = 0; i < kNumRecords; ++i) {
       builder->Add(keys[i], values[i]);
     }
@@ -1484,7 +1495,8 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
     GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
                                kNumRecords);
     auto generate_index_content = [&]() {
-      builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+      builder = std::make_unique<BlockBuilder>(BlockBuilder::ForMetaBlock{},
+                                               16 /* restart_interval */);
       BlockHandle last_encoded_handle;
       for (int i = 0; i < kNumRecords; ++i) {
         IndexValue entry(block_handles[i], first_keys[i]);
@@ -1551,7 +1563,11 @@ class DataBlockKVChecksumTest
     builder_ = std::make_unique<BlockBuilder>(
         static_cast<int>(GetRestartInterval()),
         GetUseDeltaEncoding() /* use_delta_encoding */,
-        false /* use_value_delta_encoding */, GetDataBlockIndexType());
+        false /* use_value_delta_encoding */, GetDataBlockIndexType(),
+        0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+        true /* persist_user_defined_timestamps */, false /* is_user_key */,
+        false /* use_separated_kv_storage */, nullptr /* statistics */,
+        -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
     for (int i = 0; i < num_record; i++) {
       builder_->Add(keys[i], values[i]);
     }
@@ -1682,7 +1698,11 @@ class IndexBlockKVChecksumTest
     builder_ = std::make_unique<BlockBuilder>(
         static_cast<int>(GetRestartInterval()), true /* use_delta_encoding */,
         UseValueDeltaEncoding() /* use_value_delta_encoding */,
-        GetDataBlockIndexType());
+        GetDataBlockIndexType(), 0.75 /* data_block_hash_table_util_ratio */,
+        0 /* ts_sz */, true /* persist_user_defined_timestamps */,
+        false /* is_user_key */, false /* use_separated_kv_storage */,
+        nullptr /* statistics */, -1.0 /* uniform_cv_threshold */,
+        false /* use_common_prefix */);
     BlockHandle last_encoded_handle;
     for (int i = 0; i < num_record; i++) {
       IndexValue entry(block_handles[i], first_keys[i]);
@@ -1821,8 +1841,8 @@ class MetaIndexBlockKVChecksumTest
                                       /*index_value_is_full=*/false,
                                       /*index_has_first_key=*/false,
                                       /*index_value_delta_escape=*/false};
-    builder_ =
-        std::make_unique<BlockBuilder>(static_cast<int>(GetRestartInterval()));
+    builder_ = std::make_unique<BlockBuilder>(
+        BlockBuilder::ForMetaBlock{}, static_cast<int>(GetRestartInterval()));
     // add a bunch of records to a block
     for (int i = 0; i < num_record; i++) {
       builder_->Add(keys[i], values[i]);
@@ -2191,13 +2211,14 @@ class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
   bool useSeparatedKVStorage() const { return GetParam(); }
 
   std::string BuildBlock() {
-    BlockBuilder builder(1 /* restart_interval */,
-                         true /* use_delta_encoding */,
-                         false /* use_value_delta_encoding */,
-                         BlockBasedTableOptions::kDataBlockBinarySearch,
-                         0 /* data_block_hash_table_util_ratio */,
-                         0 /* ts_sz */, false /* persist_udt */,
-                         true /* is_user_key */, useSeparatedKVStorage());
+    BlockBuilder builder(
+        1 /* restart_interval */, true /* use_delta_encoding */,
+        false /* use_value_delta_encoding */,
+        BlockBasedTableOptions::kDataBlockBinarySearch,
+        0 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+        false /* persist_udt */, true /* is_user_key */,
+        useSeparatedKVStorage(), nullptr /* statistics */,
+        -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
     builder.Add("key001", "val01");
     builder.Add("key002", "val02");
     builder.Add("key003", "val03");
@@ -2285,12 +2306,14 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
 }
 
 TEST_F(BlockTest, SeparatedKVInvalidValuesSectionOffset) {
-  BlockBuilder builder(16 /* restart_interval */, true /* use_delta_encoding */,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinaryAndHash,
-                       0.75 /* hash_ratio */, 0 /* ts_sz */,
-                       true /* persist_user_defined_timestamps */,
-                       false /* is_user_key */, true /* separate_key_value */);
+  BlockBuilder builder(
+      16 /* restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinaryAndHash, 0.75 /* hash_ratio */,
+      0 /* ts_sz */, true /* persist_user_defined_timestamps */,
+      false /* is_user_key */, true /* separate_key_value */,
+      nullptr /* statistics */, -1.0 /* uniform_cv_threshold */,
+      false /* use_common_prefix */);
 
   for (int i = 0; i < 5; i++) {
     std::string key = "key" + std::to_string(i);

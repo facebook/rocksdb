@@ -374,7 +374,8 @@ class BlockConstructor : public Constructor {
                     const stl_wrappers::KVMap& kv_map) override {
     delete block_;
     block_ = nullptr;
-    BlockBuilder builder(table_options.block_restart_interval);
+    BlockBuilder builder(BlockBuilder::ForMetaBlock{},
+                         table_options.block_restart_interval);
 
     for (const auto& kv : kv_map) {
       // `DataBlockIter` assumes it reads only internal keys. `BlockConstructor`
@@ -1798,7 +1799,8 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
       BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
       true /* persist_user_defined_timestamps */, false /* is_user_key */,
-      table_options.separate_key_value_in_data_block);
+      table_options.separate_key_value_in_data_block, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }
@@ -2606,7 +2608,7 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
   // iterator path to avoid issues with iterator error handling.
 
   // Build a simple data block.
-  BlockBuilder builder(16 /* restart_interval */);
+  BlockBuilder builder(BlockBuilder::ForMetaBlock{}, 16 /* restart_interval */);
   InternalKey key("abc", 1, kTypeValue);
   builder.Add(key.Encode(), "test_value");
   Slice block_contents = builder.Finish();
