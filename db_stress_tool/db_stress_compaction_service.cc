@@ -36,6 +36,12 @@ CompactionServiceJobStatus DbStressCompactionService::Wait(
         if (StressTest::IsErrorInjectedAndRetryable(s)) {
           return CompactionServiceJobStatus::kUseLocal;
         }
+        // Note: a MANIFEST-floor rejection from OpenAndCompact surfaces here as
+        // Status::Incomplete. We intentionally do NOT map it to kUseLocal (as
+        // the unit-test CompactionService does): the stress test does not yet
+        // inject stale/older MANIFEST view into the secondary open, so a floor
+        // rejection means a real bug and should fail loudly rather than be
+        // masked by a local fallback.
         if (result && result->empty()) {
           // If result is empty, set the compaction status in the result so
           // that it can be bubbled up to main thread

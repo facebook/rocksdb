@@ -165,9 +165,11 @@ class MyTestCompactionService : public CompactionService {
       return CompactionServiceJobStatus::kSuccess;
     } else if (s.IsIncomplete() && !s.IsManualCompactionPaused()) {
       // The remote worker declined the job (e.g. the MANIFEST floor check
-      // rejected an older/stale filesystem view). Fall back to running the
-      // compaction locally rather than failing it. Cancellation
-      // (kManualCompactionPaused) is handled as a failure, as before.
+      // rejected an older/stale filesystem view). Mapping that decline to
+      // kUseLocal (retry locally) vs. kFailure (surface it) is the integrator's
+      // choice; this example picks kUseLocal to exercise the fallback path,
+      // while DbStressCompactionService deliberately picks kFailure. Real
+      // cancellation (kManualCompactionPaused) is handled as a failure.
       return CompactionServiceJobStatus::kUseLocal;
     } else {
       return CompactionServiceJobStatus::kFailure;

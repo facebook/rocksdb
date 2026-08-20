@@ -1115,11 +1115,11 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
           options.verify_manifest_content_on_close),
       optimize_manifest_for_recovery(options.optimize_manifest_for_recovery),
       fast_sst_open(options.fast_sst_open),
+      remote_compaction_manifest_floor(
+          options.remote_compaction_manifest_floor),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
-          options.max_compaction_trigger_wakeup_seconds),
-      remote_compaction_manifest_floor(
-          options.remote_compaction_manifest_floor) {}
+          options.max_compaction_trigger_wakeup_seconds) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
