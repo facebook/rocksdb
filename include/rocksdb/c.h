@@ -5236,6 +5236,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_db_host_id(
 extern ROCKSDB_LIBRARY_API const char* rocksdb_options_get_db_host_id(
     rocksdb_options_t* opt, size_t* size);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_remote_compaction_manifest_floor(rocksdb_options_t* opt,
+                                                     unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_remote_compaction_manifest_floor(rocksdb_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_lowest_used_cache_tier(
     rocksdb_options_t* opt, int v);
 

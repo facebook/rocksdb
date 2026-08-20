@@ -203,6 +203,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   options.max_compaction_trigger_wakeup_seconds =
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
+  options.remote_compaction_manifest_floor =
+      mutable_db_options.remote_compaction_manifest_floor;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
   options.follower_catchup_retry_count =

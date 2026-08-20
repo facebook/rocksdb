@@ -502,6 +502,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "verify_manifest_content_on_close=false;"
       "prefix_seek_opt_in_only=true;"
       "fast_sst_open=true;"
+      "remote_compaction_manifest_floor=false;"
       "reuse_manifest_on_open=true;",
       new_options));
 

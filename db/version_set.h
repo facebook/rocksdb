@@ -1610,6 +1610,26 @@ class VersionSet {
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
 
+  // Size of the maximal valid prefix recovered from the MANIFEST -- the largest
+  // leading range that is entirely valid. It excludes a corrupt/torn tail
+  // record or a partial atomic group at EOF, and is meant to include valid
+  // trailing framing/padding once a MANIFEST format has it.
+  //
+  // Intended for a lower-bound test -- "did recovery reach at least some point
+  // in the manifest?" (e.g. the DB::OpenAndCompact floor vs. a
+  // manifest_file_size captured on the primary). It is maximal, so a
+  // fully-recovered prefix never tests short; it excludes garbage, so a corrupt
+  // tail never tests long. It is not a safe append/truncate offset -- use
+  // manifest_recovery_last_valid_record_end_.
+  //
+  // Today this == manifest_recovery_last_valid_record_end_ == a clean
+  // manifest_file_size_; a future padded/footered format may make
+  // last_valid_record_end_ <= manifest_file_size_ <= this (changing only this
+  // accessor's body, not callers).
+  uint64_t manifest_recovery_maximal_valid_size() const {
+    return manifest_recovery_last_valid_record_end_;
+  }
+
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
@@ -1852,14 +1872,16 @@ class VersionSet {
   // during MANIFEST recovery. For atomic groups, this advances only after the
   // whole group is buffered and applied. Unlike manifest_file_size_ (the
   // reader's I/O high-water mark, which includes any tolerated tail garbage),
-  // this value points to the byte after the last valid record.
+  // this value points to the byte after the last valid record. Set only by
+  // recovery -- NOT live-updated on the write path (hence the recovery_
+  // prefix); ProcessManifestWrites keeps manifest_file_size_ current instead.
   // Used by ReopenManifestForAppend to detect intra-block tail corruption that
   // doesn't extend the physical file size, as well as partial atomic groups at
   // EOF.
   // manifest_file_size_ is kept separate because it is used for
   // rotation decisions (ProcessManifestWrites), close-time verification
   // (Close), and backup metadata.
-  uint64_t manifest_last_valid_record_end_;
+  uint64_t manifest_recovery_last_valid_record_end_;
 
   // True when reuse_manifest_on_open was requested but the recovered MANIFEST
   // could not be safely reopened for append. DB open must install a fresh
@@ -1961,6 +1983,11 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
 
+  // Must be called before Recover(). When set, Recover() trusts the MANIFEST
+  // and reconstructs the version from FileMetaData without stat-ing/opening SST
+  // or blob files. Only used by the DB::OpenAndCompact remote-compaction path.
+  void SetTrustManifestRecovery(bool v) { trust_manifest_recovery_ = v; }
+
   // Returns the column family's log number as of the Version currently
   // installed for it, i.e. the log number that the MANIFEST records that
   // Version was built from had put in effect. Data written to WALs older than
@@ -1994,6 +2021,11 @@ class ReactiveVersionSet : public VersionSet {
 
  private:
   std::unique_ptr<ManifestTailer> manifest_tailer_;
+  // When true, MANIFEST recovery trusts the manifest and does not stat/open SST
+  // or blob files (see
+  // VersionEditHandlerPointInTime::trust_manifest_recovery_). Set only for the
+  // DB::OpenAndCompact remote-compaction path.
+  bool trust_manifest_recovery_ = false;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options_;
   using VersionSet::LogAndApply;

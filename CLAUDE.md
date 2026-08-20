@@ -14,7 +14,11 @@ This document provides guidance for generating and reviewing code in the RocksDB
 
 **Error Handling:** Ensure robust error handling throughout the codebase. Use RocksDB's `Status` type consistently, propagate errors appropriately, and avoid silently ignoring failures. Reviewers pay close attention to edge cases and failure modes.
 
-**Refactoring traps:** At least in production code, avoid constructs that could allow existing code to unexpectedly, quietly change meaning, such as new defaulted parameters and declared type `auto` (`auto&`, `auto*` OK). Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
+**Refactoring traps:** At least in production code, avoid constructs that could allow existing code to unexpectedly, quietly change meaning.
+Specifically:
+* Avoid new defaulted parameters. This is the #1 trap on refactoring!
+* Avoid static_cast, reinterpret_cast, and C-style casts; static_cast_with_check, up_cast, and lossless_cast from cast_util.h are preferred.
+* Avoid declared type `auto` (`auto&`, `auto*` OK).
 
 ### Testing Philosophy
 
@@ -413,7 +417,9 @@ rather than relying on libstdc++ transitive includes.
     multiple minutes.
 * Run `AUTO_CLEAN=1 ASSERT_STATUS_CHECKED=1 make check` to verify all Status
     objects are properly checked. This catches missing error handling that can
-    lead to silent data corruption.
+    lead to silent data corruption. Merely building with ASSERT_STATUS_CHECKED=1
+    accomplishes nothing; it enables a runtime check. New unit tests missing
+    Status checks is a common failure point, even from agents.
 
 ### Monitoring make check progress
 * Use `make check-progress` to get machine-parseable JSON progress while

@@ -547,7 +547,18 @@ class CompactionService : public Customizable {
     return response;
   }
 
-  // Wait for the scheduled compaction to finish from the remote worker
+  // Wait for the scheduled compaction to finish from the remote worker and
+  // return its status; `result` is the serialized CompactionServiceResult from
+  // the worker's DB::OpenAndCompact.
+  //
+  // DB::OpenAndCompact may return Status::Incomplete to *decline* a scheduled
+  // job rather than fail it -- currently when the MANIFEST floor check finds
+  // the worker recovered an older/stale view of the DB than the primary
+  // scheduled from (see DBOptions::remote_compaction_manifest_floor). Whether
+  // to map that to kUseLocal (fall back to a local compaction) or kFailure
+  // (surface it) is up to the integrator; both are valid. (Cancellation also
+  // surfaces as Status::Incomplete, distinguishable by SubCode
+  // kManualCompactionPaused.)
   virtual CompactionServiceJobStatus Wait(
       const std::string& /*scheduled_job_id*/, std::string* /*result*/) {
     return CompactionServiceJobStatus::kUseLocal;
@@ -1753,6 +1764,28 @@ struct DBOptions {
   // backward/forward compatibility support for now. Some known issues are still
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
+
+  // Hardening for remote compaction (CompactionService / DB::OpenAndCompact).
+  // When true (default), the primary includes in each remote compaction request
+  // the MANIFEST position (file number and size) it scheduled the compaction
+  // from. The remote worker refuses to reconstruct the compaction against an
+  // older MANIFEST view than that -- e.g. an eventually-consistent filesystem
+  // returning a stale CURRENT, or a truncated MANIFEST -- and falls back to a
+  // local compaction rather than risk an incorrect result computed against the
+  // wrong (older) LSM shape.
+  //
+  // The presence of this position on the request also enables the worker's
+  // "trust the MANIFEST" recovery, which avoids failing a job over a
+  // transiently-unavailable file that is not one of the compaction's inputs.
+  //
+  // Setting this to false is a kill switch for disabling both behaviors (for
+  // subsequently scheduled compactions). Dynamically changeable through
+  // SetDBOptions() API. DEPRECATED because this kill switch should not be
+  // needed long term.
+  //
+  // Only affects a primary that schedules remote compactions; it has no effect
+  // when compaction_service is not configured.
+  bool remote_compaction_manifest_floor = true;
 
   // It indicates, which lowest cache tier we want to
   // use for a certain DB. Currently we support volatile_tier and

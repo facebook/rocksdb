@@ -156,6 +156,7 @@ struct MutableDBOptions {
   bool verify_manifest_content_on_close;
   bool optimize_manifest_for_recovery;
   bool fast_sst_open;
+  bool remote_compaction_manifest_floor;
   std::string daily_offpeak_time_utc;
   uint64_t max_compaction_trigger_wakeup_seconds;
 };

@@ -9889,6 +9889,16 @@ const char* rocksdb_options_get_db_host_id(rocksdb_options_t* opt,
   return opt->rep.db_host_id.data();
 }
 
+void rocksdb_options_set_remote_compaction_manifest_floor(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.remote_compaction_manifest_floor = v;
+}
+
+unsigned char rocksdb_options_get_remote_compaction_manifest_floor(
+    rocksdb_options_t* opt) {
+  return opt->rep.remote_compaction_manifest_floor;
+}
+
 void rocksdb_options_set_lowest_used_cache_tier(rocksdb_options_t* opt, int v) {
   opt->rep.lowest_used_cache_tier =
       static_cast<decltype(opt->rep.lowest_used_cache_tier)>(v);

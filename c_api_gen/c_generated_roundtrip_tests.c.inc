@@ -859,6 +859,12 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   CheckCondition(rocksdb_options_get_read_io_executor_threads(obj) == 1);
   rocksdb_options_set_read_io_executor_threads(obj, 0);
   CheckCondition(rocksdb_options_get_read_io_executor_threads(obj) == 0);
+  rocksdb_options_set_remote_compaction_manifest_floor(obj, 1);
+  CheckCondition(rocksdb_options_get_remote_compaction_manifest_floor(obj) ==
+                 1);
+  rocksdb_options_set_remote_compaction_manifest_floor(obj, 0);
+  CheckCondition(rocksdb_options_get_remote_compaction_manifest_floor(obj) ==
+                 0);
   rocksdb_options_set_reuse_manifest_on_open(obj, 1);
   CheckCondition(rocksdb_options_get_reuse_manifest_on_open(obj) == 1);
   rocksdb_options_set_reuse_manifest_on_open(obj, 0);

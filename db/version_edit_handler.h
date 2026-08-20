@@ -296,6 +296,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool allow_incomplete_valid_version,
+      bool trust_manifest_recovery,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
@@ -358,6 +359,27 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
   bool in_atomic_group_ = false;
 
+  // When true (set only via the OpenAndCompact remote-compaction path),
+  // recovery trusts the MANIFEST when reconstructing the LSM version: it does
+  // not stat/open SST or blob files to classify them found/missing (VerifyFile
+  // / VerifyBlobFile return OK) and does not open candidate-version table
+  // handlers (LoadTableHandlers is skipped). This prevents both a fatal open of
+  // a transient/obsolete file (added then later deleted in the MANIFEST,
+  // already physically removed by a live primary) and a rollback to an earlier,
+  // wrong LSM shape. Safe because the compaction's input files are
+  // ref-protected from deletion by the primary, so any missing file is
+  // necessarily a non-input file the compaction never reads; inputs are opened
+  // (and unique-id verified) on demand by the compaction itself.
+  //
+  // NOTE: This does not yet suppress the bounded file-property sampling in
+  // Version::PrepareAppend -> UpdateAccumulatedStats, which still reads some
+  // non-input files' properties (tolerating any that are missing). That path is
+  // needed today to populate input FileMetaData::num_entries for compaction
+  // input-record-count verification. A strict "open only compaction inputs"
+  // recovery is a planned follow-up that also skips that sampling and sources
+  // input num_entries from the worker's own input-table-properties read.
+  const bool trust_manifest_recovery_ = false;
+
  private:
   bool AtomicUpdateVersionsCompleted();
   bool AtomicUpdateVersionsContains(uint32_t cfid);
@@ -388,12 +410,14 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
                           VersionSet* version_set,
                           const std::shared_ptr<IOTracer>& io_tracer,
                           const ReadOptions& read_options,
+                          bool trust_manifest_recovery,
                           EpochNumberRequirement epoch_number_requirement =
                               EpochNumberRequirement::kMustPresent)
       : VersionEditHandlerPointInTime(
             /*read_only=*/true, column_families, version_set, io_tracer,
             read_options,
-            /*allow_incomplete_valid_version=*/false, epoch_number_requirement),
+            /*allow_incomplete_valid_version=*/false, trust_manifest_recovery,
+            epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
   Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
