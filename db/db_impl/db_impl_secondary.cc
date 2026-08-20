@@ -1630,22 +1630,32 @@ Status DB::OpenAndCompact(
         static_cast_with_check<DBImplSecondary>(db.get())->GetVersionSet();
     const uint64_t recovered_number =
         recovered_versions->manifest_file_number();
-    const uint64_t recovered_size = recovered_versions->manifest_file_size();
+    // Compare the maximal valid prefix of the recovered MANIFEST (not the
+    // reader's read-to-EOF high-water mark, which can include tolerated tail
+    // garbage: a corrupt/torn trailing record or a partial atomic group at
+    // EOF). This way a tolerated corrupt tail is fine as long as the
+    // actually-installed valid prefix reaches the floor. Both sides are byte
+    // sizes of the same append-only, uniquely-numbered MANIFEST, so equal
+    // number + recovered_valid_size >= min means the worker installed a
+    // same-or-newer view; anything short (older/truncated/torn/partial) is
+    // below the floor and rejected.
+    const uint64_t recovered_valid_size =
+        recovered_versions->manifest_recovery_maximal_valid_size();
     bool below_floor =
         recovered_number < compaction_input.min_manifest_file_number ||
         (recovered_number == compaction_input.min_manifest_file_number &&
-         recovered_size < compaction_input.min_manifest_file_size);
+         recovered_valid_size < compaction_input.min_manifest_file_size);
     TEST_SYNC_POINT_CALLBACK(
         "DBImplSecondary::OpenAndCompact::ManifestFloorCheck", &below_floor);
     if (below_floor) {
       ROCKS_LOG_WARN(
           db_options.info_log,
           "Remote compaction recovered an older MANIFEST view (file number "
-          "%" PRIu64 " size %" PRIu64
+          "%" PRIu64 " valid size %" PRIu64
           ") than the primary scheduled from "
           "(min file number %" PRIu64 " size %" PRIu64
           "); declining so the job can fall back to local compaction.",
-          recovered_number, recovered_size,
+          recovered_number, recovered_valid_size,
           compaction_input.min_manifest_file_number,
           compaction_input.min_manifest_file_size);
       for (auto& handle : handles) {

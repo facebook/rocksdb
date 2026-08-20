@@ -5375,7 +5375,7 @@ VersionSet::VersionSet(
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
-      manifest_last_valid_record_end_(0),
+      manifest_recovery_last_valid_record_end_(0),
       force_new_manifest_on_open_(false),
       last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
@@ -5586,7 +5586,7 @@ void VersionSet::Reset() {
   current_version_number_ = 0;
   manifest_writers_.clear();
   manifest_file_size_ = 0;
-  manifest_last_valid_record_end_ = 0;
+  manifest_recovery_last_valid_record_end_ = 0;
   force_new_manifest_on_open_ = false;
   last_compacted_manifest_file_size_ = 0;
   TuneMaxManifestFileSize();
@@ -6494,7 +6494,7 @@ std::unique_ptr<log::Writer> VersionSet::CreateManifestWriter(
 
 Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   assert(db_options_->reuse_manifest_on_open);
-  assert(manifest_last_valid_record_end_ > 0);
+  assert(manifest_recovery_last_valid_record_end_ > 0);
 
   // Disabled under best_efforts_recovery: that mode rebuilds the
   // MANIFEST + CURRENT from scratch via the side-effect of
@@ -6516,12 +6516,13 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   uint64_t physical_size = 0;
   IOStatus stat_s = fs_->GetFileSize(manifest_path, IOOptions(), &physical_size,
                                      /*dbg=*/nullptr);
-  if (!stat_s.ok() || physical_size != manifest_last_valid_record_end_) {
+  if (!stat_s.ok() ||
+      physical_size != manifest_recovery_last_valid_record_end_) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: physical size %" PRIu64
                    " != last valid record end %" PRIu64
                    " (tail corruption?); creating fresh MANIFEST during open",
-                   physical_size, manifest_last_valid_record_end_);
+                   physical_size, manifest_recovery_last_valid_record_end_);
     force_new_manifest_on_open();
     return Status::OK();
   }
@@ -6550,12 +6551,12 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
 
   const uint64_t reopened_size =
       manifest_file->GetFileSize(opt_file_opts.io_options, /*dbg=*/nullptr);
-  if (reopened_size != manifest_last_valid_record_end_) {
+  if (reopened_size != manifest_recovery_last_valid_record_end_) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: reopened handle size %" PRIu64
                    " != last valid record end %" PRIu64
                    "; creating fresh MANIFEST during open",
-                   reopened_size, manifest_last_valid_record_end_);
+                   reopened_size, manifest_recovery_last_valid_record_end_);
     force_new_manifest_on_open();
     return Status::OK();
   }
@@ -6564,10 +6565,10 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
       std::move(manifest_file), manifest_path, opt_file_opts,
       manifest_preallocation_size_, reopened_size);
 
-  ROCKS_LOG_INFO(db_options_->info_log,
-                 "Reusing existing MANIFEST file: %s (valid data size: %" PRIu64
-                 ")",
-                 manifest_path.c_str(), manifest_last_valid_record_end_);
+  ROCKS_LOG_INFO(
+      db_options_->info_log,
+      "Reusing existing MANIFEST file: %s (valid data size: %" PRIu64 ")",
+      manifest_path.c_str(), manifest_recovery_last_valid_record_end_);
   TEST_SYNC_POINT("VersionSet::ReopenManifestForAppend:Reopened");
   return Status::OK();
 }
@@ -6790,7 +6791,7 @@ Status VersionSet::Recover(
   }
 
   if (s.ok() && !read_only && db_options_->reuse_manifest_on_open &&
-      manifest_last_valid_record_end_ > 0) {
+      manifest_recovery_last_valid_record_end_ > 0) {
     s = ReopenManifestForAppend(manifest_path);
   }
 

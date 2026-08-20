@@ -425,9 +425,11 @@ void CompactionJob::Prepare(
   options_file_number_ = versions_->options_file_number();
 
   // For remote compaction hardening: capture the current MANIFEST position as a
-  // floor for the worker's recovery. This is >= the compaction input version
-  // (already committed) and <= what the worker later reads, so it never
-  // false-rejects a healthy filesystem. Gated by the mutable kill switch.
+  // floor for the worker's recovery. manifest_file_size() is a physical byte
+  // offset that VersionSet::ProcessManifestWrites records under the DB mutex
+  // only after the whole version-edit batch is written and sync'd, so it is a
+  // durable, complete-batch offset -- never mid-record or mid-atomic-group --
+  // at or past the compaction's (already committed) input version.
   if (mutable_db_options_copy_.remote_compaction_manifest_floor) {
     min_manifest_file_number_ = versions_->manifest_file_number();
     min_manifest_file_size_ = versions_->manifest_file_size();

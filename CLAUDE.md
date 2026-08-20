@@ -417,7 +417,9 @@ rather than relying on libstdc++ transitive includes.
     multiple minutes.
 * Run `AUTO_CLEAN=1 ASSERT_STATUS_CHECKED=1 make check` to verify all Status
     objects are properly checked. This catches missing error handling that can
-    lead to silent data corruption.
+    lead to silent data corruption. Merely building with ASSERT_STATUS_CHECKED=1
+    accomplishes nothing; it enables a runtime check. New unit tests missing
+    Status checks is a common failure point, even from agents.
 
 ### Monitoring make check progress
 * Use `make check-progress` to get machine-parseable JSON progress while
