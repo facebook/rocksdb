@@ -1,1 +1,0 @@
-Added `DB::AbortCompactions()` and `DB::ResumeCompactions()` for per-column-family compaction abort and resume, with the same active-abort semantics as the DB-wide `AbortAllCompactions()`/`ResumeAllCompactions()` but scoped to a single column family. Calls are reference-counted independently per column family and compose with the DB-wide abort.
