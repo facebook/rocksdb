@@ -1426,6 +1426,22 @@ Status DBImplSecondary::CompactWithoutInstallation(
                                   /*managed_snapshot=*/nullptr,
                                   kMaxSequenceNumber, std::move(snapshots));
 
+  // Ensure FileMetaData stats (num_entries, num_range_deletions) are
+  // initialized for all input files. These stats are not persisted in the
+  // MANIFEST and are loaded lazily from table properties. The Compaction
+  // constructor's FilterInputsForCompactionIterator() relies on
+  // FileIsStandAloneRangeTombstone() which needs these fields to be populated.
+  // Without this, the remote worker may not filter the same files as the
+  // primary host, leading to input record count verification failures.
+  {
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
+    for (const auto& level_files : input_files) {
+      for (FileMetaData* file_meta : level_files.files) {
+        version->MaybeInitializeFileMetaData(read_options, file_meta);
+      }
+    }
+  }
+
   // TODO - consider serializing the entire Compaction object and using it as
   // input instead of recreating it in the remote worker
   std::unique_ptr<Compaction> c;

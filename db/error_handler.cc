@@ -637,10 +637,6 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
       return Status::Busy("Recovery already in progress");
     }
     recovery_in_prog_ = true;
-
-    // In manual resume, we allow the bg work to run. If it is a auto resume,
-    // the bg work should follow this tag.
-    soft_error_no_bg_work_ = false;
   }
 
   // kErrorRecovery can be the default context for a generic soft error that
@@ -659,7 +655,9 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // can generate background errors should be the flush operations
   recovery_error_ = IOStatus::OK();
   recovery_error_.PermitUncheckedError();
-  Status s = db_->ResumeImpl(recover_context_, Env::IOActivity::kFlush);
+  DBRecoverContext context = recover_context_;
+  context.flush_after_recovery = true;
+  Status s = db_->ResumeImpl(context, Env::IOActivity::kFlush);
   if (s.ok()) {
     soft_error_no_bg_work_ = false;
   } else {

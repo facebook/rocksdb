@@ -3725,6 +3725,108 @@ TEST_F(DBFlushTest, NonAtomicNormalFlushAbortWhenBGError) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBFlushTest, NonRecoveryFlushDoesNotStarveErrorRecovery) {
+  constexpr uint64_t kRecoveryTimeoutMicros = 15 * 1000 * 1000;
+  constexpr int kLateWriteCount = 32;
+
+  Options opts = CurrentOptions();
+  opts.atomic_flush = true;
+  opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  opts.max_write_buffer_number = 64;
+  opts.max_background_flushes = 1;
+  DestroyAndReopen(opts);
+  env_->SetBackgroundThreads(1, Env::HIGH);
+
+  std::atomic_int flush_write_table_count{0};
+  port::Mutex wait_mutex;
+  port::CondVar wait_cv(&wait_mutex);
+  bool recovery_wait_started = false;
+  bool recovery_succeeded = false;
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:s", [&](void* s_ptr) {
+        if (flush_write_table_count.fetch_add(1) == 0) {
+          Status* s = static_cast<Status*>(s_ptr);
+          IOStatus io_error = IOStatus::IOError("injected foobar");
+          io_error.SetRetryable(true);
+          *s = io_error;
+          TEST_SYNC_POINT(
+              "DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+              "FirstFlushFailed");
+          TEST_SYNC_POINT(
+              "DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+              "ContinueFirstFlush");
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ResumeImpl:BeforeWaitForBackgroundWork", [&](void*) {
+        MutexLock l(&wait_mutex);
+        recovery_wait_started = true;
+        wait_cv.SignalAll();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "RecoverFromRetryableBGIOError:RecoverSuccess", [&](void*) {
+        MutexLock l(&wait_mutex);
+        recovery_succeeded = true;
+        wait_cv.SignalAll();
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+        "FirstFlushFailed",
+        "DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+        "FailureObserved"},
+       {"DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+        "ReleaseFirstFlush",
+        "DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+        "ContinueFirstFlush"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto wait_until = [&](const auto& predicate) {
+    const uint64_t abs_time =
+        SystemClock::Default()->NowMicros() + kRecoveryTimeoutMicros;
+    MutexLock l(&wait_mutex);
+    while (!predicate()) {
+      if (wait_cv.TimedWait(abs_time)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Put(Key(2), "val2"));
+  TEST_SYNC_POINT(
+      "DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+      "FailureObserved");
+  TEST_SYNC_POINT(
+      "DBFlushTest::NonRecoveryFlushDoesNotStarveErrorRecovery:"
+      "ReleaseFirstFlush");
+
+  const bool recovery_wait_reached =
+      wait_until([&] { return recovery_wait_started; });
+  Status late_write_status;
+  if (recovery_wait_reached) {
+    for (int key = 3; key < 3 + kLateWriteCount && late_write_status.ok();
+         ++key) {
+      late_write_status = Put(Key(key), "val");
+    }
+  }
+  const bool recovered = wait_until([&] { return recovery_succeeded; });
+
+  if (!recovered) {
+    IOStatus cleanup_error = IOStatus::IOError("stop stuck error recovery");
+    dbfull()->TEST_SetBGError(cleanup_error, BackgroundErrorReason::kFlush);
+    dbfull()->TEST_SignalAllBgCv();
+  }
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_TRUE(recovery_wait_reached);
+  ASSERT_OK(late_write_status);
+  ASSERT_TRUE(recovered);
+}
+
 TEST_F(DBFlushTest, DBStuckAfterAtomicFlushError) {
   // Test for a bug with atomic flush where DB can become stuck
   // after a flush error. A repro timeline:

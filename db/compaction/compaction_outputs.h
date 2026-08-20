@@ -349,8 +349,19 @@ class CompactionOutputs {
   const bool is_proximal_level_;
 
   // partitioner information
-  std::string last_key_for_partitioner_;
   std::unique_ptr<SstPartitioner> partitioner_;
+  // Previous user key, only maintained (copied per key) in the fallback mode
+  // (see below).
+  std::string last_key_for_partitioner_;
+  // Fast path for partitioners that support ShouldPartitionByPrefix(): when
+  // partitioner_prefix_valid_ is true, all keys in the current output file
+  // share partitioner_prefix_, and a partition boundary is requested at the
+  // first future key that does not start with that prefix. This is (re)derived
+  // once per output file from its first key, avoiding a per-key copy and
+  // virtual ShouldPartition() call. When false, we fall back to comparing
+  // against last_key_for_partitioner_ via ShouldPartition() on every key.
+  std::string partitioner_prefix_;
+  bool partitioner_prefix_valid_ = false;
 
   // A flag determines if this subcompaction has been split by the cursor
   // for RoundRobin compaction

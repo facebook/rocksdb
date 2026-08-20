@@ -1123,6 +1123,9 @@ class Version {
   friend class VersionSet;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  // Needs MaybeInitializeFileMetaData() to initialize input file stats before
+  // constructing a Compaction on the remote worker.
+  friend class DBImplSecondary;
 
   const InternalKeyComparator* internal_comparator() const {
     return storage_info_.internal_comparator_;
