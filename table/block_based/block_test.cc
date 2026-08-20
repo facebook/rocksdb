@@ -191,7 +191,8 @@ BlockContents GetBlockContents(
       static_cast<int>(restart_interval), key_use_delta_encoding,
       false /* use_value_delta_encoding */, dblock_index_type,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, should_persist_udt,
-      false /* is_user_key */, use_separated_kv_storage));
+      false /* is_user_key */, use_separated_kv_storage, /*statistics=*/nullptr,
+      /*uniform_cv_threshold=*/-1.0, /*use_common_prefix=*/false));
 
   // Add only half of the keys
   for (size_t i = 0; i < keys.size(); ++i) {

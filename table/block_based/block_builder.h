@@ -25,15 +25,23 @@ class BlockBuilder {
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
 
-  explicit BlockBuilder(
-      int block_restart_interval, bool use_delta_encoding = true,
-      bool use_value_delta_encoding = false,
-      BlockBasedTableOptions::DataBlockIndexType index_type =
-          BlockBasedTableOptions::kDataBlockBinarySearch,
-      double data_block_hash_table_util_ratio = 0.75, size_t ts_sz = 0,
-      bool persist_user_defined_timestamps = true, bool is_user_key = false,
-      bool use_separated_kv_storage = false, Statistics* statistics = nullptr,
-      double uniform_cv_threshold = -1.0, bool use_common_prefix = false);
+  explicit BlockBuilder(int block_restart_interval, bool use_delta_encoding,
+                        bool use_value_delta_encoding,
+                        BlockBasedTableOptions::DataBlockIndexType index_type,
+                        double data_block_hash_table_util_ratio, size_t ts_sz,
+                        bool persist_user_defined_timestamps, bool is_user_key,
+                        bool use_separated_kv_storage, Statistics* statistics,
+                        double uniform_cv_threshold, bool use_common_prefix);
+
+  // Tag for the simplified constructor below.
+  struct ForMetaBlock {};
+
+  // Simplified constructor for metadata blocks (the meta-index and properties
+  // blocks): standard settings, none of the main constructor's tuning knobs
+  // (statistics, uniformity, common-prefix, ...). The tag states the intent at
+  // the call site and avoids a bare single-int constructor that could be
+  // mistaken for a data block with silent defaults.
+  BlockBuilder(ForMetaBlock, int block_restart_interval);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();

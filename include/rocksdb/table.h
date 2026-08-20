@@ -753,7 +753,10 @@ struct BlockBasedTableOptions {
   // using a non-built-in CompatibilityName(). See `compression_manager` in
   // ColumnFamilyOptions. Also changes the format of TableProperties field
   // `compression_name`. Can be read by RocksDB versions >= 10.4.0.
-  // 8 -- TODO
+  // 8 -- Support for optimize_key_common_prefix, cleaner support for some
+  // features like super_block_alignment_size that impact index encoding, and
+  // more future-proofing that might guard future opt-in features. Can be read
+  // by RocksDB versions >= 11.10.0
   //
   // Using the default setting of format_version is strongly recommended, so
   // that available enhancements are adopted eventually and automatically. The

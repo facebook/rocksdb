@@ -129,6 +129,16 @@ BlockBuilder::BlockBuilder(
               (use_separated_kv_storage_ ? sizeof(uint32_t) : 0);
 }
 
+BlockBuilder::BlockBuilder(ForMetaBlock, int block_restart_interval)
+    : BlockBuilder(block_restart_interval, /*use_delta_encoding=*/true,
+                   /*use_value_delta_encoding=*/false,
+                   BlockBasedTableOptions::kDataBlockBinarySearch,
+                   /*data_block_hash_table_util_ratio=*/0.75, /*ts_sz=*/0,
+                   /*persist_user_defined_timestamps=*/true,
+                   /*is_user_key=*/false, /*use_separated_kv_storage=*/false,
+                   /*statistics=*/nullptr, /*uniform_cv_threshold=*/-1.0,
+                   /*use_common_prefix=*/false) {}
+
 void BlockBuilder::Reset() {
   buffer_.clear();
   // First restart point is at offset 0. The common-prefix rewrite may have set
@@ -206,6 +216,13 @@ Slice BlockBuilder::Finish() {
     RewriteRestartKeysStrippingPrefix();
   }
 
+  // Safe to run after the strip above: stripping removes the same block-common
+  // prefix from every restart key, so difference_offset() (hence prefix_len)
+  // shrinks by exactly that length while each key's start shifts by the same
+  // amount -- ReadBe64FromKey ends up reading the identical suffix bytes, so
+  // the uniformity decision matches running on the original keys.
+  // (ReadBe64FromKey also strips the internal trailer, so footer bytes are
+  // never read as key data.)
   is_uniform_ = ScanForUniformity();
 
   // Append restart array
