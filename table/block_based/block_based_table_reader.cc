@@ -1173,15 +1173,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
   assert(table_properties != nullptr);
   rep_->table_properties = std::move(table_properties);
 
-  // Reserved for format_version >= 8 (see
-  // TableProperties::user_key_common_prefix). No reader knows how to interpret
-  // a file with a user-key common prefix yet, so refuse to open it rather than
-  // mis-reading the keys.
-  if (!rep_->table_properties->user_key_common_prefix.empty()) {
-    return Status::NotSupported(
-        "Unsupported user_key_common_prefix table property");
-  }
-
   rep_->data_block_restart_interval = static_cast<uint32_t>(
       rep_->table_properties->data_block_restart_interval);
   rep_->index_block_restart_interval = static_cast<uint32_t>(

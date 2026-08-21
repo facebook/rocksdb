@@ -151,6 +151,12 @@ static void rocksdb_roundtrip_test_rocksdb_block_based_options(void) {
   rocksdb_block_based_options_set_optimize_filters_for_memory(obj, 0);
   CheckCondition(
       rocksdb_block_based_options_get_optimize_filters_for_memory(obj) == 0);
+  rocksdb_block_based_options_set_optimize_key_common_prefix(obj, 1);
+  CheckCondition(
+      rocksdb_block_based_options_get_optimize_key_common_prefix(obj) == 1);
+  rocksdb_block_based_options_set_optimize_key_common_prefix(obj, 0);
+  CheckCondition(
+      rocksdb_block_based_options_get_optimize_key_common_prefix(obj) == 0);
   rocksdb_block_based_options_set_partition_filters(obj, 1);
   CheckCondition(rocksdb_block_based_options_get_partition_filters(obj) == 1);
   rocksdb_block_based_options_set_partition_filters(obj, 0);

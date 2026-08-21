@@ -184,6 +184,38 @@ void DataBlockIter::SeekImpl(const Slice& target) {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
+  if (has_common_prefix()) {
+    const Comparator* ucmp = icmp_.user_comparator();
+    if (ucmp == BytewiseComparator() || ucmp == ReverseBytewiseComparator()) {
+      // Bytewise: strip the block's common prefix from the target once and
+      // compare shortened suffixes (no per-probe key materialization).
+      Slice target_suffix;
+      bool before_all = false;
+      if (StripSeekTargetPrefix(target, &target_suffix, &before_all)) {
+        uint32_t index = 0;
+        bool skip_linear_scan = false;
+        if (!BinarySeekSuffix<DecodeKey>(target_suffix, &index,
+                                         &skip_linear_scan)) {
+          return;
+        }
+        FindKeyAfterBinarySeekSuffix(target_suffix, index, skip_linear_scan);
+      } else if (before_all) {
+        // Target sorts before all keys in the block: position at the first key.
+        SeekToRestartPoint(0);
+        NextImpl();
+      } else {
+        // Target sorts after all keys in the block: no key is >= target.
+        current_ = GetKeysEndOffset();
+        restart_index_ = num_restarts_;
+      }
+      return;
+    }
+    // Non-(reverse-)bytewise comparator (optimize_key_common_prefix=kEnabled):
+    // the suffix-seek shortcut is not order-preserving, so fall through to the
+    // standard binary search below, which reconstructs each probed restart key
+    // (see BinarySeekRestartPointIndex) and compares full keys with the real
+    // comparator; the linear scan reconstructs via ParseNextKey.
+  }
   uint32_t index = 0;
   bool skip_linear_scan = false;
   bool ok = BinarySeekRestartPointIndex<DecodeKey>(seek_key, &index,
@@ -372,6 +404,39 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
     // restart interval must be one when hash search is enabled so the binary
     // search simply lands at the right place.
     skip_linear_scan = true;
+  } else if (has_common_prefix() &&
+             (icmp_.user_comparator() == BytewiseComparator() ||
+              icmp_.user_comparator() == ReverseBytewiseComparator())) {
+    // Stripped index block (format_version >= 8), (reverse-)bytewise: use the
+    // binary suffix-seek path. It reads the identical on-disk format and is
+    // correct for every index_search_type_, so interpolation on a stripped
+    // block falls back to binary here (its suffix-aware optimization is
+    // deferred; see plan Phase 3). Non-(reverse-)bytewise stripped blocks
+    // (optimize_key_common_prefix=kEnabled) fall through to the standard binary
+    // search below, which reconstructs each probed restart key. Hash
+    // (prefix_index_) is handled above and reconstructs in CompareBlockKey.
+    Slice target_suffix;
+    bool before_all = false;
+    if (StripSeekTargetPrefix(seek_key, &target_suffix, &before_all)) {
+      bool sok = value_delta_encoded_
+                     ? BinarySeekSuffix<DecodeKeyV4>(target_suffix, &index,
+                                                     &skip_linear_scan)
+                     : BinarySeekSuffix<DecodeKey>(target_suffix, &index,
+                                                   &skip_linear_scan);
+      if (!sok) {
+        return;
+      }
+      FindKeyAfterBinarySeekSuffix(target_suffix, index, skip_linear_scan);
+    } else if (before_all) {
+      // Target sorts before all keys: position at the first key.
+      SeekToRestartPoint(0);
+      ParseNextIndexKey();
+    } else {
+      // Target sorts after all keys: no key is >= target.
+      current_ = GetKeysEndOffset();
+      restart_index_ = num_restarts_;
+    }
+    return;
   } else {
     if (value_delta_encoded_) {
       ok = FindRestartPointForSeek<DecodeKeyV4>(seek_key, &index,
@@ -405,6 +470,42 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   Slice seek_key = target;
   if (data_ == nullptr) {  // Not init yet
     return;
+  }
+  if (has_common_prefix()) {
+    const Comparator* ucmp = icmp_.user_comparator();
+    if (ucmp == BytewiseComparator() || ucmp == ReverseBytewiseComparator()) {
+      Slice target_suffix;
+      bool before_all = false;
+      if (StripSeekTargetPrefix(target, &target_suffix, &before_all)) {
+        uint32_t index = 0;
+        bool skip_linear_scan = false;
+        if (!BinarySeekSuffix<DecodeKey>(target_suffix, &index,
+                                         &skip_linear_scan)) {
+          return;
+        }
+        FindKeyAfterBinarySeekSuffix(target_suffix, index, skip_linear_scan);
+        if (!Valid()) {
+          if (status_.ok()) {
+            SeekToLastImpl();
+          }
+        } else {
+          while (Valid() && CompareCurrentKeySuffix(target_suffix) > 0) {
+            PrevImpl();
+          }
+        }
+      } else if (before_all) {
+        // Target sorts before all keys: no key is <= target.
+        current_ = GetKeysEndOffset();
+        restart_index_ = num_restarts_;
+      } else {
+        // Target sorts after all keys: the last key is <= target.
+        SeekToLastImpl();
+      }
+      return;
+    }
+    // Non-(reverse-)bytewise comparator (optimize_key_common_prefix=kEnabled):
+    // fall through to the standard binary search below, which reconstructs each
+    // probed restart key and compares full keys with the real comparator.
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
@@ -567,10 +668,17 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
     entry_ = Slice(p_old, p - p_old + non_shared);
     if (shared == 0) {
       *is_shared = false;
-      // If this key doesn't share any bytes with prev key, and no min timestamp
-      // needs to be padded to the key, then we don't need to decode it and
-      // can use its address in the block directly (no copy).
-      UpdateRawKeyAndMaybePadMinTimestamp(Slice(p, non_shared));
+      if (has_common_prefix()) {
+        // Restart-point key stored with the block's common user-key prefix
+        // removed; reconstruct the full key by prepending it. (UDT stripping is
+        // disabled when this feature is active, so no min-timestamp padding.)
+        raw_key_.SetKeyPrependingPrefix(common_prefix(), Slice(p, non_shared));
+      } else {
+        // If this key doesn't share any bytes with prev key, and no min
+        // timestamp needs to be padded to the key, then we don't need to decode
+        // it and can use its address in the block directly (no copy).
+        UpdateRawKeyAndMaybePadMinTimestamp(Slice(p, non_shared));
+      }
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
       *is_shared = true;
@@ -818,7 +926,17 @@ bool BlockIter<TValue>::BinarySeekRestartPointIndex(const Slice& target,
       return false;
     }
 
-    UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
+    if (has_common_prefix()) {
+      // Stripped block (format_version >= 8): the restart key is stored without
+      // the block's common user-key prefix; reconstruct the full key so the
+      // comparison against the (full) target is correct. This serves the index
+      // non-suffix-seek paths and any non-(reverse-)bytewise data block
+      // (optimize_key_common_prefix=kEnabled). (Reverse-)bytewise blocks take
+      // the suffix-seek path and never reach here.
+      raw_key_.SetKeyPrependingPrefix(common_prefix(), mid_key);
+    } else {
+      UpdateRawKeyAndMaybePadMinTimestamp(mid_key);
+    }
 
     int cmp = CompareCurrentKey(target);
     if (cmp < 0) {
@@ -844,6 +962,108 @@ bool BlockIter<TValue>::BinarySeekRestartPointIndex(const Slice& target,
     *index = static_cast<uint32_t>(left);
   }
   return true;
+}
+
+template <class TValue>
+bool BlockIter<TValue>::StripSeekTargetPrefix(const Slice& target,
+                                              Slice* target_suffix,
+                                              bool* before_all) const {
+  assert(has_common_prefix());
+  // For a user-key block (index without seq) `target` is already a user key;
+  // for an internal-key block (data, index with seq) strip the 8-byte footer to
+  // compare the user-key portion against the block's common user-key prefix.
+  Slice target_user = raw_key_.IsUserKey() ? target : ExtractUserKey(target);
+  const size_t p = common_prefix_size_;
+  if (target_user.size() >= p &&
+      memcmp(target_user.data(), common_prefix().data(), p) == 0) {
+    // Target's user key starts with the block's common prefix; strip it. For an
+    // internal-key block the 8-byte footer stays at the end of the slice.
+    *target_suffix = Slice(target.data() + p, target.size() - p);
+    return true;
+  }
+  // Target diverges from the block prefix (within the first `p` user bytes, or
+  // is shorter). All block keys share the prefix, so the target compares to
+  // every block key with the same sign as (target_user vs common prefix).
+  int sign = icmp_.user_comparator()->Compare(target_user, common_prefix());
+  *before_all = sign <= 0;
+  return false;
+}
+
+// Binary search over restart points comparing prefix-stripped suffixes.
+// GetRestartKey returns the stored (already prefix-stripped) restart key, which
+// is compared directly against `target_suffix`. Mirrors
+// BinarySeekRestartPointIndex but avoids materializing full keys.
+template <class TValue>
+template <typename DecodeKeyFunc>
+bool BlockIter<TValue>::BinarySeekSuffix(const Slice& target_suffix,
+                                         uint32_t* index,
+                                         bool* skip_linear_scan) {
+  if (restarts_ == 0) {
+    return false;
+  }
+  *skip_linear_scan = false;
+  int64_t left = -1;
+  int64_t right = num_restarts_ - 1;
+
+  while (left != right) {
+    int64_t mid = left + (right - left + 1) / 2;
+    assert(left < mid && mid <= right);
+
+    Slice mid_key;
+    if (!GetRestartKey<DecodeKeyFunc>(static_cast<uint32_t>(mid), &mid_key)) {
+      return false;
+    }
+    int cmp = CompareKey(mid_key, target_suffix);
+    if (cmp < 0) {
+      left = mid;
+    } else if (cmp > 0) {
+      right = mid - 1;
+    } else {
+      *skip_linear_scan = true;
+      left = right = mid;
+    }
+  }
+
+  if (left == -1) {
+    *skip_linear_scan = true;
+    *index = 0;
+  } else {
+    *index = static_cast<uint32_t>(left);
+  }
+  return true;
+}
+
+// Linear scan within a restart interval comparing prefix-stripped suffixes.
+// Mirrors FindKeyAfterBinarySeek but uses CompareCurrentKeySuffix so the common
+// prefix bytes are skipped on every comparison.
+template <class TValue>
+void BlockIter<TValue>::FindKeyAfterBinarySeekSuffix(const Slice& target_suffix,
+                                                     uint32_t index,
+                                                     bool skip_linear_scan) {
+  SeekToRestartPoint(index);
+  NextImpl();
+  assert(cur_entry_idx_ >= 0);
+
+  if (!skip_linear_scan) {
+    uint32_t max_offset;
+    if (index + 1 < num_restarts_) {
+      max_offset = GetRestartPoint(index + 1);
+    } else {
+      max_offset = std::numeric_limits<uint32_t>::max();
+    }
+    while (true) {
+      NextImpl();
+      if (!Valid()) {
+        break;
+      }
+      if (current_ == max_offset) {
+        assert(CompareCurrentKeySuffix(target_suffix) > 0);
+        break;
+      } else if (CompareCurrentKeySuffix(target_suffix) >= 0) {
+        break;
+      }
+    }
+  }
 }
 
 // Similar effects to BinarySeekRestartPointIndex, except it uses a different
@@ -1157,7 +1377,14 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   if (!ok) {
     return 1;  // Return target is smaller
   }
-  UpdateRawKeyAndMaybePadMinTimestamp(block_key);
+  if (has_common_prefix()) {
+    // Restart key is stored prefix-stripped; reconstruct the full key so the
+    // comparison against the (full) target is correct. This is the deferred,
+    // not-yet-suffix-optimized hash/kHashSearch path (see plan Phase 3).
+    raw_key_.SetKeyPrependingPrefix(common_prefix(), block_key);
+  } else {
+    UpdateRawKeyAndMaybePadMinTimestamp(block_key);
+  }
   return CompareCurrentKey(target);
 }
 
@@ -1365,6 +1592,24 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
         values_section_ = data() + footer.values_section_offset;
       }
     }
+    // Common user-key prefix section (format_version >= 8): the prefix occupies
+    // the block's leading bytes [0, restarts[0]). A non-zero restarts[0]
+    // self-signals it -- restarts[0] is always 0 in every other block (all
+    // versions, all block types) -- so no footer bit or format_version is
+    // needed here. (Older readers would misread it, hence the file-level
+    // format_version 8 gate.)
+    if (size != 0 && num_restarts_ >= 1) {
+      uint32_t first_restart =
+          DecodeFixed32(contents_.data.data() + restart_offset_);
+      if (first_restart > 0) {
+        if (first_restart >= restart_offset_) {
+          restart_offset_ = 0;
+          size = 0;  // Error marker
+        } else {
+          common_prefix_size_ = first_restart;
+        }
+      }
+    }
   }
   if (read_amp_bytes_per_bit != 0 && statistics && size != 0) {
     read_amp_bitmap_.reset(new BlockReadAmpBitmap(
@@ -1547,7 +1792,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
         user_defined_timestamps_persisted,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
         protection_bytes_per_key_, kv_checksum_, block_restart_interval_,
-        values_section_);
+        values_section_, Slice(data(), common_prefix_size_));
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify
@@ -1601,7 +1846,8 @@ IndexBlockIter* Block::NewIndexIterator(
         prefix_index_ptr, have_first_key, key_includes_seq, value_is_full,
         block_contents_pinned, user_defined_timestamps_persisted,
         protection_bytes_per_key_, kv_checksum_, block_restart_interval_,
-        values_section_, resolved_search_type, value_delta_escape);
+        values_section_, resolved_search_type, value_delta_escape,
+        Slice(data(), common_prefix_size_));
   }
 
   return ret_iter;

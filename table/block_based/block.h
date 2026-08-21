@@ -308,13 +308,18 @@ class Block {
   //   otherwise 0. Used by GetCorruptionStatus() to re-decode footer.
   uint32_t restart_offset_;
   uint32_t num_restarts_;
-  bool is_uniform_{false};
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   char* kv_checksum_{nullptr};
   uint32_t checksum_size_{0};
   // Used by block iterators to calculate current key index within a block
   uint32_t block_restart_interval_{0};
+  // Byte length of the common user-key prefix stored once at the start of the
+  // block (always at offset 0), or 0 when the block does not use the
+  // format_version >= 8 common-prefix feature. The prefix Slice is materialized
+  // on demand as Slice(data(), common_prefix_size_).
+  uint32_t common_prefix_size_{0};
   uint8_t protection_bytes_per_key_{0};
+  bool is_uniform_{false};
   DataBlockHashIndex data_block_hash_index_;
 
   // Pointer to values section, nullptr if not using separated KV
@@ -507,6 +512,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // and to determine if we're at a restart point for separated KV storage)
   int32_t cur_entry_idx_;
   uint32_t block_restart_interval_;
+  // Byte length of the block's common user-key prefix (stored once at offset
+  // 0), 0 if unused. See has_common_prefix()/common_prefix(). Only set for
+  // DataBlockIter.
+  uint32_t common_prefix_size_ = 0;
   uint8_t protection_bytes_per_key_;
 
   bool key_pinned_;
@@ -514,6 +523,14 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // as long as the cleanup functions are transferred to another class,
   // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
+
+  // Common user-key prefix feature (format_version >= 8): the common prefix
+  // (common_prefix_size_ bytes) is stored once at the block start (offset 0).
+  // Restart-point keys are stored with it removed; ParseNextKey prepends it on
+  // a restart point (shared == 0). Set for both DataBlockIter and
+  // IndexBlockIter (leaf index and partitioned index/filter top-level).
+  bool has_common_prefix() const { return common_prefix_size_ != 0; }
+  Slice common_prefix() const { return Slice(data_, common_prefix_size_); }
 
   virtual void SeekToFirstImpl() = 0;
   virtual void SeekToLastImpl() = 0;
@@ -766,6 +783,35 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // UpdateKey().
   void FindKeyAfterBinarySeek(const Slice& target, uint32_t index,
                               bool is_index_key_result);
+
+  // Common-prefix feature helpers (format_version >= 8), shared by
+  // DataBlockIter and IndexBlockIter. Restart-point keys are stored (and
+  // GetRestartKey returns them) already prefix-stripped, so binary search and
+  // the linear scan can compare shortened suffixes without materializing full
+  // keys.
+  //
+  // `target` is the seek key in this block's key space (a user key if
+  // raw_key_.IsUserKey(), otherwise an internal key). Returns true if its user
+  // key starts with the block's common prefix, storing the prefix-stripped
+  // target in *target_suffix. Returns false if the target diverges from the
+  // block prefix; *before_all is then set to whether the target sorts before
+  // all keys in the block (per the user comparator).
+  bool StripSeekTargetPrefix(const Slice& target, Slice* target_suffix,
+                             bool* before_all) const;
+  template <typename DecodeKeyFunc>
+  bool BinarySeekSuffix(const Slice& target_suffix, uint32_t* index,
+                        bool* skip_linear_scan);
+  void FindKeyAfterBinarySeekSuffix(const Slice& target_suffix, uint32_t index,
+                                    bool skip_linear_scan);
+  // Compares the current (full) key against `target_suffix`, skipping the
+  // common prefix bytes on the current key. REQUIRES: has_common_prefix().
+  int CompareCurrentKeySuffix(const Slice& target_suffix) const {
+    Slice full = raw_key_.GetKey();
+    assert(full.size() >= common_prefix_size_);
+    Slice suffix(full.data() + common_prefix_size_,
+                 full.size() - common_prefix_size_);
+    return CompareKey(suffix, target_suffix);
+  }
 };
 
 class DataBlockIter final : public BlockIter<Slice> {
@@ -780,7 +826,8 @@ class DataBlockIter final : public BlockIter<Slice> {
                   bool user_defined_timestamps_persisted,
                   DataBlockHashIndex* data_block_hash_index,
                   uint8_t protection_bytes_per_key, const char* kv_checksum,
-                  uint32_t block_restart_interval, const char* values_section) {
+                  uint32_t block_restart_interval, const char* values_section,
+                  const Slice& common_prefix) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned, user_defined_timestamps_persisted,
                    protection_bytes_per_key, kv_checksum,
@@ -789,6 +836,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
+    common_prefix_size_ = static_cast<uint32_t>(common_prefix.size());
   }
 
   Slice value() const override {
@@ -934,7 +982,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       const char* kv_checksum, uint32_t block_restart_interval,
       const char* values_section,
       BlockBasedTableOptions::BlockSearchType index_block_search_type,
-      bool value_delta_escape) {
+      bool value_delta_escape, const Slice& common_prefix) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
                    user_defined_timestamps_persisted, protection_bytes_per_key,
@@ -945,6 +993,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     value_delta_escape_ = value_delta_escape;
     have_first_key_ = have_first_key;
     index_search_type_ = index_block_search_type;
+    common_prefix_size_ = static_cast<uint32_t>(common_prefix.size());
     if (have_first_key_ && global_seqno != kDisableGlobalSequenceNumber) {
       global_seqno_state_.reset(new GlobalSeqnoState(global_seqno));
     } else {

@@ -25,15 +25,23 @@ class BlockBuilder {
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
 
-  explicit BlockBuilder(
-      int block_restart_interval, bool use_delta_encoding = true,
-      bool use_value_delta_encoding = false,
-      BlockBasedTableOptions::DataBlockIndexType index_type =
-          BlockBasedTableOptions::kDataBlockBinarySearch,
-      double data_block_hash_table_util_ratio = 0.75, size_t ts_sz = 0,
-      bool persist_user_defined_timestamps = true, bool is_user_key = false,
-      bool use_separated_kv_storage = false, Statistics* statistics = nullptr,
-      double uniform_cv_threshold = -1.0);
+  explicit BlockBuilder(int block_restart_interval, bool use_delta_encoding,
+                        bool use_value_delta_encoding,
+                        BlockBasedTableOptions::DataBlockIndexType index_type,
+                        double data_block_hash_table_util_ratio, size_t ts_sz,
+                        bool persist_user_defined_timestamps, bool is_user_key,
+                        bool use_separated_kv_storage, Statistics* statistics,
+                        double uniform_cv_threshold, bool use_common_prefix);
+
+  // Tag for the simplified constructor below.
+  struct ForMetaBlock {};
+
+  // Simplified constructor for metadata blocks (the meta-index and properties
+  // blocks): standard settings, none of the main constructor's tuning knobs
+  // (statistics, uniformity, common-prefix, ...). The tag states the intent at
+  // the call site and avoids a bare single-int constructor that could be
+  // mistaken for a data block with silent defaults.
+  BlockBuilder(ForMetaBlock, int block_restart_interval);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -78,9 +86,24 @@ class BlockBuilder {
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
   inline size_t CurrentSizeEstimate() const {
-    return estimate_ + (data_block_hash_index_builder_.Valid()
-                            ? data_block_hash_index_builder_.EstimateSize()
-                            : 0);
+    size_t est =
+        estimate_ + (data_block_hash_index_builder_.Valid()
+                         ? data_block_hash_index_builder_.EstimateSize()
+                         : 0);
+    // While building with the common-prefix feature, `estimate_` is the
+    // format_version 7 size (keys encoded incrementally with the prefix still
+    // present); the prefix is only stripped from restart-point keys at
+    // Finish(). Subtract the prefix savings so blocks are packed close to the
+    // target size. Stripping removes P bytes from each of `nr` restart keys and
+    // stores the prefix once (P bytes, no length field), so the net saving is
+    // exactly P * (nr - 1).
+    if (use_common_prefix_ && !finishing_) {
+      size_t p = first_key_prefix_.size();
+      size_t nr = restarts_.size();
+      size_t saved = p * (nr > 0 ? nr - 1 : 0);
+      est = est > saved ? est - saved : est;
+    }
+    return est;
   }
 
   // Returns an estimated block size after appending key and value.
@@ -100,6 +123,15 @@ class BlockBuilder {
                                  const Slice& last_key,
                                  const Slice& delta_value,
                                  bool skip_delta_encoding, size_t buffer_size);
+
+  // Common-prefix feature: after the block has been encoded incrementally in
+  // the normal (fv4 index / fv7 data) layout, rewrite in place so that each
+  // restart-point key is stored without the block's common user-key prefix,
+  // which is written once in a section at the start of the block. Only restart
+  // entries change; all non-restart entry bytes (and all values) are copied
+  // verbatim. Handles both value-delta (index) and non-value-delta layouts.
+  // REQUIRES: first_key_prefix_ non-empty and buffer_ non-empty.
+  void RewriteRestartKeysStrippingPrefix();
 
   bool ScanForUniformity() const;
 
@@ -152,10 +184,20 @@ class BlockBuilder {
                                          // varint only at restart points; for
                                          // other entries, offset is computed
                                          // as prev_offset + prev_length.
-  std::string values_buffer_;
+  // Common user-key prefix feature (format_version >= 8, (reverse-)bytewise
+  // comparator, no UDT stripping). Keys are encoded incrementally in the
+  // format_version 7 layout; the running common user-key prefix is tracked, and
+  // at Finish() the restart-point keys are rewritten in place with the prefix
+  // stripped and the prefix is stored once at the block start.
+  const bool use_common_prefix_;
+  bool finishing_ = false;  // true while Finish() rewrites the block
 #ifndef NDEBUG
   bool add_with_last_key_called_ = false;
 #endif
+
+  // Grouped after the flags above to minimize padding.
+  std::string values_buffer_;
+  std::string first_key_prefix_;  // running common user-key prefix
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -34,7 +34,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       PartitionedIndexBuilder* const p_index_builder,
       const uint32_t partition_size, size_t ts_sz,
       const bool persist_user_defined_timestamps,
-      bool decouple_from_index_partitions);
+      bool decouple_from_index_partitions, bool use_common_prefix = false);
 
   virtual ~PartitionedFilterBlockBuilder();
 

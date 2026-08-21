@@ -46,6 +46,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     superBlockAlignmentSpaceOverheadRatio = 128;
     indexShortening = IndexShorteningMode.kShortenSeparators;
     indexSearchType = IndexSearchType.kBinary;
+    optimizeKeyCommonPrefix = OptimizeKeyCommonPrefix.kIfFastSeek;
 
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
@@ -68,8 +69,9 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean separateKeyValueInDataBlock, final double uniformCvThreshold,
       final boolean enableIndexCompression, final boolean blockAlign,
       final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
-      final byte indexShortening, final byte indexSearchType, final byte filterPolicyType,
-      final long filterPolicyHandle, final double filterPolicyConfigValue) {
+      final byte indexShortening, final byte indexSearchType, final byte optimizeKeyCommonPrefix,
+      final byte filterPolicyType, final long filterPolicyHandle,
+      final double filterPolicyConfigValue) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
     this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
     this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
@@ -99,6 +101,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
     this.indexSearchType = IndexSearchType.values()[indexSearchType];
+    this.optimizeKeyCommonPrefix = OptimizeKeyCommonPrefix.values()[optimizeKeyCommonPrefix];
     try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
              filterPolicyHandle, filterPolicyConfigValue)) {
       if (filterPolicy != null) {
@@ -957,6 +960,29 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Get the criteria controlling the {@code format_version} 8+ common
+   * user-key prefix block optimization.
+   *
+   * @return the currently set {@link OptimizeKeyCommonPrefix} criteria
+   */
+  public OptimizeKeyCommonPrefix optimizeKeyCommonPrefix() {
+    return optimizeKeyCommonPrefix;
+  }
+
+  /**
+   * Set the criteria controlling the {@code format_version} 8+ common
+   * user-key prefix block optimization. See {@link OptimizeKeyCommonPrefix}.
+   *
+   * @param optimizeKeyCommonPrefix {@link org.rocksdb.OptimizeKeyCommonPrefix} value
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setOptimizeKeyCommonPrefix(
+      final OptimizeKeyCommonPrefix optimizeKeyCommonPrefix) {
+    this.optimizeKeyCommonPrefix = optimizeKeyCommonPrefix;
+    return this;
+  }
+
+  /**
    * Get the size of the cache in bytes that will be used by RocksDB.
    *
    * @return block cache size in bytes
@@ -1082,7 +1108,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         readAmpBytesPerBit, formatVersion, separateKeyValueInDataBlock, uniformCvThreshold,
         enableIndexCompression, blockAlign, superBlockAlignmentSize,
         superBlockAlignmentSpaceOverheadRatio, indexShortening.getValue(),
-        indexSearchType.getValue(), blockCacheSize, blockCacheNumShardBits);
+        indexSearchType.getValue(), optimizeKeyCommonPrefix.getValue(), blockCacheSize,
+        blockCacheNumShardBits);
   }
 
   private static native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -1100,7 +1127,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean separateKeyValueInDataBlock, final double uniformCvThreshold,
       final boolean enableIndexCompression, final boolean blockAlign,
       final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
-      final byte indexShortening, final byte indexSearchType,
+      final byte indexShortening, final byte indexSearchType, final byte optimizeKeyCommonPrefix,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
 
@@ -1137,6 +1164,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private long superBlockAlignmentSpaceOverheadRatio;
   private IndexShorteningMode indexShortening;
   private IndexSearchType indexSearchType;
+  private OptimizeKeyCommonPrefix optimizeKeyCommonPrefix;
 
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;

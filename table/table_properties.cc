@@ -294,11 +294,10 @@ std::size_t TableProperties::ApproximateMemoryUsage() const {
 
   std::size_t string_props_mem_usage =
       db_id.size() + db_session_id.size() + db_host_id.size() +
-      user_key_common_prefix.size() + column_family_name.size() +
-      filter_policy_name.size() + comparator_name.size() +
-      merge_operator_name.size() + prefix_extractor_name.size() +
-      property_collectors_names.size() + compression_name.size() +
-      compression_options.size();
+      column_family_name.size() + filter_policy_name.size() +
+      comparator_name.size() + merge_operator_name.size() +
+      prefix_extractor_name.size() + property_collectors_names.size() +
+      compression_name.size() + compression_options.size();
   usage += string_props_mem_usage;
 
   for (auto iter = user_collected_properties.begin();
@@ -394,8 +393,6 @@ const std::string TablePropertiesNames::kIndexBlockRestartInterval =
     "rocksdb.index.block.restart.interval";
 const std::string TablePropertiesNames::kSeparateKeyValueInDataBlock =
     "rocksdb.separate.key.value.in.data.block";
-const std::string TablePropertiesNames::kUserKeyCommonPrefix =
-    "rocksdb.user.key.common.prefix";
 
 static std::unordered_map<std::string, OptionTypeInfo>
     table_properties_type_info = {
@@ -550,9 +547,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"db_id",
          {offsetof(struct TableProperties, db_id), OptionType::kEncodedString}},
-        {"user_key_common_prefix",
-         {offsetof(struct TableProperties, user_key_common_prefix),
-          OptionType::kEncodedString}},
         {"db_session_id",
          {offsetof(struct TableProperties, db_session_id),
           OptionType::kEncodedString}},

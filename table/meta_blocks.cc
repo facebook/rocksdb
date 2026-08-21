@@ -33,7 +33,8 @@ const std::string kCompressionDictBlockName = "rocksdb.compression_dict";
 const std::string kRangeDelBlockName = "rocksdb.range_del";
 
 MetaIndexBuilder::MetaIndexBuilder()
-    : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
+    : meta_index_block_(new BlockBuilder(BlockBuilder::ForMetaBlock{},
+                                         1 /* restart interval */)) {}
 
 void MetaIndexBuilder::Add(const std::string& key, const BlockHandle& handle) {
   std::string handle_encoding;
@@ -54,6 +55,7 @@ Slice MetaIndexBuilder::Finish() {
 // interval to infinity to save space.
 PropertyBlockBuilder::PropertyBlockBuilder()
     : properties_block_(new BlockBuilder(
+          BlockBuilder::ForMetaBlock{},
           std::numeric_limits<int32_t>::max() /* restart interval */)) {}
 
 void PropertyBlockBuilder::Add(const std::string& name,
@@ -192,10 +194,6 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.separate_key_value_in_data_block > 0) {
     Add(TablePropertiesNames::kSeparateKeyValueInDataBlock,
         props.separate_key_value_in_data_block);
-  }
-  if (!props.user_key_common_prefix.empty()) {
-    Add(TablePropertiesNames::kUserKeyCommonPrefix,
-        props.user_key_common_prefix);
   }
 }
 
@@ -409,8 +407,6 @@ Status ParsePropertiesBlock(
       *(pos->second) = val;
     } else if (key == TablePropertiesNames::kDbId) {
       new_table_properties->db_id = raw_val.ToString();
-    } else if (key == TablePropertiesNames::kUserKeyCommonPrefix) {
-      new_table_properties->user_key_common_prefix = raw_val.ToString();
     } else if (key == TablePropertiesNames::kDbSessionId) {
       new_table_properties->db_session_id = raw_val.ToString();
     } else if (key == TablePropertiesNames::kDbHostId) {

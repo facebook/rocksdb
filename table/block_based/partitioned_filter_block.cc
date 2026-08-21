@@ -27,7 +27,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size, size_t ts_sz,
     const bool persist_user_defined_timestamps,
-    bool decouple_from_index_partitions)
+    bool decouple_from_index_partitions, bool use_common_prefix)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       p_index_builder_(p_index_builder),
@@ -39,14 +39,16 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, false /* is_user_key */,
-          /*use_separated_kv_storage=*/false),
+          /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+          /*uniform_cv_threshold=*/-1.0, use_common_prefix),
       index_on_filter_block_builder_without_seq_(
           index_block_restart_interval, true /*use_delta_encoding*/,
           use_value_delta_encoding,
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, true /* is_user_key */,
-          /*use_separated_kv_storage=*/false),
+          /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+          /*uniform_cv_threshold=*/-1.0, use_common_prefix),
       use_value_delta_encoding_(use_value_delta_encoding),
       value_delta_escape_(FormatVersionUsesValueDeltaEscape(format_version)) {
   // Compute keys_per_partition_

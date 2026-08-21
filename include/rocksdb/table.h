@@ -753,6 +753,10 @@ struct BlockBasedTableOptions {
   // using a non-built-in CompatibilityName(). See `compression_manager` in
   // ColumnFamilyOptions. Also changes the format of TableProperties field
   // `compression_name`. Can be read by RocksDB versions >= 10.4.0.
+  // 8 -- Support for optimize_key_common_prefix, cleaner support for some
+  // features like super_block_alignment_size that impact index encoding, and
+  // more future-proofing that might guard future opt-in features. Can be read
+  // by RocksDB versions >= 11.10.0
   //
   // Using the default setting of format_version is strongly recommended, so
   // that available enhancements are adopted eventually and automatically. The
@@ -786,6 +790,39 @@ struct BlockBasedTableOptions {
   // NOTE: Currently only supports index blocks. May update to include data
   // blocks in the future.
   double uniform_cv_threshold = -1;
+
+  // Controls the conditions under which the format_version >= 8 "common
+  // user-key prefix" data-block optimization is enabled: the common prefix
+  // shared by all keys in a data block is stored once at the start of the block
+  // instead of at every restart point. This shrinks the block (and its
+  // block-cache footprint) for prefix-heavy data and, for bytewise-ordered
+  // keys, speeds up Seek by comparing prefix-stripped suffixes.
+  //
+  // Only takes effect at format_version >= 8, and requires use_delta_encoding
+  // (it builds on delta encoding). When use_delta_encoding is false -- e.g. to
+  // preserve zero-copy key pinning for ReadOptions::pin_data -- this is a
+  // no-op.
+  //
+  // The Seek speedup ("fast seek") is only correct for the built-in bytewise
+  // and reverse-bytewise comparators. Other comparators can still get the space
+  // savings (the reader reconstructs full keys) at a small read-CPU cost.
+  //
+  // Expressed as a criteria so it need not be toggled per column family based
+  // on the comparator (which can vary by CF).
+  enum class OptimizeKeyCommonPrefix : char {
+    // Never use the optimization.
+    kDisabled = 0,
+    // Use it only where it also enables the Seek speedup: format_version >= 8
+    // with a (reverse-)bytewise comparator. Left off for other comparators.
+    // This is the default.
+    kIfFastSeek = 1,
+    // Use it for all comparators at format_version >= 8. (Reverse-)bytewise get
+    // space savings + fast seek; other comparators get the space savings only,
+    // read via full-key reconstruction.
+    kEnabled = 2,
+  };
+  OptimizeKeyCommonPrefix optimize_key_common_prefix =
+      OptimizeKeyCommonPrefix::kIfFastSeek;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted

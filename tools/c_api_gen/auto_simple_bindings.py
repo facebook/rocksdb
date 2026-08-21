@@ -361,6 +361,7 @@ OPTION_STRUCTS_GROUP = OutputGroup(
                 "ChecksumType",
                 "IndexShorteningMode",
                 "PrepopulateBlockCache",
+                "OptimizeKeyCommonPrefix",
             ),
         ),
         FamilyConfig(
