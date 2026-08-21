@@ -100,6 +100,56 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
     db_.reset(*txn_db);
   }
 
+  // Opens a secondary that can replay the primary's 2PC markers.
+  // OpenAsSecondary() does not force allow_2pc the way TransactionDB::Open()
+  // does for the primary, and without it MarkBeginPrepare() rejects the
+  // prepared section with NotSupported.
+  void OpenSecondaryFor2PC(const Options& options) {
+    Options secondary_options = options;
+    secondary_options.max_open_files = -1;
+    secondary_options.allow_2pc = true;
+    OpenSecondary(secondary_options);
+  }
+
+  // Prepares a transaction named `name` on the primary and catches the
+  // secondary up to it, so that `*txn` awaits resolution and the secondary
+  // holds its prepared batch as a recovered transaction. Call under
+  // ASSERT_NO_FATAL_FAILURE.
+  void PrepareTransactionAndCatchUp(TransactionDB* txn_db,
+                                    const std::string& name,
+                                    const std::string& key,
+                                    const std::string& value,
+                                    std::unique_ptr<Transaction>* txn) {
+    txn->reset(txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_NE(nullptr, txn->get());
+    ASSERT_OK((*txn)->SetName(name));
+    ASSERT_OK((*txn)->Put(key, value));
+    ASSERT_OK((*txn)->Prepare());
+    ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    ASSERT_NE(nullptr, db_secondary_full()->GetRecoveredTransaction(name));
+  }
+
+  // Commits `*txn` on the primary and flushes, then purges the WAL holding its
+  // commit marker, so that no later round can replay that marker. Reports the
+  // purged WAL's log number in `*commit_log_number`. Call under
+  // ASSERT_NO_FATAL_FAILURE.
+  void CommitAndPurgeMarkerWal(TransactionDB* txn_db,
+                               std::unique_ptr<Transaction>* txn,
+                               uint64_t* commit_log_number) {
+    DBImpl* primary = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+    ASSERT_OK((*txn)->Commit());
+    txn->reset();
+    *commit_log_number = primary->TEST_GetCurrentLogNumber();
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_OK(db_->Put(WriteOptions(), "spacer", "s"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    primary->TEST_DeleteObsoleteFiles();
+    ASSERT_OK(primary->TEST_WaitForPurge());
+    ASSERT_TRUE(env_->FileExists(LogFileName(dbname_, *commit_log_number))
+                    .IsNotFound());
+  }
+
   // Checks that the secondary reads `expected` for `key` through both Get() and
   // an iterator. The two paths order the active memtable against the file set
   // differently, so they can disagree on a stale memtable entry.
@@ -1151,6 +1201,53 @@ TEST_F(DBSecondaryCatchUpFaultTest, ReconcilesMemtableAfterFailedRound) {
   VerifySecondaryValue("foo", "v2");
 }
 
+// A round whose WAL discovery reports a purged path replays nothing, yet
+// reports success. A marker still eligible for replay has not had its chance to
+// resolve its prepared section, so that round must drop no recovered
+// transaction, however far the watermark has moved past its prepare.
+TEST_F(DBSecondaryCatchUpFaultTest,
+       KeepsRecoveredTransactionAfterUnreplayedRound) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+
+  Options secondary_options = options;
+  secondary_options.env = fault_env_.get();
+  OpenSecondaryFor2PC(secondary_options);
+
+  std::unique_ptr<Transaction> txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t4", "k3", "v3", &txn));
+
+  // Leave the transaction resolved and its marker's WAL purged, so any round
+  // that replayed every WAL it found would drop it.
+  uint64_t commit_log_number = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      CommitAndPurgeMarkerWal(txn_db, &txn, &commit_log_number));
+
+  // Discovery fails the way a WAL purged mid-round fails, which the round
+  // reports as success after replaying nothing.
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::FindAndRecoverLogFiles:Begin", [this](void* /*arg*/) {
+        fault_fs_->SetFilesystemActive(
+            false, IOStatus::PathNotFound("injected purged WAL"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs_->SetFilesystemActive(true);
+  ASSERT_GT(db_secondary_full()->GetVersionSet()->min_log_number_to_keep(),
+            commit_log_number);
+  ASSERT_NE(nullptr, db_secondary_full()->GetRecoveredTransaction("t4"));
+
+  // The next round replays every WAL it finds, so it may drop the transaction.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t4"));
+}
+
 // The column family's log number advances as soon as the flush record is read,
 // even when the flushed file cannot be opened and no Version reflecting it can
 // be installed. The active memtable then holds the only readable copy of what
@@ -1382,24 +1479,13 @@ TEST_F(DBSecondaryTest, KeepsMemtableAfterTwoPhaseCommitReplay) {
   ASSERT_OK(db_->Put(WriteOptions(), "seed", "s"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  Options secondary_options = options;
-  secondary_options.max_open_files = -1;
-  // OpenAsSecondary() does not force allow_2pc the way TransactionDB::Open()
-  // does for the primary, and without it MarkBeginPrepare() rejects the
-  // prepared section with NotSupported before the gate is ever reached.
-  secondary_options.allow_2pc = true;
-  OpenSecondary(secondary_options);
+  OpenSecondaryFor2PC(options);
 
   // The prepared batch names the default column family, so the secondary
   // records this WAL for it, but buffers the entries instead of inserting.
-  std::unique_ptr<Transaction> txn(
-      txn_db->BeginTransaction(WriteOptions(), TransactionOptions()));
-  ASSERT_NE(nullptr, txn);
-  ASSERT_OK(txn->SetName("t1"));
-  ASSERT_OK(txn->Put("x", "2"));
-  ASSERT_OK(txn->Prepare());
-  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
-  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  std::unique_ptr<Transaction> txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t1", "x", "2", &txn));
   ASSERT_TRUE(
       GetSecondaryCfd(db_secondary_->DefaultColumnFamily())->mem()->IsEmpty());
 
@@ -1423,6 +1509,148 @@ TEST_F(DBSecondaryTest, KeepsMemtableAfterTwoPhaseCommitReplay) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   VerifySecondaryValue("x", "2");
+}
+
+// A secondary that observes a prepare but never its commit marker holds the
+// prepared batch until close: DeleteRecoveredTransaction() runs only from
+// MarkCommit() and MarkRollback(). Once the primary commits, flushes, and
+// purges the WAL holding the marker nothing can resolve the batch, so a
+// long-lived secondary accumulates them without bound while serving correct
+// reads from the SST.
+TEST_F(DBSecondaryTest, DropsRecoveredTransactionAfterCommitWalIsPurged) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+
+  OpenSecondaryFor2PC(options);
+
+  std::unique_ptr<Transaction> txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t2", "k1", "v2", &txn));
+
+  // The primary commits and flushes, then the WAL holding the marker is purged
+  // before the secondary catches up again, so the marker is never replayed.
+  uint64_t commit_log_number = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      CommitAndPurgeMarkerWal(txn_db, &txn, &commit_log_number));
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VerifySecondaryValue("k1", "v2");
+  // The drop reads the secondary's own watermark, replicated by the MANIFEST.
+  ASSERT_GT(db_secondary_full()->GetVersionSet()->min_log_number_to_keep(),
+            commit_log_number);
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t2"));
+  ASSERT_EQ(0, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+}
+
+// A primary can reuse a transaction name after commit unregisters it. If the
+// secondary missed the old marker, it must remove that generation before
+// replaying a new prepare with the same name.
+TEST_F(DBSecondaryTest, ReusesTransactionNameAfterResolvedBatchIsPurged) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+  OpenSecondaryFor2PC(options);
+
+  std::unique_ptr<Transaction> old_txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t6", "reuse", "v1", &old_txn));
+  uint64_t old_commit_log_number = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      CommitAndPurgeMarkerWal(txn_db, &old_txn, &old_commit_log_number));
+
+  std::unique_ptr<Transaction> new_txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t6", "reuse", "v2", &new_txn));
+  // The drop, not a replayed marker, is what removed the old generation.
+  ASSERT_GT(db_secondary_full()->GetVersionSet()->min_log_number_to_keep(),
+            old_commit_log_number);
+  DBImpl::RecoveredTransaction* recovered =
+      db_secondary_full()->GetRecoveredTransaction("t6");
+  ASSERT_NE(nullptr, recovered);
+  ASSERT_EQ(1, recovered->batches_.size());
+  VerifySecondaryValue("reuse", "v1");
+
+  ASSERT_OK(new_txn->Commit());
+  new_txn.reset();
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t6"));
+  VerifySecondaryValue("reuse", "v2");
+  ASSERT_EQ(0, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+}
+
+// Commit replay deletes the recovered transaction and records its prepare WAL
+// as complete. A secondary never runs the primary flush and write paths that
+// normally prune that tracking state, so catch-up must do it.
+TEST_F(DBSecondaryTest, PrunesRecoveredTransactionTrackingAfterCommitReplay) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+  OpenSecondaryFor2PC(options);
+
+  std::unique_ptr<Transaction> txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t5", "k3", "v3", &txn));
+  ASSERT_EQ(1, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+
+  ASSERT_OK(txn->Commit());
+  txn.reset();
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t5"));
+  ASSERT_EQ(0, db_secondary_full()->TEST_LogsWithPrepSize());
+  ASSERT_EQ(0, db_secondary_full()->TEST_PreparedSectionCompletedSize());
+}
+
+// A transaction whose prepare is still outstanding must be kept, no matter how
+// much unrelated data the primary flushes and purges.
+TEST_F(DBSecondaryTest, KeepsRecoveredTransactionWhilePrepareIsOutstanding) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  TransactionDB* txn_db = nullptr;
+  ASSERT_NO_FATAL_FAILURE(RecreatePrimaryAsTransactionDB(options, &txn_db));
+  DBImpl* primary = static_cast_with_check<DBImpl>(db_->GetRootDB());
+
+  OpenSecondaryFor2PC(options);
+
+  std::unique_ptr<Transaction> txn;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareTransactionAndCatchUp(txn_db, "t3", "k2", "w2", &txn));
+  const uint64_t prepare_log_number = primary->TEST_GetCurrentLogNumber();
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "spacer" + std::to_string(i), "s"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+  primary->TEST_DeleteObsoleteFiles();
+  ASSERT_OK(primary->TEST_WaitForPurge());
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  // The watermark the drop reads stops exactly at the prepare's WAL, which is
+  // what makes comparing against it with `>=` load-bearing.
+  ASSERT_EQ(prepare_log_number,
+            db_secondary_full()->GetVersionSet()->min_log_number_to_keep());
+  ASSERT_NE(nullptr, db_secondary_full()->GetRecoveredTransaction("t3"));
+
+  // MarkCommit() resolves it and applies the batch, so an early drop would have
+  // lost "k2".
+  ASSERT_OK(txn->Commit());
+  txn.reset();
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(nullptr, db_secondary_full()->GetRecoveredTransaction("t3"));
+  VerifySecondaryValue("k2", "w2");
 }
 
 // Once the primary flushes and drops a WAL, its files are the authority for

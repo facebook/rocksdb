@@ -324,7 +324,9 @@ class DBImplSecondary : public DBImpl {
       std::unordered_set<ColumnFamilyData*>* cfds_changed,
       JobContext* job_context);
   Status FindNewLogNumbers(std::vector<uint64_t>* logs);
-  // After manifest recovery, replay WALs and refresh log_readers_ if necessary
+  // Replays WALs after manifest recovery, refreshes log_readers_ as needed, and
+  // drops recovered transactions the primary resolved. Cleanup runs even when
+  // `log_numbers` is empty.
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence,
@@ -371,6 +373,13 @@ class DBImplSecondary : public DBImpl {
   // REQUIRES: mutex_ held
   void MaybeWarnAboutRetainedMemtables(ColumnFamilyData* cfd,
                                        uint64_t installed_log_number);
+
+  // Drops recovered transactions the primary resolved and flushed.
+  //
+  // REQUIRES: mutex_ held
+  // REQUIRES: every WAL reader for the round opened successfully
+  // REQUIRES: called before replaying records from the round
+  void DeleteResolvedRecoveredTransactions();
 
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still

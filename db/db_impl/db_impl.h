@@ -1156,10 +1156,12 @@ class DBImpl : public DB
     }
   };
 
+  using RecoveredTransactionMap =
+      std::unordered_map<std::string, RecoveredTransaction*>;
+
   bool allow_2pc() const { return immutable_db_options_.allow_2pc; }
 
-  std::unordered_map<std::string, RecoveredTransaction*>
-  recovered_transactions() {
+  RecoveredTransactionMap recovered_transactions() {
     return recovered_transactions_;
   }
 
@@ -1190,16 +1192,24 @@ class DBImpl : public DB
     logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }
 
-  void DeleteRecoveredTransaction(const std::string& name) {
-    auto it = recovered_transactions_.find(name);
+  // Deletes the recovered transaction `it` points to and returns the iterator
+  // following it, like std::unordered_map::erase().
+  RecoveredTransactionMap::iterator DeleteRecoveredTransaction(
+      RecoveredTransactionMap::iterator it) {
     assert(it != recovered_transactions_.end());
     auto* trx = it->second;
-    recovered_transactions_.erase(it);
+    RecoveredTransactionMap::iterator next = recovered_transactions_.erase(it);
     for (const auto& info : trx->batches_) {
       logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(
           info.second.log_number_);
     }
     delete trx;
+    return next;
+  }
+
+  void DeleteRecoveredTransaction(const std::string& name) {
+    RecoveredTransactionMap::iterator it = recovered_transactions_.find(name);
+    DeleteRecoveredTransaction(it);
   }
 
   void DeleteAllRecoveredTransactions() {
@@ -1527,8 +1537,7 @@ class DBImpl : public DB
   FileSystemPtr fs_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
-  std::unordered_map<std::string, RecoveredTransaction*>
-      recovered_transactions_;
+  RecoveredTransactionMap recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
   BlockCacheTracer block_cache_tracer_;
