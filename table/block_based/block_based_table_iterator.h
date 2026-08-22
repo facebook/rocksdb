@@ -339,10 +339,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // `block_handles_` is lazily constructed to save CPU when it is unused
   std::unique_ptr<std::deque<BlockHandleInfo>> block_handles_;
 
-  // The prefix of the key called with SeekImpl().
-  // This is for readahead trimming so no data blocks containing keys of a
-  // different prefix are prefetched
-  std::string seek_key_prefix_for_readahead_trimming_ = "";
+  // Prefix of the seek key from the last Seek() under prefix_same_as_start,
+  // for readahead trimming so no data blocks containing keys of a different
+  // prefix are prefetched. Empty disables prefix-based trimming.
+  std::string seek_key_prefix_for_readahead_trimming_;
 
   const bool allow_unprepared_value_;
   // How current data block's boundary key with the next block is compared with
