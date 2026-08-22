@@ -16,11 +16,16 @@
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <thread>
 #include <utility>
 
 #include "db/db_impl/db_impl.h"
+#include "db/log_writer.h"
+#include "db/manifest_ops.h"
+#include "db/version_edit.h"
 #include "file/file_util.h"
+#include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
@@ -560,6 +565,42 @@ namespace {
 // layout, with handles in that order.
 constexpr size_t kNumSubsetCheckpointCfs = 4;
 
+void AppendIncompleteAtomicGroupToManifest(Env* env,
+                                           const std::string& manifest_path) {
+  uint64_t file_size;
+  ASSERT_OK(env->GetFileSize(manifest_path, &file_size));
+  const std::shared_ptr<FileSystem>& fs = env->GetFileSystem();
+  std::unique_ptr<FSWritableFile> fs_file;
+  ASSERT_OK(fs->ReopenWritableFile(manifest_path, FileOptions(), &fs_file,
+                                   /*dbg=*/nullptr));
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(fs_file), manifest_path, FileOptions()));
+  log::Writer log_writer(std::move(file_writer), /*log_number=*/0,
+                         /*recycle_log_files=*/false,
+                         /*manual_flush=*/false, kNoCompression,
+                         /*track_and_verify_wals=*/false,
+                         file_size % log::kBlockSize);
+
+  VersionEdit first_edit;
+  first_edit.SetLogNumber(0);
+  first_edit.SetNextFile(100);
+  first_edit.SetLastSequence(100);
+  first_edit.MarkAtomicGroup(2);
+  std::string first_record;
+  ASSERT_TRUE(first_edit.EncodeTo(&first_record, 0));
+  ASSERT_OK(log_writer.AddRecord(WriteOptions(), first_record));
+
+  VersionEdit second_edit;
+  second_edit.SetLogNumber(0);
+  second_edit.SetNextFile(100);
+  second_edit.SetLastSequence(100);
+  second_edit.MarkAtomicGroup(1);
+  std::string second_record;
+  ASSERT_TRUE(second_edit.EncodeTo(&second_record, 0));
+  ASSERT_OK(log_writer.AddRecord(WriteOptions(), second_record));
+  // Omit the final remaining_entries=0 record, leaving the group incomplete.
+}
+
 // Writes one key per column family and flushes, so each family owns exactly one
 // SST file and the families excluded from a subset checkpoint are visible as
 // missing SSTs.
@@ -672,6 +713,78 @@ TEST_F(CheckpointTest, CheckpointSubsetOfCF) {
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "one", "two", "three"},
                            options);
   VerifyFourCfsIntact(db_.get(), handles_);
+
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest,
+       CheckpointSubsetIncompleteAtomicGroupAfterWritableRecovery) {
+  Options options = CurrentOptions();
+  options.optimize_manifest_for_recovery = true;
+  options.reuse_manifest_on_open = false;
+  options.track_and_verify_wals_in_manifest = true;
+  options.avoid_flush_during_recovery = true;
+  options.write_dbid_to_manifest = false;
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+  Close();
+
+  std::string manifest_path;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path,
+                                   &manifest_file_number));
+  AppendIncompleteAtomicGroupToManifest(env_, manifest_path);
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "one", "two", "three"},
+                           options);
+  std::string manifest_path_after_reopen;
+  ASSERT_OK(GetCurrentManifestPath(
+      dbname_, env_->GetFileSystem().get(), /*is_retry=*/false,
+      &manifest_path_after_reopen, &manifest_file_number));
+  ASSERT_EQ(manifest_path, manifest_path_after_reopen);
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  ASSERT_OK(uchk->CreateCheckpoint(snapshot_name_, {handles_[0], handles_[2]},
+                                   std::numeric_limits<uint64_t>::max()));
+
+  VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
+}
+
+TEST_F(CheckpointTest,
+       CheckpointSubsetIncompleteAtomicGroupAfterReadOnlyRecovery) {
+  Options options = CurrentOptions();
+  options.optimize_manifest_for_recovery = true;
+  options.reuse_manifest_on_open = false;
+  options.track_and_verify_wals_in_manifest = true;
+  options.avoid_flush_during_recovery = true;
+  options.write_dbid_to_manifest = false;
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+  PopulateFourCfsForSubsetCheckpoint(db_.get(), handles_);
+  Close();
+
+  std::string manifest_path;
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path,
+                                   &manifest_file_number));
+  AppendIncompleteAtomicGroupToManifest(env_, manifest_path);
+
+  ASSERT_OK(ReadOnlyReopenWithColumnFamilies(
+      {kDefaultColumnFamilyName, "one", "two", "three"}, options));
+  std::string manifest_path_after_reopen;
+  ASSERT_OK(GetCurrentManifestPath(
+      dbname_, env_->GetFileSystem().get(), /*is_retry=*/false,
+      &manifest_path_after_reopen, &manifest_file_number));
+  ASSERT_EQ(manifest_path, manifest_path_after_reopen);
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> uchk(checkpoint);
+  ASSERT_OK(uchk->CreateCheckpoint(snapshot_name_, {handles_[0], handles_[2]},
+                                   std::numeric_limits<uint64_t>::max()));
 
   VerifyDefaultAndTwoSubsetCheckpoint(env_, snapshot_name_, options);
 }

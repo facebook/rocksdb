@@ -5376,6 +5376,8 @@ VersionSet::VersionSet(
       current_version_number_(0),
       manifest_file_size_(0),
       manifest_recovery_last_valid_record_end_(0),
+      manifest_last_valid_record_end_(0),
+      manifest_last_valid_record_end_file_number_(0),
       force_new_manifest_on_open_(false),
       last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
@@ -5587,6 +5589,8 @@ void VersionSet::Reset() {
   manifest_writers_.clear();
   manifest_file_size_ = 0;
   manifest_recovery_last_valid_record_end_ = 0;
+  manifest_last_valid_record_end_ = 0;
+  manifest_last_valid_record_end_file_number_ = 0;
   force_new_manifest_on_open_ = false;
   last_compacted_manifest_file_size_ = 0;
   TuneMaxManifestFileSize();
@@ -6200,6 +6204,8 @@ Status VersionSet::ProcessManifestWrites(
       descriptor_last_sequence_ = max_last_sequence;
       manifest_file_number_ = pending_manifest_file_number_;
       manifest_file_size_ = new_manifest_file_size;
+      manifest_last_valid_record_end_ = new_manifest_file_size;
+      manifest_last_valid_record_end_file_number_ = manifest_file_number_;
       prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
     }
   } else {
@@ -6492,9 +6498,24 @@ std::unique_ptr<log::Writer> VersionSet::CreateManifestWriter(
       /*track_and_verify_wals=*/false, block_offset);
 }
 
+Status VersionSet::GetManifestAppendBoundary(uint64_t* manifest_size) const {
+  assert(manifest_size != nullptr);
+  if (manifest_last_valid_record_end_file_number_ != manifest_file_number_) {
+    return Status::TryAgain(
+        "Current MANIFEST changed while determining its append boundary");
+  }
+  if (manifest_last_valid_record_end_ == 0 ||
+      manifest_last_valid_record_end_ > manifest_file_size_) {
+    return Status::Corruption("Invalid MANIFEST append boundary");
+  }
+  *manifest_size = manifest_last_valid_record_end_;
+  return Status::OK();
+}
+
 Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   assert(db_options_->reuse_manifest_on_open);
   assert(manifest_recovery_last_valid_record_end_ > 0);
+  assert(manifest_last_valid_record_end_file_number_ == manifest_file_number_);
 
   // Disabled under best_efforts_recovery: that mode rebuilds the
   // MANIFEST + CURRENT from scratch via the side-effect of

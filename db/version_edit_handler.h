@@ -48,7 +48,10 @@ class VersionEditHandlerBase {
   virtual void CheckIterationResult(const log::Reader& /*reader*/,
                                     Status* /*s*/) {}
 
-  void ClearReadBuffer() { read_buffer_.Clear(); }
+  void ResetReadState() {
+    read_buffer_.Clear();
+    last_valid_record_end_ = 0;
+  }
 
   Status status_;
 
@@ -425,7 +428,7 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   void PrepareToReadNewManifest() {
     initialized_ = false;
-    ClearReadBuffer();
+    ResetReadState();
   }
 
   std::unordered_set<ColumnFamilyData*>& GetUpdatedColumnFamilies() {

@@ -1619,16 +1619,22 @@ class VersionSet {
   // in the manifest?" (e.g. the DB::OpenAndCompact floor vs. a
   // manifest_file_size captured on the primary). It is maximal, so a
   // fully-recovered prefix never tests short; it excludes garbage, so a corrupt
-  // tail never tests long. It is not a safe append/truncate offset -- use
-  // manifest_recovery_last_valid_record_end_.
+  // tail never tests long. It is not a safe append/truncate offset; use
+  // GetManifestAppendBoundary() for that.
   //
-  // Today this == manifest_recovery_last_valid_record_end_ == a clean
-  // manifest_file_size_; a future padded/footered format may make
-  // last_valid_record_end_ <= manifest_file_size_ <= this (changing only this
-  // accessor's body, not callers).
+  // Immediately after recovery, this ==
+  // manifest_recovery_last_valid_record_end_ == a clean manifest_file_size_;
+  // a future padded/footered format may make manifest_last_valid_record_end_
+  // <= manifest_file_size_ <= this (changing only this accessor's body, not
+  // callers).
   uint64_t manifest_recovery_maximal_valid_size() const {
     return manifest_recovery_last_valid_record_end_;
   }
+
+  // Returns the valid prefix length at which records can be appended to a
+  // copy of the current MANIFEST.
+  // REQUIRES: DB mutex held, or the DB is not yet visible to other threads.
+  Status GetManifestAppendBoundary(uint64_t* manifest_size) const;
 
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
@@ -1883,10 +1889,18 @@ class VersionSet {
   // (Close), and backup metadata.
   uint64_t manifest_recovery_last_valid_record_end_;
 
+  // Safe append boundary for a copy of the current MANIFEST. Initialized from
+  // the recovery boundary and advanced after every successful MANIFEST write.
+  // Unlike manifest_file_size_, it excludes any tolerated tail garbage.
+  uint64_t manifest_last_valid_record_end_;
+
+  // MANIFEST file number associated with manifest_last_valid_record_end_.
+  uint64_t manifest_last_valid_record_end_file_number_;
+
   // True when reuse_manifest_on_open was requested but the recovered MANIFEST
   // could not be safely reopened for append. DB open must install a fresh
-  // MANIFEST before returning so other MANIFEST append paths never see the old
-  // tail.
+  // MANIFEST before returning so normal writable operation never appends to
+  // the old tail.
   bool force_new_manifest_on_open_;
 
   // Size of the populated manifest file last time it was re-written from
