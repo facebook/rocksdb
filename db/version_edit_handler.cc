@@ -464,6 +464,9 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     assert(version_set_->manifest_file_size_ > 0);
     version_set_->manifest_recovery_last_valid_record_end_ =
         last_valid_record_end_;
+    version_set_->manifest_last_valid_record_end_ = last_valid_record_end_;
+    version_set_->manifest_last_valid_record_end_file_number_ =
+        version_set_->manifest_file_number_;
     version_set_->next_file_number_.store(version_edit_params_.GetNextFile() +
                                           1);
     SequenceNumber last_seq = version_edit_params_.GetLastSequence();
