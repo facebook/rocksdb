@@ -645,6 +645,35 @@ class BatchedOpsStressTest : public StressTest {
       iters[i]->Seek(prefix_slices[i]);
     }
 
+    std::array<Status, num_prefixes> prefix_statuses;
+    ReadOptions prefix_read_options = readoptions;
+    prefix_read_options.snapshot = snapshot;
+    db_->MultiPrefixExists(prefix_read_options, cfh, num_prefixes,
+                           prefix_slices.data(), prefix_statuses.data());
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      if (!prefix_statuses[i].ok() && !prefix_statuses[i].IsNotFound()) {
+        fprintf(stderr, "MultiPrefixExists error for prefix %s: %s\n",
+                prefix_slices[i].ToString(/* hex */ true).c_str(),
+                prefix_statuses[i].ToString().c_str());
+        thread->stats.AddErrors(1);
+        continue;
+      }
+      if (!iters[i]->status().ok()) {
+        continue;
+      }
+      const bool expected =
+          iters[i]->Valid() && iters[i]->key().starts_with(prefix_slices[i]);
+      if (prefix_statuses[i].ok() != expected) {
+        fprintf(stderr,
+                "MultiPrefixExists mismatch for prefix %s: expected %s, got "
+                "%s\n",
+                prefix_slices[i].ToString(/* hex */ true).c_str(),
+                expected ? "found" : "not found",
+                prefix_statuses[i].ToString().c_str());
+        thread->stats.AddErrors(1);
+      }
+    }
+
     uint64_t count = 0;
 
     while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {

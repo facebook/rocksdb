@@ -3012,6 +3012,59 @@ unsigned char rocksdb_key_may_exist_cf(
   return result;
 }
 
+static void rocksdb_multi_prefix_exists_impl(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    ColumnFamilyHandle* column_family, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* results, char** errs) {
+  std::vector<Slice> prefixes;
+  prefixes.reserve(num_prefixes);
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    prefixes.emplace_back(prefixes_list[i], prefixes_list_sizes[i]);
+  }
+
+  std::vector<Status> statuses(num_prefixes);
+  db->rep->MultiPrefixExists(options->rep, column_family, num_prefixes,
+                             prefixes.data(), statuses.data());
+  for (size_t i = 0; i < num_prefixes; ++i) {
+    if (statuses[i].ok()) {
+      results[i] = rocksdb_multi_prefix_exists_found;
+    } else if (statuses[i].IsNotFound()) {
+      results[i] = rocksdb_multi_prefix_exists_not_found;
+    } else if (statuses[i].IsIncomplete()) {
+      results[i] = rocksdb_multi_prefix_exists_incomplete;
+    } else {
+      results[i] = rocksdb_multi_prefix_exists_error;
+    }
+    if (errs != nullptr) {
+      errs[i] = statuses[i].ok() || statuses[i].IsNotFound()
+                    ? nullptr
+                    : strdup(statuses[i].ToString().c_str());
+    }
+  }
+}
+
+void rocksdb_multi_prefix_exists(rocksdb_t* db,
+                                 const rocksdb_readoptions_t* options,
+                                 size_t num_prefixes,
+                                 const char* const* prefixes_list,
+                                 const size_t* prefixes_list_sizes,
+                                 unsigned char* results, char** errs) {
+  rocksdb_multi_prefix_exists_impl(db, options, db->rep->DefaultColumnFamily(),
+                                   num_prefixes, prefixes_list,
+                                   prefixes_list_sizes, results, errs);
+}
+
+void rocksdb_multi_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* results, char** errs) {
+  rocksdb_multi_prefix_exists_impl(db, options, column_family->rep,
+                                   num_prefixes, prefixes_list,
+                                   prefixes_list_sizes, results, errs);
+}
+
 rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;

@@ -20,8 +20,10 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/format.h"
@@ -83,6 +85,113 @@ class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
 
  private:
   const int num_keys_in_block_;
+};
+
+class ImmutableUpperBoundIterator : public Iterator {
+ public:
+  ImmutableUpperBoundIterator(Iterator* iterator, const Slice* upper_bound)
+      : iterator_(iterator), upper_bound_(upper_bound) {
+    if (upper_bound_ != nullptr) {
+      initial_upper_bound_ = upper_bound_->ToString();
+    }
+  }
+
+  bool Valid() const override {
+    CheckUpperBound();
+    return status_.ok() && iterator_->Valid();
+  }
+
+  void SeekToFirst() override {
+    CheckUpperBound();
+    if (status_.ok()) {
+      iterator_->SeekToFirst();
+    }
+  }
+
+  void SeekToLast() override {
+    CheckUpperBound();
+    if (status_.ok()) {
+      iterator_->SeekToLast();
+    }
+  }
+
+  void Seek(const Slice& target) override {
+    CheckUpperBound();
+    if (status_.ok()) {
+      iterator_->Seek(target);
+    }
+  }
+
+  void SeekForPrev(const Slice& target) override {
+    CheckUpperBound();
+    if (status_.ok()) {
+      iterator_->SeekForPrev(target);
+    }
+  }
+
+  void Next() override {
+    CheckUpperBound();
+    if (status_.ok()) {
+      iterator_->Next();
+    }
+  }
+
+  void Prev() override {
+    CheckUpperBound();
+    if (status_.ok()) {
+      iterator_->Prev();
+    }
+  }
+
+  Slice key() const override { return iterator_->key(); }
+  Slice value() const override { return iterator_->value(); }
+
+  Status status() const override {
+    CheckUpperBound();
+    return status_.ok() ? iterator_->status() : status_;
+  }
+
+ private:
+  void CheckUpperBound() const {
+    if (status_.ok() && upper_bound_ != nullptr &&
+        *upper_bound_ != Slice(initial_upper_bound_)) {
+      status_ = Status::Corruption("iterator upper bound changed");
+    }
+  }
+
+  std::unique_ptr<Iterator> iterator_;
+  const Slice* upper_bound_;
+  std::string initial_upper_bound_;
+  mutable Status status_;
+};
+
+class ImmutableIteratorOptionsDB : public StackableDB {
+ public:
+  explicit ImmutableIteratorOptionsDB(DB* db)
+      : StackableDB(std::shared_ptr<DB>(db, [](DB*) {})) {}
+
+  Iterator* NewIterator(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family) override {
+    return new ImmutableUpperBoundIterator(
+        db_->NewIterator(options, column_family), options.iterate_upper_bound);
+  }
+};
+
+class VariableLengthPrefixTransform : public SliceTransform {
+ public:
+  const char* Name() const override { return "VariableLengthPrefixTransform"; }
+
+  Slice Transform(const Slice& key) const override {
+    return Slice(key.data(),
+                 std::min<size_t>(key.size(), key.size() > 2 ? 1 : 2));
+  }
+
+  bool InDomain(const Slice& /*key*/) const override { return true; }
+
+  bool FullLengthEnabled(size_t* len) const override {
+    *len = 2;
+    return true;
+  }
 };
 
 }  // namespace
@@ -2262,6 +2371,331 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
     ASSERT_EQ(static_cast<int>(s.size()), 2);
     ASSERT_TRUE(s[0].IsNotFound() && s[1].IsNotFound());
   } while (ChangeCompactOptions());
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsBasic) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  ASSERT_OK(Put(1, "alpha", "v1"));
+  ASSERT_OK(Put(1, "alphabet", "v2"));
+  ASSERT_OK(Put(1, "beta", "v3"));
+  ASSERT_OK(Put(1, Slice("\0binary", 7), "v4"));
+  ASSERT_OK(Put(1, Slice("\xffkey", 4), "v5"));
+
+  const std::vector<Slice> prefixes{
+      "missing", "alpha",         "alphab",         "beta",        "alpha",
+      "",        Slice("\0b", 2), Slice("\xff", 1), "alphabetical"};
+  std::vector<Status> statuses(prefixes.size());
+
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+  ASSERT_OK(statuses[2]);
+  ASSERT_OK(statuses[3]);
+  ASSERT_OK(statuses[4]);
+  ASSERT_OK(statuses[5]);
+  ASSERT_OK(statuses[6]);
+  ASSERT_OK(statuses[7]);
+  ASSERT_TRUE(statuses[8].IsNotFound());
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsRespectsLogicalVisibility) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "deleted/key", "old"));
+  ASSERT_OK(Put(1, "range/key", "old"));
+  ASSERT_OK(Put(1, "merged/key", "base"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Delete(1, "deleted/key"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), handles_[1], "range/", "range0"));
+  ASSERT_OK(db_->Merge(WriteOptions(), handles_[1], "merged/key", "operand"));
+  ASSERT_OK(
+      db_->Merge(WriteOptions(), handles_[1], "merge-only/key", "operand"));
+
+  const std::vector<Slice> prefixes{"range/", "merged/", "deleted/",
+                                    "merge-only/"};
+  std::vector<Status> statuses(prefixes.size());
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_OK(statuses[3]);
+
+  ReadOptions ignore_range_deletions;
+  ignore_range_deletions.ignore_range_deletions = true;
+  db_->MultiPrefixExists(ignore_range_deletions, handles_[1], 1,
+                         prefixes.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsBoundsNegativeSeeks) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(db_->Merge(WriteOptions(), handles_[1], "b/key", "operand"));
+
+  int merges = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBIter::MergeValuesNewToOld:PushedFirstOperand",
+      [&](void*) { ++merges; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const std::vector<Slice> prefixes{"a", Slice("\xff", 1)};
+  std::vector<Status> statuses(prefixes.size());
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_EQ(merges, 0);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsRespectsExplicitSnapshot) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  ASSERT_OK(Put(1, "snapshot/key", "value"));
+  ASSERT_OK(Flush(1));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ASSERT_OK(Delete(1, "snapshot/key"));
+
+  const Slice prefix("snapshot/");
+  Status status;
+  ReadOptions snapshot_read;
+  snapshot_read.snapshot = snapshot;
+  db_->MultiPrefixExists(snapshot_read, handles_[1], 1, &prefix, &status);
+  ASSERT_OK(status);
+
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], 1, &prefix, &status);
+  ASSERT_TRUE(status.IsNotFound());
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsUsesOneImplicitSnapshot) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  CreateAndReopenWithCF({"pikachu"}, options);
+  const std::string high_key("\xff/key", 5);
+  ASSERT_OK(Put(1, "before/key", "value"));
+  ASSERT_OK(Put(1, high_key, "value"));
+
+  bool updated = false;
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::NewIterator:1", [&](void*) {
+    if (!updated) {
+      ASSERT_OK(Delete(1, "before/key"));
+      ASSERT_OK(Delete(1, high_key));
+      ASSERT_OK(Put(1, "after/key", "value"));
+      updated = true;
+    }
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const std::vector<Slice> prefixes{"after/", "before/", "a", Slice("\xff", 1)};
+  std::vector<Status> statuses(prefixes.size());
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(updated);
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_OK(statuses[3]);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsReportsCacheOnlyUnknowns) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 20);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "cold/key", "value"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, "memtable/key", "value"));
+
+  const std::vector<Slice> prefixes{"cold/", "memtable/", "z/"};
+  std::vector<Status> statuses(prefixes.size());
+  ReadOptions cache_only;
+  cache_only.read_tier = kBlockCacheTier;
+  db_->MultiPrefixExists(cache_only, handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsIncomplete());
+  ASSERT_OK(statuses[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], 1, prefixes.data(),
+                         statuses.data());
+  ASSERT_OK(statuses[0]);
+  db_->MultiPrefixExists(cache_only, handles_[1], 1, prefixes.data(),
+                         statuses.data());
+  ASSERT_OK(statuses[0]);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsIgnoresIteratorRestrictions) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  ASSERT_OK(Put(1, "target/key", "value"));
+  ASSERT_OK(Flush(1));
+
+  const Slice lower_bound("z");
+  const Slice upper_bound("zz");
+  const std::function<bool(const TableProperties&)> reject_all_tables =
+      [](const TableProperties&) { return false; };
+  ReadOptions read_options;
+  read_options.iterate_lower_bound = &lower_bound;
+  read_options.iterate_upper_bound = &upper_bound;
+  read_options.table_filter = &reject_all_tables;
+  read_options.tailing = true;
+  read_options.auto_prefix_mode = true;
+  read_options.prefix_same_as_start = true;
+
+  const Slice prefix("target/");
+  Status status;
+  db_->MultiPrefixExists(read_options, handles_[1], 1, &prefix, &status);
+  ASSERT_OK(status);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsAvoidsIncompatiblePrefixBloom) {
+  Options options = CurrentOptions();
+  options.prefix_extractor = std::make_shared<VariableLengthPrefixTransform>();
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "aaa", "value"));
+  ASSERT_OK(Flush(1));
+
+  const Slice prefix("aa");
+  Status status;
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], 1, &prefix, &status);
+
+  ASSERT_OK(status);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsKeepsIteratorOptionsImmutable) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  ASSERT_OK(Put(1, "b/key", "value"));
+  ImmutableIteratorOptionsDB db(db_.get());
+
+  const std::vector<Slice> prefixes{"a", "b"};
+  std::vector<Status> statuses(prefixes.size());
+  db.MultiPrefixExists(ReadOptions(), handles_[1], prefixes.size(),
+                       prefixes.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsRequiresSnapshotForMultipleIterators) {
+  Options options = CurrentOptions();
+  options.allow_concurrent_memtable_write = false;
+  options.inplace_update_support = true;
+  options.merge_operator = std::make_shared<TestPutOperator>();
+  DestroyAndReopen(options);
+  ASSERT_EQ(db_->GetSnapshot(), nullptr);
+  ASSERT_OK(db_->Merge(WriteOptions(), "b/key", "corrupted_must_merge"));
+
+  const Slice single_prefix("a");
+  Status single_status;
+  db_->MultiPrefixExists(ReadOptions(), 1, &single_prefix, &single_status);
+  ASSERT_TRUE(single_status.IsNotFound());
+
+  const std::vector<Slice> prefixes{"a", "c"};
+  std::vector<Status> statuses(prefixes.size());
+  db_->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                         statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_TRUE(statuses[1].IsNotSupported());
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsRejectsNonBytewiseOrdering) {
+  Options options = CurrentOptions();
+  options.comparator = ReverseBytewiseComparator();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("target/key", "value"));
+
+  const std::vector<Slice> prefixes{"target/", "missing/"};
+  std::vector<Status> statuses(prefixes.size());
+  db_->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                         statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_TRUE(statuses[1].IsNotSupported());
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsEmptyInputAndDatabase) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], 0, nullptr, nullptr);
+
+  const Slice empty_prefix;
+  Status status;
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], 1, &empty_prefix, &status);
+  ASSERT_TRUE(status.IsNotFound());
+
+  ASSERT_OK(Put("default/key", "value"));
+  db_->MultiPrefixExists(ReadOptions(), 1, &empty_prefix, &status);
+  ASSERT_OK(status);
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsReadTiers) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  ASSERT_OK(Put(1, "persisted/key", "value"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, "memtable/key", "value"));
+
+  const std::vector<Slice> prefixes{"persisted/", "memtable/"};
+  std::vector<Status> statuses(prefixes.size());
+  ReadOptions memtable_only;
+  memtable_only.read_tier = kMemtableTier;
+  db_->MultiPrefixExists(memtable_only, handles_[1], 1, &prefixes[0],
+                         &statuses[0]);
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  db_->MultiPrefixExists(memtable_only, handles_[1], 1, &prefixes[1],
+                         &statuses[1]);
+  ASSERT_OK(statuses[1]);
+
+  db_->MultiPrefixExists(memtable_only, handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_TRUE(statuses[1].IsNotSupported());
+
+  ReadOptions persisted_only;
+  persisted_only.read_tier = kPersistedTier;
+  db_->MultiPrefixExists(persisted_only, handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_TRUE(statuses[1].IsNotSupported());
+}
+
+TEST_F(DBBasicTest, MultiPrefixExistsValidatesArguments) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  const std::vector<Slice> prefixes{"a", "b"};
+  std::vector<Status> statuses(prefixes.size());
+
+  db_->MultiPrefixExists(ReadOptions(), nullptr, prefixes.size(),
+                         prefixes.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].IsInvalidArgument());
+  ASSERT_TRUE(statuses[1].IsInvalidArgument());
+
+  db_->MultiPrefixExists(ReadOptions(), handles_[1], prefixes.size(), nullptr,
+                         statuses.data());
+  ASSERT_TRUE(statuses[0].IsInvalidArgument());
+  ASSERT_TRUE(statuses[1].IsInvalidArgument());
+
+  const ReadOptions wrong_io_activity(Env::IOActivity::kGet);
+  db_->MultiPrefixExists(wrong_io_activity, handles_[1], prefixes.size(),
+                         prefixes.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].IsInvalidArgument());
+  ASSERT_TRUE(statuses[1].IsInvalidArgument());
 }
 
 class DBBlockChecksumTest : public DBBasicTest,

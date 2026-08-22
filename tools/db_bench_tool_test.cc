@@ -364,6 +364,59 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
   VerifyOptions(SanitizeOptions(db_path_, opt));
 }
 
+TEST_F(DBBenchTest, MultiPrefixExistsModes) {
+  GFLAGS_NAMESPACE::FlagSaver flag_saver;
+  const std::string prefix_db_path = test_path_ + "/multiprefix-db";
+  ASSERT_OK(DestroyDB(prefix_db_path, Options()));
+
+  ResetArgs();
+  AppendArgs({"./db_bench", "--benchmarks=fillseq", "--use_existing_db=false",
+              "--num=1001", "--batch_size=1", "--key_size=16",
+              "--value_size=10", "--prefix_size=2", "--keys_per_prefix=100",
+              "--multiprefix_exists_prefix_stride=2", "--bloom_bits=10",
+              "--whole_key_filtering=false", "--compression_type=none",
+              "--options_file=", "--num_column_families=1",
+              "--db=" + prefix_db_path});
+  ASSERT_EQ(0, db_bench_tool(argc(), argv()));
+
+  for (bool sort : {false, true}) {
+    for (const std::string& mode :
+         {"api", "reuse_iterator", "iterator_per_prefix", "multi_scan"}) {
+      ResetArgs();
+      AppendArgs({"./db_bench",
+                  "--benchmarks=multiprefixexistsrandom",
+                  "--use_existing_db=true",
+                  "--use_existing_keys=false",
+                  "--num=1001",
+                  "--reads=320",
+                  "--batch_size=32",
+                  "--threads=1",
+                  "--seed=12345",
+                  "--key_size=16",
+                  "--value_size=10",
+                  "--prefix_size=2",
+                  "--keys_per_prefix=100",
+                  "--multiprefix_exists_prefix_stride=2",
+                  "--multiprefix_exists_query_size=2",
+                  "--multiprefix_exists_hit_rate=50",
+                  "--multiprefix_exists_duplicate_rate=10",
+                  std::string("--multiprefix_exists_sort=") +
+                      (sort ? "true" : "false"),
+                  "--multiprefix_exists_fill_cache=true",
+                  "--multiprefix_exists_mode=" + mode,
+                  "--bloom_bits=10",
+                  "--whole_key_filtering=false",
+                  "--compression_type=none",
+                  "--options_file=",
+                  "--num_column_families=1",
+                  "--db=" + prefix_db_path});
+      ASSERT_EQ(0, db_bench_tool(argc(), argv()));
+    }
+  }
+
+  ASSERT_OK(DestroyDB(prefix_db_path, Options()));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
@@ -375,7 +428,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Skip db_bench_tool_test as the required library GFLAG is missing.");
 }
 #endif  // #ifdef GFLAGS

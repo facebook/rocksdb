@@ -242,14 +242,15 @@ class CuckooTableIterator : public InternalIterator {
           user_key_len_(user_key_len),
           target_(target) {}
     bool operator()(const uint32_t first, const uint32_t second) const {
-      const char* first_bucket = (first == kInvalidIndex)
-                                     ? target_.data()
-                                     : &file_data_.data()[first * bucket_len_];
-      const char* second_bucket =
-          (second == kInvalidIndex) ? target_.data()
-                                    : &file_data_.data()[second * bucket_len_];
-      return ucomp_->Compare(Slice(first_bucket, user_key_len_),
-                             Slice(second_bucket, user_key_len_)) < 0;
+      const Slice first_key =
+          first == kInvalidIndex
+              ? target_
+              : Slice(&file_data_.data()[first * bucket_len_], user_key_len_);
+      const Slice second_key =
+          second == kInvalidIndex
+              ? target_
+              : Slice(&file_data_.data()[second * bucket_len_], user_key_len_);
+      return ucomp_->Compare(first_key, second_key) < 0;
     }
 
    private:

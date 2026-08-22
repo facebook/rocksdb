@@ -103,6 +103,34 @@ INSTANTIATE_TEST_CASE_P(
 
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
+TEST_P(TransactionTest, MultiPrefixExists) {
+  ASSERT_OK(db->Put(WriteOptions(), "committed/key", "value"));
+
+  std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("multi-prefix-exists"));
+  ASSERT_OK(txn->Put("prepared/key", "value"));
+  ASSERT_OK(txn->Prepare());
+
+  const std::array<Slice, 3> prefixes{"committed/", "prepared/", "missing/"};
+  std::array<Status, 3> statuses;
+  db->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                        statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  ReadOptions persisted_only;
+  persisted_only.read_tier = kPersistedTier;
+  db->MultiPrefixExists(persisted_only, prefixes.size(), prefixes.data(),
+                        statuses.data());
+  for (const Status& status : statuses) {
+    ASSERT_TRUE(status.IsNotSupported());
+  }
+
+  ASSERT_OK(txn->Rollback());
+}
+
 TEST_P(TransactionTest, TestUpperBoundUponDeletion) {
   // Reproduction from the original bug report, 11606
   // This test does writes without snapshot validation, and then tries to create

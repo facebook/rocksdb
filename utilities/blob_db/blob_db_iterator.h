@@ -6,6 +6,7 @@
 #pragma once
 
 #include "db/arena_wrapped_db_iter.h"
+#include "db/blob/blob_index.h"
 #include "rocksdb/iterator.h"
 #include "util/stop_watch.h"
 #include "utilities/blob_db/blob_db_impl.h"
@@ -22,12 +23,13 @@ class BlobDBIterator : public Iterator {
  public:
   BlobDBIterator(ManagedSnapshot* snapshot, ArenaWrappedDBIter* iter,
                  BlobDBImpl* blob_db, SystemClock* clock,
-                 Statistics* statistics)
+                 Statistics* statistics, bool allow_unprepared_value)
       : snapshot_(snapshot),
         iter_(iter),
         blob_db_(blob_db),
         clock_(clock),
-        statistics_(statistics) {}
+        statistics_(statistics),
+        allow_unprepared_value_(allow_unprepared_value) {}
 
   virtual ~BlobDBIterator() = default;
 
@@ -111,7 +113,24 @@ class BlobDBIterator : public Iterator {
     if (!iter_->IsBlob()) {
       return iter_->value();
     }
+    assert(value_prepared_);
     return value_;
+  }
+
+  bool PrepareValue() override {
+    assert(Valid());
+    if (!iter_->IsBlob() || value_prepared_) {
+      return iter_->PrepareValue();
+    }
+
+    status_ = blob_db_->GetRawBlobFromFile(
+        iter_->key(), blob_index_.file_number(), blob_index_.offset(),
+        blob_index_.size(), &value_);
+    if (!status_.ok()) {
+      return false;
+    }
+    value_prepared_ = true;
+    return true;
   }
 
   // Iterator::Refresh() not supported.
@@ -121,7 +140,20 @@ class BlobDBIterator : public Iterator {
   bool UpdateBlobValue() {
     value_.Reset();
     status_ = Status::OK();
+    value_prepared_ = true;
     if (iter_->Valid() && iter_->status().ok() && iter_->IsBlob()) {
+      if (allow_unprepared_value_) {
+        status_ = blob_index_.DecodeFrom(iter_->value());
+        if (!status_.ok()) {
+          return false;
+        }
+        if (blob_index_.HasTTL() &&
+            blob_index_.expiration() <= blob_db_->EpochNow()) {
+          return true;
+        }
+        value_prepared_ = false;
+        return false;
+      }
       Status s = blob_db_->GetBlobValue(iter_->key(), iter_->value(), &value_);
       if (s.IsNotFound()) {
         return true;
@@ -141,6 +173,9 @@ class BlobDBIterator : public Iterator {
   BlobDBImpl* blob_db_;
   SystemClock* clock_;
   Statistics* statistics_;
+  bool allow_unprepared_value_;
+  bool value_prepared_ = true;
+  BlobIndex blob_index_;
   Status status_;
   PinnableSlice value_;
 };

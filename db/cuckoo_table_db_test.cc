@@ -179,6 +179,23 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_EQ("NOT_FOUND", Get("key6"));
 }
 
+TEST_F(CuckooTableDBTest, MultiPrefixExistsWithVariableLengthTargets) {
+  ASSERT_OK(Put("alpha", "v1"));
+  ASSERT_OK(Put("bravo", "v2"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+  const std::vector<Slice> prefixes{"a", "alpha", "alpha0", "b", "z"};
+  std::vector<Status> statuses(prefixes.size());
+  dbfull()->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                              statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_OK(statuses[3]);
+  ASSERT_TRUE(statuses[4].IsNotFound());
+}
+
 TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
   Options options = CurrentOptions();
   Reopen(&options);

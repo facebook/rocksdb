@@ -270,6 +270,35 @@ class DBSecondaryTest : public DBSecondaryTestBase {
   explicit DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
 };
 
+TEST_F(DBSecondaryTest, MultiPrefixExistsWithUnboundedPrefix) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  Reopen(options);
+  ASSERT_OK(Put("before/key", "value"));
+  ASSERT_OK(Flush());
+  OpenSecondary(options);
+
+  const std::vector<Slice> prefixes{"", "before/", "missing/",
+                                    Slice("\xff", 1)};
+  std::vector<Status> statuses(prefixes.size());
+  db_secondary_->MultiPrefixExists(ReadOptions(), prefixes.size(),
+                                   prefixes.data(), statuses.data());
+
+  for (const Status& status : statuses) {
+    ASSERT_TRUE(status.IsNotSupported());
+  }
+
+  for (size_t i = 0; i < prefixes.size(); ++i) {
+    db_secondary_->MultiPrefixExists(ReadOptions(), 1, &prefixes[i],
+                                     &statuses[i]);
+  }
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_TRUE(statuses[3].IsNotFound());
+}
+
 TEST_F(DBSecondaryTest, FailOpenIfLoggerCreationFail) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;

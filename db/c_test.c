@@ -3338,11 +3338,83 @@ int main(int argc, char** argv) {
       rocksdb_pinnable_multi_get_destroy(multi_get);
     }
 
+    {
+      const char binary_key[] = {'b', 'i', 'n', '\0', 'k', 'e', 'y'};
+      const char binary_prefix[] = {'b', 'i', 'n', '\0'};
+      const char binary_missing_prefix[] = {'b', 'i', 'n', '\0', 'z'};
+      rocksdb_put_cf(db, woptions, handles[1], binary_key, sizeof(binary_key),
+                     "value", 5, &err);
+      CheckNoError(err);
+
+      const char* prefixes[6] = {"bo", "missing",     "bo",
+                                 "",   binary_prefix, binary_missing_prefix};
+      const size_t prefix_sizes[6] = {
+          2, 7, 2, 0, sizeof(binary_prefix), sizeof(binary_missing_prefix)};
+      unsigned char prefix_results[6];
+      char* prefix_errs[6];
+      rocksdb_multi_prefix_exists_cf(db, roptions, handles[1], 6, prefixes,
+                                     prefix_sizes, prefix_results, prefix_errs);
+      CheckCondition(prefix_results[0] == rocksdb_multi_prefix_exists_found);
+      CheckCondition(prefix_results[1] ==
+                     rocksdb_multi_prefix_exists_not_found);
+      CheckCondition(prefix_results[2] == rocksdb_multi_prefix_exists_found);
+      CheckCondition(prefix_results[3] == rocksdb_multi_prefix_exists_found);
+      CheckCondition(prefix_results[4] == rocksdb_multi_prefix_exists_found);
+      CheckCondition(prefix_results[5] ==
+                     rocksdb_multi_prefix_exists_not_found);
+      for (i = 0; i < 6; ++i) {
+        CheckNoError(prefix_errs[i]);
+      }
+
+      rocksdb_put(db, woptions, "cold-prefix/key", 15, "value", 5, &err);
+      CheckNoError(err);
+      rocksdb_flushoptions_t* prefix_flush_options =
+          rocksdb_flushoptions_create();
+      rocksdb_flushoptions_set_wait(prefix_flush_options, 1);
+      rocksdb_flush(db, prefix_flush_options, &err);
+      CheckNoError(err);
+      rocksdb_flushoptions_destroy(prefix_flush_options);
+
+      const char* cold_prefixes[1] = {"cold-prefix/"};
+      const size_t cold_prefix_sizes[1] = {12};
+      rocksdb_readoptions_set_read_tier(roptions, 1);
+      rocksdb_multi_prefix_exists(db, roptions, 1, cold_prefixes,
+                                  cold_prefix_sizes, prefix_results,
+                                  prefix_errs);
+      CheckCondition(prefix_results[0] ==
+                     rocksdb_multi_prefix_exists_incomplete);
+      CheckCondition(prefix_errs[0] != NULL);
+      CheckCondition(strstr(prefix_errs[0], "incomplete") != NULL);
+      rocksdb_free(prefix_errs[0]);
+      prefix_errs[0] = NULL;
+
+      rocksdb_readoptions_set_read_tier(roptions, 2);
+      rocksdb_multi_prefix_exists_cf(db, roptions, handles[1], 3, prefixes,
+                                     prefix_sizes, prefix_results, prefix_errs);
+      for (i = 0; i < 3; ++i) {
+        CheckCondition(prefix_results[i] == rocksdb_multi_prefix_exists_error);
+        CheckCondition(prefix_errs[i] != NULL);
+        CheckCondition(strstr(prefix_errs[i], "not supported") != NULL);
+        rocksdb_free(prefix_errs[i]);
+        prefix_errs[i] = NULL;
+      }
+      rocksdb_multi_prefix_exists_cf(db, roptions, handles[1], 1, prefixes,
+                                     prefix_sizes, prefix_results, NULL);
+      CheckCondition(prefix_results[0] == rocksdb_multi_prefix_exists_error);
+      rocksdb_readoptions_set_read_tier(roptions, 0);
+
+      rocksdb_multi_prefix_exists(db, roptions, 0, NULL, NULL, NULL, NULL);
+    }
+
     rocksdb_delete_cf(db, woptions, handles[1], "empty", 5, &err);
     CheckNoError(err);
     rocksdb_delete_cf(db, woptions, handles[1], "merge-error", 11, &err);
     CheckNoError(err);
     rocksdb_delete_cf(db, woptions, handles[1], "owned", 5, &err);
+    CheckNoError(err);
+    rocksdb_delete_cf(db, woptions, handles[1], "bin\0key", 7, &err);
+    CheckNoError(err);
+    rocksdb_delete(db, woptions, "cold-prefix/key", 15, &err);
     CheckNoError(err);
 
     {

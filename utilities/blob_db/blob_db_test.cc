@@ -469,6 +469,61 @@ TEST_F(BlobDBTest, Override) {
   VerifyDB(data);
 }
 
+TEST_F(BlobDBTest, MultiPrefixExistsDoesNotReadBlobValues) {
+  BlobDBOptions blob_options;
+  blob_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  options.statistics = CreateDBStatistics();
+  mock_clock_->SetCurrentTime(100);
+  Open(blob_options, options);
+
+  ASSERT_OK(Put("blob/key", "value"));
+  ASSERT_OK(PutWithTTL("expired/key", "value", 1));
+  ASSERT_OK(PutWithTTL("lazy-ttl/key", "ttl-value", 2));
+  mock_clock_->SetCurrentTime(101);
+
+  const uint64_t bytes_read_before =
+      options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ);
+  const std::vector<Slice> prefixes{"blob/", "expired/"};
+  std::vector<Status> statuses(prefixes.size());
+  ReadOptions cache_only;
+  cache_only.read_tier = kBlockCacheTier;
+  blob_db_->MultiPrefixExists(cache_only, prefixes.size(), prefixes.data(),
+                              statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
+            bytes_read_before);
+
+  ReadOptions lazy_read;
+  lazy_read.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iterator(blob_db_->NewIterator(lazy_read));
+  iterator->Seek("blob/key");
+  ASSERT_TRUE(iterator->Valid());
+  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
+            bytes_read_before);
+  ASSERT_TRUE(iterator->PrepareValue());
+  ASSERT_EQ(iterator->value(), "value");
+  ASSERT_GT(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_BYTES_READ),
+            bytes_read_before);
+
+  std::unique_ptr<Iterator> ttl_iterator(blob_db_->NewIterator(lazy_read));
+  ttl_iterator->Seek("lazy-ttl/key");
+  ASSERT_TRUE(ttl_iterator->Valid());
+  mock_clock_->SetCurrentTime(102);
+  ASSERT_TRUE(ttl_iterator->PrepareValue());
+  ASSERT_EQ(ttl_iterator->value(), "ttl-value");
+
+  ReadOptions persisted_only;
+  persisted_only.read_tier = kPersistedTier;
+  blob_db_->MultiPrefixExists(persisted_only, prefixes.size(), prefixes.data(),
+                              statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_TRUE(statuses[1].IsNotSupported());
+}
+
 TEST_F(BlobDBTest, MultipleWriters) {
   Open(BlobDBOptions());
 
@@ -748,6 +803,16 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   ASSERT_TRUE(statuses[0].IsNotSupported());
   ASSERT_TRUE(statuses[1].IsNotSupported());
   ASSERT_EQ(nullptr, blob_db_->NewIterator(ReadOptions(), handle));
+
+  const std::vector<Slice> prefixes{"k", "m"};
+  std::vector<Status> prefix_statuses(prefixes.size());
+  blob_db_->MultiPrefixExists(ReadOptions(), handle, 1, prefixes.data(),
+                              prefix_statuses.data());
+  ASSERT_TRUE(prefix_statuses[0].IsNotSupported());
+  blob_db_->MultiPrefixExists(ReadOptions(), handle, prefixes.size(),
+                              prefixes.data(), prefix_statuses.data());
+  ASSERT_TRUE(prefix_statuses[0].IsNotSupported());
+  ASSERT_TRUE(prefix_statuses[1].IsNotSupported());
   delete handle;
 }
 

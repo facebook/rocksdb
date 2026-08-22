@@ -787,6 +787,40 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_key_may_exist_cf(
     size_t key_len, char** value, size_t* val_len, const char* timestamp,
     size_t timestamp_len, unsigned char* value_found);
 
+/* Result states returned by rocksdb_multi_prefix_exists(). */
+enum {
+  rocksdb_multi_prefix_exists_not_found = 0,
+  rocksdb_multi_prefix_exists_found = 1,
+  rocksdb_multi_prefix_exists_incomplete = 2,
+  rocksdb_multi_prefix_exists_error = 3,
+};
+
+/*
+ * Checks whether each binary prefix matches a visible key. Results preserve
+ * input order and use one consistent DB view. For num_prefixes > 0,
+ * prefixes_list, prefixes_list_sizes, and results must each contain
+ * num_prefixes entries. If errs is non-NULL, it must also contain
+ * num_prefixes entries. For num_prefixes == 0, those arrays may be NULL.
+ *
+ * Incomplete means the read could not determine the result, for example because
+ * a cache-only read would require I/O. errs may be NULL. Otherwise, found and
+ * not-found entries are NULL, while incomplete and error entries contain an
+ * allocated status message that must be freed with rocksdb_free().
+ * Memtable-only reads support one prefix per call.
+ * Batches that need multiple iterators report errors when the DB cannot create
+ * a snapshot, including secondary DBs.
+ */
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_prefix_exists(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* results, char** errs);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_prefix_exists_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_prefixes,
+    const char* const* prefixes_list, const size_t* prefixes_list_sizes,
+    unsigned char* results, char** errs);
+
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options);
 

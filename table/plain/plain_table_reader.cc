@@ -201,9 +201,8 @@ InternalIterator* PlainTableReader::NewIterator(
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
-  // Auto prefix mode is not implemented in PlainTable.
   bool use_prefix_seek =
-      !IsTotalOrderMode() &&
+      !full_scan_mode_ && !IsTotalOrderMode() &&
       (options.prefix_same_as_start ||
        (!options.total_order_seek && !options.auto_prefix_mode));
   if (arena == nullptr) {
@@ -676,15 +675,15 @@ void PlainTableIterator::SeekToLast() {
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
-  if (use_prefix_seek_ != !table_->IsTotalOrderMode()) {
-    // This check is done here instead of NewIterator() to permit creating an
-    // iterator with total_order_seek = true even if we won't be able to Seek()
-    // it. This is needed for compaction: it creates iterator with
-    // total_order_seek = true but usually never does Seek() on it,
-    // only SeekToFirst().
-    status_ = Status::InvalidArgument(
-        "total_order_seek not implemented for PlainTable.");
-    offset_ = next_offset_ = table_->file_info_.data_end_offset;
+  if (!use_prefix_seek_ &&
+      (table_->full_scan_mode_ || !table_->IsTotalOrderMode())) {
+    if (!Valid() || table_->internal_comparator_.Compare(key(), target) > 0) {
+      SeekToFirst();
+    }
+    while (status_.ok() && Valid() &&
+           table_->internal_comparator_.Compare(key(), target) < 0) {
+      Next();
+    }
     return;
   }
 

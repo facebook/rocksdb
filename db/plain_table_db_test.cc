@@ -19,6 +19,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "table/meta_blocks.h"
@@ -243,6 +244,120 @@ class PlainTableDBTest : public testing::Test,
 TEST_P(PlainTableDBTest, Empty) {
   ASSERT_TRUE(dbfull() != nullptr);
   ASSERT_EQ("NOT_FOUND", Get("0000000000000foo"));
+}
+
+TEST_P(PlainTableDBTest, MultiPrefixExistsWithPrefixIndex) {
+  ASSERT_OK(Put("00000000alpha", "v1"));
+  ASSERT_OK(Put("11111111bravo", "v2"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+  const std::vector<Slice> prefixes{"0", "00000000a", "00000000z",
+                                    "00000000alphaz", "11111111"};
+  std::vector<Status> statuses(prefixes.size());
+  dbfull()->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                              statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_TRUE(statuses[3].IsNotFound());
+  ASSERT_OK(statuses[4]);
+
+  ReadOptions total_order;
+  total_order.total_order_seek = true;
+  std::unique_ptr<Iterator> iterator(dbfull()->NewIterator(total_order));
+  iterator->Seek("1");
+  ASSERT_TRUE(iterator->Valid());
+  ASSERT_EQ(iterator->key(), "11111111bravo");
+  iterator->Seek("0");
+  ASSERT_TRUE(iterator->Valid());
+  ASSERT_EQ(iterator->key(), "00000000alpha");
+  iterator->Seek("2");
+  ASSERT_FALSE(iterator->Valid());
+  ASSERT_OK(iterator->status());
+  iterator->Seek("1");
+  ASSERT_TRUE(iterator->Valid());
+  ASSERT_EQ(iterator->key(), "11111111bravo");
+}
+
+TEST_P(PlainTableDBTest, MultiPrefixExistsInFullScanMode) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  PlainTableOptions plain_table_options;
+  plain_table_options.bloom_bits_per_key = 2;
+  plain_table_options.full_scan_mode = true;
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(Put("00000000alpha", "v1"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+  const std::vector<Slice> prefixes{"00000000", "11111111"};
+  std::vector<Status> statuses(prefixes.size());
+  dbfull()->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                              statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+}
+
+TEST_P(PlainTableDBTest,
+       MultiPrefixExistsInFullScanModeWithoutPrefixExtractor) {
+  Options options;
+  options.create_if_missing = true;
+  PlainTableOptions plain_table_options;
+  plain_table_options.full_scan_mode = true;
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  options.allow_mmap_reads = mmap_mode();
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(Put("alpha", "value"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+  const std::vector<Slice> prefixes{"a", "z", ""};
+  std::vector<Status> statuses(prefixes.size());
+  dbfull()->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                              statuses.data());
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_OK(statuses[2]);
+}
+
+TEST_P(PlainTableDBTest, MultiPrefixExistsWithCappedPrefixAndShortKey) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(2));
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(Put("b", "value"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+
+  const std::string long_prefix("a\xff", 2);
+  const std::vector<Slice> prefixes{long_prefix, "b"};
+  std::vector<Status> statuses(prefixes.size());
+  dbfull()->MultiPrefixExists(ReadOptions(), prefixes.size(), prefixes.data(),
+                              statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+}
+
+TEST_P(PlainTableDBTest, MultiPrefixExistsAfterPrefixExtractorChange) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(Put("aaa", "value"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
+
+  const Slice prefix("aa");
+  Status status;
+  dbfull()->MultiPrefixExists(ReadOptions(), 1, &prefix, &status);
+
+  ASSERT_OK(status);
 }
 
 class TestPlainTableReader : public PlainTableReader {

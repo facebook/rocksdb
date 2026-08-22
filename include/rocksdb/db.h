@@ -2626,6 +2626,41 @@ class DB {
   // Returns the non-owning native coroutine interface, or nullptr when this DB
   // does not support it. The returned pointer must not outlive this DB.
   virtual CoroDB* GetCoroDB() { return nullptr; }
+
+  // Checks whether each prefix matches at least one visible key in the column
+  // family. For each prefix, returns OK when a matching key exists, NotFound
+  // when no matching key exists, and another status on error. In particular,
+  // kBlockCacheTier can return Incomplete when existence cannot be determined
+  // without I/O. kMemtableTier supports one prefix per call, where NotFound
+  // only means no matching key is in the memtable. kPersistedTier is not
+  // supported because RocksDB iterators do not support it.
+  //
+  // All results use one consistent read view. Input order is preserved and
+  // duplicate prefixes have identical results. Prefixes do not include a
+  // user-defined timestamp. The column family's root comparator must use
+  // bytewise ordering; otherwise every result is NotSupported.
+  // Batches that need multiple iterators also return NotSupported when the DB
+  // cannot create a snapshot, including secondary DBs.
+  //
+  // Iterator-only ReadOptions that restrict the key range or change iteration
+  // mode are ignored. Point-read options including snapshot, timestamp,
+  // read_tier, deadline, checksum verification, and range deletion handling
+  // are honored.
+  //
+  // The caller must ensure prefixes and statuses each point to num_prefixes
+  // contiguous objects. Both pointers may be null when num_prefixes is zero.
+  virtual void MultiPrefixExists(const ReadOptions& options,
+                                 ColumnFamilyHandle* column_family,
+                                 size_t num_prefixes, const Slice* prefixes,
+                                 Status* statuses);
+
+  // Checks prefixes in the default column family.
+  virtual void MultiPrefixExists(const ReadOptions& options,
+                                 size_t num_prefixes, const Slice* prefixes,
+                                 Status* statuses) final {
+    MultiPrefixExists(options, DefaultColumnFamily(), num_prefixes, prefixes,
+                      statuses);
+  }
 };
 
 struct WriteStallStatsMapKeys {

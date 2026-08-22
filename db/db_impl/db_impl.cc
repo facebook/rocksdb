@@ -17,6 +17,7 @@
 
 #include <cinttypes>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <forward_list>
 #include <map>
@@ -4290,6 +4291,290 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   // not present in block_cache, the return value will be Status::Incomplete.
   // In this case, key may still exist in the table.
   return s.ok() || s.IsIncomplete();
+}
+
+namespace {
+
+bool HasPrefixUpperBound(const Slice& prefix) {
+  for (size_t i = prefix.size(); i > 0; --i) {
+    if (static_cast<unsigned char>(prefix[i - 1]) != 0xff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void GetPrefixUpperBound(const Slice& prefix, std::string* upper_bound) {
+  assert(HasPrefixUpperBound(prefix));
+  upper_bound->assign(prefix.data(), prefix.size());
+  for (size_t i = upper_bound->size(); i > 0; --i) {
+    const unsigned char byte =
+        static_cast<unsigned char>((*upper_bound)[i - 1]);
+    if (byte != 0xff) {
+      (*upper_bound)[i - 1] = static_cast<char>(byte + 1);
+      upper_bound->resize(i);
+      return;
+    }
+  }
+  assert(false);
+}
+
+}  // namespace
+
+// Keep this implementation on DB so wrappers apply their visibility and value
+// decoding semantics through their NewIterator overrides.
+void DB::MultiPrefixExists(const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family,
+                           size_t num_prefixes, const Slice* prefixes,
+                           Status* statuses) {
+  assert(statuses != nullptr || num_prefixes == 0);
+  if (num_prefixes == 0 || statuses == nullptr) {
+    return;
+  }
+
+  if (column_family == nullptr) {
+    std::fill_n(statuses, num_prefixes,
+                Status::InvalidArgument(
+                    "Cannot call MultiPrefixExists without a column family "
+                    "handle"));
+    return;
+  }
+  if (prefixes == nullptr) {
+    std::fill_n(statuses, num_prefixes,
+                Status::InvalidArgument(
+                    "Cannot call MultiPrefixExists without prefixes"));
+    return;
+  }
+  if (read_options.io_activity != Env::IOActivity::kUnknown &&
+      read_options.io_activity != Env::IOActivity::kDBIterator) {
+    std::fill_n(
+        statuses, num_prefixes,
+        Status::InvalidArgument(
+            "Can only call MultiPrefixExists with `ReadOptions::io_activity` "
+            "set to `Env::IOActivity::kUnknown` or "
+            "`Env::IOActivity::kDBIterator`"));
+    return;
+  }
+  if (read_options.read_tier == kPersistedTier) {
+    std::fill_n(
+        statuses, num_prefixes,
+        Status::NotSupported(
+            "ReadTier::kPersistedData is not supported by MultiPrefixExists"));
+    return;
+  }
+  if (read_options.read_tier == kMemtableTier && num_prefixes > 1) {
+    std::fill_n(
+        statuses, num_prefixes,
+        Status::NotSupported("ReadTier::kMemtableTier supports one prefix per "
+                             "MultiPrefixExists call"));
+    return;
+  }
+
+  const Comparator* root_comparator =
+      column_family->GetComparator()->GetRootComparator();
+  if (root_comparator != BytewiseComparator() &&
+      std::strcmp(root_comparator->Name(), BytewiseComparator()->Name()) != 0) {
+    std::fill_n(statuses, num_prefixes,
+                Status::NotSupported(
+                    "MultiPrefixExists requires bytewise key ordering"));
+    return;
+  }
+
+  bool is_sorted = true;
+  for (size_t i = 1; i < num_prefixes; ++i) {
+    if (prefixes[i].compare(prefixes[i - 1]) < 0) {
+      is_sorted = false;
+      break;
+    }
+  }
+
+  std::vector<size_t> order;
+  if (!is_sorted) {
+    order.resize(num_prefixes);
+    for (size_t i = 0; i < num_prefixes; ++i) {
+      order[i] = i;
+    }
+    std::sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+      return prefixes[lhs].compare(prefixes[rhs]) < 0;
+    });
+  }
+  const auto ordered_index = [&](size_t position) {
+    return is_sorted ? position : order[position];
+  };
+
+  bool has_unbounded_seek = false;
+  size_t iterator_count = 0;
+  bool have_previous = false;
+  Slice previous_prefix;
+  for (size_t position = 0; position < num_prefixes; ++position) {
+    const Slice& prefix = prefixes[ordered_index(position)];
+    if (have_previous && prefix == previous_prefix) {
+      continue;
+    }
+    previous_prefix = prefix;
+    have_previous = true;
+
+    if (HasPrefixUpperBound(prefix)) {
+      ++iterator_count;
+    } else if (!has_unbounded_seek) {
+      has_unbounded_seek = true;
+      ++iterator_count;
+    }
+  }
+
+  ReadOptions iterator_options(read_options);
+  iterator_options.iter_start_ts = nullptr;
+  iterator_options.iterate_lower_bound = nullptr;
+  iterator_options.iterate_upper_bound = nullptr;
+  iterator_options.tailing = false;
+  iterator_options.total_order_seek = true;
+  iterator_options.auto_prefix_mode = false;
+  iterator_options.prefix_same_as_start = false;
+  iterator_options.table_filter = nullptr;
+  iterator_options.allow_unprepared_value = true;
+  iterator_options.auto_refresh_iterator_with_snapshot = false;
+  iterator_options.io_activity = Env::IOActivity::kDBIterator;
+
+  std::unique_ptr<ManagedSnapshot> managed_snapshot;
+  if (iterator_count > 1 && iterator_options.snapshot == nullptr) {
+    managed_snapshot = std::make_unique<ManagedSnapshot>(this);
+    iterator_options.snapshot = managed_snapshot->snapshot();
+    if (iterator_options.snapshot == nullptr) {
+      std::fill_n(statuses, num_prefixes,
+                  Status::NotSupported(
+                      "MultiPrefixExists requires snapshot support for "
+                      "batches that use multiple iterators"));
+      return;
+    }
+  }
+
+  const auto new_iterator = [&](const Slice* upper_bound) {
+    ReadOptions options(iterator_options);
+    options.iterate_upper_bound = upper_bound;
+    return std::unique_ptr<Iterator>(NewIterator(options, column_family));
+  };
+
+  std::unique_ptr<Iterator> total_order_iterator;
+  if (managed_snapshot != nullptr) {
+    total_order_iterator = new_iterator(/*upper_bound=*/nullptr);
+    if (total_order_iterator == nullptr) {
+      std::fill_n(statuses, num_prefixes,
+                  Status::NotSupported(
+                      "MultiPrefixExists could not create an iterator for the "
+                      "column family"));
+      return;
+    }
+    if (!total_order_iterator->status().ok()) {
+      std::fill_n(statuses, num_prefixes, total_order_iterator->status());
+      return;
+    } else if (!has_unbounded_seek) {
+      total_order_iterator.reset();
+    }
+  }
+  if (has_unbounded_seek && total_order_iterator == nullptr) {
+    total_order_iterator = new_iterator(/*upper_bound=*/nullptr);
+  }
+
+  const auto check_unbounded_prefixes = [&](Iterator* iterator) {
+    const auto set_group_status = [&](const Status& status) {
+      for (size_t position = 0; position < num_prefixes; ++position) {
+        const size_t index = ordered_index(position);
+        if (!HasPrefixUpperBound(prefixes[index])) {
+          statuses[index] = status;
+        }
+      }
+    };
+
+    if (iterator == nullptr) {
+      set_group_status(Status::NotSupported(
+          "MultiPrefixExists could not create an iterator for the column "
+          "family"));
+      return;
+    }
+    if (!iterator->status().ok()) {
+      set_group_status(iterator->status());
+      return;
+    }
+
+    bool positioned = false;
+    bool have_previous = false;
+    size_t previous_index = 0;
+    Slice previous_prefix;
+    for (size_t position = 0; position < num_prefixes; ++position) {
+      const size_t index = ordered_index(position);
+      const Slice& prefix = prefixes[index];
+      if (HasPrefixUpperBound(prefix)) {
+        continue;
+      }
+      if (have_previous && prefix == previous_prefix) {
+        statuses[index] = statuses[previous_index];
+        statuses[previous_index].MustCheck();
+        previous_index = index;
+        continue;
+      }
+
+      if (!positioned || !iterator->status().ok() || !iterator->Valid() ||
+          iterator->key().compare(prefix) < 0) {
+        iterator->Seek(prefix);
+        positioned = true;
+      }
+
+      if (!iterator->status().ok()) {
+        statuses[index] = iterator->status();
+      } else if (iterator->Valid() && iterator->key().starts_with(prefix)) {
+        statuses[index] = Status::OK();
+      } else {
+        statuses[index] = Status::NotFound();
+      }
+      previous_prefix = prefix;
+      previous_index = index;
+      have_previous = true;
+    }
+  };
+
+  if (has_unbounded_seek) {
+    check_unbounded_prefixes(total_order_iterator.get());
+  }
+
+  have_previous = false;
+  size_t previous_index = 0;
+  for (size_t position = 0; position < num_prefixes; ++position) {
+    const size_t index = ordered_index(position);
+    const Slice& prefix = prefixes[index];
+    if (!HasPrefixUpperBound(prefix)) {
+      continue;
+    }
+    if (have_previous && prefix == previous_prefix) {
+      statuses[index] = statuses[previous_index];
+      statuses[previous_index].MustCheck();
+      previous_index = index;
+      continue;
+    }
+
+    std::string upper_bound_storage;
+    GetPrefixUpperBound(prefix, &upper_bound_storage);
+    const Slice upper_bound(upper_bound_storage);
+    std::unique_ptr<Iterator> iterator = new_iterator(&upper_bound);
+    if (iterator == nullptr) {
+      statuses[index] = Status::NotSupported(
+          "MultiPrefixExists could not create an iterator for the column "
+          "family");
+    } else if (!iterator->status().ok()) {
+      statuses[index] = iterator->status();
+    } else {
+      iterator->Seek(prefix);
+      if (!iterator->status().ok()) {
+        statuses[index] = iterator->status();
+      } else if (iterator->Valid() && iterator->key().starts_with(prefix)) {
+        statuses[index] = Status::OK();
+      } else {
+        statuses[index] = Status::NotFound();
+      }
+    }
+    previous_prefix = prefix;
+    previous_index = index;
+    have_previous = true;
+  }
 }
 
 std::unique_ptr<MultiScan> DBImpl::NewMultiScan(

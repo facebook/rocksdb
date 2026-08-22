@@ -32,6 +32,40 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, MultiPrefixExists) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  std::string put_ts;
+  PutFixed64(&put_ts, 1);
+  std::string delete_ts;
+  PutFixed64(&delete_ts, 3);
+  ASSERT_OK(db_->Put(WriteOptions(), "prefix/key", put_ts, "value"));
+  ASSERT_OK(db_->Delete(WriteOptions(), "prefix/key", delete_ts));
+
+  const Slice prefix("prefix/");
+  Status status;
+  std::string read_before_delete_ts;
+  PutFixed64(&read_before_delete_ts, 2);
+  const Slice read_before_delete(read_before_delete_ts);
+  ReadOptions read_options;
+  read_options.timestamp = &read_before_delete;
+  db_->MultiPrefixExists(read_options, 1, &prefix, &status);
+  ASSERT_OK(status);
+
+  std::string read_after_delete_ts;
+  PutFixed64(&read_after_delete_ts, 4);
+  const Slice read_after_delete(read_after_delete_ts);
+  const Slice iter_start_ts(put_ts);
+  read_options.timestamp = &read_after_delete;
+  read_options.iter_start_ts = &iter_start_ts;
+  db_->MultiPrefixExists(read_options, 1, &prefix, &status);
+  ASSERT_TRUE(status.IsNotFound());
+}
+
 TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
   Options options = CurrentOptions();
   options.env = env_;

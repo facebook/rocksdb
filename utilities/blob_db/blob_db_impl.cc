@@ -1934,7 +1934,8 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& _read_options) {
   auto* iter = db_impl_->NewIteratorImpl(
       read_options, cfh, sv, snapshot->GetSequenceNumber(),
       nullptr /*read_callback*/, true /*expose_blob_index*/);
-  return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_);
+  return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_,
+                            read_options.allow_unprepared_value);
 }
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
