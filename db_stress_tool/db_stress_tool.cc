@@ -26,6 +26,7 @@
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "db_stress_tool/db_stress_flag_validator.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
@@ -46,23 +47,6 @@ int ReturnValidationError(const Args&... args) {
   std::cerr << "Error: ";
   (std::cerr << ... << args) << '\n';
   return 1;
-}
-
-int ValidateNumDbsFlags() {
-  if (FLAGS_num_dbs < 1) {
-    return ReturnValidationError("--num_dbs must be >= 1");
-  }
-  if (FLAGS_num_dbs > 1) {
-    if (FLAGS_clear_column_family_one_in > 0) {
-      return ReturnValidationError(
-          "--num_dbs > 1 incompatible with --clear_column_family_one_in");
-    }
-    if (FLAGS_test_multi_ops_txns) {
-      return ReturnValidationError(
-          "--num_dbs > 1 incompatible with --test_multi_ops_txns");
-    }
-  }
-  return 0;
 }
 
 int DestroyAllDbs() {
@@ -155,6 +139,26 @@ int db_stress_tool(int argc, char** argv) {
   DB_STRESS_ASSERT_OK_MSG(s, "Error creating Env URI %s",
                           FLAGS_env_uri.c_str());
 
+  auto validate_flags = [&]() {
+    FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
+
+    // The number of background threads should be at least as much the
+    // max number of concurrent compactions.
+    raw_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+                                  ROCKSDB_NAMESPACE::Env::Priority::LOW);
+    raw_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                  ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
+
+    int rc = ValidateDbStressFlags();
+    if (rc != 0) {
+      return rc;
+    }
+    return ValidateDbStressCoreOptionCompatibility();
+  };
+  if (FLAGS_validate_flags_only) {
+    return validate_flags();
+  }
+
   // Handle --destroy_db_and_exit early
   if (FLAGS_destroy_db_and_exit) {
     return DestroyAllDbs();
@@ -174,260 +178,9 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
-  {
-    int rc = ValidateNumDbsFlags();
-    if (rc != 0) {
-      return rc;
-    }
-  }
-
-  if (!FLAGS_verify_cpu_corruption_dir.empty()) {
-    // The full-keyspace read-back is only well-defined with a single writer,
-    // and injected I/O faults would taint it -- so require --threads=1 and all
-    // fault injection off (see the flag's comment).
-    if (FLAGS_threads != 1) {
-      return ReturnValidationError(
-          "--verify_cpu_corruption_dir requires --threads=1");
-    }
-    if (FLAGS_read_fault_one_in != 0 || FLAGS_write_fault_one_in != 0 ||
-        FLAGS_metadata_read_fault_one_in != 0 ||
-        FLAGS_metadata_write_fault_one_in != 0 ||
-        FLAGS_open_read_fault_one_in != 0 ||
-        FLAGS_open_write_fault_one_in != 0 ||
-        FLAGS_open_metadata_read_fault_one_in != 0 ||
-        FLAGS_open_metadata_write_fault_one_in != 0 ||
-        FLAGS_secondary_cache_fault_one_in != 0 || FLAGS_sync_fault_injection) {
-      return ReturnValidationError(
-          "--verify_cpu_corruption_dir requires all fault injection off "
-          "(every *_fault_one_in = 0 and sync_fault_injection = false)");
-    }
-    // The read-back compares against the expected-state model, which only the
-    // default (state-tracked) stress test maintains. The
-    // batched/cf-consistency/ multi-ops-txns variants set
-    // IsStateTracked()=false, so every key would look absent -- reject them
-    // rather than report false losses.
-    if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency ||
-        FLAGS_test_multi_ops_txns) {
-      return ReturnValidationError(
-          "--verify_cpu_corruption_dir requires the default state-tracked "
-          "stress test; it is incompatible with --test_batches_snapshots, "
-          "--test_cf_consistency, and --test_multi_ops_txns");
-    }
-  }
-
-  FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
-
-  // The number of background threads should be at least as much the
-  // max number of concurrent compactions.
-  raw_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-                                ROCKSDB_NAMESPACE::Env::Priority::LOW);
-  raw_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
-                                ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
-  if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
-    return ReturnValidationError(
-        "prefixpercent is non-zero while prefix_size is not positive!");
-  }
-  if (FLAGS_test_batches_snapshots && FLAGS_prefix_size <= 0) {
-    return ReturnValidationError(
-        "please specify prefix_size for test_batches_snapshots test!");
-  }
-  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0 &&
-      !FLAGS_memtable_whole_key_filtering) {
-    return ReturnValidationError(
-        "please specify positive prefix_size or enable whole key filtering in "
-        "order to use memtable_prefix_bloom_size_ratio");
-  }
-  if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
-       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent +
-       FLAGS_customopspercent) != 100) {
-    return ReturnValidationError(
-        "Read(-readpercent=", FLAGS_readpercent,
-        ")+Prefix(-prefixpercent=", FLAGS_prefixpercent,
-        ")+Write(-writepercent=", FLAGS_writepercent,
-        ")+Delete(-delpercent=", FLAGS_delpercent,
-        ")+DeleteRange(-delrangepercent=", FLAGS_delrangepercent,
-        ")+Iterate(-iterpercent=", FLAGS_iterpercent,
-        ")+CustomOps(-customopspercent=", FLAGS_customopspercent,
-        ") percents != 100!");
-  }
-  if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
-    return ReturnValidationError(
-        "Db cannot reopen safely with disable_wal set!");
-  }
-  if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
-    return ReturnValidationError(
-        "#DB-reopens should be < ops_per_thread\nProvided reopens = ",
-        FLAGS_reopen, " and ops_per_thread = ", FLAGS_ops_per_thread);
-  }
-  if (FLAGS_test_batches_snapshots && FLAGS_delrangepercent > 0) {
-    return ReturnValidationError(
-        "nonzero delrangepercent unsupported in test_batches_snapshots mode");
-  }
-  if (FLAGS_active_width > FLAGS_max_key) {
-    return ReturnValidationError("active_width can be at most max_key");
-  } else if (FLAGS_active_width == 0) {
-    FLAGS_active_width = FLAGS_max_key;
-  }
-  if (FLAGS_value_size_mult * kRandomValueMaxFactor > kValueMaxLen) {
-    return ReturnValidationError("value_size_mult can be at most ",
-                                 kValueMaxLen / kRandomValueMaxFactor);
-  }
-  if (FLAGS_use_merge && FLAGS_nooverwritepercent == 100) {
-    return ReturnValidationError(
-        "nooverwritepercent must not be 100 when using merge operands");
-  }
-  if (FLAGS_enable_blob_direct_write) {
-    // Blob direct write is intentionally validated as a reduced-scope stress
-    // feature. We allow the WAL-disabled crash-test profile, including
-    // wide-column PutEntity/GetEntity coverage, but reject best-efforts
-    // recovery, parallel memtable/write-queue variants, transactions, remote
-    // compaction, and APIs/features that depend on active-file snapshotting or
-    // unsupported blob option transitions.
-    if (!FLAGS_enable_blob_files) {
-      return ReturnValidationError(
-          "enable_blob_direct_write requires enable_blob_files");
-    }
-    if (FLAGS_allow_concurrent_memtable_write) {
-      return ReturnValidationError(
-          "blob direct write stress requires "
-          "allow_concurrent_memtable_write=0");
-    }
-    if (FLAGS_enable_pipelined_write) {
-      return ReturnValidationError(
-          "blob direct write stress does not support "
-          "enable_pipelined_write");
-    }
-    if (FLAGS_unordered_write) {
-      return ReturnValidationError(
-          "blob direct write stress does not support unordered_write");
-    }
-    if (FLAGS_two_write_queues) {
-      return ReturnValidationError(
-          "blob direct write stress does not support two_write_queues");
-    }
-    if (FLAGS_use_blob_db) {
-      return ReturnValidationError(
-          "blob direct write is only supported with integrated BlobDB");
-    }
-    if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
-      return ReturnValidationError(
-          "blob direct write stress does not support merge");
-    }
-    if (FLAGS_experimental_mempurge_threshold > 0.0) {
-      return ReturnValidationError(
-          "blob direct write stress does not support MemPurge");
-    }
-    if (FLAGS_user_timestamp_size > 0) {
-      return ReturnValidationError(
-          "blob direct write stress does not support user-defined timestamps");
-    }
-    if (FLAGS_allow_setting_blob_options_dynamically ||
-        FLAGS_enable_blob_garbage_collection) {
-      return ReturnValidationError(
-          "blob direct write stress does not support dynamic blob options or "
-          "blob GC");
-    }
-    if (FLAGS_best_efforts_recovery) {
-      return ReturnValidationError(
-          "blob direct write stress supports disable_wal-based crash "
-          "testing, not best-efforts recovery");
-    }
-    if (FLAGS_remote_compaction_worker_threads > 0) {
-      return ReturnValidationError(
-          "blob direct write stress does not support remote compaction");
-    }
-    if (FLAGS_use_txn || FLAGS_txn_write_policy != 0 ||
-        FLAGS_use_optimistic_txn || FLAGS_test_multi_ops_txns ||
-        FLAGS_commit_bypass_memtable_one_in > 0) {
-      return ReturnValidationError(
-          "blob direct write stress does not support TransactionDB modes");
-    }
-    if (FLAGS_test_secondary || FLAGS_backup_one_in > 0 ||
-        FLAGS_checkpoint_one_in > 0 || FLAGS_get_live_files_apis_one_in > 0 ||
-        FLAGS_ingest_external_file_one_in > 0) {
-      return ReturnValidationError(
-          "blob direct write stress does not support secondary, backup, "
-          "checkpoint, get_live_files, or ingest_external_file modes");
-    }
-    if (FLAGS_ingest_wbwi_one_in > 0) {
-      return ReturnValidationError(
-          "blob direct write stress does not support "
-          "IngestWriteBatchWithIndex");
-    }
-  }
-  if (FLAGS_ingest_external_file_one_in > 0 &&
-      FLAGS_nooverwritepercent == 100) {
-    return ReturnValidationError(
-        "nooverwritepercent must not be 100 when using file ingestion");
-  }
-  if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {
-    return ReturnValidationError(
-        "clear_column_family_one_in must be 0 when using backup");
-  }
-  if (FLAGS_clear_column_family_one_in > 0 &&
-      FLAGS_subset_cf_checkpoint_one_in > 0) {
-    // A subset checkpoint passes live handles from `column_families_` to the
-    // Checkpoint API and validates the checkpoint's column family list against
-    // `column_family_names_`; neither is stable while families are being
-    // dropped and recreated underneath.
-    return ReturnValidationError(
-        "clear_column_family_one_in must be 0 when using "
-        "subset_cf_checkpoint_one_in");
-  }
-  if (FLAGS_clear_column_family_one_in > 0 &&
-      FLAGS_abort_and_resume_cf_compactions_one_in > 0) {
-    fprintf(stderr,
-            "Error: clear_column_family_one_in must be 0 when using "
-            "per-column-family compaction abort\n");
-    exit(1);  // NOLINT(concurrency-mt-unsafe)
-  }
-  if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
-    FLAGS_atomic_flush = true;
-  }
-
-  // Trie UDI uses zero-copy pointers into block data, which is
-  // incompatible with mmap_read.
-  if (FLAGS_use_trie_index && FLAGS_mmap_read) {
-    return ReturnValidationError(
-        "use_trie_index is incompatible with mmap_read. The trie index uses "
-        "zero-copy pointers into block data which is unsafe with mmap'd "
-        "reads.");
-  }
-
-  // TrieIndexFactory requires plain BytewiseComparator, but timestamps use
-  // BytewiseComparator.u64ts.
-  if (FLAGS_use_trie_index && FLAGS_user_timestamp_size > 0) {
-    return ReturnValidationError(
-        "use_trie_index is incompatible with user-defined timestamps. "
-        "TrieIndexFactory requires BytewiseComparator but timestamps use "
-        "BytewiseComparator.u64ts.");
-  }
-
-  if (FLAGS_read_only) {
-    if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
-        FLAGS_delrangepercent != 0) {
-      return ReturnValidationError(
-          "updates are not supported in read only mode");
-    } else if (FLAGS_checkpoint_one_in > 0 &&
-               FLAGS_clear_column_family_one_in > 0) {
-      fprintf(stdout,
-              "Warn: checkpoint won't be validated since column families may "
-              "be dropped.\n");
-    }
-  }
-
-  if (FLAGS_open_read_only_one_in > 0) {
-    if (FLAGS_read_only) {
-      return ReturnValidationError(
-          "open_read_only_one_in needs a read-write primary and is "
-          "incompatible with read_only");
-    }
-    if (FLAGS_use_txn || FLAGS_use_optimistic_txn || FLAGS_use_blob_db ||
-        FLAGS_ttl != -1) {
-      return ReturnValidationError(
-          "open_read_only_one_in is not supported with transactions, BlobDB, "
-          "or TTL");
-    }
+  int rc = validate_flags();
+  if (rc != 0) {
+    return rc;
   }
 
   // Choose a location for the test database if none given with --db=<path>
@@ -489,75 +242,6 @@ int db_stress_tool(int argc, char** argv) {
   }
   if (sec_paths.empty()) {
     sec_paths.resize(num_dbs);
-  }
-
-  if (FLAGS_best_efforts_recovery &&
-      !(FLAGS_skip_verifydb && FLAGS_disable_wal)) {
-    return ReturnValidationError(
-        "With best-efforts recovery, skip_verifydb and disable_wal should be "
-        "set to true.");
-  }
-  if (FLAGS_skip_verifydb) {
-    if (FLAGS_verify_db_one_in > 0) {
-      return ReturnValidationError(
-          "Must set -verify_db_one_in=0 if skip_verifydb is true.");
-    }
-    if (FLAGS_continuous_verification_interval > 0) {
-      return ReturnValidationError(
-          "Must set -continuous_verification_interval=0 if skip_verifydb is "
-          "true.");
-    }
-  }
-  if ((FLAGS_enable_compaction_filter || FLAGS_inplace_update_support) &&
-      (FLAGS_acquire_snapshot_one_in > 0 || FLAGS_compact_range_one_in > 0 ||
-       FLAGS_iterpercent > 0 || FLAGS_prefixpercent > 0 ||
-       FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency ||
-       FLAGS_check_multiget_consistency ||
-       FLAGS_check_multiget_entity_consistency)) {
-    return ReturnValidationError(
-        "acquire_snapshot_one_in, compact_range_one_in, iterpercent, "
-        "prefixpercent, test_batches_snapshots, test_cf_consistency, "
-        "check_multiget_consistency, check_multiget_entity_consistency must "
-        "all be 0 when using compaction filter or inplace update support");
-  }
-  if (FLAGS_test_multi_ops_txns) {
-    CheckAndSetOptionsForMultiOpsTxnStressTest();
-  }
-
-  if (!FLAGS_use_txn && FLAGS_use_optimistic_txn) {
-    return ReturnValidationError(
-        "You cannot set use_optimistic_txn true while use_txn is false. Please "
-        "set use_txn true if you want to use OptimisticTransactionDB");
-  }
-
-  if (FLAGS_create_timestamped_snapshot_one_in > 0) {
-    if (!FLAGS_use_txn) {
-      return ReturnValidationError(
-          "timestamped snapshot supported only in TransactionDB");
-    } else if (FLAGS_txn_write_policy != 0) {
-      return ReturnValidationError(
-          "timestamped snapshot supported only in write-committed");
-    }
-  }
-
-  if (FLAGS_preserve_unverified_changes && FLAGS_reopen != 0) {
-    return ReturnValidationError(
-        "Reopen DB is incompatible with preserving unverified changes");
-  }
-
-  if (FLAGS_use_txn && !FLAGS_use_optimistic_txn &&
-      FLAGS_sync_fault_injection && FLAGS_txn_write_policy != 0) {
-    return ReturnValidationError(
-        "For TransactionDB, correctness testing with unsync data loss is "
-        "currently compatible with only write committed policy");
-  }
-
-  if (FLAGS_use_put_entity_one_in > 0 &&
-      (FLAGS_use_full_merge_v1 || FLAGS_test_multi_ops_txns ||
-       FLAGS_user_timestamp_size > 0)) {
-    return ReturnValidationError(
-        "Wide columns are incompatible with V1 Merge, the multi-op "
-        "transaction test, and user-defined timestamps");
   }
 
 #ifndef NDEBUG

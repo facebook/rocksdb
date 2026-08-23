@@ -9461,6 +9461,16 @@ unsigned char rocksdb_options_get_use_direct_io_for_flush_and_compaction(
   return opt->rep.use_direct_io_for_flush_and_compaction;
 }
 
+void rocksdb_options_set_fail_on_option_compatibility_error(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.fail_on_option_compatibility_error = v;
+}
+
+unsigned char rocksdb_options_get_fail_on_option_compatibility_error(
+    rocksdb_options_t* opt) {
+  return opt->rep.fail_on_option_compatibility_error;
+}
+
 void rocksdb_options_set_allow_fallocate(rocksdb_options_t* opt,
                                          unsigned char v) {
   opt->rep.allow_fallocate = v;

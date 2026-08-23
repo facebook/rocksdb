@@ -12,6 +12,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "logging/logging.h"
 #include "options/cf_options.h"
 #include "options/db_options.h"
 #include "rocksdb/cache.h"
@@ -30,6 +31,21 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+
+Status ReportOptionCompatibilityIssue(const DBOptions& db_opts,
+                                      const std::string& message) {
+  std::string full_message = "RocksDB option compatibility check: " + message;
+  ROCKS_LOG_WARN(db_opts.info_log, "%s", full_message.c_str());
+  if (db_opts.fail_on_option_compatibility_error) {
+    return Status::InvalidArgument(full_message);
+  }
+
+  return Status::OK();
+}
+
+}  // namespace
+
 ConfigOptions::ConfigOptions() : registry(ObjectRegistry::NewInstance()) {
   env = Env::Default();
 }
@@ -48,6 +64,102 @@ Status ValidateOptions(const DBOptions& db_opts,
     s = cf_cfg->ValidateOptions(db_opts, cf_opts);
   }
   return s;
+}
+
+Status ValidateDBOptionCompatibility(const DBOptions& db_opts) {
+  if (db_opts.allow_mmap_reads && db_opts.use_direct_reads) {
+    // Protect against assert in PosixMMapReadableFile constructor.
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then direct I/O reads (use_direct_reads) must be disabled. ");
+  }
+
+  if (db_opts.allow_mmap_reads && db_opts.use_direct_io_for_compaction_reads) {
+    // mmap reads and direct I/O share the same EnvOptions field, so enabling
+    // both would try to mmap and O_DIRECT the same reads.
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then compaction-only direct I/O reads "
+        "(use_direct_io_for_compaction_reads) must be disabled. ");
+  }
+
+  if (db_opts.allow_mmap_writes &&
+      db_opts.use_direct_io_for_flush_and_compaction) {
+    return Status::NotSupported(
+        "If memory mapped writes (allow_mmap_writes) are enabled "
+        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
+        "be disabled. ");
+  }
+
+  return Status::OK();
+}
+
+Status ValidateOptionCompatibility(const DBOptions& db_opts,
+                                   const ColumnFamilyOptions& cf_opts) {
+  Status s = ValidateDBOptionCompatibility(db_opts);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return ValidateColumnFamilyOptionCompatibility(db_opts, cf_opts);
+}
+
+Status ValidateColumnFamilyOptionCompatibility(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) {
+  const auto* ucmp = cf_opts.comparator;
+
+  if (cf_opts.enable_blob_direct_write) {
+    if (!cf_opts.enable_blob_files) {
+      return ReportOptionCompatibilityIssue(
+          db_opts, "enable_blob_direct_write requires enable_blob_files=true");
+    }
+    if (db_opts.enable_pipelined_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support pipelined writes.");
+    }
+    if (db_opts.allow_concurrent_memtable_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support concurrent memtable writes.");
+    }
+    if (db_opts.unordered_write) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support unordered writes.");
+    }
+    if (db_opts.two_write_queues) {
+      return Status::NotSupported(
+          "Blob direct write v1 does not support two write queues.");
+    }
+    if (cf_opts.experimental_mempurge_threshold > 0.0) {
+      return Status::NotSupported(
+          "Blob direct write does not support MemPurge.");
+    }
+    if (ucmp != nullptr && ucmp->timestamp_size() > 0) {
+      return Status::NotSupported(
+          "Blob direct write does not support user-defined timestamps.");
+    }
+    if (cf_opts.enable_blob_garbage_collection) {
+      return ReportOptionCompatibilityIssue(
+          db_opts,
+          "enable_blob_direct_write is incompatible with "
+          "enable_blob_garbage_collection");
+    }
+    if (db_opts.best_efforts_recovery) {
+      return ReportOptionCompatibilityIssue(
+          db_opts,
+          "enable_blob_direct_write is incompatible with "
+          "best_efforts_recovery");
+    }
+  }
+
+  if (cf_opts.inplace_update_support &&
+      cf_opts.min_tombstones_for_range_conversion > 0) {
+    return ReportOptionCompatibilityIssue(
+        db_opts,
+        "inplace_update_support is incompatible with "
+        "min_tombstones_for_range_conversion > 0");
+  }
+
+  return Status::OK();
 }
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
@@ -120,6 +232,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.use_direct_io_for_compaction_reads;
   options.use_direct_io_for_flush_and_compaction =
       immutable_db_options.use_direct_io_for_flush_and_compaction;
+  options.fail_on_option_compatibility_error =
+      immutable_db_options.fail_on_option_compatibility_error;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;

@@ -1206,6 +1206,14 @@ struct DBOptions {
   // Default: false
   bool use_direct_io_for_flush_and_compaction = false;
 
+  // When true, return InvalidArgument for known option combinations outside
+  // RocksDB's tested compatibility envelope. When false, log those issues as
+  // warnings through info_log when configured. Mandatory invalid combinations
+  // are not controlled by this option and are always rejected.
+  //
+  // Default: false
+  bool fail_on_option_compatibility_error = false;
+
   // If false, fallocate() calls are bypassed, which disables file
   // preallocation. The file space preallocation is used to increase the file
   // write/append performance. By default, RocksDB preallocates space for WAL,

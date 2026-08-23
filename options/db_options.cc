@@ -209,6 +209,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    use_direct_io_for_flush_and_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"fail_on_option_compatibility_error",
+         {offsetof(struct ImmutableDBOptions,
+                   fail_on_option_compatibility_error),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"allow_2pc",
          {offsetof(struct ImmutableDBOptions, allow_2pc), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -803,6 +808,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
           options.use_direct_io_for_compaction_reads),
       use_direct_io_for_flush_and_compaction(
           options.use_direct_io_for_flush_and_compaction),
+      fail_on_option_compatibility_error(
+          options.fail_on_option_compatibility_error),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
@@ -934,6 +941,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "        Options.use_direct_io_for_flush_and_compaction: %d",
                    use_direct_io_for_flush_and_compaction);
+  ROCKS_LOG_HEADER(log,
+                   "        Options.fail_on_option_compatibility_error: %d",
+                   fail_on_option_compatibility_error);
   ROCKS_LOG_HEADER(log, "         Options.create_missing_column_families: %d",
                    create_missing_column_families);
   ROCKS_LOG_HEADER(log, "                             Options.db_log_dir: %s",

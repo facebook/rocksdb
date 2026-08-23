@@ -1542,32 +1542,6 @@ Status ColumnFamilyData::ValidateOptions(
 
   const auto* ucmp = cf_options.comparator;
   assert(ucmp);
-  if (cf_options.enable_blob_direct_write) {
-    if (db_options.enable_pipelined_write) {
-      return Status::NotSupported(
-          "Blob direct write v1 does not support pipelined writes.");
-    }
-    if (db_options.allow_concurrent_memtable_write) {
-      return Status::NotSupported(
-          "Blob direct write v1 does not support concurrent memtable writes.");
-    }
-    if (db_options.unordered_write) {
-      return Status::NotSupported(
-          "Blob direct write v1 does not support unordered writes.");
-    }
-    if (db_options.two_write_queues) {
-      return Status::NotSupported(
-          "Blob direct write v1 does not support two write queues.");
-    }
-    if (cf_options.experimental_mempurge_threshold > 0.0) {
-      return Status::NotSupported(
-          "Blob direct write does not support MemPurge.");
-    }
-    if (ucmp->timestamp_size() > 0) {
-      return Status::NotSupported(
-          "Blob direct write does not support user-defined timestamps.");
-    }
-  }
   if (ucmp->timestamp_size() > 0 &&
       !cf_options.persist_user_defined_timestamps) {
     if (db_options.atomic_flush) {
@@ -1696,6 +1670,10 @@ Status ColumnFamilyData::ValidateOptions(
           " runs but is smaller than the compaction trigger "
           "level0_file_num_compaction_trigger.");
     }
+  }
+  s = ValidateColumnFamilyOptionCompatibility(db_options, cf_options);
+  if (!s.ok()) {
+    return s;
   }
   return s;
 }

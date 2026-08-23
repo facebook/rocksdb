@@ -151,6 +151,15 @@ DEFINE_string(delete_dir_and_exit, "",
               "Recursively deletes the specified directory and exits. "
               "Useful for cleaning up TEST_TMPDIR after crash tests.");
 
+DEFINE_bool(validate_flags_only, false,
+            "Validate flag compatibility after parsing and exit without "
+            "opening DB.");
+
+DEFINE_bool(fail_on_option_compatibility_error, true,
+            "Fail when core RocksDB options are outside the tested "
+            "compatibility envelope. Mandatory RocksDB option validation and "
+            "db_stress-only validation always run.");
+
 DEFINE_bool(verbose, false, "Verbose");
 
 DEFINE_bool(progress_reports, true,
