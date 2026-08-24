@@ -186,6 +186,13 @@ class PartitionedFilterBlockReader
   BlockHandle GetFilterPartitionHandle(
       const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
       const Slice& entry) const;
+  // Initializes `iter` over the top-level filter partition index in
+  // `filter_block`, for use with `SeekFilterPartitionHandle`.
+  void NewFilterPartitionIndexIterator(
+      const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
+      IndexBlockIter* iter) const;
+  BlockHandle SeekFilterPartitionHandle(IndexBlockIter* iter,
+                                        const Slice& entry) const;
   Status GetFilterPartitionBlock(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,

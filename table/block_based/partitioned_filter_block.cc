@@ -427,32 +427,43 @@ void PartitionedFilterBlockReader::PrefixesMayMatch(
            &FullFilterBlockReader::PrefixesMayMatch);
 }
 
-BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
+void PartitionedFilterBlockReader::NewFilterPartitionIndexIterator(
     const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
-    const Slice& entry) const {
-  IndexBlockIter iter;
+    IndexBlockIter* iter) const {
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
       comparator->user_comparator(),
       table()->get_rep()->get_global_seqno(BlockType::kFilterPartitionIndex),
-      &iter, kNullStats, true /* total_order_seek */,
-      false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full(), false /* block_contents_pinned */,
-      user_defined_timestamps_persisted(), nullptr /* prefix_index */,
-      BlockBasedTableOptions::kBinary, index_value_delta_escape());
-  iter.Seek(entry);
-  if (UNLIKELY(!iter.Valid())) {
+      iter, kNullStats, true /* total_order_seek */, false /* have_first_key */,
+      index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted(),
+      nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+      index_value_delta_escape());
+}
+
+BlockHandle PartitionedFilterBlockReader::SeekFilterPartitionHandle(
+    IndexBlockIter* iter, const Slice& entry) const {
+  iter->Seek(entry);
+  if (UNLIKELY(!iter->Valid())) {
     // entry is larger than all the keys. However its prefix might still be
     // present in the last partition. If this is called by PrefixMayMatch this
     // is necessary for correct behavior. Otherwise it is unnecessary but safe.
     // Assuming this is an unlikely case for full key search, the performance
     // overhead should be negligible.
-    iter.SeekToLast();
+    iter->SeekToLast();
   }
-  assert(iter.Valid());
-  BlockHandle fltr_blk_handle = iter.value().handle;
+  assert(iter->Valid());
+  BlockHandle fltr_blk_handle = iter->value().handle;
   return fltr_blk_handle;
+}
+
+BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
+    const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
+    const Slice& entry) const {
+  IndexBlockIter iter;
+  NewFilterPartitionIndexIterator(filter_block, &iter);
+  return SeekFilterPartitionHandle(&iter, entry);
 }
 
 Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
@@ -535,6 +546,9 @@ void PartitionedFilterBlockReader::MayMatch(
     return;  // Any/all may match
   }
 
+  IndexBlockIter filter_index_iter;
+  NewFilterPartitionIndexIterator(filter_block, &filter_index_iter);
+
   auto start_iter_same_handle = range->begin();
   BlockHandle prev_filter_handle = BlockHandle::NullBlockHandle();
 
@@ -542,9 +556,8 @@ void PartitionedFilterBlockReader::MayMatch(
   // share block cache lookup and use full filter multiget on the partition
   // filter.
   for (auto iter = start_iter_same_handle; iter != range->end(); ++iter) {
-    // TODO: re-use one top-level index iterator
     BlockHandle this_filter_handle =
-        GetFilterPartitionHandle(filter_block, iter->ikey);
+        SeekFilterPartitionHandle(&filter_index_iter, iter->ikey);
     if (!prev_filter_handle.IsNull() &&
         this_filter_handle != prev_filter_handle) {
       MultiGetRange subrange(*range, start_iter_same_handle, iter);

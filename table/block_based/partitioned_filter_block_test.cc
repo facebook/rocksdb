@@ -6,6 +6,7 @@
 #include "table/block_based/partitioned_filter_block.h"
 
 #include <map>
+#include <set>
 
 #include "block_cache.h"
 #include "index_builder.h"
@@ -252,6 +253,54 @@ class PartitionedFilterBlockTest
     }
   }
 
+  // Queries `reader` with a MultiGet range over `query_keys` (user keys
+  // without timestamp, in sorted order) via the whole-key `KeysMayMatch`
+  // path, and returns the subset of keys the filter reports as possibly
+  // present (i.e. the keys not filtered out).
+  std::set<std::string> MultiGetMayMatch(
+      PartitionedFilterBlockReader* reader,
+      const std::vector<std::string>& query_keys) {
+    ReadOptions read_options = test::kReadOptionsNoIo;
+    std::string min_ts(ts_sz_, '\0');
+    Slice min_ts_slice(min_ts);
+    if (ts_sz_ > 0) {
+      read_options.timestamp = &min_ts_slice;
+    }
+
+    autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> ukeys;
+    autovector<PinnableSlice, MultiGetContext::MAX_BATCH_SIZE> values;
+    autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+    autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+    values.resize(query_keys.size());
+    statuses.resize(query_keys.size());
+    for (const auto& key : query_keys) {
+      ukeys.emplace_back(key);
+    }
+    for (size_t i = 0; i < query_keys.size(); ++i) {
+      key_context.emplace_back(/*column_family=*/nullptr, ukeys[i], &values[i],
+                               /*columns=*/nullptr, /*timestamp=*/nullptr,
+                               &statuses[i]);
+    }
+    for (auto& key_ctx : key_context) {
+      sorted_keys.emplace_back(&key_ctx);
+    }
+    MultiGetContext ctx(&sorted_keys, /*begin=*/0, sorted_keys.size(),
+                        /*snapshot=*/0, read_options, /*fs=*/nullptr,
+                        /*stats=*/nullptr);
+    MultiGetContext::Range range = ctx.GetMultiGetRange();
+    reader->KeysMayMatch(&range, /*lookup_context=*/nullptr, read_options);
+    for (const auto& status : statuses) {
+      status.PermitUncheckedOk();
+    }
+
+    std::set<std::string> may_match_keys;
+    for (auto iter = range.begin(); iter != range.end(); ++iter) {
+      may_match_keys.insert(iter->ukey_without_ts.ToString());
+    }
+    return may_match_keys;
+  }
+
   int TestBlockPerKey() {
     std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
     std::unique_ptr<PartitionedFilterBlockBuilder> builder(
@@ -464,6 +513,53 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
                                        /*lookup_context=*/nullptr,
                                        ReadOptions()));
   }
+}
+
+// Exercises the MultiGet whole-key path (`KeysMayMatch` -> `MayMatch` over a
+// `MultiGetRange`), which reuses a single top-level filter-partition index
+// iterator across every key in the range. The range spans multiple filter
+// partitions, so consulting a wrong partition for any key would surface as a
+// false-negative Get (an added key incorrectly filtered out).
+TEST_P(PartitionedFilterBlockTest, MultiGetSpanningPartitions) {
+  // A small metadata block size cuts a filter partition after (almost) every
+  // key, forcing the range to span several partitions.
+  table_options_.metadata_block_size = 1;
+  std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
+  std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder(pib.get()));
+
+  std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
+  int i = 0;
+  builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+  CutABlock(pib.get(), keys[i], keys[i + 1]);
+  i++;
+  builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+  CutABlock(pib.get(), keys[i], keys[i + 1]);
+  i++;
+  builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+  builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+  CutABlock(pib.get(), keys[i], keys[i + 1]);
+  i++;
+  builder->Add(StripTimestampFromUserKey(keys[i], ts_sz_));
+  CutABlock(pib.get(), keys[i]);
+
+  std::unique_ptr<PartitionedFilterBlockReader> reader(
+      NewReader(builder.get(), pib.get()));
+
+  // Every added key must be reported as possibly present; a false negative
+  // here would mean a wrong filter partition was consulted for that key.
+  const std::vector<std::string> added_keys(keys_without_ts,
+                                            keys_without_ts + kKeyNum);
+  const std::set<std::string> expected(added_keys.begin(), added_keys.end());
+  ASSERT_EQ(MultiGetMayMatch(reader.get(), added_keys), expected);
+
+  // Keys that were never added should be filtered out (assuming a good hash
+  // function).
+  const std::vector<std::string> missing_keys(
+      missing_keys_without_ts, missing_keys_without_ts + kMissingKeyNum);
+  ASSERT_TRUE(MultiGetMayMatch(reader.get(), missing_keys).empty());
+
+  // Confirm the range really did span at least 3 filter partitions.
+  ASSERT_GE(CountNumOfIndexPartitions(pib.get()), 3);
 }
 
 TEST_P(PartitionedFilterBlockTest, OneBlockPerKey) {
