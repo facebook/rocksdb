@@ -7712,6 +7712,7 @@ void DBImpl::RecordSeqnoToTimeMapping() {
         sv_context.NewSuperVersion();
         cfd->InstallSuperVersion(&sv_context, &mutex_,
                                  new_seqno_to_time_mapping);
+        MaybeUpdatePreserveTimeMinSeqno(cfd);
       }
     }
     bg_cv_.SignalAll();
@@ -7719,6 +7720,30 @@ void DBImpl::RecordSeqnoToTimeMapping() {
 
   // clean up & report outside db mutex
   sv_context.Clean();
+}
+
+void DBImpl::MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd) {
+  mutex_.AssertHeld();
+  const MutableCFOptions& mopts = cfd->GetLatestMutableCFOptions();
+  MinAndMaxPreserveSeconds preserve_info{mopts};
+  if (!preserve_info.IsEnabled()) {
+    // Preserve/preclude disabled: no restriction on bottommost seqno zeroing.
+    cfd->current()->storage_info()->SetPreserveTimeMinSeqno(kMaxSequenceNumber);
+    return;
+  }
+  int64_t current_time = 0;
+  if (!immutable_db_options_.clock->GetCurrentTime(&current_time).ok()) {
+    // Leave the previous value in place; being stale is safe (a hot key's
+    // largest seqno stays above any past boundary and remains unmarked).
+    return;
+  }
+  SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber;
+  seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
+      static_cast<uint64_t>(current_time), mopts.preserve_internal_time_seconds,
+      mopts.preclude_last_level_data_seconds, &preserve_time_min_seqno,
+      /*preclude_last_level_min_seqno=*/nullptr);
+  cfd->current()->storage_info()->SetPreserveTimeMinSeqno(
+      preserve_time_min_seqno);
 }
 
 void DBImpl::TriggerPeriodicCompaction() {

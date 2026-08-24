@@ -5521,6 +5521,11 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   cfd->InstallSuperVersion(sv_context, &mutex_,
                            std::move(new_seqno_to_time_mapping));
 
+  // Refresh the seqno->time preserve-window bound used to gate bottommost file
+  // marking, so a file whose largest seqno is still within the preserve window
+  // is not marked for a compaction that cannot zero it out (infinite loop).
+  MaybeUpdatePreserveTimeMinSeqno(cfd);
+
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be
   // newer snapshot created and released frequently, the compaction will be

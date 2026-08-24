@@ -264,6 +264,15 @@ class VersionStorageInfo {
                             bool allow_ingest_behind, const Comparator* ucmp,
                             const std::string& full_history_ts_low);
 
+  // Sets the seqno->time preserve-window lower bound used when deciding whether
+  // a bottommost file can be marked for compaction (see
+  // preserve_time_min_seqno_ and BottommostSeqnoCanBeZeroed).
+  // kMaxSequenceNumber disables the constraint. Fed from DBImpl, which owns the
+  // seqno->time mapping. REQUIRES: DB mutex held
+  void SetPreserveTimeMinSeqno(SequenceNumber preserve_time_min_seqno) {
+    preserve_time_min_seqno_ = preserve_time_min_seqno;
+  }
+
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
 
@@ -781,6 +790,17 @@ class VersionStorageInfo {
   // current seqnum, which needs to be protected as a snapshot can still be
   // created that references it.
   SequenceNumber oldest_snapshot_seqnum_ = 0;
+
+  // The smallest sequence number whose write time is still within the
+  // seqno->time "preserve" window (preserve_internal_time_seconds /
+  // preclude_last_level_data_seconds). Bottommost keys at or above this seqno
+  // cannot have their sequence numbers zeroed out yet, so files whose largest
+  // seqno is at or above it must not be marked for bottommost compaction (that
+  // would be futile and loop). kMaxSequenceNumber means preserve is inactive.
+  // Fed from DBImpl (which owns the seqno->time mapping) via
+  // SetPreserveTimeMinSeqno; carried across versions like
+  // oldest_snapshot_seqnum_.
+  SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields

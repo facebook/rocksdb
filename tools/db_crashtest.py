@@ -1807,8 +1807,6 @@ def gen_cmd_params(args):
         # Default to leveled compaction
         # TODO: Fix "Unsafe to store Seq later" with tiered+leveled and
         # enable that combination rather than falling back to universal.
-        # TODO: There is also an alleged bug with leveled compaction
-        # infinite looping but that likely would not fail the crash test.
         params["compaction_style"] = 0 if not args.test_tiered_storage else 1
 
     for k, v in vars(args).items():

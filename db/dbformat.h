@@ -131,6 +131,43 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 static const SequenceNumber kDisableGlobalSequenceNumber =
     std::numeric_limits<uint64_t>::max();
 
+// Single source of truth for whether a bottommost entry's sequence number can
+// be zeroed out (the "seqno squashing" compaction optimization), for the two
+// conditions that gate it independently of snapshot visibility: the seqno->time
+// "preserve" window and the user-defined-timestamp (UDT) history cutoff.
+//
+// Callers still apply their own snapshot-visibility gate (which differs: the
+// compaction iterator is transaction/snapshot-checker aware, the version marker
+// only compares against the oldest snapshot). This shared predicate exists so
+// the entry-level decision in CompactionIterator::PrepareOutput and the
+// file-level decision in
+// VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction cannot drift
+// apart -- a mismatch causes a bottommost file to be marked for a compaction
+// that can make no progress, i.e. an infinite compaction loop.
+//
+// - `seq`: the entry's sequence number (or a file's largest sequence number).
+// - `preserve_seqno_after`: max seqno that may be zeroed given the preserve
+//   window; a seqno above it is too recent to zero.
+// - `ts_sz`: user-defined timestamp size (0 means UDT disabled).
+// - `full_history_ts_low_set`: whether full_history_ts_low has ever been set.
+// - `ts_below_full_history_ts_low`: whether the entry's (or file's max) user
+//   timestamp is strictly below full_history_ts_low. Only consulted when UDT is
+//   enabled; callers pass false when the timestamp is unknown so an
+//   indeterminate file is treated as not-zeroable (conservative, no loop).
+inline bool BottommostSeqnoCanBeZeroed(SequenceNumber seq,
+                                       SequenceNumber preserve_seqno_after,
+                                       size_t ts_sz,
+                                       bool full_history_ts_low_set,
+                                       bool ts_below_full_history_ts_low) {
+  if (seq > preserve_seqno_after) {
+    return false;
+  }
+  if (ts_sz == 0) {
+    return true;
+  }
+  return full_history_ts_low_set && ts_below_full_history_ts_low;
+}
+
 constexpr uint64_t kNumInternalBytes = 8;
 
 // Defined in dbformat.cc
