@@ -34,6 +34,16 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
       files_.files);
 }
 
+void CompactedDBImpl::RecordReadHit() {
+  if (files_level_ == 0) {
+    RecordTick(stats_, GET_HIT_L0);
+  } else if (files_level_ == 1) {
+    RecordTick(stats_, GET_HIT_L1);
+  } else {
+    RecordTick(stats_, GET_HIT_L2_AND_UP);
+  }
+}
+
 Status CompactedDBImpl::Init(const Options& options) {
   SuperVersionContext sv_context(/* create_superversion */ true);
   mutex_.Lock();

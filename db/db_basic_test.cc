@@ -1491,6 +1491,200 @@ TEST_F(DBBasicTest, CompactedDB) {
             "Not implemented: Not supported operation in read only mode.");
 }
 
+TEST_F(DBBasicTest, CompactedDBReadStatistics) {
+  Options options = CurrentOptions();
+  options.max_open_files = -1;
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 20);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Reopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  Close();
+
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("Not implemented: Not supported in compacted db mode.",
+            Put("new", "value").ToString());
+
+  ASSERT_OK(options.statistics->Reset());
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ("value", value);
+  ASSERT_EQ(1, TestGetTickerCount(options, MEMTABLE_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, GET_HIT_L0));
+  ASSERT_EQ(1, TestGetTickerCount(options, NUMBER_KEYS_READ));
+  ASSERT_EQ(5, TestGetTickerCount(options, BYTES_READ));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  HistogramData histogram;
+  options.statistics->histogramData(DB_GET, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  options.statistics->histogramData(BYTES_PER_READ, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  ASSERT_EQ(5, histogram.sum);
+
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ("value", value);
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_HIT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_TRUE(db_->Get(ReadOptions(), "before", &value).IsNotFound());
+  ASSERT_EQ(1, TestGetTickerCount(options, MEMTABLE_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L0));
+  ASSERT_EQ(1, TestGetTickerCount(options, NUMBER_KEYS_READ));
+  ASSERT_EQ(0, TestGetTickerCount(options, BYTES_READ));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_HIT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  options.statistics->histogramData(DB_GET, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  options.statistics->histogramData(BYTES_PER_READ, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  ASSERT_EQ(0, histogram.sum);
+
+  ASSERT_OK(options.statistics->Reset());
+  table_options.block_cache->EraseUnRefEntries();
+  std::vector<std::string> values;
+  std::vector<Status> statuses = db_->MultiGet(
+      ReadOptions(), {Slice("before"), Slice("key"), Slice("missing")},
+      &values);
+  ASSERT_EQ(3, statuses.size());
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ("value", values[1]);
+  ASSERT_TRUE(statuses[2].IsNotFound());
+  ASSERT_EQ(3, TestGetTickerCount(options, MEMTABLE_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, GET_HIT_L0));
+  ASSERT_EQ(1, TestGetTickerCount(options, NUMBER_MULTIGET_CALLS));
+  ASSERT_EQ(3, TestGetTickerCount(options, NUMBER_MULTIGET_KEYS_READ));
+  ASSERT_EQ(1, TestGetTickerCount(options, NUMBER_MULTIGET_KEYS_FOUND));
+  ASSERT_EQ(5, TestGetTickerCount(options, NUMBER_MULTIGET_BYTES_READ));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  options.statistics->histogramData(DB_MULTIGET, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  options.statistics->histogramData(BYTES_PER_MULTIGET, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  ASSERT_EQ(5, histogram.sum);
+  options.statistics->histogramData(SST_BATCH_SIZE, &histogram);
+  ASSERT_EQ(2, histogram.count);
+  ASSERT_EQ(2, histogram.sum);
+  options.statistics->histogramData(
+      NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  ASSERT_GT(histogram.sum, 0);
+  options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  ASSERT_EQ(2, histogram.sum);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &histogram);
+  ASSERT_EQ(1, histogram.count);
+  ASSERT_EQ(1, histogram.sum);
+
+  ASSERT_OK(options.statistics->Reset());
+  statuses = db_->MultiGet(ReadOptions(), {Slice("key")}, &values);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("value", values[0]);
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_HIT));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+
+  ASSERT_OK(options.statistics->Reset());
+  statuses = db_->MultiGet(ReadOptions(), {Slice("before")}, &values);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  options.statistics->histogramData(SST_BATCH_SIZE, &histogram);
+  ASSERT_EQ(0, histogram.count);
+  options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &histogram);
+  ASSERT_EQ(0, histogram.count);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &histogram);
+  ASSERT_EQ(0, histogram.count);
+
+  ASSERT_OK(options.statistics->Reset());
+  SetPerfLevel(kEnableTime);
+  get_perf_context()->Reset();
+  const uint64_t get_cpu_nanos = get_perf_context()->get_cpu_nanos;
+  std::vector<Slice> no_keys;
+  statuses = db_->MultiGet(ReadOptions(), no_keys, &values);
+  ASSERT_TRUE(statuses.empty());
+  ASSERT_EQ(get_cpu_nanos, get_perf_context()->get_cpu_nanos);
+  ASSERT_EQ(0, TestGetTickerCount(options, NUMBER_MULTIGET_CALLS));
+  options.statistics->histogramData(DB_MULTIGET, &histogram);
+  ASSERT_EQ(0, histogram.count);
+  SetPerfLevel(kDisable);
+}
+
+TEST_F(DBBasicTest, CompactedDBReadStatisticsByLevel) {
+  SetPerfLevel(kEnableTime);
+  get_perf_context()->EnablePerLevelPerfContext();
+  for (int level : {1, 2}) {
+    Options options = CurrentOptions();
+    options.max_open_files = -1;
+    options.statistics = CreateDBStatistics();
+
+    DestroyAndReopen(options);
+    ASSERT_OK(Put("key", "value"));
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(level);
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_EQ(1, NumTableFilesAtLevel(level));
+    Close();
+
+    ASSERT_OK(ReadOnlyReopen(options));
+    ASSERT_EQ("Not implemented: Not supported in compacted db mode.",
+              Put("new", "value").ToString());
+
+    const Tickers hit_ticker =
+        level == 1 ? GET_HIT_L1 : GET_HIT_L2_AND_UP;
+    ASSERT_OK(options.statistics->Reset());
+    get_perf_context()->Reset();
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+    ASSERT_EQ("value", value);
+    ASSERT_EQ(1, TestGetTickerCount(options, hit_ticker));
+    ASSERT_EQ(1, TestGetTickerCount(options, GET_HIT_L0) +
+                     TestGetTickerCount(options, GET_HIT_L1) +
+                     TestGetTickerCount(options, GET_HIT_L2_AND_UP));
+    ASSERT_GT(get_perf_context()->get_from_output_files_time, 0);
+    ASSERT_GT(get_perf_context()->get_post_process_time, 0);
+    ASSERT_EQ(1, get_perf_context()
+                     ->level_to_perf_context->at(level)
+                     .user_key_return_count);
+    ASSERT_GT(get_perf_context()
+                  ->level_to_perf_context->at(level)
+                  .get_from_table_nanos,
+              0);
+
+    ASSERT_OK(options.statistics->Reset());
+    get_perf_context()->Reset();
+    std::vector<std::string> values;
+    std::vector<Status> statuses =
+        db_->MultiGet(ReadOptions(), {Slice("key")}, &values);
+    ASSERT_EQ(1, statuses.size());
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ("value", values[0]);
+    ASSERT_EQ(1, TestGetTickerCount(options, hit_ticker));
+    ASSERT_EQ(1, TestGetTickerCount(options, GET_HIT_L0) +
+                     TestGetTickerCount(options, GET_HIT_L1) +
+                     TestGetTickerCount(options, GET_HIT_L2_AND_UP));
+    ASSERT_GT(get_perf_context()->get_from_output_files_time, 0);
+    ASSERT_GT(get_perf_context()->get_post_process_time, 0);
+    ASSERT_EQ(1, get_perf_context()
+                     ->level_to_perf_context->at(level)
+                     .user_key_return_count);
+    ASSERT_GT(get_perf_context()
+                  ->level_to_perf_context->at(level)
+                  .get_from_table_nanos,
+              0);
+  }
+  get_perf_context()->ClearPerLevelPerfContext();
+  SetPerfLevel(kDisable);
+}
+
 TEST_F(DBBasicTest, LevelLimitReopen) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);

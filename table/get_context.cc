@@ -352,6 +352,17 @@ void GetContext::ReportCounters() {
   }
 }
 
+void GetContext::AccumulateMultiGetStats(uint64_t* num_filter_read,
+                                         uint64_t* num_index_read,
+                                         uint64_t* num_sst_read) {
+  *num_filter_read += get_context_stats_.num_filter_read;
+  *num_index_read += get_context_stats_.num_index_read;
+  *num_sst_read += get_context_stats_.num_sst_read;
+  get_context_stats_.num_filter_read = 0;
+  get_context_stats_.num_index_read = 0;
+  get_context_stats_.num_sst_read = 0;
+}
+
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, bool* matched,
                            Status* read_status, Cleanable* value_pinner,

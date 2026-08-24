@@ -82,6 +82,18 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+void ReportMultiGetLevelStats(Statistics* statistics,
+                              uint64_t num_filter_read,
+                              uint64_t num_index_read, uint64_t num_sst_read) {
+  if (num_filter_read + num_index_read > 0) {
+    RecordInHistogram(statistics, NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                      num_filter_read + num_index_read);
+  }
+  if (num_sst_read > 0) {
+    RecordInHistogram(statistics, NUM_SST_READ_PER_LEVEL, num_sst_read);
+  }
+}
+
 namespace {
 
 using ScanOptionsMap = std::unordered_map<size_t, MultiScanArgs>;
@@ -3141,17 +3153,11 @@ Status Version::MultiGetAsync(
       num_levels++;
     }
 
-    uint64_t num_meta_reads =
-        std::get<0>(stat.second) + std::get<1>(stat.second);
+    uint64_t num_filter_reads = std::get<0>(stat.second);
+    uint64_t num_index_reads = std::get<1>(stat.second);
     uint64_t num_sst_reads = std::get<2>(stat.second);
-    if (num_meta_reads > 0) {
-      RecordInHistogram(db_statistics_,
-                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                        num_meta_reads);
-    }
-    if (num_sst_reads > 0) {
-      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_reads);
-    }
+    ReportMultiGetLevelStats(db_statistics_, num_filter_reads, num_index_reads,
+                             num_sst_reads);
   }
   if (num_levels > 0) {
     RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET, num_levels);

@@ -140,6 +140,7 @@ class CompactedDBImpl : public DBImpl {
  private:
   friend class DB;
   inline size_t FindFile(const Slice& key);
+  void RecordReadHit();
   Status Init(const Options& options);
 
   ColumnFamilyData* cfd_;
