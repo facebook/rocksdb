@@ -219,6 +219,12 @@ size_t LRUCacheShard::TEST_GetLRUSize() {
   return lru_size;
 }
 
+void LRUCacheShard::TEST_SimulateCorruptLowPriPoolUsage(size_t bogus_usage) {
+  DMutexLock l(mutex_);
+  low_pri_pool_usage_ = bogus_usage;
+  MaintainPoolSize();
+}
+
 double LRUCacheShard::GetHighPriPoolRatio() {
   DMutexLock l(mutex_);
   return high_pri_pool_ratio_;

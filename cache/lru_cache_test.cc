@@ -5,6 +5,7 @@
 
 #include "cache/lru_cache.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -151,6 +152,18 @@ class LRUCacheTest : public testing::Test {
  private:
   Cache::EvictionCallback eviction_callback_;
 };
+
+// A shard whose low-pri counter no longer describes its list used to spin in
+// MaintainPoolSize() forever, holding mutex_ and wedging every user of the
+// cache. It must now abort instead, leaving a core dump to diagnose from.
+TEST_F(LRUCacheTest, CorruptPoolUsageAborts) {
+  NewCache(10, /*high_pri_pool_ratio=*/0.5, /*low_pri_pool_ratio=*/0.0);
+  for (char ch = 'a'; ch <= 'e'; ch++) {
+    Insert(ch, Cache::Priority::HIGH);
+  }
+  ASSERT_DEATH(cache_->TEST_SimulateCorruptLowPriPoolUsage(SIZE_MAX),
+               "corrupt low-pri pool accounting");
+}
 
 TEST_F(LRUCacheTest, BasicLRU) {
   NewCache(5);

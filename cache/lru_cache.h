@@ -341,6 +341,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // Not threadsafe.
   size_t TEST_GetLRUSize();
 
+  // Forces the low-pri pool counter out of sync with the LRU list and then
+  // runs MaintainPoolSize(), for unit test purpose only. MaintainPoolSize()
+  // treats that state as unrecoverable corruption, so this aborts the process.
+  void TEST_SimulateCorruptLowPriPoolUsage(size_t bogus_usage);
+
   // Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
