@@ -268,6 +268,50 @@ TEST_F(PerfContextTest, CoroutineStatsContextScopeCollectsGetCpuNanos) {
   }
 }
 
+TEST_F(PerfContextTest, CoroutineStatsContextRestoredOnForeignThread) {
+  SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+
+  folly::IOThreadPoolExecutor executor(1);
+  folly::EventBase* event_base = executor.getEventBase();
+  ASSERT_NE(nullptr, event_base);
+
+  uint64_t foreign_block_read_count = 0;
+  uint64_t foreign_bytes_read = 0;
+  folly::coro::blockingWait(folly::coro::co_withExecutor(
+      folly::Executor::getKeepAliveToken(event_base),
+      [&foreign_block_read_count, &foreign_bytes_read,
+       stats_config =
+           CaptureCoroutineStatsConfig()]() mutable -> folly::coro::Task<void> {
+        CoroutineStatsContextScope scope(std::move(stats_config),
+                                         Env::Default());
+        get_perf_context()->block_read_count += 3;
+        get_iostats_context()->bytes_read += 5;
+
+        std::shared_ptr<folly::RequestContext> captured_context =
+            folly::RequestContext::saveContext();
+
+        std::thread foreign_thread([&] {
+          get_perf_context()->Reset();
+          get_iostats_context()->Reset();
+          get_perf_context()->block_read_count = 41;
+          get_iostats_context()->bytes_read = 43;
+          {
+            folly::RequestContextScopeGuard guard(captured_context);
+          }
+          foreign_block_read_count = get_perf_context()->block_read_count;
+          foreign_bytes_read = get_iostats_context()->bytes_read;
+        });
+        foreign_thread.join();
+
+        EXPECT_EQ(3, get_perf_context()->block_read_count);
+        EXPECT_EQ(5, get_iostats_context()->bytes_read);
+        co_return;
+      }()));
+
+  EXPECT_EQ(41, foreign_block_read_count);
+  EXPECT_EQ(43, foreign_bytes_read);
+}
+
 #endif
 
 TEST_F(PerfContextTest, AsyncCallbackStatsStartEmptyOnSyncFallback) {
