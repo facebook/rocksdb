@@ -363,6 +363,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // high-pri pool is no larger than the size specify by high_pri_pool_pct.
   void MaintainPoolSize();
 
+  // Reports the shard's accounting state and aborts. Called only from
+  // MaintainPoolSize(), when a pool usage counter has stopped describing the
+  // LRU list and the shard can no longer be trusted.
+  [[noreturn]] void CrashOnCorruptPoolUsage(const char* pool_name) const;
+
   // Free some space following strict LRU policy until enough space
   // to hold (usage_ + charge) is freed or the lru list is empty
   // This function is not thread safe - it needs to be executed while
