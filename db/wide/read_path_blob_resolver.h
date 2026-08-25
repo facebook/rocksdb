@@ -96,6 +96,61 @@ class ReadPathBlobResolver {
                             size_t range_length, bool force_verify,
                             PinnableSlice* result);
 
+  // How the cross-key batch coalescing path
+  // (LazyWideColumnsBatch::MultiResolve) should resolve a byte-range read of
+  // one column.
+  enum class LazyColumnReadPlan {
+    // Resolve individually via ResolveColumnRange (inline column, already
+    // resolved, TTL-inlined blob, empty range, force-verify, or an unservable
+    // reference); no cross-key coalescing benefit.
+    kServeIndividually,
+    // Fetch the whole blob value, then cache + slice; coalesce per blob file.
+    kFetchWholeSeparateFile,
+    // Fetch the whole embedded value, then cache + slice; coalesce per SST.
+    kFetchWholeSameFile,
+    // Fetch only the (uncompressed) sub-range; coalesce per blob file.
+    kFetchRangeSeparateFile,
+    // Fetch only the (uncompressed) embedded sub-range; coalesce per SST.
+    kFetchRangeSameFile,
+  };
+
+  struct LazyColumnReadClassification {
+    LazyColumnReadPlan plan = LazyColumnReadPlan::kServeIndividually;
+    // For fetch plans: the reference to read (owned by blob_columns_).
+    const BlobIndex* blob_index = nullptr;
+    // For range-fetch plans: the effective (clamped) sub-range to read.
+    uint64_t range_offset = 0;
+    size_t range_length = 0;
+  };
+
+  // Classifies how a byte-range read of `column_index` should be resolved by
+  // the batch coalescing path. The decision mirrors ResolveColumnRange exactly,
+  // so that pre-fetching the whole/range values (per the returned plan) and
+  // then calling ResolveColumnRange for the whole reads yields the same bytes
+  // with no redundant I/O. Out-of-bounds / non-blob / cached / inlined /
+  // empty-range / force-verify / unservable reads return kServeIndividually.
+  LazyColumnReadClassification ClassifyColumnRange(size_t column_index,
+                                                   uint64_t range_offset,
+                                                   size_t range_length,
+                                                   bool force_verify) const;
+
+  // Inserts an externally fetched whole column value into the resolver's cache
+  // (idempotent: if the column is already cached the passed value is dropped
+  // and the existing entry kept). Used by the batch coalescing path, which
+  // fetches whole blob values in bulk; a subsequent ResolveColumnRange of that
+  // column then slices from the cache with no I/O.
+  void AdoptResolvedWholeColumn(size_t column_index, PinnableSlice&& value);
+
+  // Accessors used by the batch coalescing path to group and dispatch reads.
+  const Version* version() const { return blob_fetcher_.version(); }
+  const SameFileBlobReader* same_file_reader() const {
+    return same_file_reader_;
+  }
+  const ReadOptions& read_options() const {
+    return blob_fetcher_.read_options();
+  }
+  const Slice& user_key() const { return user_key_; }
+
   // Resolve multiple columns in the order provided by `column_indices`.
   // Resolved blob values are cached exactly as if ResolveColumn() were called
   // repeatedly.

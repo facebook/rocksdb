@@ -2824,6 +2824,47 @@ Status DBImpl::GetEntityLazyImpl(const ReadOptions& read_options,
   return s;
 }
 
+Status DBImpl::GetEntityLazyForBatch(const ReadOptions& read_options,
+                                     ColumnFamilyHandle* column_family,
+                                     SuperVersion* super_version,
+                                     SequenceNumber snapshot_seq,
+                                     const Slice& key,
+                                     LazyWideColumns* result) {
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  PinnableWideColumns* entity_buffer =
+      LazyWideColumnsHelper::EntityBuffer(result);
+
+  const SameFileBlobReader* same_file_reader = nullptr;
+  const Version* version = nullptr;
+
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns = entity_buffer;
+  get_impl_options.lazy_columns_version = &version;
+  get_impl_options.lazy_columns_same_file_reader = &same_file_reader;
+  // Read against the batch's shared SuperVersion + consistent sequence number
+  // (no per-key SuperVersion acquisition, no per-key pin).
+  get_impl_options.lazy_columns_shared_sv = super_version;
+  get_impl_options.lazy_columns_snapshot_seq = snapshot_seq;
+
+  Status s = GetImpl(read_options, key, get_impl_options);
+  if (!s.ok()) {
+    result->Reset();
+    return s;
+  }
+
+  s = LazyWideColumnsHelper::FinalizeInBatch(
+      result, key, version, read_options, cfd->blob_file_cache(),
+      /*allow_write_path_fallback=*/cfd->blob_partition_manager() != nullptr,
+      same_file_reader);
+  if (!s.ok()) {
+    result->Reset();
+  }
+  return s;
+}
+
 Status DBImpl::GetEntityLazy(const ReadOptions& _read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, LazyWideColumns* result) {
@@ -2907,40 +2948,56 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kMultiGetEntity;
   }
 
-  // The current phase implements MultiGetEntityLazy as a loop of single-key
-  // lazy lookups. Each iteration acquires (and hands back to the result) its
-  // own SuperVersion reference, and each single-key lookup independently
-  // derives its read sequence number. To still present one consistent
-  // point-in-time view across all keys (as MultiGet guarantees), pin an
-  // explicit snapshot for the duration of the loop when the caller did not
-  // supply one: it fixes the read sequence number for every key and prevents
-  // compaction from dropping a version some later key still needs to observe.
-  //
-  // TODO(lazy-blob-resolution-phase3): replace this loop with a genuinely
-  // batched read that acquires a single SuperVersion and one consistent
-  // (implicit) sequence number for the whole batch -- the mechanism batched
-  // MultiGet already uses -- and holds one shared pin per column family instead
-  // of one per key. That removes the need for an explicit snapshot here (which
-  // takes the DB mutex and adds a snapshot list entry) and enables
-  // coalescing/parallelizing the per-key work.
-  const Snapshot* snapshot = read_options.snapshot;
-  const bool own_snapshot = snapshot == nullptr;
-  if (own_snapshot) {
-    snapshot = GetSnapshot();
-    read_options.snapshot = snapshot;
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Acquire ONE SuperVersion + one consistent (implicit) sequence number for
+  // the whole batch (single column family), retaining the SuperVersion
+  // reference (extra_sv_ref) so it can be transferred into the batch as a
+  // single shared pin -- exactly as multi-CF iterators do (NewIterators). This
+  // replaces the former per-key SuperVersion + explicit-snapshot loop:
+  // MultiCFSnapshot fixes one read sequence number for every key (falling back
+  // to the DB mutex only if a flush races) without adding a snapshot-list
+  // entry, and every key reads from the same Version so cross-key blob
+  // resolution coalesces maximally.
+  std::array<ColumnFamilySuperVersionPair, 1> cf_sv_pairs;
+  cf_sv_pairs[0] = ColumnFamilySuperVersionPair(column_family, nullptr);
+  SequenceNumber consistent_seqnum = kMaxSequenceNumber;
+  bool sv_from_thread_local = false;
+  Status s = MultiCFSnapshot<std::array<ColumnFamilySuperVersionPair, 1>>(
+      read_options, /*callback=*/nullptr,
+      [](std::array<ColumnFamilySuperVersionPair, 1>::iterator& cf_iter) {
+        return &(*cf_iter);
+      },
+      &cf_sv_pairs,
+      /*extra_sv_ref=*/true, &consistent_seqnum, &sv_from_thread_local);
+  if (!s.ok()) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = s;
+    }
+    return;
   }
+  (void)sv_from_thread_local;  // extra_sv_ref: always an independent reference
+
+  SuperVersion* const sv = cf_sv_pairs[0].super_version;
 
   for (size_t i = 0; i < num_keys; ++i) {
     statuses[i] =
-        GetEntityLazyImpl(read_options, column_family, keys[i], &(*result)[i]);
+        GetEntityLazyForBatch(read_options, column_family, sv,
+                              consistent_seqnum, keys[i], &(*result)[i]);
   }
+
+  // Transfer one shared SuperVersion pin into the batch (keyed by column
+  // family), then release the call-scoped reference acquired above. Because
+  // extra_sv_ref requested an independent reference, it is released via
+  // CleanupSuperVersion (not the thread-local return path).
+  TransferSuperVersionPin(
+      sv, LazyWideColumnsHelper::BatchCfPin(result, cfd->GetID()));
+  CleanupSuperVersion(sv);
+
   // Link the populated entities back to the batch so batch reads can validate
   // column ownership.
   LazyWideColumnsHelper::FinalizeBatch(result);
-
-  if (own_snapshot) {
-    ReleaseSnapshot(snapshot);
-  }
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {

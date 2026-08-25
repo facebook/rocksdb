@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "db/blob/blob_index.h"
+#include "db/blob/same_file_blob_reader.h"
+#include "db/version_set.h"
 #include "db/wide/blob_column_resolver_util.h"
 #include "db/wide/lazy_wide_columns_helper.h"
 #include "db/wide/read_path_blob_resolver.h"
@@ -23,6 +25,7 @@
 #include "rocksdb/cleanable.h"
 #include "rocksdb/options.h"
 #include "rocksdb/wide_columns.h"
+#include "util/autovector.h"
 
 // Current implementation of the lazy blob resolution API. Enumeration and
 // whole-column resolution are functional. Byte-range reads of an uncompressed
@@ -30,9 +33,11 @@
 // in the SST -- are served by reading only the requested bytes from storage
 // (skipping checksum verification and cache-fill); other cases (compressed,
 // whole-column, already-cached, or force_verify) resolve the whole column and
-// slice it. Cross-key coalescing and async execution are future work; here
-// LazyWideColumnsBatch::MultiResolve simply routes each read to its owning
-// per-key result, and MultiGetEntityLazy fills the batch key-by-key.
+// slice it. LazyWideColumnsBatch::MultiResolve coalesces reads across keys:
+// classifies each read, then groups the storage reads per (Version, blob file)
+// for separate-file references and per SST for embedded references, issuing one
+// coalesced MultiRead per group (whole and byte-range). Async execution is
+// future work.
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -253,18 +258,37 @@ void LazyWideColumns::Reset() { rep_.reset(); }
 
 // ---- LazyWideColumnsBatch ----
 
-// Internal representation. Owns the per-key LazyWideColumns. (In the current
-// phase each entity holds its own SuperVersion pin; cf_pins is reserved for the
-// future shared-pin, cross-CF design and is currently unused.)
+// Internal representation. Owns the shared SuperVersion pin(s) and the per-key
+// LazyWideColumns. Each entity's resolver is bound to the batch's shared
+// Version but takes no per-entity pin; the batch holds one shared pin per
+// column family (`cf_pins`, a single entry for the common single-CF call),
+// transferred in by the batched MultiGetEntityLazy.
 class LazyWideColumnsBatch::Rep {
  public:
+  // Shared SuperVersion pin per column family. Declared before `entities` so
+  // the entities (whose resolvers reference the pinned Version) are destroyed
+  // before these pins are released.
+  std::map<uint32_t /* column_family_id */, Cleanable> cf_pins;
+
   // One result per key of the MultiGetEntityLazy call, in key order.
   std::vector<LazyWideColumns> entities;
 
-  // TODO(lazy-blob-resolution-phase3): switch to one shared SuperVersion pin
-  // per column family here (instead of one self-pin per entity), populated by a
-  // batched MultiGetEntityLazy.
-  std::map<uint32_t /* column_family_id */, Cleanable> cf_pins;
+  ~Rep() {
+    // Releasing a shared SuperVersion pin can trigger obsolete-file cleanup I/O
+    // (e.g. FindObsoleteFiles) when the batch held the last reference. Mirror
+    // LazyWideColumns::Rep::~Rep / DBIter::~DBIter and run teardown with the
+    // thread operation reset to OP_UNKNOWN so that incidental I/O is not
+    // misattributed to whatever read op is active on the destroying thread.
+    // Destroy the entities (their resolvers reference the pinned Version)
+    // before releasing the pins.
+    const ThreadStatus::OperationType saved_op =
+        ThreadStatusUtil::GetThreadOperation();
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
+    entities.clear();
+    cf_pins.clear();
+    ThreadStatusUtil::SetThreadOperation(saved_op);
+  }
 };
 
 LazyWideColumnsBatch::LazyWideColumnsBatch() = default;
@@ -294,6 +318,51 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
                                           LazyColumnReadRequest* reads) {
   LazyResolveThreadOpScope thread_op_scope;
   const void* this_rep = rep_.get();
+
+  using EntityRep = LazyWideColumns::Rep;
+  using Plan = ReadPathBlobResolver::LazyColumnReadPlan;
+
+  // A whole-value fetch, deduplicated per owning (entity, column): fetched into
+  // `temp`, then adopted into the entity's resolver cache and sliced per read.
+  struct WholeFetch {
+    EntityRep* entity_rep = nullptr;
+    size_t column_index = 0;
+    bool same_file = false;
+    const BlobIndex* blob_index = nullptr;
+    PinnableSlice temp;
+    Status status;
+  };
+  // A sub-range fetch: read straight into the user's output slice/status.
+  struct RangeFetch {
+    EntityRep* entity_rep = nullptr;
+    bool same_file = false;
+    const BlobIndex* blob_index = nullptr;
+    uint64_t range_offset = 0;
+    size_t range_length = 0;
+    PinnableSlice* result = nullptr;
+    Status* status = nullptr;  // the user's status, or &range_status_sink
+  };
+  // Binds an original whole read to the whole fetch that satisfies it.
+  struct WholeBinding {
+    size_t fetch_idx = 0;
+    LazyColumnReadRequest* read = nullptr;
+  };
+
+  std::vector<WholeFetch> whole_fetches;
+  std::vector<RangeFetch> range_fetches;
+  std::vector<WholeBinding> whole_bindings;
+  std::vector<LazyColumnReadRequest*> serve_individually;
+  std::map<std::pair<EntityRep*, size_t>, size_t> whole_index;
+  // Fallback status sink for range reads whose caller supplied no status (the
+  // per-read outcome is then not wanted); permitted-unchecked at the end.
+  Status range_status_sink;
+
+  // The (single-CF, shared) lazy ReadOptions used for every coalesced dispatch;
+  // captured from the first classified entity. A future cross-CF batch would
+  // need per-group ReadOptions instead.
+  const ReadOptions* resolve_ro = nullptr;
+
+  // Pass 1: reset outputs, validate ownership, classify.
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];
     if (read.status) {
@@ -314,11 +383,8 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
     // owning_batch_rep_ == nullptr, and an empty/default-constructed batch has
     // this_rep == nullptr, so without it a foreign standalone column would slip
     // through the nullptr == nullptr comparison instead of being rejected.
-    // TODO(lazy-blob-resolution-phase3): group reads per (CF, Version, blob
-    // file) across entities and coalesce them; the request shape is unchanged.
-    LazyWideColumns::Rep* entity_rep =
-        static_cast<const LazyWideColumns::Rep::ColumnImpl*>(read.column)
-            ->parent_rep_;
+    EntityRep* entity_rep =
+        static_cast<const EntityRep::ColumnImpl*>(read.column)->parent_rep_;
     if (entity_rep == nullptr || entity_rep->owning_batch_rep_ == nullptr ||
         entity_rep->owning_batch_rep_ != this_rep) {
       if (read.status) {
@@ -327,8 +393,173 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
       }
       continue;
     }
-    entity_rep->ResolveOneRead(read.column->index(), read);
+    // A read with no output buffer only wants to surface an I/O/integrity
+    // error; resolve it individually (ResolveColumnRange handles the
+    // null-result case), and defensively serve entities with no resolver
+    // individually too.
+    if (read.result == nullptr || !entity_rep->resolver_) {
+      serve_individually.push_back(&read);
+      continue;
+    }
+
+    const size_t column_index = read.column->index();
+    const ReadPathBlobResolver::LazyColumnReadClassification cls =
+        entity_rep->resolver_->ClassifyColumnRange(
+            column_index, read.offset, read.length, read.force_verify);
+    if (resolve_ro == nullptr) {
+      resolve_ro = &entity_rep->resolver_->read_options();
+    }
+    switch (cls.plan) {
+      case Plan::kServeIndividually:
+        serve_individually.push_back(&read);
+        break;
+      case Plan::kFetchWholeSeparateFile:
+      case Plan::kFetchWholeSameFile: {
+        const std::pair<EntityRep*, size_t> key{entity_rep, column_index};
+        auto it = whole_index.find(key);
+        size_t idx;
+        if (it == whole_index.end()) {
+          idx = whole_fetches.size();
+          whole_index.emplace(key, idx);
+          whole_fetches.emplace_back();
+          WholeFetch& wf = whole_fetches.back();
+          wf.entity_rep = entity_rep;
+          wf.column_index = column_index;
+          wf.same_file = (cls.plan == Plan::kFetchWholeSameFile);
+          wf.blob_index = cls.blob_index;
+        } else {
+          idx = it->second;
+        }
+        whole_bindings.push_back(WholeBinding{idx, &read});
+        break;
+      }
+      case Plan::kFetchRangeSeparateFile:
+      case Plan::kFetchRangeSameFile: {
+        RangeFetch rf;
+        rf.entity_rep = entity_rep;
+        rf.same_file = (cls.plan == Plan::kFetchRangeSameFile);
+        rf.blob_index = cls.blob_index;
+        rf.range_offset = cls.range_offset;
+        rf.range_length = cls.range_length;
+        rf.result = read.result;
+        rf.status = read.status;
+        range_fetches.push_back(std::move(rf));
+        break;
+      }
+    }
   }
+
+  // Pass 2: build one dispatch list per group and issue a coalesced read.
+  // Separate-file reads (whole + range) go through Version::MultiGetBlobLazy
+  // (grouped by Version, coalesced per blob file inside); same-file reads
+  // through SameFileBlobReader::MultiGetSameFileBlob (grouped by SST, coalesced
+  // there).
+  if (resolve_ro != nullptr) {
+    std::map<const Version*, autovector<Version::LazyBlobReadRequest>>
+        separate_groups;
+    std::map<const SameFileBlobReader*, std::vector<SameFileBlobReadRequest>>
+        same_groups;
+    // Whole reads are never force-verify here (those are served individually),
+    // so the verify policy is just today's global verify_checksums.
+    const BlobVerifyPolicy whole_policy =
+        resolve_ro->verify_checksums
+            ? BlobVerifyPolicy::kVerifyIfNoAmplification
+            : BlobVerifyPolicy::kSkip;
+
+    for (WholeFetch& wf : whole_fetches) {
+      ReadPathBlobResolver& resolver = *wf.entity_rep->resolver_;
+      if (wf.same_file) {
+        SameFileBlobReadRequest req;
+        req.blob_index = wf.blob_index;
+        req.range_offset = 0;
+        req.range_length = kWholeBlobLength;
+        req.verify_policy = whole_policy;
+        req.result = &wf.temp;
+        req.status = &wf.status;
+        same_groups[resolver.same_file_reader()].push_back(req);
+      } else {
+        Version::LazyBlobReadRequest req;
+        req.user_key = &resolver.user_key();
+        req.blob_index = wf.blob_index;
+        req.range_offset = 0;
+        req.range_length = kWholeBlobLength;
+        req.result = &wf.temp;
+        req.status = &wf.status;
+        separate_groups[resolver.version()].emplace_back(req);
+      }
+    }
+    for (RangeFetch& rf : range_fetches) {
+      ReadPathBlobResolver& resolver = *rf.entity_rep->resolver_;
+      Status* const status = rf.status ? rf.status : &range_status_sink;
+      if (rf.same_file) {
+        SameFileBlobReadRequest req;
+        req.blob_index = rf.blob_index;
+        req.range_offset = rf.range_offset;
+        req.range_length = rf.range_length;
+        req.verify_policy =
+            whole_policy;  // range never verifies; policy unused
+        req.result = rf.result;
+        req.status = status;
+        same_groups[resolver.same_file_reader()].push_back(req);
+      } else {
+        Version::LazyBlobReadRequest req;
+        req.user_key = &resolver.user_key();
+        req.blob_index = rf.blob_index;
+        req.range_offset = rf.range_offset;
+        req.range_length = rf.range_length;
+        req.result = rf.result;
+        req.status = status;
+        separate_groups[resolver.version()].emplace_back(req);
+      }
+    }
+
+    for (auto& [version, reqs] : separate_groups) {
+      version->MultiGetBlobLazy(*resolve_ro, reqs);
+    }
+    for (auto& [reader, reqs] : same_groups) {
+      reader->MultiGetSameFileBlob(*resolve_ro, reqs.size(), reqs.data())
+          .PermitUncheckedError();  // per-request outcomes are in each status
+    }
+  }
+
+  // Pass 3: adopt the fetched whole values into their resolvers' caches so the
+  // slice below (and any later read of the same column) does no further I/O.
+  for (WholeFetch& wf : whole_fetches) {
+    if (wf.status.ok()) {
+      wf.entity_rep->resolver_->AdoptResolvedWholeColumn(wf.column_index,
+                                                         std::move(wf.temp));
+    }
+  }
+
+  // Pass 4: finalize each whole read by slicing the requested range out of the
+  // (now cached) whole value; a failed fetch leaves an empty result.
+  for (WholeBinding& b : whole_bindings) {
+    WholeFetch& wf = whole_fetches[b.fetch_idx];
+    if (!wf.status.ok()) {
+      if (b.read->status) {
+        *b.read->status = wf.status;
+      }
+      continue;
+    }
+    const Status s = wf.entity_rep->resolver_->ResolveColumnRange(
+        b.read->column->index(), b.read->offset, b.read->length,
+        b.read->force_verify, b.read->result);
+    if (b.read->status) {
+      *b.read->status = s;
+    }
+  }
+
+  // Pass 5: serve the individual (non-coalesced) reads.
+  for (LazyColumnReadRequest* read : serve_individually) {
+    EntityRep* entity_rep =
+        static_cast<const EntityRep::ColumnImpl*>(read->column)->parent_rep_;
+    entity_rep->ResolveOneRead(read->column->index(), *read);
+  }
+
+  // The shared sink only absorbs outcomes of range reads whose caller wanted no
+  // status; nothing reads it, so mark it checked for ASSERT_STATUS_CHECKED.
+  range_status_sink.PermitUncheckedError();
+
   return Status::OK();
 }
 
@@ -350,6 +581,21 @@ Status LazyWideColumnsHelper::Finalize(
     const ReadOptions& read_options, BlobFileCache* blob_file_cache,
     bool allow_write_path_fallback, const SameFileBlobReader* same_file_reader,
     Cleanable&& pin) {
+  assert(result);
+  assert(result->rep_);
+  // Take ownership of the per-result SuperVersion pin, then set up the resolver
+  // exactly as the batched path does.
+  result->rep_->pin_ = std::move(pin);
+  return FinalizeInBatch(result, user_key, version, read_options,
+                         blob_file_cache, allow_write_path_fallback,
+                         same_file_reader);
+}
+
+Status LazyWideColumnsHelper::FinalizeInBatch(
+    LazyWideColumns* result, const Slice& user_key, const Version* version,
+    const ReadOptions& read_options, BlobFileCache* blob_file_cache,
+    bool allow_write_path_fallback,
+    const SameFileBlobReader* same_file_reader) {
   assert(result);
   assert(result->rep_);
   LazyWideColumns::Rep& rep = *result->rep_;
@@ -396,12 +642,12 @@ Status LazyWideColumnsHelper::Finalize(
     rep.columns_.emplace_back(&rep, i, columns[i].name(), inline_data, size);
   }
 
-  // Take ownership of the SuperVersion pin and stand up the resolver bound to
-  // the (address-stable, since Rep is heap-allocated) entity columns + blob
-  // references. The resolver's deferred blob-byte reads are attributed to
-  // Env::IOActivity::kLazyResolve (distinct from the kGetEntity/kMultiGetEntity
-  // of the initial entity read that already completed via GetImpl).
-  rep.pin_ = std::move(pin);
+  // Stand up the resolver bound to the (address-stable, since Rep is
+  // heap-allocated) entity columns + blob references. The resolver's deferred
+  // blob-byte reads are attributed to Env::IOActivity::kLazyResolve (distinct
+  // from the kGetEntity/kMultiGetEntity of the initial entity read that already
+  // completed via GetImpl). A standalone result took ownership of its pin in
+  // Finalize; a batched entity relies on its enclosing batch's shared pin.
   rep.user_key_.assign(user_key.data(), user_key.size());
   ReadOptions resolve_read_options(read_options);
   resolve_read_options.io_activity = Env::IOActivity::kLazyResolve;
@@ -420,6 +666,13 @@ void LazyWideColumnsHelper::InitBatch(LazyWideColumnsBatch* batch,
   }
   batch->rep_->entities.clear();
   batch->rep_->entities.resize(num_entities);
+}
+
+Cleanable* LazyWideColumnsHelper::BatchCfPin(LazyWideColumnsBatch* batch,
+                                             uint32_t cf_id) {
+  assert(batch);
+  assert(batch->rep_);
+  return &batch->rep_->cf_pins[cf_id];
 }
 
 void LazyWideColumnsHelper::FinalizeBatch(LazyWideColumnsBatch* batch) {

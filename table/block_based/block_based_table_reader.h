@@ -262,6 +262,13 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
                          size_t range_length, BlobVerifyPolicy verify_policy,
                          PinnableSlice* value) const override;
 
+  // Batched counterpart of GetSameFileBlob: coalesces the cache-miss reads of
+  // multiple embedded (same-file) records in this SST into a single MultiRead
+  // (one for whole records, one for sub-ranges). Force-verify reads
+  // (kVerifyIfPresent) fall back to per-record GetSameFileBlob.
+  Status MultiGetSameFileBlob(const ReadOptions& read_options, size_t num_reads,
+                              SameFileBlobReadRequest* reqs) const override;
+
   // If `value` is a same-file BlobIndex, materializes the referenced payload
   // and updates `resolved_internal_key` to the corresponding value type. Leaves
   // `resolved`. When `pinned_value` is non-null, a whole-value same-file blob

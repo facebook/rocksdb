@@ -296,7 +296,11 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
   }
 
   if (slice->size() != read_size) {
-    return Status::Corruption("Failed to read data from blob file");
+    return Status::Corruption("Incomplete blob read from " +
+                              file_reader->file_name() + " at offset " +
+                              std::to_string(read_offset) + ": expected " +
+                              std::to_string(read_size) + " bytes, got " +
+                              std::to_string(slice->size()));
   }
 
   return Status::OK();
@@ -330,7 +334,10 @@ Status BlobFileReader::GetBlob(
 
   if (!IsValidBlobOffset(offset, key_size, value_size, file_size_,
                          has_footer_)) {
-    return Status::Corruption("Invalid blob offset");
+    return Status::Corruption(
+        "Invalid blob offset " + std::to_string(offset) + " for value size " +
+        std::to_string(value_size) + " in " + file_reader_->file_name() +
+        " (file size " + std::to_string(file_size_) + ")");
   }
 
   if (compression_type != compression_type_) {
@@ -438,12 +445,18 @@ Status BlobFileReader::GetBlobRange(const ReadOptions& read_options,
   // performs); this guards the sub-range read below.
   if (!IsValidBlobOffset(offset, key_size, value_size, file_size_,
                          has_footer_)) {
-    return Status::Corruption("Invalid blob offset");
+    return Status::Corruption(
+        "Invalid blob offset " + std::to_string(offset) + " for value size " +
+        std::to_string(value_size) + " in " + file_reader_->file_name() +
+        " (file size " + std::to_string(file_size_) + ")");
   }
 
   // The requested sub-range must lie within the value.
   if (range_offset > value_size || range_length > value_size - range_offset) {
-    return Status::InvalidArgument("Blob range out of bounds");
+    return Status::InvalidArgument(
+        "Blob range [" + std::to_string(range_offset) + ", +" +
+        std::to_string(range_length) + ") out of bounds for value size " +
+        std::to_string(value_size) + " in " + file_reader_->file_name());
   }
 
   // Read only the requested bytes, at the value's file position plus the range
@@ -518,7 +531,10 @@ void BlobFileReader::MultiGetBlob(
 
     if (!IsValidBlobOffset(offset, key_size, value_size, file_size_,
                            has_footer_)) {
-      *req->status = Status::Corruption("Invalid blob offset");
+      *req->status = Status::Corruption(
+          "Invalid blob offset " + std::to_string(offset) + " for value size " +
+          std::to_string(value_size) + " in " + file_reader_->file_name() +
+          " (file size " + std::to_string(file_size_) + ")");
       continue;
     }
     if (req->compression != compression_type_) {
@@ -612,8 +628,11 @@ void BlobFileReader::MultiGetBlob(
     auto& read_req = read_reqs[j++];
     const auto& record_slice = read_req.result;
     if (read_req.status.ok() && record_slice.size() != read_req.len) {
-      read_req.status =
-          IOStatus::Corruption("Failed to read data from blob file");
+      read_req.status = IOStatus::Corruption(
+          "Incomplete blob read from " + file_reader_->file_name() +
+          " at offset " + std::to_string(read_req.offset) + ": expected " +
+          std::to_string(read_req.len) + " bytes, got " +
+          std::to_string(record_slice.size()));
     }
 
     *req->status = read_req.status;
@@ -637,6 +656,181 @@ void BlobFileReader::MultiGetBlob(
     if (req->status->ok()) {
       total_bytes += record_slice.size();
     }
+  }
+
+  if (bytes_read) {
+    *bytes_read = total_bytes;
+  }
+}
+
+void BlobFileReader::MultiGetBlobRange(
+    const ReadOptions& read_options,
+    autovector<std::pair<BlobRangeReadRequest*, std::unique_ptr<BlobContents>>>&
+        blob_reqs,
+    uint64_t* bytes_read) const {
+  const size_t num_blobs = blob_reqs.size();
+  assert(num_blobs > 0);
+  assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
+
+  // Range reads are only issued for uncompressed blob references (a strict
+  // sub-range of a compressed record cannot be decompressed in isolation).
+  // Version::MultiGetBlobLazy rejects a compressed blob index before it reaches
+  // here, so every request's blob index is uncompressed by contract; a
+  // compressed blob file therefore means the blob index disagrees with the
+  // file. Report that as the compression-type mismatch it is -- exactly like
+  // the whole-value MultiGetBlob path -- rather than as a usage error. (Unlike
+  // the single-read path, BlobSource has no per-request compression to check
+  // for a range read, so this reader-level check is the range multi path's
+  // compression backstop.)
+  if (compression_type_ != kNoCompression) {
+    for (auto& blob_req : blob_reqs) {
+      assert(blob_req.first);
+      assert(blob_req.first->status);
+      *blob_req.first->status =
+          Status::Corruption("Compression type mismatch when reading a blob");
+    }
+    return;
+  }
+
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_blobs - 1; ++i) {
+    assert(blob_reqs[i].first->offset + blob_reqs[i].first->range_offset <=
+           blob_reqs[i + 1].first->offset +
+               blob_reqs[i + 1].first->range_offset);
+  }
+#endif  // !NDEBUG
+
+  std::vector<FSReadRequest> read_reqs;
+  uint64_t total_len = 0;
+  read_reqs.reserve(num_blobs);
+  for (size_t i = 0; i < num_blobs; ++i) {
+    BlobRangeReadRequest* const req = blob_reqs[i].first;
+    assert(req);
+    assert(req->user_key);
+    assert(req->status);
+
+    const size_t key_size = req->user_key->size();
+    // Validate that the full value region is within the file (same check
+    // GetBlob performs); this guards the sub-range read below.
+    if (!IsValidBlobOffset(req->offset, key_size, req->value_size, file_size_,
+                           has_footer_)) {
+      *req->status = Status::Corruption(
+          "Invalid blob offset " + std::to_string(req->offset) +
+          " for value size " + std::to_string(req->value_size) + " in " +
+          file_reader_->file_name() + " (file size " +
+          std::to_string(file_size_) + ")");
+      continue;
+    }
+    // The requested sub-range must lie within the value.
+    if (req->range_offset > req->value_size ||
+        req->range_length > req->value_size - req->range_offset) {
+      *req->status = Status::InvalidArgument(
+          "Blob range [" + std::to_string(req->range_offset) + ", +" +
+          std::to_string(req->range_length) +
+          ") out of bounds for value size " + std::to_string(req->value_size) +
+          " in " + file_reader_->file_name());
+      continue;
+    }
+
+    // Read only the requested bytes, at the value's file position plus the
+    // range offset -- no record-header adjustment, no whole-record checksum.
+    FSReadRequest read_req;
+    read_req.offset = req->offset + req->range_offset;
+    read_req.len = req->range_length;
+    total_len += read_req.len;
+    read_reqs.emplace_back(std::move(read_req));
+  }
+
+  RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
+
+  if (read_reqs.empty()) {
+    if (bytes_read) {
+      *bytes_read = 0;
+    }
+    return;
+  }
+
+  Buffer buf;
+  AlignedBuffer direct_io_buffer;
+
+  Status s;
+  bool direct_io = file_reader_->use_direct_io();
+  if (direct_io) {
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      read_reqs[i].scratch = nullptr;
+    }
+  } else {
+    buf.reset(new char[total_len]);
+    std::ptrdiff_t pos = 0;
+    for (size_t i = 0; i < read_reqs.size(); ++i) {
+      read_reqs[i].scratch = buf.get() + pos;
+      pos += read_reqs[i].len;
+    }
+  }
+  TEST_SYNC_POINT("BlobFileReader::MultiGetBlobRange:ReadFromFile");
+  PERF_COUNTER_ADD(blob_read_count, num_blobs);
+  PERF_COUNTER_ADD(blob_read_byte, total_len);
+  IOOptions opts;
+  IODebugContext dbg;
+  s = file_reader_->PrepareIOOptions(read_options, opts, &dbg);
+  if (s.ok()) {
+    AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
+    s = file_reader_->MultiRead(opts, read_reqs.data(), read_reqs.size(),
+                                &direct_io_context, &dbg);
+  }
+  if (!s.ok()) {
+    for (auto& req : read_reqs) {
+      req.status.PermitUncheckedError();
+    }
+    for (auto& blob_req : blob_reqs) {
+      BlobRangeReadRequest* const req = blob_req.first;
+      assert(req);
+      assert(req->status);
+      if (!req->status->IsCorruption() && !req->status->IsInvalidArgument()) {
+        // Avoid overwriting per-request validation errors.
+        *req->status = s;
+      }
+    }
+    return;
+  }
+
+  assert(s.ok());
+
+  TEST_SYNC_POINT_CALLBACK("BlobFileReader::MultiGetBlobRange:TamperWithResult",
+                           &read_reqs);
+
+  uint64_t total_bytes = 0;
+  for (size_t i = 0, j = 0; i < num_blobs; ++i) {
+    BlobRangeReadRequest* const req = blob_reqs[i].first;
+    assert(req);
+    assert(req->status);
+
+    if (!req->status->ok()) {
+      continue;
+    }
+
+    assert(j < read_reqs.size());
+    auto& read_req = read_reqs[j++];
+    const Slice& range_slice = read_req.result;
+    if (read_req.status.ok() && range_slice.size() != read_req.len) {
+      read_req.status = IOStatus::Corruption(
+          "Incomplete blob range read from " + file_reader_->file_name() +
+          " at offset " + std::to_string(read_req.offset) + ": expected " +
+          std::to_string(read_req.len) + " bytes, got " +
+          std::to_string(range_slice.size()));
+    }
+
+    *req->status = read_req.status;
+    if (!req->status->ok()) {
+      continue;
+    }
+
+    // The blob is uncompressed, so the bytes read are exactly the requested
+    // value bytes; copy them into an owned BlobContents (no decompression).
+    BlobContentsCreator::Create(&blob_reqs[i].second, /*out_charge=*/nullptr,
+                                range_slice, kNoCompression,
+                                /*allocator=*/nullptr);
+    total_bytes += range_slice.size();
   }
 
   if (bytes_read) {

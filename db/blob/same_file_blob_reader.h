@@ -18,6 +18,18 @@ class BlobIndex;
 class PinnableSlice;
 struct ReadOptions;
 
+// One request for SameFileBlobReader::MultiGetSameFileBlob (the batched
+// counterpart of GetSameFileBlob). See GetSameFileBlob for the per-field
+// semantics (range_length == kWholeBlobLength selects the whole value).
+struct SameFileBlobReadRequest {
+  const BlobIndex* blob_index = nullptr;
+  uint64_t range_offset = 0;
+  size_t range_length = kWholeBlobLength;
+  BlobVerifyPolicy verify_policy = BlobVerifyPolicy::kVerifyIfNoAmplification;
+  PinnableSlice* result = nullptr;
+  Status* status = nullptr;
+};
+
 // Narrow interface for resolving a same-file ("embedded") blob reference
 // against the physical file that currently holds the table entry. Implemented
 // by BlockBasedTable, which owns the reader context (file, footer, blob cache)
@@ -53,6 +65,27 @@ class SameFileBlobReader {
                                  uint64_t range_offset, size_t range_length,
                                  BlobVerifyPolicy verify_policy,
                                  PinnableSlice* value) const = 0;
+
+  // Batched counterpart of GetSameFileBlob: resolves `num_reads` same-file blob
+  // references (whole or sub-range, mixed) against this reader, writing each
+  // outcome to *reqs[i].status. Implementations may coalesce the underlying
+  // disk reads into a single MultiRead. The default implementation simply loops
+  // over GetSameFileBlob (correct, but not coalesced); BlockBasedTable
+  // overrides it to coalesce reads of embedded records in the same SST.
+  virtual Status MultiGetSameFileBlob(const ReadOptions& read_options,
+                                      size_t num_reads,
+                                      SameFileBlobReadRequest* reqs) const {
+    for (size_t i = 0; i < num_reads; ++i) {
+      SameFileBlobReadRequest& req = reqs[i];
+      const Status s =
+          GetSameFileBlob(read_options, *req.blob_index, req.range_offset,
+                          req.range_length, req.verify_policy, req.result);
+      if (req.status) {
+        *req.status = s;
+      }
+    }
+    return Status::OK();
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

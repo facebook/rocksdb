@@ -2846,6 +2846,87 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
       blob_index.compression(), range_offset, range_length, value, bytes_read);
 }
 
+void Version::MultiGetBlobLazy(const ReadOptions& read_options,
+                               autovector<LazyBlobReadRequest>& reqs) const {
+  assert(blob_source_);
+
+  // Group whole-value and sub-range requests separately, each keyed by blob
+  // file, so BlobSource issues one coalesced MultiRead per file.
+  autovector<BlobFileReadRequests> whole_reqs;
+  autovector<BlobFileRangeReadRequests> range_reqs;
+  std::unordered_map<uint64_t, size_t> whole_idx;
+  std::unordered_map<uint64_t, size_t> range_idx;
+
+  for (auto& req : reqs) {
+    assert(req.user_key);
+    assert(req.blob_index);
+    assert(req.result);
+    assert(req.status);
+    const BlobIndex& blob_index = *req.blob_index;
+
+    if (blob_index.HasTTL() || blob_index.IsInlined()) {
+      *req.status = Status::Corruption("Unexpected TTL/inlined blob index");
+      continue;
+    }
+
+    const uint64_t file_number = blob_index.file_number();
+    auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
+    if (!blob_file_meta) {
+      // INTEGRITY CHECK -- see Version::GetBlob. A same-file/embedded reference
+      // (file_number 0) must be resolved via SameFileBlobReader, not here.
+      *req.status = Status::Corruption("Invalid blob file number");
+      continue;
+    }
+    const uint64_t file_size = blob_file_meta->GetBlobFileSize();
+
+    if (req.range_length == kWholeBlobLength) {
+      auto it = whole_idx.find(file_number);
+      size_t idx;
+      if (it == whole_idx.end()) {
+        idx = whole_reqs.size();
+        whole_idx[file_number] = idx;
+        whole_reqs.emplace_back(file_number, file_size,
+                                autovector<BlobReadRequest>());
+      } else {
+        idx = it->second;
+      }
+      std::get<2>(whole_reqs[idx])
+          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                        blob_index.compression(), req.result, req.status);
+    } else {
+      // A strict sub-range of a compressed blob cannot be decompressed in
+      // isolation; the caller resolves such columns whole and slices instead.
+      if (blob_index.compression() != kNoCompression) {
+        *req.status = Status::Corruption("Cannot range-read a compressed blob");
+        continue;
+      }
+      auto it = range_idx.find(file_number);
+      size_t idx;
+      if (it == range_idx.end()) {
+        idx = range_reqs.size();
+        range_idx[file_number] = idx;
+        range_reqs.emplace_back(file_number, file_size,
+                                autovector<BlobRangeReadRequest>());
+      } else {
+        idx = it->second;
+      }
+      std::get<2>(range_reqs[idx])
+          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                        req.range_offset, req.range_length, req.result,
+                        req.status);
+    }
+  }
+
+  if (!whole_reqs.empty()) {
+    blob_source_->MultiGetBlob(read_options, whole_reqs,
+                               /*bytes_read=*/nullptr);
+  }
+  if (!range_reqs.empty()) {
+    blob_source_->MultiGetBlobRange(read_options, range_reqs,
+                                    /*bytes_read=*/nullptr);
+  }
+}
+
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {

@@ -225,13 +225,33 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
     }
   }
 
-  // Acquire SuperVersion
+  // Acquire SuperVersion (or, for a batched lazy read, use the shared one the
+  // batch already referenced -- see GetImplOptions::lazy_columns_shared_sv).
+  const bool own_super_version =
+      get_impl_options.lazy_columns_shared_sv == nullptr;
+  SuperVersion* sv;
 #if defined(WITH_COROUTINES)
-  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-  Defer sv_cleanup([&] { CleanupSuperVersion(sv); });
+  if (own_super_version) {
+    sv = cfd->GetReferencedSuperVersion(this);
+  } else {
+    sv = get_impl_options.lazy_columns_shared_sv;
+  }
+  Defer sv_cleanup([&] {
+    if (own_super_version) {
+      CleanupSuperVersion(sv);
+    }
+  });
 #else
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
-  Defer sv_cleanup([&] { ReturnAndCleanupSuperVersion(cfd, sv); });
+  if (own_super_version) {
+    sv = GetAndRefSuperVersion(cfd);
+  } else {
+    sv = get_impl_options.lazy_columns_shared_sv;
+  }
+  Defer sv_cleanup([&] {
+    if (own_super_version) {
+      ReturnAndCleanupSuperVersion(cfd, sv);
+    }
+  });
 #endif
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
@@ -246,7 +266,11 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
   TEST_SYNC_POINT("DBImpl::GetImpl:2");
 
   SequenceNumber snapshot;
-  if (read_options.snapshot != nullptr) {
+  if (!own_super_version) {
+    // Batched lazy read: use the batch's consistent sequence number (derived
+    // once, with the shared SuperVersion, by MultiCFSnapshot).
+    snapshot = get_impl_options.lazy_columns_snapshot_seq;
+  } else if (read_options.snapshot != nullptr) {
     if (get_impl_options.callback) {
       // Already calculated based on read_options.snapshot
       snapshot = get_impl_options.callback->max_visible_seq();
@@ -510,17 +534,21 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
 
+    if (get_impl_options.lazy_columns_version != nullptr && s.ok()) {
+      // Lazy result (GetEntityLazy / MultiGetEntityLazy): the entity's blob
+      // references were left unresolved. Hand back the Version they must be
+      // resolved against (for both the single-key and batched paths).
+      *get_impl_options.lazy_columns_version = sv->current;
+    }
     if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
-      // Lazy result (GetEntityLazy): the entity's blob references were left
-      // unresolved. Hand back the Version they must be resolved against and
-      // transfer an extra SuperVersion reference into the result's pin, so the
-      // result -- and thus deferred blob reads -- stay valid after this call
-      // returns (as an iterator's SuperVersion pin does). The reference is
-      // released when the pin's cleanup runs (result destruction); the
-      // borrowed reference for this call is dropped by the sv_cleanup Defer.
-      if (get_impl_options.lazy_columns_version != nullptr) {
-        *get_impl_options.lazy_columns_version = sv->current;
-      }
+      // Single-key GetEntityLazy: transfer an extra SuperVersion reference into
+      // the result's pin, so the result -- and thus deferred blob reads -- stay
+      // valid after this call returns (as an iterator's SuperVersion pin does).
+      // The reference is released when the pin's cleanup runs (result
+      // destruction); the borrowed reference for this call is dropped by the
+      // sv_cleanup Defer. The batched path passes no pin here (it uses
+      // lazy_columns_shared_sv) because the batch holds one shared pin per
+      // column family instead.
       TransferSuperVersionPin(sv, get_impl_options.lazy_columns_pin);
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
