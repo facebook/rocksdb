@@ -48,11 +48,8 @@ class CoroutineStatsRequestData : public folly::RequestData {
   explicit CoroutineStatsRequestData(CoroutineStatsConfig stats_config,
                                      Env* env)
       : env_(env), perf_level_(stats_config.perf_level) {
-    (void)env_;
     assert(env_ != nullptr);
-#ifndef NDEBUG
     owner_thread_id_ = env_->GetThreadID();
-#endif
     assert(CapturedPerfLevel() > PerfLevel::kUninitialized);
     assert(CapturedPerfLevel() < PerfLevel::kOutOfBounds);
 #ifndef NPERF_CONTEXT
@@ -68,14 +65,21 @@ class CoroutineStatsRequestData : public folly::RequestData {
 
   bool hasCallback() override { return true; }
 
+  // RequestContext may be restored on downstream workers, but these stats are
+  // owned by the thread that created this object.
   void onSet() override {
-    AssertSameThread();
+    if (!IsOwnerThread()) {
+      return;
+    }
     SetPerfLevel(CapturedPerfLevel());
     LoadThreadLocalStats();
     StartGetCpuTimer();
   }
 
   void onUnset() override {
+    if (!IsOwnerThread()) {
+      return;
+    }
     StopGetCpuTimer();
     SaveThreadLocalStats();
   }
@@ -120,13 +124,7 @@ class CoroutineStatsRequestData : public folly::RequestData {
 #endif
   }
 
-  // Folly event bases resume requests on the thread where they suspended.
-  void AssertSameThread() {
-#ifndef NDEBUG
-    const uint64_t current_thread_id = env_->GetThreadID();
-    assert(owner_thread_id_ == current_thread_id);
-#endif
-  }
+  bool IsOwnerThread() const { return env_->GetThreadID() == owner_thread_id_; }
 
   void StartGetCpuTimer() {
 #ifndef NPERF_CONTEXT
@@ -147,9 +145,7 @@ class CoroutineStatsRequestData : public folly::RequestData {
 #ifndef NIOSTATS_CONTEXT
   IOStatsContext iostats_context_;
 #endif
-#ifndef NDEBUG
   uint64_t owner_thread_id_ = 0;
-#endif
 };
 
 #ifndef NDEBUG

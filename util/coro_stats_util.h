@@ -42,6 +42,8 @@ bool IsCoroutineStatsEnabled();
 // request context is used to save the request stats on suspension and reload
 // them with the captured configuration on resumption, so multiple coroutines
 // can share a single executor thread, but each own separate stats contexts.
+// Restores on other threads are ignored; coroutine execution remains
+// owner-thread-affine.
 // Collected stats are published to thread-local storage on destruction.
 class CoroutineStatsContextScope {
  public:
