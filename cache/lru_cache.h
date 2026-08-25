@@ -346,6 +346,12 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // treats that state as unrecoverable corruption, so this aborts the process.
   void TEST_SimulateCorruptLowPriPoolUsage(size_t bogus_usage);
 
+  // Retrieves the pool usage counters, for unit test purpose only. These are
+  // what MaintainPoolSize() loops on, so tests can check they agree with the
+  // actual contents of the LRU list.
+  void TEST_GetPoolUsage(size_t* high_pri_pool_usage,
+                         size_t* low_pri_pool_usage);
+
   // Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
