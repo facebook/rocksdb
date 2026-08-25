@@ -34,7 +34,10 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       compression_type_(compression_type),
       compress_(),
       track_and_verify_wals_(track_and_verify_wals),
-      last_seqno_recorded_(0) {
+      last_seqno_recorded_(0),
+      partition_wal_usage_(PartitionWALUsage::kNone),
+      next_wal_index_(1),
+      last_wal_index_(0) {
   for (uint8_t i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -90,8 +93,24 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
   if (!s.ok()) {
     return s;
   }
-  const char* ptr = slice.data();
-  size_t left = slice.size();
+
+  // When WAL index is enabled, prepend a monotonically increasing ordering
+  // number (wal_index) to the logical record. It becomes part of the payload,
+  // so it survives fragmentation and WAL compression, and the reader strips it
+  // before handing the record to upper layers.
+  std::string indexed_payload;
+  uint64_t assigned_wal_index = 0;
+  Slice payload = slice;
+  if (WALIndexEnabled()) {
+    assigned_wal_index = next_wal_index_.fetch_add(1, std::memory_order_relaxed);
+    indexed_payload.reserve(kWALIndexSize + slice.size());
+    PutFixed64(&indexed_payload, assigned_wal_index);
+    indexed_payload.append(slice.data(), slice.size());
+    payload = Slice(indexed_payload);
+  }
+
+  const char* ptr = payload.data();
+  size_t left = payload.size();
 
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single
@@ -138,7 +157,7 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
       // physical records (left=0).
       if (compress_ && (compress_start || left == 0)) {
         compress_remaining = compress_->Compress(
-            slice.data(), slice.size(), compressed_buffer_.get(), &left);
+            payload.data(), payload.size(), compressed_buffer_.get(), &left);
 
         if (compress_remaining < 0) {
           // Set failure status
@@ -183,8 +202,46 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
 
   if (s.ok()) {
     last_seqno_recorded_ = std::max(last_seqno_recorded_, seqno);
+    if (WALIndexEnabled()) {
+      last_wal_index_.store(assigned_wal_index, std::memory_order_relaxed);
+    }
   }
 
+  return s;
+}
+
+IOStatus Writer::MaybeAddWALIndexMarkerRecord(
+    const WriteOptions& write_options) {
+  if (!WALIndexEnabled()) {
+    return IOStatus::OK();
+  }
+
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string encode(kWALIndexMarkerMagic, sizeof(kWALIndexMarkerMagic) - 1);
+
+  s = MaybeSwitchToNewBlock(write_options, encode);
+  if (!s.ok()) {
+    return s;
+  }
+
+  RecordType type = recycle_log_files_ ? kRecyclableWALIndexMarkerType
+                                       : kWALIndexMarkerType;
+  s = EmitPhysicalRecord(write_options, type, encode.data(), encode.size());
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!manual_flush_) {
+    IOOptions io_opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, io_opts);
+    if (s.ok()) {
+      s = dest_->Flush(io_opts);
+    }
+  }
   return s;
 }
 
@@ -320,7 +377,8 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
 
   uint32_t crc = type_crc_[t];
   if (t < kRecyclableFullType || t == kSetCompressionType ||
-      t == kPredecessorWALInfoType || t == kUserDefinedTimestampSizeType) {
+      t == kPredecessorWALInfoType || t == kUserDefinedTimestampSizeType ||
+      t == kWALIndexMarkerType) {
     // Legacy record format
     assert(block_offset_ + kHeaderSize + n <= kBlockSize);
     header_size = kHeaderSize;

@@ -43,6 +43,13 @@ enum RecordType : uint8_t {
   kUserDefinedTimestampSizeType = 10,
   kRecyclableUserDefinedTimestampSizeType = 11,
 
+  // Marks a WAL file as carrying per-record ordering numbers (wal_index / LSN).
+  // Kept < 128 and without the safe-ignore bit so that older readers treat it
+  // as an unknown record type and report corruption instead of silently
+  // misinterpreting the file.
+  kWALIndexMarkerType = 12,
+  kRecyclableWALIndexMarkerType = 13,
+
   // For WAL verification
   kPredecessorWALInfoType = 130,
   kRecyclePredecessorWALInfoType = 131,
@@ -52,6 +59,14 @@ constexpr uint8_t kRecordTypeSafeIgnoreMask = 1 << 7;
 constexpr uint8_t kMaxRecordType = kRecyclePredecessorWALInfoType;
 
 constexpr unsigned int kBlockSize = 32768;
+
+// Magic payload stored in the WAL-index marker record. Chosen to be greppable
+// via `strings`/`grep` for offline file identification.
+inline constexpr char kWALIndexMarkerMagic[] = "WAL_LSN_V1";
+
+// Number of bytes of the fixed64 wal_index prefixed to each logical record when
+// WAL index is enabled.
+constexpr uint32_t kWALIndexSize = 8;
 
 // Header is checksum (4 bytes), length (2 bytes), type (1 byte)
 constexpr int kHeaderSize = 4 + 2 + 1;

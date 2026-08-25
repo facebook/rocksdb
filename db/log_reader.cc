@@ -117,6 +117,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         prospective_record_offset = physical_record_offset;
         scratch->clear();
         *record = fragment;
+        MaybeStripAndVerifyWALIndex(record, record_checksum);
         last_record_offset_ = prospective_record_offset;
         first_record_read_ = true;
         return true;
@@ -164,6 +165,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           }
           scratch->append(fragment.data(), fragment.size());
           *record = Slice(*scratch);
+          MaybeStripAndVerifyWALIndex(record, record_checksum);
           last_record_offset_ = prospective_record_offset;
           first_record_read_ = true;
           return true;
@@ -232,6 +234,17 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
             ReportCorruption(fragment.size(), s.getState());
           }
         }
+        break;  // switch
+      }
+
+      case kWALIndexMarkerType:
+      case kRecyclableWALIndexMarkerType: {
+        // Identifies the file as carrying per-record wal_index values. The
+        // marker itself does not consume a wal_index.
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        last_record_offset_ = prospective_record_offset;
+        file_has_wal_index_ = true;
         break;  // switch
       }
 
@@ -411,6 +424,38 @@ void Reader::MaybeVerifyPredecessorWALInfo(
   }
 }
 
+void Reader::MaybeStripAndVerifyWALIndex(Slice* record,
+                                         uint64_t* record_checksum) {
+  if (!file_has_wal_index_) {
+    return;
+  }
+  if (record->size() < kWALIndexSize) {
+    ReportCorruption(record->size(),
+                     "WAL_Index record too small to contain wal_index");
+    return;
+  }
+  uint64_t wal_index = DecodeFixed64(record->data());
+  record->remove_prefix(kWALIndexSize);
+
+  if (!first_wal_index_read_) {
+    // A reader may open in the middle of a stream, so accept the first observed
+    // wal_index as-is.
+    first_wal_index_read_ = true;
+  } else if (wal_index != expected_next_wal_index_) {
+    std::string reason = "WAL_Index gap detected: expected wal_index " +
+                         std::to_string(expected_next_wal_index_) +
+                         " but found " + std::to_string(wal_index);
+    ReportCorruption(record->size(), reason.c_str());
+    wal_index_gap_ = true;
+  }
+  last_read_wal_index_ = wal_index;
+  expected_next_wal_index_ = wal_index + 1;
+
+  if (record_checksum != nullptr) {
+    *record_checksum = XXH3_64bits(record->data(), record->size());
+  }
+}
+
 uint64_t Reader::LastRecordOffset() { return last_record_offset_; }
 
 uint64_t Reader::LastRecordEnd() {
@@ -571,7 +616,8 @@ uint8_t Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
     const bool is_recyclable_type =
         ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
          type == kRecyclableUserDefinedTimestampSizeType ||
-         type == kRecyclePredecessorWALInfoType);
+         type == kRecyclePredecessorWALInfoType ||
+         type == kRecyclableWALIndexMarkerType);
     if (is_recyclable_type) {
       header_size = kRecyclableHeaderSize;
       if (first_record_read_ && !recycled_) {
@@ -639,7 +685,9 @@ uint8_t Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
         type == kPredecessorWALInfoType ||
         type == kRecyclePredecessorWALInfoType ||
         type == kUserDefinedTimestampSizeType ||
-        type == kRecyclableUserDefinedTimestampSizeType) {
+        type == kRecyclableUserDefinedTimestampSizeType ||
+        type == kWALIndexMarkerType ||
+        type == kRecyclableWALIndexMarkerType) {
       *result = Slice(header + header_size, length);
       return type;
     } else {
@@ -753,6 +801,7 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         }
         fragments_.clear();
         *record = fragment;
+        MaybeStripAndVerifyWALIndex(record, nullptr);
         prospective_record_offset = physical_record_offset;
         last_record_offset_ = prospective_record_offset;
         first_record_read_ = true;
@@ -789,6 +838,7 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
           scratch->assign(fragments_.data(), fragments_.size());
           fragments_.clear();
           *record = Slice(*scratch);
+          MaybeStripAndVerifyWALIndex(record, nullptr);
           last_record_offset_ = prospective_record_offset;
           first_record_read_ = true;
           in_fragmented_record_ = false;
@@ -861,6 +911,16 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
             ReportCorruption(fragment.size(), s.getState());
           }
         }
+        break;
+      }
+
+      case kWALIndexMarkerType:
+      case kRecyclableWALIndexMarkerType: {
+        fragments_.clear();
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
+        file_has_wal_index_ = true;
         break;
       }
 
@@ -978,7 +1038,8 @@ bool FragmentBufferedReader::TryReadFragment(Slice* fragment, size_t* drop_size,
   int header_size = kHeaderSize;
   if ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
       type == kRecyclableUserDefinedTimestampSizeType ||
-      type == kRecyclePredecessorWALInfoType) {
+      type == kRecyclePredecessorWALInfoType ||
+      type == kRecyclableWALIndexMarkerType) {
     if (first_record_read_ && !recycled_) {
       // A recycled log should have started with a recycled record
       *fragment_type_or_err = kBadRecord;
@@ -1037,7 +1098,8 @@ bool FragmentBufferedReader::TryReadFragment(Slice* fragment, size_t* drop_size,
       type == kPredecessorWALInfoType ||
       type == kRecyclePredecessorWALInfoType ||
       type == kUserDefinedTimestampSizeType ||
-      type == kRecyclableUserDefinedTimestampSizeType) {
+      type == kRecyclableUserDefinedTimestampSizeType ||
+      type == kWALIndexMarkerType || type == kRecyclableWALIndexMarkerType) {
     *fragment = Slice(header + header_size, length);
     *fragment_type_or_err = type;
     return true;

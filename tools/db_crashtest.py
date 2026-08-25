@@ -475,6 +475,9 @@ default_params = {
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
+    "partition_wal_usage": lambda: random.choice(
+        ["none", "partition_by_wal_index_hash"]
+    ),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "fast_sst_open": lambda: random.choice([0, 1]),
     "secondary_cache_uri": lambda: random.choice(

@@ -1,0 +1,1 @@
+Added `DBOptions::partition_wal_usage`. When set to a value other than `kNone`, each WAL record is tagged with a monotonically increasing ordering number (wal_index) that is persisted on disk and verified on recovery to detect missing records. The default `kNone` keeps the WAL bit-for-bit compatible with the previous format for downgrade safety.

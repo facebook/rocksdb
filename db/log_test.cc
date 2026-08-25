@@ -277,6 +277,13 @@ class LogTest
                    &recorded_ts_sz));
     EXPECT_EQ(expected_ts_sz, recorded_ts_sz);
   }
+
+  // Turns on wal_index on the writer and emits the identifying marker record.
+  // For compressed logs, call this after AddCompressionTypeRecord.
+  void EnableWALIndex() {
+    writer_->SetPartitionWALUsage(PartitionWALUsage::kPartitionByWALIndexHash);
+    ASSERT_OK(writer_->MaybeAddWALIndexMarkerRecord(WriteOptions()));
+  }
 };
 
 TEST_P(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
@@ -812,6 +819,92 @@ TEST_P(LogTest, TimestampSizeRecordPadding) {
   CheckRecordAndTimestampSize(second_str, ts_sz);
 }
 
+// Basic round-trip: with wal_index enabled, each logical record carries a
+// monotonically increasing index starting at 1, and the reader strips it so
+// upper layers observe the original payload.
+TEST_P(LogTest, WALIndexReadWrite) {
+  EnableWALIndex();
+  Write("foo");
+  Write("bar");
+  Write("");
+  Write("xxxx");
+
+  ASSERT_EQ(4U, writer_->GetLastWALIndex());
+  ASSERT_EQ(5U, writer_->GetNextWALIndex());
+
+  ASSERT_EQ("foo", Read());
+  ASSERT_TRUE(reader_->FileHasWALIndex());
+  ASSERT_EQ(1U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("bar", Read());
+  ASSERT_EQ(2U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("", Read());
+  ASSERT_EQ(3U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("xxxx", Read());
+  ASSERT_EQ(4U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_FALSE(reader_->HasWALIndexGap());
+  ASSERT_EQ(0U, DroppedBytes());
+}
+
+// When wal_index is disabled the WAL is bit-for-bit vanilla: no marker record,
+// no greppable magic, and the reader reports no wal_index.
+TEST_P(LogTest, WALIndexDisabledStaysVanilla) {
+  Write("foo");
+  Write("bar");
+
+  ASSERT_EQ(std::string::npos, get_reader_contents()->ToString().find("WAL_LSN_V1"));
+
+  ASSERT_EQ("foo", Read());
+  ASSERT_FALSE(reader_->FileHasWALIndex());
+  ASSERT_EQ("bar", Read());
+  ASSERT_EQ(0U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_FALSE(reader_->HasWALIndexGap());
+}
+
+// The marker magic is discoverable via offline tools (grep/strings) so a file
+// can be identified as carrying wal_index from its contents alone.
+TEST_P(LogTest, WALIndexMarkerIsGreppable) {
+  EnableWALIndex();
+  Write("foo");
+  ASSERT_NE(std::string::npos, get_reader_contents()->ToString().find("WAL_LSN_V1"));
+}
+
+// A hole in the index (simulated by skipping a value on the writer) is reported
+// as corruption and latches a sticky gap flag, while the record is still
+// delivered to upper layers.
+TEST_P(LogTest, WALIndexGapDetected) {
+  EnableWALIndex();
+  Write("a");
+  writer_->SetNextWALIndex(3);
+  Write("b");
+
+  ASSERT_EQ("a", Read());
+  ASSERT_EQ(1U, reader_->GetLastReadWALIndex());
+  ASSERT_FALSE(reader_->HasWALIndexGap());
+
+  ASSERT_EQ("b", Read());
+  ASSERT_EQ(3U, reader_->GetLastReadWALIndex());
+  ASSERT_TRUE(reader_->HasWALIndexGap());
+  ASSERT_EQ("OK", MatchError("gap"));
+}
+
+// The index survives records that span multiple 32KiB blocks (fragmented into
+// first/middle/last physical records).
+TEST_P(LogTest, WALIndexLargeRecord) {
+  EnableWALIndex();
+  const std::string big = BigString("abcd", 100 * 1000);
+  Write("small");
+  Write(big);
+
+  ASSERT_EQ("small", Read());
+  ASSERT_EQ(1U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ(big, Read());
+  ASSERT_EQ(2U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_FALSE(reader_->HasWALIndexGap());
+}
+
 // Do NOT enable compression for this instantiation.
 INSTANTIATE_TEST_CASE_P(
     Log, LogTest,
@@ -1204,6 +1297,35 @@ TEST_P(CompressionLogTest, ChecksumMismatch) {
     ASSERT_EQ(0U, DroppedBytes());
     ASSERT_EQ("", ReportMessage());
   }
+}
+
+// wal_index round-trips through WAL compression, including a record large
+// enough to fragment across blocks. The reader recomputes the per-record
+// checksum over the stripped payload so it still matches upper-layer
+// expectations.
+TEST_P(CompressionLogTest, WALIndexReadWrite) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  EnableWALIndex();
+
+  const std::string big = BigString("bar", 60 * 1000);
+  Write("foo");
+  Write(big);
+  Write("baz");
+
+  ASSERT_EQ("foo", Read());
+  ASSERT_TRUE(reader_->FileHasWALIndex());
+  ASSERT_EQ(1U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ(big, Read());
+  ASSERT_EQ(2U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("baz", Read());
+  ASSERT_EQ(3U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_FALSE(reader_->HasWALIndexGap());
 }
 
 INSTANTIATE_TEST_CASE_P(

@@ -2491,6 +2491,8 @@ IOStatus DBImpl::CreateWALWriter(const DBOptions& db_options,
         immutable_db_options_.manual_wal_flush,
         immutable_db_options_.wal_compression,
         immutable_db_options_.track_and_verify_wals);
+    new_wal->writer->SetPartitionWALUsage(
+        immutable_db_options_.partition_wal_usage);
   }
 
   return io_s;
@@ -2503,6 +2505,9 @@ IOStatus DBImpl::StartWALFile(const WriteOptions& write_options,
   IOStatus io_s = new_log->AddCompressionTypeRecord(write_options);
   TEST_SYNC_POINT_CALLBACK("DBImpl::StartWALFile:AfterCompressionTypeRecord",
                            &io_s);
+  if (io_s.ok()) {
+    io_s = new_log->MaybeAddWALIndexMarkerRecord(write_options);
+  }
   if (io_s.ok()) {
     io_s = new_log->MaybeAddPredecessorWALInfo(write_options,
                                                predecessor_wal_info);

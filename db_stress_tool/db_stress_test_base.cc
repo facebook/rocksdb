@@ -6481,6 +6481,18 @@ void InitializeOptionsFromFlags(
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
+  if (FLAGS_partition_wal_usage == "none" ||
+      FLAGS_partition_wal_usage == "kNone") {
+    options.partition_wal_usage = PartitionWALUsage::kNone;
+  } else if (FLAGS_partition_wal_usage == "partition_by_wal_index_hash" ||
+             FLAGS_partition_wal_usage == "kPartitionByWALIndexHash") {
+    options.partition_wal_usage = PartitionWALUsage::kPartitionByWALIndexHash;
+  } else {
+    fprintf(stderr, "Unknown partition_wal_usage: %s\n",
+            FLAGS_partition_wal_usage.c_str());
+    exit(1);
+  }
+
   options.last_level_temperature =
       StringToTemperature(FLAGS_last_level_temperature.c_str());
   options.default_write_temperature =

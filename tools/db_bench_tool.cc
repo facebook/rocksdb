@@ -978,6 +978,13 @@ DEFINE_string(wal_compression, "none",
 static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
     ROCKSDB_NAMESPACE::kNoCompression;
 
+DEFINE_string(partition_wal_usage, "none",
+              "WAL index (LSN) usage. 'none' to disable (vanilla WAL format); "
+              "'partition_by_wal_index_hash' to tag each WAL record with a "
+              "monotonically increasing ordering number.");
+static enum ROCKSDB_NAMESPACE::PartitionWALUsage FLAGS_partition_wal_usage_e =
+    ROCKSDB_NAMESPACE::PartitionWALUsage::kNone;
+
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_string(truth_db, "/dev/shm/truth_db/dbbench",
@@ -5338,6 +5345,7 @@ class Benchmark {
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
     options.wal_compression = FLAGS_wal_compression_e;
+    options.partition_wal_usage = FLAGS_partition_wal_usage_e;
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
@@ -11190,6 +11198,19 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
 
   FLAGS_wal_compression_e =
       StringToCompressionType(FLAGS_wal_compression.c_str());
+
+  if (FLAGS_partition_wal_usage == "none" ||
+      FLAGS_partition_wal_usage == "kNone") {
+    FLAGS_partition_wal_usage_e = ROCKSDB_NAMESPACE::PartitionWALUsage::kNone;
+  } else if (FLAGS_partition_wal_usage == "partition_by_wal_index_hash" ||
+             FLAGS_partition_wal_usage == "kPartitionByWALIndexHash") {
+    FLAGS_partition_wal_usage_e =
+        ROCKSDB_NAMESPACE::PartitionWALUsage::kPartitionByWALIndexHash;
+  } else {
+    fprintf(stderr, "Cannot parse partition_wal_usage: %s\n",
+            FLAGS_partition_wal_usage.c_str());
+    exit(1);
+  }
 
   FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
       FLAGS_compressed_secondary_cache_compression_type.c_str());

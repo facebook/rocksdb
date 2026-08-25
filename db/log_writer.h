@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -18,6 +19,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
@@ -110,6 +112,38 @@ class Writer {
       const WriteOptions& write_options,
       const UnorderedMap<uint32_t, size_t>& cf_to_ts_sz);
 
+  // When WAL index is enabled, emits the leading marker record that identifies
+  // this file as carrying per-record ordering numbers (wal_index / LSN). The
+  // marker does not consume a wal_index. No-op when WAL index is disabled.
+  IOStatus MaybeAddWALIndexMarkerRecord(const WriteOptions& write_options);
+
+  // Controls whether logical records carry a wal_index (LSN). `kNone` keeps the
+  // vanilla WAL format for downgrade safety; any other value enables it.
+  void SetPartitionWALUsage(PartitionWALUsage usage) {
+    partition_wal_usage_ = usage;
+  }
+  PartitionWALUsage GetPartitionWALUsage() const { return partition_wal_usage_; }
+  bool WALIndexEnabled() const {
+    return partition_wal_usage_ != PartitionWALUsage::kNone;
+  }
+  void SetWALIndexEnabled(bool enabled) {
+    partition_wal_usage_ = enabled ? PartitionWALUsage::kPartitionByWALIndexHash
+                                   : PartitionWALUsage::kNone;
+  }
+
+  // The next wal_index that will be assigned to a logical record. Starts at 1.
+  void SetNextWALIndex(uint64_t next) {
+    next_wal_index_.store(next, std::memory_order_relaxed);
+  }
+  void SetWALIndex(uint64_t next) { SetNextWALIndex(next); }
+  uint64_t GetNextWALIndex() const {
+    return next_wal_index_.load(std::memory_order_relaxed);
+  }
+  // The wal_index most recently assigned to a written record (0 if none).
+  uint64_t GetLastWALIndex() const {
+    return last_wal_index_.load(std::memory_order_relaxed);
+  }
+
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
@@ -169,6 +203,14 @@ class Writer {
   bool track_and_verify_wals_;
 
   SequenceNumber last_seqno_recorded_;
+
+  // See `DBOptions::partition_wal_usage`.
+  PartitionWALUsage partition_wal_usage_;
+  // Next wal_index (LSN) to assign to a logical record. Atomic so the counter
+  // stays consistent if multiple writers append to the same log.
+  std::atomic<uint64_t> next_wal_index_;
+  // Last wal_index actually assigned to a written record (0 if none).
+  std::atomic<uint64_t> last_wal_index_;
 };
 
 }  // namespace log

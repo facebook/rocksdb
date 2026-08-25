@@ -447,6 +447,17 @@ enum class WALRecoveryMode : char {
   kSkipAnyCorruptedRecords = 0x03,
 };
 
+// Controls whether each WAL record carries an extra monotonically increasing
+// ordering number (wal_index / LSN) persisted on disk.
+enum class PartitionWALUsage : char {
+  // Disabled. The WAL keeps the vanilla on-disk format so that files stay
+  // readable by (and are bit-for-bit compatible with) older RocksDB versions.
+  kNone = 0x00,
+  // Enabled. Every logical WAL record is prefixed with a wal_index, and the
+  // file is tagged with a marker record identifying the new format.
+  kPartitionByWALIndexHash = 0x01,
+};
+
 struct DbPath {
   std::string path;
   uint64_t target_size;  // Target size of total files under the path, in byte.
@@ -1579,6 +1590,13 @@ struct DBOptions {
   // versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
   // the WAL is read.
   CompressionType wal_compression = kNoCompression;
+
+  // Controls whether each WAL record carries an extra monotonically increasing
+  // ordering number (wal_index / LSN) persisted on disk. `kNone` (default)
+  // keeps the vanilla WAL format for downgrade safety; any other value enables
+  // the ordering number and tags the WAL file with an identifying marker
+  // record. Leaves the per-key sequence number and SST format untouched.
+  PartitionWALUsage partition_wal_usage = PartitionWALUsage::kNone;
 
   // Set to true to re-instate an old behavior of keeping complete, synced WAL
   // files open for write until they are collected for deletion by a

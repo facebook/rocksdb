@@ -131,6 +131,22 @@ class Reader {
     return !first_record_read_ && compression_type_record_read_;
   }
 
+  // WAL index (LSN) accessors. See db/log_writer.h for the format.
+  //
+  // True once the WAL-index marker record has been seen, i.e. this file carries
+  // per-record ordering numbers.
+  bool FileHasWALIndex() const { return file_has_wal_index_; }
+  bool HasWALIndexMarker() const { return file_has_wal_index_; }
+  // Setting this is a no-op: the reader auto-detects the format from the marker
+  // record. Provided for API symmetry with the writer.
+  void SetPartitionWALUsage(PartitionWALUsage /*usage*/) {}
+  // wal_index extracted from the most recently returned logical record.
+  uint64_t GetLastReadWALIndex() const { return last_read_wal_index_; }
+  uint64_t GetLastWALIndex() const { return last_read_wal_index_; }
+  // Sticky: true if a gap in the wal_index sequence has ever been detected.
+  bool HasWALIndexGap() const { return wal_index_gap_; }
+  bool HasGap() const { return wal_index_gap_; }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
@@ -189,6 +205,19 @@ class Reader {
   // is only for WAL logs.
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
+  // WAL index (LSN) state. See db/log_writer.h.
+  // Set once the WAL-index marker record has been seen, meaning subsequent
+  // logical records carry a leading wal_index that must be stripped.
+  bool file_has_wal_index_ = false;
+  // Whether at least one wal_index has been observed in this file.
+  bool first_wal_index_read_ = false;
+  // wal_index expected on the next logical record.
+  uint64_t expected_next_wal_index_ = 0;
+  // wal_index extracted from the most recent logical record.
+  uint64_t last_read_wal_index_ = 0;
+  // Sticky flag set when a gap in the wal_index sequence has been detected.
+  bool wal_index_gap_ = false;
+
   // Extend record types with the following special values
   enum : uint8_t {
     kEof = kMaxRecordType + 1,
@@ -235,6 +264,12 @@ class Reader {
   void MaybeVerifyPredecessorWALInfo(
       WALRecoveryMode wal_recovery_mode, Slice fragment,
       const PredecessorWALInfo& recorded_predecessor_wal_info);
+
+  // If this file carries WAL index, extract and strip the leading wal_index
+  // from *record, recompute *record_checksum over the stripped payload (when
+  // non-null), and report a corruption if the wal_index is not the expected
+  // successor of the previously observed one.
+  void MaybeStripAndVerifyWALIndex(Slice* record, uint64_t* record_checksum);
 };
 
 class FragmentBufferedReader : public Reader {
