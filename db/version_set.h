@@ -41,6 +41,7 @@
 #include "db/error_handler.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
+#include "db/periodic_compaction_phaser.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "db/table_cache.h"
@@ -127,15 +128,15 @@ enum EpochNumberRequirement {
 // compaction, blob files, etc.
 class VersionStorageInfo {
  public:
-  VersionStorageInfo(const InternalKeyComparator* internal_comparator,
-                     const Comparator* user_comparator, int num_levels,
-                     CompactionStyle compaction_style,
-                     VersionStorageInfo* src_vstorage,
-                     bool _force_consistency_checks,
-                     EpochNumberRequirement epoch_number_requirement,
-                     SystemClock* clock,
-                     uint32_t bottommost_file_compaction_delay,
-                     OffpeakTimeOption offpeak_time_option);
+  VersionStorageInfo(
+      const InternalKeyComparator* internal_comparator,
+      const Comparator* user_comparator, int num_levels,
+      CompactionStyle compaction_style, VersionStorageInfo* src_vstorage,
+      bool _force_consistency_checks,
+      EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
+      uint32_t bottommost_file_compaction_delay,
+      OffpeakTimeOption offpeak_time_option,
+      PeriodicCompactionPhaseParams periodic_compaction_phase_params);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -830,6 +831,8 @@ class VersionStorageInfo {
   EpochNumberRequirement epoch_number_requirement_;
 
   OffpeakTimeOption offpeak_time_option_;
+
+  PeriodicCompactionPhaseParams periodic_compaction_phase_params_;
 
   friend class Version;
   friend class VersionSet;
@@ -1680,6 +1683,19 @@ class VersionSet {
     offpeak_time_option_.SetFromOffpeakTimeString(daily_offpeak_time_utc);
   }
 
+  // Thin forwarder to periodic_compaction_phaser_.ParamsForCf(cf_id): the
+  // per-CF phasing params (base phase from the seed + golden-ratio CF spread +
+  // anchor + recovery percent). Returns disabled params when phasing is off.
+  PeriodicCompactionPhaseParams GetPeriodicCompactionPhaseParams(
+      uint32_t cf_id) const;
+
+  // (Re)anchor periodic-compaction phasing to now and refresh the cached phase
+  // params on every column family's current Version. Called when a CF's
+  // periodic_compaction_seconds changes via SetOptions, so a turn-down's newly
+  // past-due cohort is spread (over the phase grid within ~N/4 of now) instead
+  // of firing all at once. Caller must hold the DB mutex.
+  void ReanchorCompactionPhase();
+
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
@@ -1830,6 +1846,9 @@ class VersionSet {
   SystemClock* const clock_;
   const std::string dbname_;
   std::string db_id_;
+  // Periodic-compaction phasing. Declared right after dbname_/db_id_ because it
+  // holds live references to them (for __db_name__/__db_id__ substitution).
+  PeriodicCompactionPhaser periodic_compaction_phaser_{dbname_, db_id_};
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any WAL number smaller than this should be ignored during recovery,

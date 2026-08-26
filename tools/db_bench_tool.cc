@@ -2024,6 +2024,16 @@ DEFINE_uint64(
     max_compaction_trigger_wakeup_seconds,
     ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Maximum interval in seconds between periodic compaction trigger checks.");
+DEFINE_string(compaction_schedule_seed,
+              ROCKSDB_NAMESPACE::Options().compaction_schedule_seed,
+              "Sets DB option compaction_schedule_seed (seed for randomizing "
+              "the phase of periodic compaction; supports __db_name__ and "
+              "__db_id__ whole-value substitution).");
+DEFINE_int32(
+    periodic_compaction_phase_recovery_percent,
+    ROCKSDB_NAMESPACE::Options().periodic_compaction_phase_recovery_percent,
+    "Sets DB option periodic_compaction_phase_recovery_percent (0 disables "
+    "periodic compaction phasing).");
 DEFINE_uint64(stats_persist_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
@@ -5285,6 +5295,9 @@ class Benchmark {
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
     options.max_compaction_trigger_wakeup_seconds =
         FLAGS_max_compaction_trigger_wakeup_seconds;
+    options.compaction_schedule_seed = FLAGS_compaction_schedule_seed;
+    options.periodic_compaction_phase_recovery_percent =
+        FLAGS_periodic_compaction_phase_recovery_percent;
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;

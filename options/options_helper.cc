@@ -205,6 +205,10 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
   options.remote_compaction_manifest_floor =
       mutable_db_options.remote_compaction_manifest_floor;
+  options.compaction_schedule_seed =
+      mutable_db_options.compaction_schedule_seed;
+  options.periodic_compaction_phase_recovery_percent =
+      mutable_db_options.periodic_compaction_phase_recovery_percent;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
   options.follower_catchup_retry_count =

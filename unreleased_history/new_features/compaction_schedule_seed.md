@@ -1,0 +1,1 @@
+A new experimental feature alters periodic compaction scheduling to spread out trigger times and avoid recurring "thundering herd" triggers, especially with remote compaction. See new experimental DB options `compaction_schedule_seed` and `periodic_compaction_phase_recovery_percent`.

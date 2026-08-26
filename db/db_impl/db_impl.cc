@@ -1677,6 +1677,21 @@ Status DBImpl::SetOptions(
     VersionEdit dummy_edit;
     dummy_edit.MarkNoManifestWriteDummy();
     TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
+    // If any CF is changing periodic_compaction_seconds, (re)anchor phasing to
+    // now BEFORE the new Version is built below, so the new Version's scoring
+    // spreads a turn-down's newly past-due cohort over the phase grid (within
+    // ~N/4 of now) instead of firing it all at once (a herd). Anchoring is
+    // DB-level and benign to CFs that are not changing their interval.
+    bool changing_periodic_compaction_seconds = false;
+    for (const auto& cfd_opts : column_family_datas) {
+      if (cfd_opts.second->count("periodic_compaction_seconds") > 0) {
+        changing_periodic_compaction_seconds = true;
+        break;
+      }
+    }
+    if (changing_periodic_compaction_seconds) {
+      versions_->ReanchorCompactionPhase();
+    }
     for (const auto& cfd_opts : column_family_datas) {
       auto* cfd = cfd_opts.first;
       const auto* options_map_ptr = cfd_opts.second;

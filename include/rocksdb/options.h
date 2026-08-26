@@ -457,6 +457,13 @@ struct DbPath {
 
 extern const char* kHostnameForDbHostId;
 
+// Whole-value substitution tokens for DBOptions::compaction_schedule_seed. If
+// the entire seed string equals one of these, it is replaced with the DB name
+// or the DB ID (from the IDENTITY file) respectively when deriving the
+// per-(DB, CF) compaction schedule phase.
+extern const char* kDbNameForScheduleSeed;
+extern const char* kDbIdForScheduleSeed;
+
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
@@ -1852,6 +1859,80 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   uint64_t max_compaction_trigger_wakeup_seconds = 43200;
+
+  // EXPERIMENTAL
+  // Seed for randomizing the phase of periodic (time-based) compaction across
+  // DBs and column families, so that DBs configured alike do not all trigger
+  // their periodic_compaction_seconds compactions at the same wall-clock times
+  // (a "thundering herd"). The seed sets a DB-level base phase; each column
+  // family is then spread quasi-uniformly around it by its cf id via a
+  // golden-ratio recurrence, so different CFs in the same DB get well-separated
+  // phases regardless of how the seed is set.
+  //
+  // Ideally this stays stable for a DB as it is re-opened and even moved
+  // between hosts, to reduce extra compaction triggers, but different for
+  // different DBs within a host and across hosts, to reduce compaction herding.
+  // Advanced users can provide a string to hash, but the default should suffice
+  // in almost all cases.
+  //
+  // Whole-value substitution (like db_host_id): if the entire string equals
+  //   "__db_name__" it is replaced with the DB name (the path passed to
+  //                 DB::Open), or
+  //   "__db_id__"   it is replaced with the DB ID (from the IDENTITY file);
+  // any other value is used verbatim as the seed. The default is "__db_id__"
+  // which at least identifies the *ancestry* of a DB (in the presence of
+  // physical cloning). Physical migration from one machine to another
+  // generally preserves DB ID (at least when write_dbid_to_manifest=true),
+  // while DB name can often change on migration between hosts.
+  //
+  // Explicit phase (advanced): a value of the form "0.<digits>" -- a leading
+  // "0.", then only decimal digits, e.g. "0.0", "0.25", "0.5" (no sign or
+  // scientific notation) -- is parsed as a fraction in [0, 1) and used as this
+  // DB's base phase (in place of hashing the seed); the DB's CFs are still
+  // spread around that base by the same golden-ratio recurrence. This lets an
+  // operator hand-assign non-overlapping phases across the DBs on a host. It is
+  // rarely worthwhile: in environments where DBs are physically relocated, a
+  // fixed phase can force an extra compaction on relocation as the phase
+  // shifts, so the hashed default is usually preferable.
+  //
+  // The derived phase only takes effect when
+  // periodic_compaction_phase_recovery_percent > 0.
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  std::string compaction_schedule_seed = kDbIdForScheduleSeed;
+
+  // EXPERIMENTAL
+  // Controls how aggressively periodic (time-based) compaction converges to its
+  // preferred phase (see compaction_schedule_seed). On each periodic-compaction
+  // trigger for a file, this percent (0-100) of the gap between the file's
+  // unphased trigger time and its preferred-phase time is closed, always by
+  // triggering *earlier* -- never later than periodic_compaction_seconds, which
+  // remains a hard upper bound on data age. Because each compaction re-stamps
+  // the file, the phase error then decays geometrically toward the preferred
+  // phase over successive cycles.
+  //
+  // 0 disables phasing entirely (exact legacy behavior; this is the kill
+  // switch). 100 snaps to the preferred phase in a single cycle, which can
+  // recompact some files well before their normal interval and is generally not
+  // recommended. Values are clamped to [0, 100].
+  //
+  // Lower values converge more slowly but incur less extra compaction work,
+  // especially under write-driven or bursty workloads that keep re-randomizing
+  // a file's phase (where a high recovery rate wastefully "chases" the moving
+  // phase). ~33 is a good balance of spreading speed vs. extra work: almost
+  // always widely spread after a few periods while almost always below 5%
+  // extra compaction work overall, trending toward 0% in the long term for
+  // most workloads.
+  //
+  // This feature might become obsolete if a future feature is able to have
+  // compaction pressure, whether local or remote, feed back into compaction
+  // scheduling.
+  //
+  // Recommended setting: 33
+  // Default: feature disabled
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  int periodic_compaction_phase_recovery_percent = 0;
 
   // EXPERIMENTAL
 

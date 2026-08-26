@@ -359,6 +359,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
+      {offsetof(struct DBOptions, compaction_schedule_seed),
+       sizeof(std::string)},
       {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
        sizeof(CompactionStyleSet)},
   };
@@ -489,6 +491,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "enforce_single_del_contracts=false;"
       "daily_offpeak_time_utc=08:30-19:00;"
       "max_compaction_trigger_wakeup_seconds=43200;"
+      "compaction_schedule_seed=__db_name__;"
+      "periodic_compaction_phase_recovery_percent=25;"
       "follower_refresh_catchup_period_ms=123;"
       "follower_catchup_retry_count=456;"
       "follower_catchup_retry_wait_ms=789;"
