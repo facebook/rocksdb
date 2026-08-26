@@ -35,8 +35,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const char* kDbNameForScheduleSeed = "__db_name__";
-const char* kDbIdForScheduleSeed = "__db_id__";
+const char* const kDbNameForScheduleSeed = "__db_name__";
+const char* const kDbIdForScheduleSeed = "__db_id__";
 
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);

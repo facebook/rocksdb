@@ -455,14 +455,14 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
-extern const char* kHostnameForDbHostId;
+extern const char* const kHostnameForDbHostId;
 
 // Whole-value substitution tokens for DBOptions::compaction_schedule_seed. If
 // the entire seed string equals one of these, it is replaced with the DB name
 // or the DB ID (from the IDENTITY file) respectively when deriving the
 // per-(DB, CF) compaction schedule phase.
-extern const char* kDbNameForScheduleSeed;
-extern const char* kDbIdForScheduleSeed;
+extern const char* const kDbNameForScheduleSeed;
+extern const char* const kDbIdForScheduleSeed;
 
 enum class CompactionServiceJobStatus : char {
   kSuccess,
