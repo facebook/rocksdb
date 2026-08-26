@@ -4371,6 +4371,138 @@ TEST_P(WritePreparedTransactionTest,
   }
 }
 
+namespace {
+// Verifies `key` in both column families through both GetEntity overloads.
+void VerifyGetEntity(DB* db, const ReadOptions& read_options,
+                     ColumnFamilyHandle* cf2, const Slice& key,
+                     const std::string& expected_default,
+                     const std::string& expected_cf2) {
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(read_options, db->DefaultColumnFamily(), key, &columns));
+    ASSERT_FALSE(columns.columns().empty());
+    ASSERT_EQ(columns.columns()[0].value().ToString(), expected_default);
+  }
+
+  PinnableAttributeGroups result;
+  result.emplace_back(db->DefaultColumnFamily());
+  result.emplace_back(cf2);
+  ASSERT_OK(db->GetEntity(read_options, key, &result));
+  // Read both statuses before asserting on values, so that a mismatch fails
+  // the test instead of aborting an ASSERT_STATUS_CHECKED build.
+  ASSERT_OK(result[0].status());
+  ASSERT_OK(result[1].status());
+  ASSERT_FALSE(result[0].columns().empty());
+  ASSERT_EQ(result[0].columns()[0].value().ToString(), expected_default);
+  ASSERT_FALSE(result[1].columns().empty());
+  ASSERT_EQ(result[1].columns()[0].value().ToString(), expected_cf2);
+}
+}  // namespace
+
+// GetEntity must not expose a prepared-but-uncommitted write. It sits below
+// the reader's snapshot, so only WritePreparedTxnReadCallback can hide it.
+TEST_P(WritePreparedTransactionTest, GetEntitySkipsPreparedUncommitted) {
+  ColumnFamilyHandle* cf2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options), "cf2", &cf2));
+
+  WriteOptions write_options;
+  ASSERT_OK(db->Put(write_options, "key1", "value1"));
+  ASSERT_OK(db->Put(write_options, cf2, "key1", "cf2_value1"));
+
+  std::unique_ptr<Transaction> txn(
+      db->BeginTransaction(write_options, TransactionOptions()));
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("prepared_txn"));
+  ASSERT_OK(txn->Put("key1", "value2"));
+  ASSERT_OK(txn->Put(cf2, "key1", "cf2_value2"));
+  ASSERT_OK(txn->Prepare());
+
+  // Publishes a sequence number above the prepared one. Without it the
+  // two_write_queues configurations leave the prepared sequence unpublished,
+  // hence above the snapshot, where a plain sequence check hides it anyway.
+  ASSERT_OK(db->Put(write_options, "unrelated_key", "unrelated_value"));
+
+  const Snapshot* snapshot = db->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+
+  {
+    SCOPED_TRACE("prepared, not yet committed");
+    VerifyGetEntity(db, snapshot_read_options, cf2, "key1", "value1",
+                    "cf2_value1");
+    VerifyGetEntity(db, ReadOptions(), cf2, "key1", "value1", "cf2_value1");
+  }
+
+  ASSERT_OK(txn->Commit());
+
+  {
+    SCOPED_TRACE("committed after the snapshot was taken");
+    VerifyGetEntity(db, snapshot_read_options, cf2, "key1", "value1",
+                    "cf2_value1");
+    VerifyGetEntity(db, ReadOptions(), cf2, "key1", "value2", "cf2_value2");
+  }
+
+  txn.reset();  // References cf2, so it has to go before the handle.
+  db->ReleaseSnapshot(snapshot);
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
+}
+
+// Argument handling and per-column-family status reporting of the same
+// overrides.
+TEST_P(WritePreparedTransactionTest, GetEntitySnapshotIsolation) {
+  ColumnFamilyHandle* cf2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options), "cf2", &cf2));
+
+  WriteOptions write_options;
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(write_options));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->Put("key1", "value1"));
+    ASSERT_OK(txn->Put(cf2, "key1", "cf2_value1"));
+    ASSERT_OK(txn->Commit());
+  }
+
+  const Snapshot* snapshot = db->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(write_options));
+    ASSERT_NE(txn, nullptr);
+    ASSERT_OK(txn->Put("key1", "value2"));
+    ASSERT_OK(txn->Put(cf2, "key1", "cf2_value2"));
+    ASSERT_OK(txn->Commit());
+  }
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+
+  {
+    SCOPED_TRACE("snapshot read");
+    VerifyGetEntity(db, read_options, cf2, "key1", "value1", "cf2_value1");
+  }
+
+  {
+    // A null handle fails the query without any column family being read.
+    PinnableAttributeGroups result;
+    result.emplace_back(db->DefaultColumnFamily());
+    result.emplace_back(nullptr);
+    Status s = db->GetEntity(read_options, "key1", &result);
+    ASSERT_TRUE(s.IsInvalidArgument());
+    ASSERT_TRUE(result[1].status().IsInvalidArgument());
+    ASSERT_TRUE(result[0].status().IsIncomplete());
+  }
+
+  {
+    SCOPED_TRACE("latest read");
+    VerifyGetEntity(db, ReadOptions(), cf2, "key1", "value2", "cf2_value2");
+  }
+
+  db->ReleaseSnapshot(snapshot);
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

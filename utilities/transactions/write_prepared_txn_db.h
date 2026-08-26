@@ -100,6 +100,13 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
                                   std::string* timestamp);
   using DB::GetAsync;
 
+  using DB::GetEntity;
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
+  Status GetEntity(const ReadOptions& options, const Slice& key,
+                   PinnableAttributeGroups* result) override;
+
   using DB::MultiGet;
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
                                   const ReadOptions& _read_options,
