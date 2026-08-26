@@ -5215,6 +5215,47 @@ TEST_F(CompactionPickerU64TsTest,
   ASSERT_EQ(0U, vstorage_->BottommostFilesMarkedForCompaction().size());
 }
 
+TEST_F(CompactionPickerU64TsTest,
+       BottommostMarkedWithSetFullHistoryTsLowAndUnknownMaxTs) {
+  // A bottommost UDT file whose max_timestamp was not recorded (e.g. written by
+  // an older version) must still be marked for a one-time backfill compaction
+  // when full_history_ts_low IS set: that compaction can collapse timestamp
+  // history / zero seqnos and record max_timestamp, so it makes progress
+  // (bounded, not a loop). This complements
+  // BottommostNotMarkedWithEmptyFullHistoryTsLowAndUnknownMaxTs, which covers
+  // the unset case where no progress is possible.
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  std::string ts_small = MakeU64Timestamp(50);
+  std::string ts_large = MakeU64Timestamp(100);
+
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/10, /*largest_seq=*/40,
+      /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+  // Simulate a file whose min/max timestamp was never recorded.
+  ASSERT_EQ(1U, vstorage_->LevelFiles(5).size());
+  FileMetaData* f = vstorage_->LevelFiles(5)[0];
+  f->min_timestamp.clear();
+  f->max_timestamp.clear();
+
+  UpdateVersionStorageInfo();
+
+  std::string full_history_ts_low = MakeU64Timestamp(500);
+  vstorage_->UpdateOldestSnapshot(
+      /*oldest_snapshot_seqnum=*/50,
+      /*allow_ingest_behind=*/false,
+      /*ucmp=*/ucmp_, full_history_ts_low);
+
+  // With full_history_ts_low set, the unknown-max_timestamp file is marked so a
+  // bounded compaction can backfill its metadata and reclaim obsolete data.
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction().size());
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction()[0]
+                    .second->fd.GetNumber());
+}
+
 TEST_F(CompactionPickerU64TsTest, LevelPickCompactionWithFullHistoryTsLow) {
   // Test that level compaction correctly passes full_history_ts_low
   // and picks compaction appropriately

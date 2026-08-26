@@ -273,6 +273,19 @@ class VersionStorageInfo {
     preserve_time_min_seqno_ = preserve_time_min_seqno;
   }
 
+  // The seqno->time preserve-window lower bound set by SetPreserveTimeMinSeqno.
+  // For a bottommost-file (kBottommostFiles) compaction, CompactionJob folds
+  // this into its own preserve_seqno_after_ computation so that the compaction
+  // zeroes out at least the sequence numbers the marker
+  // (ComputeBottommostFilesMarkedForCompaction) deemed zeroable, even when the
+  // selected file's persisted seqno->time mapping is sparse or empty (e.g. a
+  // file written before preserve/preclude was enabled). Otherwise the two would
+  // disagree and a marked file could never make progress (infinite compaction
+  // loop). kMaxSequenceNumber means the constraint is inactive.
+  SequenceNumber GetPreserveTimeMinSeqno() const {
+    return preserve_time_min_seqno_;
+  }
+
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
 

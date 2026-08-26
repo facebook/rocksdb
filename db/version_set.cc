@@ -4440,14 +4440,20 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
       // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
         // Compute the file's timestamp collapsibility (only meaningful under
-        // UDT). An unknown (empty) max timestamp is treated as not-collapsible
-        // so an indeterminate file is not marked -- conservative, and avoids a
-        // loop when the timestamp can't be confirmed below full_history_ts_low.
+        // UDT with full_history_ts_low set). A file whose max timestamp is
+        // below full_history_ts_low can have its timestamp history collapsed
+        // and its seqno zeroed. An unknown (empty) max timestamp means the file
+        // predates timestamp metadata (e.g. written by an older version); mark
+        // it once so a bounded compaction backfills FileMetaData::max_timestamp
+        // and reclaims obsolete versions/tombstones. When full_history_ts_low
+        // is unset, the guard below (full_history_ts_low_set == false) keeps
+        // such a file unmarked, since compaction could not collapse it and the
+        // rewrite would loop.
         bool ts_below_full_history_ts_low = false;
         if (ts_sz > 0 && full_history_ts_low_set) {
           const std::string& max_ts = level_and_file.second->max_timestamp;
           ts_below_full_history_ts_low =
-              !max_ts.empty() &&
+              max_ts.empty() ||
               ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) < 0;
         }
         if (!BottommostSeqnoCanBeZeroed(

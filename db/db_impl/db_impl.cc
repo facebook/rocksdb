@@ -7703,6 +7703,7 @@ void DBImpl::RecordSeqnoToTimeMapping() {
     new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
 
     // Update in SV of all applicable CFs
+    bool enqueued_any = false;
     for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
@@ -7712,8 +7713,25 @@ void DBImpl::RecordSeqnoToTimeMapping() {
         sv_context.NewSuperVersion();
         cfd->InstallSuperVersion(&sv_context, &mutex_,
                                  new_seqno_to_time_mapping);
-        MaybeUpdatePreserveTimeMinSeqno(cfd);
+        // Recording a new sample can move the preserve-window boundary, aging a
+        // bottommost file out of it. When that happens, recompute bottommost
+        // marking and enqueue now: on a quiet DB nothing else would create a
+        // new Version to pick up the change, so the compaction would otherwise
+        // be delayed until unrelated activity.
+        if (MaybeUpdatePreserveTimeMinSeqno(cfd) && !cfd->AllowIngestBehind()) {
+          VersionStorageInfo* vstorage = cfd->current()->storage_info();
+          vstorage->ComputeBottommostFilesMarkedForCompaction(
+              /*allow_ingest_behind=*/false, cfd->ioptions().user_comparator,
+              cfd->GetFullHistoryTsLow());
+          if (!vstorage->BottommostFilesMarkedForCompaction().empty()) {
+            EnqueuePendingCompaction(cfd);
+            enqueued_any = true;
+          }
+        }
       }
+    }
+    if (enqueued_any) {
+      MaybeScheduleFlushOrCompaction();
     }
     bg_cv_.SignalAll();
   }
@@ -7722,28 +7740,30 @@ void DBImpl::RecordSeqnoToTimeMapping() {
   sv_context.Clean();
 }
 
-void DBImpl::MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd) {
+bool DBImpl::MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd) {
   mutex_.AssertHeld();
+  VersionStorageInfo* vstorage = cfd->current()->storage_info();
+  const SequenceNumber prev = vstorage->GetPreserveTimeMinSeqno();
   const MutableCFOptions& mopts = cfd->GetLatestMutableCFOptions();
   MinAndMaxPreserveSeconds preserve_info{mopts};
   if (!preserve_info.IsEnabled()) {
     // Preserve/preclude disabled: no restriction on bottommost seqno zeroing.
-    cfd->current()->storage_info()->SetPreserveTimeMinSeqno(kMaxSequenceNumber);
-    return;
+    vstorage->SetPreserveTimeMinSeqno(kMaxSequenceNumber);
+    return prev != kMaxSequenceNumber;
   }
   int64_t current_time = 0;
   if (!immutable_db_options_.clock->GetCurrentTime(&current_time).ok()) {
     // Leave the previous value in place; being stale is safe (a hot key's
     // largest seqno stays above any past boundary and remains unmarked).
-    return;
+    return false;
   }
   SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber;
   seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
       static_cast<uint64_t>(current_time), mopts.preserve_internal_time_seconds,
       mopts.preclude_last_level_data_seconds, &preserve_time_min_seqno,
       /*preclude_last_level_min_seqno=*/nullptr);
-  cfd->current()->storage_info()->SetPreserveTimeMinSeqno(
-      preserve_time_min_seqno);
+  vstorage->SetPreserveTimeMinSeqno(preserve_time_min_seqno);
+  return prev != preserve_time_min_seqno;
 }
 
 void DBImpl::TriggerPeriodicCompaction() {

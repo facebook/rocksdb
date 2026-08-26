@@ -395,6 +395,24 @@ void CompactionJob::Prepare(
       std::min(preclude_last_level_min_seqno, preserve_time_min_seqno);
 #endif
 
+  // For a bottommost-file compaction, which exists only because the marker
+  // (VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction) decided the
+  // file's largest sequence number could be zeroed, honor that same
+  // version-carried preserve boundary here. The marker reads DBImpl's live,
+  // DB-wide seqno->time mapping, whereas the value computed above is derived
+  // only from the selected file's persisted mapping, which can be sparse or
+  // empty (e.g. a file written before preserve/preclude was enabled). Taking
+  // the max ensures this compaction can zero at least the sequence numbers the
+  // marker considered zeroable, so a marked file makes progress instead of
+  // being re-marked forever (infinite compaction loop). Other compaction
+  // reasons keep the per-input-file boundary so their seqno-zeroing behavior is
+  // unchanged. When preserve/preclude is inactive the version value is
+  // kMaxSequenceNumber, making this a no-op.
+  if (c->compaction_reason() == CompactionReason::kBottommostFiles) {
+    preserve_time_min_seqno = std::max(preserve_time_min_seqno,
+                                       storage_info->GetPreserveTimeMinSeqno());
+  }
+
   // Preserve sequence numbers for preserved write times and snapshots, though
   // the specific sequence number of the earliest snapshot can be zeroed.
   preserve_seqno_after_ =

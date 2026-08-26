@@ -1647,6 +1647,103 @@ TEST_F(PrecludeBottommostLoopTest, LeveledPreserveTimeNoBottommostLoop) {
   Close();
 }
 
+// Regression test for the empty-mapping variant of the same loop: a bottommost
+// file that predates a preserve/preclude rollout has an EMPTY persisted
+// seqno->time mapping. Once the live, DB-wide mapping ages the file out of the
+// preserve window, the marker (which reads the live mapping) marks it. The
+// compaction that rewrites it must use the same version-carried preserve
+// boundary rather than the file's own empty mapping; otherwise it computes
+// preserve_seqno_after_ = 0, zeroes nothing, and re-marks the file forever.
+// With the fix the file's seqno is zeroed in one bounded compaction.
+TEST_F(PrecludeBottommostLoopTest, EmptyMappingAgedOutNoBottommostLoop) {
+  const int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.env = mock_env_.get();
+  options.num_levels = kNumLevels;
+  options.level0_file_num_compaction_trigger = 4;
+  // Start with preserve/preclude disabled so the bottommost file below is
+  // written with an EMPTY persisted seqno->time mapping, mimicking a file that
+  // predates a preserve/preclude rollout.
+  options.preserve_internal_time_seconds = 0;
+  options.preclude_last_level_data_seconds = 0;
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+
+  // Hold a snapshot below the "aged" key so moving it to the bottommost level
+  // does not zero its seqno (there is no preserve window yet to protect it).
+  ASSERT_OK(Put("keeplow", "v"));
+  const Snapshot* protect = db_->GetSnapshot();
+  ASSERT_OK(Put("aged", "v"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+
+  SequenceNumber aged_seqno = 0;
+  {
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    for (const auto& f : files) {
+      if (f.level == kNumLevels - 1) {
+        aged_seqno = f.largest_seqno;
+      }
+    }
+  }
+  ASSERT_GT(aged_seqno, 0U);
+
+  // Roll out the preserve feature dynamically and let the live, DB-wide
+  // seqno->time mapping accumulate samples while mock time advances well past
+  // preserve_internal_time_seconds, so the pre-existing file's seqno ages out
+  // of the preserve window per the live mapping (even though the file's own
+  // persisted mapping is empty). The protecting snapshot keeps the file from
+  // being marked during this loop (oldest_snapshot_seqnum_ stays below it).
+  ASSERT_OK(db_->SetOptions({{"preserve_internal_time_seconds", "10000"}}));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("hot", "v" + std::to_string(i)));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(200); });
+  }
+
+  std::atomic<int> bottommost_compactions{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        auto* c = static_cast<Compaction*>(arg);
+        if (c != nullptr &&
+            c->compaction_reason() == CompactionReason::kBottommostFiles) {
+          bottommost_compactions.fetch_add(1);
+        }
+      });
+
+  // Release the protecting snapshot so oldest_snapshot_seqnum_ advances past
+  // the file's largest seqno, making it a bottommost marking candidate. The
+  // marker (using the live mapping) marks it; the compaction that rewrites it
+  // must use the same version-carried preserve boundary (not the file's empty
+  // mapping) to actually zero the seqno, otherwise it makes no progress and
+  // loops.
+  db_->ReleaseSnapshot(protect);
+
+  // With the fix the file's seqno is zeroed in a bounded number of bottommost
+  // compactions and the DB quiesces. Before the fix this wait would hang.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  {
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    for (const auto& f : files) {
+      if (f.level == kNumLevels - 1) {
+        ASSERT_EQ(0U, f.largest_seqno);
+      }
+    }
+  }
+  // The file was genuinely marked and rewritten (not vacuously skipped), and
+  // the rewrite made progress instead of looping.
+  ASSERT_GE(bottommost_compactions.load(), 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
 TEST_P(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
