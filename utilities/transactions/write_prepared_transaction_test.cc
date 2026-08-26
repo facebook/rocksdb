@@ -38,6 +38,11 @@
 #if USE_COROUTINES
 #include "folly/coro/BlockingWait.h"
 #include "rocksdb/coro_db.h"
+#endif  // USE_COROUTINES
+
+#if USE_COROUTINES
+#include "folly/coro/BlockingWait.h"
+#include "rocksdb/coro_db.h"
 #endif
 
 using std::string;
@@ -4502,6 +4507,139 @@ TEST_P(WritePreparedTransactionTest, GetEntitySnapshotIsolation) {
   db->ReleaseSnapshot(snapshot);
   ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
 }
+
+#if USE_COROUTINES
+// The coroutine GetEntity must apply the same visibility checking as the
+// synchronous one, since both funnel through the same read callback.
+TEST_P(WritePreparedTransactionTest, GetEntityCoroutine) {
+  options.env = Env::Default();
+  ASSERT_OK(ReOpen());
+
+  CoroDB* coro_db = db->GetCoroDB();
+  ASSERT_NE(nullptr, coro_db);
+
+  WriteOptions write_options;
+  ASSERT_OK(db->Put(write_options, "key1", "value1"));
+
+  std::unique_ptr<Transaction> txn(
+      db->BeginTransaction(write_options, TransactionOptions()));
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("prepared_txn"));
+  ASSERT_OK(txn->Put("key1", "value2"));
+  ASSERT_OK(txn->Prepare());
+
+  // Publishes a sequence number above the prepared one. See
+  // GetEntitySkipsPreparedUncommitted.
+  ASSERT_OK(db->Put(write_options, "unrelated_key", "unrelated_value"));
+
+  const Snapshot* snapshot = db->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+
+  auto co_get_entity = [&](const ReadOptions& read_options,
+                           PinnableWideColumns* columns) {
+    return folly::coro::blockingWait(CoroDB::CoGetEntity(
+        db, read_options, db->DefaultColumnFamily(), "key1", columns));
+  };
+
+  {
+    SCOPED_TRACE("prepared, not yet committed");
+    PinnableWideColumns columns;
+    ASSERT_OK(co_get_entity(snapshot_read_options, &columns));
+    ASSERT_FALSE(columns.columns().empty());
+    ASSERT_EQ(columns.columns()[0].value().ToString(), "value1");
+  }
+
+  ASSERT_OK(txn->Commit());
+
+  {
+    SCOPED_TRACE("committed after the snapshot was taken");
+    PinnableWideColumns columns;
+    ASSERT_OK(co_get_entity(snapshot_read_options, &columns));
+    ASSERT_FALSE(columns.columns().empty());
+    ASSERT_EQ(columns.columns()[0].value().ToString(), "value1");
+  }
+
+  {
+    SCOPED_TRACE("latest read");
+    PinnableWideColumns columns;
+    ASSERT_OK(co_get_entity(ReadOptions(), &columns));
+    ASSERT_FALSE(columns.columns().empty());
+    ASSERT_EQ(columns.columns()[0].value().ToString(), "value2");
+  }
+
+  txn.reset();
+  db->ReleaseSnapshot(snapshot);
+}
+
+// The attribute-group coroutine fans the column families out concurrently, so
+// each one needs its own read callback. Verify they do not bleed into each
+// other: both must independently hide the same prepared-but-uncommitted write.
+TEST_P(WritePreparedTransactionTest, GetEntityCoroutineAttributeGroups) {
+  options.env = Env::Default();
+  ASSERT_OK(ReOpen());
+
+  ColumnFamilyHandle* cf2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options), "cf2", &cf2));
+
+  WriteOptions write_options;
+  ASSERT_OK(db->Put(write_options, "key1", "value1"));
+  ASSERT_OK(db->Put(write_options, cf2, "key1", "cf2_value1"));
+
+  std::unique_ptr<Transaction> txn(
+      db->BeginTransaction(write_options, TransactionOptions()));
+  ASSERT_NE(txn, nullptr);
+  ASSERT_OK(txn->SetName("prepared_txn"));
+  ASSERT_OK(txn->Put("key1", "value2"));
+  ASSERT_OK(txn->Put(cf2, "key1", "cf2_value2"));
+  ASSERT_OK(txn->Prepare());
+
+  ASSERT_OK(db->Put(write_options, "unrelated_key", "unrelated_value"));
+
+  const Snapshot* snapshot = db->GetSnapshot();
+  ASSERT_NE(snapshot, nullptr);
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+
+  auto co_verify = [&](const ReadOptions& read_options,
+                       const std::string& expected_default,
+                       const std::string& expected_cf2) {
+    PinnableAttributeGroups result;
+    result.emplace_back(db->DefaultColumnFamily());
+    result.emplace_back(cf2);
+    ASSERT_OK(folly::coro::blockingWait(
+        CoroDB::CoGetEntity(db, read_options, "key1", &result)));
+    ASSERT_OK(result[0].status());
+    ASSERT_OK(result[1].status());
+    ASSERT_FALSE(result[0].columns().empty());
+    ASSERT_EQ(result[0].columns()[0].value().ToString(), expected_default);
+    ASSERT_FALSE(result[1].columns().empty());
+    ASSERT_EQ(result[1].columns()[0].value().ToString(), expected_cf2);
+  };
+
+  {
+    SCOPED_TRACE("prepared, not yet committed");
+    co_verify(snapshot_read_options, "value1", "cf2_value1");
+  }
+
+  ASSERT_OK(txn->Commit());
+
+  {
+    SCOPED_TRACE("committed after the snapshot was taken");
+    co_verify(snapshot_read_options, "value1", "cf2_value1");
+  }
+
+  {
+    SCOPED_TRACE("latest read");
+    co_verify(ReadOptions(), "value2", "cf2_value2");
+  }
+
+  txn.reset();
+  db->ReleaseSnapshot(snapshot);
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
+}
+#endif  // USE_COROUTINES
 
 }  // namespace ROCKSDB_NAMESPACE
 

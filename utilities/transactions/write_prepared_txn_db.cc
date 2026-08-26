@@ -24,6 +24,12 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
+#if USE_COROUTINES
+#include "folly/coro/Collect.h"
+#include "folly/coro/Nothrow.h"
+#include "util/coro_stats_util.h"
+#endif  // USE_COROUTINES
+
 // This function is for testing only. If it returns true, then all entries in
 // the commit cache will be evicted. Unit and/or stress tests (db_stress)
 // can implement this function and customize how frequently commit cache
@@ -282,54 +288,9 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   handle_map_.reset(handle_map);
 }
 
-Status WritePreparedTxnDB::GetEntity(const ReadOptions& options,
-                                     ColumnFamilyHandle* column_family,
-                                     const Slice& key,
-                                     PinnableWideColumns* columns) {
-  if (!column_family) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntity without a column family handle");
-  }
-  if (!columns) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntity without a PinnableWideColumns object");
-  }
-  if (options.io_activity != Env::IOActivity::kUnknown &&
-      options.io_activity != Env::IOActivity::kGetEntity) {
-    return Status::InvalidArgument(
-        "Can only call GetEntity with `ReadOptions::io_activity` set to "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
-  }
-  ReadOptions read_options(options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGetEntity;
-  }
-  columns->Reset();
-
-  SequenceNumber min_uncommitted;
-  SequenceNumber snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      AssignMinMaxSeqs(read_options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
-                                        backed_by_snapshot);
-  DBImpl::GetImplOptions get_impl_options;
-  get_impl_options.column_family = column_family;
-  get_impl_options.columns = columns;
-  get_impl_options.callback = &callback;
-  Status s = db_impl_->GetImpl(read_options, key, get_impl_options);
-  if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
-                                                  backed_by_snapshot))) {
-    return s;
-  }
-
-  s.PermitUncheckedError();
-  WPRecordTick(TXN_GET_TRY_AGAIN);
-  return Status::TryAgain();
-}
-
-Status WritePreparedTxnDB::GetEntity(const ReadOptions& options,
-                                     const Slice& key,
-                                     PinnableAttributeGroups* result) {
+Status WritePreparedTxnDB::ValidateAttributeGroupsRead(
+    const ReadOptions& options, PinnableAttributeGroups* result,
+    ReadOptions* read_options) {
   if (!result) {
     return Status::InvalidArgument(
         "Cannot call GetEntity without PinnableAttributeGroups object");
@@ -349,19 +310,13 @@ Status WritePreparedTxnDB::GetEntity(const ReadOptions& options,
   if (num_column_families == 0) {
     return s;
   }
-  ReadOptions read_options(options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGetEntity;
+  *read_options = options;
+  if (read_options->io_activity == Env::IOActivity::kUnknown) {
+    read_options->io_activity = Env::IOActivity::kGetEntity;
   }
 
-  SequenceNumber min_uncommitted;
-  SequenceNumber snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      AssignMinMaxSeqs(read_options.snapshot, &min_uncommitted, &snap_seq);
-
   for (size_t i = 0; i < num_column_families; ++i) {
-    ColumnFamilyHandle* cfh = (*result)[i].column_family();
-    if (!cfh) {
+    if (!(*result)[i].column_family()) {
       s = Status::InvalidArgument(
           "DB failed to query because one or more group(s) have null column "
           "family handle");
@@ -378,10 +333,45 @@ Status WritePreparedTxnDB::GetEntity(const ReadOptions& options,
                                "one or more of the attribute groups"));
       }
     }
+  }
+  return s;
+}
+
+void WritePreparedTxnDB::SetAttributeGroupResult(
+    WritePreparedTxnReadCallback* callback, SnapshotBackup backed_by_snapshot,
+    const Status& get_s, PinnableWideColumns&& columns,
+    PinnableAttributeGroup* group) {
+  if (UNLIKELY(
+          !callback->valid() ||
+          !ValidateSnapshot(callback->max_visible_seq(), backed_by_snapshot))) {
+    // Snapshot validation failed for this column family. Surface TryAgain
+    // for this attribute group only and leave the other column families'
+    // results intact, matching the per-key semantics of
+    // WritePreparedTxnDB::MultiGet and DBImpl::GetEntity.
+    get_s.PermitUncheckedError();
+    group->SetStatus(Status::TryAgain());
+    WPRecordTick(TXN_GET_TRY_AGAIN);
+    return;
+  }
+  group->SetStatus(get_s);
+  group->SetColumns(std::move(columns));
+}
+
+Status WritePreparedTxnDB::GetEntity(const ReadOptions& options,
+                                     const Slice& key,
+                                     PinnableAttributeGroups* result) {
+  ReadOptions read_options;
+  Status s = ValidateAttributeGroupsRead(options, result, &read_options);
+  if (!s.ok() || result->empty()) {
     return s;
   }
 
-  for (size_t i = 0; i < num_column_families; ++i) {
+  SequenceNumber min_uncommitted;
+  SequenceNumber snap_seq;
+  const SnapshotBackup backed_by_snapshot =
+      AssignMinMaxSeqs(read_options.snapshot, &min_uncommitted, &snap_seq);
+
+  for (size_t i = 0; i < result->size(); ++i) {
     (*result)[i].Reset();
     PinnableWideColumns columns;
     WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
@@ -391,23 +381,62 @@ Status WritePreparedTxnDB::GetEntity(const ReadOptions& options,
     get_impl_options.columns = &columns;
     get_impl_options.callback = &callback;
     Status get_s = db_impl_->GetImpl(read_options, key, get_impl_options);
-    if (UNLIKELY(!callback.valid() ||
-                 !ValidateSnapshot(callback.max_visible_seq(),
-                                   backed_by_snapshot))) {
-      // Snapshot validation failed for this column family. Surface TryAgain
-      // for this attribute group only and leave the other column families'
-      // results intact, matching the per-key semantics of
-      // WritePreparedTxnDB::MultiGet and DBImpl::GetEntity.
-      get_s.PermitUncheckedError();
-      (*result)[i].SetStatus(Status::TryAgain());
-      WPRecordTick(TXN_GET_TRY_AGAIN);
-      continue;
-    }
-    (*result)[i].SetStatus(get_s);
-    (*result)[i].SetColumns(std::move(columns));
+    SetAttributeGroupResult(&callback, backed_by_snapshot, get_s,
+                            std::move(columns), &(*result)[i]);
   }
   return s;
 }
+
+#if USE_COROUTINES
+folly::coro::Task<Status> WritePreparedTxnDB::GetEntityCoroutine(
+    const ReadOptions& options, const Slice& key,
+    PinnableAttributeGroups* result) {
+  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
+      db_impl_->GetFileSystem()->GetReadExecutor(), db_impl_->GetEnv());
+
+  ReadOptions read_options;
+  Status s = ValidateAttributeGroupsRead(options, result, &read_options);
+  if (!s.ok() || result->empty()) {
+    co_return s;
+  }
+
+  SequenceNumber min_uncommitted;
+  SequenceNumber snap_seq;
+  const SnapshotBackup backed_by_snapshot =
+      AssignMinMaxSeqs(read_options.snapshot, &min_uncommitted, &snap_seq);
+
+  // Every column family is read at the same logical instant, so the sequence
+  // numbers above are computed once and shared. The per-column-family state
+  // below must stay alive and stable for the duration of the concurrent
+  // awaits, hence the reserve() before taking pointers into `callbacks`.
+  const size_t num_column_families = result->size();
+  std::vector<PinnableWideColumns> columns(num_column_families);
+  std::vector<DBImpl::GetImplOptions> get_impl_options(num_column_families);
+  std::vector<WritePreparedTxnReadCallback> callbacks;
+  std::vector<folly::coro::Task<Status>> tasks;
+  callbacks.reserve(num_column_families);
+  tasks.reserve(num_column_families);
+
+  for (size_t i = 0; i < num_column_families; ++i) {
+    (*result)[i].Reset();
+    callbacks.emplace_back(this, snap_seq, min_uncommitted, backed_by_snapshot);
+    get_impl_options[i].column_family = (*result)[i].column_family();
+    get_impl_options[i].columns = &columns[i];
+    get_impl_options[i].callback = &callbacks[i];
+    tasks.emplace_back(
+        db_impl_->GetImplCoroutine(read_options, key, get_impl_options[i]));
+  }
+
+  std::vector<Status> statuses = co_await folly::coro::co_nothrow(
+      folly::coro::collectAllRange(std::move(tasks)));
+
+  for (size_t i = 0; i < num_column_families; ++i) {
+    SetAttributeGroupResult(&callbacks[i], backed_by_snapshot, statuses[i],
+                            std::move(columns[i]), &(*result)[i]);
+  }
+  co_return s;
+}
+#endif  // USE_COROUTINES
 
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
 struct WritePreparedTxnDB::IteratorState {

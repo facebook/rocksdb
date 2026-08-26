@@ -43,6 +43,9 @@ using WritePreparedTxnDBBase = CoroStackableDBBase<PessimisticTransactionDB>;
 using WritePreparedTxnDBBase = PessimisticTransactionDB;
 #endif
 
+// Defined below, after WritePreparedTxnDB.
+class WritePreparedTxnReadCallback;
+
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
 // mechanisms to tell such data apart from committed data.
@@ -101,11 +104,20 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
   using DB::GetAsync;
 
   using DB::GetEntity;
-  Status GetEntity(const ReadOptions& options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableWideColumns* columns) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetEntity, const ReadOptions& options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key,
+                                  PinnableWideColumns* columns);
+  // Not DECLARE_SYNC_AND_ASYNC_OVERRIDE: the two forms are different
+  // algorithms, not one body compiled twice. The synchronous one reads the
+  // column families in order; the coroutine one fans them out concurrently.
   Status GetEntity(const ReadOptions& options, const Slice& key,
                    PinnableAttributeGroups* result) override;
+#if USE_COROUTINES
+  folly::coro::Task<Status> GetEntityCoroutine(
+      const ReadOptions& options, const Slice& key,
+      PinnableAttributeGroups* result) override;
+#endif  // USE_COROUTINES
 
   using DB::MultiGet;
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
@@ -498,6 +510,23 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
   inline bool ValidateSnapshot(
       const SequenceNumber snap_seq, const SnapshotBackup backed_by_snapshot,
       std::memory_order order = std::memory_order_relaxed);
+
+  // Shared prologue of the two PinnableAttributeGroups GetEntity forms:
+  // validates the arguments, fills in a normalized `read_options`, and rejects
+  // null column family handles before any column family is read. Per-group
+  // statuses are populated on failure.
+  Status ValidateAttributeGroupsRead(const ReadOptions& options,
+                                     PinnableAttributeGroups* result,
+                                     ReadOptions* read_options);
+
+  // Shared epilogue: records one column family's read outcome, turning a
+  // failed snapshot validation into TryAgain for that group alone.
+  void SetAttributeGroupResult(WritePreparedTxnReadCallback* callback,
+                               SnapshotBackup backed_by_snapshot,
+                               const Status& get_s,
+                               PinnableWideColumns&& columns,
+                               PinnableAttributeGroup* group);
+
   // Get a dummy snapshot that refers to kMaxSequenceNumber
   Snapshot* GetMaxSnapshot() { return &dummy_max_snapshot_; }
 
