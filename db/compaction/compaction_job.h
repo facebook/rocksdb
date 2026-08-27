@@ -591,6 +591,7 @@ class CompactionJob {
 struct CompactionServiceInput {
   std::string cf_name;
 
+  // Snapshot sequence numbers in strictly increasing order.
   std::vector<SequenceNumber> snapshots;
 
   // SST files for compaction, it should already be expended to include all the
