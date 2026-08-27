@@ -1,0 +1,1 @@
+Fixed a bug in `WritableFileWriter`'s direct I/O (`O_DIRECT`) write path where `Flush()`, `Sync()`, and `Close()` could each re-issue a `PositionedAppend()` for the same already-written tail bytes left over from a previous unaligned write, whenever called with no intervening `Append()`, causing unnecessary redundant disk writes.

@@ -334,6 +334,148 @@ TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
   }
 }
 
+// Regression test for https://github.com/facebook/rocksdb/issues/12168.
+//
+// WriteDirect() pads an unaligned tail with zeros, writes it once, and parks
+// the tail bytes at the front of buf_ via RefitTail() so a future Append()
+// can glue more data onto them before the next write. A second
+// Flush()/Sync() with no intervening Append() must not re-issue a
+// PositionedAppend() for those same already-written tail bytes.
+TEST_F(WritableFileWriterTest, DirectIOSkipsRedundantTailRewrite) {
+  // FakeWF writes into caller-owned storage (not members of FakeWF itself)
+  // because WritableFileWriter::Close() destroys the underlying FSWritableFile
+  // (via writable_file_.reset()); the test needs to inspect the recorded
+  // calls and file content after Close() runs, so that state must outlive
+  // the FakeWF object. Mirrors the existing IncrementalBuffer test's
+  // FakeWF(std::string* _file_data, ...) pattern above.
+  class FakeWF : public FSWritableFile {
+   public:
+    FakeWF(std::string* file_data, int* positioned_append_call_count,
+          size_t* positioned_append_total_bytes)
+        : file_data_(file_data),
+          positioned_append_call_count_(positioned_append_call_count),
+          positioned_append_total_bytes_(positioned_append_total_bytes) {}
+    ~FakeWF() override = default;
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& /*data*/, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+      // Direct I/O always routes through PositionedAppend(); this writer
+      // should never take the plain Append() path.
+      ADD_FAILURE() << "Unexpected FSWritableFile::Append() call under "
+                       "direct I/O";
+      return IOStatus::IOError("unexpected Append() call");
+    }
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
+      (*positioned_append_call_count_)++;
+      *positioned_append_total_bytes_ += data.size();
+      if (offset + data.size() > file_data_->size()) {
+        file_data_->resize(offset + data.size());
+      }
+      memcpy(&(*file_data_)[offset], data.data(), data.size());
+      return IOStatus::OK();
+    }
+    IOStatus Truncate(uint64_t size, const IOOptions& /*options*/,
+                      IODebugContext* /*dbg*/) override {
+      file_data_->resize(size);
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Fsync(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    void SetIOPriority(Env::IOPriority /*pri*/) override {}
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      return file_data_->size();
+    }
+    void GetPreallocationStatus(size_t* /*block_size*/,
+                                size_t* /*last_allocated_block*/) override {}
+    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+      return 0;
+    }
+    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+      return IOStatus::OK();
+    }
+    bool use_direct_io() const override { return true; }
+    size_t GetRequiredBufferAlignment() const override { return 512; }
+
+    std::string* file_data_;
+    int* positioned_append_call_count_;
+    size_t* positioned_append_total_bytes_;
+  };
+
+  std::string file_data;
+  int positioned_append_call_count = 0;
+  size_t positioned_append_total_bytes = 0;
+  std::unique_ptr<FakeWF> wf(new FakeWF(&file_data, &positioned_append_call_count,
+                                        &positioned_append_total_bytes));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+
+  // Matches the issue's own repro numbers: an unaligned 1030-byte write with
+  // 512-byte alignment pads up to 1536 bytes (1024-byte aligned portion plus
+  // a 6-byte tail padded out to a full 512-byte sector).
+  const size_t kDataSize = 1030;
+  ASSERT_OK(writer->Append(IOOptions(), std::string(kDataSize, 'x')));
+
+  // First Flush() must write the data: exactly one PositionedAppend call,
+  // sized to the alignment-rounded amount.
+  ASSERT_OK(writer->Flush(IOOptions()));
+  ASSERT_EQ(1, positioned_append_call_count);
+  ASSERT_EQ(1536u, positioned_append_total_bytes);
+
+  // A second Flush() with no intervening Append() must NOT re-issue a write
+  // for the already-written tail. Before the fix, this issues one more
+  // PositionedAppend() of 512 bytes (Roundup(6, 512)) at offset 1024 --
+  // bytes that are already present in the file from the first call.
+  ASSERT_OK(writer->Flush(IOOptions()));
+  EXPECT_EQ(1, positioned_append_call_count)
+      << "Flush() issued a redundant PositionedAppend for an already-written "
+         "tail (see #12168)";
+  EXPECT_EQ(1536u, positioned_append_total_bytes);
+
+  // Sync() also routes through Flush() internally and must not redundantly
+  // rewrite the tail either.
+  ASSERT_OK(writer->Sync(IOOptions(), /*use_fsync=*/false));
+  EXPECT_EQ(1, positioned_append_call_count)
+      << "Sync() issued a redundant PositionedAppend for an already-written "
+         "tail (see #12168)";
+
+  // Appending more data must still correctly glue onto the parked tail --
+  // this is the actual purpose of RefitTail() and must keep working.
+  ASSERT_OK(writer->Append(IOOptions(), std::string(600, 'y')));
+  ASSERT_OK(writer->Flush(IOOptions()));
+  EXPECT_EQ(2, positioned_append_call_count);
+
+  // Close() must not issue a further redundant write for the new tail.
+  ASSERT_OK(writer->Close(IOOptions()));
+  EXPECT_EQ(2, positioned_append_call_count)
+      << "Close() issued a redundant PositionedAppend for an already-written "
+         "tail (see #12168)";
+
+  // Final on-disk content must be exactly correct: 1030 'x' bytes followed by
+  // 600 'y' bytes, with all padding truncated away.
+  ASSERT_EQ(kDataSize + 600, file_data.size());
+  ASSERT_EQ(std::string(kDataSize, 'x'), file_data.substr(0, kDataSize));
+  ASSERT_EQ(std::string(600, 'y'), file_data.substr(kDataSize, 600));
+}
+
 class DBWritableFileWriterTest : public DBTestBase {
  public:
   DBWritableFileWriterTest()

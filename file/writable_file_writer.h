@@ -151,6 +151,14 @@ class WritableFileWriter {
   // so we need to go back and write that page again
   uint64_t next_write_offset_;
   bool pending_sync_;
+  // True only when buf_'s entire current content is a "clean" leftover tail:
+  // bytes already durably issued to the file by a previous WriteDirect()/
+  // WriteDirectWithChecksum() call (as part of a zero-padded aligned write),
+  // parked here so a future Append() can glue more data onto them. False
+  // whenever buf_ contains any byte that has not yet been written to the
+  // file. Lets Flush() avoid re-issuing a write for a buffer that holds
+  // nothing but already-written tail bytes (see #12168).
+  bool direct_io_buf_is_clean_tail_;
   std::atomic<bool> seen_error_;
 #ifndef NDEBUG
   std::atomic<bool> seen_injected_error_;
@@ -191,6 +199,7 @@ class WritableFileWriter {
         flushed_size_(initial_file_size),
         next_write_offset_(initial_file_size),
         pending_sync_(false),
+        direct_io_buf_is_clean_tail_(false),
         seen_error_(false),
 #ifndef NDEBUG
         seen_injected_error_(false),
