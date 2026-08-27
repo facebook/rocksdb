@@ -13,9 +13,13 @@
 #include "db_stress_tool/expected_state.h"
 #include "rocksdb/status.h"
 #ifdef GFLAGS
+#include <algorithm>
 #include <cinttypes>
 #include <deque>
+#include <optional>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
@@ -23,6 +27,86 @@
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+
+// Finds a run of overwriteable keys strictly inside `file`'s key span, stopping
+// at `desired_width` keys. Runs shorter than two keys are not worth replacing
+// and are skipped. Returns the run as a half-open [begin, limit) key range, or
+// `nullopt` if the file has no such run.
+std::optional<std::pair<int64_t, int64_t>> FindOverwriteableRunInFile(
+    const SstFileMetaData& file, SharedState* shared, uint64_t max_key,
+    uint64_t desired_width) {
+  uint64_t smallest_key = 0;
+  uint64_t largest_key = 0;
+  if (!GetIntVal(file.smallestkey, &smallest_key) ||
+      !GetIntVal(file.largestkey, &largest_key) || smallest_key >= max_key) {
+    return std::nullopt;
+  }
+
+  const uint64_t search_limit = std::min(largest_key, max_key);
+  uint64_t run_begin = 0;
+  uint64_t run_size = 0;
+  for (uint64_t key = smallest_key + 1; key < search_limit; ++key) {
+    if (!shared->AllowsOverwrite(static_cast<int64_t>(key))) {
+      if (run_size >= 2) {
+        return std::make_pair(static_cast<int64_t>(run_begin),
+                              static_cast<int64_t>(key));
+      }
+      run_size = 0;
+      continue;
+    }
+    if (run_size == 0) {
+      run_begin = key;
+    }
+    ++run_size;
+    if (run_size == desired_width) {
+      return std::make_pair(static_cast<int64_t>(run_begin),
+                            static_cast<int64_t>(key + 1));
+    }
+  }
+  if (run_size >= 2) {
+    return std::make_pair(static_cast<int64_t>(run_begin),
+                          static_cast<int64_t>(run_begin + run_size));
+  }
+  return std::nullopt;
+}
+
+std::optional<std::pair<int64_t, int64_t>> PickAtomicReplaceRange(
+    ThreadState* thread, DB* db, ColumnFamilyHandle* column_family,
+    SharedState* shared) {
+  ColumnFamilyMetaData metadata;
+  db->GetColumnFamilyMetaData(column_family, &metadata);
+
+  std::vector<std::pair<int64_t, int64_t>> candidates;
+  const uint64_t max_key = static_cast<uint64_t>(shared->GetMaxKey());
+  const uint64_t desired_width =
+      static_cast<uint64_t>(FLAGS_ingest_external_file_width);
+  for (const auto& level : metadata.levels) {
+    for (const auto& file : level.files) {
+      std::optional<std::pair<int64_t, int64_t>> candidate =
+          FindOverwriteableRunInFile(file, shared, max_key, desired_width);
+      if (candidate.has_value()) {
+        candidates.push_back(*candidate);
+      }
+    }
+  }
+
+  if (candidates.empty()) {
+    return std::nullopt;
+  }
+  return candidates[thread->rand.Uniform(static_cast<int>(candidates.size()))];
+}
+
+bool IsRetryableAtomicReplaceError(const Status& status) {
+  return status.IsTryAgain() ||
+         (status.IsInvalidArgument() &&
+          status.ToString().find(
+              "Atomic replace range overlaps with pending compaction") !=
+              std::string::npos);
+}
+
+}  // namespace
+
 class NonBatchedOpsStressTest : public StressTest {
  public:
   NonBatchedOpsStressTest(int db_index, const std::string& db_path,
@@ -2373,6 +2457,9 @@ class NonBatchedOpsStressTest : public StressTest {
     // deletion file's compaction input optimization.
     bool test_standalone_range_deletion = thread->rand.OneInOpt(
         FLAGS_test_ingest_standalone_range_deletion_one_in);
+    bool test_atomic_replace_range =
+        !test_standalone_range_deletion &&
+        thread->rand.OneInOpt(FLAGS_ingest_external_file_atomic_replace_one_in);
     // When true, reuse the writer's metadata via IngestExternalFileArg's
     // file_infos so ingestion skips re-opening and scanning the file. Not
     // combined with the standalone range deletion mode (a range-del-only file).
@@ -2383,8 +2470,21 @@ class NonBatchedOpsStressTest : public StressTest {
     Status s;
     std::ostringstream ingest_options_oss;
 
-    int64_t key_base = rand_keys[0];
+    SharedState* shared = thread->shared;
     int column_family = rand_column_families[0];
+    int64_t key_base = rand_keys[0];
+    int64_t key_limit = std::min(shared->GetMaxKey(),
+                                 key_base + FLAGS_ingest_external_file_width);
+    if (test_atomic_replace_range) {
+      auto range = PickAtomicReplaceRange(
+          thread, db_, column_families_[column_family], shared);
+      if (range.has_value()) {
+        key_base = range->first;
+        key_limit = range->second;
+      } else {
+        test_atomic_replace_range = false;
+      }
+    }
     std::vector<std::unique_ptr<MutexLock>> range_locks;
     range_locks.reserve(FLAGS_ingest_external_file_width);
     std::vector<int64_t> keys;
@@ -2393,21 +2493,17 @@ class NonBatchedOpsStressTest : public StressTest {
     values.reserve(FLAGS_ingest_external_file_width);
     std::vector<PendingExpectedValue> pending_expected_values;
     pending_expected_values.reserve(FLAGS_ingest_external_file_width);
-    SharedState* shared = thread->shared;
 
     // Grab locks, add keys
     assert(FLAGS_nooverwritepercent < 100);
-    for (int64_t key = key_base;
-         key < shared->GetMaxKey() &&
-         key < key_base + FLAGS_ingest_external_file_width;
-         ++key) {
+    for (int64_t key = key_base; key < key_limit; ++key) {
       if (key == key_base ||
           (key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
-      if (test_standalone_range_deletion) {
-        // Testing standalone range deletion needs a continuous range of keys.
+      if (test_standalone_range_deletion || test_atomic_replace_range) {
+        // Both range modes need a continuous range of overwriteable keys.
         if (shared->AllowsOverwrite(key)) {
           if (keys.empty() || (!keys.empty() && keys.back() == key - 1)) {
             keys.push_back(key);
@@ -2435,9 +2531,14 @@ class NonBatchedOpsStressTest : public StressTest {
       return;
     }
     size_t total_keys = keys.size();
+    if (test_atomic_replace_range && total_keys < 2) {
+      return;
+    }
 
+    const size_t data_key_count =
+        test_atomic_replace_range ? (total_keys + 1) / 2 : total_keys;
     const size_t data_file_count =
-        std::min<size_t>(1 + thread->rand.Uniform(3), total_keys);
+        std::min<size_t>(1 + thread->rand.Uniform(3), data_key_count);
     std::vector<std::string> external_files;
     std::vector<std::string> data_filenames;
     data_filenames.reserve(data_file_count);
@@ -2514,10 +2615,20 @@ class NonBatchedOpsStressTest : public StressTest {
       return;
     }
 
-    // set pending state on expected values, create and ingest files.
+    // Set pending state on expected values and create the files. Atomic range
+    // replacement writes alternating keys and clears the holes between them.
+    size_t data_key_index = 0;
     for (size_t i = 0; s.ok() && i < total_keys; i++) {
-      auto& sst_file_writer = sst_file_writers[i % sst_file_writers.size()];
       int64_t key = keys.at(i);
+      if (test_atomic_replace_range && i % 2 == 1) {
+        pending_expected_values.push_back(
+            shared->PrepareDelete(column_family, key));
+        continue;
+      }
+
+      auto& sst_file_writer =
+          sst_file_writers[data_key_index % sst_file_writers.size()];
+      ++data_key_index;
       char value[100];
       auto key_str = Key(key);
       const Slice k(key_str);
@@ -2565,6 +2676,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     bool dropped_without_commit = false;
+    bool retryable_atomic_replace_error = false;
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
       ingest_options.move_files = thread->rand.OneInOpt(2);
@@ -2575,39 +2687,51 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.file_opening_threads = 1 + thread->rand.Uniform(4);
       ingest_options.prefetch_lmax_index_and_filter_blocks =
           !thread->rand.OneInOpt(4);
+      if (test_atomic_replace_range) {
+        ingest_options.snapshot_consistency = false;
+        ingest_options.allow_global_seqno = true;
+      }
       const bool use_prepare_commit = thread->rand.OneInOpt(
           FLAGS_ingest_external_file_prepare_commit_one_in);
-      const bool use_separate_prepare_calls = use_prepare_commit &&
-                                              external_files.size() > 1 &&
-                                              thread->rand.OneInOpt(2);
-      ingest_options_oss << "move_files: " << ingest_options.move_files
-                         << ", verify_checksums_before_ingest: "
-                         << ingest_options.verify_checksums_before_ingest
-                         << ", verify_checksums_readahead_size: "
-                         << ingest_options.verify_checksums_readahead_size
-                         << ", fill_cache: " << ingest_options.fill_cache
-                         << ", file_opening_threads: "
-                         << ingest_options.file_opening_threads
-                         << ", prefetch_lmax_index_and_filter_blocks: "
-                         << ingest_options.prefetch_lmax_index_and_filter_blocks
-                         << ", ingest_external_file_data_file_count: "
-                         << data_file_count
-                         << ", num_external_files: " << external_files.size()
-                         << ", test_standalone_range_deletion: "
-                         << test_standalone_range_deletion
-                         << ", use_prepare_commit: " << use_prepare_commit
-                         << ", use_separate_prepare_calls: "
-                         << use_separate_prepare_calls
-                         << ", use_file_info: " << use_file_info;
+      const bool use_separate_prepare_calls =
+          use_prepare_commit && !test_atomic_replace_range &&
+          external_files.size() > 1 && thread->rand.OneInOpt(2);
+      ingest_options_oss
+          << "move_files: " << ingest_options.move_files
+          << ", verify_checksums_before_ingest: "
+          << ingest_options.verify_checksums_before_ingest
+          << ", verify_checksums_readahead_size: "
+          << ingest_options.verify_checksums_readahead_size
+          << ", fill_cache: " << ingest_options.fill_cache
+          << ", file_opening_threads: " << ingest_options.file_opening_threads
+          << ", prefetch_lmax_index_and_filter_blocks: "
+          << ingest_options.prefetch_lmax_index_and_filter_blocks
+          << ", ingest_external_file_data_file_count: " << data_file_count
+          << ", num_external_files: " << external_files.size()
+          << ", test_standalone_range_deletion: "
+          << test_standalone_range_deletion
+          << ", test_atomic_replace_range: " << test_atomic_replace_range
+          << ", use_prepare_commit: " << use_prepare_commit
+          << ", use_separate_prepare_calls: " << use_separate_prepare_calls
+          << ", use_file_info: " << use_file_info;
       IngestExternalFileArg arg;
       arg.column_family = column_families_[column_family];
       arg.external_files = external_files;
       arg.options = ingest_options;
+      std::string atomic_replace_start;
+      std::string atomic_replace_limit;
+      if (test_atomic_replace_range) {
+        atomic_replace_start = Key(keys.front());
+        atomic_replace_limit = Key(keys.back() + 1);
+        arg.atomic_replace_range = {
+            {atomic_replace_start, atomic_replace_limit}};
+      }
       if (use_file_info) {
         for (const auto& file_info : file_infos) {
           arg.file_infos.push_back(file_info.prepared_file_info.get());
         }
       }
+      bool attempted_atomic_replace = false;
       if (use_prepare_commit) {
         std::vector<std::unique_ptr<FileIngestionHandle>> handles;
         handles.reserve(use_separate_prepare_calls ? external_files.size() : 1);
@@ -2626,6 +2750,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
         } else {
           std::unique_ptr<FileIngestionHandle> handle;
+          attempted_atomic_replace = test_atomic_replace_range;
           s = db_->PrepareFileIngestion({arg}, &handle);
           if (s.ok()) {
             handles.push_back(std::move(handle));
@@ -2651,7 +2776,13 @@ class NonBatchedOpsStressTest : public StressTest {
           }
         }
       } else {
+        attempted_atomic_replace = test_atomic_replace_range;
         s = db_->IngestExternalFiles({arg});
+      }
+      if (attempted_atomic_replace && !s.ok() &&
+          IsRetryableAtomicReplaceError(s)) {
+        dropped_without_commit = true;
+        retryable_atomic_replace_error = true;
       }
     }
     if (!s.ok() || dropped_without_commit) {
@@ -2660,7 +2791,8 @@ class NonBatchedOpsStressTest : public StressTest {
         pending_expected_value.Rollback();
       }
 
-      if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
+      if (!s.ok() && !retryable_atomic_replace_error &&
+          !IsErrorInjectedAndRetryable(s)) {
         fprintf(stderr,
                 "file ingestion error: %s under specified "
                 "IngestExternalFileOptions: %s (Empty string or "

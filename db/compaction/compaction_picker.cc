@@ -319,21 +319,22 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
 }
 
 bool CompactionPicker::RangeOverlapWithCompaction(
-    const Slice& smallest_user_key, const Slice& largest_user_key,
-    int level) const {
+    const Slice& smallest_user_key, const Slice& largest_user_key, int level,
+    bool range_limit_exclusive) const {
   const Comparator* ucmp = icmp_->user_comparator();
   for (Compaction* c : compactions_in_progress_) {
+    const int largest_cmp = ucmp->CompareWithoutTimestamp(
+        largest_user_key, c->GetSmallestUserKey());
     if (c->output_level() == level &&
         ucmp->CompareWithoutTimestamp(smallest_user_key,
                                       c->GetLargestUserKey()) <= 0 &&
-        ucmp->CompareWithoutTimestamp(largest_user_key,
-                                      c->GetSmallestUserKey()) >= 0) {
+        (range_limit_exclusive ? largest_cmp > 0 : largest_cmp >= 0)) {
       // Overlap
       return true;
     }
     if (c->SupportsPerKeyPlacement()) {
-      if (c->OverlapProximalLevelOutputRange(smallest_user_key,
-                                             largest_user_key)) {
+      if (c->OverlapProximalLevelOutputRange(
+              smallest_user_key, largest_user_key, range_limit_exclusive)) {
         return true;
       }
     }
@@ -364,7 +365,8 @@ bool CompactionPicker::FilesRangeOverlapWithCompaction(
   if (proximal_level != Compaction::kInvalidLevel) {
     if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       if (RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
-                                     proximal_level)) {
+                                     proximal_level,
+                                     /*range_limit_exclusive=*/false)) {
         return true;
       }
     } else {
@@ -372,14 +374,16 @@ bool CompactionPicker::FilesRangeOverlapWithCompaction(
       GetRange(inputs, &proximal_smallest, &proximal_largest, level);
       if (RangeOverlapWithCompaction(proximal_smallest.user_key(),
                                      proximal_largest.user_key(),
-                                     proximal_level)) {
+                                     proximal_level,
+                                     /*range_limit_exclusive=*/false)) {
         return true;
       }
     }
   }
 
   return RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
-                                    level);
+                                    level,
+                                    /*range_limit_exclusive=*/false);
 }
 
 // Returns true if any one of specified files are being compacted

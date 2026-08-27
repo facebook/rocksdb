@@ -1339,7 +1339,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     s = cfd->RangesOverlapWithMemtables(
         {range}, super_version, immutable_db_options_.allow_data_in_errors,
-        &flush_needed);
+        &flush_needed, /*range_limit_exclusive=*/false);
     CleanupSuperVersion(super_version);
   }
 
@@ -2224,8 +2224,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
               "Levels between source and target are not empty for a move.");
         }
         if (cfd->RangeOverlapWithCompaction(refit_level_smallest.user_key(),
-                                            refit_level_largest.user_key(),
-                                            l)) {
+                                            refit_level_largest.user_key(), l,
+                                            /*range_limit_exclusive=*/false)) {
           refitting_level_ = false;
           return Status::NotSupported(
               "Levels between source and target "
@@ -2248,8 +2248,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
               "Levels between source and target are not empty for a move.");
         }
         if (cfd->RangeOverlapWithCompaction(refit_level_smallest.user_key(),
-                                            refit_level_largest.user_key(),
-                                            l)) {
+                                            refit_level_largest.user_key(), l,
+                                            /*range_limit_exclusive=*/false)) {
           refitting_level_ = false;
           return Status::NotSupported(
               "Levels between source and target "

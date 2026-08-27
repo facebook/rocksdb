@@ -154,8 +154,8 @@ class CompactionPicker {
   // Return true if the passed key range overlap with a compaction output
   // that is currently running.
   bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
-                                  const Slice& largest_user_key,
-                                  int level) const;
+                                  const Slice& largest_user_key, int level,
+                                  bool range_limit_exclusive) const;
 
   // Stores the minimal range that covers all entries in inputs in
   // *smallest, *largest.

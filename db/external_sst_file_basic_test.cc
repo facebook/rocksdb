@@ -2307,6 +2307,86 @@ TEST_F(ExternalSSTFileBasicTest,
 }
 
 TEST_F(ExternalSSTFileBasicTest,
+       AtomicReplaceRangeGeneratesTombstoneForPartialOverlap) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::vector<std::string> old_files;
+  for (const auto& file_contents :
+       std::vector<std::vector<std::pair<std::string, std::string>>>{
+           {{"a", "old-a"}, {"c", "old-c"}},
+           {{"d", "old-d"}},
+           {{"e", "old-e"}, {"f", "old-f"}, {"h", "old-h"}}}) {
+    std::string file_path =
+        sst_files_dir_ + "old-" + std::to_string(old_files.size()) + ".sst";
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    for (const auto& [key, value] : file_contents) {
+      ASSERT_OK(sst_file_writer.Put(key, value));
+    }
+    ASSERT_OK(sst_file_writer.Finish());
+    old_files.push_back(std::move(file_path));
+  }
+  ASSERT_OK(db_->IngestExternalFile(old_files, IngestExternalFileOptions()));
+  ASSERT_EQ("0,0,0,0,0,0,3", FilesPerLevel());
+
+  const std::string replacement_file = sst_files_dir_ + "replacement.sst";
+  ASSERT_OK(sst_file_writer.Open(replacement_file));
+  ASSERT_OK(sst_file_writer.Put("b", "new-b"));
+  ASSERT_OK(sst_file_writer.Put("e", "new-e"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {replacement_file};
+  arg.options.snapshot_consistency = false;
+  arg.atomic_replace_range = {{"b", "f"}};
+
+  arg.options.allow_global_seqno = false;
+  Status status = db_->IngestExternalFiles({arg});
+  ASSERT_TRUE(status.IsInvalidArgument()) << status.ToString();
+
+  arg.options.allow_global_seqno = true;
+  arg.options.fail_if_not_bottommost_level = true;
+  status = db_->IngestExternalFiles({arg});
+  ASSERT_TRUE(status.IsTryAgain()) << status.ToString();
+
+  arg.options.fail_if_not_bottommost_level = false;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  const SequenceNumber seqno_before_ingestion = db_->GetLatestSequenceNumber();
+  ASSERT_OK(db_->IngestExternalFiles({arg}));
+  ASSERT_EQ(seqno_before_ingestion + 2, db_->GetLatestSequenceNumber());
+
+  ASSERT_EQ("old-a", Get("a"));
+  ASSERT_EQ("new-b", Get("b"));
+  ASSERT_EQ("NOT_FOUND", Get("c"));
+  ASSERT_EQ("NOT_FOUND", Get("d"));
+  ASSERT_EQ("new-e", Get("e"));
+  ASSERT_EQ("old-f", Get("f"));
+  ASSERT_EQ("old-h", Get("h"));
+  ASSERT_EQ("0,0,0,0,1,1,2", FilesPerLevel());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,0,0,0,1,1,2", FilesPerLevel());
+
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+  std::string value;
+  ASSERT_OK(db_->Get(snapshot_read_options, "c", &value));
+  ASSERT_EQ("old-c", value);
+  ASSERT_OK(db_->Get(snapshot_read_options, "e", &value));
+  ASSERT_EQ("old-e", value);
+
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,0,0,0,1,0,1", FilesPerLevel());
+  ASSERT_EQ("NOT_FOUND", Get("c"));
+  ASSERT_EQ("new-e", Get("e"));
+  ASSERT_EQ("old-f", Get("f"));
+}
+
+TEST_F(ExternalSSTFileBasicTest,
        PartiallyReplaceDataWithMultipleStandaloneRangeDeletions) {
   Options options = CurrentOptions();
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
@@ -2963,14 +3043,9 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
-        // FIXME: upper bound should be exclusive (DeleteRange semantics).
-        // currently rejected because of documented bug
+        // The upper bound is exclusive, so the memtable key "e" does not
+        // overlap the replacement range.
         arg.atomic_replace_range = {{"a", "e"}};
-        s = db_->IngestExternalFiles({arg});
-        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
-
-        // work-around ensuring no memtable overlap
-        arg.atomic_replace_range = {{"a", "d2"}};
         ASSERT_OK(db_->IngestExternalFiles({arg}));
 
         ASSERT_EQ(Get(1, "e"), "5");

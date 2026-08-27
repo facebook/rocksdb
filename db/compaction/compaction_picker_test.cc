@@ -4165,6 +4165,18 @@ TEST_F(CompactionPickerU64TsTest, Overlap) {
           mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
 
   {
+    std::string range_start("400");
+    PutFixed64(&range_start, ts_of_smallest);
+    std::string range_limit(smallest);
+    PutFixed64(&range_limit, ts_of_smallest);
+    ASSERT_FALSE(level_compaction_picker.RangeOverlapWithCompaction(
+        range_start, range_limit, level, /*range_limit_exclusive=*/true));
+    ASSERT_TRUE(level_compaction_picker.RangeOverlapWithCompaction(
+        range_start, range_limit, level,
+        /*range_limit_exclusive=*/false));
+  }
+
+  {
     // [600, ts=50000] to [600, ts=50000] is the range to check.
     // ucmp->Compare(smallest_user_key, c->GetLargestUserKey()) > 0, but
     // ucmp->CompareWithoutTimestamp(smallest_user_key,
@@ -4175,7 +4187,8 @@ TEST_F(CompactionPickerU64TsTest, Overlap) {
     std::string user_key_with_ts2(largest);
     PutFixed64(&user_key_with_ts2, ts_of_largest - 1);
     ASSERT_TRUE(level_compaction_picker.RangeOverlapWithCompaction(
-        user_key_with_ts1, user_key_with_ts2, level));
+        user_key_with_ts1, user_key_with_ts2, level,
+        /*range_limit_exclusive=*/false));
   }
   {
     // [500, ts=60000] to [500, ts=60000] is the range to check.
@@ -4188,7 +4201,8 @@ TEST_F(CompactionPickerU64TsTest, Overlap) {
     std::string user_key_with_ts2(smallest);
     PutFixed64(&user_key_with_ts2, ts_of_smallest + 1);
     ASSERT_TRUE(level_compaction_picker.RangeOverlapWithCompaction(
-        user_key_with_ts1, user_key_with_ts2, level));
+        user_key_with_ts1, user_key_with_ts2, level,
+        /*range_limit_exclusive=*/false));
   }
 }
 

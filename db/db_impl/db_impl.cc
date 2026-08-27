@@ -6568,12 +6568,23 @@ Status DBImpl::PrepareFileIngestion(
     }
   }
 
+  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
+  ingestion_jobs.reserve(num_cfs);
+  for (const auto& arg : args) {
+    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
+    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
+                                mutable_db_options_, file_options_, &snapshots_,
+                                arg.options, &directories_, &event_logger_,
+                                io_tracer_);
+  }
+
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
-  for (const auto& arg : args) {
-    total += arg.external_files.size();
+  for (size_t i = 0; i != num_cfs; ++i) {
+    total += ingestion_jobs[i].NumFilesToPrepare(args[i].external_files.size(),
+                                                 args[i].atomic_replace_range);
   }
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
@@ -6585,20 +6596,11 @@ Status DBImpl::PrepareFileIngestion(
     return status;
   }
 
-  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
-  ingestion_jobs.reserve(num_cfs);
-  for (const auto& arg : args) {
-    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                mutable_db_options_, file_options_, &snapshots_,
-                                arg.options, &directories_, &event_logger_,
-                                io_tracer_);
-  }
-
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    start_file_number += args[i - 1].external_files.size();
+    start_file_number += ingestion_jobs[i - 1].NumFilesToPrepare(
+        args[i - 1].external_files.size(), args[i - 1].atomic_replace_range);
     SuperVersion* super_version =
         ingestion_jobs[i].GetColumnFamilyData()->GetReferencedSuperVersion(
             this);

@@ -262,6 +262,68 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(2, finalized["min_tombstones_for_range_conversion"])
         self.assertEqual(0, finalized["use_sqfc_for_range_queries"])
 
+    def test_finalize_enables_atomic_replace_ingestion_for_universal(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "acquire_snapshot_one_in": 100,
+                "compaction_style": 1,
+                "disable_wal": 0,
+                "enable_blob_direct_write": 0,
+                "ingest_external_file_atomic_replace_one_in": 1,
+                "ingest_external_file_one_in": 1,
+                "manual_wal_flush_one_in": 0,
+                "sync_fault_injection": 0,
+                "test_batches_snapshots": 0,
+                "user_timestamp_size": 0,
+                "use_multiscan": 0,
+            },
+        )
+
+        command, finalized = db_crashtest.gen_cmd(params, [])
+
+        self.assertEqual(1, finalized["ingest_external_file_atomic_replace_one_in"])
+        self.assertEqual(0, finalized["acquire_snapshot_one_in"])
+        self.assertIn("--ingest_external_file_atomic_replace_one_in=1", command)
+
+    def test_finalize_disables_atomic_replace_ingestion_when_incompatible(self):
+        db_crashtest = self.load_db_crashtest()
+        for overrides in (
+            {"compaction_style": 0, "ingest_external_file_one_in": 1},
+            {"compaction_style": 1, "ingest_external_file_one_in": 0},
+            {
+                "compaction_style": 1,
+                "ingest_external_file_one_in": 1,
+                "ingest_external_file_width": 1,
+            },
+            {
+                "compaction_style": 1,
+                "ingest_external_file_one_in": 1,
+                "persist_user_defined_timestamps": 1,
+                "user_timestamp_size": 8,
+            },
+            {
+                "compaction_style": 1,
+                "ingest_external_file_one_in": 1,
+                "use_multiscan": 1,
+            },
+        ):
+            with self.subTest(overrides=overrides):
+                params = self.build_params(
+                    db_crashtest.default_params,
+                    {
+                        "ingest_external_file_atomic_replace_one_in": 1,
+                        **overrides,
+                    },
+                )
+
+                finalized = db_crashtest.finalize_and_sanitize(params)
+
+                self.assertEqual(
+                    0, finalized["ingest_external_file_atomic_replace_one_in"]
+                )
+
     def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"

@@ -347,7 +347,8 @@ class RangeDelAggregator {
 
     // If user-defined timestamp is enabled, `start` and `end` are user keys
     // with timestamp.
-    bool IsRangeOverlapped(const Slice& start, const Slice& end);
+    bool IsRangeOverlapped(const Slice& start, const Slice& end,
+                           bool end_exclusive);
 
    private:
     bool InStripe(SequenceNumber seq) const {
@@ -394,7 +395,8 @@ class ReadRangeDelAggregator final : public RangeDelAggregator {
     return ShouldDeleteImpl(parsed, mode);
   }
 
-  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+  bool IsRangeOverlapped(const Slice& start, const Slice& end,
+                         bool end_exclusive);
 
   void InvalidateRangeDelMapPositions() override { rep_.Invalidate(); }
 
