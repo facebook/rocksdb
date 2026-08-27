@@ -4428,8 +4428,14 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
   // two sites.
   const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
   const bool full_history_ts_low_set = !full_history_ts_low.empty();
-  // Max seqno a bottommost compaction could zero given the preserve window;
-  // mirrors CompactionJob's preserve_seqno_after_ computation.
+  // Max seqno a bottommost compaction could zero given the preserve window.
+  // CompactionJob computes preserve_seqno_after_ the same way but then further
+  // caps it with min(., earliest_snapshot_). We intentionally omit that cap
+  // here: the snapshot-visibility gate above (largest_seqno <
+  // oldest_snapshot_seqnum_) already guarantees a marked file's largest seqno
+  // is below the earliest snapshot, so the cap can never make compaction unable
+  // to zero a file we marked. Omitting it can at most leave unmarked a file a
+  // compaction could still zero -- a missed optimization, not a loop.
   const SequenceNumber preserve_seqno_after =
       std::max(preserve_time_min_seqno_, SequenceNumber{1}) - 1;
 

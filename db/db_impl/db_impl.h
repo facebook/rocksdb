@@ -1459,7 +1459,12 @@ class DBImpl : public DB
   // zeroed yet (which would loop). No-op for column families without
   // preserve/preclude enabled. Returns true if the stored value changed, so
   // callers can recompute bottommost marking when the boundary moves.
-  // REQUIRES: DB mutex held
+  // Note: right after opening an existing DB, seqno_to_time_mapping_ may not be
+  // fully reconstructed, so this bound can be imprecise until the first
+  // periodic RecordSeqnoToTimeMapping. That is safe: CompactionJob folds this
+  // same bound into kBottommostFiles compactions, so any marked file still
+  // makes progress (never loops), and the periodic task self-corrects the
+  // bound. REQUIRES: DB mutex held
   bool MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd);
 
   // Only called during open
