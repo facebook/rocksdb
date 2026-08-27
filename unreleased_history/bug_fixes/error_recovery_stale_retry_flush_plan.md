@@ -1,1 +1,0 @@
-Fixed a race in online error recovery where a concurrent higher-severity I/O error could leave a stale retry-flush plan active, prevent the required WAL switch, and create duplicate internal WAL history detected on DB reopen.
