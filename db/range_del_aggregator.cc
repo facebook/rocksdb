@@ -296,17 +296,19 @@ bool RangeDelAggregator::StripeRep::ShouldDelete(
 }
 
 bool RangeDelAggregator::StripeRep::IsRangeOverlapped(const Slice& start,
-                                                      const Slice& end) {
+                                                      const Slice& end,
+                                                      bool end_exclusive) {
   Invalidate();
 
   // Set the internal start/end keys so that:
   // - if start_ikey has the same user key and sequence number as the
   // current end key, start_ikey will be considered greater; and
-  // - if end_ikey has the same user key and sequence number as the current
-  // start key, end_ikey will be considered greater.
+  // - an exclusive end_ikey is considered less than a tombstone starting at
+  // the same user key, while an inclusive end_ikey is considered greater.
   ParsedInternalKey start_ikey(start, kMaxSequenceNumber,
                                static_cast<ValueType>(0));
-  ParsedInternalKey end_ikey(end, 0, static_cast<ValueType>(0));
+  ParsedInternalKey end_ikey(end, end_exclusive ? kMaxSequenceNumber : 0,
+                             static_cast<ValueType>(0));
   for (auto& iter : iters_) {
     bool checked_candidate_tombstones = false;
     for (iter->SeekForPrev(start);
@@ -349,9 +351,10 @@ bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
 }
 
 bool ReadRangeDelAggregator::IsRangeOverlapped(const Slice& start,
-                                               const Slice& end) {
+                                               const Slice& end,
+                                               bool end_exclusive) {
   InvalidateRangeDelMapPositions();
-  return rep_.IsRangeOverlapped(start, end);
+  return rep_.IsRangeOverlapped(start, end, end_exclusive);
 }
 
 void CompactionRangeDelAggregator::AddTombstones(

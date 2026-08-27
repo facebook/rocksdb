@@ -491,7 +491,8 @@ int Compaction::GetProximalLevel() const { return proximal_level_; }
 // smallest_key and largest_key include timestamps if user-defined timestamp is
 // enabled.
 bool Compaction::OverlapProximalLevelOutputRange(
-    const Slice& smallest_key, const Slice& largest_key) const {
+    const Slice& smallest_key, const Slice& largest_key,
+    bool range_limit_exclusive) const {
   if (!SupportsPerKeyPlacement()) {
     return false;
   }
@@ -506,10 +507,11 @@ bool Compaction::OverlapProximalLevelOutputRange(
   const Comparator* ucmp =
       input_vstorage_->InternalComparator()->user_comparator();
 
+  const int largest_cmp = ucmp->CompareWithoutTimestamp(
+      largest_key, proximal_level_smallest_.user_key());
   return ucmp->CompareWithoutTimestamp(
              smallest_key, proximal_level_largest_.user_key()) <= 0 &&
-         ucmp->CompareWithoutTimestamp(
-             largest_key, proximal_level_smallest_.user_key()) >= 0;
+         (range_limit_exclusive ? largest_cmp > 0 : largest_cmp >= 0);
 }
 
 // key includes timestamp if user-defined timestamp is enabled.

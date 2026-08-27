@@ -290,6 +290,7 @@ default_params = {
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
     "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
+    "ingest_external_file_atomic_replace_one_in": lambda: random.choice([0, 5, 10]),
     "ingest_external_file_with_embedded_blobs": lambda: random.choice([0, 1]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
@@ -1662,6 +1663,19 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+    if (
+        dest_params.get("ingest_external_file_one_in") == 0
+        or (
+            dest_params.get("ingest_external_file_width") is not None
+            and dest_params["ingest_external_file_width"] < 2
+        )
+        or dest_params.get("compaction_style", 0) != 1
+        or dest_params.get("user_timestamp_size", 0) > 0
+        or dest_params.get("use_multiscan") == 1
+    ):
+        dest_params["ingest_external_file_atomic_replace_one_in"] = 0
+    elif dest_params.get("ingest_external_file_atomic_replace_one_in", 0) > 0:
+        dest_params["acquire_snapshot_one_in"] = 0
     # Embedded blobs in ingested files require ingestion to be enabled and
     # block-based table format_version >= 7.
     if (
@@ -1712,6 +1726,7 @@ def finalize_and_sanitize(src_params):
         # existing key range, which will cause a reseek that's currently not
         # supported by multiscan
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        dest_params["ingest_external_file_atomic_replace_one_in"] = 0
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0

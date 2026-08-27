@@ -433,6 +433,47 @@ TEST_F(ExternalSSTFileTest, PrepareThenCommit) {
   ASSERT_EQ("v3", Get("k3"));
 }
 
+TEST_F(ExternalSSTFileTest,
+       AtomicReplaceRangeRetriesIfPartialOverlapAppearsAfterPrepare) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(
+      GenerateAndAddExternalFile(options, {{"c", "old-c"}, {"d", "old-d"}}));
+
+  std::string replacement_file;
+  ASSERT_OK(GenerateExternalFileOnly(options, {{"c", "new-c"}, {"d", "new-d"}},
+                                     &replacement_file));
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {replacement_file};
+  arg.options.allow_global_seqno = true;
+  arg.options.snapshot_consistency = false;
+  arg.atomic_replace_range = {{"b", "e"}};
+
+  std::unique_ptr<FileIngestionHandle> handle;
+  ASSERT_OK(db_->PrepareFileIngestion({arg}, &handle));
+
+  ASSERT_OK(
+      GenerateAndAddExternalFile(options, {{"a", "old-a"}, {"b", "old-b"}}));
+
+  Status status = db_->CommitFileIngestionHandle(std::move(handle));
+  ASSERT_TRUE(status.IsTryAgain()) << status.ToString();
+  ASSERT_EQ("old-a", Get("a"));
+  ASSERT_EQ("old-b", Get("b"));
+  ASSERT_EQ("old-c", Get("c"));
+  ASSERT_EQ("old-d", Get("d"));
+
+  ASSERT_OK(db_->IngestExternalFiles({arg}));
+  ASSERT_EQ("old-a", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+  ASSERT_EQ("new-c", Get("c"));
+  ASSERT_EQ("new-d", Get("d"));
+}
+
 TEST_F(ExternalSSTFileTest, ParallelFileOpenWithFileOpeningThreads) {
   // Ingest many non-overlapping files with file_opening_threads > 1 so commit
   // opens table readers with multiple threads. max_open_files == -1 makes

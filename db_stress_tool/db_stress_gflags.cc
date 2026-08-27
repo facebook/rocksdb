@@ -925,6 +925,13 @@ DEFINE_int32(ingest_external_file_use_file_info_one_in, 0,
              "SstFileWriter::Finish) once every N ingestions on average, so "
              "ingestion skips re-opening and scanning the files.");
 
+DEFINE_int32(
+    ingest_external_file_atomic_replace_one_in, 0,
+    "If non-zero, file ingestion atomically replaces a range strictly inside "
+    "an existing SST once every N ingestion operations on average. Requires "
+    "universal compaction, ingest_external_file_width >= 2, no user-defined "
+    "timestamps, and no acquired snapshots.");
+
 DEFINE_bool(
     ingest_external_file_with_embedded_blobs, false,
     "If true, external files for ingestion are written with embedded "

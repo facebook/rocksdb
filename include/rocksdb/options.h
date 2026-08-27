@@ -3146,16 +3146,17 @@ struct IngestExternalFileArg {
   //   to this range (not just the file ranges).
   // * Not compatible with ingest_behind=true.
   // * When options.snapshot_consistency = false, the range is cleared
-  // similarly to DeleteFilesInRange, but fails if any files overlap the range
-  // only partially.
-  //   * It is recommended to use fail_if_not_bottommost_level=true to ensure
-  //     data in the key range is ingested to a single compacted level (the
-  //     last level). (fail_if_not_bottommost_level=false allows overlap between
-  //     the ingested files.)
+  // similarly to DeleteFilesInRange. With universal compaction and a table
+  // factory that supports range deletion, a partial overlap is handled by
+  // retaining the overlapping file and adding a range tombstone below the
+  // ingested data. This requires allow_global_seqno=true,
+  // allow_db_generated_files=false, and no user-defined timestamps. Other
+  // configurations fail on partial overlap.
+  //   * fail_if_not_bottommost_level=true rejects partial overlap because the
+  //     retained file requires the tombstone and replacement files to be
+  //     placed on higher levels.
   // * options.snapshot_consistency = true is not yet supported.
-  // BUG: the upper bound of the range may be interpreted as inclusive or
-  // exclusive, so it is best not to depend on one or the other until it is
-  // sorted out.
+  // * The range is half-open: start is inclusive and limit is exclusive.
   std::optional<RangeOpt> atomic_replace_range;
 
   // Optimizes for prepare performance, see `PreparedFileInfo` for details.

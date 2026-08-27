@@ -164,7 +164,8 @@ void VerifyIsRangeOverlapped(
     const std::vector<IsRangeOverlappedTestCase>& test_cases) {
   for (const auto& test_case : test_cases) {
     EXPECT_EQ(test_case.result,
-              range_del_agg->IsRangeOverlapped(test_case.start, test_case.end));
+              range_del_agg->IsRangeOverlapped(test_case.start, test_case.end,
+                                               /*end_exclusive=*/false));
   }
 }
 
@@ -386,6 +387,7 @@ TEST_F(RangeDelAggregatorTest, SingleIterInAggregator) {
                                            {"a", "c", true},
                                            {"d", "f", true},
                                            {"g", "l", false}});
+  EXPECT_FALSE(range_del_agg.IsRangeOverlapped("_", "a", true));
 }
 
 TEST_F(RangeDelAggregatorTest, MultipleItersInAggregator) {

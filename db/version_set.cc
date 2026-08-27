@@ -2662,7 +2662,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
   }
 
   if (status.ok() && *overlap == false &&
-      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key)) {
+      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key,
+                                      /*end_exclusive=*/false)) {
     *overlap = true;
   }
   return status;
