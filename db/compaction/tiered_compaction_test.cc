@@ -1339,9 +1339,13 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
 // This test was essentially for a hacked-up version on future functionality.
 // It can be resurrected if/when a form of range-based tiering is properly
 // implemented.
-// FIXME: aside from that, this test reproduces a near-endless compaction
-// cycle that needs to be reproduced independently and fixed before
-// leveled compaction can be used with the preclude feature in production.
+// The near-endless compaction cycle this used to reproduce (a bottommost file
+// whose seqno could not be zeroed within the preserve window being re-marked
+// forever) is now prevented by sharing the seqno-zeroability decision between
+// the compaction output path and bottommost-file marking (see
+// BottommostSeqnoCanBeZeroed and CompactionPickerTest.BottommostFile*
+// PreserveWindow). This test remains disabled only because range-based tiering
+// is not implemented.
 TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
@@ -1557,6 +1561,188 @@ class PrecludeLastLevelTest : public PrecludeLastLevelTestBase,
                           db_config_change);
   }
 };
+
+// Regression test for an infinite kBottommostFiles compaction loop on a
+// leveled column family that has the seqno->time preserve feature enabled. A
+// bottommost file whose largest sequence number is still within the preserve
+// window cannot have its seqno zeroed by compaction, so it must not be marked
+// for bottommost compaction; otherwise each rewrite makes no progress and the
+// file is re-marked forever. This exercises the DBImpl plumbing that feeds
+// VersionStorageInfo::preserve_time_min_seqno_ (DBImpl::
+// MaybeUpdatePreserveTimeMinSeqno) end to end, complementing the isolated
+// marking-predicate coverage in compaction_picker_test.cc.
+class PrecludeBottommostLoopTest : public PrecludeLastLevelTestBase {};
+
+TEST_F(PrecludeBottommostLoopTest, LeveledPreserveTimeNoBottommostLoop) {
+  const int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.preserve_internal_time_seconds = 10000;
+  options.env = mock_env_.get();
+  options.num_levels = kNumLevels;
+  // Prevent the extra L0 file below from auto-triggering an L0 compaction.
+  options.level0_file_num_compaction_trigger = 4;
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+
+  // Populate the seqno->time mapping with recent samples so the preserve window
+  // maps the file's (recent) largest seqno as non-zeroable. Total elapsed mock
+  // time stays far below preserve_internal_time_seconds, so nothing ages out.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("infinite", "v" + std::to_string(i)));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(10); });
+  }
+  ASSERT_OK(Flush());
+  // Push the file with the hot key down to the bottommost level.
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+
+  // Confirm the bottommost file's largest seqno was not zeroed (it is within
+  // the preserve window), so it is a genuine marking candidate that only the
+  // preserve-window guard should protect -- this keeps the test from passing
+  // vacuously.
+  {
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    bool found_bottommost = false;
+    for (const auto& f : files) {
+      if (f.level == kNumLevels - 1) {
+        ASSERT_GT(f.largest_seqno, 0U);
+        found_bottommost = true;
+      }
+    }
+    ASSERT_TRUE(found_bottommost);
+  }
+
+  // Bump the sequence number above the bottommost file so that releasing a
+  // snapshot advances oldest_snapshot_seqnum_ past the file's largest seqno,
+  // which makes the file a candidate for bottommost marking (the snapshot gate
+  // passes). Only the preserve-window guard should keep it from being marked.
+  ASSERT_OK(Put("bumpseqnum", ""));
+  ASSERT_OK(Flush());
+
+  std::atomic<int> bottommost_compactions{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        auto* c = static_cast<Compaction*>(arg);
+        if (c != nullptr &&
+            c->compaction_reason() == CompactionReason::kBottommostFiles) {
+          bottommost_compactions.fetch_add(1);
+        }
+      });
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  db_->ReleaseSnapshot(snapshot);
+
+  // The bottommost file's largest seqno is within the preserve window, so it is
+  // not marked and the DB quiesces. Before the fix the file was marked and the
+  // rewrite re-qualified it forever (this wait would hang).
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(0, bottommost_compactions.load());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  // Close explicitly because mock_env_ is destroyed before the DB otherwise.
+  Close();
+}
+
+// Regression test for the empty-mapping variant of the same loop: a bottommost
+// file that predates a preserve/preclude rollout has an EMPTY persisted
+// seqno->time mapping. Once the live, DB-wide mapping ages the file out of the
+// preserve window, the marker (which reads the live mapping) marks it. The
+// compaction that rewrites it must use the same version-carried preserve
+// boundary rather than the file's own empty mapping; otherwise it computes
+// preserve_seqno_after_ = 0, zeroes nothing, and re-marks the file forever.
+// With the fix the file's seqno is zeroed in one bounded compaction.
+TEST_F(PrecludeBottommostLoopTest, EmptyMappingAgedOutNoBottommostLoop) {
+  const int kNumLevels = 7;
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.env = mock_env_.get();
+  options.num_levels = kNumLevels;
+  options.level0_file_num_compaction_trigger = 4;
+  // Start with preserve/preclude disabled so the bottommost file below is
+  // written with an EMPTY persisted seqno->time mapping, mimicking a file that
+  // predates a preserve/preclude rollout.
+  options.preserve_internal_time_seconds = 0;
+  options.preclude_last_level_data_seconds = 0;
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+
+  // Hold a snapshot below the "aged" key so moving it to the bottommost level
+  // does not zero its seqno (there is no preserve window yet to protect it).
+  ASSERT_OK(Put("keeplow", "v"));
+  const Snapshot* protect = db_->GetSnapshot();
+  ASSERT_OK(Put("aged", "v"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(kNumLevels - 1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
+
+  SequenceNumber aged_seqno = 0;
+  {
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    for (const auto& f : files) {
+      if (f.level == kNumLevels - 1) {
+        aged_seqno = f.largest_seqno;
+      }
+    }
+  }
+  ASSERT_GT(aged_seqno, 0U);
+
+  // Roll out the preserve feature dynamically and let the live, DB-wide
+  // seqno->time mapping accumulate samples while mock time advances well past
+  // preserve_internal_time_seconds, so the pre-existing file's seqno ages out
+  // of the preserve window per the live mapping (even though the file's own
+  // persisted mapping is empty). The protecting snapshot keeps the file from
+  // being marked during this loop (oldest_snapshot_seqnum_ stays below it).
+  ASSERT_OK(db_->SetOptions({{"preserve_internal_time_seconds", "10000"}}));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("hot", "v" + std::to_string(i)));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(200); });
+  }
+
+  std::atomic<int> bottommost_compactions{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        auto* c = static_cast<Compaction*>(arg);
+        if (c != nullptr &&
+            c->compaction_reason() == CompactionReason::kBottommostFiles) {
+          bottommost_compactions.fetch_add(1);
+        }
+      });
+
+  // Release the protecting snapshot so oldest_snapshot_seqnum_ advances past
+  // the file's largest seqno, making it a bottommost marking candidate. The
+  // marker (using the live mapping) marks it; the compaction that rewrites it
+  // must use the same version-carried preserve boundary (not the file's empty
+  // mapping) to actually zero the seqno, otherwise it makes no progress and
+  // loops.
+  db_->ReleaseSnapshot(protect);
+
+  // With the fix the file's seqno is zeroed in a bounded number of bottommost
+  // compactions and the DB quiesces. Before the fix this wait would hang.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  {
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    for (const auto& f : files) {
+      if (f.level == kNumLevels - 1) {
+        ASSERT_EQ(0U, f.largest_seqno);
+      }
+    }
+  }
+  // The file was genuinely marked and rewritten (not vacuously skipped), and
+  // the rewrite made progress instead of looping.
+  ASSERT_GE(bottommost_compactions.load(), 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
 
 TEST_P(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   const int kNumTrigger = 4;

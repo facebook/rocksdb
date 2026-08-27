@@ -1909,8 +1909,7 @@ void CompactionIterator::PrepareOutput() {
     // KeyNotExistsBeyondOutputLevel() return true?
     if (Valid() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-        ikey_.type != kTypeMerge && current_key_committed_ &&
-        ikey_.sequence <= preserve_seqno_after_ && !is_range_del_) {
+        ikey_.type != kTypeMerge && current_key_committed_ && !is_range_del_) {
       assert(compaction_ != nullptr && !compaction_->allow_ingest_behind());
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
@@ -1932,19 +1931,29 @@ void CompactionIterator::PrepareOutput() {
       }
 
       bool zeroed_seqno = false;
-      if (!timestamp_size_) {
-        current_key_.UpdateInternalKey(0, ikey_.type);
-        zeroed_seqno = true;
-      } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {
-        // For UDT, the seqno and timestamp could only be zeroed out after the
-        // key is below history_ts_low_.
-        // For the same user key (excluding timestamp), the timestamp-based
-        // history can be collapsed to save some space if the timestamp is
-        // older than *full_history_ts_low_.
-        const std::string kTsMin(timestamp_size_, static_cast<char>(0));
-        const Slice ts_slice = kTsMin;
-        ikey_.SetTimestamp(ts_slice);
-        current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
+      // Whether the sequence number can actually be zeroed out here is decided
+      // by the shared BottommostSeqnoCanBeZeroed() predicate, which the
+      // bottommost-file marking logic
+      // (VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction) also
+      // consults. Keeping both on one predicate ensures a file is only marked
+      // for a compaction that can make progress; otherwise the file would be
+      // re-marked forever (infinite compaction loop).
+      if (BottommostSeqnoCanBeZeroed(
+              ikey_.sequence, preserve_seqno_after_, timestamp_size_,
+              full_history_ts_low_ != nullptr, cmp_with_history_ts_low_ < 0)) {
+        if (!timestamp_size_) {
+          current_key_.UpdateInternalKey(0, ikey_.type);
+        } else {
+          // For UDT, the seqno and timestamp could only be zeroed out after the
+          // key is below history_ts_low_.
+          // For the same user key (excluding timestamp), the timestamp-based
+          // history can be collapsed to save some space if the timestamp is
+          // older than *full_history_ts_low_.
+          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
+          const Slice ts_slice = kTsMin;
+          ikey_.SetTimestamp(ts_slice);
+          current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
+        }
         zeroed_seqno = true;
       }
 

@@ -1453,6 +1453,20 @@ class DBImpl : public DB
   // REQUIRES: DB mutex held or during open
   void EnsureSeqnoToTimeMapping(const MinAndMaxPreserveSeconds& preserve_secs);
 
+  // Computes the seqno->time preserve-window lower bound from
+  // seqno_to_time_mapping_ and stores it on cfd's current version, so
+  // bottommost file marking does not mark files whose largest seqno cannot be
+  // zeroed yet (which would loop). No-op for column families without
+  // preserve/preclude enabled. Returns true if the stored value changed, so
+  // callers can recompute bottommost marking when the boundary moves.
+  // Note: right after opening an existing DB, seqno_to_time_mapping_ may not be
+  // fully reconstructed, so this bound can be imprecise until the first
+  // periodic RecordSeqnoToTimeMapping. That is safe: CompactionJob folds this
+  // same bound into kBottommostFiles compactions, so any marked file still
+  // makes progress (never loops), and the periodic task self-corrects the
+  // bound. REQUIRES: DB mutex held
+  bool MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd);
+
   // Only called during open
   void PrepopulateSeqnoToTimeMapping(
       const MinAndMaxPreserveSeconds& preserve_secs);

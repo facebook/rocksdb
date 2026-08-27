@@ -2718,6 +2718,7 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_deletions_ = ref_vstorage->current_num_deletions_;
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
+    preserve_time_min_seqno_ = ref_vstorage->preserve_time_min_seqno_;
     compact_cursor_ = ref_vstorage->compact_cursor_;
     compact_cursor_.resize(num_levels_);
   }
@@ -4416,11 +4417,27 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
         current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
   }
 
-  // For UDT, we need to check if the file's max timestamp is below
-  // full_history_ts_low. If not, the compaction won't be able to collapse the
-  // timestamp to clean up the tombstone , so marking the file would be futile
-  // and could cause an infinite compaction loop.
-  const bool has_udt = ucmp && ucmp->timestamp_size() > 0;
+  // A bottommost file should only be marked for compaction when that compaction
+  // could actually zero out its largest sequence number; otherwise the rewrite
+  // makes no progress and the file is re-marked forever (infinite compaction
+  // loop). The zeroability conditions -- the seqno->time "preserve" window and
+  // the UDT history cutoff -- are shared with CompactionIterator::PrepareOutput
+  // through BottommostSeqnoCanBeZeroed() so the two decisions cannot drift.
+  // Snapshot visibility is checked separately (largest_seqno <
+  // oldest_snapshot_seqnum_) since that gate legitimately differs between the
+  // two sites.
+  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  const bool full_history_ts_low_set = !full_history_ts_low.empty();
+  // Max seqno a bottommost compaction could zero given the preserve window.
+  // CompactionJob computes preserve_seqno_after_ the same way but then further
+  // caps it with min(., earliest_snapshot_). We intentionally omit that cap
+  // here: the snapshot-visibility gate above (largest_seqno <
+  // oldest_snapshot_seqnum_) already guarantees a marked file's largest seqno
+  // is below the earliest snapshot, so the cap can never make compaction unable
+  // to zero a file we marked. Omitting it can at most leave unmarked a file a
+  // compaction could still zero -- a missed optimization, not a loop.
+  const SequenceNumber preserve_seqno_after =
+      std::max(preserve_time_min_seqno_, SequenceNumber{1}) - 1;
 
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
@@ -4428,25 +4445,27 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
       // largest_seqno might be nonzero due to containing the final key in an
       // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
-        if (has_udt) {
+        // Compute the file's timestamp collapsibility (only meaningful under
+        // UDT with full_history_ts_low set). A file whose max timestamp is
+        // below full_history_ts_low can have its timestamp history collapsed
+        // and its seqno zeroed. An unknown (empty) max timestamp means the file
+        // predates timestamp metadata (e.g. written by an older version); mark
+        // it once so a bounded compaction backfills FileMetaData::max_timestamp
+        // and reclaims obsolete versions/tombstones. When full_history_ts_low
+        // is unset, the guard below (full_history_ts_low_set == false) keeps
+        // such a file unmarked, since compaction could not collapse it and the
+        // rewrite would loop.
+        bool ts_below_full_history_ts_low = false;
+        if (ts_sz > 0 && full_history_ts_low_set) {
           const std::string& max_ts = level_and_file.second->max_timestamp;
-          // If max_timestamp is empty, the file could come from very old
-          // version which does not have timestamp. In that case, we should pick
-          // the file for compaction. After compaction, the file will have
-          // max_timestamp set propertly.
-          if (!max_ts.empty()) {
-            // If full_history_ts_low is empty, it means it was never set, which
-            // means its value is 0. Therefore, it would be always smaller than
-            // max_timestamp
-            if (full_history_ts_low.empty()) {
-              continue;
-            }
-            // If max timestamp >= full_history_ts_low, skip this file
-            if (ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) >=
-                0) {
-              continue;
-            }
-          }
+          ts_below_full_history_ts_low =
+              max_ts.empty() ||
+              ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) < 0;
+        }
+        if (!BottommostSeqnoCanBeZeroed(
+                level_and_file.second->fd.largest_seqno, preserve_seqno_after,
+                ts_sz, full_history_ts_low_set, ts_below_full_history_ts_low)) {
+          continue;
         }
 
         if (!needs_delay) {

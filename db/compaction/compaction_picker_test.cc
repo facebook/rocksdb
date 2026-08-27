@@ -5058,6 +5058,41 @@ TEST_F(CompactionPickerTest, StandaloneRangeDeletionOnlyPicksOlderFiles) {
   ASSERT_EQ(10U, compaction->input(1, 0)->fd.GetNumber());
 }
 
+// Tests for the seqno->time preserve window controlling bottommost file
+// marking. A bottommost file whose largest seqno is still within the preserve
+// window cannot have its seqno zeroed, so it must not be marked (otherwise the
+// rewrite makes no progress and the file is re-marked forever -- an infinite
+// loop).
+TEST_F(CompactionPickerTest, BottommostFileNotMarkedWithinPreserveWindow) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/90, /*largest_seq=*/100);
+  // preserve_time_min_seqno = 100 => preserve_seqno_after = 99; largest_seqno
+  // 100 is within the window (> 99) and cannot be zeroed.
+  vstorage_->SetPreserveTimeMinSeqno(100);
+  UpdateVersionStorageInfo();
+  vstorage_->UpdateOldestSnapshot(/*oldest_snapshot_seqnum=*/200,
+                                  /*allow_ingest_behind=*/false, /*ucmp=*/ucmp_,
+                                  /*full_history_ts_low=*/"");
+  ASSERT_EQ(0U, vstorage_->BottommostFilesMarkedForCompaction().size());
+}
+
+TEST_F(CompactionPickerTest, BottommostFileMarkedBelowPreserveWindow) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/90, /*largest_seq=*/100);
+  // preserve_time_min_seqno = 150 => preserve_seqno_after = 149; largest_seqno
+  // 100 <= 149 so it can be zeroed and the file is marked as usual.
+  vstorage_->SetPreserveTimeMinSeqno(150);
+  UpdateVersionStorageInfo();
+  vstorage_->UpdateOldestSnapshot(/*oldest_snapshot_seqnum=*/200,
+                                  /*allow_ingest_behind=*/false, /*ucmp=*/ucmp_,
+                                  /*full_history_ts_low=*/"");
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction().size());
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction()[0]
+                    .second->fd.GetNumber());
+}
+
 // Tests for full_history_ts_low parameter in compaction picker.
 // The full_history_ts_low parameter is used to control bottommost file marking
 // for compaction when user-defined timestamps (UDT) are enabled.
@@ -5135,6 +5170,90 @@ TEST_F(CompactionPickerU64TsTest,
   // effectively 0, which is smaller than any valid timestamp. Since the file's
   // max_timestamp would be >= full_history_ts_low, it won't be marked.
   ASSERT_EQ(0U, vstorage_->BottommostFilesMarkedForCompaction().size());
+}
+
+TEST_F(CompactionPickerU64TsTest,
+       BottommostNotMarkedWithEmptyFullHistoryTsLowAndUnknownMaxTs) {
+  // Regression test for an infinite bottommost compaction loop. A bottommost
+  // UDT file whose max_timestamp was not recorded in its FileMetaData (e.g. a
+  // file written by an older version, or one whose timestamp property is
+  // otherwise absent) must NOT be marked for compaction when
+  // full_history_ts_low is unset. Under UDT the only progress a bottommost
+  // compaction can make here is zeroing sequence numbers, which
+  // CompactionIterator does only when full_history_ts_low is set. With it unset
+  // the compaction cannot advance the file, so the rewritten output
+  // re-qualifies forever.
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  std::string ts_small = MakeU64Timestamp(50);
+  std::string ts_large = MakeU64Timestamp(100);
+
+  // Add a bottommost file with seqno < oldest_snapshot.
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/10, /*largest_seq=*/40,
+      /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+  // Simulate a file whose min/max timestamp was never recorded.
+  ASSERT_EQ(1U, vstorage_->LevelFiles(5).size());
+  FileMetaData* f = vstorage_->LevelFiles(5)[0];
+  f->min_timestamp.clear();
+  f->max_timestamp.clear();
+
+  UpdateVersionStorageInfo();
+
+  vstorage_->UpdateOldestSnapshot(
+      /*oldest_snapshot_seqnum=*/50,
+      /*allow_ingest_behind=*/false,
+      /*ucmp=*/ucmp_,
+      /*full_history_ts_low=*/"");
+
+  // No bottommost file can make progress with empty full_history_ts_low, so
+  // nothing is marked even though max_timestamp is unknown. Before the fix this
+  // file was marked, producing an infinite compaction loop.
+  ASSERT_EQ(0U, vstorage_->BottommostFilesMarkedForCompaction().size());
+}
+
+TEST_F(CompactionPickerU64TsTest,
+       BottommostMarkedWithSetFullHistoryTsLowAndUnknownMaxTs) {
+  // A bottommost UDT file whose max_timestamp was not recorded (e.g. written by
+  // an older version) must still be marked for a one-time backfill compaction
+  // when full_history_ts_low IS set: that compaction can collapse timestamp
+  // history / zero seqnos and record max_timestamp, so it makes progress
+  // (bounded, not a loop). This complements
+  // BottommostNotMarkedWithEmptyFullHistoryTsLowAndUnknownMaxTs, which covers
+  // the unset case where no progress is possible.
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  std::string ts_small = MakeU64Timestamp(50);
+  std::string ts_large = MakeU64Timestamp(100);
+
+  Add(5, 1U, "100", "200", /*file_size=*/1000, /*path_id=*/0,
+      /*smallest_seq=*/10, /*largest_seq=*/40,
+      /*compensated_file_size=*/1000,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, kUnknownNewestKeyTime, ts_small, ts_large);
+
+  // Simulate a file whose min/max timestamp was never recorded.
+  ASSERT_EQ(1U, vstorage_->LevelFiles(5).size());
+  FileMetaData* f = vstorage_->LevelFiles(5)[0];
+  f->min_timestamp.clear();
+  f->max_timestamp.clear();
+
+  UpdateVersionStorageInfo();
+
+  std::string full_history_ts_low = MakeU64Timestamp(500);
+  vstorage_->UpdateOldestSnapshot(
+      /*oldest_snapshot_seqnum=*/50,
+      /*allow_ingest_behind=*/false,
+      /*ucmp=*/ucmp_, full_history_ts_low);
+
+  // With full_history_ts_low set, the unknown-max_timestamp file is marked so a
+  // bounded compaction can backfill its metadata and reclaim obsolete data.
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction().size());
+  ASSERT_EQ(1U, vstorage_->BottommostFilesMarkedForCompaction()[0]
+                    .second->fd.GetNumber());
 }
 
 TEST_F(CompactionPickerU64TsTest, LevelPickCompactionWithFullHistoryTsLow) {
