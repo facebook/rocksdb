@@ -1,6 +1,29 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.10.0 (08/27/2026)
+### New Features
+* Added `BlockBasedTableOptions::optimize_key_common_prefix` as part of new `format_version=8`. When enabled, each data block and index block stores the common user-key prefix of its keys once instead of at every restart point, reducing block size and block-cache footprint for prefix-heavy data and speeding up Seek for bytewise-ordered keys.
+* A new experimental feature spreads out periodic (time-based) compaction trigger times across a fleet of similarly-configured DBs to avoid recurring "thundering herd" triggers, especially with remote compaction. See the new experimental DB option `periodic_compaction_phase_recovery_percent`.
+
+### Public API Changes
+* `IngestExternalFileArg::atomic_replace_range` now supports a range that only partially overlaps existing files, instead of failing. Requires universal compaction and a table factory that supports range deletion; other configurations still fail on partial overlap. The range is also now specified as half-open (`start` inclusive, `limit` exclusive), resolving a previously documented ambiguity in the upper bound.
+* Added an immutable `external_table_config` option that is persisted in OPTIONS files and passed to external table factories during bootstrap.
+
+### Bug Fixes
+* Fixed a liveness bug where RocksDB could remain indefinitely in recovery from a soft background error when concurrent writes continuously generated normal flush requests.
+* Fixed a race in online error recovery where a concurrent higher-severity I/O error could leave a stale retry-flush plan active, prevent the required WAL switch, and create duplicate internal WAL history detected on DB reopen.
+* Fix "bottommost files" infinite compaction loops (`kBottommostFiles`). This happens with the unsupported combination of leveled compaction and `preserve_internal_time_seconds` / `preclude_last_level_data_seconds`, and in an edge case with user-defined timestamps when `full_history_ts_low` is unset. The underlying logic is now more unified to reduce risk of a similar divergence in logic in the future.
+* Fixed `reuse_manifest_on_open` to create a fresh MANIFEST instead of appending after recovery sees an incomplete atomic group at the MANIFEST tail.
+* Starting remote compaction (`CompactionService` / `DB::OpenAndCompact`) is now more efficient and more reliable, by avoiding unnecessary file operations (latency) while using more accurate consistency / precondition checks, both avoiding some spurious failures and rejecting more legitimate inconsistencies. New DBOption `remote_compaction_manifest_floor` can be disabled in case of unexpected problems with the change.
+* Fixed unbounded retention of recovered transaction state by a long-lived secondary opened with `allow_2pc`.
+* Fixed stale reads on secondary instances, where entries replayed from a WAL that the primary had already flushed could shadow the newer values in the flushed files indefinitely. Also fixed a case where a secondary could stop returning such a key altogether while the primary's flushed file holding it was unreadable.
+* Fixed subset checkpoints to discard tolerated MANIFEST tail corruption before appending column-family drop records.
+
+### Performance Improvements
+* Improved compaction CPU efficiency for column families using an `SstPartitioner` (such as the built-in `SstPartitionerFixedPrefix`): when the partitioner can express its next boundary as a key prefix via the new `SstPartitioner::ShouldPartitionByPrefix()` API, compaction now checks that cached prefix inline instead of copying every user key and making a virtual `ShouldPartition()` call for each key-value written to an SST.
+
+
 ## 11.9.0 (08/14/2026)
 ### New Features
 * Added an integrated and improved compression auto-skip feature (new CompressionOptions, still experimental) that saves CPU by skipping compression when and where the overall ratio is inadequate. This improves on the previous auto-skip compression manager by (a) taking achieved compression ratios into account, (b) using a continuously evolving payoff estimate, and (c) combining natively with parallel compression.
