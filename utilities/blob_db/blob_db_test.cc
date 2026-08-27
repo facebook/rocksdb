@@ -27,6 +27,7 @@
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/fault_injection_env.h"
 
@@ -43,6 +44,18 @@ MultiGetOutputMetadata NewerVersionMultiGetOutputMetadata() {
   output_metadata.WantNewerVersionPresent();
   return output_metadata;
 }
+
+class NegativeTimeSystemClock : public SystemClockWrapper {
+ public:
+  NegativeTimeSystemClock() : SystemClockWrapper(SystemClock::Default()) {}
+
+  const char* Name() const override { return "NegativeTimeSystemClock"; }
+
+  Status GetCurrentTime(int64_t* unix_time) override {
+    *unix_time = -1;
+    return Status::OK();
+  }
+};
 
 class BlobDBTest : public testing::Test {
  public:
@@ -309,6 +322,20 @@ class BlobDBTest : public testing::Test {
   BlobDB* blob_db_;
   BlobDBOptions bdb_options_;
 };  // class BlobDBTest
+
+TEST_F(BlobDBTest, CompactionFilterRejectsNegativeTime) {
+  NegativeTimeSystemClock clock;
+  ColumnFamilyOptions cf_options;
+  CompactionFilter::Context context;
+
+  BlobIndexCompactionFilterFactory factory(nullptr, &clock, cf_options,
+                                           nullptr /* statistics */);
+  EXPECT_EQ(factory.CreateCompactionFilter(context), nullptr);
+
+  BlobIndexCompactionFilterFactoryGC gc_factory(nullptr, &clock, cf_options,
+                                                nullptr /* statistics */);
+  EXPECT_EQ(gc_factory.CreateCompactionFilter(context), nullptr);
+}
 
 TEST_F(BlobDBTest, Put) {
   Random rnd(301);
