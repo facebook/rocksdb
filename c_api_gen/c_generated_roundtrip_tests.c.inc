@@ -673,13 +673,6 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   CheckCondition(rocksdb_options_get_cf_allow_ingest_behind(obj) == 1);
   rocksdb_options_set_cf_allow_ingest_behind(obj, 0);
   CheckCondition(rocksdb_options_get_cf_allow_ingest_behind(obj) == 0);
-  rocksdb_options_set_compaction_schedule_seed(obj, "test");
-  {
-    size_t rt_len = 0;
-    const char* rt_v =
-        rocksdb_options_get_compaction_schedule_seed(obj, &rt_len);
-    CheckCondition(rt_len == 4 && rt_v != NULL && memcmp(rt_v, "test", 4) == 0);
-  }
   rocksdb_options_set_compaction_verify_record_count(obj, 1);
   CheckCondition(rocksdb_options_get_compaction_verify_record_count(obj) == 1);
   rocksdb_options_set_compaction_verify_record_count(obj, 0);

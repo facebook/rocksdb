@@ -14,9 +14,9 @@ namespace ROCKSDB_NAMESPACE {
 
 // Parameters controlling randomized-but-stable phasing of periodic
 // (time-based) compaction, derived per Version from
-// DBOptions::compaction_schedule_seed and
-// periodic_compaction_phase_recovery_percent together with the DB/CF identity.
-// recovery_percent == 0 disables phasing (exact legacy behavior).
+// DBOptions::periodic_compaction_phase_recovery_percent together with the DB ID
+// and column-family id. recovery_percent == 0 disables phasing (exact legacy
+// behavior).
 struct PeriodicCompactionPhaseParams {
   // Stable per-(DB, CF) hash seeding the preferred phase.
   uint64_t seed_hash = 0;
@@ -30,32 +30,35 @@ struct PeriodicCompactionPhaseParams {
 
 // De-herds periodic (time-based) compaction across a fleet: gives each (DB, CF)
 // a stable "preferred phase" within periodic_compaction_seconds and steers
-// compactions toward it, never past the deadline (see
-// DBOptions::compaction_schedule_seed /
-// periodic_compaction_phase_recovery_percent). This owns the DB-level phasing
-// config (seed + recovery percent) and the phasing anchor; the per-file trigger
-// math and seed derivation are stateless static helpers. Lives on VersionSet,
-// which caches the resulting per-CF params on each Version.
+// compactions toward it, never past the deadline (enabled by
+// DBOptions::periodic_compaction_phase_recovery_percent). The DB-level base
+// phase is derived from the DB ID -- stable across re-open and physical
+// cloning/migration but distinct across DBs -- and each column family is spread
+// around it by cf id. This owns the DB-level recovery percent and the phasing
+// anchor; the per-file trigger math and phase derivation are stateless static
+// helpers. Lives on VersionSet, which caches the resulting per-CF params on
+// each Version.
 class PeriodicCompactionPhaser {
  public:
-  // dbname/db_id are referenced live (for whole-value __db_name__/__db_id__
-  // substitution) and must outlive this phaser -- both are owned by the same
-  // VersionSet. db_id may be populated after construction; it is read lazily.
-  PeriodicCompactionPhaser(const std::string& dbname, const std::string& db_id)
-      : dbname_(dbname), db_id_(db_id) {}
+  // db_id is referenced live (it is populated after construction, during
+  // DB::Open, and is read lazily) and must outlive this phaser -- it is owned
+  // by the same VersionSet.
+  explicit PeriodicCompactionPhaser(const std::string& db_id) : db_id_(db_id) {}
 
-  // Apply the (mutable) DB options. Returns true if the seed or recovery
-  // percent changed -- in which case the caller should Reanchor() and refresh
-  // cached params. Does not itself move the anchor.
-  bool SetConfig(const std::string& seed, int recovery_percent);
+  // Apply the (mutable) recovery percent. Returns true if it changed -- in
+  // which case the caller should Reanchor() and refresh cached params. Does not
+  // itself move the anchor.
+  //
+  // A setting of 25 to 33 will set this phaser to "stun"
+  bool SetConfig(int recovery_percent);
 
   // Move the phasing anchor to `now` (unix seconds).
   void Reanchor(uint64_t now) { anchor_time_ = now; }
 
   int recovery_percent() const { return recovery_percent_; }
 
-  // Phasing params for a column family (by id): the DB base phase resolved from
-  // the seed, spread by cf_id (golden ratio), plus the current anchor and
+  // Phasing params for a column family (by id): the DB base phase (hashed from
+  // the DB ID) spread by cf_id (golden ratio), plus the current anchor and
   // recovery percent. Returns disabled params when phasing is off.
   PeriodicCompactionPhaseParams ParamsForCf(uint32_t cf_id) const;
 
@@ -71,15 +74,6 @@ class PeriodicCompactionPhaser {
                               uint64_t periodic_compaction_seconds,
                               const PeriodicCompactionPhaseParams& params);
 
-  // Explicit phase-position form of compaction_schedule_seed: a string
-  // "0.<digits>" (leading "0.", then only decimal digits -- no sign, exponent,
-  // or trailing characters) is a fraction in [0, 1) used directly as the base
-  // phase. Returns true and sets *seed_hash (such that FastRange64(*seed_hash,
-  // n) == floor(fraction * n) for any period n) on match; false (leaving
-  // *seed_hash untouched) otherwise.
-  static bool TryParseExplicitPhaseSeed(const std::string& seed,
-                                        uint64_t* seed_hash);
-
   // Spreads a DB's column families quasi-uniformly around a DB-level base phase
   // via the golden-ratio additive (Weyl/Kronecker) recurrence: cf phase ==
   // db_base_phase + cf_id * (phi conjugate), all in fixed point (fraction *
@@ -88,9 +82,7 @@ class PeriodicCompactionPhaser {
   static uint64_t CfPhaseSeedHash(uint64_t db_base_phase, uint32_t cf_id);
 
  private:
-  const std::string& dbname_;
   const std::string& db_id_;
-  std::string seed_;
   int recovery_percent_ = 0;
   // Unix time (seconds) at which phasing took effect for this DB (construction
   // or last relevant SetDBOptions change); spreads the initial catch-up burst.

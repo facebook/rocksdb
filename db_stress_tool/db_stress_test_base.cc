@@ -6385,7 +6385,6 @@ void InitializeOptionsFromFlags(
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
   options.max_compaction_trigger_wakeup_seconds =
       FLAGS_max_compaction_trigger_wakeup_seconds;
-  options.compaction_schedule_seed = FLAGS_compaction_schedule_seed;
   options.periodic_compaction_phase_recovery_percent =
       FLAGS_periodic_compaction_phase_recovery_percent;
   options.ttl = FLAGS_compaction_ttl;

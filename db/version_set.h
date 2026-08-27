@@ -1684,8 +1684,9 @@ class VersionSet {
   }
 
   // Thin forwarder to periodic_compaction_phaser_.ParamsForCf(cf_id): the
-  // per-CF phasing params (base phase from the seed + golden-ratio CF spread +
-  // anchor + recovery percent). Returns disabled params when phasing is off.
+  // per-CF phasing params (DB base phase from the DB ID, golden-ratio CF
+  // spread, anchor, and recovery percent). Returns disabled params when phasing
+  // is off.
   PeriodicCompactionPhaseParams GetPeriodicCompactionPhaseParams(
       uint32_t cf_id) const;
 
@@ -1846,9 +1847,9 @@ class VersionSet {
   SystemClock* const clock_;
   const std::string dbname_;
   std::string db_id_;
-  // Periodic-compaction phasing. Declared right after dbname_/db_id_ because it
-  // holds live references to them (for __db_name__/__db_id__ substitution).
-  PeriodicCompactionPhaser periodic_compaction_phaser_{dbname_, db_id_};
+  // Periodic-compaction phasing. Declared right after db_id_ because it holds a
+  // live reference to it (the DB base phase is hashed from the DB ID).
+  PeriodicCompactionPhaser periodic_compaction_phaser_{db_id_};
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any WAL number smaller than this should be ignored during recovery,

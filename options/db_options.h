@@ -159,7 +159,6 @@ struct MutableDBOptions {
   bool remote_compaction_manifest_floor;
   std::string daily_offpeak_time_utc;
   uint64_t max_compaction_trigger_wakeup_seconds;
-  std::string compaction_schedule_seed;
   int periodic_compaction_phase_recovery_percent;
 };
 

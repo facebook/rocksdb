@@ -1,0 +1,1 @@
+A new experimental feature spreads out periodic (time-based) compaction trigger times across a fleet of similarly-configured DBs to avoid recurring "thundering herd" triggers, especially with remote compaction. See the new experimental DB option `periodic_compaction_phase_recovery_percent`.

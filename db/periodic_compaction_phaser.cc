@@ -7,17 +7,13 @@
 
 #include <algorithm>
 
-#include "rocksdb/options.h"  // kDbNameForScheduleSeed / kDbIdForScheduleSeed
 #include "util/fastrange.h"
 #include "util/hash.h"
-#include "util/math128.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-bool PeriodicCompactionPhaser::SetConfig(const std::string& seed,
-                                         int recovery_percent) {
-  const bool changed = seed != seed_ || recovery_percent != recovery_percent_;
-  seed_ = seed;
+bool PeriodicCompactionPhaser::SetConfig(int recovery_percent) {
+  const bool changed = recovery_percent != recovery_percent_;
   recovery_percent_ = recovery_percent;
   return changed;
 }
@@ -29,24 +25,14 @@ PeriodicCompactionPhaseParams PeriodicCompactionPhaser::ParamsForCf(
     // Phasing disabled; return default (disabled) params.
     return params;
   }
-  // Resolve the DB-level base phase (a fixed-point fraction * 2^64).
-  uint64_t db_base_phase = 0;
-  if (!TryParseExplicitPhaseSeed(seed_, &db_base_phase)) {
-    // Not an explicit "0.<frac>" base: hash the seed, applying whole-value
-    // token substitution (mirrors db_host_id / kHostnameForDbHostId). db_id_ is
-    // read live so the default "__db_id__" resolves against the current
-    // identity.
-    const std::string* resolved = &seed_;
-    if (seed_ == kDbNameForScheduleSeed) {
-      resolved = &dbname_;
-    } else if (seed_ == kDbIdForScheduleSeed) {
-      resolved = &db_id_;
-    }
-    db_base_phase = Hash64(resolved->data(), resolved->size());
-  }
-  // Spread this CF quasi-uniformly around the DB base phase (golden ratio), so
-  // the DB-level seed is meaningful however it is set (hashed or an explicit
-  // base) and CFs of one DB do not share a phase.
+  // DB-level base phase (a fixed-point fraction * 2^64), hashed from the DB ID.
+  // The DB ID is stable across re-open and physical cloning/migration but
+  // distinct across DBs, so DBs configured alike do not herd. db_id_ is read
+  // live because it is populated after construction (during DB::Open): versions
+  // built before it is known hash an empty id and self-heal on later versions.
+  const uint64_t db_base_phase = Hash64(db_id_.data(), db_id_.size());
+  // Spread this CF quasi-uniformly around the DB base phase (golden ratio) so
+  // CFs of one DB do not share a phase.
   params.seed_hash = CfPhaseSeedHash(db_base_phase, cf_id);
   params.anchor_time = anchor_time_;
   params.recovery_percent = std::min(recovery_percent_, 100);
@@ -107,48 +93,6 @@ uint64_t PeriodicCompactionPhaser::TriggerTime(
   // recovery), so enabling phasing fleet-wide does not fire everything at once,
   // and never later than the natural deadline.
   return anchor + FastRange64(params.seed_hash, natural_trigger - anchor);
-}
-
-bool PeriodicCompactionPhaser::TryParseExplicitPhaseSeed(
-    const std::string& seed, uint64_t* seed_hash) {
-  // Match "0.<digits>": leading "0.", then at least one character, all decimal
-  // digits. This deliberately rejects a sign, an exponent ("0.5e3"), a bare
-  // "0.", and any trailing characters, so ordinary token/hash seeds fall
-  // through unchanged.
-  if (seed.size() < 3 || seed[0] != '0' || seed[1] != '.') {
-    return false;
-  }
-  // Accumulate the fraction as a 19-digit fixed-point integer frac_e19 ==
-  // floor(fraction * 10^19), reading the first up-to-19 digits and padding
-  // zeros on the right. 19 digits is the most that fits in uint64_t (10^19 <
-  // 2^64). Excess digits are validated but drop below 2^64 precision, so
-  // ignored.
-  uint64_t frac_e19 = 0;
-  int ndigits = 0;
-  for (size_t i = 2; i < seed.size(); ++i) {
-    if (seed[i] < '0' || seed[i] > '9') {
-      return false;
-    }
-    if (ndigits < 19) {
-      frac_e19 = frac_e19 * 10 + static_cast<uint64_t>(seed[i] - '0');
-      ++ndigits;
-    }
-  }
-  for (; ndigits < 19; ++ndigits) {
-    frac_e19 *= 10;
-  }
-  // Map fraction p in [0, 1) to seed_hash == floor(p * 2^64) so that
-  // FastRange64(seed_hash, n) == floor(p * n) for any period n. Computed
-  // exactly in integer math via a 128-bit intermediate: p * 2^64 == frac_e19 *
-  // 2^64 / 10^19 == (frac_e19 * floor(2^127 / 10^19)) >> 63. The magic constant
-  // is floor(2^127 / 10^19); flooring it makes the shifted product undershoot
-  // by ~1 ULP, so add 1 to round it back up -- then exact fractions land
-  // cleanly (0.5 -> 2^63, not 2^63 - 1). The largest input (all-nines) shifts
-  // to 2^64 - 3, so the +1 still cannot overflow uint64_t.
-  constexpr uint64_t kTwoPow127DivTen19 = 17014118346046923173ULL;
-  *seed_hash =
-      Lower64of128(Multiply64to128(frac_e19, kTwoPow127DivTen19) >> 63) + 1;
-  return true;
 }
 
 uint64_t PeriodicCompactionPhaser::CfPhaseSeedHash(uint64_t db_base_phase,

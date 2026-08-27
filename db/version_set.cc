@@ -3839,7 +3839,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
           ? offpeak_time_info.seconds_till_next_offpeak_start
           : 0;
 
-  // Preferred-phase scheduling (see DBOptions::compaction_schedule_seed). When
+  // Preferred-phase scheduling (see
+  // DBOptions::periodic_compaction_phase_recovery_percent). When
   // recovery_percent == 0 this is disabled and marking matches the classic
   // "file age >= periodic_compaction_seconds" behavior (adjusted for offpeak).
   const PeriodicCompactionPhaseParams& phase_params =
@@ -5633,7 +5634,6 @@ void VersionSet::UpdatedMutableDbOptions(
       updated_options.verify_manifest_content_on_close;
 
   if (periodic_compaction_phaser_.SetConfig(
-          updated_options.compaction_schedule_seed,
           updated_options.periodic_compaction_phase_recovery_percent)) {
     // (Re)anchor phasing so that switching it on (at open or via SetDBOptions)
     // spreads the initial periodic-compaction catch-up burst over time rather

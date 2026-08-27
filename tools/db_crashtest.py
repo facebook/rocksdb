@@ -395,9 +395,6 @@ default_params = {
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
     ),
-    "compaction_schedule_seed": lambda: random.choice(
-        ["__db_name__", "__db_id__", "", "crashtest_seed", "0.5"]
-    ),
     "periodic_compaction_phase_recovery_percent": lambda: random.choice(
         [0, 25, 33, 50, 100]
     ),

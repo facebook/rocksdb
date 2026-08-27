@@ -866,17 +866,6 @@ uint64_t rocksdb_options_get_max_compaction_trigger_wakeup_seconds(
   return opt->rep.max_compaction_trigger_wakeup_seconds;
 }
 
-void rocksdb_options_set_compaction_schedule_seed(rocksdb_options_t* opt,
-                                                  const char* v) {
-  opt->rep.compaction_schedule_seed = v;
-}
-
-const char* rocksdb_options_get_compaction_schedule_seed(rocksdb_options_t* opt,
-                                                         size_t* size) {
-  *size = opt->rep.compaction_schedule_seed.size();
-  return opt->rep.compaction_schedule_seed.data();
-}
-
 void rocksdb_options_set_periodic_compaction_phase_recovery_percent(
     rocksdb_options_t* opt, int v) {
   opt->rep.periodic_compaction_phase_recovery_percent = v;

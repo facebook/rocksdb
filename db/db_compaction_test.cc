@@ -5585,8 +5585,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
 TEST_F(DBCompactionTest, PeriodicCompactionPhaseTriggerTime) {
   // Unit-tests PeriodicCompactionPhaser::TriggerTime, the core of
   // preferred-phase periodic compaction (see
-  // DBOptions::compaction_schedule_seed /
-  // periodic_compaction_phase_recovery_percent).
+  // DBOptions::periodic_compaction_phase_recovery_percent).
   using Params = PeriodicCompactionPhaseParams;
   const uint64_t kN = 1000;  // periodic_compaction_seconds
 
@@ -5690,80 +5689,20 @@ TEST_F(DBCompactionTest, PeriodicCompactionPhaseTriggerTime) {
   }
 }
 
-TEST_F(DBCompactionTest, PeriodicCompactionPhaseExplicitSeed) {
-  // Unit-tests VersionStorageInfo::TryParseExplicitPhaseSeed -- the explicit
-  // phase-position form of DBOptions::compaction_schedule_seed, where a value
-  // "0.<digits>" is a fraction in [0, 1) used directly as the preferred phase.
-  using VSI = PeriodicCompactionPhaser;
-
-  // Rejected forms (fall through to the normal token/hash seed path) must
-  // return false and leave the out-param untouched. Covers a bare "0.",
-  // missing/extra dots, signs, scientific notation, trailing junk/space, and
-  // normal seeds.
-  for (const char* bad :
-       {"",     "0",         "0.",          ".5",         "1.5",  "00.5",
-        "00.0", "0.5e2",     "0.5E2",       "0.5e-1",     "0.5f", "0.5 ",
-        " 0.5", "-0.5",      "+0.5",        "0.5.5",      "0.-5", "0..5",
-        "0x.5", "__db_id__", "__db_name__", "custom_seed"}) {
-    uint64_t h = 0xABCDu;
-    ASSERT_FALSE(VSI::TryParseExplicitPhaseSeed(bad, &h))
-        << "should reject: '" << bad << "'";
-    ASSERT_EQ(h, uint64_t{0xABCDu});  // untouched on rejection
-  }
-
-  // Accepted forms map to phase == floor(fraction * n) for any interval n. The
-  // integer method is exact; the <=1 tolerance is only for the double reference
-  // `want` (float rounding of frac*n), not the method itself.
-  struct Case {
-    const char* seed;
-    double frac;
-  };
-  const std::vector<Case> cases = {
-      {"0.0", 0.0},     {"0.5", 0.5},   {"0.25", 0.25},
-      {"0.75", 0.75},   {"0.1", 0.1},   {"0.333", 0.333},
-      {"0.999", 0.999}, {"0.500", 0.5}, {"0.05", 0.05}};
-  for (const Case& c : cases) {
-    uint64_t seed_hash = 0;
-    ASSERT_TRUE(VSI::TryParseExplicitPhaseSeed(c.seed, &seed_hash))
-        << "should accept: '" << c.seed << "'";
-    for (uint64_t n :
-         {uint64_t{100}, uint64_t{1000}, uint64_t{86400}, uint64_t{604800}}) {
-      const uint64_t got = FastRange64(seed_hash, n);
-      const uint64_t want = static_cast<uint64_t>(c.frac * n);
-      ASSERT_LT(got, n);
-      const uint64_t diff = got > want ? got - want : want - got;
-      ASSERT_LE(diff, uint64_t{1}) << "seed=" << c.seed << " n=" << n
-                                   << " got=" << got << " want=" << want;
-    }
-  }
-
-  // With the +1 rounding, clean fractions map to their exact phase.
-  const uint64_t kN = 1000;
-  uint64_t h00 = 0, h25 = 0, h50 = 0, h75 = 0;
-  ASSERT_TRUE(VSI::TryParseExplicitPhaseSeed("0.0", &h00));
-  ASSERT_TRUE(VSI::TryParseExplicitPhaseSeed("0.25", &h25));
-  ASSERT_TRUE(VSI::TryParseExplicitPhaseSeed("0.5", &h50));
-  ASSERT_TRUE(VSI::TryParseExplicitPhaseSeed("0.75", &h75));
-  ASSERT_EQ(FastRange64(h00, kN), uint64_t{0});
-  ASSERT_EQ(FastRange64(h25, kN), uint64_t{250});
-  ASSERT_EQ(FastRange64(h50, kN), uint64_t{500});
-  ASSERT_EQ(FastRange64(h75, kN), uint64_t{750});
-}
-
 TEST_F(DBCompactionTest, PeriodicCompactionPhaseCfSpread) {
-  // Unit-tests VersionStorageInfo::CfPhaseSeedHash: a DB's column families are
-  // spread quasi-uniformly around the DB base phase via the golden-ratio
-  // recurrence, for any base (hashed or explicit) and any number of CFs.
-  using VSI = PeriodicCompactionPhaser;
+  // Unit-tests PeriodicCompactionPhaser::CfPhaseSeedHash: a DB's column
+  // families are spread quasi-uniformly around the DB base phase via the
+  // golden-ratio recurrence, for any base and any number of CFs.
+  using Phaser = PeriodicCompactionPhaser;
 
   // cf_id 0 leaves the base phase unchanged; distinct cf_ids -> distinct
   // phases.
   for (uint64_t base : {uint64_t{0}, uint64_t{0x9e3779b97f4a7c15ULL},
                         uint64_t{12345678901234567ULL}, ~uint64_t{0}}) {
-    ASSERT_EQ(VSI::CfPhaseSeedHash(base, 0), base);
+    ASSERT_EQ(Phaser::CfPhaseSeedHash(base, 0), base);
     std::vector<uint64_t> hs;
     for (uint32_t id = 0; id < 64; ++id) {
-      hs.push_back(VSI::CfPhaseSeedHash(base, id));
+      hs.push_back(Phaser::CfPhaseSeedHash(base, id));
     }
     std::sort(hs.begin(), hs.end());
     for (size_t i = 1; i < hs.size(); ++i) {
@@ -5778,7 +5717,7 @@ TEST_F(DBCompactionTest, PeriodicCompactionPhaseCfSpread) {
       const uint64_t n = 100000;
       std::vector<uint64_t> phases;
       for (uint32_t id = 0; id < N; ++id) {
-        phases.push_back(FastRange64(VSI::CfPhaseSeedHash(base, id), n));
+        phases.push_back(FastRange64(Phaser::CfPhaseSeedHash(base, id), n));
       }
       std::sort(phases.begin(), phases.end());
       uint64_t max_gap = n - phases.back() + phases.front();  // wrap-around gap
@@ -5792,19 +5731,16 @@ TEST_F(DBCompactionTest, PeriodicCompactionPhaseCfSpread) {
 }
 
 TEST_F(DBCompactionTest, PeriodicCompactionPhaseOptions) {
-  // Verifies the two DB options are plumbed and dynamically settable.
+  // Verifies periodic_compaction_phase_recovery_percent is plumbed and
+  // dynamically settable.
   Options options = CurrentOptions();
-  options.compaction_schedule_seed = "__db_id__";
   options.periodic_compaction_phase_recovery_percent = 25;
   DestroyAndReopen(options);
-  ASSERT_EQ(dbfull()->GetDBOptions().compaction_schedule_seed, "__db_id__");
   ASSERT_EQ(dbfull()->GetDBOptions().periodic_compaction_phase_recovery_percent,
             25);
 
   ASSERT_OK(dbfull()->SetDBOptions(
-      {{"compaction_schedule_seed", "custom_seed"},
-       {"periodic_compaction_phase_recovery_percent", "0"}}));
-  ASSERT_EQ(dbfull()->GetDBOptions().compaction_schedule_seed, "custom_seed");
+      {{"periodic_compaction_phase_recovery_percent", "0"}}));
   ASSERT_EQ(dbfull()->GetDBOptions().periodic_compaction_phase_recovery_percent,
             0);
 }

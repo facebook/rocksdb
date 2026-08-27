@@ -1496,10 +1496,6 @@ DEFINE_uint64(
     ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Sets DB option max_compaction_trigger_wakeup_seconds.");
 
-DEFINE_string(compaction_schedule_seed,
-              ROCKSDB_NAMESPACE::Options().compaction_schedule_seed,
-              "Sets DB option compaction_schedule_seed.");
-
 DEFINE_int32(
     periodic_compaction_phase_recovery_percent,
     ROCKSDB_NAMESPACE::Options().periodic_compaction_phase_recovery_percent,

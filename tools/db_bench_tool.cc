@@ -2024,11 +2024,6 @@ DEFINE_uint64(
     max_compaction_trigger_wakeup_seconds,
     ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Maximum interval in seconds between periodic compaction trigger checks.");
-DEFINE_string(compaction_schedule_seed,
-              ROCKSDB_NAMESPACE::Options().compaction_schedule_seed,
-              "Sets DB option compaction_schedule_seed (seed for randomizing "
-              "the phase of periodic compaction; supports __db_name__ and "
-              "__db_id__ whole-value substitution).");
 DEFINE_int32(
     periodic_compaction_phase_recovery_percent,
     ROCKSDB_NAMESPACE::Options().periodic_compaction_phase_recovery_percent,
@@ -5295,7 +5290,6 @@ class Benchmark {
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
     options.max_compaction_trigger_wakeup_seconds =
         FLAGS_max_compaction_trigger_wakeup_seconds;
-    options.compaction_schedule_seed = FLAGS_compaction_schedule_seed;
     options.periodic_compaction_phase_recovery_percent =
         FLAGS_periodic_compaction_phase_recovery_percent;
     options.stats_persist_period_sec =
@@ -5305,7 +5299,6 @@ class Benchmark {
         static_cast<size_t>(FLAGS_stats_history_buffer_size);
     options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
     options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
-
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =

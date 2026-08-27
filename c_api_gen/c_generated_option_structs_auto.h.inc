@@ -274,13 +274,6 @@ extern ROCKSDB_LIBRARY_API const char*
 rocksdb_options_get_daily_offpeak_time_utc(rocksdb_options_t* opt,
                                            size_t* size);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_schedule_seed(
-    rocksdb_options_t* opt, const char* v);
-
-extern ROCKSDB_LIBRARY_API const char*
-rocksdb_options_get_compaction_schedule_seed(rocksdb_options_t* opt,
-                                             size_t* size);
-
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_periodic_compaction_phase_recovery_percent(
     rocksdb_options_t* opt, int v);
