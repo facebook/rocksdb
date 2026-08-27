@@ -455,7 +455,7 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
-extern const char* kHostnameForDbHostId;
+extern const char* const kHostnameForDbHostId;
 
 enum class CompactionServiceJobStatus : char {
   kSuccess,
@@ -1852,6 +1852,61 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   uint64_t max_compaction_trigger_wakeup_seconds = 43200;
+
+  // EXPERIMENTAL
+  // Enables and tunes preferred-phase scheduling of periodic (time-based)
+  // compaction, which de-herds periodic_compaction_seconds compactions across a
+  // fleet of similarly-configured DBs (a recurring "thundering herd" is
+  // especially costly with remote compaction). Each (DB, column family) is
+  // given a stable-but-well-spread preferred phase within
+  // periodic_compaction_seconds and compactions are steered toward it. The
+  // phase is derived from the DB ID -- stable across re-open and physical
+  // cloning/migration (at least when write_dbid_to_manifest=true), but distinct
+  // across DBs -- and each column family is spread quasi-uniformly around the
+  // DB's base phase by a golden-ratio recurrence, so different CFs of one DB
+  // get well-separated phases. No user tuning of the phase itself is needed.
+  //
+  // This value is the percent (0-100) of the gap between a file's unphased
+  // trigger time and its preferred-phase time that is closed on each
+  // periodic-compaction trigger, always by triggering *earlier* -- never later
+  // than periodic_compaction_seconds, which remains a soft upper bound on data
+  // age. Because each compaction re-stamps the file, the phase error then
+  // decays geometrically toward the preferred phase over successive cycles.
+  //
+  // "Never later" holds in steady state. It can be exceeded only for files
+  // already past due when phasing (re)anchors -- which it does on DB open, on
+  // enabling phasing, and on any change to periodic_compaction_seconds. The
+  // cases that matter are reopening a DB whose files aged out while it was
+  // down (e.g. DC power-outage recovery) and turning the interval *down*
+  // (which retroactively makes older files past due). Rather than compact that
+  // whole cohort at once (a herd), phasing spreads it over the first quarter
+  // of the interval after the anchor, on a stable per-(DB, CF) grid --
+  // expedited but herd-avoiding -- so such a file may be rewritten up to a
+  // quarter-interval past its (revised) deadline. To enforce the age limit
+  // immediately at such a transition, trigger a manual compaction.
+  //
+  // 0 disables phasing entirely (exact legacy behavior; this is the kill
+  // switch). 100 snaps to the preferred phase in a single cycle, which can
+  // recompact some files well before their normal interval and is generally not
+  // recommended. Values are clamped to [0, 100].
+  //
+  // Lower values converge more slowly but incur less extra compaction work,
+  // especially under write-driven or bursty workloads that keep re-randomizing
+  // a file's phase (where a high recovery rate wastefully "chases" the moving
+  // phase). ~33 is a good balance of spreading speed vs. extra work: almost
+  // always widely spread after a few periods while almost always below 5%
+  // extra compaction work overall, trending toward 0% in the long term for
+  // most workloads.
+  //
+  // This feature might become obsolete if a future feature is able to have
+  // compaction pressure, whether local or remote, feed back into compaction
+  // scheduling.
+  //
+  // Recommended setting: 33
+  // Default: feature disabled
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  int periodic_compaction_phase_recovery_percent = 0;
 
   // EXPERIMENTAL
 

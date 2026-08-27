@@ -196,7 +196,8 @@ Status ImportColumnFamilyJob::Run() {
         nullptr /* src_vstorage */, cfd_->ioptions().force_consistency_checks,
         EpochNumberRequirement::kMightMissing, cfd_->ioptions().clock,
         cfd_->GetLatestMutableCFOptions().bottommost_file_compaction_delay,
-        cfd_->current()->version_set()->offpeak_time_option());
+        cfd_->current()->version_set()->offpeak_time_option(),
+        PeriodicCompactionPhaseParams{});
     for (size_t j = 0; s.ok() && j < files_to_import_[i].size(); ++j) {
       const auto& f = files_to_import_[i][j];
       const auto& file_metadata = *metadatas_[i][j];

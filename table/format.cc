@@ -41,7 +41,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const char* kHostnameForDbHostId = "__hostname__";
+const char* const kHostnameForDbHostId = "__hostname__";
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
   return env != nullptr && stats != nullptr &&

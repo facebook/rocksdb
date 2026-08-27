@@ -14,6 +14,7 @@
 #include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
+#include "db/periodic_compaction_phaser.h"
 #include "db/table_cache.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
@@ -29,6 +30,8 @@
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/concurrent_task_limiter_impl.h"
+#include "util/fastrange.h"
+#include "util/hash.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -5483,6 +5486,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
     for (bool if_open_all_files : {false, true}) {
       Options options = CurrentOptions();
       options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
+      options.periodic_compaction_phase_recovery_percent = 0;
       if (if_open_all_files) {
         options.max_open_files = -1;  // needed for ttl compaction
       } else {
@@ -5578,6 +5582,169 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   }
 }
 
+TEST_F(DBCompactionTest, PeriodicCompactionPhaseTriggerTime) {
+  // Unit-tests PeriodicCompactionPhaser::TriggerTime, the core of
+  // preferred-phase periodic compaction (see
+  // DBOptions::periodic_compaction_phase_recovery_percent).
+  using Params = PeriodicCompactionPhaseParams;
+  const uint64_t kN = 1000;  // periodic_compaction_seconds
+
+  // The trigger-time helper treats seed_hash as an opaque value; use a fixed
+  // constant and derive the resulting preferred-phase target the same way
+  // production does (FastRange64 of the seed over the interval).
+  const uint64_t kSeed = 0x9e3779b97f4a7c15ULL;
+  const uint64_t target = FastRange64(kSeed, kN);
+  ASSERT_LT(target, kN);
+
+  // recovery_percent == 0 => classic behavior: trigger at file_mod + N.
+  {
+    Params p;
+    p.seed_hash = kSeed;
+    p.recovery_percent = 0;
+    for (uint64_t fm : {uint64_t{1}, uint64_t{7}, uint64_t{12345}}) {
+      ASSERT_EQ(PeriodicCompactionPhaser::TriggerTime(fm, kN, p), fm + kN);
+    }
+  }
+
+  // Steady state (anchor in the distant past): trigger is pulled earlier by
+  // recovery_percent% of the phase offset, and never later than the deadline.
+  {
+    Params p;
+    p.seed_hash = kSeed;
+    p.recovery_percent = 50;
+    p.anchor_time = 0;
+    const uint64_t fm = 500;
+    const uint64_t natural = fm + kN;
+    const uint64_t offset = (fm % kN + kN - target) % kN;
+    const uint64_t expected = natural - offset * 50 / 100;
+    ASSERT_EQ(PeriodicCompactionPhaser::TriggerTime(fm, kN, p), expected);
+    ASSERT_LE(expected, natural);
+  }
+
+  // Geometric convergence: repeatedly re-stamp the file at its trigger time and
+  // confirm the phase error is non-increasing and converges to (near) zero.
+  for (int recovery_percent : {50, 100}) {
+    Params p;
+    p.seed_hash = kSeed;
+    p.recovery_percent = recovery_percent;
+    p.anchor_time = 0;
+    uint64_t fm = 123;
+    uint64_t prev_error = kN;
+    for (int cycle = 0; cycle < 64; ++cycle) {
+      const uint64_t trig = PeriodicCompactionPhaser::TriggerTime(fm, kN, p);
+      ASSERT_LE(trig, fm + kN);  // never later than the deadline
+      const uint64_t error = (trig % kN + kN - target) % kN;
+      ASSERT_LE(error, prev_error);
+      prev_error = error;
+      fm = trig;
+    }
+    // rp=100 pulls the whole gap so it reaches the phase exactly; smaller rates
+    // decay geometrically and leave a tiny integer-rounding residue.
+    if (recovery_percent == 100) {
+      ASSERT_EQ(prev_error, uint64_t{0});
+    } else {
+      ASSERT_LE(prev_error, uint64_t{1});
+    }
+  }
+
+  // Already past the hard deadline when phasing took effect (e.g. the DB was
+  // down, or periodic_compaction_seconds was turned down): instead of firing
+  // the whole cohort immediately, spread it over the first quarter-period after
+  // the anchor on an absolute (epoch-aligned) grid of period N/4.
+  {
+    Params p;
+    p.seed_hash = kSeed;
+    p.recovery_percent = 50;
+    p.anchor_time = 200;
+    const uint64_t n = 100;
+    const uint64_t grid = n / 4;  // 25
+    const uint64_t phase = FastRange64(kSeed, grid);
+    // natural deadline (10 + 100 = 110) is before the anchor (200).
+    const uint64_t expected = 200 + (phase + grid - 200 % grid) % grid;
+    const uint64_t trig = PeriodicCompactionPhaser::TriggerTime(10, n, p);
+    ASSERT_EQ(trig, expected);
+    ASSERT_GE(trig, uint64_t{200});  // never before the anchor
+    ASSERT_LT(trig, 200 + grid);     // within N/4 of the anchor
+  }
+
+  // Past due against the recovery target but not yet at the deadline => spread
+  // across [anchor, deadline] using the phase; never later than the deadline.
+  {
+    const uint64_t n = 100;
+    const uint64_t small_target = FastRange64(kSeed, n);
+    const uint64_t fm = small_target + 50 + 3 * n;  // phase offset == 50
+    const uint64_t natural = fm + n;
+    const uint64_t anchor =
+        natural - 25;  // recovery target (natural-50) < anchor
+    Params p;
+    p.seed_hash = kSeed;
+    p.recovery_percent = 100;
+    p.anchor_time = anchor;
+    ASSERT_EQ((fm % n + n - small_target) % n, uint64_t{50});
+    const uint64_t expected = anchor + FastRange64(kSeed, natural - anchor);
+    const uint64_t trig = PeriodicCompactionPhaser::TriggerTime(fm, n, p);
+    ASSERT_EQ(trig, expected);
+    ASSERT_GE(trig, anchor);
+    ASSERT_LT(trig, natural);
+  }
+}
+
+TEST_F(DBCompactionTest, PeriodicCompactionPhaseCfSpread) {
+  // Unit-tests PeriodicCompactionPhaser::CfPhaseSeedHash: a DB's column
+  // families are spread quasi-uniformly around the DB base phase via the
+  // golden-ratio recurrence, for any base and any number of CFs.
+  using Phaser = PeriodicCompactionPhaser;
+
+  // cf_id 0 leaves the base phase unchanged; distinct cf_ids -> distinct
+  // phases.
+  for (uint64_t base : {uint64_t{0}, uint64_t{0x9e3779b97f4a7c15ULL},
+                        uint64_t{12345678901234567ULL}, ~uint64_t{0}}) {
+    ASSERT_EQ(Phaser::CfPhaseSeedHash(base, 0), base);
+    std::vector<uint64_t> hs;
+    for (uint32_t id = 0; id < 64; ++id) {
+      hs.push_back(Phaser::CfPhaseSeedHash(base, id));
+    }
+    std::sort(hs.begin(), hs.end());
+    for (size_t i = 1; i < hs.size(); ++i) {
+      ASSERT_NE(hs[i], hs[i - 1]) << "duplicate CF phase seed at base=" << base;
+    }
+  }
+
+  // Low-discrepancy: for N CFs the phases over an interval are well spread --
+  // no gap larger than ~2x the average (a hash would allow chance clustering).
+  for (uint64_t base : {uint64_t{0}, uint64_t{0xdeadbeefcafef00dULL}}) {
+    for (uint32_t N : {uint32_t{3}, uint32_t{8}, uint32_t{16}, uint32_t{40}}) {
+      const uint64_t n = 100000;
+      std::vector<uint64_t> phases;
+      for (uint32_t id = 0; id < N; ++id) {
+        phases.push_back(FastRange64(Phaser::CfPhaseSeedHash(base, id), n));
+      }
+      std::sort(phases.begin(), phases.end());
+      uint64_t max_gap = n - phases.back() + phases.front();  // wrap-around gap
+      for (size_t i = 1; i < phases.size(); ++i) {
+        max_gap = std::max(max_gap, phases[i] - phases[i - 1]);
+      }
+      ASSERT_LE(max_gap, 2 * (n / N))
+          << "base=" << base << " N=" << N << " max_gap=" << max_gap;
+    }
+  }
+}
+
+TEST_F(DBCompactionTest, PeriodicCompactionPhaseOptions) {
+  // Verifies periodic_compaction_phase_recovery_percent is plumbed and
+  // dynamically settable.
+  Options options = CurrentOptions();
+  options.periodic_compaction_phase_recovery_percent = 25;
+  DestroyAndReopen(options);
+  ASSERT_EQ(dbfull()->GetDBOptions().periodic_compaction_phase_recovery_percent,
+            25);
+
+  ASSERT_OK(dbfull()->SetDBOptions(
+      {{"periodic_compaction_phase_recovery_percent", "0"}}));
+  ASSERT_EQ(dbfull()->GetDBOptions().periodic_compaction_phase_recovery_percent,
+            0);
+}
+
 TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
   // This test simply checks if offpeak adjustment works in Leveled
   // Compactions. For testing offpeak periodic compactions in various
@@ -5595,6 +5762,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionOffpeak) {
     Options options = CurrentOptions();
     options.ttl = 0;
     options.periodic_compaction_seconds = 5 * kSecondsPerDay;  // 5 days
+    options.periodic_compaction_phase_recovery_percent = 0;
     // In the case where all files are opened and doing DB restart
     // forcing the file creation time in manifest file to be 0 to
     // simulate the case of reading from an old version.
@@ -5742,6 +5910,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   // Forward the clock by 2 days.
   env_->MockSleepForSeconds(2 * 24 * 60 * 60);
   options.periodic_compaction_seconds = 1 * 24 * 60 * 60;  // 1 day
+  options.periodic_compaction_phase_recovery_percent = 0;
 
   Reopen(options);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5760,6 +5929,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   Options options = CurrentOptions();
   options.ttl = 10 * 60 * 60;                          // 10 hours
   options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
+  options.periodic_compaction_phase_recovery_percent = 0;
   options.max_open_files = -1;  // needed for both periodic and ttl compactions
   env_->SetMockSleep();
   options.env = env_;
@@ -5842,6 +6012,7 @@ TEST_F(DBCompactionTest, LevelTtlBooster) {
   Options options = CurrentOptions();
   options.ttl = 10 * 60 * 60;                           // 10 hours
   options.periodic_compaction_seconds = 480 * 60 * 60;  // very long
+  options.periodic_compaction_phase_recovery_percent = 0;
   options.level0_file_num_compaction_trigger = 2;
   options.max_bytes_for_level_base = 5 * uint64_t{kNumKeysPerFile * kValueSize};
   options.max_open_files = -1;  // needed for both periodic and ttl compactions
@@ -12391,6 +12562,7 @@ TEST_F(DBCompactionTest, PeriodicTask) {
   options.statistics = CreateDBStatistics();
   int kPeriodicCompactionSeconds = 7 * 24 * 60 * 60;  // 1 week
   options.periodic_compaction_seconds = kPeriodicCompactionSeconds;
+  options.periodic_compaction_phase_recovery_percent = 0;
   options.num_levels = 50;
   auto listener = std::make_shared<PeriodicCompactionListener>();
   options.listeners.push_back(listener);

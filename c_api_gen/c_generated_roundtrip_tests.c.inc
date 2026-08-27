@@ -839,6 +839,12 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   CheckCondition(rocksdb_options_get_paranoid_memory_checks(obj) == 1);
   rocksdb_options_set_paranoid_memory_checks(obj, 0);
   CheckCondition(rocksdb_options_get_paranoid_memory_checks(obj) == 0);
+  rocksdb_options_set_periodic_compaction_phase_recovery_percent(obj, 1);
+  CheckCondition(
+      rocksdb_options_get_periodic_compaction_phase_recovery_percent(obj) == 1);
+  rocksdb_options_set_periodic_compaction_phase_recovery_percent(obj, 0);
+  CheckCondition(
+      rocksdb_options_get_periodic_compaction_phase_recovery_percent(obj) == 0);
   rocksdb_options_set_persist_stats_to_disk(obj, 1);
   CheckCondition(rocksdb_options_get_persist_stats_to_disk(obj) == 1);
   rocksdb_options_set_persist_stats_to_disk(obj, 0);

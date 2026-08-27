@@ -6385,6 +6385,8 @@ void InitializeOptionsFromFlags(
       static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
   options.max_compaction_trigger_wakeup_seconds =
       FLAGS_max_compaction_trigger_wakeup_seconds;
+  options.periodic_compaction_phase_recovery_percent =
+      FLAGS_periodic_compaction_phase_recovery_percent;
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
   options.enable_write_thread_adaptive_yield =

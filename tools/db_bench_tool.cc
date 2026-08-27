@@ -2024,6 +2024,11 @@ DEFINE_uint64(
     max_compaction_trigger_wakeup_seconds,
     ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Maximum interval in seconds between periodic compaction trigger checks.");
+DEFINE_int32(
+    periodic_compaction_phase_recovery_percent,
+    ROCKSDB_NAMESPACE::Options().periodic_compaction_phase_recovery_percent,
+    "Sets DB option periodic_compaction_phase_recovery_percent (0 disables "
+    "periodic compaction phasing).");
 DEFINE_uint64(stats_persist_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
@@ -5285,6 +5290,8 @@ class Benchmark {
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
     options.max_compaction_trigger_wakeup_seconds =
         FLAGS_max_compaction_trigger_wakeup_seconds;
+    options.periodic_compaction_phase_recovery_percent =
+        FLAGS_periodic_compaction_phase_recovery_percent;
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
     options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
@@ -5292,7 +5299,6 @@ class Benchmark {
         static_cast<size_t>(FLAGS_stats_history_buffer_size);
     options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
     options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
-
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =

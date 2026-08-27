@@ -96,6 +96,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/merge_operator.cc",
         "db/multi_scan.cc",
         "db/output_validator.cc",
+        "db/periodic_compaction_phaser.cc",
         "db/periodic_task_scheduler.cc",
         "db/range_del_aggregator.cc",
         "db/range_tombstone_fragmenter.cc",

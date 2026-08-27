@@ -153,6 +153,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    max_compaction_trigger_wakeup_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"periodic_compaction_phase_recovery_percent",
+         {offsetof(struct MutableDBOptions,
+                   periodic_compaction_phase_recovery_percent),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"fast_sst_open",
          {offsetof(struct MutableDBOptions, fast_sst_open),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -1119,7 +1124,9 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
           options.remote_compaction_manifest_floor),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
-          options.max_compaction_trigger_wakeup_seconds) {}
+          options.max_compaction_trigger_wakeup_seconds),
+      periodic_compaction_phase_recovery_percent(
+          options.periodic_compaction_phase_recovery_percent) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1181,6 +1188,9 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "Options.max_compaction_trigger_wakeup_seconds: %" PRIu64,
                    max_compaction_trigger_wakeup_seconds);
+  ROCKS_LOG_HEADER(log,
+                   "Options.periodic_compaction_phase_recovery_percent: %d",
+                   periodic_compaction_phase_recovery_percent);
   ROCKS_LOG_HEADER(log, "                         Options.fast_sst_open: %d",
                    fast_sst_open);
   ROCKS_LOG_HEADER(log, "      Options.remote_compaction_manifest_floor: %d",

@@ -866,6 +866,16 @@ uint64_t rocksdb_options_get_max_compaction_trigger_wakeup_seconds(
   return opt->rep.max_compaction_trigger_wakeup_seconds;
 }
 
+void rocksdb_options_set_periodic_compaction_phase_recovery_percent(
+    rocksdb_options_t* opt, int v) {
+  opt->rep.periodic_compaction_phase_recovery_percent = v;
+}
+
+int rocksdb_options_get_periodic_compaction_phase_recovery_percent(
+    rocksdb_options_t* opt) {
+  return opt->rep.periodic_compaction_phase_recovery_percent;
+}
+
 void rocksdb_options_set_follower_refresh_catchup_period_ms(
     rocksdb_options_t* opt, uint64_t v) {
   opt->rep.follower_refresh_catchup_period_ms = v;

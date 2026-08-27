@@ -5260,6 +5260,14 @@ rocksdb_options_get_daily_offpeak_time_utc(rocksdb_options_t* opt,
                                            size_t* size);
 
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_periodic_compaction_phase_recovery_percent(
+    rocksdb_options_t* opt, int v);
+
+extern ROCKSDB_LIBRARY_API int
+rocksdb_options_get_periodic_compaction_phase_recovery_percent(
+    rocksdb_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_follower_refresh_catchup_period_ms(rocksdb_options_t* opt,
                                                        uint64_t v);
 
