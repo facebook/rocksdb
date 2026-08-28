@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <set>
@@ -18,6 +19,7 @@
 #include <vector>
 
 #include "db/version_set.h"
+#include "db/wal_iterator_impl.h"
 #include "file/file_util.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -56,7 +58,8 @@ class WalManager {
   Status GetUpdatesSince(SequenceNumber seq_number,
                          std::unique_ptr<WalIterator>* iter,
                          const WalIterator::ReadOptions& read_options,
-                         VersionSet* version_set);
+                         VersionSet* version_set,
+                         NextLiveWalFn next_live_wal_fn = nullptr);
 
   void PurgeObsoleteWALFiles();
 
@@ -65,6 +68,13 @@ class WalManager {
   Status DeleteFile(const std::string& fname, uint64_t number);
 
   Status GetLiveWalFile(uint64_t number, std::unique_ptr<WalFile>* log_file);
+
+  // Opens the WAL identified by wal_number and returns its WalFile and first
+  // sequence number for the tail-rotation path. Returns TryAgain if the WAL
+  // cannot be opened (purged/archived) or is empty (no user records).
+  Status PrepareWalForTail(uint64_t wal_number,
+                           std::unique_ptr<WalFile>* next_wal,
+                           SequenceNumber* first_seq);
 
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {

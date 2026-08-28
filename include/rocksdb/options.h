@@ -1589,6 +1589,20 @@ struct DBOptions {
   // a temporary kill switch, it is already DEPRECATED.
   bool background_close_inactive_wals = false;
 
+  // If true, the WalIterator returned by GetUpdatesSince will
+  // attempt to seamlessly continue iterating into the next available WAL file
+  // instead of immediately returning Status::TryAgain. When the iterator
+  // reaches EOF and detects that the database sequence has advanced (indicating
+  // a WAL rotation), it will open the next WAL and validate that its first
+  // sequence number continues exactly where the previous WAL left off. If
+  // validation succeeds, iteration continues without the caller needing to
+  // recreate the iterator. If validation fails (sequence gap, WAL purged, or
+  // new WAL empty), Status::TryAgain is returned so that the caller can fall
+  // back to a fresh GetUpdatesSince(seq) call.
+  //
+  // Default: false (existing behavior preserved -- TryAgain on every rotation).
+  bool wal_iterator_tail_rotations = false;
+
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not
   // necessary to set atomic_flush to true if WAL is always enabled since WAL
