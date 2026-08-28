@@ -2959,6 +2959,13 @@ class DBImpl : public DB
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
+  // A NextWalForTailFn that looks for the successor among the live WALs only.
+  // Bound into the WAL iterator by GetUpdatesSince() when
+  // DBOptions::wal_iterator_tail_rotations is enabled.
+  Status FindNextLiveWalForTail(uint64_t last_wal_number,
+                                std::unique_ptr<WalFile>* next_wal,
+                                SequenceNumber* first_seq);
+
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
 
@@ -3703,13 +3710,6 @@ class DBImpl : public DB
   std::atomic<uint32_t> num_outstanding_prepared_ingestions_{0};
 
   WalManager wal_manager_;
-
-  // Finds the immediate successor WAL in alive_wal_files_ and prepares it for
-  // the fast-rotation path. Used as the NextLiveWalFn callback when
-  // wal_iterator_tail_rotations is enabled.
-  Status FindNextLiveWalForTail(uint64_t last_wal_number,
-                                std::unique_ptr<WalFile>* out,
-                                SequenceNumber* first_seq);
 
   // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_ = 0;

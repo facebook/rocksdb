@@ -20,6 +20,7 @@
 /* CuckooOptions simple */
 
 void rocksdb_cuckoo_options_set_hash_ratio(
-    rocksdb_cuckoo_table_options_t* options, double v) {
+    rocksdb_cuckoo_table_options_t* options,
+    double v) {
   options->rep.hash_table_ratio = v;
 }

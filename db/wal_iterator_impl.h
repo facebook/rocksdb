@@ -4,11 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <functional>
 #include <vector>
 
 #include "db/log_reader.h"
 #include "db/version_set.h"
+#include "db/wal_manager.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "options/db_options.h"
@@ -55,13 +55,6 @@ class WalFileImpl : public WalFile {
   uint64_t sizeFileBytes_;
 };
 
-// Callback type for fetching the next live WAL at EOF time during fast
-// rotation. Returns OK if the next WAL is available and its first sequence
-// number is written to *first_seq. Returns TryAgain on any failure.
-using NextLiveWalFn = std::function<Status(uint64_t last_wal_number,
-                                           std::unique_ptr<WalFile>* next_wal,
-                                           SequenceNumber* first_seq)>;
-
 class WalIteratorImpl : public WalIterator {
  public:
   WalIteratorImpl(const std::string& dir, const ImmutableDBOptions* options,
@@ -70,7 +63,7 @@ class WalIteratorImpl : public WalIterator {
                   std::unique_ptr<VectorWalPtr> files,
                   VersionSet const* const versions, const bool seq_per_batch,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  NextLiveWalFn next_live_wal_fn = nullptr);
+                  NextWalForTailFn next_wal_for_tail_fn = nullptr);
 
   bool Valid() override;
 
@@ -91,8 +84,10 @@ class WalIteratorImpl : public WalIterator {
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
   std::shared_ptr<IOTracer> io_tracer_;
-  // Callback for fast WAL rotation (null when opt-in is off).
-  NextLiveWalFn next_live_wal_fn_;
+  // Used at the tail of files_ to look for a WAL beyond the ones this iterator
+  // was built with. Null when DBOptions::wal_iterator_tail_rotations is off,
+  // in which case running out of files_ always ends the run.
+  NextWalForTailFn next_wal_for_tail_fn_;
 
   // State variables
   bool started_;

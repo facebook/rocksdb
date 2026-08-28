@@ -19,7 +19,6 @@
 #include <vector>
 
 #include "db/version_set.h"
-#include "db/wal_iterator_impl.h"
 #include "file/file_util.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -30,6 +29,25 @@
 #include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// Returns the next WAL to read after WAL number `last_wal_number`, wherever it
+// can correctly be found, together with the sequence number of its first
+// record so that the caller can check continuity before reading it.
+//
+// A WAL iterator uses this when it runs out of the WAL files it was built with,
+// so that a run can keep going instead of ending as soon as that file list is
+// out of date. Implementations are free to look wherever they can prove
+// correct; the only one today, DBImpl::FindNextLiveWalForTail(), considers only
+// the live WALs, so a WAL that has already been archived is reported as not
+// found even though the data is still on disk.
+//
+// Returns TryAgain when no such WAL can be identified right now -- there is
+// none yet, or the one there is cannot be verified from here -- which tells the
+// caller to end the run rather than that anything is broken. Other non-OK
+// statuses are genuine errors and are propagated to the iterator's caller.
+using NextWalForTailFn = std::function<Status(
+    uint64_t last_wal_number, std::unique_ptr<WalFile>* next_wal,
+    SequenceNumber* first_seq)>;
 
 // WAL manager provides the abstraction for reading the WAL files as a single
 // unit. Internally, it opens and reads the files using Reader or Writer
@@ -59,7 +77,7 @@ class WalManager {
                          std::unique_ptr<WalIterator>* iter,
                          const WalIterator::ReadOptions& read_options,
                          VersionSet* version_set,
-                         NextLiveWalFn next_live_wal_fn = nullptr);
+                         NextWalForTailFn next_wal_for_tail_fn = nullptr);
 
   void PurgeObsoleteWALFiles();
 
@@ -69,9 +87,23 @@ class WalManager {
 
   Status GetLiveWalFile(uint64_t number, std::unique_ptr<WalFile>* log_file);
 
-  // Opens the WAL identified by wal_number and returns its WalFile and first
-  // sequence number for the tail-rotation path. Returns TryAgain if the WAL
-  // cannot be opened (purged/archived) or is empty (no user records).
+  // Describes the live WAL `wal_number` for a tailing reader: on success sets
+  // *next_wal and *first_seq to the sequence number of its first record, so
+  // that the reader can check continuity before opening it. Suitable as the
+  // back end of a NextWalForTailFn.
+  //
+  // Error policy. Races that are ordinary in a running DB are reported as
+  // TryAgain, which tells the reader to stop rather than that something is
+  // wrong:
+  //   * the WAL is no longer in the DB directory (purged, archived, or
+  //     recycled since the caller picked it out)
+  //   * the WAL is present but has no readable record yet -- it is empty, its
+  //     first record is still buffered (manual_wal_flush), or all it contains
+  //     is stale bytes from a previous incarnation of a recycled file
+  // Everything else -- I/O errors, and corruption in a WAL that is present --
+  // is propagated unchanged. Folding those into TryAgain would tell the caller
+  // to retry forever against a problem that retrying cannot fix, and would
+  // hide it from anyone watching for real errors.
   Status PrepareWalForTail(uint64_t wal_number,
                            std::unique_ptr<WalFile>* next_wal,
                            SequenceNumber* first_seq);

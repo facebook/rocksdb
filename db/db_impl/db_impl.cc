@@ -5430,22 +5430,38 @@ void DBImpl::ReleaseOptionsFileNumber(
 }
 
 Status DBImpl::FindNextLiveWalForTail(uint64_t last_wal_number,
-                                      std::unique_ptr<WalFile>* out,
+                                      std::unique_ptr<WalFile>* next_wal,
                                       SequenceNumber* first_seq) {
   uint64_t next = 0;
   {
+    // mutex_ alone is enough to read alive_wal_files_ here. Per the contract on
+    // that member, it is never mutated without mutex_ held: FindObsoleteFiles()
+    // pop_front()s with both mutex_ and wal_write_mutex_ held, SwitchMemtable()
+    // push_back()s with both held, and the push_back()s during Open() hold only
+    // mutex_ -- which is still exclusive against a reader that holds mutex_.
+    // The readers that make do with wal_write_mutex_ alone do so because they
+    // run in the write path and cannot take mutex_ cheaply; that does not apply
+    // to us.
     InstrumentedMutexLock l(&mutex_);
-    for (const auto& wal : alive_wal_files_) {
-      if (wal.number > last_wal_number) {
-        next = wal.number;
-        break;
-      }
+    // The deque is sorted by WAL number, and this runs under the DB mutex, so
+    // binary search rather than scan.
+    auto it = std::upper_bound(
+        alive_wal_files_.begin(), alive_wal_files_.end(), last_wal_number,
+        [](uint64_t number, const WalFileNumberSize& wal) {
+          return number < wal.number;
+        });
+    if (it != alive_wal_files_.end()) {
+      next = it->number;
     }
   }
   if (next == 0) {
     return Status::TryAgain("No newer live WAL found");
   }
-  return wal_manager_.PrepareWalForTail(next, out, first_seq);
+  // Deliberately outside the mutex: PrepareWalForTail() does file I/O, and the
+  // WAL number we picked is all it needs. If that WAL stops being live in the
+  // meantime, PrepareWalForTail() reports TryAgain, which is the same answer we
+  // would have given had we noticed first.
+  return wal_manager_.PrepareWalForTail(next, next_wal, first_seq);
 }
 
 Status DBImpl::GetUpdatesSince(SequenceNumber seq,
@@ -5460,16 +5476,16 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }
-  NextLiveWalFn next_live_wal_fn = nullptr;
+  NextWalForTailFn next_wal_for_tail_fn = nullptr;
   if (immutable_db_options_.wal_iterator_tail_rotations) {
-    next_live_wal_fn = [this](uint64_t last_wal_number,
-                              std::unique_ptr<WalFile>* out,
-                              SequenceNumber* first_seq) {
-      return FindNextLiveWalForTail(last_wal_number, out, first_seq);
+    next_wal_for_tail_fn = [this](uint64_t last_wal_number,
+                                  std::unique_ptr<WalFile>* next_wal,
+                                  SequenceNumber* first_seq) {
+      return FindNextLiveWalForTail(last_wal_number, next_wal, first_seq);
     };
   }
   return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get(),
-                                      std::move(next_live_wal_fn));
+                                      std::move(next_wal_for_tail_fn));
 }
 
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,

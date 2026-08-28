@@ -19,42 +19,62 @@
 
 /* Transaction */
 
-void rocksdb_transaction_put(rocksdb_transaction_t* txn, const char* key,
-                             size_t klen, const char* val, size_t vlen,
-                             char** errptr) {
+void rocksdb_transaction_put(
+    rocksdb_transaction_t* txn,
+    const char* key,
+    size_t klen,
+    const char* val,
+    size_t vlen,
+    char** errptr) {
   SaveError(errptr, txn->rep->Put(Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transaction_put_cf(rocksdb_transaction_t* txn,
-                                rocksdb_column_family_handle_t* column_family,
-                                const char* key, size_t klen, const char* val,
-                                size_t vlen, char** errptr) {
-  SaveError(errptr, txn->rep->Put(column_family->rep, Slice(key, klen),
-                                  Slice(val, vlen)));
+void rocksdb_transaction_put_cf(
+    rocksdb_transaction_t* txn,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key,
+    size_t klen,
+    const char* val,
+    size_t vlen,
+    char** errptr) {
+  SaveError(errptr, txn->rep->Put(column_family->rep, Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transaction_merge(rocksdb_transaction_t* txn, const char* key,
-                               size_t klen, const char* val, size_t vlen,
-                               char** errptr) {
+void rocksdb_transaction_merge(
+    rocksdb_transaction_t* txn,
+    const char* key,
+    size_t klen,
+    const char* val,
+    size_t vlen,
+    char** errptr) {
   SaveError(errptr, txn->rep->Merge(Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transaction_merge_cf(rocksdb_transaction_t* txn,
-                                  rocksdb_column_family_handle_t* column_family,
-                                  const char* key, size_t klen, const char* val,
-                                  size_t vlen, char** errptr) {
-  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen),
-                                    Slice(val, vlen)));
+void rocksdb_transaction_merge_cf(
+    rocksdb_transaction_t* txn,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key,
+    size_t klen,
+    const char* val,
+    size_t vlen,
+    char** errptr) {
+  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen), Slice(val, vlen)));
 }
 
-void rocksdb_transaction_delete(rocksdb_transaction_t* txn, const char* key,
-                                size_t klen, char** errptr) {
+void rocksdb_transaction_delete(
+    rocksdb_transaction_t* txn,
+    const char* key,
+    size_t klen,
+    char** errptr) {
   SaveError(errptr, txn->rep->Delete(Slice(key, klen)));
 }
 
 void rocksdb_transaction_delete_cf(
-    rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
-    const char* key, size_t klen, char** errptr) {
+    rocksdb_transaction_t* txn,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key,
+    size_t klen,
+    char** errptr) {
   SaveError(errptr, txn->rep->Delete(column_family->rep, Slice(key, klen)));
 }
 
@@ -66,8 +86,10 @@ void rocksdb_transaction_rollback(rocksdb_transaction_t* txn, char** errptr) {
   SaveError(errptr, txn->rep->Rollback());
 }
 
-void rocksdb_transaction_put_log_data(rocksdb_transaction_t* txn,
-                                      const char* blob, size_t len) {
+void rocksdb_transaction_put_log_data(
+    rocksdb_transaction_t* txn,
+    const char* blob,
+    size_t len) {
   txn->rep->PutLogData(Slice(blob, len));
 }
 
@@ -75,7 +97,8 @@ void rocksdb_transaction_set_savepoint(rocksdb_transaction_t* txn) {
   txn->rep->SetSavePoint();
 }
 
-void rocksdb_transaction_rollback_to_savepoint(rocksdb_transaction_t* txn,
-                                               char** errptr) {
+void rocksdb_transaction_rollback_to_savepoint(
+    rocksdb_transaction_t* txn,
+    char** errptr) {
   SaveError(errptr, txn->rep->RollbackToSavePoint());
 }

@@ -1589,18 +1589,36 @@ struct DBOptions {
   // a temporary kill switch, it is already DEPRECATED.
   bool background_close_inactive_wals = false;
 
-  // If true, the WalIterator returned by GetUpdatesSince will
-  // attempt to seamlessly continue iterating into the next available WAL file
-  // instead of immediately returning Status::TryAgain. When the iterator
-  // reaches EOF and detects that the database sequence has advanced (indicating
-  // a WAL rotation), it will open the next WAL and validate that its first
-  // sequence number continues exactly where the previous WAL left off. If
-  // validation succeeds, iteration continues without the caller needing to
-  // recreate the iterator. If validation fails (sequence gap, WAL purged, or
-  // new WAL empty), Status::TryAgain is returned so that the caller can fall
-  // back to a fresh GetUpdatesSince(seq) call.
+  // Set to true so that a WalIterator (see DB::GetUpdatesSince()) continues a
+  // run wherever it can correctly do so, instead of ending the run as soon as
+  // its snapshot of the WAL files is out of date. A consumer tailing a DB that
+  // keeps up can then stay on one iterator across WAL rotations, instead of
+  // rebuilding one -- and rescanning the WAL to find its place -- every time
+  // the DB rotates.
   //
-  // Default: false (existing behavior preserved -- TryAgain on every rotation).
+  // Currently the iterator does this by asking for the immediate successor
+  // among the live WALs and checking that its first record continues exactly
+  // where the previous one left off; when it cannot verify that, it ends the
+  // run with Status::TryAgain as before and the caller rebuilds. That is the
+  // current implementation, not the promise: the set of cases the iterator can
+  // correctly continue through is expected to grow (for example by consulting
+  // the WAL archive), and such improvements belong under this same option.
+  //
+  // A DB that uses WriteOptions::disableWAL or IngestExternalFile() cannot
+  // benefit, because those advance the sequence number without writing a WAL
+  // record. The resulting hole in the sequence numbers either ends the run
+  // before the iterator gets this far (Status::NotFound, when the hole is
+  // mid-file) or is exactly what the continuity check declines (when the hole
+  // is at the tail), so such a consumer still rebuilds.
+  //
+  // This exists to stage the rollout of the new behavior: turn it back off if
+  // you hit a bug in it, not as a durable tuning choice. The default is
+  // expected to become true in a future release, after which the option is
+  // expected to be removed. As this is intended as a temporary kill switch, it
+  // is already DEPRECATED.
+  //
+  // Default: false
+  // Immutable.
   bool wal_iterator_tail_rotations = false;
 
   // If true, RocksDB supports flushing multiple column families and committing

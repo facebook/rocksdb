@@ -40,22 +40,21 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionjobinfo_output_records(
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionjobinfo_total_input_bytes(
     const rocksdb_compactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_compactionjobinfo_total_output_bytes(
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionjobinfo_total_output_bytes(
     const rocksdb_compactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API size_t rocksdb_compactionjobinfo_num_input_files(
     const rocksdb_compactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API size_t
-rocksdb_compactionjobinfo_num_input_files_at_output_level(
+extern ROCKSDB_LIBRARY_API size_t rocksdb_compactionjobinfo_num_input_files_at_output_level(
     const rocksdb_compactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writestallinfo_cf_name(
-    const rocksdb_writestallinfo_t* info, size_t* size);
+    const rocksdb_writestallinfo_t* info,
+    size_t* size);
 
-extern ROCKSDB_LIBRARY_API const rocksdb_writestallcondition_t*
-rocksdb_writestallinfo_cur(const rocksdb_writestallinfo_t* info);
+extern ROCKSDB_LIBRARY_API const rocksdb_writestallcondition_t* rocksdb_writestallinfo_cur(
+    const rocksdb_writestallinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API const rocksdb_writestallcondition_t*
-rocksdb_writestallinfo_prev(const rocksdb_writestallinfo_t* info);
+extern ROCKSDB_LIBRARY_API const rocksdb_writestallcondition_t* rocksdb_writestallinfo_prev(
+    const rocksdb_writestallinfo_t* info);

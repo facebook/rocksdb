@@ -20,7 +20,8 @@
 /* Options simple */
 
 void rocksdb_options_set_compression_options_zstd_max_train_bytes(
-    rocksdb_options_t* opt, int zstd_max_train_bytes) {
+    rocksdb_options_t* opt,
+    int zstd_max_train_bytes) {
   opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
 }
 
@@ -30,7 +31,8 @@ int rocksdb_options_get_compression_options_zstd_max_train_bytes(
 }
 
 void rocksdb_options_set_compression_options_use_zstd_dict_trainer(
-    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer) {
+    rocksdb_options_t* opt,
+    unsigned char use_zstd_dict_trainer) {
   opt->rep.compression_opts.use_zstd_dict_trainer = use_zstd_dict_trainer;
 }
 
@@ -40,7 +42,8 @@ unsigned char rocksdb_options_get_compression_options_use_zstd_dict_trainer(
 }
 
 void rocksdb_options_set_compression_options_parallel_threads(
-    rocksdb_options_t* opt, int value) {
+    rocksdb_options_t* opt,
+    int value) {
   opt->rep.compression_opts.parallel_threads = value;
 }
 
@@ -50,7 +53,8 @@ int rocksdb_options_get_compression_options_parallel_threads(
 }
 
 void rocksdb_options_set_compression_options_max_dict_buffer_bytes(
-    rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes) {
+    rocksdb_options_t* opt,
+    uint64_t max_dict_buffer_bytes) {
   opt->rep.compression_opts.max_dict_buffer_bytes = max_dict_buffer_bytes;
 }
 
@@ -59,8 +63,7 @@ uint64_t rocksdb_options_get_compression_options_max_dict_buffer_bytes(
   return opt->rep.compression_opts.max_dict_buffer_bytes;
 }
 
-unsigned char
-rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
+unsigned char rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
     rocksdb_options_t* opt) {
   return opt->rep.bottommost_compression_opts.use_zstd_dict_trainer;
 }
@@ -73,13 +76,15 @@ int rocksdb_options_get_use_fsync(rocksdb_options_t* opt) {
   return opt->rep.use_fsync;
 }
 
-void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t* opt,
-                                                  int disable) {
+void rocksdb_options_set_disable_auto_compactions(
+    rocksdb_options_t* opt,
+    int disable) {
   opt->rep.disable_auto_compactions = disable;
 }
 
-void rocksdb_options_set_optimize_filters_for_hits(rocksdb_options_t* opt,
-                                                   int v) {
+void rocksdb_options_set_optimize_filters_for_hits(
+    rocksdb_options_t* opt,
+    int v) {
   opt->rep.optimize_filters_for_hits = v;
 }
 
