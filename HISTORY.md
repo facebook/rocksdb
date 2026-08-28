@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 11.10.0 (08/27/2026)
+## 11.10.0 (08/28/2026)
 ### New Features
 * Added `BlockBasedTableOptions::optimize_key_common_prefix` as part of new `format_version=8`. When enabled, each data block and index block stores the common user-key prefix of its keys once instead of at every restart point, reducing block size and block-cache footprint for prefix-heavy data and speeding up Seek for bytewise-ordered keys.
 * A new experimental feature spreads out periodic (time-based) compaction trigger times across a fleet of similarly-configured DBs to avoid recurring "thundering herd" triggers, especially with remote compaction. See the new experimental DB option `periodic_compaction_phase_recovery_percent`.
@@ -22,7 +22,6 @@
 
 ### Performance Improvements
 * Improved compaction CPU efficiency for column families using an `SstPartitioner` (such as the built-in `SstPartitionerFixedPrefix`): when the partitioner can express its next boundary as a key prefix via the new `SstPartitioner::ShouldPartitionByPrefix()` API, compaction now checks that cached prefix inline instead of copying every user key and making a virtual `ShouldPartition()` call for each key-value written to an SST.
-
 
 ## 11.9.0 (08/14/2026)
 ### New Features
