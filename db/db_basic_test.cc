@@ -21,6 +21,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
@@ -356,10 +357,11 @@ TEST_F(DBBasicTest,
 }
 
 TEST_F(DBBasicTest,
-       OptimizeManifestForRecoveryIgnoresOptionsFilesForNextFileNumber) {
+       OptimizeManifestForRecoveryKeepsCurrentOptionsFileWithStaleOptions) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.optimize_manifest_for_recovery = true;
+  options.avoid_unnecessary_blocking_io = false;
   DestroyAndReopen(options);
   ASSERT_OK(Put("k", "v"));
   ASSERT_OK(Flush());
@@ -368,20 +370,28 @@ TEST_F(DBBasicTest,
       dbfull()->GetVersionSet()->current_next_file_number();
   Close();
 
-  const uint64_t options_number = next_before_close + 100;
-  ASSERT_OK(WriteStringToFile(env_, "" /*data*/,
-                              dbname_ + "/" + OptionsFileName(options_number),
-                              /*should_sync=*/true));
-  ASSERT_OK(WriteStringToFile(env_, "" /*data*/,
-                              TempOptionsFileName(dbname_, options_number + 1),
-                              /*should_sync=*/true));
+  const uint64_t stale_options_number = next_before_close + 100;
+  ASSERT_OK(WriteStringToFile(
+      env_, "" /*data*/, dbname_ + "/" + OptionsFileName(stale_options_number),
+      /*should_sync=*/true));
+  ASSERT_OK(WriteStringToFile(
+      env_, "" /*data*/,
+      dbname_ + "/" + OptionsFileName(stale_options_number + 1),
+      /*should_sync=*/true));
 
-  RecoveryOptimizationCounters counters;
-  counters.Install();
   Reopen(options);
-  counters.Uninstall();
+  const uint64_t current_options_number =
+      dbfull()->GetVersionSet()->options_file_number();
+  ASSERT_GT(current_options_number, 0u);
+  ASSERT_OK(env_->FileExists(OptionsFileName(dbname_, current_options_number)));
 
-  ASSERT_EQ(1, counters.next_file_number.load());
+  const std::string checkpoint_dir = dbname_ + "_checkpoint";
+  ASSERT_OK(DestroyDir(env_, checkpoint_dir));
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> checkpoint_guard(checkpoint);
+  ASSERT_OK(checkpoint_guard->CreateCheckpoint(checkpoint_dir));
+  ASSERT_OK(DestroyDir(env_, checkpoint_dir));
   ASSERT_EQ("v", Get("k"));
 }
 

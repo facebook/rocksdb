@@ -5732,9 +5732,7 @@ void StressTest::RecordManifestStateBeforeReopen() {
   if (reuse_manifest && optimize_manifest) {
     // Check if ALL conditions for complete avoidance are met.
     // If so, use STRICT mode where failures are fatal.
-    const bool no_fault_injection = !NeedsFaultInjection();
     const bool no_manifest_writes_expected =
-        no_fault_injection &&
         FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
         !FLAGS_write_dbid_to_manifest;        // No DB_ID write on open
     // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
