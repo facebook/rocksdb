@@ -587,8 +587,7 @@ default_params = {
     "track_and_verify_wals": lambda: random.choice([0]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
-    # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
-    "remote_compaction_failure_fall_back_to_local": 1,
+    "remote_compaction_failure_fall_back_to_local": lambda: random.choice([0, 1]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),

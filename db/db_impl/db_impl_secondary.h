@@ -420,7 +420,8 @@ class DBImplSecondary : public DBImpl {
   };
 
   Status InitializeCompactionWorkspace(
-      bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+      bool allow_resumption, bool resumption_requested,
+      std::unique_ptr<FSDirectory>* output_dir,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
   Status PrepareCompactionProgressState();
