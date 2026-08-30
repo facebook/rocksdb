@@ -2542,9 +2542,13 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
       values[i] = PinnableSlice();
     }
 
+    get_perf_context()->Reset();
+    const PerfLevel previous_perf_level = GetPerfLevel();
+    SetPerfLevel(PerfLevel::kEnableTime);
     db_->MultiGet(ropts, Q, column_families.data(), key_slices.data(),
                   values.data(),
                   /*timestamps=*/nullptr, statuses.data(), true);
+    SetPerfLevel(previous_perf_level);
 
     // Confirm correct status results
     uint32_t number_not_found = 0;
@@ -2574,6 +2578,8 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
     // Confirm no duplicate loading same filter partition
     uint64_t filter_accesses = PopTicker(options, BLOCK_CACHE_FILTER_HIT) +
                                PopTicker(options, BLOCK_CACHE_FILTER_MISS);
+    // Partition reads must contribute to the filter-block timing metric.
+    EXPECT_GT(get_perf_context()->read_filter_block_nanos, 0);
     if (stride == 1) {
       EXPECT_EQ(filter_accesses, 1);
     } else {
