@@ -73,6 +73,61 @@ folly::coro::Task<Status> CoroDB::CoGet(DB* db, const ReadOptions& options,
   return CoGet(db, options, db->DefaultColumnFamily(), key, value, timestamp);
 }
 
+folly::coro::Task<Status> CoroDB::CoGetEntity(DB* db,
+                                              const ReadOptions& options,
+                                              ColumnFamilyHandle* column_family,
+                                              const Slice& key,
+                                              PinnableWideColumns* columns) {
+  assert(db != nullptr);
+  CoroDB* coro_db = db->GetCoroDB();
+  auto* file_system = db->GetFileSystem();
+  auto* read_executor =
+      file_system == nullptr ? nullptr : file_system->GetReadExecutor();
+  auto* read_event_base =
+      read_executor == nullptr ? nullptr : read_executor->getEventBase();
+
+  Status status;
+  if (coro_db == nullptr || read_event_base == nullptr) {
+    status = db->GetEntity(options, column_family, key, columns);
+  } else {
+    status = co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base),
+        coro_db->GetEntityCoroutine(options, column_family, key, columns)));
+  }
+  co_return status;
+}
+
+folly::coro::Task<Status> CoroDB::CoGetEntity(DB* db,
+                                              const ReadOptions& options,
+                                              const Slice& key,
+                                              PinnableWideColumns* columns) {
+  assert(db != nullptr);
+  return CoGetEntity(db, options, db->DefaultColumnFamily(), key, columns);
+}
+
+folly::coro::Task<Status> CoroDB::CoGetEntity(DB* db,
+                                              const ReadOptions& options,
+                                              const Slice& key,
+                                              PinnableAttributeGroups* result) {
+  assert(db != nullptr);
+  CoroDB* coro_db = db->GetCoroDB();
+  auto* file_system = db->GetFileSystem();
+  auto* read_executor =
+      file_system == nullptr ? nullptr : file_system->GetReadExecutor();
+  auto* read_event_base =
+      read_executor == nullptr ? nullptr : read_executor->getEventBase();
+
+  Status status;
+  if (coro_db == nullptr || read_event_base == nullptr) {
+    status = db->GetEntity(options, key, result);
+  } else {
+    status = co_await folly::coro::co_nothrow(folly::coro::co_withExecutor(
+        folly::Executor::getKeepAliveToken(read_event_base),
+        coro_db->GetEntityCoroutine(options, key, result)));
+  }
+  co_return status;
+}
+
 folly::coro::Task<std::vector<Status>> CoroDB::CoMultiGet(
     DB* db, const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_families,

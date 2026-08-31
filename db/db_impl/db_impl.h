@@ -291,11 +291,15 @@ class DBImpl : public DB
                                   std::string* timestamp);
 
   using DB::GetEntity;
-  Status GetEntity(const ReadOptions& options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableWideColumns* columns) override;
-  Status GetEntity(const ReadOptions& options, const Slice& key,
-                   PinnableAttributeGroups* result) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetEntity,
+                                  const ReadOptions& _read_options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key,
+                                  PinnableWideColumns* columns);
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetEntity,
+                                  const ReadOptions& _read_options,
+                                  const Slice& key,
+                                  PinnableAttributeGroups* result);
 
   Status GetEntityLazy(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
