@@ -43,6 +43,22 @@ class CoroStackableDBBase : public Base, public CoroDB {
                                       values, timestamps, statuses,
                                       sorted_input);
   }
+
+  folly::coro::Task<Status> GetEntityCoroutine(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableWideColumns* columns) override {
+    CoroDB* coro_db = this->db_->GetCoroDB();
+    assert(coro_db != nullptr);
+    return coro_db->GetEntityCoroutine(options, column_family, key, columns);
+  }
+
+  folly::coro::Task<Status> GetEntityCoroutine(
+      const ReadOptions& options, const Slice& key,
+      PinnableAttributeGroups* result) override {
+    CoroDB* coro_db = this->db_->GetCoroDB();
+    assert(coro_db != nullptr);
+    return coro_db->GetEntityCoroutine(options, key, result);
+  }
 };
 
 using CoroStackableDB = CoroStackableDBBase<StackableDB>;

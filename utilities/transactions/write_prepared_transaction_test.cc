@@ -4371,6 +4371,196 @@ TEST_P(WritePreparedTransactionTest,
   }
 }
 
+namespace {
+// Two column families holding value1/cf2_value1, a prepared but uncommitted
+// transaction writing value2/cf2_value2 over them, and a snapshot taken above
+// the prepared sequence.
+struct PreparedEntityScenario {
+  ColumnFamilyHandle* cf2 = nullptr;
+  std::unique_ptr<Transaction> txn;
+  const Snapshot* snapshot = nullptr;
+  ReadOptions snapshot_read_options;
+
+  void TearDown(DB* db) {
+    txn.reset();  // References cf2, so it has to go before the handle.
+    db->ReleaseSnapshot(snapshot);
+    ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
+  }
+};
+
+void SetUpPreparedEntityScenario(TransactionDB* db, const Options& options,
+                                 PreparedEntityScenario* scenario) {
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options), "cf2",
+                                   &scenario->cf2));
+
+  WriteOptions write_options;
+  ASSERT_OK(db->Put(write_options, "key1", "value1"));
+  ASSERT_OK(db->Put(write_options, scenario->cf2, "key1", "cf2_value1"));
+
+  scenario->txn.reset(
+      db->BeginTransaction(write_options, TransactionOptions()));
+  ASSERT_NE(scenario->txn, nullptr);
+  ASSERT_OK(scenario->txn->SetName("prepared_txn"));
+  ASSERT_OK(scenario->txn->Put("key1", "value2"));
+  ASSERT_OK(scenario->txn->Put(scenario->cf2, "key1", "cf2_value2"));
+  ASSERT_OK(scenario->txn->Prepare());
+
+  // Publishes a sequence number above the prepared one. Without it the
+  // two_write_queues configurations leave the prepared sequence unpublished,
+  // hence above the snapshot, where a plain sequence check hides it anyway.
+  ASSERT_OK(db->Put(write_options, "unrelated_key", "unrelated_value"));
+
+  scenario->snapshot = db->GetSnapshot();
+  ASSERT_NE(scenario->snapshot, nullptr);
+  scenario->snapshot_read_options.snapshot = scenario->snapshot;
+}
+
+// Verifies `key` in both column families through both GetEntity overloads.
+void VerifyGetEntity(DB* db, const ReadOptions& read_options,
+                     ColumnFamilyHandle* cf2, const Slice& key,
+                     const std::string& expected_default,
+                     const std::string& expected_cf2) {
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(
+        db->GetEntity(read_options, db->DefaultColumnFamily(), key, &columns));
+    ASSERT_FALSE(columns.columns().empty());
+    ASSERT_EQ(columns.columns()[0].value().ToString(), expected_default);
+  }
+
+  PinnableAttributeGroups result;
+  result.emplace_back(db->DefaultColumnFamily());
+  result.emplace_back(cf2);
+  ASSERT_OK(db->GetEntity(read_options, key, &result));
+  // Read both statuses before asserting on values, so that a mismatch fails
+  // the test instead of aborting an ASSERT_STATUS_CHECKED build.
+  ASSERT_OK(result[0].status());
+  ASSERT_OK(result[1].status());
+  ASSERT_FALSE(result[0].columns().empty());
+  ASSERT_EQ(result[0].columns()[0].value().ToString(), expected_default);
+  ASSERT_FALSE(result[1].columns().empty());
+  ASSERT_EQ(result[1].columns()[0].value().ToString(), expected_cf2);
+}
+
+#if USE_COROUTINES
+// Coroutine counterpart of VerifyGetEntity, covering the same two overrides.
+void CoVerifyGetEntity(DB* db, const ReadOptions& read_options,
+                       ColumnFamilyHandle* cf2, const Slice& key,
+                       const std::string& expected_default,
+                       const std::string& expected_cf2) {
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(folly::coro::blockingWait(CoroDB::CoGetEntity(
+        db, read_options, db->DefaultColumnFamily(), key, &columns)));
+    ASSERT_FALSE(columns.columns().empty());
+    ASSERT_EQ(columns.columns()[0].value().ToString(), expected_default);
+  }
+
+  PinnableAttributeGroups result;
+  result.emplace_back(db->DefaultColumnFamily());
+  result.emplace_back(cf2);
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGetEntity(db, read_options, key, &result)));
+  ASSERT_OK(result[0].status());
+  ASSERT_OK(result[1].status());
+  ASSERT_FALSE(result[0].columns().empty());
+  ASSERT_EQ(result[0].columns()[0].value().ToString(), expected_default);
+  ASSERT_FALSE(result[1].columns().empty());
+  ASSERT_EQ(result[1].columns()[0].value().ToString(), expected_cf2);
+}
+#endif  // USE_COROUTINES
+}  // namespace
+
+// GetEntity must not expose a prepared-but-uncommitted write. It sits below
+// the reader's snapshot, so only WritePreparedTxnReadCallback can hide it.
+TEST_P(WritePreparedTransactionTest, GetEntitySkipsPreparedUncommitted) {
+  PreparedEntityScenario scenario;
+  ASSERT_NO_FATAL_FAILURE(SetUpPreparedEntityScenario(db, options, &scenario));
+  ColumnFamilyHandle* cf2 = scenario.cf2;
+
+  {
+    SCOPED_TRACE("prepared, not yet committed");
+    VerifyGetEntity(db, scenario.snapshot_read_options, cf2, "key1", "value1",
+                    "cf2_value1");
+    VerifyGetEntity(db, ReadOptions(), cf2, "key1", "value1", "cf2_value1");
+  }
+
+  {
+    SCOPED_TRACE("null column family handle");
+    // A null handle fails the query without any column family being read.
+    PinnableAttributeGroups result;
+    result.emplace_back(db->DefaultColumnFamily());
+    result.emplace_back(nullptr);
+    Status s = db->GetEntity(scenario.snapshot_read_options, "key1", &result);
+    ASSERT_TRUE(s.IsInvalidArgument());
+    ASSERT_TRUE(result[1].status().IsInvalidArgument());
+    ASSERT_TRUE(result[0].status().IsIncomplete());
+  }
+
+  ASSERT_OK(scenario.txn->Commit());
+
+  {
+    SCOPED_TRACE("committed after the snapshot was taken");
+    VerifyGetEntity(db, scenario.snapshot_read_options, cf2, "key1", "value1",
+                    "cf2_value1");
+    VerifyGetEntity(db, ReadOptions(), cf2, "key1", "value2", "cf2_value2");
+  }
+
+  scenario.TearDown(db);
+}
+
+#if USE_COROUTINES
+TEST_P(WritePreparedTransactionTest, GetEntityCoroutine) {
+  options.env = Env::Default();
+  // CoroDB::CoGetEntity silently falls back to the synchronous DB API when the
+  // FileSystem exposes no read executor, and the executor is only created by
+  // SetReadIOExecutorThreads. Without this the test would pass while never
+  // entering GetEntityCoroutine.
+  options.env->GetFileSystem()->SetReadIOExecutorThreads(1);
+  if (options.env->GetFileSystem()->GetReadExecutor() == nullptr) {
+    ROCKSDB_GTEST_SKIP(
+        "FileSystem has no read executor; coroutine reads would fall back to "
+        "the synchronous path");
+    return;
+  }
+  ASSERT_OK(ReOpen());
+
+  ASSERT_NE(nullptr, db->GetCoroDB());
+  ASSERT_NE(nullptr, db->GetFileSystem()->GetReadExecutor());
+
+  PreparedEntityScenario scenario;
+  ASSERT_NO_FATAL_FAILURE(SetUpPreparedEntityScenario(db, options, &scenario));
+  ColumnFamilyHandle* cf2 = scenario.cf2;
+
+  // Each scenario runs through both the synchronous and the coroutine
+  // overrides, so the two are held to the same expectations under one env.
+  auto verify = [&](const ReadOptions& read_options,
+                    const std::string& expected_default,
+                    const std::string& expected_cf2) {
+    VerifyGetEntity(db, read_options, cf2, "key1", expected_default,
+                    expected_cf2);
+    CoVerifyGetEntity(db, read_options, cf2, "key1", expected_default,
+                      expected_cf2);
+  };
+
+  {
+    SCOPED_TRACE("prepared, not yet committed");
+    verify(scenario.snapshot_read_options, "value1", "cf2_value1");
+    verify(ReadOptions(), "value1", "cf2_value1");
+  }
+
+  ASSERT_OK(scenario.txn->Commit());
+
+  {
+    SCOPED_TRACE("committed after the snapshot was taken");
+    verify(scenario.snapshot_read_options, "value1", "cf2_value1");
+    verify(ReadOptions(), "value2", "cf2_value2");
+  }
+
+  scenario.TearDown(db);
+}
+#endif  // USE_COROUTINES
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

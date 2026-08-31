@@ -130,6 +130,20 @@ class CoroDB {
                       /*timestamps=*/nullptr, statuses, sorted_input);
   }
 
+  static folly::coro::Task<Status> CoGetEntity(
+      DB* db, const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableWideColumns* columns);
+
+  static folly::coro::Task<Status> CoGetEntity(DB* db,
+                                               const ReadOptions& options,
+                                               const Slice& key,
+                                               PinnableWideColumns* columns);
+
+  static folly::coro::Task<Status> CoGetEntity(DB* db,
+                                               const ReadOptions& options,
+                                               const Slice& key,
+                                               PinnableAttributeGroups* result);
+
  protected:
   friend class DB;
   template <typename Base>
@@ -148,6 +162,14 @@ class CoroDB {
       ColumnFamilyHandle** column_families, const Slice* keys,
       PinnableSlice* values, std::string* timestamps, Status* statuses,
       bool sorted_input) = 0;
+
+  virtual folly::coro::Task<Status> GetEntityCoroutine(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableWideColumns* columns) = 0;
+
+  virtual folly::coro::Task<Status> GetEntityCoroutine(
+      const ReadOptions& options, const Slice& key,
+      PinnableAttributeGroups* result) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
