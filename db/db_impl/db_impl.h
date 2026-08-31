@@ -1310,7 +1310,7 @@ class DBImpl : public DB
   // finishes. For example in CompactRange.
   Status TEST_AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& provided_candidate_cfds,
-      const FlushOptions& flush_opts, bool non_blocking_write_thread = false);
+      const FlushOptions& flush_opts, bool non_blocking_write_thread);
 
   void TEST_BeginWriteStall();
   void TEST_EndWriteStall();

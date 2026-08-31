@@ -84,6 +84,8 @@ const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
          DBStatInfo{WriteStallStatsMapKeys::CauseConditionCount(
              WriteStallCause::kWriteBufferManagerLimit,
              WriteStallCondition::kStopped)}},
+        {InternalStats::kIntStatsWriteBufferManagerStallMicros,
+         DBStatInfo{"db.write_buffer_manager_stall_micros"}},
 };
 
 namespace {
@@ -322,6 +324,14 @@ static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
 static const std::string estimate_oldest_key_time = "estimate-oldest-key-time";
+static const std::string write_buffer_manager_memory_usage =
+    "write-buffer-manager-memory-usage";
+static const std::string write_buffer_manager_mutable_memory_usage =
+    "write-buffer-manager-mutable-memory-usage";
+static const std::string write_buffer_manager_buffer_size =
+    "write-buffer-manager-buffer-size";
+static const std::string write_buffer_manager_stall_active =
+    "write-buffer-manager-stall-active";
 static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
@@ -436,6 +446,14 @@ const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
 const std::string DB::Properties::kEstimateOldestKeyTime =
     rocksdb_prefix + estimate_oldest_key_time;
+const std::string DB::Properties::kWriteBufferManagerMemoryUsage =
+    rocksdb_prefix + write_buffer_manager_memory_usage;
+const std::string DB::Properties::kWriteBufferManagerMutableMemoryUsage =
+    rocksdb_prefix + write_buffer_manager_mutable_memory_usage;
+const std::string DB::Properties::kWriteBufferManagerBufferSize =
+    rocksdb_prefix + write_buffer_manager_buffer_size;
+const std::string DB::Properties::kWriteBufferManagerStallActive =
+    rocksdb_prefix + write_buffer_manager_stall_active;
 const std::string DB::Properties::kBlockCacheCapacity =
     rocksdb_prefix + block_cache_capacity;
 const std::string DB::Properties::kBlockCacheUsage =
@@ -630,6 +648,19 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kEstimateOldestKeyTime,
          {false, nullptr, &InternalStats::HandleEstimateOldestKeyTime, nullptr,
           nullptr}},
+        {DB::Properties::kWriteBufferManagerMemoryUsage,
+         {false, nullptr, &InternalStats::HandleWriteBufferManagerMemoryUsage,
+          nullptr, nullptr}},
+        {DB::Properties::kWriteBufferManagerMutableMemoryUsage,
+         {false, nullptr,
+          &InternalStats::HandleWriteBufferManagerMutableMemoryUsage, nullptr,
+          nullptr}},
+        {DB::Properties::kWriteBufferManagerBufferSize,
+         {false, nullptr, &InternalStats::HandleWriteBufferManagerBufferSize,
+          nullptr, nullptr}},
+        {DB::Properties::kWriteBufferManagerStallActive,
+         {false, nullptr, &InternalStats::HandleWriteBufferManagerStallActive,
+          nullptr, nullptr}},
         {DB::Properties::kBlockCacheCapacity,
          {false, nullptr, &InternalStats::HandleBlockCacheCapacity, nullptr,
           nullptr}},
@@ -1586,6 +1617,53 @@ Cache* InternalStats::GetBlockCacheForStats() {
   assert(table_factory != nullptr);
   // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
   return table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+}
+
+WriteBufferManager* InternalStats::GetWriteBufferManagerForStats() {
+  return cfd_->ioptions().write_buffer_manager.get();
+}
+
+bool InternalStats::HandleWriteBufferManagerMemoryUsage(uint64_t* value,
+                                                        DBImpl* /*db*/,
+                                                        Version* /*version*/) {
+  WriteBufferManager* wbm = GetWriteBufferManagerForStats();
+  if (wbm) {
+    *value = static_cast<uint64_t>(wbm->memory_usage());
+    return true;
+  }
+  return false;
+}
+
+bool InternalStats::HandleWriteBufferManagerMutableMemoryUsage(
+    uint64_t* value, DBImpl* /*db*/, Version* /*version*/) {
+  WriteBufferManager* wbm = GetWriteBufferManagerForStats();
+  if (wbm) {
+    *value = static_cast<uint64_t>(wbm->mutable_memtable_memory_usage());
+    return true;
+  }
+  return false;
+}
+
+bool InternalStats::HandleWriteBufferManagerBufferSize(uint64_t* value,
+                                                       DBImpl* /*db*/,
+                                                       Version* /*version*/) {
+  WriteBufferManager* wbm = GetWriteBufferManagerForStats();
+  if (wbm) {
+    *value = static_cast<uint64_t>(wbm->buffer_size());
+    return true;
+  }
+  return false;
+}
+
+bool InternalStats::HandleWriteBufferManagerStallActive(uint64_t* value,
+                                                        DBImpl* /*db*/,
+                                                        Version* /*version*/) {
+  WriteBufferManager* wbm = GetWriteBufferManagerForStats();
+  if (wbm) {
+    *value = wbm->IsStallActive() ? 1 : 0;
+    return true;
+  }
+  return false;
 }
 
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,

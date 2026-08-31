@@ -1425,6 +1425,97 @@ TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsPicksAtomicFlushDB) {
   ASSERT_OK(DestroyDB(atomic_dbname, atomic_options));
 }
 
+// Verifies the DB properties that expose WriteBufferManager state. These report
+// the *shared* manager's totals, so they are the only way to observe a
+// WriteBufferManager spanning several DBs as a single entity.
+TEST_F(DBWriteBufferManagerTest, WriteBufferManagerProperties) {
+  constexpr uint64_t kBufferSize = 512 << 10;
+
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;
+  options.write_buffer_size = 64 << 20;  // never self-triggers a CF flush
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      kBufferSize, nullptr /* cache */, false /* allow_stall */);
+  DestroyAndReopen(options);
+
+  auto get = [&](const std::string& property) {
+    uint64_t value = 0;
+    EXPECT_TRUE(db_->GetIntProperty(property, &value));
+    return value;
+  };
+
+  EXPECT_EQ(kBufferSize, get(DB::Properties::kWriteBufferManagerBufferSize));
+  EXPECT_EQ(0u, get(DB::Properties::kWriteBufferManagerStallActive));
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), wo));
+
+  const uint64_t total = get(DB::Properties::kWriteBufferManagerMemoryUsage);
+  const uint64_t mutable_total =
+      get(DB::Properties::kWriteBufferManagerMutableMemoryUsage);
+  EXPECT_GE(total, 200u << 10);
+  // Nothing has been flushed, so all accounted memory is still mutable.
+  EXPECT_EQ(total, mutable_total);
+
+  // After sealing the memtable the bytes stay accounted (still resident) but
+  // are no longer mutable.
+  ASSERT_OK(static_cast_with_check<DBImpl>(db_.get())->TEST_SwitchMemtable());
+  EXPECT_LT(get(DB::Properties::kWriteBufferManagerMutableMemoryUsage),
+            mutable_total);
+}
+
+// A WriteBufferManager stall is not counted by STALL_MICROS (which covers only
+// WriteController stalls), so verify the dedicated counter records it.
+TEST_F(DBWriteBufferManagerTest, WriteBufferManagerStallMicros) {
+  constexpr int kBigValue = 10000;
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      1, nullptr /* cache */, true /* allow_stall */);
+  DestroyAndReopen(options);
+
+  // Pause the flush thread so the stall can only be ended by SetAllowStall()
+  // below, making the stall deterministic rather than racing a flush.
+  auto sleeping_task = std::make_unique<test::SleepingBackgroundTask>();
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  ASSERT_EQ(
+      0, options.statistics->getTickerCount(WRITE_BUFFER_MANAGER_STALL_MICROS));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"WBMStallInterface::BlockDB",
+        "DBWriteBufferManagerTest::WriteBufferManagerStallMicros:Unstall"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread writer([&] { ASSERT_OK(Put(Key(0), DummyString(kBigValue))); });
+  port::Thread unstaller([&] {
+    TEST_SYNC_POINT(
+        "DBWriteBufferManagerTest::WriteBufferManagerStallMicros:Unstall");
+    options.write_buffer_manager->SetAllowStall(false);
+  });
+  writer.join();
+  unstaller.join();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // The writer above provably blocked in WBMStallInterface::Block(), so the
+  // stall must have been measured and attributed.
+  EXPECT_GT(
+      options.statistics->getTickerCount(WRITE_BUFFER_MANAGER_STALL_MICROS), 0);
+  std::map<std::string, std::string> db_stats;
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+  EXPECT_GT(std::stoull(db_stats["db.write_buffer_manager_stall_micros"]), 0u);
+
+  sleeping_task->WakeUp();
+  sleeping_task->WaitUntilDone();
+}
+
 TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
   constexpr int kBigValue = 10000;
 

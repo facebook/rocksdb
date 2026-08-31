@@ -1599,6 +1599,30 @@ class DB {
     //      residing in block cache.
     static const std::string kBlockCacheUsage;
 
+    //  "rocksdb.write-buffer-manager-memory-usage" - returns the total memory
+    //      the WriteBufferManager is accounting for, across every DB sharing
+    //      it. This includes memtables that are being flushed but whose memory
+    //      has not been released yet. Returns 0 if no WriteBufferManager is
+    //      configured.
+    static const std::string kWriteBufferManagerMemoryUsage;
+
+    //  "rocksdb.write-buffer-manager-mutable-memory-usage" - returns the
+    //      portion of the above held by mutable memtables, i.e. the memory a
+    //      flush could still be triggered against. The difference between this
+    //      and kWriteBufferManagerMemoryUsage is memory pinned by in-flight
+    //      flushes. Returns 0 if no WriteBufferManager is configured.
+    static const std::string kWriteBufferManagerMutableMemoryUsage;
+
+    //  "rocksdb.write-buffer-manager-buffer-size" - returns the
+    //      WriteBufferManager's current budget. Flushes are triggered at 7/8 of
+    //      it and, when allow_stall is set, writes stall at it. Returns 0 if no
+    //      WriteBufferManager is configured or it is disabled.
+    static const std::string kWriteBufferManagerBufferSize;
+
+    //  "rocksdb.write-buffer-manager-stall-active" - returns 1 if the
+    //      WriteBufferManager is currently stalling writes, otherwise 0.
+    static const std::string kWriteBufferManagerStallActive;
+
     // "rocksdb.block-cache-pinned-usage" - returns the memory size for the
     //      entries being pinned.
     static const std::string kBlockCachePinnedUsage;
@@ -1702,6 +1726,10 @@ class DB {
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"
   //  "rocksdb.block-cache-pinned-usage"
+  //  "rocksdb.write-buffer-manager-memory-usage"
+  //  "rocksdb.write-buffer-manager-mutable-memory-usage"
+  //  "rocksdb.write-buffer-manager-buffer-size"
+  //  "rocksdb.write-buffer-manager-stall-active"
   //
   //  Properties dedicated for BlobDB:
   //  "rocksdb.num-blob-files"

@@ -4133,6 +4133,26 @@ void DBImpl::BackgroundCallWBMFlush() {
 
   // The WBM job remains tracked until the resulting flush is scheduled.
   if (has_flushable_cf) {
+    // cfd_to_flush is only set on the non-atomic path; an atomic flush covers
+    // every eligible column family, so there is no single one to name.
+    if (atomic_flush) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Atomically flushing all column families on behalf of a shared "
+          "WriteBufferManager. Write buffer is using %" ROCKSDB_PRIszt
+          " bytes out of a total of %" ROCKSDB_PRIszt ".",
+          write_buffer_manager_->memory_usage(),
+          write_buffer_manager_->buffer_size());
+    } else {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "[%s] Flushing largest column family on behalf of a shared "
+          "WriteBufferManager. Write buffer is using %" ROCKSDB_PRIszt
+          " bytes out of a total of %" ROCKSDB_PRIszt ".",
+          cfd_to_flush->GetName().c_str(),
+          write_buffer_manager_->memory_usage(),
+          write_buffer_manager_->buffer_size());
+    }
     FlushOptions flush_options;
     flush_options.wait = false;
     flush_options.allow_write_stall = true;

@@ -2934,10 +2934,18 @@ void DBImpl::WriteBufferManagerStallWrites() {
       ->SetState(WBMStallInterface::State::BLOCKED);
   // Then WriteBufferManager will add DB instance to its queue
   // and block this thread by calling WBMStallInterface::Block().
+  const uint64_t stall_start = immutable_db_options_.clock->NowMicros();
   write_buffer_manager_->BeginWriteStall(wbm_stall_.get());
   wbm_stall_->Block();
+  const uint64_t stall_micros =
+      immutable_db_options_.clock->NowMicros() - stall_start;
+  // Recorded separately from STALL_MICROS, which covers only WriteController
+  // (CF-scope) stalls, so the two remain individually attributable.
+  RecordTick(stats_, WRITE_BUFFER_MANAGER_STALL_MICROS, stall_micros);
 
   mutex_.Lock();
+  default_cf_internal_stats_->AddDBStats(
+      InternalStats::kIntStatsWriteBufferManagerStallMicros, stall_micros);
   // Stall has ended. Signal writer threads so that they can add
   // themselves to the WriteThread queue for writes.
   write_thread_.EndWriteStall();
