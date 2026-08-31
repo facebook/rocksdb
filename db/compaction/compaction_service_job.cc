@@ -1085,9 +1085,19 @@ Status CompactionServiceInput::Read(const std::string& data_str,
     ConfigOptions cf;
     cf.invoke_prepare_options = false;
     cf.ignore_unknown_options = true;
-    return OptionTypeInfo::ParseType(
+    Status s = OptionTypeInfo::ParseType(
         cf, data_str.substr(sizeof(BinaryFormatVersion)), cs_input_type_info,
         obj);
+    if (!s.ok()) {
+      return s;
+    }
+    for (size_t i = 1; i < obj->snapshots.size(); ++i) {
+      if (obj->snapshots[i - 1] >= obj->snapshots[i]) {
+        return Status::InvalidArgument(
+            "CompactionServiceInput snapshots must be strictly increasing");
+      }
+    }
+    return Status::OK();
   } else {
     return Status::NotSupported(
         "Compaction Service Input data version not supported: " +
