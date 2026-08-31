@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "db/write_thread.h"
 #include "port/stack_trace.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -843,6 +844,585 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   ASSERT_OK(shared_wbm_db->Close());
   ASSERT_OK(DestroyDB(dbname, options));
   shared_wbm_db.reset();
+}
+
+// kFlushLargest must select by mutable memory rather than creation order.
+// Not supported in LITE mode because GetProperty() is unavailable.
+TEST_P(DBWriteBufferManagerTest, FlushLargestMemtablePolicy) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  cost_cache_ = GetParam();
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargest);
+
+  CreateAndReopenWithCF({"cf1", "cf2"}, options);
+
+  // Block the flush background thread so switched memtables stay pending and
+  // remain observable via the num-immutable-mem-table property.
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
+
+  // Make cf1 the largest mutable memtable while keeping the total under the WBM
+  // limit (512KB * 7/8 = 448KB) so no flush is triggered yet.
+  ASSERT_OK(
+      Put(0 /* default */, Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_OK(Put(1 /* cf1 */, Key(1), DummyString(300 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // This write crosses the WBM limit and triggers a flush. Even though it
+  // targets cf2, kFlushLargest must pick cf1, the largest memtable.
+  ASSERT_OK(Put(2 /* cf2 */, Key(1), DummyString(1), WriteOptions()));
+
+  auto num_immutable = [&](int cf) {
+    std::string prop;
+    EXPECT_TRUE(db_->GetProperty(handles_[cf],
+                                 "rocksdb.num-immutable-mem-table", &prop));
+    return prop;
+  };
+  EXPECT_EQ("1", num_immutable(1));  // cf1 (largest) was flushed
+  EXPECT_EQ("0", num_immutable(0));  // default was not
+  EXPECT_EQ("0", num_immutable(2));  // cf2 was not
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+}
+
+namespace {
+// Records which DB instances have completed a flush, so a test can wait for and
+// assert on cross-DB flush behavior deterministically.
+class FlushedDBRecorder : public EventListener {
+ public:
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    InstrumentedMutexLock l(&mu_);
+    flushed_.insert(db);
+    cf_flushes_[db].insert(info.cf_name);
+    cv_.SignalAll();
+  }
+  void WaitForFlush(DB* db) {
+    InstrumentedMutexLock l(&mu_);
+    while (flushed_.find(db) == flushed_.end()) {
+      cv_.Wait();
+    }
+  }
+  // Waits until `db` has flushed at least `n` distinct column families.
+  void WaitForColumnFamilies(DB* db, size_t n) {
+    InstrumentedMutexLock l(&mu_);
+    while (cf_flushes_[db].size() < n) {
+      cv_.Wait();
+    }
+  }
+  bool HasFlushed(DB* db) {
+    InstrumentedMutexLock l(&mu_);
+    return flushed_.find(db) != flushed_.end();
+  }
+  void Reset() {
+    InstrumentedMutexLock l(&mu_);
+    flushed_.clear();
+    cf_flushes_.clear();
+  }
+
+ private:
+  InstrumentedMutex mu_;
+  InstrumentedCondVar cv_{&mu_};
+  std::set<DB*> flushed_;
+  std::map<DB*, std::set<std::string>> cf_flushes_;
+};
+}  // anonymous namespace
+
+// A write on a smaller DB must flush the largest DB sharing the WBM.
+// Not supported in LITE mode because GetProperty() is unavailable.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsPolicy) {
+  auto recorder = std::make_shared<FlushedDBRecorder>();
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  options.listeners.push_back(recorder);
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  cost_cache_ = GetParam();
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  Reopen(options);
+  std::string other_dbname = test::PerThreadDBPath("wbm_across_dbs_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // Ignore any flush that may have happened during open/setup.
+  recorder->Reset();
+
+  // This crossing write targets db_, but kFlushLargestAcrossDBs must flush
+  // other_db (the larger one) instead, and db_ must defer.
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  recorder->WaitForFlush(other_db.get());
+  EXPECT_FALSE(recorder->HasFlushed(db_.get()));
+
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+TEST_F(DBWriteBufferManagerTest,
+       AtomicFlushNonBlockingJoinReleasesGeneratedCandidates) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  auto* impl = dbfull();
+  {
+    impl->TEST_BeginWriteStall();
+    Defer end_stall([&] { impl->TEST_EndWriteStall(); });
+
+    FlushOptions flush_options;
+    flush_options.wait = false;
+    flush_options.allow_write_stall = true;
+    const Status s = impl->TEST_AtomicFlushMemTables(
+        {} /* provided_candidate_cfds */, flush_options,
+        true /* non_blocking_write_thread */);
+    ASSERT_TRUE(s.IsIncomplete());
+  }
+
+  // Closing destroys the ColumnFamilySet and verifies that the failed flush
+  // did not retain a reference to either column family.
+  Close();
+}
+
+// A cross-DB WBM flush must run even when the high-priority pool is empty.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsWithEmptyHighPriPool) {
+  auto recorder = std::make_shared<FlushedDBRecorder>();
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  options.listeners.push_back(recorder);
+  cost_cache_ = GetParam();
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  Reopen(options);
+  std::string other_dbname = test::PerThreadDBPath("wbm_empty_high_pri_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+  recorder->Reset();
+
+  // Empty the shared high-priority pool after DB open, and restore it on exit.
+  const int saved_high = env_->GetBackgroundThreads(Env::Priority::HIGH);
+  Defer restore_high_pool(
+      [&] { env_->SetBackgroundThreads(saved_high, Env::Priority::HIGH); });
+  env_->SetBackgroundThreads(0, Env::Priority::HIGH);
+  ASSERT_EQ(0, env_->GetBackgroundThreads(Env::Priority::HIGH));
+
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+  recorder->WaitForFlush(other_db.get());
+
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+// A write-stopped DB cannot honor a flush and must not win selection.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsSkipsWriteStoppedDB) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  cost_cache_ = GetParam();
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  Reopen(options);
+  std::string other_dbname = test::PerThreadDBPath("wbm_write_stopped_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  auto* other_dbimpl = static_cast_with_check<DBImpl>(other_db.get());
+  auto stop_token = other_dbimpl->TEST_write_controler().GetStopToken();
+  ASSERT_TRUE(other_dbimpl->TEST_write_controler().IsStopped());
+
+  // Block the flush thread so the memtable switch stays observable.
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
+
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  std::string prop;
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-immutable-mem-table", &prop));
+  EXPECT_EQ("1", prop) << "db_ should have flushed itself";
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+  stop_token.reset();
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+// Skip a stalled DB so the selected flush can run and release shared memory.
+TEST_F(DBWriteBufferManagerTest, FlushLargestAcrossDBsSkipsStalledDB) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;
+  options.write_buffer_size = 4 << 20;  // per-CF flush is never hit
+  options.create_if_missing = true;
+  options.create_missing_column_families = true;
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      1 << 20 /* buffer_size (1MB) */, nullptr /* cache */,
+      true /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  Reopen(options);
+
+  // Keep mutable memory in other_db after it enters the stall.
+  std::string other_dbname = test::PerThreadDBPath("wbm_stalled_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::vector<ColumnFamilyDescriptor> cf_descs = {
+      {kDefaultColumnFamilyName, ColumnFamilyOptions(options)},
+      {"cf1", ColumnFamilyOptions(options)}};
+  std::vector<ColumnFamilyHandle*> other_handles;
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(
+      DB::Open(options, other_dbname, cf_descs, &other_handles, &other_db));
+
+  // Freeze flushes so the stall remains active for the test.
+  InstrumentedMutex mu;
+  InstrumentedCondVar cv(&mu);
+  bool blocked = false;
+  bool job_done = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBWriteBufferManagerTest::SkipsStalledDB:Done",
+        "DBImpl::BackgroundCallFlush:start"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WBMStallInterface::BlockDB", [&](void*) {
+        InstrumentedMutexLock l(&mu);
+        blocked = true;
+        cv.SignalAll();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkWBMFlush:done", [&](void*) {
+        InstrumentedMutexLock l(&mu);
+        job_done = true;
+        cv.SignalAll();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Stay below both thresholds until the dedicated staller crosses them.
+  ASSERT_OK(other_db->Put(WriteOptions(), other_handles[1], Key(1),
+                          DummyString(300 << 10)));
+  ASSERT_OK(other_db->Put(WriteOptions(), other_handles[0], Key(1),
+                          DummyString(250 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_FALSE(options.write_buffer_manager->ShouldFlush());
+  ASSERT_FALSE(options.write_buffer_manager->IsStallActive());
+
+  // The first write crosses the limit; the second observes it and parks.
+  port::Thread staller([&] {
+    other_db
+        ->Put(WriteOptions(), other_handles[0], Key(2), DummyString(500 << 10))
+        .PermitUncheckedError();
+    other_db->Put(WriteOptions(), other_handles[0], Key(3), DummyString(1))
+        .PermitUncheckedError();
+  });
+  {
+    InstrumentedMutexLock l(&mu);
+    while (!blocked) {
+      cv.Wait();
+    }
+  }
+  ASSERT_TRUE(options.write_buffer_manager->IsStallActive());
+
+  // The smaller, non-stalled DB must win despite other_db's larger bid.
+  EXPECT_TRUE(options.write_buffer_manager->InitiateFlushOnLargestDB(nullptr));
+  {
+    InstrumentedMutexLock l(&mu);
+    while (!job_done) {
+      cv.Wait();
+    }
+  }
+
+  std::string prop;
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-immutable-mem-table", &prop));
+  EXPECT_EQ("1", prop) << "the non-stalled DB should have been flushed";
+  ASSERT_TRUE(other_db->GetProperty(other_handles[1],
+                                    "rocksdb.num-immutable-mem-table", &prop));
+  EXPECT_EQ("0", prop) << "a stalled DB must not be handed a cross-DB job";
+
+  options.write_buffer_manager->SetAllowStall(false);
+  staller.join();
+
+  TEST_SYNC_POINT("DBWriteBufferManagerTest::SkipsStalledDB:Done");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  for (auto* handle : other_handles) {
+    ASSERT_OK(other_db->DestroyColumnFamilyHandle(handle));
+  }
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+// A DB that deferred must still seal locally before entering a shared stall.
+TEST_F(DBWriteBufferManagerTest, FlushLargestAcrossDBsSelfFlushesBeforeStall) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;
+  options.write_buffer_size = 4 << 20;  // per-CF flush is never hit
+  options.create_if_missing = true;
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      1 << 20 /* buffer_size (1MB) */, nullptr /* cache */,
+      true /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  Reopen(options);
+  std::string other_dbname = test::PerThreadDBPath("wbm_selfflush_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  // Freeze the larger DB's job so only db_ can release memory.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBWriteBufferManagerTest::SelfFlushesBeforeStall:Release",
+        "DBImpl::BGWorkWBMFlush"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(700 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(350 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+  ASSERT_TRUE(options.write_buffer_manager->ShouldStall());
+
+  // This write defers to other_db and then has to stall. It can only return if
+  // it sealed its own memtable on the way in.
+  InstrumentedMutex mu;
+  InstrumentedCondVar cv(&mu);
+  bool write_done = false;
+  port::Thread writer([&] {
+    Status s = Put(Key(2), DummyString(1), WriteOptions());
+    InstrumentedMutexLock l(&mu);
+    write_done = true;
+    s.PermitUncheckedError();
+    cv.SignalAll();
+  });
+
+  bool timed_out = false;
+  {
+    InstrumentedMutexLock l(&mu);
+    const uint64_t deadline = env_->NowMicros() + 30 * 1000 * 1000;
+    while (!write_done) {
+      if (cv.TimedWait(deadline)) {
+        timed_out = !write_done;
+        break;
+      }
+    }
+  }
+  EXPECT_FALSE(timed_out)
+      << "writer never came back: it deferred to an idle DB and then parked "
+         "with no flush in flight, so nothing can ever call FreeMem()";
+
+  if (!timed_out) {
+    // Only db_'s local flush can have ended the stall.
+    EXPECT_GT(NumTableFilesAtLevel(0), 0)
+        << "the deferring DB must seal its own memtable rather than rely on "
+           "the other DB's job";
+  }
+
+  options.write_buffer_manager->SetAllowStall(false);
+  TEST_SYNC_POINT("DBWriteBufferManagerTest::SelfFlushesBeforeStall:Release");
+  writer.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+// Closing must cancel a queued WBM job and balance its scheduled counter.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsCancelsQueuedJobOnClose) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  cost_cache_ = GetParam();
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  std::atomic<int> cancellations{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::UnscheduleWBMFlushCallback",
+      [&](void*) { cancellations.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_points([] {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  });
+
+  Reopen(options);
+  std::string other_dbname = test::PerThreadDBPath("wbm_cancel_on_close_other");
+  ASSERT_OK(DestroyDB(other_dbname, options));
+  std::unique_ptr<DB> other_db;
+  ASSERT_OK(DB::Open(options, other_dbname, &other_db));
+
+  // Occupy the low-priority pool so Close() must cancel the queued WBM job.
+  test::SleepingBackgroundTask sleeping_task_low;
+  const int saved_low = env_->GetBackgroundThreads(Env::Priority::LOW);
+  env_->SetBackgroundThreads(1, Env::Priority::LOW);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
+  Defer restore_low_pool([&] {
+    sleeping_task_low.WakeUp();
+    sleeping_task_low.WaitUntilDone();
+    env_->SetBackgroundThreads(saved_low, Env::Priority::LOW);
+  });
+
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  ASSERT_OK(other_db->Close());
+  other_db.reset();
+  EXPECT_GT(cancellations.load(), 0)
+      << "no queued cross-DB flush job was cancelled, so this test did not "
+         "exercise the cancellation path";
+
+  ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+// A read-only DB consumes shared WBM memory but cannot honor a flush request.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsSkipsReadOnlyDB) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  cost_cache_ = GetParam();
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+
+  // Stage a DB whose data lives only in the WAL, so opening it read-only
+  // rebuilds that data into memtables.
+  std::string ro_dbname = test::PerThreadDBPath("wbm_read_only_db");
+  {
+    Options staging = options;
+    staging.create_if_missing = true;
+    staging.avoid_flush_during_shutdown = true;  // keep the data in the WAL
+    ASSERT_OK(DestroyDB(ro_dbname, staging));
+    std::unique_ptr<DB> staging_db;
+    ASSERT_OK(DB::Open(staging, ro_dbname, &staging_db));
+    ASSERT_OK(staging_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
+    ASSERT_OK(staging_db->Close());
+  }
+
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  Reopen(options);
+
+  const size_t mem_before = options.write_buffer_manager->memory_usage();
+  std::unique_ptr<DB> read_only_db;
+  ASSERT_OK(DB::OpenForReadOnly(options, ro_dbname, &read_only_db));
+  EXPECT_GT(options.write_buffer_manager->memory_usage(), mem_before);
+
+  // Block the flush thread so the memtable switch stays observable.
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
+
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // db_ holds less than the read-only DB, so without the read-only exclusion
+  // the selector would pick a DB that cannot flush and db_ would defer.
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  std::string prop;
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-immutable-mem-table", &prop));
+  EXPECT_EQ("1", prop) << "db_ should have flushed itself";
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+  ASSERT_OK(read_only_db->Close());
+  read_only_db.reset();
+  ASSERT_OK(DestroyDB(ro_dbname, options));
+}
+
+// Rank an atomic-flush DB by the memory reclaimed across all its CFs.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsPicksAtomicFlushDB) {
+  auto recorder = std::make_shared<FlushedDBRecorder>();
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB, so per-CF flush is never hit
+  options.listeners.push_back(recorder);
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  cost_cache_ = GetParam();
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      512 << 10 /* buffer_size (512KB) */, cost_cache_ ? cache : nullptr,
+      false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  Reopen(options);
+
+  Options atomic_options = options;
+  atomic_options.atomic_flush = true;
+  atomic_options.create_if_missing = true;
+  atomic_options.create_missing_column_families = true;
+
+  std::string atomic_dbname = test::PerThreadDBPath("wbm_atomic_db");
+  ASSERT_OK(DestroyDB(atomic_dbname, atomic_options));
+  std::vector<ColumnFamilyDescriptor> cf_descs = {
+      {kDefaultColumnFamilyName, ColumnFamilyOptions(atomic_options)},
+      {"cf1", ColumnFamilyOptions(atomic_options)}};
+  std::vector<ColumnFamilyHandle*> atomic_handles;
+  std::unique_ptr<DB> atomic_db;
+  ASSERT_OK(DB::Open(atomic_options, atomic_dbname, cf_descs, &atomic_handles,
+                     &atomic_db));
+
+  // atomic_db reclaims 300KB across two CFs versus db_'s single 200KB CF.
+  ASSERT_OK(atomic_db->Put(WriteOptions(), atomic_handles[0], Key(1),
+                           DummyString(150 << 10)));
+  ASSERT_OK(atomic_db->Put(WriteOptions(), atomic_handles[1], Key(1),
+                           DummyString(150 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // Ignore any flush that may have happened during open/setup.
+  recorder->Reset();
+
+  // The crossing write targets db_, but atomic_db reclaims more, so it is the
+  // one flushed -- and atomically, i.e. both of its column families.
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  recorder->WaitForColumnFamilies(atomic_db.get(), 2);
+  EXPECT_FALSE(recorder->HasFlushed(db_.get()));
+
+  for (auto* handle : atomic_handles) {
+    ASSERT_OK(atomic_db->DestroyColumnFamilyHandle(handle));
+  }
+  ASSERT_OK(atomic_db->Close());
+  atomic_db.reset();
+  ASSERT_OK(DestroyDB(atomic_dbname, atomic_options));
 }
 
 TEST_F(DBWriteBufferManagerTest, RuntimeChangeableAllowStall) {
