@@ -485,6 +485,11 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     }
   }
 
+  // The top-level partition index is timed by ReadFilterBlock(). Filter
+  // partitions bypass that helper, so account for their cache or SST reads
+  // here.
+  PERF_TIMER_GUARD(read_filter_block_nanos);
+
   const Status s = table()->RetrieveBlock(
       prefetch_buffer, read_options, fltr_blk_handle,
       /* decomp */ nullptr, filter_block, get_context, lookup_context,
