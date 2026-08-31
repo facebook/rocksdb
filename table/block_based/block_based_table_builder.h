@@ -158,12 +158,12 @@ class BlockBasedTableBuilder : public TableBuilder {
       const Slice& block_contents, CompressionType, BlockHandle* handle,
       BlockType block_type, const Slice* uncompressed_block_data = nullptr,
       bool* skip_delta_encoding = nullptr,
-      const uint32_t* precomputed_checksum = nullptr);
+      const uint32_t* precomputed_block_contents_crc32c = nullptr);
   IOStatus WriteMaybeCompressedBlockImpl(
       const Slice& block_contents, CompressionType, BlockHandle* handle,
       BlockType block_type, const Slice* uncompressed_block_data = nullptr,
       bool* skip_delta_encoding = nullptr,
-      const uint32_t* precomputed_checksum = nullptr);
+      const uint32_t* precomputed_block_contents_crc32c = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 

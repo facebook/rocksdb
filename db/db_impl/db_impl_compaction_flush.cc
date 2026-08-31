@@ -4760,7 +4760,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             immutable_db_options_.stats, Histograms::SST_WRITE_MICROS,
             c->immutable_options().listeners,
             immutable_db_options_.file_checksum_gen_factory.get(),
-            tmp_set.Contains(FileType::kTableFile), false));
+            tmp_set.Contains(FileType::kTableFile),
+            tmp_set.Contains(FileType::kTableFile)));
       }
 
       ROCKS_LOG_BUFFER(

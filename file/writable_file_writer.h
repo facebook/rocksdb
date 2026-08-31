@@ -30,6 +30,12 @@ namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class SystemClock;
 
+struct Crc32cChecksum {
+  explicit Crc32cChecksum(uint32_t _value) : value(_value) {}
+
+  uint32_t value;
+};
+
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
 // facilities to:
 // - Handle Buffered and Direct writes.
@@ -136,6 +142,10 @@ class WritableFileWriter {
   void UpdateFileChecksum(const Slice& data);
   void Crc32cHandoffChecksumCalculation(const char* data, size_t size,
                                         char* buf);
+  IOStatus ValidateCopiedDataChecksum(const Slice& copied_data,
+                                      Crc32cChecksum checksum);
+  IOStatus AppendSlice(const IOOptions& opts, const Slice& data,
+                       const Crc32cChecksum* crc32c_checksum);
 
   std::string file_name_;
   FSWritableFilePtr writable_file_;
@@ -258,6 +268,8 @@ class WritableFileWriter {
   // will calculate the checksum internally.
   IOStatus Append(const IOOptions& opts, const Slice& data,
                   uint32_t crc32c_checksum = 0);
+  IOStatus Append(const IOOptions& opts, const Slice& data,
+                  Crc32cChecksum crc32c_checksum);
 
   IOStatus Pad(const IOOptions& opts, const size_t pad_bytes,
                const size_t max_pad_size);
