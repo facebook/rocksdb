@@ -1,0 +1,1 @@
+Refactored the experimental User-Defined Index surface into a unified pluggable `IndexFactory` SPI in `include/rocksdb/index_factory.h`. The old `UserDefinedIndex*` class names remain as aliases and existing custom implementations still compile, now with option-taking `NewBuilder()` and `NewReader()` overloads available. Existing UDI SSTs remain readable.

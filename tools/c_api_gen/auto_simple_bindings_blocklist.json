@@ -47,7 +47,7 @@
         {
           "field": "table_index_factory",
           "policy": "manual",
-          "reason": "Needs pointer, slice, callback, or other non-trivial C binding policy that the simple generator cannot infer."
+          "reason": "Non-owning pointer paired with the legacy C read-options factory shim; the C wrapper owns a shared_ptr and stores this borrowed pointer."
         },
         {
           "field": "request_id",
@@ -375,9 +375,19 @@
           "reason": "Uses factories, caches, or nested option objects that need explicit ownership or non-scalar marshalling."
         },
         {
+          "field": "use_udi_as_primary_index",
+          "policy": "manual",
+          "reason": "Deprecated compatibility alias for index_mode with explicit legacy C wrapper semantics."
+        },
+        {
+          "field": "fail_if_no_udi_on_open",
+          "policy": "manual",
+          "reason": "Deprecated compatibility alias for index_mode with explicit legacy C wrapper semantics."
+        },
+        {
           "field": "index_mode",
           "policy": "manual",
-          "reason": "Uses experimental enum semantics that need explicit C API mapping."
+          "reason": "Uses experimental enum semantics plus legacy UDI boolean compatibility wrappers that need explicit mapping."
         }
       ]
     },
