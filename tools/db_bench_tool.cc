@@ -38,7 +38,6 @@
 #include <optional>
 #include <queue>
 #include <thread>
-#include <unordered_map>
 
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -57,6 +56,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/io_dispatcher.h"
 #include "rocksdb/io_status.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/lazy_wide_columns.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
@@ -91,6 +91,7 @@
 #include "util/crc32c.h"
 #include "util/file_checksum_helper.h"
 #include "util/gflags_compat.h"
+#include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/simple_mixed_compressor.h"
@@ -125,6 +126,14 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 using GFLAGS_NAMESPACE::SetVersionString;
+
+bool CommandLineFlagWasSpecified(const char* flag_name) {
+  GFLAGS_NAMESPACE::CommandLineFlagInfo info;
+  if (!GFLAGS_NAMESPACE::GetCommandLineFlagInfo(flag_name, &info)) {
+    return false;
+  }
+  return !info.is_default;
+}
 
 DEFINE_string(
     benchmarks,
@@ -413,6 +422,15 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   return true;
 }
 
+static bool ValidatePositiveUint32Range(const char* flagname, uint64_t value) {
+  if (value == 0) {
+    fprintf(stderr, "Invalid value for --%s: must be greater than zero\n",
+            flagname);
+    return false;
+  }
+  return ValidateUint32Range(flagname, value);
+}
+
 DEFINE_int32(key_size, 16, "size of each key");
 
 DEFINE_int32(user_timestamp_size, 0,
@@ -602,6 +620,10 @@ DEFINE_uint64(subcompactions, 1,
               "into.");
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
+
+DEFINE_uint64(compact_all_parallelism, 1,
+              "Maximum number of independent DBs compacted concurrently by "
+              "the compactall benchmark.");
 
 DEFINE_int32(max_background_flushes,
              ROCKSDB_NAMESPACE::Options().max_background_flushes,
@@ -1188,7 +1210,12 @@ DEFINE_uint64(blob_direct_write_partitions,
               "[Integrated BlobDB] Number of partitions for direct-write blob "
               "files.");
 
-static void RegisterDbBenchBdwFlagValidators() {
+static void RegisterDbBenchFlagValidators() {
+  static const bool compact_all_parallelism_validator_registered =
+      RegisterFlagValidator(&FLAGS_compact_all_parallelism,
+                            &ValidatePositiveUint32Range);
+  (void)compact_all_parallelism_validator_registered;
+
   static const bool blob_direct_write_partitions_validator_registered =
       RegisterFlagValidator(&FLAGS_blob_direct_write_partitions,
                             &ValidateUint32Range);
@@ -1720,6 +1747,10 @@ DEFINE_int64(stats_interval_seconds, 0,
 DEFINE_int32(stats_per_interval, 0,
              "Reports additional stats per interval when this is greater than "
              "0.");
+
+DEFINE_bool(report_interval_percentiles, false,
+            "Report aggregate per-interval latency percentiles when histogram "
+            "and stats_interval_seconds are enabled.");
 
 DEFINE_uint64(slow_usecs, 1000000,
               "A message is printed for operations that take at least this "
@@ -2688,17 +2719,72 @@ enum OperationType : unsigned char {
   kMultiScan
 };
 
-static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
+static UnorderedMapH<OperationType, std::string, std::hash<unsigned char>>
     OperationTypeString = {{kRead, "read"},         {kWrite, "write"},
                            {kDelete, "delete"},     {kSeek, "seek"},
                            {kMerge, "merge"},       {kUpdate, "update"},
-                           {kCompress, "compress"}, {kCompress, "uncompress"},
+                           {kCompress, "compress"}, {kUncompress, "uncompress"},
                            {kCrc, "crc"},           {kHash, "hash"},
                            {kOthers, "op"},         {kMultiScan, "multiscan"}};
+
+static const OperationType kAllOperationTypes[] = {
+    kRead,     kWrite,      kDelete, kSeek, kMerge,  kUpdate,
+    kCompress, kUncompress, kCrc,    kHash, kOthers, kMultiScan,
+};
+
+using OperationHistograms =
+    UnorderedMapH<OperationType, std::shared_ptr<HistogramImpl>,
+                  std::hash<unsigned char>>;
+using OperationCounts =
+    UnorderedMapH<OperationType, uint64_t, std::hash<unsigned char>>;
+
+class Stats;
+
+class IntervalStatsReporter {
+ public:
+  IntervalStatsReporter(SystemClock* clock, uint64_t report_interval_secs)
+      : clock_(clock), report_interval_secs_(report_interval_secs) {}
+
+  ~IntervalStatsReporter();
+  IntervalStatsReporter(const IntervalStatsReporter&) = delete;
+  IntervalStatsReporter& operator=(const IntervalStatsReporter&) = delete;
+  IntervalStatsReporter(IntervalStatsReporter&&) = delete;
+  IntervalStatsReporter& operator=(IntervalStatsReporter&&) = delete;
+
+  void RegisterStats(Stats* stats);
+  void Start(uint64_t start);
+  void Stop();
+
+ private:
+  void SleepAndReport();
+  void ReportAndReset(uint64_t now);
+
+  SystemClock* clock_;
+  const uint64_t report_interval_secs_;
+  uint64_t start_ = 0;
+  uint64_t interval_index_ = 0;
+  std::vector<UnownedPtr<Stats>> stats_;
+  ROCKSDB_NAMESPACE::port::Thread reporting_thread_;
+  std::mutex mutex_;
+  std::condition_variable stop_cv_;
+  bool stop_ = false;
+  bool started_ = false;
+};
 
 class CombinedStats;
 class Stats {
  private:
+  struct IntervalStatsBuffer {
+    OperationHistograms histograms;
+    OperationCounts ops;
+    std::atomic<uint64_t> writers{0};
+  };
+
+  struct IntervalStatsState {
+    IntervalStatsBuffer buffers[2];
+    std::atomic<unsigned int> active_buffer{0};
+  };
+
   SystemClock* clock_;
   int id_;
   uint64_t start_ = 0;
@@ -2711,13 +2797,120 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
-  std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
-                     std::hash<unsigned char>>
-      hist_;
+  OperationHistograms hist_;
+  std::shared_ptr<IntervalStatsState> interval_stats_;
   std::string message_;
-  bool exclude_from_merge_;
-  ReporterAgent* reporter_agent_;  // does not own
+  PerfContext perf_context_;
+  IOStatsContext iostats_context_;
+  bool has_perf_context_ = false;
+  std::shared_ptr<std::atomic<bool>> exclude_from_merge_ =
+      std::make_shared<std::atomic<bool>>(false);
+  UnownedPtr<ReporterAgent> reporter_agent_;
+  UnownedPtr<IntervalStatsReporter> interval_stats_reporter_;
   friend class CombinedStats;
+  friend class IntervalStatsReporter;
+
+  void InitializeIntervalHistograms() {
+    if (interval_stats_ == nullptr) {
+      interval_stats_ = std::make_shared<IntervalStatsState>();
+    }
+    for (auto& buffer : interval_stats_->buffers) {
+      for (OperationType op_type : kAllOperationTypes) {
+        if (buffer.histograms.find(op_type) == buffer.histograms.end()) {
+          buffer.histograms.insert(
+              {op_type, std::make_shared<HistogramImpl>()});
+        }
+        buffer.ops.try_emplace(op_type, 0);
+      }
+    }
+  }
+
+  static void ResetIntervalStatsBuffer(IntervalStatsBuffer* buffer) {
+    assert(buffer->writers.load(std::memory_order_relaxed) == 0);
+    for (auto& entry : buffer->histograms) {
+      entry.second->Clear();
+    }
+    for (auto& entry : buffer->ops) {
+      entry.second = 0;
+    }
+  }
+
+  void ResetIntervalHistograms() {
+    assert(interval_stats_ != nullptr);
+    interval_stats_->active_buffer.store(0, std::memory_order_relaxed);
+    for (auto& buffer : interval_stats_->buffers) {
+      ResetIntervalStatsBuffer(&buffer);
+    }
+  }
+
+  void AddIntervalMicros(OperationType op_type, uint64_t micros,
+                         uint64_t num_ops) {
+    // The reporter flips the active buffer before reading it. Recheck the
+    // index after registering as a writer so it cannot clear a buffer that a
+    // worker is still updating. Sequential consistency is intentional because
+    // this protocol orders observations across two different atomics.
+    assert(interval_stats_ != nullptr);
+    IntervalStatsBuffer* buffer;
+    while (true) {
+      const unsigned int index =
+          interval_stats_->active_buffer.load(std::memory_order_seq_cst);
+      buffer = &interval_stats_->buffers[index];
+      buffer->writers.fetch_add(1, std::memory_order_seq_cst);
+      if (index ==
+          interval_stats_->active_buffer.load(std::memory_order_seq_cst)) {
+        break;
+      }
+      buffer->writers.fetch_sub(1, std::memory_order_seq_cst);
+    }
+
+    auto it = buffer->histograms.find(op_type);
+    if (it != buffer->histograms.end()) {
+      it->second->Add(micros);
+    }
+    auto ops_it = buffer->ops.find(op_type);
+    if (ops_it != buffer->ops.end()) {
+      ops_it->second += num_ops;
+    }
+    buffer->writers.fetch_sub(1, std::memory_order_seq_cst);
+  }
+
+  void MergeAndResetIntervalHistograms(OperationHistograms* merged_histograms,
+                                       OperationCounts* merged_ops) {
+    // New samples immediately move to the other buffer. Once existing writers
+    // drain, this buffer is stable until it is cleared and reused.
+    assert(interval_stats_ != nullptr);
+    const unsigned int inactive_index =
+        interval_stats_->active_buffer.fetch_xor(1, std::memory_order_seq_cst);
+    IntervalStatsBuffer* buffer = &interval_stats_->buffers[inactive_index];
+    while (buffer->writers.load(std::memory_order_seq_cst) != 0) {
+      std::this_thread::yield();
+    }
+
+    if (exclude_from_merge_->load(std::memory_order_acquire)) {
+      ResetIntervalStatsBuffer(buffer);
+      return;
+    }
+
+    for (const auto& entry : buffer->histograms) {
+      HistogramImpl* histogram = entry.second.get();
+      if (histogram == nullptr || histogram->num() == 0) {
+        continue;
+      }
+
+      auto& merged_histogram = (*merged_histograms)[entry.first];
+      if (merged_histogram == nullptr) {
+        merged_histogram = std::make_shared<HistogramImpl>();
+      }
+      merged_histogram->Merge(*histogram);
+    }
+
+    for (const auto& entry : buffer->ops) {
+      if (entry.second > 0) {
+        (*merged_ops)[entry.first] += entry.second;
+      }
+    }
+    ResetIntervalStatsBuffer(buffer);
+  }
 
  public:
   Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
@@ -2726,11 +2919,23 @@ class Stats {
     reporter_agent_ = reporter_agent;
   }
 
+  void SetIntervalStatsReporter(
+      IntervalStatsReporter* interval_stats_reporter) {
+    interval_stats_reporter_ = interval_stats_reporter;
+    if (interval_stats_reporter_) {
+      InitializeIntervalHistograms();
+      ResetIntervalHistograms();
+    }
+  }
+
   void Start(int id) {
     id_ = id;
     next_report_ = FLAGS_stats_interval ? FLAGS_stats_interval : 100;
     last_op_finish_ = start_;
     hist_.clear();
+    if (interval_stats_reporter_) {
+      ResetIntervalHistograms();
+    }
     done_ = 0;
     last_report_done_ = 0;
     bytes_ = 0;
@@ -2740,12 +2945,15 @@ class Stats {
     finish_ = start_;
     last_report_finish_ = start_;
     message_.clear();
+    perf_context_.Reset();
+    iostats_context_.Reset();
+    has_perf_context_ = false;
     // When set, stats from this thread won't be merged with others.
-    exclude_from_merge_ = false;
+    exclude_from_merge_->store(false, std::memory_order_release);
   }
 
   void Merge(const Stats& other) {
-    if (other.exclude_from_merge_) {
+    if (other.exclude_from_merge_->load(std::memory_order_acquire)) {
       return;
     }
 
@@ -2767,6 +2975,11 @@ class Stats {
     if (other.finish_ > finish_) {
       finish_ = other.finish_;
     }
+    if (other.has_perf_context_) {
+      perf_context_.Merge(other.perf_context_);
+      iostats_context_.Merge(other.iostats_context_);
+      has_perf_context_ = true;
+    }
 
     // Just keep the messages from one thread.
     if (message_.empty()) {
@@ -2781,8 +2994,17 @@ class Stats {
 
   void AddMessage(Slice msg) { AppendWithSpace(&message_, msg); }
 
+  void AddPerfContext(const PerfContext& context,
+                      const IOStatsContext& io_context) {
+    perf_context_.Merge(context);
+    iostats_context_.Merge(io_context);
+    has_perf_context_ = true;
+  }
+
   void SetId(int id) { id_ = id; }
-  void SetExcludeFromMerge() { exclude_from_merge_ = true; }
+  void SetExcludeFromMerge() {
+    exclude_from_merge_->store(true, std::memory_order_release);
+  }
 
   void PrintThreadStatus() {
     std::vector<ThreadStatus> thread_list;
@@ -2827,24 +3049,38 @@ class Stats {
 
   void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops,
                    enum OperationType op_type = kOthers) {
+    const bool report_interval_percentiles =
+        static_cast<bool>(interval_stats_reporter_);
+    uint64_t micros = 0;
+    uint64_t op_finish = 0;
+    if (FLAGS_histogram) {
+      op_finish = clock_->NowMicros();
+      micros = op_finish - last_op_finish_;
+    }
+
     if (reporter_agent_) {
       reporter_agent_->ReportFinishedOps(num_ops);
     }
-    if (FLAGS_histogram) {
-      uint64_t now = clock_->NowMicros();
-      uint64_t micros = now - last_op_finish_;
 
-      if (hist_.find(op_type) == hist_.end()) {
+    if (FLAGS_histogram) {
+      auto hist_it = hist_.find(op_type);
+      if (hist_it == hist_.end()) {
         auto hist_temp = std::make_shared<HistogramImpl>();
-        hist_.insert({op_type, std::move(hist_temp)});
+        hist_it = hist_.insert({op_type, std::move(hist_temp)}).first;
       }
-      hist_[op_type]->Add(micros);
+      hist_it->second->Add(micros);
+      if (interval_stats_reporter_) {
+        AddIntervalMicros(op_type, micros,
+                          num_ops > 0 ? static_cast<uint64_t>(num_ops) : 0);
+      }
 
       if (micros >= FLAGS_slow_usecs && !FLAGS_stats_interval) {
         fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
         fflush(stderr);
       }
-      last_op_finish_ = now;
+      if (!report_interval_percentiles) {
+        last_op_finish_ = op_finish;
+      }
     }
 
     done_ += num_ops;
@@ -2949,6 +3185,9 @@ class Stats {
       }
       fflush(stderr);
     }
+    if (FLAGS_histogram && report_interval_percentiles) {
+      last_op_finish_ = clock_->NowMicros();
+    }
   }
 
   void AddBytes(int64_t n) { bytes_ += n; }
@@ -2971,6 +3210,12 @@ class Stats {
       extra = rate;
     }
     AppendWithSpace(&extra, message_);
+    if (has_perf_context_) {
+      AppendWithSpace(
+          &extra, std::string("PERF_CONTEXT:\n") + perf_context_.ToString());
+      AppendWithSpace(&extra, std::string("IOSTATS_CONTEXT:\n") +
+                                  iostats_context_.ToString());
+    }
     double throughput = (double)done_ / elapsed;
 
     fprintf(stdout,
@@ -2995,6 +3240,81 @@ class Stats {
     fflush(stdout);
   }
 };
+
+IntervalStatsReporter::~IntervalStatsReporter() { Stop(); }
+
+void IntervalStatsReporter::RegisterStats(Stats* stats) {
+  assert(!started_);
+  stats_.emplace_back(stats);
+}
+
+void IntervalStatsReporter::Start(uint64_t start) {
+  assert(!started_);
+  start_ = start;
+  stop_ = false;
+  started_ = true;
+  reporting_thread_ = port::Thread([this]() { SleepAndReport(); });
+}
+
+void IntervalStatsReporter::Stop() {
+  if (!started_) {
+    return;
+  }
+  {
+    std::unique_lock<std::mutex> lk(mutex_);
+    stop_ = true;
+    stop_cv_.notify_all();
+  }
+  reporting_thread_.join();
+  ReportAndReset(clock_->NowMicros());
+  started_ = false;
+}
+
+void IntervalStatsReporter::SleepAndReport() {
+  while (true) {
+    {
+      std::unique_lock<std::mutex> lk(mutex_);
+      if (stop_ ||
+          stop_cv_.wait_for(lk, std::chrono::seconds(report_interval_secs_),
+                            [this]() { return stop_; })) {
+        break;
+      }
+    }
+    ReportAndReset(clock_->NowMicros());
+  }
+}
+
+void IntervalStatsReporter::ReportAndReset(uint64_t now) {
+  ++interval_index_;
+  const double elapsed = (now - start_) * 1e-6;
+  OperationHistograms merged_histograms;
+  OperationCounts merged_ops;
+
+  for (UnownedPtr<Stats> stats : stats_) {
+    stats->MergeAndResetIntervalHistograms(&merged_histograms, &merged_ops);
+  }
+
+  for (auto& entry : merged_histograms) {
+    HistogramImpl* histogram = entry.second.get();
+    if (histogram == nullptr || histogram->num() == 0) {
+      continue;
+    }
+
+    auto op_type_it = OperationTypeString.find(entry.first);
+    const char* op_type = op_type_it == OperationTypeString.end()
+                              ? "op"
+                              : op_type_it->second.c_str();
+    const uint64_t interval_ops = merged_ops[entry.first];
+    fprintf(stderr,
+            "IntervalPercentiles: interval=%" PRIu64
+            " elapsed=%.6f op=%s count=%" PRIu64 " ops=%" PRIu64
+            " P50: %.2f P75: %.2f P99: %.2f P99.9: %.2f P99.99: %.2f\n",
+            interval_index_, elapsed, op_type, histogram->num(), interval_ops,
+            histogram->Median(), histogram->Percentile(75),
+            histogram->Percentile(99), histogram->Percentile(99.9),
+            histogram->Percentile(99.99));
+  }
+}
 
 class CombinedStats {
  public:
@@ -4904,15 +5224,19 @@ class Benchmark {
     }
 
     SetPerfLevel(static_cast<PerfLevel>(shared->perf_level));
-    perf_context.EnablePerLevelPerfContext();
+    get_perf_context()->Reset();
+    get_iostats_context()->Reset();
+    get_perf_context()->EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
     {
       DbUseGuard db_guard(arg->bm);
       (arg->bm->*(arg->method))(thread);
     }
+    // PerfLevel governs both PerfContext and IOStatsContext. At kDisable,
+    // iostats may contain only an implementation-dependent subset of counters,
+    // so keep both output blocks behind the explicit collection setting.
     if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
+      thread->stats.AddPerfContext(*get_perf_context(), *get_iostats_context());
     }
     thread->stats.Stop();
 
@@ -4947,6 +5271,17 @@ class Benchmark {
       reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
                                              FLAGS_report_interval_seconds));
     }
+    std::unique_ptr<IntervalStatsReporter> interval_stats_reporter;
+    if (FLAGS_report_interval_percentiles) {
+      if (FLAGS_histogram && FLAGS_stats_interval_seconds > 0) {
+        interval_stats_reporter.reset(new IntervalStatsReporter(
+            FLAGS_env->GetSystemClock().get(), FLAGS_stats_interval_seconds));
+      } else {
+        fprintf(stderr,
+                "WARNING: --report_interval_percentiles requires --histogram "
+                "and --stats_interval_seconds > 0\n");
+      }
+    }
 
     ThreadArg* arg = new ThreadArg[n];
 
@@ -4974,6 +5309,11 @@ class Benchmark {
       total_thread_count_++;
       arg[i].thread = new ThreadState(i, total_thread_count_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
+      arg[i].thread->stats.SetIntervalStatsReporter(
+          interval_stats_reporter.get());
+      if (interval_stats_reporter != nullptr) {
+        interval_stats_reporter->RegisterStats(&arg[i].thread->stats);
+      }
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
     }
@@ -4983,12 +5323,24 @@ class Benchmark {
       shared.cv.Wait();
     }
 
+    const uint64_t benchmark_start = FLAGS_env->GetSystemClock()->NowMicros();
     shared.start = true;
     shared.cv.SignalAll();
+    shared.mu.Unlock();
+
+    if (interval_stats_reporter != nullptr) {
+      interval_stats_reporter->Start(benchmark_start);
+    }
+
+    shared.mu.Lock();
     while (shared.num_done < n) {
       shared.cv.Wait();
     }
     shared.mu.Unlock();
+
+    if (interval_stats_reporter != nullptr) {
+      interval_stats_reporter->Stop();
+    }
 
     // Stats for some threads can be excluded.
     Stats merge_stats;
@@ -5275,6 +5627,78 @@ class Benchmark {
     return false;
   }
 
+  size_t GetDbWriteBufferSizeFromFlag() {
+    if (FLAGS_db_write_buffer_size < 0) {
+      fprintf(stderr, "--db_write_buffer_size must be >= 0\n");
+      db_bench_exit(1);
+    }
+    return static_cast<size_t>(FLAGS_db_write_buffer_size);
+  }
+
+  void ApplyDbOptionFlagOverrides(Options* opts, bool initialized_from_file) {
+    Options& options = *opts;
+    if (!initialized_from_file ||
+        CommandLineFlagWasSpecified("db_write_buffer_size")) {
+      options.db_write_buffer_size = GetDbWriteBufferSizeFromFlag();
+    }
+    if (!initialized_from_file) {
+      return;
+    }
+
+    if (CommandLineFlagWasSpecified("write_buffer_size")) {
+      options.write_buffer_size = FLAGS_write_buffer_size;
+    }
+    if (CommandLineFlagWasSpecified("max_write_buffer_number")) {
+      options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    }
+    if (CommandLineFlagWasSpecified("max_background_jobs")) {
+      options.max_background_jobs = FLAGS_max_background_jobs;
+    }
+    if (CommandLineFlagWasSpecified("max_background_compactions")) {
+      options.max_background_compactions = FLAGS_max_background_compactions;
+    }
+    if (CommandLineFlagWasSpecified("max_background_flushes")) {
+      options.max_background_flushes = FLAGS_max_background_flushes;
+    }
+    if (CommandLineFlagWasSpecified("disable_auto_compactions")) {
+      options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+    }
+    if (CommandLineFlagWasSpecified("use_direct_reads")) {
+      options.use_direct_reads = FLAGS_use_direct_reads;
+    }
+  }
+
+  void ConfigureSharedWriteBufferManager(Options* opts,
+                                         bool initialized_from_file) {
+    Options& options = *opts;
+    if (initialized_from_file && options.write_buffer_manager != nullptr &&
+        !FLAGS_cost_write_buffer_to_cache) {
+      // Preserve non-serialized manager tuning such as allow_stall and cache
+      // charging. An explicit size override can be applied in place without
+      // replacing the manager; zero explicitly disables it.
+      if (CommandLineFlagWasSpecified("db_write_buffer_size")) {
+        if (options.db_write_buffer_size == 0) {
+          options.write_buffer_manager.reset();
+        } else {
+          options.write_buffer_manager->SetBufferSize(
+              options.db_write_buffer_size);
+        }
+      }
+      return;
+    }
+    if (!FLAGS_cost_write_buffer_to_cache &&
+        options.db_write_buffer_size == 0) {
+      return;
+    }
+
+    std::shared_ptr<Cache> charge_cache;
+    if (FLAGS_cost_write_buffer_to_cache) {
+      charge_cache = cache_;
+    }
+    options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+        options.db_write_buffer_size, std::move(charge_cache));
+  }
+
   void InitializeOptionsFromFlags(Options* opts) {
     printf("Initializing RocksDB Options from command-line flags\n");
     Options& options = *opts;
@@ -5314,10 +5738,6 @@ class Benchmark {
         FLAGS_compression_auto_skip_min_sample_every;
 
     options.max_open_files = FLAGS_open_files;
-    if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
-      options.write_buffer_manager.reset(
-          new WriteBufferManager(FLAGS_db_write_buffer_size, cache_));
-    }
     options.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options.max_manifest_space_amp_pct = FLAGS_max_manifest_space_amp_pct;
     options.verify_manifest_content_on_close =
@@ -6056,9 +6476,12 @@ class Benchmark {
   }
 
   void Open(Options* opts, ToolHooks& hooks) {
-    if (!InitializeOptionsFromFile(opts)) {
+    const bool initialized_from_file = InitializeOptionsFromFile(opts);
+    if (!initialized_from_file) {
       InitializeOptionsFromFlags(opts);
     }
+    ApplyDbOptionFlagOverrides(opts, initialized_from_file);
+    ConfigureSharedWriteBufferManager(opts, initialized_from_file);
 
     InitializeOptionsGeneral(opts, hooks);
   }
@@ -10741,13 +11164,94 @@ class Benchmark {
   void FillEmbeddedBlob(ThreadState* thread) { FillEmbedded(thread, false); }
 
   void CompactAll() {
-    CompactRangeOptions cro;
-    cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
+    std::vector<DB*> dbs;
     if (db_.db != nullptr) {
-      db_.db->CompactRange(cro, nullptr, nullptr);
+      dbs.push_back(db_.db);
+    } else {
+      dbs.reserve(multi_dbs_.size());
+      for (const auto& db_with_cfh : multi_dbs_) {
+        dbs.push_back(db_with_cfh.db);
+      }
     }
-    for (const auto& db_with_cfh : multi_dbs_) {
-      db_with_cfh.db->CompactRange(cro, nullptr, nullptr);
+
+    if (dbs.empty()) {
+      return;
+    }
+
+    const uint32_t max_subcompactions =
+        static_cast<uint32_t>(FLAGS_subcompactions);
+    const size_t parallelism = std::min(
+        dbs.size(), static_cast<size_t>(FLAGS_compact_all_parallelism));
+    fprintf(stdout,
+            "compactall: compacting %zu DB(s) with %zu concurrent DB(s) and "
+            "%u subcompaction(s) per DB\n",
+            dbs.size(), parallelism, max_subcompactions);
+    fflush(stdout);
+
+    std::atomic<size_t> next_db{0};
+    std::atomic<bool> failed{false};
+    std::mutex error_mutex;
+    Status first_error;
+    std::string first_error_db;
+
+    auto compact_worker = [&]() {
+      DbUseGuard db_guard(this);
+      while (!failed.load(std::memory_order_acquire)) {
+        const size_t db_index = next_db.fetch_add(1, std::memory_order_relaxed);
+        if (db_index >= dbs.size()) {
+          return;
+        }
+
+        DB* db = dbs[db_index];
+        const std::string db_name = db->GetName();
+        const auto start = std::chrono::steady_clock::now();
+        fprintf(stdout, "compactall: DB %zu/%zu (%s) started\n", db_index + 1,
+                dbs.size(), db_name.c_str());
+        fflush(stdout);
+
+        CompactRangeOptions cro;
+        cro.max_subcompactions = max_subcompactions;
+        Status status = db->CompactRange(cro, nullptr, nullptr);
+
+        const double elapsed_seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                          start)
+                .count();
+        fprintf(stdout,
+                "compactall: DB %zu/%zu (%s) finished in %.3f seconds with "
+                "status %s\n",
+                db_index + 1, dbs.size(), db_name.c_str(), elapsed_seconds,
+                status.ToString().c_str());
+        fflush(stdout);
+
+        if (!status.ok()) {
+          {
+            std::lock_guard<std::mutex> lock(error_mutex);
+            if (first_error.ok()) {
+              first_error = status;
+              first_error_db = db_name;
+            }
+          }
+          failed.store(true, std::memory_order_release);
+          return;
+        }
+      }
+    };
+
+    std::vector<port::Thread> workers;
+    workers.reserve(parallelism - 1);
+    for (size_t i = 1; i < parallelism; ++i) {
+      workers.emplace_back(compact_worker);
+    }
+    compact_worker();
+    for (auto& worker : workers) {
+      worker.join();
+    }
+
+    if (!first_error.ok()) {
+      fprintf(stderr, "compactall failed for DB %s: %s\n",
+              first_error_db.c_str(), first_error.ToString().c_str());
+      ErrorExit();
     }
   }
 
@@ -11152,7 +11656,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
     SetVersionString(GetRocksVersionAsString(true));
     initialized = true;
   }
-  RegisterDbBenchBdwFlagValidators();
+  RegisterDbBenchFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
