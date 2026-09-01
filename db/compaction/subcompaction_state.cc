@@ -106,14 +106,15 @@ Slice SubcompactionState::LargestUserKey() const {
 }
 
 Status SubcompactionState::AddToOutput(
-    const CompactionIterator& iter, bool use_proximal_output,
-    const CompactionFileOpenFunc& open_file_func,
+    const CompactionOutputRecord& record, const CompactionIterator& source_iter,
+    bool use_proximal_output, const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func,
     const ParsedInternalKey& prev_iter_output_internal_key) {
   // update target output
   current_outputs_ =
       use_proximal_output ? &proximal_level_outputs_ : &compaction_outputs_;
-  return current_outputs_->AddToOutput(iter, open_file_func, close_file_func,
+  return current_outputs_->AddToOutput(record, source_iter, open_file_func,
+                                       close_file_func,
                                        prev_iter_output_internal_key);
 }
 

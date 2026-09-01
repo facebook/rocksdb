@@ -566,6 +566,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(const CompactionFilter*)},
       {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
+      {offsetof(struct ColumnFamilyOptions, stream_aggregation_factory),
+       sizeof(std::shared_ptr<StreamAggregationFactory>)},
       {offsetof(struct ColumnFamilyOptions, compression_manager),
        sizeof(std::shared_ptr<CompressionManager>)},
       {offsetof(struct ColumnFamilyOptions, prefix_extractor),

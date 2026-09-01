@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <set>
@@ -18,8 +19,11 @@
 #include <vector>
 
 #include "db/blob/blob_counting_iterator.h"
+#include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_index.h"
+#include "db/blob/prefetch_buffer_collection.h"
 #include "db/builder.h"
 #include "db/compaction/clipping_iterator.h"
 #include "db/compaction/compaction_state.h"
@@ -33,6 +37,8 @@
 #include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
+#include "db/wide/wide_column_serialization.h"
+#include "db/wide/wide_columns_helper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -50,6 +56,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
+#include "rocksdb/stream_aggregation.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/format.h"
@@ -135,6 +142,295 @@ const char* GetCompactionProximalOutputRangeTypeString(
 // Static constant for compaction abort flag - always false, used for
 // compaction service jobs that don't support abort signaling
 const std::atomic<int> CompactionJob::kCompactionAbortedFalse{0};
+
+namespace {
+
+using Aggregation = StreamAggregation;
+
+struct BufferedAggregationInput {
+  std::string user_key;
+  SequenceNumber sequence = 0;
+  ValueType internal_value_type = kTypeValue;
+  std::string value_storage;
+  Slice plain_value;
+  WideColumns columns;
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  std::unique_ptr<CompactionBlobResolver> blob_resolver;
+  uint64_t accounted_resolved_bytes = 0;
+
+  Status Initialize(BlobFetcher* blob_fetcher,
+                    PrefetchBufferCollection* prefetch_buffers,
+                    CompactionIterationStats* iter_stats) {
+    if (internal_value_type == kTypeValue) {
+      plain_value = Slice(value_storage);
+      return Status::OK();
+    }
+
+    if (internal_value_type != kTypeWideColumnEntity) {
+      return Status::NotSupported(
+          "StreamAggregation input must be a value or wide-column "
+          "entity");
+    }
+
+    Slice entity(value_storage);
+    Status s =
+        WideColumnSerialization::Deserialize(entity, columns, &blob_columns);
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (!blob_columns.empty()) {
+      blob_resolver = std::make_unique<CompactionBlobResolver>();
+      blob_resolver->Init(blob_fetcher, prefetch_buffers, iter_stats);
+      blob_resolver->Reset(Slice(user_key), &columns, &blob_columns,
+                           /*track_resolve_error=*/true);
+    }
+
+    return Status::OK();
+  }
+
+  Aggregation::Input GetPublicInput() {
+    Aggregation::Input input;
+    input.user_key = Slice(user_key);
+    input.sequence = sequence;
+    if (internal_value_type == kTypeValue) {
+      input.value_type = Aggregation::ValueType::kValue;
+      input.value = &plain_value;
+    } else {
+      input.value_type = Aggregation::ValueType::kWideColumnEntity;
+      input.columns = &columns;
+      input.blob_resolver = blob_resolver.get();
+    }
+    return input;
+  }
+
+  uint64_t RawBytes() const { return user_key.size() + value_storage.size(); }
+
+  uint64_t UpdateResolvedBytes() {
+    if (blob_resolver == nullptr) {
+      return 0;
+    }
+    const uint64_t current_resolved_bytes = blob_resolver->resolved_bytes();
+    assert(current_resolved_bytes >= accounted_resolved_bytes);
+    const uint64_t newly_resolved_bytes =
+        current_resolved_bytes - accounted_resolved_bytes;
+    accounted_resolved_bytes = current_resolved_bytes;
+    return newly_resolved_bytes;
+  }
+
+  uint64_t BufferedBytes() const {
+    return RawBytes() + accounted_resolved_bytes;
+  }
+};
+
+Status ValidateAggregationOutput(
+    const std::vector<Aggregation::Input>& inputs, size_t num_consumed,
+    const std::vector<Aggregation::OutputSegment>& outputs,
+    uint64_t max_output_bytes, const Comparator* user_comparator) {
+  assert(user_comparator != nullptr);
+
+  if (num_consumed > inputs.size()) {
+    return Status::InvalidArgument(
+        "StreamAggregation consumed beyond its input batch");
+  }
+  if (num_consumed == 0) {
+    if (!outputs.empty()) {
+      return Status::InvalidArgument(
+          "StreamAggregation cannot emit output without consuming "
+          "input");
+    }
+    return Status::OK();
+  }
+  if (outputs.empty()) {
+    return Status::InvalidArgument(
+        "StreamAggregation must return output segments");
+  }
+
+  size_t expected_begin = 0;
+  uint64_t output_bytes = 0;
+  auto add_output_bytes = [&](uint64_t bytes) -> bool {
+    if (bytes > max_output_bytes - output_bytes) {
+      return false;
+    }
+    output_bytes += bytes;
+    return true;
+  };
+  const Slice* previous_output_key = nullptr;
+  auto validate_output_key = [&](const Slice& output_key) -> Status {
+    if (previous_output_key != nullptr &&
+        user_comparator->Compare(*previous_output_key, output_key) >= 0) {
+      return Status::InvalidArgument(
+          "StreamAggregation output keys must be strictly ordered");
+    }
+    previous_output_key = &output_key;
+    return Status::OK();
+  };
+  for (const auto& output : outputs) {
+    if (output.input_begin != expected_begin ||
+        output.input_end <= output.input_begin ||
+        output.input_end > num_consumed) {
+      return Status::InvalidArgument(
+          "StreamAggregation output segments must exactly partition "
+          "the consumed input prefix");
+    }
+
+    switch (output.action) {
+      case Aggregation::OutputAction::kKeep:
+      case Aggregation::OutputAction::kDrop:
+        if (!output.value.empty() || !output.columns.empty()) {
+          return Status::InvalidArgument(
+              "StreamAggregation keep/drop segments cannot contain "
+              "an output value");
+        }
+        if (output.action == Aggregation::OutputAction::kKeep) {
+          for (size_t i = output.input_begin; i < output.input_end; ++i) {
+            Status status = validate_output_key(inputs[i].user_key);
+            if (!status.ok()) {
+              return status;
+            }
+          }
+        }
+        break;
+      case Aggregation::OutputAction::kEmit:
+        if (output.anchor_input_index < output.input_begin ||
+            output.anchor_input_index >= output.input_end) {
+          return Status::InvalidArgument(
+              "StreamAggregation output anchor must belong to its "
+              "input segment");
+        }
+        {
+          Status status =
+              validate_output_key(inputs[output.anchor_input_index].user_key);
+          if (!status.ok()) {
+            return status;
+          }
+        }
+        if (output.value_type == Aggregation::ValueType::kValue) {
+          if (!output.columns.empty()) {
+            return Status::InvalidArgument(
+                "StreamAggregation value output cannot contain wide "
+                "columns");
+          }
+          if (output.value.size() > std::numeric_limits<uint32_t>::max()) {
+            return Status::InvalidArgument(
+                "StreamAggregation output value exceeds 4GB");
+          }
+          if (!add_output_bytes(output.value.size())) {
+            return Status::InvalidArgument(
+                "StreamAggregation output exceeds its configured "
+                "byte limit");
+          }
+        } else if (output.value_type ==
+                   Aggregation::ValueType::kWideColumnEntity) {
+          if (!output.value.empty()) {
+            return Status::InvalidArgument(
+                "StreamAggregation entity output cannot contain a "
+                "plain value");
+          }
+
+          WideColumns columns;
+          columns.reserve(output.columns.size());
+          for (const auto& column : output.columns) {
+            columns.emplace_back(column.first, column.second);
+            if (!add_output_bytes(column.first.size()) ||
+                !add_output_bytes(column.second.size())) {
+              return Status::InvalidArgument(
+                  "StreamAggregation output exceeds its configured "
+                  "byte limit");
+            }
+          }
+          WideColumnsHelper::SortColumns(columns);
+          std::string serialized;
+          Status s = WideColumnSerialization::Serialize(columns, serialized);
+          if (!s.ok()) {
+            return s;
+          }
+        } else {
+          return Status::InvalidArgument(
+              "StreamAggregation returned an invalid output value "
+              "type");
+        }
+        break;
+      default:
+        return Status::InvalidArgument(
+            "StreamAggregation returned an invalid output action");
+    }
+
+    expected_begin = output.input_end;
+  }
+
+  if (expected_begin != num_consumed) {
+    return Status::InvalidArgument(
+        "StreamAggregation output segments do not cover every "
+        "consumed input");
+  }
+
+  return Status::OK();
+}
+
+Status BuildAggregationOutputValue(const Aggregation::OutputSegment& output,
+                                   const Slice& user_key,
+                                   BlobFileBuilder* blob_file_builder,
+                                   ValueType* internal_value_type,
+                                   std::string* value) {
+  assert(output.action == Aggregation::OutputAction::kEmit);
+  assert(internal_value_type != nullptr);
+  assert(value != nullptr);
+
+  value->clear();
+  if (output.value_type == Aggregation::ValueType::kValue) {
+    *internal_value_type = kTypeValue;
+    *value = output.value;
+
+    if (blob_file_builder != nullptr) {
+      std::string blob_index;
+      Status s = blob_file_builder->Add(user_key, *value, &blob_index);
+      if (!s.ok()) {
+        return s;
+      }
+      if (!blob_index.empty()) {
+        *internal_value_type = kTypeBlobIndex;
+        *value = std::move(blob_index);
+      }
+    }
+    return Status::OK();
+  }
+
+  WideColumns columns;
+  columns.reserve(output.columns.size());
+  for (const auto& column : output.columns) {
+    columns.emplace_back(column.first, column.second);
+  }
+  WideColumnsHelper::SortColumns(columns);
+
+  std::vector<std::pair<size_t, BlobIndex>> blob_columns;
+  if (blob_file_builder != nullptr) {
+    for (size_t i = 0; i < columns.size(); ++i) {
+      std::string blob_index_encoding;
+      Status s = blob_file_builder->Add(user_key, columns[i].value(),
+                                        &blob_index_encoding);
+      if (!s.ok()) {
+        return s;
+      }
+      if (!blob_index_encoding.empty()) {
+        BlobIndex blob_index;
+        s = blob_index.DecodeFrom(blob_index_encoding);
+        if (!s.ok()) {
+          return s;
+        }
+        blob_columns.emplace_back(i, std::move(blob_index));
+      }
+    }
+  }
+
+  *internal_value_type = kTypeWideColumnEntity;
+  if (blob_columns.empty()) {
+    return WideColumnSerialization::Serialize(columns, *value);
+  }
+  return WideColumnSerialization::SerializeV2(columns, blob_columns, *value);
+}
+
+}  // namespace
 
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
@@ -1443,6 +1739,9 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 }
 
 bool CompactionJob::ShouldUseLocalCompaction(SubcompactionState* sub_compact) {
+  if (sub_compact->compaction->ShouldUseStreamAggregation()) {
+    return true;
+  }
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
@@ -1642,7 +1941,7 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
     SubcompactionState* sub_compact, ColumnFamilyData* cfd,
     InternalIterator* input, const CompactionFilter* compaction_filter,
     MergeHelper& merge, std::unique_ptr<BlobFileBuilder>& blob_file_builder,
-    const WriteOptions& write_options) {
+    const WriteOptions& write_options, bool use_stream_aggregation) {
   CreateBlobFileBuilder(sub_compact, cfd, blob_file_builder, write_options);
 
   const std::string* const full_history_ts_low =
@@ -1655,12 +1954,16 @@ std::unique_ptr<CompactionIterator> CompactionJob::CreateCompactionIterator(
       job_context_->earliest_write_conflict_snapshot,
       job_context_->GetJobSnapshotSequence(), job_context_->snapshot_checker,
       env_, ShouldReportDetailedTime(env_, stats_), sub_compact->RangeDelAgg(),
-      blob_file_builder.get(), db_options_.allow_data_in_errors,
+      use_stream_aggregation ? nullptr : blob_file_builder.get(),
+      db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction
           ->DoesInputReferenceBlobFiles() /* must_count_input_entries */,
+      use_stream_aggregation ? CompactionIterator::ValuePreparation::kDefer
+                             : CompactionIterator::ValuePreparation::kApply,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low, preserve_seqno_after_);
+      db_options_.info_log, full_history_ts_low, preserve_seqno_after_,
+      /*input_version=*/nullptr, Env::IOActivity::kCompaction);
 }
 
 std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc>
@@ -1770,9 +2073,12 @@ Status CompactionJob::ProcessKeyValue(
     // and `close_file_func`.
     // TODO: it would be better to have the compaction file open/close moved
     // into `CompactionOutputs` which has the output file information.
-    status = sub_compact->AddToOutput(*c_iter, use_proximal_output,
-                                      open_file_func, close_file_func,
-                                      prev_iter_output_internal_key);
+    const CompactionOutputRecord output_record{
+        c_iter->key(), c_iter->value(), c_iter->ikey(),
+        c_iter->IsDeleteRangeSentinelKey()};
+    status = sub_compact->AddToOutput(
+        output_record, *c_iter, use_proximal_output, open_file_func,
+        close_file_func, prev_iter_output_internal_key);
     if (!status.ok()) {
       break;
     }
@@ -1795,6 +2101,344 @@ Status CompactionJob::ProcessKeyValue(
       break;
     }
 #endif  // NDEBUG
+  }
+
+  return status;
+}
+
+Status CompactionJob::SetupAndValidateStreamAggregation(
+    SubcompactionState* sub_compact,
+    std::unique_ptr<StreamAggregation>* aggregation) {
+  assert(sub_compact != nullptr);
+  assert(sub_compact->compaction != nullptr);
+  assert(aggregation != nullptr);
+
+  aggregation->reset();
+  const Compaction* compaction = sub_compact->compaction;
+  if (!compaction->ShouldUseStreamAggregation()) {
+    return Status::OK();
+  }
+
+  if (compaction->immutable_options().allow_ingest_behind ||
+      compaction->immutable_options().cf_allow_ingest_behind) {
+    return Status::NotSupported(
+        "StreamAggregation does not support ingest-behind");
+  }
+  if (!job_context_->snapshot_seqs.empty() ||
+      job_context_->snapshot_checker != nullptr ||
+      job_context_->earliest_write_conflict_snapshot != kMaxSequenceNumber) {
+    return Status::OK();
+  }
+
+  *aggregation = compaction->CreateStreamAggregation();
+  if (!*aggregation) {
+    return Status::InvalidArgument("StreamAggregationFactory returned null");
+  }
+  if ((*aggregation)->MaxBatchOutputBytes() == 0) {
+    aggregation->reset();
+    return Status::InvalidArgument(
+        "StreamAggregation output byte limit must be non-zero");
+  }
+
+  return Status::OK();
+}
+
+Status CompactionJob::ProcessKeyValueWithStreamAggregation(
+    SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+    CompactionIterator* c_iter, StreamAggregation* aggregation,
+    BlobFileBuilder* blob_file_builder,
+    const CompactionFileOpenFunc& open_file_func,
+    const CompactionFileCloseFunc& close_file_func, uint64_t& prev_cpu_micros) {
+  assert(sub_compact != nullptr);
+  assert(cfd != nullptr);
+  assert(c_iter != nullptr);
+  assert(aggregation != nullptr);
+
+  const uint64_t kCronEveryMask = (1 << 10) - 1;
+#ifndef NDEBUG
+  const std::optional<const Slice> end = sub_compact->end;
+#endif
+
+  ReadOptions blob_read_options;
+  blob_read_options.fill_cache = false;
+  blob_read_options.io_activity = Env::IOActivity::kCompaction;
+  OwningVersionBlobFetcher blob_fetcher(
+      sub_compact->compaction->input_version(), std::move(blob_read_options));
+
+  std::unique_ptr<PrefetchBufferCollection> prefetch_buffers;
+  const uint64_t readahead_size = sub_compact->compaction->mutable_cf_options()
+                                      .blob_compaction_readahead_size;
+  if (readahead_size != 0 &&
+      !sub_compact->compaction->immutable_options().allow_mmap_reads) {
+    prefetch_buffers =
+        std::make_unique<PrefetchBufferCollection>(readahead_size);
+  }
+
+  constexpr size_t kInitialInputRecords = 256;
+  constexpr uint64_t kInitialInputBytes = 1024 * 1024;
+  std::pair<size_t, uint64_t> input_buffer_limits{
+      StreamAggregation::kMaxBufferedInputRecords,
+      StreamAggregation::kMaxBufferedInputBytes};
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::ProcessKeyValueWithStreamAggregation:"
+      "InputBufferLimits",
+      &input_buffer_limits);
+  if (input_buffer_limits.first == 0 || input_buffer_limits.second == 0 ||
+      input_buffer_limits.first > StreamAggregation::kMaxBufferedInputRecords ||
+      input_buffer_limits.second > StreamAggregation::kMaxBufferedInputBytes) {
+    return Status::InvalidArgument(
+        "StreamAggregation input buffer limits are invalid");
+  }
+
+  size_t target_input_records =
+      std::min(kInitialInputRecords, input_buffer_limits.first);
+  uint64_t target_input_bytes =
+      std::min(kInitialInputBytes, input_buffer_limits.second);
+  std::deque<BufferedAggregationInput> pending_inputs;
+  uint64_t pending_input_bytes = 0;
+  std::vector<StreamAggregation::Input> input_views;
+  std::vector<StreamAggregation::OutputSegment> outputs;
+  IterKey prev_iter_output_key;
+  ParsedInternalKey prev_iter_output_internal_key;
+  CompactionIterationStats* const aggregation_stats =
+      &sub_compact->stream_aggregation_stats;
+
+  auto add_output_record = [&](const Slice& user_key, SequenceNumber sequence,
+                               ValueType value_type,
+                               const Slice& value) -> Status {
+    InternalKey internal_key(user_key, sequence, value_type);
+    const ParsedInternalKey parsed_key(user_key, sequence, value_type);
+    const CompactionOutputRecord output_record{
+        internal_key.Encode(), value, parsed_key, /*is_range_del=*/false};
+
+    Status s = sub_compact->AddToOutput(
+        output_record, *c_iter, /*use_proximal_output=*/false, open_file_func,
+        close_file_func, prev_iter_output_internal_key);
+    if (!s.ok()) {
+      return s;
+    }
+
+    prev_iter_output_key.SetInternalKey(output_record.key,
+                                        &prev_iter_output_internal_key);
+    prev_iter_output_internal_key.sequence = sequence;
+    prev_iter_output_internal_key.type = value_type;
+    return Status::OK();
+  };
+
+  auto next_input_raw_bytes = [&]() -> uint64_t {
+    assert(c_iter->Valid());
+    return static_cast<uint64_t>(c_iter->user_key().size()) +
+           static_cast<uint64_t>(c_iter->value().size());
+  };
+
+  auto input_buffer_at_limit = [&]() -> bool {
+    if (pending_inputs.size() >= input_buffer_limits.first ||
+        pending_input_bytes >= input_buffer_limits.second) {
+      return true;
+    }
+    if (!c_iter->Valid()) {
+      return false;
+    }
+    const uint64_t next_bytes = next_input_raw_bytes();
+    return next_bytes > input_buffer_limits.second ||
+           next_bytes > input_buffer_limits.second - pending_input_bytes;
+  };
+
+  auto fill_input_buffer = [&]() -> Status {
+    while (c_iter->Valid()) {
+      assert(!end.has_value() ||
+             cfd->user_comparator()->Compare(c_iter->user_key(), *end) < 0);
+
+      if (c_iter->IsDeleteRangeSentinelKey()) {
+        c_iter->Next();
+        continue;
+      }
+
+      const ParsedInternalKey& ikey = c_iter->ikey();
+      if (ikey.type != kTypeValue && ikey.type != kTypeWideColumnEntity) {
+        return Status::NotSupported(
+            "StreamAggregation encountered an unsupported value "
+            "type");
+      }
+
+      const uint64_t raw_bytes = next_input_raw_bytes();
+      if (raw_bytes > input_buffer_limits.second) {
+        return Status::MemoryLimit(
+            "StreamAggregation input exceeds the byte limit");
+      }
+      if (pending_inputs.size() >= input_buffer_limits.first ||
+          raw_bytes > input_buffer_limits.second - pending_input_bytes) {
+        break;
+      }
+      if (pending_inputs.size() >= target_input_records ||
+          (!pending_inputs.empty() &&
+           (pending_input_bytes >= target_input_bytes ||
+            raw_bytes > target_input_bytes - pending_input_bytes))) {
+        break;
+      }
+
+      pending_inputs.emplace_back();
+      BufferedAggregationInput& buffered = pending_inputs.back();
+      buffered.user_key.assign(c_iter->user_key().data(),
+                               c_iter->user_key().size());
+      buffered.sequence = ikey.sequence;
+      buffered.internal_value_type = ikey.type;
+      buffered.value_storage.assign(c_iter->value().data(),
+                                    c_iter->value().size());
+      Status status = buffered.Initialize(&blob_fetcher, prefetch_buffers.get(),
+                                          aggregation_stats);
+      if (!status.ok()) {
+        return status;
+      }
+
+      pending_input_bytes += buffered.RawBytes();
+      c_iter->Next();
+    }
+    return Status::OK();
+  };
+
+  Status status;
+  while (status.ok() && !cfd->IsDropped() &&
+         (c_iter->Valid() || !pending_inputs.empty()) &&
+         c_iter->status().ok()) {
+    if (compaction_aborted_.load(std::memory_order_acquire) > 0 ||
+        cfd->compaction_aborted() > 0) {
+      return Status::Incomplete(Status::SubCode::kCompactionAborted);
+    }
+
+    status = fill_input_buffer();
+    if (!status.ok()) {
+      return status;
+    }
+
+    if (pending_inputs.empty()) {
+      break;
+    }
+    if (!c_iter->status().ok()) {
+      return c_iter->status();
+    }
+
+    input_views.clear();
+    input_views.reserve(pending_inputs.size());
+    for (auto& input : pending_inputs) {
+      input_views.push_back(input.GetPublicInput());
+    }
+
+    size_t num_consumed = 0;
+    outputs.clear();
+    const bool end_of_input = !c_iter->Valid();
+    if (end_of_input) {
+      status = aggregation->Finish(input_views, &outputs);
+      num_consumed = input_views.size();
+    } else {
+      status = aggregation->Aggregate(input_views, &num_consumed, &outputs);
+    }
+    if (!status.ok()) {
+      return status;
+    }
+    for (size_t i = 0; i < input_views.size(); ++i) {
+      if (pending_inputs[i].blob_resolver != nullptr) {
+        status = pending_inputs[i].blob_resolver->resolve_status();
+        if (!status.ok()) {
+          return status;
+        }
+      }
+      const uint64_t newly_resolved_bytes =
+          pending_inputs[i].UpdateResolvedBytes();
+      if (pending_input_bytes > input_buffer_limits.second ||
+          newly_resolved_bytes >
+              input_buffer_limits.second - pending_input_bytes) {
+        return Status::MemoryLimit(
+            "StreamAggregation resolved blob values exceed the "
+            "input byte limit");
+      }
+      pending_input_bytes += newly_resolved_bytes;
+    }
+    status = ValidateAggregationOutput(input_views, num_consumed, outputs,
+                                       aggregation->MaxBatchOutputBytes(),
+                                       cfd->user_comparator());
+    if (!status.ok()) {
+      return status;
+    }
+
+    if (num_consumed == 0) {
+      if (input_buffer_at_limit()) {
+        return Status::MemoryLimit(
+            "StreamAggregation requested more input after reaching "
+            "the input buffer limit");
+      }
+
+      const size_t doubled_records =
+          target_input_records > input_buffer_limits.first / 2
+              ? input_buffer_limits.first
+              : target_input_records * 2;
+      target_input_records =
+          std::min(input_buffer_limits.first,
+                   std::max(doubled_records, pending_inputs.size() + 1));
+
+      const uint64_t next_bytes = next_input_raw_bytes();
+      assert(next_bytes <= input_buffer_limits.second - pending_input_bytes);
+      const uint64_t required_bytes = pending_input_bytes + next_bytes;
+      const uint64_t doubled_bytes =
+          target_input_bytes > input_buffer_limits.second / 2
+              ? input_buffer_limits.second
+              : target_input_bytes * 2;
+      target_input_bytes = std::min(input_buffer_limits.second,
+                                    std::max(doubled_bytes, required_bytes));
+      continue;
+    }
+
+    for (const auto& output : outputs) {
+      if (output.action == StreamAggregation::OutputAction::kKeep) {
+        for (size_t i = output.input_begin; i < output.input_end; ++i) {
+          const auto& input = pending_inputs[i];
+          status = add_output_record(Slice(input.user_key), input.sequence,
+                                     input.internal_value_type,
+                                     Slice(input.value_storage));
+          if (!status.ok()) {
+            return status;
+          }
+        }
+        continue;
+      }
+
+      if (output.action == StreamAggregation::OutputAction::kDrop) {
+        aggregation_stats->num_record_drop_user +=
+            static_cast<int64_t>(output.input_end - output.input_begin);
+        continue;
+      }
+
+      const Slice anchor_key(
+          pending_inputs[output.anchor_input_index].user_key);
+      ValueType output_value_type = kTypeValue;
+      std::string output_value;
+      status =
+          BuildAggregationOutputValue(output, anchor_key, blob_file_builder,
+                                      &output_value_type, &output_value);
+      if (!status.ok()) {
+        return status;
+      }
+      status = add_output_record(
+          anchor_key, pending_inputs[output.anchor_input_index].sequence,
+          output_value_type, Slice(output_value));
+      if (!status.ok()) {
+        return status;
+      }
+    }
+
+    for (size_t i = 0; i < num_consumed; ++i) {
+      pending_input_bytes -= pending_inputs.front().BufferedBytes();
+      pending_inputs.pop_front();
+    }
+
+    const uint64_t num_records = c_iter->iter_stats().num_input_records;
+    if ((num_records & kCronEveryMask) == kCronEveryMask) {
+      UpdateSubcompactionJobStatsIncrementally(
+          c_iter, &sub_compact->compaction_job_stats,
+          db_options_.clock->CPUMicros(), prev_cpu_micros);
+      RecordDroppedKeys(*aggregation_stats, &sub_compact->compaction_job_stats);
+      aggregation_stats->num_record_drop_user = 0;
+    }
   }
 
   return status;
@@ -1826,9 +2470,11 @@ void CompactionJob::FinalizeSubcompactionJobStats(
   sub_compact->compaction_job_stats.num_input_records +=
       c_iter->NumInputEntryScanned();
   sub_compact->compaction_job_stats.num_blobs_read =
-      c_iter_stats.num_blobs_read;
+      c_iter_stats.num_blobs_read +
+      sub_compact->stream_aggregation_stats.num_blobs_read;
   sub_compact->compaction_job_stats.total_blob_bytes_read =
-      c_iter_stats.total_blob_bytes_read;
+      c_iter_stats.total_blob_bytes_read +
+      sub_compact->stream_aggregation_stats.total_blob_bytes_read;
   sub_compact->compaction_job_stats.num_input_deletion_records =
       c_iter_stats.num_input_deletion_records;
   sub_compact->compaction_job_stats.num_corrupt_keys =
@@ -1844,6 +2490,10 @@ void CompactionJob::FinalizeSubcompactionJobStats(
 
   RecordTick(stats_, FILTER_OPERATION_TOTAL_TIME,
              c_iter_stats.total_filter_time);
+
+  RecordDroppedKeys(sub_compact->stream_aggregation_stats,
+                    &sub_compact->compaction_job_stats);
+  sub_compact->stream_aggregation_stats.num_record_drop_user = 0;
 
   if (c_iter_stats.num_blobs_relocated > 0) {
     RecordTick(stats_, BLOB_DB_GC_NUM_KEYS_RELOCATED,
@@ -1963,6 +2613,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     return;
   }
 
+  std::unique_ptr<StreamAggregation> stream_aggregation;
+  Status aggregation_status =
+      SetupAndValidateStreamAggregation(sub_compact, &stream_aggregation);
+  if (!aggregation_status.ok()) {
+    sub_compact->status = aggregation_status;
+    return;
+  }
+
   NotifyOnSubcompactionBegin(sub_compact);
 
   SubcompactionKeyBoundaries boundaries(sub_compact->start, sub_compact->end);
@@ -1994,9 +2652,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       compact_->compaction->level(), db_options_.stats);
   std::unique_ptr<BlobFileBuilder> blob_file_builder;
 
-  auto c_iter =
-      CreateCompactionIterator(sub_compact, cfd, input_iter, compaction_filter,
-                               merge, blob_file_builder, write_options);
+  auto c_iter = CreateCompactionIterator(
+      sub_compact, cfd, input_iter, compaction_filter, merge, blob_file_builder,
+      write_options, stream_aggregation != nullptr);
   assert(c_iter);
   c_iter->SeekToFirst();
 
@@ -2008,8 +2666,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   auto [open_file_func, close_file_func] =
       CreateFileHandlers(sub_compact, boundaries);
 
-  status = ProcessKeyValue(sub_compact, cfd, c_iter.get(), open_file_func,
-                           close_file_func, prev_cpu_micros);
+  if (stream_aggregation != nullptr) {
+    status = ProcessKeyValueWithStreamAggregation(
+        sub_compact, cfd, c_iter.get(), stream_aggregation.get(),
+        blob_file_builder.get(), open_file_func, close_file_func,
+        prev_cpu_micros);
+  } else {
+    status = ProcessKeyValue(sub_compact, cfd, c_iter.get(), open_file_func,
+                             close_file_func, prev_cpu_micros);
+  }
 
   status = FinalizeProcessKeyValueStatus(cfd, input_iter, c_iter.get(), status);
 
@@ -2291,6 +2956,9 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
     const ParsedInternalKey& prev_iter_output_internal_key,
     const Slice& next_table_min_internal_key, const FileMetaData* meta) const {
   const auto* cfd = sub_compact->compaction->column_family_data();
+  if (sub_compact->compaction->ShouldUseStreamAggregation()) {
+    return false;
+  }
   // No need to update when the progress will not get persisted
   if (compaction_progress_writer_ == nullptr) {
     return false;
@@ -3098,6 +3766,11 @@ Status CompactionJob::MaybeResumeSubcompactionProgressOnInputIterator(
       subcompaction_progress.proximal_output_level_progress
               .GetNumProcessedOutputRecords() == 0) {
     return Status::NotFound("No subcompaction progress to resume");
+  }
+
+  if (sub_compact->compaction->ShouldUseStreamAggregation()) {
+    return Status::NotSupported(
+        "StreamAggregation does not support resumable compaction");
   }
 
   ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] Resuming compaction : %s",

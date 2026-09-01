@@ -57,6 +57,7 @@ class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
+class StreamAggregation;
 
 class SubcompactionState;
 
@@ -395,7 +396,7 @@ class CompactionJob {
       SubcompactionState* sub_compact, ColumnFamilyData* cfd,
       InternalIterator* input_iter, const CompactionFilter* compaction_filter,
       MergeHelper& merge, std::unique_ptr<BlobFileBuilder>& blob_file_builder,
-      const WriteOptions& write_options);
+      const WriteOptions& write_options, bool use_stream_aggregation);
   std::pair<CompactionFileOpenFunc, CompactionFileCloseFunc> CreateFileHandlers(
       SubcompactionState* sub_compact, SubcompactionKeyBoundaries& boundaries);
   Status ProcessKeyValue(SubcompactionState* sub_compact, ColumnFamilyData* cfd,
@@ -403,6 +404,16 @@ class CompactionJob {
                          const CompactionFileOpenFunc& open_file_func,
                          const CompactionFileCloseFunc& close_file_func,
                          uint64_t& prev_cpu_micros);
+  Status SetupAndValidateStreamAggregation(
+      SubcompactionState* sub_compact,
+      std::unique_ptr<StreamAggregation>* aggregation);
+  Status ProcessKeyValueWithStreamAggregation(
+      SubcompactionState* sub_compact, ColumnFamilyData* cfd,
+      CompactionIterator* c_iter, StreamAggregation* aggregation,
+      BlobFileBuilder* blob_file_builder,
+      const CompactionFileOpenFunc& open_file_func,
+      const CompactionFileCloseFunc& close_file_func,
+      uint64_t& prev_cpu_micros);
   void UpdateSubcompactionJobStatsIncrementally(
       CompactionIterator* c_iter, CompactionJobStats* compaction_job_stats,
       uint64_t cur_cpu_micros, uint64_t& prev_cpu_micros);

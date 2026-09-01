@@ -240,6 +240,11 @@
           "reason": "Uses custom components or nested option objects that need hand-designed C bridging."
         },
         {
+          "field": "stream_aggregation_factory",
+          "policy": "manual",
+          "reason": "Uses a C++ callback factory that requires a hand-designed C API."
+        },
+        {
           "field": "bottommost_compression_opts",
           "policy": "manual",
           "reason": "Uses custom components or nested option objects that need hand-designed C bridging."

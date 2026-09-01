@@ -23,6 +23,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/stream_aggregation.h"
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
@@ -60,6 +61,28 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 constexpr int kMaxAbortResumeCompactionsSleepMicros = 3 * 1000 * 1000;
+
+class KeepStreamAggregation : public StreamAggregation {
+ public:
+  Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                   std::vector<OutputSegment>* outputs) override {
+    *num_consumed = inputs.size();
+    outputs->clear();
+    outputs->emplace_back();
+    outputs->back().input_end = inputs.size();
+    return Status::OK();
+  }
+};
+
+class KeepStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  const char* Name() const override { return "KeepStreamAggregationFactory"; }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return std::make_unique<KeepStreamAggregation>();
+  }
+};
 
 class ScopedThreadOperation {
  public:
@@ -4934,7 +4957,12 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                         << static_cast<int>(cro.blob_garbage_collection_policy)
                         << ", blob_garbage_collection_age_cutoff: "
                         << cro.blob_garbage_collection_age_cutoff;
-  Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
+  const Slice* compaction_start =
+      FLAGS_use_keep_stream_aggregation ? nullptr : &start_key;
+  const Slice* compaction_end =
+      FLAGS_use_keep_stream_aggregation ? nullptr : &end_key;
+  Status status =
+      db_->CompactRange(cro, column_family, compaction_start, compaction_end);
 
   // Verify before the fail-fast: a corruption that CompactRange itself returns
   // must be recorded (CORRUPTION) before we flag failure, or it mis-buckets.
@@ -6522,6 +6550,10 @@ void InitializeOptionsFromFlags(
   if (FLAGS_enable_compaction_filter) {
     options.compaction_filter_factory =
         std::make_shared<DbStressCompactionFilterFactory>();
+  }
+  if (FLAGS_use_keep_stream_aggregation) {
+    options.stream_aggregation_factory =
+        std::make_shared<KeepStreamAggregationFactory>();
   }
 
   options.best_efforts_recovery = FLAGS_best_efforts_recovery;
