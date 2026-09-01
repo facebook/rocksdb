@@ -45,6 +45,7 @@
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
 #include "monitoring/histogram.h"
+#include "monitoring/iostats_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "port/port.h"
@@ -1739,6 +1740,8 @@ DEFINE_int32(thread_status_per_interval, 0,
 
 DEFINE_int32(perf_level, ROCKSDB_NAMESPACE::PerfLevel::kDisable,
              "Level of perf collection");
+
+DEFINE_bool(io_stats, true, "Enable IOStatsContext collection");
 
 DEFINE_uint64(soft_pending_compaction_bytes_limit, 64ull * 1024 * 1024 * 1024,
               "Slowdown writes if pending compaction bytes exceed this number");
@@ -4904,6 +4907,7 @@ class Benchmark {
     }
 
     SetPerfLevel(static_cast<PerfLevel>(shared->perf_level));
+    IOSTATS_SET_DISABLE(!FLAGS_io_stats);
     perf_context.EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
     {
@@ -7836,6 +7840,7 @@ class Benchmark {
 
   void PrepareCoroutineJobPerfContext(PerfContext* job_perf_context) {
     SetPerfLevel(static_cast<PerfLevel>(FLAGS_perf_level));
+    IOSTATS_SET_DISABLE(!FLAGS_io_stats);
     if (job_perf_context == nullptr) {
       return;
     }

@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1070" viewBox="0 0 1100 1070" font-family="Helvetica, Arial, sans-serif">
+  <title>Two MultiGet requests from one caller thread</title>
+  <desc>Three stacked timelines compare plain MultiGet, synchronous MultiGet with async_io, and the callback-based MultiGetAsync API. Requests A and B each fetch two cache-missed blocks from separate eligible SST files.</desc>
+  <defs>
+    <marker id="arrow-row" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 z" fill="#607d8b"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="1070" fill="#ffffff"/>
+  <text x="550" y="28" text-anchor="middle" font-size="21" font-weight="bold" fill="#263238">Two MultiGet requests from one caller thread</text>
+  <text x="550" y="51" text-anchor="middle" font-size="12" fill="#546e7a">A and B each miss one block in each of two eligible SST files.</text>
+
+  <!-- Row 1: plain synchronous MultiGet. -->
+  <rect x="20" y="70" width="1060" height="285" rx="12" fill="#fafafa" stroke="#cfd8dc" stroke-width="1.5"/>
+  <text x="45" y="101" font-size="18" font-weight="bold" fill="#263238">1. Plain MultiGet</text>
+  <text x="1048" y="101" text-anchor="end" font-size="11" font-weight="bold" fill="#b71c1c">synchronous public API</text>
+
+  <rect x="45" y="119" width="320" height="91" rx="7" fill="#eceff1" stroke="#90a4ae"/>
+  <text x="61" y="141" font-size="10" font-family="monospace" fill="#263238">read_options.async_io = false;</text>
+  <text x="61" y="165" font-size="9.5" font-family="monospace" fill="#0d47a1">db-&gt;MultiGet(...A...);  // fetches blocks A1, A2</text>
+  <text x="61" y="189" font-size="9.5" font-family="monospace" fill="#4527a0">db-&gt;MultiGet(...B...);  // fetches blocks B1, B2</text>
+
+  <text x="395" y="136" font-size="11" font-weight="bold" fill="#455a64">Caller</text>
+  <line x1="500" y1="132" x2="1040" y2="132" stroke="#b0bec5" stroke-width="2" marker-end="url(#arrow-row)"/>
+  <rect x="515" y="113" width="236" height="38" rx="5" fill="#fff3e0" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="633" y="128" text-anchor="middle" font-size="10" font-weight="bold" fill="#0d47a1">A: MultiGet waits</text>
+  <text x="633" y="143" text-anchor="middle" font-size="9" fill="#0d47a1">returns after A1 + A2</text>
+  <rect x="751" y="113" width="236" height="38" rx="5" fill="#fff3e0" stroke="#5e35b1" stroke-width="1.5"/>
+  <text x="869" y="128" text-anchor="middle" font-size="10" font-weight="bold" fill="#4527a0">B: MultiGet waits</text>
+  <text x="869" y="143" text-anchor="middle" font-size="9" fill="#4527a0">called only after A returns</text>
+
+  <text x="395" y="195" font-size="11" font-weight="bold" fill="#455a64">Block I/O</text>
+  <line x1="466" y1="191" x2="1040" y2="191" stroke="#cfd8dc" stroke-width="1.5"/>
+  <rect x="530" y="175" width="97" height="32" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="579" y="195" text-anchor="middle" font-size="10" fill="#0d47a1">block A1</text>
+  <rect x="627" y="175" width="97" height="32" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="676" y="195" text-anchor="middle" font-size="10" fill="#0d47a1">block A2</text>
+  <rect x="766" y="175" width="97" height="32" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="815" y="195" text-anchor="middle" font-size="10" fill="#4527a0">block B1</text>
+  <rect x="863" y="175" width="97" height="32" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="912" y="195" text-anchor="middle" font-size="10" fill="#4527a0">block B2</text>
+
+  <rect x="45" y="237" width="990" height="88" rx="7" fill="#ffebee" stroke="#ef9a9a"/>
+  <text x="540" y="262" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">A completes before the thread can submit B.</text>
+  <text x="540" y="286" text-anchor="middle" font-size="11" fill="#455a64">Without async I/O, the two eligible SST-file reads for A occur one after the other;</text>
+  <text x="540" y="306" text-anchor="middle" font-size="11" fill="#455a64">then the same caller thread runs B and fetches its two blocks.</text>
+
+  <!-- Row 2: synchronous MultiGet with internal async I/O. -->
+  <rect x="20" y="375" width="1060" height="285" rx="12" fill="#fffdf8" stroke="#ffcc80" stroke-width="1.5"/>
+  <text x="45" y="406" font-size="18" font-weight="bold" fill="#263238">2. MultiGet with ReadOptions::async_io</text>
+  <text x="1048" y="406" text-anchor="end" font-size="11" font-weight="bold" fill="#e65100">async I/O inside a synchronous call</text>
+
+  <rect x="45" y="424" width="320" height="91" rx="7" fill="#fff8e1" stroke="#ffb74d"/>
+  <text x="61" y="446" font-size="10" font-family="monospace" fill="#263238">read_options.async_io = true;</text>
+  <text x="61" y="470" font-size="9.5" font-family="monospace" fill="#0d47a1">db-&gt;MultiGet(...A...);  // fetches blocks A1, A2</text>
+  <text x="61" y="494" font-size="9.5" font-family="monospace" fill="#4527a0">db-&gt;MultiGet(...B...);  // fetches blocks B1, B2</text>
+
+  <text x="395" y="441" font-size="11" font-weight="bold" fill="#455a64">Caller</text>
+  <line x1="500" y1="437" x2="1040" y2="437" stroke="#b0bec5" stroke-width="2" marker-end="url(#arrow-row)"/>
+  <rect x="515" y="418" width="236" height="38" rx="5" fill="#fff3e0" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="633" y="433" text-anchor="middle" font-size="10" font-weight="bold" fill="#0d47a1">A: MultiGet waits</text>
+  <text x="633" y="448" text-anchor="middle" font-size="9" fill="#0d47a1">A1 + A2 can overlap</text>
+  <rect x="751" y="418" width="236" height="38" rx="5" fill="#fff3e0" stroke="#5e35b1" stroke-width="1.5"/>
+  <text x="869" y="433" text-anchor="middle" font-size="10" font-weight="bold" fill="#4527a0">B: MultiGet waits</text>
+  <text x="869" y="448" text-anchor="middle" font-size="9" fill="#4527a0">called only after A returns</text>
+
+  <text x="395" y="500" font-size="11" font-weight="bold" fill="#455a64">Block I/O</text>
+  <line x1="466" y1="496" x2="1040" y2="496" stroke="#cfd8dc" stroke-width="1.5"/>
+  <rect x="530" y="473" width="165" height="28" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="613" y="491" text-anchor="middle" font-size="10" fill="#0d47a1">block A1</text>
+  <rect x="552" y="503" width="165" height="28" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="635" y="521" text-anchor="middle" font-size="10" fill="#0d47a1">block A2</text>
+  <rect x="766" y="473" width="165" height="28" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="849" y="491" text-anchor="middle" font-size="10" fill="#4527a0">block B1</text>
+  <rect x="788" y="503" width="165" height="28" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="871" y="521" text-anchor="middle" font-size="10" fill="#4527a0">block B2</text>
+
+  <rect x="45" y="542" width="990" height="88" rx="7" fill="#fff8e1" stroke="#ffb74d"/>
+  <text x="540" y="567" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">The two block reads inside A overlap, but the public call still waits.</text>
+  <text x="540" y="591" text-anchor="middle" font-size="11" fill="#455a64">The caller thread does not submit B until A returns. Then async_io overlaps B1 and B2</text>
+  <text x="540" y="611" text-anchor="middle" font-size="11" fill="#455a64">inside the second synchronous MultiGet.</text>
+
+  <!-- Row 3: callback-based async API. -->
+  <rect x="20" y="680" width="1060" height="330" rx="12" fill="#f8fbff" stroke="#90caf9" stroke-width="1.5"/>
+  <text x="45" y="711" font-size="18" font-weight="bold" fill="#263238">3. MultiGetAsync (callback API)</text>
+  <text x="1048" y="711" text-anchor="end" font-size="11" font-weight="bold" fill="#0d47a1">caller runs on the read executor</text>
+
+  <rect x="45" y="729" width="350" height="114" rx="7" fill="#e3f2fd" stroke="#64b5f6"/>
+  <text x="61" y="747" font-size="8.5" fill="#455a64">// Already running on a RocksDB read-executor EventBase</text>
+  <text x="61" y="766" font-size="9.5" font-family="monospace" fill="#0d47a1">db-&gt;MultiGetAsync(...A..., callback_a);</text>
+  <text x="78" y="783" font-size="8.5" font-family="monospace" fill="#0d47a1">// fetches blocks A1, A2</text>
+  <text x="61" y="805" font-size="9.5" font-family="monospace" fill="#4527a0">db-&gt;MultiGetAsync(...B..., callback_b);</text>
+  <text x="78" y="822" font-size="8.5" font-family="monospace" fill="#4527a0">// fetches blocks B1, B2</text>
+  <text x="61" y="838" font-size="8" fill="#455a64">Native path shown; fallback may complete inline.</text>
+
+  <text x="420" y="746" font-size="11" font-weight="bold" fill="#455a64">Caller</text>
+  <line x1="535" y1="742" x2="1040" y2="742" stroke="#b0bec5" stroke-width="2" marker-end="url(#arrow-row)"/>
+  <rect x="550" y="723" width="90" height="38" rx="5" fill="#bbdefb" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="595" y="738" text-anchor="middle" font-size="9" font-weight="bold" fill="#0d47a1">submit A</text>
+  <text x="595" y="753" text-anchor="middle" font-size="8" fill="#0d47a1">return</text>
+  <rect x="640" y="723" width="90" height="38" rx="5" fill="#d1c4e9" stroke="#5e35b1" stroke-width="1.5"/>
+  <text x="685" y="738" text-anchor="middle" font-size="9" font-weight="bold" fill="#4527a0">submit B</text>
+  <text x="685" y="753" text-anchor="middle" font-size="8" fill="#4527a0">return</text>
+  <rect x="730" y="723" width="190" height="38" rx="5" fill="#e8f5e9" stroke="#81c784"/>
+  <text x="825" y="738" text-anchor="middle" font-size="9" font-weight="bold" fill="#2e7d32">A and B in flight</text>
+  <text x="825" y="753" text-anchor="middle" font-size="8" fill="#2e7d32">callbacks complete later</text>
+  <rect x="920" y="723" width="58" height="38" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="949" y="738" text-anchor="middle" font-size="8" fill="#0d47a1">callback A</text>
+  <text x="949" y="751" text-anchor="middle" font-size="7" fill="#0d47a1">OnComplete</text>
+  <rect x="978" y="723" width="58" height="38" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="1007" y="738" text-anchor="middle" font-size="8" fill="#4527a0">callback B</text>
+  <text x="1007" y="751" text-anchor="middle" font-size="7" fill="#4527a0">OnComplete</text>
+
+  <text x="420" y="835" font-size="11" font-weight="bold" fill="#455a64">Block I/O</text>
+  <line x1="491" y1="831" x2="1040" y2="831" stroke="#cfd8dc" stroke-width="1.5"/>
+  <rect x="645" y="807" width="245" height="28" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="768" y="825" text-anchor="middle" font-size="10" fill="#0d47a1">block A1</text>
+  <rect x="660" y="837" width="245" height="28" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="783" y="855" text-anchor="middle" font-size="10" fill="#0d47a1">block A2</text>
+  <rect x="745" y="867" width="210" height="28" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="850" y="885" text-anchor="middle" font-size="10" fill="#4527a0">block B1</text>
+  <rect x="760" y="897" width="210" height="28" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="865" y="915" text-anchor="middle" font-size="10" fill="#4527a0">block B2</text>
+
+  <rect x="45" y="865" width="350" height="113" rx="7" fill="#e3f2fd" stroke="#64b5f6"/>
+  <text x="220" y="891" text-anchor="middle" font-size="13" font-weight="bold" fill="#0d47a1">A and B are both in flight.</text>
+  <text x="220" y="916" text-anchor="middle" font-size="11" fill="#455a64">The thread submits A, then B.</text>
+  <text x="220" y="939" text-anchor="middle" font-size="11" fill="#455a64">Their block reads begin after submission;</text>
+  <text x="220" y="959" text-anchor="middle" font-size="11" fill="#455a64">both callbacks complete later.</text>
+
+  <rect x="300" y="1035" width="16" height="12" rx="2" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="322" y="1045" font-size="10" fill="#546e7a">request A / its blocks</text>
+  <rect x="470" y="1035" width="16" height="12" rx="2" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="492" y="1045" font-size="10" fill="#546e7a">request B / its blocks</text>
+  <rect x="640" y="1035" width="16" height="12" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="662" y="1045" font-size="10" fill="#546e7a">caller waits synchronously</text>
+</svg>

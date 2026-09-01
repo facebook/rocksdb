@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="740" viewBox="0 0 1000 740" font-family="Helvetica, Arial, sans-serif">
+  <title>Suspension and resumption of a native RocksDB coroutine read</title>
+  <desc>The parent coroutine starts an inner RocksDB read on a read-executor EventBase. SubmitReadAsync queues the filesystem read, then the database coroutine suspends and leaves the executor free until completion.</desc>
+  <defs>
+    <marker id="arrow-th" markerWidth="11" markerHeight="11" refX="9" refY="3.5" orient="auto">
+      <path d="M0,0 L9,3.5 L0,7 z" fill="#455a64"/>
+    </marker>
+    <marker id="arrow-blue-th" markerWidth="11" markerHeight="11" refX="9" refY="3.5" orient="auto">
+      <path d="M0,0 L9,3.5 L0,7 z" fill="#1565c0"/>
+    </marker>
+    <marker id="arrow-orange-th" markerWidth="11" markerHeight="11" refX="9" refY="3.5" orient="auto">
+      <path d="M0,0 L9,3.5 L0,7 z" fill="#ef6c00"/>
+    </marker>
+    <marker id="arrow-purple-th" markerWidth="11" markerHeight="11" refX="9" refY="3.5" orient="auto">
+      <path d="M0,0 L9,3.5 L0,7 z" fill="#5e35b1"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="740" fill="#ffffff"/>
+  <text x="500" y="30" text-anchor="middle" font-size="19" font-weight="bold" fill="#263238">Native CoGet: suspension and resumption</text>
+
+  <rect x="35" y="50" width="205" height="54" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="138" y="72" text-anchor="middle" font-size="13" font-weight="bold" fill="#0d47a1">Parent coroutine executor</text>
+  <text x="138" y="90" text-anchor="middle" font-size="11" fill="#0d47a1">application task</text>
+
+  <rect x="285" y="50" width="225" height="54" rx="8" fill="#ede7f6" stroke="#5e35b1" stroke-width="1.5"/>
+  <text x="398" y="72" text-anchor="middle" font-size="13" font-weight="bold" fill="#4527a0">RocksDB read executor</text>
+  <text x="398" y="90" text-anchor="middle" font-size="11" fill="#4527a0">one EventBase worker</text>
+
+  <rect x="555" y="50" width="205" height="54" rx="8" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="658" y="72" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">Filesystem implementation</text>
+  <text x="658" y="90" text-anchor="middle" font-size="11" fill="#e65100">submission and completion</text>
+
+  <rect x="805" y="50" width="160" height="54" rx="8" fill="#eceff1" stroke="#607d8b" stroke-width="1.5"/>
+  <text x="885" y="72" text-anchor="middle" font-size="13" font-weight="bold" fill="#37474f">Kernel / storage</text>
+  <text x="885" y="90" text-anchor="middle" font-size="11" fill="#455a64">for POSIX: io_uring</text>
+
+  <line x1="138" y1="104" x2="138" y2="680" stroke="#90a4ae" stroke-width="1.2" stroke-dasharray="6 5"/>
+  <line x1="398" y1="104" x2="398" y2="680" stroke="#90a4ae" stroke-width="1.2" stroke-dasharray="6 5"/>
+  <line x1="658" y1="104" x2="658" y2="680" stroke="#90a4ae" stroke-width="1.2" stroke-dasharray="6 5"/>
+  <line x1="885" y1="104" x2="885" y2="680" stroke="#90a4ae" stroke-width="1.2" stroke-dasharray="6 5"/>
+
+  <rect x="74" y="128" width="128" height="34" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="138" y="150" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">co_await CoGet()</text>
+  <line x1="202" y1="145" x2="398" y2="145" stroke="#1565c0" stroke-width="2" marker-end="url(#arrow-blue-th)"/>
+  <text x="294" y="136" text-anchor="middle" font-size="10" fill="#0d47a1">bind inner GetCoroutine</text>
+
+  <rect x="315" y="176" width="166" height="46" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="398" y="195" text-anchor="middle" font-size="11" font-weight="bold" fill="#4527a0">lookup starts</text>
+  <text x="398" y="211" text-anchor="middle" font-size="10" fill="#4527a0">memtable and block cache</text>
+
+  <rect x="315" y="241" width="166" height="38" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="398" y="265" text-anchor="middle" font-size="11" fill="#4527a0">SST block cache miss</text>
+  <line x1="481" y1="260" x2="581" y2="260" stroke="#455a64" stroke-width="1.8" marker-end="url(#arrow-th)"/>
+
+  <rect x="581" y="235" width="154" height="50" rx="5" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="658" y="256" text-anchor="middle" font-size="11" font-weight="bold" font-family="monospace" fill="#e65100">SubmitReadAsync</text>
+  <text x="658" y="273" text-anchor="middle" font-size="10" fill="#e65100">queue non-blocking read</text>
+
+  <line x1="735" y1="260" x2="885" y2="260" stroke="#ef6c00" stroke-width="1.8" marker-end="url(#arrow-orange-th)"/>
+  <text x="805" y="250" text-anchor="middle" font-size="10" fill="#e65100">submit</text>
+
+  <rect x="315" y="309" width="166" height="52" rx="5" fill="#f3e5f5" stroke="#7e57c2" stroke-width="1.2"/>
+  <text x="398" y="330" text-anchor="middle" font-size="11" font-weight="bold" fill="#4527a0">DB coroutine suspends</text>
+  <text x="398" y="347" text-anchor="middle" font-size="10" fill="#4527a0">storage remains in flight</text>
+
+  <rect x="827" y="300" width="116" height="130" rx="5" fill="#eceff1" stroke="#607d8b"/>
+  <text x="885" y="356" text-anchor="middle" font-size="11" font-weight="bold" fill="#37474f">storage I/O</text>
+  <text x="885" y="374" text-anchor="middle" font-size="10" fill="#455a64">in flight</text>
+
+  <rect x="285" y="375" width="226" height="55" rx="7" fill="#e8f5e9" stroke="#66bb6a" stroke-width="1.5"/>
+  <text x="398" y="396" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">READ EXECUTOR IS FREE</text>
+  <text x="398" y="414" text-anchor="middle" font-size="10" fill="#2e7d32">accept and run another request</text>
+
+  <rect x="827" y="445" width="116" height="40" rx="5" fill="#eceff1" stroke="#607d8b"/>
+  <text x="885" y="469" text-anchor="middle" font-size="11" fill="#37474f">I/O completes</text>
+
+  <rect x="581" y="440" width="154" height="50" rx="5" fill="#ffe0b2" stroke="#ef6c00"/>
+  <text x="658" y="461" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">completion reported</text>
+  <text x="658" y="478" text-anchor="middle" font-size="10" fill="#e65100">read becomes runnable</text>
+  <line x1="827" y1="465" x2="735" y2="465" stroke="#ef6c00" stroke-width="1.8" marker-end="url(#arrow-orange-th)"/>
+  <text x="781" y="455" text-anchor="middle" font-size="9" fill="#e65100">complete</text>
+  <line x1="581" y1="465" x2="398" y2="465" stroke="#5e35b1" stroke-width="1.8" marker-end="url(#arrow-purple-th)"/>
+  <text x="490" y="455" text-anchor="middle" font-size="9" fill="#4527a0">resume on submitting thread</text>
+
+  <rect x="315" y="500" width="166" height="54" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="398" y="521" text-anchor="middle" font-size="11" font-weight="bold" fill="#4527a0">resume DB coroutine</text>
+  <text x="398" y="538" text-anchor="middle" font-size="10" fill="#4527a0">verify, decode, fill output</text>
+
+  <line x1="398" y1="600" x2="138" y2="600" stroke="#1565c0" stroke-width="2" marker-end="url(#arrow-blue-th)"/>
+  <text x="268" y="590" text-anchor="middle" font-size="10" fill="#0d47a1">return to parent executor</text>
+  <rect x="57" y="615" width="162" height="52" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="138" y="636" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">caller continues</text>
+  <text x="138" y="653" text-anchor="middle" font-size="10" fill="#0d47a1">after the RocksDB read completes</text>
+
+  <rect x="540" y="510" width="410" height="70" rx="7" fill="#fafafa" stroke="#b0bec5" stroke-width="1.2"/>
+  <text x="555" y="531" font-size="10" font-weight="bold" fill="#37474f">POSIX fast path</text>
+  <text x="555" y="549" font-size="10" fill="#455a64">io_uring completion already runs on the same read EventBase worker,</text>
+  <text x="555" y="566" font-size="10" fill="#455a64">so the filesystem-completion and RocksDB lanes collapse onto one thread.</text>
+
+  <rect x="35" y="690" width="930" height="38" rx="6" fill="#e8f5e9" stroke="#66bb6a" stroke-width="1.2"/>
+  <text x="500" y="713" text-anchor="middle" font-size="10" font-weight="bold" fill="#2e7d32">Completion returns to the submitting EventBase thread, avoiding an extra cross-thread handoff.</text>
+</svg>
