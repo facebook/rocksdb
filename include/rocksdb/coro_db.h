@@ -41,6 +41,11 @@ class CoroStackableDBBase;
 // thread, so reading TLS after awaiting them is not valid. To consume coroutine
 // stats, override the protected CoroStackableDB hook and copy the TLS values
 // immediately after awaiting the wrapped operation, before suspending again.
+//
+// Stats are generally more expensive in coroutine APIs than sync counterpart
+// due to request context overhead. For optimal performance when stats are not
+// needed, set PerfLevel::kDisable and disable I/O stats with
+// get_iostats_context()->disable_iostats = true before each read request.
 class CoroDB {
  public:
   virtual ~CoroDB() = default;
