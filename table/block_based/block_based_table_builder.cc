@@ -63,6 +63,7 @@
 #include "util/bit_fields.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/defer.h"
 #include "util/random.h"
 #include "util/semaphore.h"
@@ -78,6 +79,18 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 namespace {
 
 constexpr size_t kBlockTrailerSize = BlockBasedTable::kBlockTrailerSize;
+
+void NotifyFileAppendForTest(const Slice& data,
+                             const Crc32cChecksum* crc32c_checksum) {
+#ifndef NDEBUG
+  std::pair<Slice, const Crc32cChecksum*> append_info(data, crc32c_checksum);
+  TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::Append:Before",
+                           &append_info);
+#else
+  (void)data;
+  (void)crc32c_checksum;
+#endif
+}
 
 // ===================== AutoSkip compression =====================
 // Fixed-point scale for the continuous compression-ratio estimate q_hat and the
@@ -2274,7 +2287,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   // Single-threaded context only
   assert(!r->IsParallelCompressionActive());
   CompressionType type = kNoCompression;
-  uint32_t contents_checksum = 0;
+  uint32_t block_contents_crc32c = 0;
   bool is_data_block = block_type == BlockType::kData;
   // NOTE: only index and data blocks are currently compressed
   assert(is_data_block || block_type == BlockType::kIndex);
@@ -2290,7 +2303,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
         uncompressed_block_data, is_data_block,
         is_data_block ? r->data_block_working_area
                       : r->index_block_working_area,
-        &r->single_threaded_compressed_output, &type, &contents_checksum);
+        &r->single_threaded_compressed_output, &type, &block_contents_crc32c);
     r->SetStatus(compress_status);
     if (UNLIKELY(!ok())) {
       return;
@@ -2303,7 +2316,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
       type == kNoCompression ? uncompressed_block_data
                              : Slice(r->single_threaded_compressed_output),
       type, handle, block_type, &uncompressed_block_data, skip_delta_encoding,
-      type == kNoCompression ? nullptr : &contents_checksum);
+      type == kNoCompression || r->table_options.checksum != kCRC32c
+          ? nullptr
+          : &block_contents_crc32c);
   r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
@@ -2349,14 +2364,16 @@ void BlockBasedTableBuilder::BGWorker(WorkingAreaPair& working_area) {
       Slice compressed = block_rep->compressed;
       Slice uncompressed = block_rep->uncompressed;
       bool skip_delta_encoding = false;
+      const bool has_precomputed_block_contents_crc32c =
+          block_rep->compression_type != kNoCompression &&
+          rep_->table_options.checksum == kCRC32c;
       ios = WriteMaybeCompressedBlockImpl(
           block_rep->compression_type == kNoCompression ? uncompressed
                                                         : compressed,
           block_rep->compression_type, &rep_->pending_handle, BlockType::kData,
           &uncompressed, &skip_delta_encoding,
-          block_rep->compression_type == kNoCompression
-              ? nullptr
-              : &block_rep->contents_checksum);
+          has_precomputed_block_contents_crc32c ? &block_rep->contents_checksum
+                                                : nullptr);
       if (LIKELY(ios.ok())) {
         rep_->props.data_size = rep_->get_offset();
         rep_->props.uncompressed_data_size += block_rep->uncompressed.size();
@@ -2454,9 +2471,10 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
           &type);
 
       if (type != kNoCompression) {
-        *result_checksum = ComputeBuiltinChecksumWithLastByte(
-            r->table_options.checksum, compressed_output->data(),
-            compressed_output->size(), /*last_byte*/ type);
+        if (r->table_options.checksum == kCRC32c) {
+          *result_checksum = crc32c::Value(compressed_output->data(),
+                                           compressed_output->size());
+        }
         TEST_SYNC_POINT_CALLBACK(
             "BlockBasedTableBuilder::CompressAndVerifyBlock:"
             "TamperWithCompressedDataBeforeVerify",
@@ -2568,19 +2586,21 @@ Status BlockBasedTableBuilder::CompressAndVerifyBlock(
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
-    bool* skip_delta_encoding, const uint32_t* precomputed_checksum) {
+    bool* skip_delta_encoding,
+    const uint32_t* precomputed_block_contents_crc32c) {
   // Must have pre-checked status in single-threaded context
   assert(status().ok());
   assert(io_status().ok());
   rep_->SetIOStatus(WriteMaybeCompressedBlockImpl(
       block_contents, comp_type, handle, block_type, uncompressed_block_data,
-      skip_delta_encoding, precomputed_checksum));
+      skip_delta_encoding, precomputed_block_contents_crc32c));
 }
 
 IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
     BlockType block_type, const Slice* uncompressed_block_data,
-    bool* skip_delta_encoding, const uint32_t* precomputed_checksum) {
+    bool* skip_delta_encoding,
+    const uint32_t* precomputed_block_contents_crc32c) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    compression_type: uint8
@@ -2650,24 +2670,39 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     uncompressed_block_data = &block_contents;
     assert(comp_type == kNoCompression);
   }
-  assert(precomputed_checksum == nullptr || comp_type != kNoCompression);
+  assert(precomputed_block_contents_crc32c == nullptr ||
+         r->table_options.checksum == kCRC32c);
 
   r->compression_types_used.Add(comp_type);
   std::array<char, kBlockTrailerSize> trailer;
-  trailer[0] = comp_type;
-  uint32_t checksum =
-      precomputed_checksum != nullptr
-          ? *precomputed_checksum
-          : ComputeBuiltinChecksumWithLastByte(
-                r->table_options.checksum, block_contents.data(),
-                block_contents.size(), /*last_byte*/ comp_type);
+  const char compression_type = comp_type;
+  trailer[0] = compression_type;
+  uint32_t block_contents_crc32c = 0;
+  uint32_t checksum = 0;
+  if (r->table_options.checksum == kCRC32c) {
+    block_contents_crc32c =
+        precomputed_block_contents_crc32c != nullptr
+            ? *precomputed_block_contents_crc32c
+            : crc32c::Value(block_contents.data(), block_contents.size());
+    checksum = crc32c::Mask(crc32c::Extend(
+        block_contents_crc32c, &compression_type, sizeof(compression_type)));
+  } else {
+    checksum = ComputeBuiltinChecksumWithLastByte(
+        r->table_options.checksum, block_contents.data(), block_contents.size(),
+        /*last_byte*/ comp_type);
+  }
   checksum += ChecksumModifierForContext(r->base_context_checksum, offset);
 
-  // TODO: consider a variant of this function that puts the trailer after
-  // block_contents (if it comes from a std::string) so we only need one
-  // r->file->Append call
   {
-    io_s = r->file->Append(io_options, block_contents);
+    if (r->table_options.checksum == kCRC32c) {
+      Crc32cChecksum block_contents_checksum(block_contents_crc32c);
+      NotifyFileAppendForTest(block_contents, &block_contents_checksum);
+      io_s =
+          r->file->Append(io_options, block_contents, block_contents_checksum);
+    } else {
+      NotifyFileAppendForTest(block_contents, nullptr);
+      io_s = r->file->Append(io_options, block_contents);
+    }
     if (UNLIKELY(!io_s.ok())) {
       return io_s;
     }
@@ -2681,12 +2716,29 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     }
   }
 
+  uint32_t trailer_crc32c = 0;
+  if (r->table_options.checksum == kCRC32c) {
+    char encoded_checksum[sizeof(uint32_t)];
+    EncodeFixed32(encoded_checksum, checksum);
+    trailer_crc32c =
+        crc32c::Extend(0, &compression_type, sizeof(compression_type));
+    trailer_crc32c = crc32c::Extend(trailer_crc32c, encoded_checksum,
+                                    sizeof(encoded_checksum));
+  }
   EncodeFixed32(trailer.data() + 1, checksum);
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::WriteMaybeCompressedBlock:TamperWithChecksum",
       trailer.data());
   {
-    io_s = r->file->Append(io_options, Slice(trailer.data(), trailer.size()));
+    const Slice trailer_to_write(trailer.data(), trailer.size());
+    if (r->table_options.checksum == kCRC32c) {
+      Crc32cChecksum trailer_checksum(trailer_crc32c);
+      NotifyFileAppendForTest(trailer_to_write, &trailer_checksum);
+      io_s = r->file->Append(io_options, trailer_to_write, trailer_checksum);
+    } else {
+      NotifyFileAppendForTest(trailer_to_write, nullptr);
+      io_s = r->file->Append(io_options, trailer_to_write);
+    }
     if UNLIKELY (!io_s.ok()) {
       return io_s;
     }
@@ -3297,6 +3349,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                            &footer_gap);
   if (footer_gap > 0) {
     std::string gap_bytes(footer_gap, '\0');
+    NotifyFileAppendForTest(Slice(gap_bytes), nullptr);
     ios = r->file->Append(io_options, Slice(gap_bytes));
     if (!ios.ok()) {
       r->SetIOStatus(ios);
@@ -3314,6 +3367,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     r->SetStatus(s);
     return;
   }
+  NotifyFileAppendForTest(footer.GetSlice(), nullptr);
   ios = r->file->Append(io_options, footer.GetSlice());
   if (ios.ok()) {
     r->pre_compression_size += footer.GetSlice().size();

@@ -2634,7 +2634,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
       db_options_.stats, Histograms::SST_WRITE_MICROS, listeners,
       db_options_.file_checksum_gen_factory.get(),
-      tmp_set.Contains(FileType::kTableFile), false));
+      tmp_set.Contains(FileType::kTableFile),
+      tmp_set.Contains(FileType::kTableFile)));
 
   // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
   const ReadOptions read_options(Env::IOActivity::kCompaction);

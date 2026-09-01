@@ -81,6 +81,7 @@
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/defer.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
@@ -6555,6 +6556,627 @@ TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
           EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
         }
       }
+    }
+  }
+}
+
+namespace {
+
+constexpr char kCrc32cHandoffDestinationBufferMismatch[] =
+    "Checksum handoff detected data corruption after copying data into "
+    "WritableFileWriter destination buffer";
+
+std::string ChecksumTypeToString(ChecksumType checksum_type) {
+  switch (checksum_type) {
+    case kNoChecksum:
+      return "no_checksum";
+    case kCRC32c:
+      return "crc32c";
+    case kxxHash:
+      return "xxhash";
+    case kxxHash64:
+      return "xxhash64";
+    case kXXH3:
+      return "xxh3";
+    default:
+      return "unsupported";
+  }
+}
+
+std::vector<ChecksumType> GetSupportedChecksumHandoffTestChecksumTypes() {
+  std::vector<ChecksumType> checksum_types;
+  for (ChecksumType checksum_type : GetSupportedChecksums()) {
+    if (checksum_type != kNoChecksum) {
+      checksum_types.push_back(checksum_type);
+    }
+  }
+  return checksum_types;
+}
+
+std::string ChecksumHandoffTestParamName(
+    const testing::TestParamInfo<ChecksumType>& info) {
+  return ChecksumTypeToString(info.param);
+}
+
+CompressionType GetSupportedNonNoCompressionForChecksumHandoffTest() {
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type != kNoCompression) {
+      return type;
+    }
+  }
+  return kNoCompression;
+}
+
+std::string ChecksumHandoffTestValue(size_t i) {
+  return std::string(10000, static_cast<char>('a' + i));
+}
+
+std::vector<std::pair<std::string, std::string>> ChecksumHandoffTestKvs() {
+  std::vector<std::pair<std::string, std::string>> kvs;
+  kvs.reserve(5);
+  for (size_t i = 0; i < 5; ++i) {
+    kvs.emplace_back("key" + std::to_string(i), ChecksumHandoffTestValue(i));
+  }
+  return kvs;
+}
+
+BlockBasedTableOptions GetChecksumHandoffTableOptions(
+    ChecksumType checksum_type) {
+  BlockBasedTableOptions table_options;
+  table_options.checksum = checksum_type;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  return table_options;
+}
+
+struct RecordedChecksumHandoffAppend {
+  uint64_t offset = 0;
+  std::string data;
+  bool has_crc32c = false;
+  uint32_t crc32c = 0;
+};
+
+using BlockBasedTableBuilderAppendCallbackArg =
+    std::pair<Slice, const Crc32cChecksum*>;
+
+class NullSink : public FSWritableFile {
+ public:
+  IOStatus Truncate(uint64_t size, const IOOptions& /*opts*/,
+                    IODebugContext* /*dbg*/) override {
+    size_ = size;
+    return IOStatus::OK();
+  }
+
+  IOStatus Close(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  IOStatus Flush(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  IOStatus Sync(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  using FSWritableFile::Append;
+  IOStatus Append(const Slice& data, const IOOptions& /*opts*/,
+                  IODebugContext* /*dbg*/) override {
+    size_ += data.size();
+    return IOStatus::OK();
+  }
+
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return size_;
+  }
+
+ private:
+  uint64_t size_ = 0;
+};
+
+struct ChecksumHandoffTable {
+  std::string contents;
+  std::vector<std::string> internal_keys;
+  std::vector<BlockHandle> data_blocks;
+  std::vector<RecordedChecksumHandoffAppend> recorded_appends;
+};
+
+enum class ChecksumHandoffBuildCorruption {
+  kNone,
+  kCompressionType,
+  kBlockChecksum,
+};
+
+Status BuildChecksumHandoffTable(ChecksumType checksum_type,
+                                 CompressionType compression_type,
+                                 ChecksumHandoffTable* table,
+                                 ChecksumHandoffBuildCorruption corruption =
+                                     ChecksumHandoffBuildCorruption::kNone) {
+  assert(table != nullptr);
+  *table = ChecksumHandoffTable();
+
+  BlockBasedTableOptions table_options =
+      GetChecksumHandoffTableOptions(checksum_type);
+
+  Options options;
+  options.env = Env::Default();
+  options.compression = compression_type;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  uint64_t next_append_offset = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Append:Before", [&](void* arg) {
+        auto* append_info =
+            static_cast<BlockBasedTableBuilderAppendCallbackArg*>(arg);
+        RecordedChecksumHandoffAppend recorded_append;
+        recorded_append.offset = next_append_offset;
+        recorded_append.data.assign(append_info->first.data(),
+                                    append_info->first.size());
+        if (append_info->second != nullptr) {
+          recorded_append.has_crc32c = true;
+          recorded_append.crc32c = append_info->second->value;
+        }
+        table->contents.append(recorded_append.data);
+        next_append_offset += recorded_append.data.size();
+        table->recorded_appends.push_back(std::move(recorded_append));
+      });
+  bool corrupted_trailer = false;
+  if (checksum_type == kCRC32c &&
+      corruption != ChecksumHandoffBuildCorruption::kNone) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::WriteMaybeCompressedBlock:"
+        "TamperWithChecksum",
+        [&](void* arg) {
+          if (corrupted_trailer) {
+            return;
+          }
+          auto* trailer = static_cast<char*>(arg);
+          if (corruption == ChecksumHandoffBuildCorruption::kCompressionType) {
+            trailer[0] = static_cast<char>(
+                static_cast<unsigned char>(trailer[0]) ^ 0x80U);
+          } else {
+            trailer[1] = static_cast<char>(
+                static_cast<unsigned char>(trailer[1]) ^ 0x80U);
+          }
+          corrupted_trailer = true;
+        });
+  }
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  std::unique_ptr<FSWritableFile> holder(new NullSink());
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(holder), "test_file_name", FileOptions(),
+                             SystemClock::Default().get(), nullptr, nullptr,
+                             Histograms::HISTOGRAM_ENUM_MAX, {}, nullptr,
+                             /*perform_data_verification=*/true,
+                             /*buffered_data_with_checksum=*/true));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
+                          &internal_tbl_prop_coll_factories, compression_type,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */, kUnknownNewestKeyTime),
+      file_writer.get()));
+
+  for (const auto& kv : ChecksumHandoffTestKvs()) {
+    InternalKey key(kv.first, 1 /* sequence number */, kTypeValue);
+    const std::string encoded_key = key.Encode().ToString();
+    table->internal_keys.push_back(encoded_key);
+    builder->Add(encoded_key, kv.second);
+    if (!builder->status().ok()) {
+      Status s = builder->status();
+      builder->Abandon();
+      return s;
+    }
+  }
+  Status s = builder->Finish();
+  if (s.ok()) {
+    s = file_writer->Flush(IOOptions());
+  }
+  if (s.ok() && table->contents.size() != file_writer->GetFileSize()) {
+    s = Status::Corruption("Incomplete checksum handoff append recording");
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<TableReader> reader;
+  BlockBasedTableOptions reader_table_options =
+      GetChecksumHandoffTableOptions(checksum_type);
+  Options reader_options;
+  reader_options.env = Env::Default();
+  reader_options.compression = compression_type;
+  reader_options.table_factory.reset(
+      NewBlockBasedTableFactory(reader_table_options));
+  ImmutableOptions reader_ioptions(reader_options);
+  MutableCFOptions reader_moptions(reader_options);
+  InternalKeyComparator reader_ikc(reader_options.comparator);
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      table->contents, 1 /* uniq_id */, reader_ioptions.allow_mmap_reads));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(source), "test_file_name"));
+  s = reader_options.table_factory->NewTableReader(
+      TableReaderOptions(
+          reader_ioptions, reader_moptions.prefix_extractor,
+          reader_moptions.compression_manager.get(), EnvOptions(), reader_ikc,
+          0 /* block_protection_bytes_per_key */,
+          /*skip_filters*/ false, /*immortal*/ false,
+          false /* force_direct_prefetch */, -1 /* level */,
+          nullptr /* block_cache_tracer */, reader_moptions.write_buffer_size,
+          "" /* cur_db_session_id */, 1 /* cur_file_num */, kNullUniqueId64x2),
+      std::move(file_reader), table->contents.size(), &reader);
+  if (!s.ok()) {
+    return s;
+  }
+
+  BlockBasedTable* bbt = static_cast<BlockBasedTable*>(reader.get());
+  for (const std::string& key : table->internal_keys) {
+    BlockHandle block_handle;
+    bbt->TEST_GetDataBlockHandle(read_options, key, block_handle);
+    if (table->data_blocks.empty() ||
+        table->data_blocks.back() != block_handle) {
+      table->data_blocks.push_back(block_handle);
+    }
+  }
+  return Status::OK();
+}
+
+Status VerifyChecksumHandoffTableContents(ChecksumType checksum_type,
+                                          const std::string& contents,
+                                          CompressionType compression_type) {
+  BlockBasedTableOptions table_options =
+      GetChecksumHandoffTableOptions(checksum_type);
+  Options options;
+  options.env = Env::Default();
+  options.compression = compression_type;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      contents, 1 /* uniq_id */, ioptions.allow_mmap_reads));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(source), "test_file_name"));
+  std::unique_ptr<TableReader> table_reader;
+  Status s = options.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, moptions.prefix_extractor,
+                         moptions.compression_manager.get(), EnvOptions(), ikc,
+                         0 /* block_protection_bytes_per_key */,
+                         /*skip_filters*/ false, /*immortal*/ false,
+                         false /* force_direct_prefetch */, -1 /* level */,
+                         nullptr /* block_cache_tracer */,
+                         moptions.write_buffer_size, "" /* cur_db_session_id */,
+                         1 /* cur_file_num */, kNullUniqueId64x2),
+      std::move(file_reader), contents.size(), &table_reader);
+  if (!s.ok()) {
+    return s;
+  }
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+      read_options, nullptr /* prefix_extractor */, nullptr /* arena */,
+      /*skip_filters*/ false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  for (const auto& kv : ChecksumHandoffTestKvs()) {
+    if (!iter->status().ok()) {
+      return iter->status();
+    }
+    if (!iter->Valid()) {
+      return Status::Corruption("Expected another key in checksum handoff SST");
+    }
+    ParsedInternalKey parsed_key;
+    s = ParseInternalKey(iter->key(), &parsed_key, true /* log_err_key */);
+    if (!s.ok()) {
+      return s;
+    }
+    if (parsed_key.user_key.ToString() != kv.first) {
+      return Status::Corruption("Unexpected key in checksum handoff SST");
+    }
+    if (iter->value().ToString() != kv.second) {
+      return Status::Corruption("Unexpected value in checksum handoff SST");
+    }
+    iter->Next();
+  }
+  if (!iter->status().ok()) {
+    return iter->status();
+  }
+  if (iter->Valid()) {
+    return Status::Corruption("Unexpected extra key in checksum handoff SST");
+  }
+  return Status::OK();
+}
+
+enum class ChecksumHandoffReplayCorruption {
+  kNone,
+  kBlockPayload,
+  kCompressionType,
+  kBlockChecksum,
+};
+
+struct ChecksumHandoffReplayOptions {
+  ChecksumHandoffReplayCorruption corruption =
+      ChecksumHandoffReplayCorruption::kNone;
+  size_t block_index = 0;
+  size_t byte_offset = 0;
+};
+
+void FlipByte(std::string* data, size_t offset) {
+  assert(data != nullptr);
+  assert(offset < data->size());
+  (*data)[offset] =
+      static_cast<char>(static_cast<unsigned char>((*data)[offset]) ^ 0x80U);
+}
+
+void MaybeCorruptRecordedAppend(
+    const RecordedChecksumHandoffAppend& recorded_append,
+    const BlockHandle& target_handle,
+    const ChecksumHandoffReplayOptions& options, std::string* data) {
+  assert(data != nullptr);
+  if (options.corruption == ChecksumHandoffReplayCorruption::kNone) {
+    return;
+  }
+
+  const uint64_t block_offset = target_handle.offset();
+  const size_t block_size = static_cast<size_t>(target_handle.size());
+  const uint64_t trailer_offset = block_offset + block_size;
+
+  if (options.corruption == ChecksumHandoffReplayCorruption::kBlockPayload &&
+      recorded_append.offset == block_offset &&
+      recorded_append.data.size() == block_size) {
+    assert(block_size > 0);
+    FlipByte(data, options.byte_offset % data->size());
+  } else if (options.corruption ==
+                 ChecksumHandoffReplayCorruption::kCompressionType &&
+             recorded_append.offset == trailer_offset &&
+             recorded_append.data.size() ==
+                 BlockBasedTable::kBlockTrailerSize) {
+    FlipByte(data, 0);
+  } else if (options.corruption ==
+                 ChecksumHandoffReplayCorruption::kBlockChecksum &&
+             recorded_append.offset == trailer_offset &&
+             recorded_append.data.size() ==
+                 BlockBasedTable::kBlockTrailerSize) {
+    FlipByte(data, 1 + options.byte_offset %
+                           (BlockBasedTable::kBlockTrailerSize - 1));
+  }
+}
+
+Status ReplayChecksumHandoffTable(const ChecksumHandoffTable& table,
+                                  const ChecksumHandoffReplayOptions& options,
+                                  std::string* contents) {
+  assert(contents != nullptr);
+  assert(options.corruption == ChecksumHandoffReplayCorruption::kNone ||
+         options.block_index < table.data_blocks.size());
+  contents->clear();
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(holder), "test_file_name", FileOptions(),
+                             SystemClock::Default().get(), nullptr, nullptr,
+                             Histograms::HISTOGRAM_ENUM_MAX, {}, nullptr,
+                             /*perform_data_verification=*/true,
+                             /*buffered_data_with_checksum=*/true));
+
+  for (const RecordedChecksumHandoffAppend& recorded_append :
+       table.recorded_appends) {
+    std::string data = recorded_append.data;
+    if (options.corruption != ChecksumHandoffReplayCorruption::kNone) {
+      MaybeCorruptRecordedAppend(recorded_append,
+                                 table.data_blocks[options.block_index],
+                                 options, &data);
+    }
+    Status s;
+    if (recorded_append.has_crc32c) {
+      s = file_writer->Append(IOOptions(), Slice(data),
+                              Crc32cChecksum(recorded_append.crc32c));
+    } else {
+      s = file_writer->Append(IOOptions(), Slice(data));
+    }
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  Status s = file_writer->Flush(IOOptions());
+  if (s.ok()) {
+    *contents = sink->contents();
+  }
+  return s;
+}
+
+}  // namespace
+
+class BlockBasedTableChecksumHandoffTest
+    : public BlockBasedTableTestBase,
+      public testing::WithParamInterface<ChecksumType> {};
+
+INSTANTIATE_TEST_CASE_P(
+    SupportedChecksums, BlockBasedTableChecksumHandoffTest,
+    testing::ValuesIn(GetSupportedChecksumHandoffTestChecksumTypes()),
+    ChecksumHandoffTestParamName);
+
+TEST_P(BlockBasedTableChecksumHandoffTest,
+       Crc32cHandoffDetectsCompressedBlockCorruption) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  const CompressionType compression_type =
+      GetSupportedNonNoCompressionForChecksumHandoffTest();
+  if (compression_type == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("No supported compression");
+    return;
+  }
+
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, compression_type, &table));
+  ASSERT_FALSE(table.data_blocks.empty());
+
+  std::string contents;
+  const Status s = ReplayChecksumHandoffTable(
+      table,
+      ChecksumHandoffReplayOptions{
+          ChecksumHandoffReplayCorruption::kBlockPayload,
+          /*block_index=*/0,
+          /*byte_offset=*/0},
+      &contents);
+  if (checksum_type == kCRC32c) {
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  } else {
+    ASSERT_OK(s);
+    ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                   compression_type)
+                    .IsCorruption());
+  }
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest, Crc32cHandoffReadsBackBlocks) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, kNoCompression, &table));
+
+  std::string contents;
+  ASSERT_OK(ReplayChecksumHandoffTable(table, ChecksumHandoffReplayOptions(),
+                                       &contents));
+  ASSERT_OK(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                               kNoCompression));
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest,
+       Crc32cHandoffDetectsCompressionTypeCorruption) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, kNoCompression, &table));
+  ASSERT_FALSE(table.data_blocks.empty());
+
+  std::string contents;
+  const Status s = ReplayChecksumHandoffTable(
+      table,
+      ChecksumHandoffReplayOptions{
+          ChecksumHandoffReplayCorruption::kCompressionType,
+          /*block_index=*/0,
+          /*byte_offset=*/0},
+      &contents);
+  if (checksum_type == kCRC32c) {
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  } else {
+    ASSERT_OK(s);
+    ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                   kNoCompression)
+                    .IsCorruption());
+  }
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest,
+       Crc32cHandoffDetectsBlockChecksumTrailerCorruption) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, kNoCompression, &table));
+  ASSERT_FALSE(table.data_blocks.empty());
+
+  std::string contents;
+  const Status s = ReplayChecksumHandoffTable(
+      table,
+      ChecksumHandoffReplayOptions{
+          ChecksumHandoffReplayCorruption::kBlockChecksum,
+          /*block_index=*/0,
+          /*byte_offset=*/1},
+      &contents);
+
+  if (checksum_type == kCRC32c) {
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  } else {
+    ASSERT_OK(s);
+    ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                   kNoCompression)
+                    .IsCorruption());
+  }
+}
+
+TEST_F(BlockBasedTableTestBase,
+       Crc32cHandoffDetectsTrailerBufferCorruptionDuringBuild) {
+  for (ChecksumHandoffBuildCorruption corruption :
+       {ChecksumHandoffBuildCorruption::kCompressionType,
+        ChecksumHandoffBuildCorruption::kBlockChecksum}) {
+    ChecksumHandoffTable table;
+    const Status s =
+        BuildChecksumHandoffTable(kCRC32c, kNoCompression, &table, corruption);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  }
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest, Crc32cHandoffRandomizedReplay) {
+  const ChecksumType checksum_type = GetParam();
+  const uint32_t seed = static_cast<uint32_t>(test::RandomSeed() + 6707);
+  Random rnd(seed);
+  SCOPED_TRACE("seed=" + std::to_string(seed) +
+               " checksum_type=" + ChecksumTypeToString(checksum_type));
+
+  const CompressionType non_no_compression_type =
+      GetSupportedNonNoCompressionForChecksumHandoffTest();
+  const std::array<CompressionType, 2> compression_types = {
+      {kNoCompression, non_no_compression_type}};
+  for (int i = 0; i < 20; ++i) {
+    const CompressionType compression_type = compression_types[rnd.Uniform(
+        static_cast<int>(non_no_compression_type == kNoCompression ? 1 : 2))];
+    ChecksumHandoffTable table;
+    ASSERT_OK(
+        BuildChecksumHandoffTable(checksum_type, compression_type, &table));
+    ASSERT_FALSE(table.data_blocks.empty());
+
+    const auto corruption =
+        static_cast<ChecksumHandoffReplayCorruption>(1 + rnd.Uniform(3));
+    const size_t block_index =
+        rnd.Uniform(static_cast<int>(table.data_blocks.size()));
+    const size_t block_size =
+        static_cast<size_t>(table.data_blocks[block_index].size());
+    const size_t byte_offset =
+        block_size == 0 ? 0 : rnd.Uniform(static_cast<int>(block_size));
+
+    std::string contents;
+    const Status s = ReplayChecksumHandoffTable(
+        table,
+        ChecksumHandoffReplayOptions{corruption, block_index, byte_offset},
+        &contents);
+
+    if (checksum_type == kCRC32c) {
+      ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+      ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+                std::string::npos)
+          << s.ToString();
+    } else {
+      ASSERT_OK(s);
+      ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                     compression_type)
+                      .IsCorruption());
     }
   }
 }
