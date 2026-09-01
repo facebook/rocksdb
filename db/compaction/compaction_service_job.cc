@@ -131,13 +131,22 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   std::string compaction_result_binary;
   CompactionServiceJobStatus compaction_status;
   {
+    const bool is_primary_subcompaction =
+        sub_compact == compact_->sub_compact_states.data();
     // Increment rocksdb.num-running-remote-compactions while this compaction
     // service job is waiting in CompactionService::Wait().
     std::atomic<int>* const num_running = num_running_remote_compactions_;
     if (num_running != nullptr) {
       num_running->fetch_add(1, std::memory_order_relaxed);
     }
-    Defer decrement_num_running([num_running]() {
+    if (is_primary_subcompaction && remote_compaction_wait_state_changed_) {
+      remote_compaction_wait_state_changed_(true);
+    }
+    Defer decrement_num_running([this, is_primary_subcompaction,
+                                 num_running]() {
+      if (is_primary_subcompaction && remote_compaction_wait_state_changed_) {
+        remote_compaction_wait_state_changed_(false);
+      }
       if (num_running != nullptr) {
         num_running->fetch_sub(1, std::memory_order_relaxed);
       }

@@ -2799,6 +2799,7 @@ class DBImpl : public DB
                            bool track);
 
   void MaybeScheduleFlushOrCompaction();
+  void OnRemoteCompactionWaitStateChanged(bool waiting);
 
   BackgroundJobPressure CaptureBackgroundJobPressure() const;
   void NotifyOnBackgroundJobPressureChanged();
@@ -3598,6 +3599,10 @@ class DBImpl : public DB
 
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_ = 0;
+
+  // Number of scheduled compactions whose background thread is waiting for a
+  // remote compaction result. Protected by mutex_.
+  int bg_remote_compaction_waiting_ = 0;
 
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;
