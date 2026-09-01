@@ -1186,27 +1186,48 @@ Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
 }
 
 Status DBImplSecondary::InitializeCompactionWorkspace(
-    bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+    bool allow_resumption, bool resumption_requested,
+    std::unique_ptr<FSDirectory>* output_dir,
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
   // Create output directory if it doest exist yet
   Status s = CreateAndNewDirectory(fs_.get(), secondary_path_, output_dir);
-  if (!s.ok() || !allow_resumption) {
-    return s;
-  }
-
-  s = PrepareCompactionProgressState();
-
   if (!s.ok()) {
     return s;
   }
 
-  s = FinalizeCompactionProgressWriter(compaction_progress_writer);
-
-  if (!s.ok()) {
-    return s;
+  if (allow_resumption) {
+    s = PrepareCompactionProgressState();
+    if (!s.ok()) {
+      return s;
+    }
+    return FinalizeCompactionProgressWriter(compaction_progress_writer);
   }
 
-  return Status::OK();
+  if (resumption_requested) {
+    // Resumption was requested by the caller but has been disabled internally
+    // (see CompactWithoutInstallation: incompatible with output hash
+    // verification). The caller therefore did not empty output_directory (it
+    // expects the resumption path to own that state), so honor the
+    // OpenAndCompactOptions::allow_resumption=true fallback contract by
+    // cleaning any leftover progress and output files here, starting the fresh
+    // compaction from a clean directory. Without this, output files left by a
+    // previously interrupted attempt collide with the file numbers the fresh
+    // compaction reuses.
+    CompactionProgressFilesScan scan_result;
+    s = ScanCompactionProgressFiles(&scan_result);
+    if (!s.ok()) {
+      return s;
+    }
+    s = CleanupOldAndTemporaryCompactionProgressFiles(
+        /*preserve_latest=*/false, scan_result);
+    if (!s.ok()) {
+      return s;
+    }
+    s = HandleInvalidOrNoCompactionProgress(
+        /*compaction_progress_file_path=*/std::nullopt, scan_result);
+  }
+
+  return s;
 }
 
 // PrepareCompactionProgressState() manages compaction progress files and output
@@ -1434,8 +1455,9 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   mutex_.Unlock();
 
-  s = InitializeCompactionWorkspace(allow_resumption, &output_dir,
-                                    &compaction_progress_writer);
+  s = InitializeCompactionWorkspace(
+      allow_resumption, /*resumption_requested=*/options.allow_resumption,
+      &output_dir, &compaction_progress_writer);
 
   mutex_.Lock();
 

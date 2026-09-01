@@ -8,6 +8,7 @@
 
 #include "db/db_test_util.h"
 #include "file/file_util.h"
+#include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/filter_policy.h"
@@ -2459,6 +2460,111 @@ TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorMutable) {
   // Now no floor is attached and the worker skips the floor check.
   ASSERT_FALSE(floor_provided);
   ASSERT_EQ(0, floor_check_count);
+}
+
+namespace {
+// A remote compaction service whose output directory already contains an SST
+// left behind by a previously interrupted (canceled) fresh attempt, then runs
+// OpenAndCompact with allow_resumption=true. Used to verify that when
+// resumption is internally disabled, the output directory is cleaned before the
+// fresh compaction starts.
+class LeftoverOutputCompactionService : public MyTestCompactionService {
+ public:
+  using MyTestCompactionService::MyTestCompactionService;
+
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
+    std::string compaction_input;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto it = jobs_.find(scheduled_job_id);
+      if (it == jobs_.end()) {
+        return CompactionServiceJobStatus::kFailure;
+      }
+      compaction_input = it->second;
+      jobs_.erase(it);
+    }
+
+    CompactionServiceOptionsOverride options_override = GetOptionsOverride();
+    Env* env = options_override.env;
+    const std::string output_dir = GetOutputPath(scheduled_job_id);
+    EXPECT_OK(env->CreateDirIfMissing(output_dir));
+
+    // An output SST left behind by a previously interrupted fresh attempt. Uses
+    // a high file number the fresh compaction will not reuse, so whether it is
+    // cleaned up is directly observable.
+    leftover_file_ = MakeTableFileName(output_dir, 999999);
+    {
+      std::unique_ptr<WritableFile> f;
+      EXPECT_OK(env->NewWritableFile(leftover_file_, &f, EnvOptions()));
+      EXPECT_OK(f->Append("leftover"));
+      EXPECT_OK(f->Close());
+    }
+
+    OpenAndCompactOptions open_options;
+    open_options.allow_resumption = true;
+    Status s = DB::OpenAndCompact(open_options, db_path_, output_dir,
+                                  compaction_input, result, options_override);
+    {
+      InstrumentedMutexLock l(&mutex_);
+      result_ = *result;
+    }
+    if (!s.ok()) {
+      return CompactionServiceJobStatus::kFailure;
+    }
+    leftover_cleaned_ = env->FileExists(leftover_file_).IsNotFound();
+    return CompactionServiceJobStatus::kSuccess;
+  }
+
+  bool leftover_cleaned() const { return leftover_cleaned_; }
+
+ private:
+  std::string leftover_file_;
+  bool leftover_cleaned_ = false;
+};
+}  // namespace
+
+TEST_F(CompactionServiceTest, CleansOutputDirWhenResumptionDisabled) {
+  // Regression test: allow_resumption=true is requested, but resumption is
+  // internally disabled because paranoid_file_checks=true is incompatible with
+  // the resumption path's output-hash verification. OpenAndCompact then starts
+  // a fresh compaction, which must clean the output directory first (honoring
+  // the documented OpenAndCompactOptions::allow_resumption fallback contract),
+  // so an output file left by a previously interrupted attempt does not collide
+  // with the file numbers the fresh compaction reuses. Before the fix the
+  // leftover file was kept, which under a no-reopen filesystem (as in the crash
+  // test) fails the fresh compaction's NewWritableFile with a
+  // "no-reopen-for-write contract" violation.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.paranoid_file_checks = true;  // disables resumption on the worker
+  options.env = env_;
+  auto statistics = CreateDBStatistics();
+
+  auto cs = std::make_shared<LeftoverOutputCompactionService>(
+      dbname_, options, statistics,
+      std::vector<std::shared_ptr<EventListener>>{},
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+  options.compaction_service = cs;
+  DestroyAndReopen(options);
+
+  // Two overlapping flushed files so the manual compaction has real work.
+  ASSERT_OK(Put(Key(1), "v1"));
+  ASSERT_OK(Put(Key(3), "v3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(2), "v2"));
+  ASSERT_OK(Put(Key(3), "v3new"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // The fresh compaction cleaned the leftover output before starting.
+  ASSERT_TRUE(cs->leftover_cleaned());
+  ASSERT_EQ(Get(Key(1)), "v1");
+  ASSERT_EQ(Get(Key(2)), "v2");
+  ASSERT_EQ(Get(Key(3)), "v3new");
 }
 
 TEST_F(CompactionServiceTest, CompactionInfo) {
