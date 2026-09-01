@@ -3506,9 +3506,14 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     // Write a minimal empty index block to satisfy the SST footer.
     // Only index_size is set here (it needs the just-written handle); the
     // other stub properties are written by WritePropertiesBlock.
-    BlockBuilder empty_index_block(1 /* block_restart_interval */,
-                                   false /* use_delta_encoding */,
-                                   false /* use_value_delta_encoding */);
+    BlockBuilder empty_index_block(
+        1 /* block_restart_interval */, false /* use_delta_encoding */,
+        false /* use_value_delta_encoding */,
+        BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
+        0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+        true /* persist_user_defined_timestamps */, false /* is_user_key */,
+        false /* use_separated_kv_storage */, nullptr /* statistics */,
+        -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
     Slice empty_contents = empty_index_block.Finish();
     WriteMaybeCompressedBlock(empty_contents, kNoCompression,
                               index_block_handle, BlockType::kIndex);

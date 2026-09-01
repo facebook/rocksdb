@@ -408,9 +408,8 @@ Status PartitionedIndexFactory::NewBuilder(
       PartitionedIndexBuilder::CreateIndexBuilder(
           config_.internal_comparator,
           config_.use_delta_encoding_for_index_values, *config_.table_options,
-          config_.ts_sz, config_.persist_user_defined_timestamps,
-          config_.stats, config_.use_common_prefix,
-          config_.use_common_prefix);
+          config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats,
+          config_.use_common_prefix, config_.use_common_prefix);
   std::unique_ptr<IndexBuilder> owned_internal(internal);
   std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
       std::make_unique<BuiltinIndexFactoryBuilder>(
