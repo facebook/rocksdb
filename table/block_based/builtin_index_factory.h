@@ -46,15 +46,9 @@ struct BuiltinIndexFactoryConfig {
 // kBinarySearch and kBinarySearchWithFirstKey.
 class BinarySearchIndexFactory : public IndexFactory {
  public:
-  // Lightweight constructor for standalone / test usage.
-  // NewBuilder will use minimal default configuration.
   // @param with_first_key  If true, creates kBinarySearchWithFirstKey
   //                        indexes that store the first internal key per
   //                        block for optimized point lookups.
-  explicit BinarySearchIndexFactory(bool with_first_key = false);
-
-  // Full constructor for use by the table builder.
-  // The factory stores all internal params needed by NewBuilder().
   BinarySearchIndexFactory(bool with_first_key,
                            const BuiltinIndexFactoryConfig& config);
 
@@ -86,7 +80,6 @@ class BinarySearchIndexFactory : public IndexFactory {
 
  private:
   bool with_first_key_;
-  bool has_config_ = false;
   BuiltinIndexFactoryConfig config_;
 };
 
@@ -94,10 +87,6 @@ class BinarySearchIndexFactory : public IndexFactory {
 // HashIndexReader. Requires a configured prefix_extractor.
 class HashIndexFactory : public IndexFactory {
  public:
-  // Lightweight constructor for standalone / test usage.
-  HashIndexFactory() = default;
-
-  // Full constructor for use by the table builder.
   explicit HashIndexFactory(const BuiltinIndexFactoryConfig& config);
 
   ~HashIndexFactory() override = default;
@@ -126,7 +115,6 @@ class HashIndexFactory : public IndexFactory {
   }
 
  private:
-  bool has_config_ = false;
   BuiltinIndexFactoryConfig config_;
 };
 
@@ -136,10 +124,6 @@ class HashIndexFactory : public IndexFactory {
 // PartitionedIndexBuilder for filter <-> index partition alignment.
 class PartitionedIndexFactory : public IndexFactory {
  public:
-  // Lightweight constructor for standalone / test usage.
-  PartitionedIndexFactory() = default;
-
-  // Full constructor for use by the table builder.
   explicit PartitionedIndexFactory(const BuiltinIndexFactoryConfig& config);
 
   ~PartitionedIndexFactory() override = default;
@@ -168,7 +152,6 @@ class PartitionedIndexFactory : public IndexFactory {
   }
 
  private:
-  bool has_config_ = false;
   BuiltinIndexFactoryConfig config_;
 };
 
@@ -179,10 +162,11 @@ Status NewBuiltinIndexFactoryBuilder(
     const BuiltinIndexFactoryConfig& config, const IndexFactoryOptions& options,
     std::unique_ptr<IndexFactoryBuilder>& out);
 
-// BuiltinIndexFactoryBuilder: adapts the internal IndexBuilder to the
-// public IndexFactoryBuilder interface. The table builder uses the
-// *Direct methods to bypass the user-key parse-and-repack on the
-// per-block-boundary hot path.
+// BuiltinIndexFactoryBuilder adapts the internal IndexBuilder to the common
+// IndexFactoryBuilder ownership and parallel-entry protocols. Built-in
+// indexes still require the *Direct key methods and FinishAndWrite because
+// their internal-key and multi-block contracts are not part of the custom
+// index SPI.
 //
 // Unqualified BlockHandle inside this class means the public
 // IndexFactoryBuilder::BlockHandle. The internal table/format.h handle is
@@ -201,22 +185,10 @@ class BuiltinIndexBlockWriter {
 
 class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
  public:
-  BuiltinIndexFactoryBuilder(const InternalKeyComparator* icmp,
-                             const BlockBasedTableOptions* table_opts);
-  BuiltinIndexFactoryBuilder(std::unique_ptr<InternalKeyComparator> icmp,
-                             const BlockBasedTableOptions* table_opts);
+  BuiltinIndexFactoryBuilder(BlockBasedTableOptions::IndexType index_type,
+                             std::unique_ptr<IndexBuilder> internal_builder,
+                             PartitionedIndexBuilder* partitioned_builder);
   ~BuiltinIndexFactoryBuilder() override;
-
-  // @partitioned: the same object as `builder` when it is a
-  //   PartitionedIndexBuilder, else nullptr. Passed explicitly so the
-  //   partition-specific accessors below never have to infer the concrete
-  //   type from table_opts_->index_type, which the standalone factory
-  //   paths do not set.
-  void SetInternalBuilder(std::unique_ptr<IndexBuilder> builder,
-                          PartitionedIndexBuilder* partitioned = nullptr);
-
-  const InternalKeyComparator* GetComparator() const;
-  const BlockBasedTableOptions& GetTableOptions() const;
 
   // Forward to the internal builder with the full internal key.
   // Needed by kBinarySearchWithFirstKey to track first_internal_key.
@@ -286,13 +258,11 @@ class BuiltinIndexFactoryBuilder : public IndexFactoryBuilder {
                              PreparedAddEntry* out);
 
  private:
-  std::unique_ptr<InternalKeyComparator> owned_icmp_;
-  const InternalKeyComparator* icmp_;
-  const BlockBasedTableOptions* table_opts_;
+  BlockBasedTableOptions::IndexType index_type_;
   std::unique_ptr<IndexBuilder> internal_builder_;
   // Non-owning alias of internal_builder_ when it is a
-  // PartitionedIndexBuilder, else nullptr. Set by SetInternalBuilder.
-  PartitionedIndexBuilder* partitioned_builder_ = nullptr;
+  // PartitionedIndexBuilder, else nullptr.
+  PartitionedIndexBuilder* partitioned_builder_;
   // ReconstructInternalKeys() and PrepareAddEntry() use these buffers only
   // on the public user-key path. A table builder uses either the
   // synchronous add path or the parallel prepare/finish path for one SST,

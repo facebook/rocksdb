@@ -32,38 +32,20 @@ struct BuiltinPreparedAddEntry : public IndexFactoryBuilder::PreparedAddEntry {
 };
 
 BuiltinIndexFactoryBuilder::BuiltinIndexFactoryBuilder(
-    const InternalKeyComparator* icmp, const BlockBasedTableOptions* table_opts)
-    : icmp_(icmp), table_opts_(table_opts) {
-  assert(icmp_ != nullptr);
-}
-
-BuiltinIndexFactoryBuilder::BuiltinIndexFactoryBuilder(
-    std::unique_ptr<InternalKeyComparator> icmp,
-    const BlockBasedTableOptions* table_opts)
-    : owned_icmp_(std::move(icmp)),
-      icmp_(owned_icmp_.get()),
-      table_opts_(table_opts) {
-  assert(icmp_ != nullptr);
+    BlockBasedTableOptions::IndexType index_type,
+    std::unique_ptr<IndexBuilder> internal_builder,
+    PartitionedIndexBuilder* partitioned_builder)
+    : index_type_(index_type),
+      internal_builder_(std::move(internal_builder)),
+      partitioned_builder_(partitioned_builder) {
+  assert(internal_builder_ != nullptr);
+  assert(partitioned_builder_ == nullptr ||
+         partitioned_builder_ == internal_builder_.get());
+  assert((index_type_ == BlockBasedTableOptions::kTwoLevelIndexSearch) ==
+         (partitioned_builder_ != nullptr));
 }
 
 BuiltinIndexFactoryBuilder::~BuiltinIndexFactoryBuilder() = default;
-
-void BuiltinIndexFactoryBuilder::SetInternalBuilder(
-    std::unique_ptr<IndexBuilder> builder,
-    PartitionedIndexBuilder* partitioned) {
-  assert(partitioned == nullptr || partitioned == builder.get());
-  internal_builder_ = std::move(builder);
-  partitioned_builder_ = partitioned;
-}
-
-const InternalKeyComparator* BuiltinIndexFactoryBuilder::GetComparator() const {
-  return icmp_;
-}
-
-const BlockBasedTableOptions& BuiltinIndexFactoryBuilder::GetTableOptions()
-    const {
-  return *table_opts_;
-}
 
 void BuiltinIndexFactoryBuilder::ReconstructInternalKeys(
     const Slice& last_user_key, const Slice* next_user_key,
@@ -115,6 +97,11 @@ void BuiltinIndexFactoryBuilder::OnKeyAdded(const Slice& /*key*/,
 }
 
 Status BuiltinIndexFactoryBuilder::Finish(Slice* index_contents) {
+  if (index_type_ == BlockBasedTableOptions::kHashSearch ||
+      index_type_ == BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    return Status::NotSupported(
+        "Hash and partitioned built-in indexes require FinishAndWrite");
+  }
   IndexBuilder::IndexBlocks index_blocks;
   Status s = internal_builder_->Finish(&index_blocks);
   if (!s.ok()) {
@@ -284,12 +271,9 @@ static const char* const kBinarySearchName =
 static const char* const kBinarySearchWithFirstKeyName =
     "rocksdb.builtin.BinarySearchWithFirstKeyIndex";
 
-BinarySearchIndexFactory::BinarySearchIndexFactory(bool with_first_key)
-    : with_first_key_(with_first_key) {}
-
 BinarySearchIndexFactory::BinarySearchIndexFactory(
     bool with_first_key, const BuiltinIndexFactoryConfig& config)
-    : with_first_key_(with_first_key), has_config_(true), config_(config) {}
+    : with_first_key_(with_first_key), config_(config) {}
 
 const char* BinarySearchIndexFactory::Name() const {
   return with_first_key_ ? kBinarySearchWithFirstKeyName : kBinarySearchName;
@@ -308,40 +292,24 @@ Status BinarySearchIndexFactory::NewBuilder(
     return Status::InvalidArgument(
         "BinarySearchIndexFactory::NewBuilder requires a comparator");
   }
-
-  if (has_config_) {
-    // Full construction path used by the table builder. config_ holds
-    // the per-SST configuration; the table_options pointer remains
-    // valid for the builder's lifetime (Rep owns it).
-    auto index_type = with_first_key_
-                          ? BlockBasedTableOptions::kBinarySearchWithFirstKey
-                          : BlockBasedTableOptions::kBinarySearch;
-    auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-        config_.internal_comparator, config_.table_options);
-    std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
-        index_type, wrapper->GetComparator(), config_.internal_prefix_transform,
-        config_.use_delta_encoding_for_index_values, wrapper->GetTableOptions(),
-        config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats));
-    wrapper->SetInternalBuilder(std::move(internal));
-    builder = std::move(wrapper);
-    return Status::OK();
+  if (config_.internal_comparator == nullptr ||
+      config_.table_options == nullptr) {
+    return Status::InvalidArgument(
+        "BinarySearchIndexFactory::NewBuilder requires complete built-in "
+        "configuration");
   }
 
-  // Standalone / test path. Uses a static default BlockBasedTableOptions
-  // since there is no Rep to borrow from.
-  auto icmp = std::make_unique<InternalKeyComparator>(options.comparator);
-  auto index_type = with_first_key_
-                        ? BlockBasedTableOptions::kBinarySearchWithFirstKey
-                        : BlockBasedTableOptions::kBinarySearch;
-  static const BlockBasedTableOptions kDefaultBinarySearchOpts;
-  auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-      std::move(icmp), &kDefaultBinarySearchOpts);
+  const BlockBasedTableOptions::IndexType index_type =
+      with_first_key_ ? BlockBasedTableOptions::kBinarySearchWithFirstKey
+                      : BlockBasedTableOptions::kBinarySearch;
   std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
-      index_type, wrapper->GetComparator(),
-      /*int_key_slice_transform=*/nullptr,
-      /*use_value_delta_encoding=*/true, wrapper->GetTableOptions(),
-      /*ts_sz=*/0, /*persist_user_defined_timestamps=*/true));
-  wrapper->SetInternalBuilder(std::move(internal));
+      index_type, config_.internal_comparator,
+      config_.internal_prefix_transform,
+      config_.use_delta_encoding_for_index_values, *config_.table_options,
+      config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats));
+  std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
+      std::make_unique<BuiltinIndexFactoryBuilder>(
+          index_type, std::move(internal), /*partitioned_builder=*/nullptr);
   builder = std::move(wrapper);
   return Status::OK();
 }
@@ -362,7 +330,7 @@ Status BinarySearchIndexFactory::NewReader(
 static const char* const kHashIndexName = "rocksdb.builtin.HashIndex";
 
 HashIndexFactory::HashIndexFactory(const BuiltinIndexFactoryConfig& config)
-    : has_config_(true), config_(config) {}
+    : config_(config) {}
 
 const char* HashIndexFactory::Name() const { return kHashIndexName; }
 const char* HashIndexFactory::kClassName() { return kHashIndexName; }
@@ -376,31 +344,23 @@ Status HashIndexFactory::NewBuilder(
     return Status::InvalidArgument(
         "HashIndexFactory::NewBuilder requires a comparator");
   }
-
-  if (has_config_) {
-    auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-        config_.internal_comparator, config_.table_options);
-    std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
-        BlockBasedTableOptions::kHashSearch, wrapper->GetComparator(),
-        config_.internal_prefix_transform,
-        config_.use_delta_encoding_for_index_values, wrapper->GetTableOptions(),
-        config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats));
-    wrapper->SetInternalBuilder(std::move(internal));
-    builder = std::move(wrapper);
-    return Status::OK();
+  if (config_.internal_comparator == nullptr ||
+      config_.internal_prefix_transform == nullptr ||
+      config_.table_options == nullptr) {
+    return Status::InvalidArgument(
+        "HashIndexFactory::NewBuilder requires complete built-in "
+        "configuration");
   }
 
-  // Standalone / test path with a static default BlockBasedTableOptions.
-  auto icmp = std::make_unique<InternalKeyComparator>(options.comparator);
-  static const BlockBasedTableOptions kDefaultHashOpts;
-  auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-      std::move(icmp), &kDefaultHashOpts);
   std::unique_ptr<IndexBuilder> internal(IndexBuilder::CreateIndexBuilder(
-      BlockBasedTableOptions::kHashSearch, wrapper->GetComparator(),
-      /*int_key_slice_transform=*/nullptr,
-      /*use_value_delta_encoding=*/true, wrapper->GetTableOptions(),
-      /*ts_sz=*/0, /*persist_user_defined_timestamps=*/true));
-  wrapper->SetInternalBuilder(std::move(internal));
+      BlockBasedTableOptions::kHashSearch, config_.internal_comparator,
+      config_.internal_prefix_transform,
+      config_.use_delta_encoding_for_index_values, *config_.table_options,
+      config_.ts_sz, config_.persist_user_defined_timestamps, config_.stats));
+  std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
+      std::make_unique<BuiltinIndexFactoryBuilder>(
+          BlockBasedTableOptions::kHashSearch, std::move(internal),
+          /*partitioned_builder=*/nullptr);
   builder = std::move(wrapper);
   return Status::OK();
 }
@@ -419,7 +379,7 @@ static const char* const kPartitionedIndexName =
 
 PartitionedIndexFactory::PartitionedIndexFactory(
     const BuiltinIndexFactoryConfig& config)
-    : has_config_(true), config_(config) {}
+    : config_(config) {}
 
 const char* PartitionedIndexFactory::Name() const {
   return kPartitionedIndexName;
@@ -428,11 +388,6 @@ const char* PartitionedIndexFactory::kClassName() {
   return kPartitionedIndexName;
 }
 
-// The partitioned index uses a multi-call Finish protocol internally
-// (returning Status::Incomplete() for each partition). The single-call
-// Finish(Slice*) only returns the first partition block. For full
-// partitioned index construction, the table builder uses FinishAndWrite() to
-// drive the multi-call protocol through its internal writer callback.
 Status PartitionedIndexFactory::NewBuilder(
     const IndexFactoryOptions& options,
     std::unique_ptr<IndexFactoryBuilder>& builder) const {
@@ -440,35 +395,24 @@ Status PartitionedIndexFactory::NewBuilder(
     return Status::InvalidArgument(
         "PartitionedIndexFactory::NewBuilder requires a comparator");
   }
-
-  if (has_config_) {
-    auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-        config_.internal_comparator, config_.table_options);
-    PartitionedIndexBuilder* internal =
-        PartitionedIndexBuilder::CreateIndexBuilder(
-            wrapper->GetComparator(),
-            config_.use_delta_encoding_for_index_values,
-            wrapper->GetTableOptions(), config_.ts_sz,
-            config_.persist_user_defined_timestamps, config_.stats);
-    wrapper->SetInternalBuilder(std::unique_ptr<IndexBuilder>(internal),
-                                internal);
-    builder = std::move(wrapper);
-    return Status::OK();
+  if (config_.internal_comparator == nullptr ||
+      config_.table_options == nullptr) {
+    return Status::InvalidArgument(
+        "PartitionedIndexFactory::NewBuilder requires complete built-in "
+        "configuration");
   }
 
-  // Standalone / test path. PartitionedIndexBuilder holds a const ref to
-  // table_opts_, so the wrapper must be constructed before the builder.
-  auto icmp = std::make_unique<InternalKeyComparator>(options.comparator);
-  static const BlockBasedTableOptions kDefaultPartitionedOpts;
-  auto wrapper = std::make_unique<BuiltinIndexFactoryBuilder>(
-      std::move(icmp), &kDefaultPartitionedOpts);
   PartitionedIndexBuilder* internal =
       PartitionedIndexBuilder::CreateIndexBuilder(
-          wrapper->GetComparator(), /*use_value_delta_encoding=*/true,
-          wrapper->GetTableOptions(),
-          /*ts_sz=*/0, /*persist_user_defined_timestamps=*/true);
-  wrapper->SetInternalBuilder(std::unique_ptr<IndexBuilder>(internal),
-                              internal);
+          config_.internal_comparator,
+          config_.use_delta_encoding_for_index_values, *config_.table_options,
+          config_.ts_sz, config_.persist_user_defined_timestamps,
+          config_.stats);
+  std::unique_ptr<IndexBuilder> owned_internal(internal);
+  std::unique_ptr<BuiltinIndexFactoryBuilder> wrapper =
+      std::make_unique<BuiltinIndexFactoryBuilder>(
+          BlockBasedTableOptions::kTwoLevelIndexSearch,
+          std::move(owned_internal), internal);
   builder = std::move(wrapper);
   return Status::OK();
 }

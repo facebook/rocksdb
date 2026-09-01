@@ -17,7 +17,9 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/index_factory.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/user_defined_index.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/index_builder.h"
 #include "test_util/testharness.h"
@@ -119,19 +121,45 @@ static void AddGeneratedEntries(IndexFactoryBuilder* builder, size_t count) {
   }
 }
 
+static std::string MakeInternalKey(const std::string& user_key,
+                                   SequenceNumber seq, ValueType vt) {
+  std::string out(user_key);
+  PutFixed64(&out, PackSequenceAndType(seq, vt));
+  return out;
+}
+
+class BuiltinIndexFactoryTestBase : public ::testing::Test {
+ protected:
+  explicit BuiltinIndexFactoryTestBase(
+      BlockBasedTableOptions::IndexType index_type)
+      : internal_comparator_(BytewiseComparator()) {
+    table_options_.index_type = index_type;
+    config_.internal_comparator = &internal_comparator_;
+    config_.table_options = &table_options_;
+  }
+
+  InternalKeyComparator internal_comparator_;
+  BlockBasedTableOptions table_options_;
+  BuiltinIndexFactoryConfig config_;
+};
+
 // ============================================================================
 // BinarySearchIndexFactory tests
 // ============================================================================
 
-class BinarySearchIndexFactoryTest : public ::testing::Test {};
+class BinarySearchIndexFactoryTest : public BuiltinIndexFactoryTestBase {
+ protected:
+  BinarySearchIndexFactoryTest()
+      : BuiltinIndexFactoryTestBase(BlockBasedTableOptions::kBinarySearch) {}
+};
 
 TEST_F(BinarySearchIndexFactoryTest, Name) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   ASSERT_STREQ(factory.Name(), "rocksdb.builtin.BinarySearchIndex");
 }
 
 TEST_F(BinarySearchIndexFactoryTest, NameWithFirstKey) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/true);
+  BinarySearchIndexFactory factory(/*with_first_key=*/true, config_);
   ASSERT_STREQ(factory.Name(), "rocksdb.builtin.BinarySearchWithFirstKeyIndex");
 }
 
@@ -146,7 +174,7 @@ TEST_F(BinarySearchIndexFactoryTest, KClassNameWithFirstKey) {
 }
 
 TEST_F(BinarySearchIndexFactoryTest, NewBuilderSucceeds) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
@@ -154,7 +182,7 @@ TEST_F(BinarySearchIndexFactoryTest, NewBuilderSucceeds) {
 }
 
 TEST_F(BinarySearchIndexFactoryTest, NewBuilderRequiresComparator) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   IndexFactoryOptions opts;
   opts.comparator = nullptr;
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -162,8 +190,17 @@ TEST_F(BinarySearchIndexFactoryTest, NewBuilderRequiresComparator) {
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
+TEST_F(BinarySearchIndexFactoryTest, NewBuilderRequiresBuiltinConfig) {
+  BuiltinIndexFactoryConfig empty_config;
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, empty_config);
+  IndexFactoryOptions opts = MakeOptions();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_TRUE(factory.NewBuilder(opts, builder).IsInvalidArgument());
+  ASSERT_EQ(builder, nullptr);
+}
+
 TEST_F(BinarySearchIndexFactoryTest, BuilderAddAndFinish) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
@@ -178,7 +215,7 @@ TEST_F(BinarySearchIndexFactoryTest, BuilderAddAndFinish) {
 }
 
 TEST_F(BinarySearchIndexFactoryTest, NewBuilderWithFirstKeySucceeds) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/true);
+  BinarySearchIndexFactory factory(/*with_first_key=*/true, config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
@@ -186,7 +223,7 @@ TEST_F(BinarySearchIndexFactoryTest, NewBuilderWithFirstKeySucceeds) {
 }
 
 TEST_F(BinarySearchIndexFactoryTest, NewReaderReturnsNotSupported) {
-  BinarySearchIndexFactory factory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   auto opts = MakeOptions();
   Slice dummy_contents("dummy");
   std::unique_ptr<IndexFactoryReader> reader;
@@ -199,10 +236,21 @@ TEST_F(BinarySearchIndexFactoryTest, NewReaderReturnsNotSupported) {
 // HashIndexFactory tests
 // ============================================================================
 
-class HashIndexFactoryTest : public ::testing::Test {};
+class HashIndexFactoryTest : public BuiltinIndexFactoryTestBase {
+ protected:
+  HashIndexFactoryTest()
+      : BuiltinIndexFactoryTestBase(BlockBasedTableOptions::kHashSearch),
+        prefix_extractor_(NewFixedPrefixTransform(1)),
+        internal_prefix_transform_(prefix_extractor_.get()) {
+    config_.internal_prefix_transform = &internal_prefix_transform_;
+  }
+
+  std::unique_ptr<const SliceTransform> prefix_extractor_;
+  InternalKeySliceTransform internal_prefix_transform_;
+};
 
 TEST_F(HashIndexFactoryTest, Name) {
-  HashIndexFactory factory;
+  HashIndexFactory factory(config_);
   ASSERT_STREQ(factory.Name(), "rocksdb.builtin.HashIndex");
 }
 
@@ -211,7 +259,7 @@ TEST_F(HashIndexFactoryTest, KClassName) {
 }
 
 TEST_F(HashIndexFactoryTest, NewBuilderSucceeds) {
-  HashIndexFactory factory;
+  HashIndexFactory factory(config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
@@ -219,7 +267,7 @@ TEST_F(HashIndexFactoryTest, NewBuilderSucceeds) {
 }
 
 TEST_F(HashIndexFactoryTest, NewBuilderRequiresComparator) {
-  HashIndexFactory factory;
+  HashIndexFactory factory(config_);
   IndexFactoryOptions opts;
   opts.comparator = nullptr;
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -227,24 +275,30 @@ TEST_F(HashIndexFactoryTest, NewBuilderRequiresComparator) {
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
-TEST_F(HashIndexFactoryTest, BuilderAddAndFinish) {
-  HashIndexFactory factory;
+TEST_F(HashIndexFactoryTest, NewBuilderRequiresPrefixTransform) {
+  config_.internal_prefix_transform = nullptr;
+  HashIndexFactory factory(config_);
+  IndexFactoryOptions opts = MakeOptions();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_TRUE(factory.NewBuilder(opts, builder).IsInvalidArgument());
+  ASSERT_EQ(builder, nullptr);
+}
+
+TEST_F(HashIndexFactoryTest, FinishRequiresInternalWriter) {
+  HashIndexFactory factory(config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
 
   AddSampleEntries(builder.get());
 
-  // HashIndexBuilder::CurrentIndexSizeEstimate() always returns 0 by design.
-  // The hash builder tracks size differently from the binary search builder.
-
   Slice contents;
-  ASSERT_OK(builder->Finish(&contents));
-  ASSERT_GT(contents.size(), static_cast<size_t>(0));
+  ASSERT_TRUE(builder->Finish(&contents).IsNotSupported());
+  ASSERT_TRUE(contents.empty());
 }
 
 TEST_F(HashIndexFactoryTest, NewReaderReturnsNotSupported) {
-  HashIndexFactory factory;
+  HashIndexFactory factory(config_);
   auto opts = MakeOptions();
   Slice dummy_contents("dummy");
   std::unique_ptr<IndexFactoryReader> reader;
@@ -257,10 +311,17 @@ TEST_F(HashIndexFactoryTest, NewReaderReturnsNotSupported) {
 // PartitionedIndexFactory tests
 // ============================================================================
 
-class PartitionedIndexFactoryTest : public ::testing::Test {};
+class PartitionedIndexFactoryTest : public BuiltinIndexFactoryTestBase {
+ protected:
+  PartitionedIndexFactoryTest()
+      : BuiltinIndexFactoryTestBase(
+            BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    table_options_.metadata_block_size = 128;
+  }
+};
 
 TEST_F(PartitionedIndexFactoryTest, Name) {
-  PartitionedIndexFactory factory;
+  PartitionedIndexFactory factory(config_);
   ASSERT_STREQ(factory.Name(), "rocksdb.builtin.PartitionedIndex");
 }
 
@@ -270,7 +331,7 @@ TEST_F(PartitionedIndexFactoryTest, KClassName) {
 }
 
 TEST_F(PartitionedIndexFactoryTest, NewBuilderSucceeds) {
-  PartitionedIndexFactory factory;
+  PartitionedIndexFactory factory(config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
@@ -278,7 +339,7 @@ TEST_F(PartitionedIndexFactoryTest, NewBuilderSucceeds) {
 }
 
 TEST_F(PartitionedIndexFactoryTest, NewBuilderRequiresComparator) {
-  PartitionedIndexFactory factory;
+  PartitionedIndexFactory factory(config_);
   IndexFactoryOptions opts;
   opts.comparator = nullptr;
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -286,8 +347,17 @@ TEST_F(PartitionedIndexFactoryTest, NewBuilderRequiresComparator) {
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
+TEST_F(PartitionedIndexFactoryTest, NewBuilderRequiresBuiltinConfig) {
+  BuiltinIndexFactoryConfig empty_config;
+  PartitionedIndexFactory factory(empty_config);
+  IndexFactoryOptions opts = MakeOptions();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_TRUE(factory.NewBuilder(opts, builder).IsInvalidArgument());
+  ASSERT_EQ(builder, nullptr);
+}
+
 TEST_F(PartitionedIndexFactoryTest, BuilderAddEntries) {
-  PartitionedIndexFactory factory;
+  PartitionedIndexFactory factory(config_);
   auto opts = MakeOptions();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
@@ -298,14 +368,13 @@ TEST_F(PartitionedIndexFactoryTest, BuilderAddEntries) {
   // EstimatedSize should be non-zero after adding entries.
   ASSERT_GT(builder->EstimatedSize(), static_cast<uint64_t>(0));
 
-  // Note: PartitionedIndexBuilder::Finish() requires a multi-step protocol
-  // with partition block handles provided by the table builder. Testing the
-  // full Finish flow requires integration with BlockBasedTableBuilder and is
-  // covered by higher-level tests (e.g., table_test).
+  Slice contents;
+  ASSERT_TRUE(builder->Finish(&contents).IsNotSupported());
+  ASSERT_TRUE(contents.empty());
 }
 
 TEST_F(PartitionedIndexFactoryTest, NewReaderReturnsNotSupported) {
-  PartitionedIndexFactory factory;
+  PartitionedIndexFactory factory(config_);
   auto opts = MakeOptions();
   Slice dummy_contents("dummy");
   std::unique_ptr<IndexFactoryReader> reader;
@@ -322,7 +391,7 @@ TEST_F(PartitionedIndexFactoryTest, NewReaderReturnsNotSupported) {
 // ============================================================================
 
 TEST_F(BinarySearchIndexFactoryTest, InternalKeyReconstruction) {
-  // Create factory with full config so we exercise the has_config_ path.
+  // Use distinct local configuration for the raw-builder comparison below.
   BuiltinIndexFactoryConfig config;
   InternalKeyComparator icmp(BytewiseComparator());
   config.internal_comparator = &icmp;
@@ -335,9 +404,7 @@ TEST_F(BinarySearchIndexFactoryTest, InternalKeyReconstruction) {
   opts.comparator = BytewiseComparator();
   std::unique_ptr<IndexFactoryBuilder> builder;
   ASSERT_OK(factory.NewBuilder(opts, builder));
-  ASSERT_EQ(
-      static_cast<BuiltinIndexFactoryBuilder*>(builder.get())->GetComparator(),
-      &icmp);
+  ASSERT_NE(builder, nullptr);
 
   // Add entries with known user keys and tags via the public interface.
   IndexFactoryBuilder::BlockHandle h1{0, kBlockSize};
@@ -398,17 +465,8 @@ TEST_F(BinarySearchIndexFactoryTest, InternalKeyReconstruction) {
 // ============================================================================
 
 TEST_F(PartitionedIndexFactoryTest, GetPartitionedIndexBuilder) {
-  // Create factory with full config (needed for partitioned builder).
-  BuiltinIndexFactoryConfig config;
-  InternalKeyComparator icmp(BytewiseComparator());
-  config.internal_comparator = &icmp;
-  config.use_delta_encoding_for_index_values = true;
-  BlockBasedTableOptions table_opts;
-  table_opts.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-  table_opts.metadata_block_size = 4096;
-  config.table_options = &table_opts;
-
-  PartitionedIndexFactory factory(config);
+  table_options_.metadata_block_size = 4096;
+  PartitionedIndexFactory factory(config_);
   IndexFactoryOptions opts;
   opts.comparator = BytewiseComparator();
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -419,28 +477,24 @@ TEST_F(PartitionedIndexFactoryTest, GetPartitionedIndexBuilder) {
   ASSERT_NE(builtin_builder->GetPartitionedIndexBuilder(), nullptr);
 
   // Non-partitioned builders should return null.
-  BinarySearchIndexFactory bs_factory(/*with_first_key=*/false);
+  table_options_.index_type = BlockBasedTableOptions::kBinarySearch;
+  BinarySearchIndexFactory bs_factory(/*with_first_key=*/false, config_);
   std::unique_ptr<IndexFactoryBuilder> bs_builder;
   ASSERT_OK(bs_factory.NewBuilder(opts, bs_builder));
   auto* bs_builtin = static_cast<BuiltinIndexFactoryBuilder*>(bs_builder.get());
   ASSERT_EQ(bs_builtin->GetPartitionedIndexBuilder(), nullptr);
 
-  HashIndexFactory hash_factory;
+  std::unique_ptr<const SliceTransform> prefix_extractor(
+      NewFixedPrefixTransform(1));
+  InternalKeySliceTransform internal_prefix_transform(prefix_extractor.get());
+  config_.internal_prefix_transform = &internal_prefix_transform;
+  table_options_.index_type = BlockBasedTableOptions::kHashSearch;
+  HashIndexFactory hash_factory(config_);
   std::unique_ptr<IndexFactoryBuilder> hash_builder;
   ASSERT_OK(hash_factory.NewBuilder(opts, hash_builder));
   auto* hash_builtin =
       static_cast<BuiltinIndexFactoryBuilder*>(hash_builder.get());
   ASSERT_EQ(hash_builtin->GetPartitionedIndexBuilder(), nullptr);
-
-  // The standalone (no config) path also produces a PartitionedIndexBuilder,
-  // even though its default BlockBasedTableOptions say kBinarySearch. The
-  // partition accessors must follow the builder, not the options.
-  PartitionedIndexFactory standalone_factory;
-  std::unique_ptr<IndexFactoryBuilder> standalone_builder;
-  ASSERT_OK(standalone_factory.NewBuilder(opts, standalone_builder));
-  auto* standalone_builtin =
-      static_cast<BuiltinIndexFactoryBuilder*>(standalone_builder.get());
-  ASSERT_NE(standalone_builtin->GetPartitionedIndexBuilder(), nullptr);
 }
 
 // ============================================================================
@@ -477,8 +531,44 @@ class MockIndexBlockWriter : public BuiltinIndexBlockWriter {
   int fail_on_write = -1;
 };
 
+TEST_F(HashIndexFactoryTest, FinishAndWritePreservesMetaBlocks) {
+  HashIndexFactory factory(config_);
+  IndexFactoryOptions opts = MakeOptions();
+  std::unique_ptr<IndexFactoryBuilder> builder;
+  ASSERT_OK(factory.NewBuilder(opts, builder));
+  auto* builtin = static_cast<BuiltinIndexFactoryBuilder*>(builder.get());
+
+  const std::string ik_a = MakeInternalKey("aa1", 3, kTypeValue);
+  const std::string ik_b = MakeInternalKey("aa2", 2, kTypeValue);
+  const std::string ik_c = MakeInternalKey("bb1", 1, kTypeValue);
+  const Slice ik_a_slice(ik_a);
+  const Slice ik_b_slice(ik_b);
+  const Slice ik_c_slice(ik_c);
+  const BlockHandle first_handle(0, kBlockSize);
+  const BlockHandle last_handle(kBlockSize + kBlockTrailerSize, kBlockSize);
+  std::string scratch;
+
+  builtin->OnKeyAddedInternal(ik_a_slice, std::nullopt);
+  builtin->OnKeyAddedInternal(ik_b_slice, std::nullopt);
+  builtin->AddIndexEntryDirect(ik_b_slice, &ik_c_slice, first_handle, &scratch,
+                               /*skip_delta_encoding=*/false);
+  builtin->OnKeyAddedInternal(ik_c_slice, std::nullopt);
+  builtin->AddIndexEntryDirect(ik_c_slice, nullptr, last_handle, &scratch,
+                               /*skip_delta_encoding=*/false);
+
+  MockIndexBlockWriter writer;
+  IndexFactoryBuilder::BlockHandle final_handle{0, 0};
+  ASSERT_OK(builtin->FinishAndWrite(&writer, &final_handle,
+                                    /*compress=*/false));
+  ASSERT_EQ(writer.blocks_written.size(), static_cast<size_t>(3));
+  ASSERT_EQ(writer.meta_blocks.size(), static_cast<size_t>(2));
+  EXPECT_EQ(writer.meta_blocks[0].first, kHashIndexPrefixesMetadataBlock);
+  EXPECT_EQ(writer.meta_blocks[1].first, kHashIndexPrefixesBlock);
+  EXPECT_EQ(final_handle.size, writer.blocks_written.back().size());
+}
+
 TEST_F(BinarySearchIndexFactoryTest, FinishAndWriteSingleBlock) {
-  auto factory = BinarySearchIndexFactory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   IndexFactoryOptions opts;
   opts.comparator = BytewiseComparator();
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -500,7 +590,7 @@ TEST_F(BinarySearchIndexFactoryTest, FinishAndWriteSingleBlock) {
 }
 
 TEST_F(BinarySearchIndexFactoryTest, FinishAndWritePropagatesWriteBlockError) {
-  auto factory = BinarySearchIndexFactory(/*with_first_key=*/false);
+  BinarySearchIndexFactory factory(/*with_first_key=*/false, config_);
   IndexFactoryOptions opts;
   opts.comparator = BytewiseComparator();
   std::unique_ptr<IndexFactoryBuilder> builder;
@@ -527,8 +617,13 @@ TEST_F(BinarySearchIndexFactoryTest, FinishAndWritePropagatesWriteBlockError) {
 static std::unique_ptr<IndexFactoryBuilder> MakeConfiguredBuiltinBuilder(
     BlockBasedTableOptions::IndexType index_type,
     const InternalKeyComparator& icmp, const BlockBasedTableOptions& topts) {
+  static const std::unique_ptr<const SliceTransform> prefix_extractor(
+      NewFixedPrefixTransform(1));
+  static const InternalKeySliceTransform internal_prefix_transform(
+      prefix_extractor.get());
   BuiltinIndexFactoryConfig config;
   config.internal_comparator = &icmp;
+  config.internal_prefix_transform = &internal_prefix_transform;
   config.use_delta_encoding_for_index_values = true;
   config.table_options = &topts;
   IndexFactoryOptions opts;
@@ -538,14 +633,6 @@ static std::unique_ptr<IndexFactoryBuilder> MakeConfiguredBuiltinBuilder(
   Status s = NewBuiltinIndexFactoryBuilder(index_type, config, opts, builder);
   EXPECT_OK(s);
   return builder;
-}
-
-// Build an internal-key string of the form `user_key | PackSequenceAndType`.
-static std::string MakeInternalKey(const std::string& user_key,
-                                   SequenceNumber seq, ValueType vt) {
-  std::string out(user_key);
-  PutFixed64(&out, PackSequenceAndType(seq, vt));
-  return out;
 }
 
 // ============================================================================
@@ -637,6 +724,10 @@ TEST_F(NewBuiltinIndexFactoryBuilderTest, PartitionedFinishAndWrite) {
   auto* builtin = static_cast<BuiltinIndexFactoryBuilder*>(builder.get());
 
   AddGeneratedEntries(builder.get(), 64);
+
+  Slice contents;
+  ASSERT_TRUE(builder->Finish(&contents).IsNotSupported());
+  ASSERT_TRUE(contents.empty());
 
   MockIndexBlockWriter writer;
   IndexFactoryBuilder::BlockHandle final_handle{0, 0};
