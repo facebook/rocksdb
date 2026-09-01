@@ -379,9 +379,16 @@ TEST_F(DBBasicTest,
       dbname_ + "/" + OptionsFileName(stale_options_number + 1),
       /*should_sync=*/true));
 
+  RecoveryOptimizationCounters counters;
+  counters.Install();
   Reopen(options);
+  counters.Uninstall();
+
   const uint64_t current_options_number =
       dbfull()->GetVersionSet()->options_file_number();
+  ASSERT_EQ(1, counters.next_file_number.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            stale_options_number + 1);
   ASSERT_GT(current_options_number, 0u);
   ASSERT_OK(env_->FileExists(OptionsFileName(dbname_, current_options_number)));
 
@@ -392,6 +399,36 @@ TEST_F(DBBasicTest,
   std::unique_ptr<Checkpoint> checkpoint_guard(checkpoint);
   ASSERT_OK(checkpoint_guard->CreateCheckpoint(checkpoint_dir));
   ASSERT_OK(DestroyDir(env_, checkpoint_dir));
+  ASSERT_EQ("v", Get("k"));
+}
+
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryReservesTempOptionsFileNumbersInMemory) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t next_before_close =
+      dbfull()->GetVersionSet()->current_next_file_number();
+  Close();
+
+  const uint64_t stale_temp_options_number = next_before_close + 100;
+  ASSERT_OK(
+      WriteStringToFile(env_, "" /*data*/,
+                        TempOptionsFileName(dbname_, stale_temp_options_number),
+                        /*should_sync=*/true));
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(1, counters.next_file_number.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            stale_temp_options_number);
   ASSERT_EQ("v", Get("k"));
 }
 
