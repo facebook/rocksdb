@@ -787,6 +787,12 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   CheckCondition(rocksdb_options_get_lowest_used_cache_tier(obj) == 1);
   rocksdb_options_set_lowest_used_cache_tier(obj, 0);
   CheckCondition(rocksdb_options_get_lowest_used_cache_tier(obj) == 0);
+  rocksdb_options_set_max_background_remote_compactions(obj, 1);
+  CheckCondition(rocksdb_options_get_max_background_remote_compactions(obj) ==
+                 1);
+  rocksdb_options_set_max_background_remote_compactions(obj, 0);
+  CheckCondition(rocksdb_options_get_max_background_remote_compactions(obj) ==
+                 0);
   rocksdb_options_set_max_bgerror_resume_count(obj, 1);
   CheckCondition(rocksdb_options_get_max_bgerror_resume_count(obj) == 1);
   rocksdb_options_set_max_bgerror_resume_count(obj, 0);

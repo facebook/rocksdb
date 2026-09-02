@@ -298,6 +298,12 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions "
              "that can occur in parallel.");
 
+DEFINE_int32(max_background_remote_compactions,
+             ROCKSDB_NAMESPACE::Options().max_background_remote_compactions,
+             "The number of background compactions waiting on offloaded "
+             "(remote) results that are excluded from the background "
+             "compaction budget. -1 for no limit.");
+
 DEFINE_int32(num_bottom_pri_threads, 0,
              "The number of threads in the bottom-priority thread pool (used "
              "by universal compaction only).");

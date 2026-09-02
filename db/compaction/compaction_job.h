@@ -12,6 +12,7 @@
 #include <deque>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
@@ -145,6 +146,14 @@ class CompactionJob {
   // Constant false aborted flag, used for compaction service jobs
   static const std::atomic<int> kCompactionAbortedFalse;
 
+  // Invoked (with the DB mutex NOT held) when every subcompaction of this job
+  // has been offloaded to a CompactionService and is blocked waiting for the
+  // remote result (`waiting` = true), and again when that stops being true
+  // (`waiting` = false). While waiting, the background thread running this job
+  // is idle with respect to local compaction work, which lets the DB run
+  // another compaction in its place. Calls are always balanced.
+  using OffloadedWaitCallback = std::function<void(bool waiting)>;
+
   CompactionJob(int job_id, Compaction* compaction,
                 const ImmutableDBOptions& db_options,
                 const MutableDBOptions& mutable_db_options,
@@ -167,7 +176,8 @@ class CompactionJob {
                 BlobFileCompletionCallback* blob_callback = nullptr,
                 int* bg_compaction_scheduled = nullptr,
                 int* bg_bottom_compaction_scheduled = nullptr,
-                std::atomic<int>* num_running_remote_compactions = nullptr);
+                std::atomic<int>* num_running_remote_compactions = nullptr,
+                OffloadedWaitCallback offloaded_wait_callback = {});
 
   virtual ~CompactionJob();
 
@@ -326,6 +336,13 @@ class CompactionJob {
 
   CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
+
+  // Bracket a subcompaction's blocking wait on a remote worker. The job is
+  // reported as offloaded-and-waiting only once all of its subcompactions are
+  // waiting, since until then the background thread still has local work to
+  // do.
+  void EnterOffloadedWait();
+  void ExitOffloadedWait();
 
   struct CompactionIOStatsSnapshot {
     PerfLevel prev_perf_level = PerfLevel::kEnableTime;
@@ -506,6 +523,19 @@ class CompactionJob {
   // has no owning DBImpl to report to (compaction service workers, unit tests).
   // Updated without the DB mutex held.
   std::atomic<int>* num_running_remote_compactions_;
+
+  // Empty when the job has no owning DBImpl to report to (compaction service
+  // workers, unit tests).
+  OffloadedWaitCallback offloaded_wait_callback_;
+
+  // Guards both the count transition and callback delivery so that the
+  // callbacks are delivered in the same order as the transitions.
+  std::mutex offloaded_wait_mutex_;
+
+  // Number of subcompactions of this job currently blocked waiting for a
+  // remote worker. Compared against the total subcompaction count to decide
+  // when the whole job is idle. Guarded by offloaded_wait_mutex_.
+  size_t num_subcompactions_in_offloaded_wait_ = 0;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.

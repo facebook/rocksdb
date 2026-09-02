@@ -1866,6 +1866,11 @@ Status DBImpl::SetDBOptions(
       const bool offpeak_time_changed =
           versions_->offpeak_time_option().daily_offpeak_time_utc !=
           new_db_options.daily_offpeak_time_utc;
+      const bool max_remote_compactions_increased =
+          RemoteCompactionBudget(
+              new_options.max_background_remote_compactions) >
+          RemoteCompactionBudget(
+              mutable_db_options_.max_background_remote_compactions);
 
       if (max_flushes_increased || max_compactions_increased ||
           offpeak_time_changed) {
@@ -1935,6 +1940,13 @@ Status DBImpl::SetDBOptions(
       wal_size_option_changed = mutable_db_options_.max_total_wal_size !=
                                 new_options.max_total_wal_size;
       mutable_db_options_ = new_options;
+      if (max_remote_compactions_increased) {
+        // Compactions waiting on offloaded results may now free up budget for
+        // pending compactions. Unlike the limits handled above, this has to
+        // run after mutable_db_options_ is updated for the new budget to be
+        // visible to MaybeScheduleFlushOrCompaction().
+        MaybeScheduleFlushOrCompaction();
+      }
       file_options_for_compaction_ = FileOptions(new_db_options);
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);

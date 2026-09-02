@@ -9281,6 +9281,16 @@ int rocksdb_options_get_max_background_compactions(rocksdb_options_t* opt) {
   return opt->rep.max_background_compactions;
 }
 
+void rocksdb_options_set_max_background_remote_compactions(
+    rocksdb_options_t* opt, int v) {
+  opt->rep.max_background_remote_compactions = v;
+}
+
+int rocksdb_options_get_max_background_remote_compactions(
+    rocksdb_options_t* opt) {
+  return opt->rep.max_background_remote_compactions;
+}
+
 void rocksdb_options_set_max_subcompactions(rocksdb_options_t* opt,
                                             uint32_t v) {
   opt->rep.max_subcompactions = v;

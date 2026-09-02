@@ -67,6 +67,13 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_options_get_db_log_dir(
 extern ROCKSDB_LIBRARY_API const char* rocksdb_options_get_wal_dir(
     rocksdb_options_t* opt, size_t* size);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_max_background_remote_compactions(rocksdb_options_t* opt,
+                                                      int v);
+
+extern ROCKSDB_LIBRARY_API int
+rocksdb_options_get_max_background_remote_compactions(rocksdb_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_async_wal_precreate(
     rocksdb_options_t* opt, unsigned char v);
 

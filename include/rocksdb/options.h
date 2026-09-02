@@ -928,6 +928,35 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int max_background_compactions = -1;
 
+  // Only relevant when `compaction_service` is configured.
+  //
+  // A background compaction job that has offloaded all of its work to a remote
+  // worker and is only waiting for the result is not performing any local
+  // compaction work, so it does not need to occupy a slot in the background
+  // compaction budget (`max_background_compactions`, or the compaction share
+  // of `max_background_jobs`). This option is the number of such waiting jobs
+  // that may be excluded from that budget, i.e. how many additional
+  // compactions the DB may keep in flight while offloaded compactions wait.
+  //
+  // Equivalently, the DB may have up to
+  // `max_background_compactions + max_background_remote_compactions`
+  // background compactions in flight, as long as at least the excess ones are
+  // waiting on a remote worker.
+  //
+  // -1 means no limit: waiting offloaded compactions never count against the
+  // background compaction budget.
+  // 0 (default) counts them the same as local compactions, which is the
+  // long-standing behavior.
+  //
+  // The additional compactions still need free threads in the LOW (and BOTTOM)
+  // priority thread pools in order to run, so consider increasing
+  // Env::SetBackgroundThreads() accordingly.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  int max_background_remote_compactions = 0;
+
   // This value represents the maximum number of threads that will
   // concurrently perform a compaction job by breaking it into multiple,
   // smaller ones that are run simultaneously.

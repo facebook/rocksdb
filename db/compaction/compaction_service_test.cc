@@ -4,7 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 
 #include "db/db_test_util.h"
 #include "file/file_util.h"
@@ -1987,6 +1990,170 @@ TEST_F(CompactionServiceTest, NumRunningRemoteCompactionsPropertyLocalOnly) {
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningRemoteCompactions,
                                   &num_running));
   ASSERT_EQ(num_running, 0U);
+}
+
+// A compaction service whose Wait() blocks until the test releases it, so that
+// the test can inspect how many background compactions the DB keeps in flight
+// while their work is offloaded.
+class BlockingCompactionService : public MyTestCompactionService {
+ public:
+  using MyTestCompactionService::MyTestCompactionService;
+
+  CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
+                                  std::string* result) override {
+    {
+      std::unique_lock<std::mutex> lock(blocking_mutex_);
+      ++num_entered_wait_;
+      blocking_cv_.notify_all();
+      blocking_cv_.wait(lock, [this] { return released_; });
+    }
+    return MyTestCompactionService::Wait(scheduled_job_id, result);
+  }
+
+  // Returns true once at least `count` compaction jobs have reached Wait(),
+  // false if they did not within the deadline.
+  bool WaitForEnteredWait(int count) {
+    std::unique_lock<std::mutex> lock(blocking_mutex_);
+    return blocking_cv_.wait_for(lock, std::chrono::seconds(30),
+                                 [&] { return num_entered_wait_ >= count; });
+  }
+
+  void Release() {
+    std::lock_guard<std::mutex> lock(blocking_mutex_);
+    released_ = true;
+    blocking_cv_.notify_all();
+  }
+
+ private:
+  std::mutex blocking_mutex_;
+  std::condition_variable blocking_cv_;
+  // Monotonic: jobs are never unblocked until the test releases all of them.
+  int num_entered_wait_ = 0;
+  bool released_ = false;
+};
+
+// Verifies how DBOptions::max_background_remote_compactions affects the number
+// of compactions the DB is willing to have in flight while their work is
+// offloaded.
+class OffloadedCompactionBudgetTest : public CompactionServiceTest {
+ protected:
+  static constexpr int kNumCFs = 4;
+  static constexpr int kFilesPerCF = 4;
+
+  void TearDown() override {
+    if (blocking_service_) {
+      // Otherwise closing the DB would wait forever on the blocked jobs.
+      blocking_service_->Release();
+    }
+    CompactionServiceTest::TearDown();
+  }
+
+  // Opens a DB with `kNumCFs` column families that each have a pending L0
+  // compaction, backed by a compaction service that blocks in Wait(). Auto
+  // compactions stay disabled until EnableAutoCompaction() is called.
+  void SetUpPendingCompactions(int max_background_remote_compactions) {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.disable_auto_compactions = true;
+    options.level0_file_num_compaction_trigger = kFilesPerCF;
+    // One local compaction slot, so any additional in-flight compaction can
+    // only come from the offloaded compaction budget.
+    options.max_background_compactions = 1;
+    options.max_background_flushes = 1;
+    options.max_background_remote_compactions =
+        max_background_remote_compactions;
+    // Enough threads that the budget, not the thread pool, is the constraint.
+    env_->SetBackgroundThreads(kNumCFs + 2, Env::Priority::LOW);
+
+    auto statistics = CreateDBStatistics();
+    blocking_service_ = std::make_shared<BlockingCompactionService>(
+        dbname_, options, statistics,
+        std::vector<std::shared_ptr<EventListener>>{},
+        std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+    options.compaction_service = blocking_service_;
+    DestroyAndReopen(options);
+    CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+    ASSERT_EQ(handles_.size(), static_cast<size_t>(kNumCFs));
+    // Closing the DBs opened along the way cancels awaiting jobs.
+    blocking_service_->SetCanceled(false);
+
+    // Every file in a CF covers the same key range so the L0 compaction is not
+    // a trivial move, which would bypass the compaction service.
+    for (int cf = 0; cf < kNumCFs; cf++) {
+      for (int i = 0; i < kFilesPerCF; i++) {
+        for (int j = 0; j < 10; j++) {
+          ASSERT_OK(Put(cf, Key(j), "value" + std::to_string(i * 10 + j)));
+        }
+        ASSERT_OK(Flush(cf));
+      }
+    }
+  }
+
+  // Waits until `expected_scheduled` compactions are blocked on the remote
+  // worker and verifies that the DB scheduled exactly that many. A job makes
+  // its scheduling decision before it blocks in Wait(), so once the last one
+  // has been observed the scheduled count is stable.
+  void VerifyScheduledOnceBlocked(int expected_scheduled) {
+    ASSERT_TRUE(blocking_service_->WaitForEnteredWait(expected_scheduled));
+    ASSERT_EQ(dbfull()->TEST_BGCompactionsScheduled(), expected_scheduled);
+  }
+
+  void ReleaseAndVerifyAllCompacted() {
+    blocking_service_->Release();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_GE(blocking_service_->GetCompactionNum(), kNumCFs);
+    for (int cf = 0; cf < kNumCFs; cf++) {
+      ASSERT_EQ(NumTableFilesAtLevel(0, cf), 0);
+    }
+  }
+
+  std::shared_ptr<BlockingCompactionService> blocking_service_;
+};
+
+TEST_F(OffloadedCompactionBudgetTest, DisabledByDefault) {
+  SetUpPendingCompactions(/*max_background_remote_compactions=*/0);
+  ASSERT_OK(dbfull()->EnableAutoCompaction(handles_));
+
+  // The single compaction slot stays occupied by the job waiting on the remote
+  // worker, so none of the other column families get compacted.
+  VerifyScheduledOnceBlocked(1);
+
+  ReleaseAndVerifyAllCompacted();
+}
+
+TEST_F(OffloadedCompactionBudgetTest, GrantsBoundedExtraSlots) {
+  SetUpPendingCompactions(/*max_background_remote_compactions=*/2);
+  ASSERT_OK(dbfull()->EnableAutoCompaction(handles_));
+
+  // 1 local slot + 2 slots for compactions waiting on the remote worker, even
+  // though a 4th column family is still pending.
+  VerifyScheduledOnceBlocked(3);
+
+  ReleaseAndVerifyAllCompacted();
+}
+
+TEST_F(OffloadedCompactionBudgetTest, NoLimitSchedulesAllPending) {
+  SetUpPendingCompactions(/*max_background_remote_compactions=*/-1);
+  ASSERT_OK(dbfull()->EnableAutoCompaction(handles_));
+
+  VerifyScheduledOnceBlocked(kNumCFs);
+
+  ReleaseAndVerifyAllCompacted();
+}
+
+TEST_F(OffloadedCompactionBudgetTest, RaisingLimitReleasesPendingCompactions) {
+  SetUpPendingCompactions(/*max_background_remote_compactions=*/0);
+  ASSERT_OK(dbfull()->EnableAutoCompaction(handles_));
+  VerifyScheduledOnceBlocked(1);
+
+  ASSERT_OK(db_->SetDBOptions({{"max_background_remote_compactions", "-1"}}));
+  ASSERT_EQ(db_->GetDBOptions().max_background_remote_compactions, -1);
+
+  // The already blocked compaction now stops being charged to the budget, so
+  // the remaining column families get scheduled without waiting for it.
+  VerifyScheduledOnceBlocked(kNumCFs);
+
+  ReleaseAndVerifyAllCompacted();
 }
 
 class PartialDeleteCompactionFilter : public CompactionFilter {

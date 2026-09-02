@@ -307,6 +307,11 @@ int DBImpl::TEST_BGCompactionsAllowed() const {
   return GetBGJobLimits().max_compactions;
 }
 
+int DBImpl::TEST_BGCompactionsScheduled() const {
+  InstrumentedMutexLock l(&mutex_);
+  return bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_;
+}
+
 int DBImpl::TEST_BGFlushesAllowed() const {
   InstrumentedMutexLock l(&mutex_);
   return GetBGJobLimits().max_flushes;

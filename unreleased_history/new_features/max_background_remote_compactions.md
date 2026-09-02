@@ -1,0 +1,1 @@
+New DBOption `max_background_remote_compactions` lets background compactions that are only waiting for a `CompactionService` (remote/offloaded) result stop counting against the background compaction budget, so a DB can keep more compactions in flight while its offloaded compactions wait.

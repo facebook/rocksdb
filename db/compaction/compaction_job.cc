@@ -153,7 +153,8 @@ CompactionJob::CompactionJob(
     const std::string& db_session_id, std::string full_history_ts_low,
     std::string trim_ts, BlobFileCompletionCallback* blob_callback,
     int* bg_compaction_scheduled, int* bg_bottom_compaction_scheduled,
-    std::atomic<int>* num_running_remote_compactions)
+    std::atomic<int>* num_running_remote_compactions,
+    OffloadedWaitCallback offloaded_wait_callback)
     : compact_(new CompactionState(compaction)),
       internal_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -200,7 +201,8 @@ CompactionJob::CompactionJob(
       extra_num_subcompaction_threads_reserved_(0),
       bg_compaction_scheduled_(bg_compaction_scheduled),
       bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled),
-      num_running_remote_compactions_(num_running_remote_compactions) {
+      num_running_remote_compactions_(num_running_remote_compactions),
+      offloaded_wait_callback_(std::move(offloaded_wait_callback)) {
   assert(job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   assert(job_context);
