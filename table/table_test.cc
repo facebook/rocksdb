@@ -8282,12 +8282,16 @@ class ExternalTableTest : public DBTestBase {
     ExternalTableIterator* NewIterator(
         const ReadOptions& read_options,
         const SliceTransform* /*prefix_extractor*/) override {
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableReader::NewIterator",
+                               const_cast<ReadOptions*>(&read_options));
       return new DummyExternalTableIterator(read_options, kv_map_);
     }
 
-    Status Get(const ReadOptions& /*read_options*/, const Slice& key,
+    Status Get(const ReadOptions& read_options, const Slice& key,
                const SliceTransform* /*prefix_extractor*/,
                PinnableSlice* value) override {
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableReader::Get",
+                               const_cast<ReadOptions*>(&read_options));
       auto iter = kv_map_.find(key.ToString());
       if (iter != kv_map_.end()) {
         value->PinSelf(iter->second);
@@ -9126,6 +9130,86 @@ TEST_F(ExternalTableTest, DBIterTest) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+}
+
+TEST_F(ExternalTableTest, ReadOptionsCustomContext) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_NE(db, nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_db_generated_files = true;
+  ifo.fill_cache = false;
+  ASSERT_OK(db->IngestExternalFile(cfh, {ingest_file}, ifo));
+
+  int get_context = 0;
+  int iterator_context = 0;
+  int get_call_count = 0;
+  int new_iterator_call_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableReader::Get", [&](void* arg) {
+        ReadOptions* read_options = static_cast<ReadOptions*>(arg);
+        EXPECT_EQ(read_options->custom_context, &get_context);
+        ++get_call_count;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableReader::NewIterator", [&](void* arg) {
+        ReadOptions* read_options = static_cast<ReadOptions*>(arg);
+        EXPECT_EQ(read_options->custom_context, &iterator_context);
+        ++new_iterator_call_count;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  ReadOptions get_options;
+  ASSERT_EQ(get_options.custom_context, nullptr);
+  get_options.custom_context = &get_context;
+  std::string value;
+  ASSERT_OK(db->Get(get_options, cfh, "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_call_count, 1);
+
+  ReadOptions iterator_options;
+  iterator_options.custom_context = &iterator_context;
+  std::unique_ptr<Iterator> iter(db->NewIterator(iterator_options, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->value(), "bar");
+  ASSERT_EQ(new_iterator_call_count, 1);
   iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
