@@ -1384,6 +1384,118 @@ TEST_F(DBOptionsTest, OffpeakTimes) {
   Close();
 }
 
+TEST_F(DBOptionsTest, DynamicOffpeakOptions) {
+  Options options;
+  ASSERT_EQ(0u, options.dynamic_offpeak_percentile);
+  ASSERT_OK(DBImpl::TEST_ValidateOptions(options));
+
+  options.dynamic_offpeak_percentile = 25;
+  options.statistics = CreateDBStatistics();
+  options.stats_persist_period_sec = 900;
+  ASSERT_OK(DBImpl::TEST_ValidateOptions(options));
+
+  options.daily_offpeak_time_utc = "01:00-02:00";
+  ASSERT_OK(DBImpl::TEST_ValidateOptions(options));
+
+  options.dynamic_offpeak_percentile = 51;
+  ASSERT_TRUE(DBImpl::TEST_ValidateOptions(options).IsInvalidArgument());
+  options.dynamic_offpeak_percentile = 25;
+
+  options.stats_persist_period_sec = 0;
+  ASSERT_TRUE(DBImpl::TEST_ValidateOptions(options).IsInvalidArgument());
+  options.stats_persist_period_sec = 901;
+  ASSERT_TRUE(DBImpl::TEST_ValidateOptions(options).IsInvalidArgument());
+  options.stats_persist_period_sec = 900;
+  options.statistics.reset();
+  ASSERT_TRUE(DBImpl::TEST_ValidateOptions(options).IsInvalidArgument());
+
+  options.dynamic_offpeak_percentile = 0;
+  ASSERT_OK(DBImpl::TEST_ValidateOptions(options));
+}
+
+TEST_F(DBOptionsTest, DynamicOffpeakSetDBOptionsValidation) {
+  Options options;
+  options.env = env_;
+  options.dynamic_offpeak_percentile = 25;
+  options.statistics = CreateDBStatistics();
+  options.stats_persist_period_sec = 900;
+  Reopen(options);
+
+  ASSERT_TRUE(dbfull()
+                  ->SetDBOptions({{"dynamic_offpeak_percentile", "51"}})
+                  .IsInvalidArgument());
+  ASSERT_EQ(25u, dbfull()->GetDBOptions().dynamic_offpeak_percentile);
+
+  ASSERT_TRUE(dbfull()
+                  ->SetDBOptions({{"stats_persist_period_sec", "0"}})
+                  .IsInvalidArgument());
+  ASSERT_EQ(900u, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_TRUE(dbfull()
+                  ->SetDBOptions({{"stats_persist_period_sec", "901"}})
+                  .IsInvalidArgument());
+  ASSERT_EQ(900u, dbfull()->GetDBOptions().stats_persist_period_sec);
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"dynamic_offpeak_percentile", "0"}}));
+  ASSERT_EQ(0u, dbfull()->GetDBOptions().dynamic_offpeak_percentile);
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
+  ASSERT_TRUE(dbfull()
+                  ->SetDBOptions({{"dynamic_offpeak_percentile", "25"}})
+                  .IsInvalidArgument());
+  ASSERT_EQ(0u, dbfull()->GetDBOptions().dynamic_offpeak_percentile);
+}
+
+TEST_F(DBOptionsTest, DynamicOffpeakModel) {
+  DynamicOffpeakModel model;
+  constexpr uint32_t kPercentile = 25;
+  for (uint32_t bucket = 0; bucket < DynamicOffpeakModel::kBucketsPerDay;
+       ++bucket) {
+    const uint64_t start = bucket * DynamicOffpeakModel::kBucketSeconds;
+    const uint64_t load =
+        bucket >= 8 && bucket < 24 ? bucket - 7 : 1000 + bucket;
+    ASSERT_FALSE(model.AddSample(start,
+                                 start + DynamicOffpeakModel::kBucketSeconds,
+                                 load, load, kPercentile));
+  }
+  ASSERT_TRUE(model.AddSample(DynamicOffpeakModel::kSecondsPerDay,
+                              DynamicOffpeakModel::kSecondsPerDay + 1, 1, 1,
+                              kPercentile));
+  ASSERT_TRUE(model.IsTrained());
+  ASSERT_EQ(100u, model.LastDayCoveragePercent());
+  ASSERT_FALSE(model.LearnedWindow().empty());
+  ASSERT_TRUE(model.IsFresh(DynamicOffpeakModel::kSecondsPerDay));
+  ASSERT_FALSE(model.IsFresh(DynamicOffpeakModel::kSecondsPerDay +
+                             DynamicOffpeakModel::kMaxModelAgeSeconds + 1));
+  const DynamicOffpeakPrediction prediction =
+      model.GetPrediction(8 * DynamicOffpeakModel::kBucketSeconds);
+  ASSERT_TRUE(prediction.available);
+  ASSERT_EQ(8 * DynamicOffpeakModel::kBucketMinutes,
+            prediction.bucket_start_utc_minutes);
+  ASSERT_DOUBLE_EQ(1.0 / DynamicOffpeakModel::kBucketSeconds,
+                   prediction.bytes_per_second);
+  ASSERT_DOUBLE_EQ(1.0 / DynamicOffpeakModel::kBucketSeconds,
+                   prediction.operations_per_second);
+
+  DynamicOffpeakModel restored;
+  ASSERT_OK(restored.Decode(model.Encode(), kPercentile));
+  ASSERT_EQ(model.LearnedWindow(), restored.LearnedWindow());
+  ASSERT_EQ(model.TrainedDays(), restored.TrainedDays());
+
+  DynamicOffpeakModel disabled_restored;
+  ASSERT_OK(disabled_restored.Decode(model.Encode(), 0));
+  ASSERT_EQ(model.LearnedWindow(), disabled_restored.LearnedWindow());
+  ASSERT_EQ(model.TrainedDays(), disabled_restored.TrainedDays());
+}
+
+TEST_F(DBOptionsTest, FlatDynamicOffpeakModelUsesWholeDay) {
+  DynamicOffpeakModel model;
+  ASSERT_FALSE(
+      model.AddSample(0, DynamicOffpeakModel::kSecondsPerDay, 100, 100, 25));
+  ASSERT_TRUE(model.AddSample(DynamicOffpeakModel::kSecondsPerDay,
+                              DynamicOffpeakModel::kSecondsPerDay + 1, 1, 1,
+                              25));
+  ASSERT_EQ("00:00-23:59", model.LearnedWindow());
+}
+
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   for (bool use_direct_reads : {true, false}) {
     SpecialEnv env(env_);

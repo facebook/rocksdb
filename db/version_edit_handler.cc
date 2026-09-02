@@ -652,6 +652,9 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
           edit.GetLastCompactedManifestFileSize();
       version_set_->TuneMaxManifestFileSize();
     }
+    if (edit.HasDynamicOffpeakModel()) {
+      version_set_->dynamic_offpeak_model_ = edit.GetDynamicOffpeakModel();
+    }
     if (!version_edit_params_.HasPrevLogNumber()) {
       version_edit_params_.SetPrevLogNumber(0);
     }

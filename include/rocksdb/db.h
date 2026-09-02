@@ -1388,6 +1388,11 @@ class DB {
     //      update the baseline for the interval stats.
     static const std::string kDBStats;
 
+    //  "rocksdb.dynamic-offpeak" - returns a map describing the advisory
+    //      DB-wide learned traffic profile, its predicted current load, and
+    //      the latest observed load. It does not affect compaction policy.
+    static const std::string kDynamicOffpeak;
+
     //  "rocksdb.levelstats" - returns multi-line string containing the number
     //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
