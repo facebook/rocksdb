@@ -451,7 +451,9 @@ class DBCrashTestTest(unittest.TestCase):
         db_crashtest = self.load_db_crashtest()
 
         self.assertEqual(".sst.trash", db_crashtest.file_type_suffix("000123.sst.trash"))
-        self.assertEqual(".sst", db_crashtest.file_type_suffix("tmp_output/019471.sst"))
+        self.assertEqual(
+            ".sst", db_crashtest.file_type_suffix("tmp_output_1/019471.sst")
+        )
         self.assertEqual(".old.1", db_crashtest.file_type_suffix("/tmp/LOG.old.1"))
         self.assertEqual("<no_ext>", db_crashtest.file_type_suffix("/tmp/CURRENT"))
 

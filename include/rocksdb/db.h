@@ -328,9 +328,15 @@ class DB {
 
   // Opens a database and runs compaction without modifying the original DB.
   //
-  // This read-only operation outputs compaction results to `output_directory`
-  // instead of installing them back to the source database. Designed primarily
-  // for use with `CompactionService` to process remote compaction jobs.
+  // This read-only operation outputs compaction results to a directory under
+  // the source database instead of installing them. When
+  // `DBOptions::use_session_tmp_dir_for_remote_compaction` is true,
+  // `output_directory` must be a single directory name and the path is
+  // `<name>/session_tmp/<output_directory>`. Otherwise, the path is
+  // `<name>/<output_directory>`. For compatibility, an already DB-rooted
+  // `output_directory` is also accepted when the option is false.
+  // Designed primarily for use with `CompactionService` to process remote
+  // compaction jobs.
   //
   // Parameters:
   // - `options`: Additional controls
@@ -339,7 +345,7 @@ class DB {
   //     state or output files from previous runs) in the directory may
   //     cause correctness errors as the compaction will start from scratch.
   // - `name`: Source database path
-  // - `output_directory`: Where compaction output files are written
+  // - `output_directory`: Client-selected output directory name
   // - `input`: Serialized compaction input information
   // - `output`: Serialized compaction result
   // - `override_options`: Configuration overrides for the operation

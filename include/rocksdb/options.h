@@ -574,6 +574,10 @@ class CompactionService : public Customizable {
   ~CompactionService() override = default;
 };
 
+// Canonical name for the DB session temporary directory, which can be used as
+// the remote compaction output root when enabled.
+inline constexpr char kSessionTmpDirName[] = "session_tmp";
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   // NOT MAINTAINED: This function has not been and is not maintained.
@@ -1786,6 +1790,19 @@ struct DBOptions {
   // Only affects a primary that schedules remote compactions; it has no effect
   // when compaction_service is not configured.
   bool remote_compaction_manifest_floor = true;
+
+  // When true, remote compaction uses the DB session temporary directory.
+  // An `output_directory` argument of `job_1` to `DB::OpenAndCompact()` is
+  // resolved to `<dbname>/session_tmp/job_1`. DB::Open() creates the directory
+  // and deletes contents left by the previous DB session before scheduling new
+  // compactions. Cleanup is best effort and never fails open.
+  //
+  // When false, output is written directly to `<dbname>/<output_directory>`
+  // and DB::Open() performs no remote compaction output cleanup, preserving
+  // the legacy behavior.
+  //
+  // Default: false
+  bool use_session_tmp_dir_for_remote_compaction = false;
 
   // It indicates, which lowest cache tier we want to
   // use for a certain DB. Currently we support volatile_tier and

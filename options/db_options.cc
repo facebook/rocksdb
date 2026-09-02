@@ -626,6 +626,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          OptionTypeInfo::Enum<CacheTier>(
              offsetof(struct ImmutableDBOptions, lowest_used_cache_tier),
              &cache_tier_string_map, OptionTypeFlags::kNone)},
+        {"use_session_tmp_dir_for_remote_compaction",
+         {offsetof(struct ImmutableDBOptions,
+                   use_session_tmp_dir_for_remote_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"enforce_single_del_contracts",
          {offsetof(struct ImmutableDBOptions, enforce_single_del_contracts),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -854,6 +859,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       checksum_handoff_file_types(options.checksum_handoff_file_types),
       lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service),
+      use_session_tmp_dir_for_remote_compaction(
+          options.use_session_tmp_dir_for_remote_compaction),
       enforce_single_del_contracts(options.enforce_single_del_contracts),
       follower_refresh_catchup_period_ms(
           options.follower_refresh_catchup_period_ms),
@@ -1049,6 +1056,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_data_in_errors);
   ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
                    db_host_id.c_str());
+  ROCKS_LOG_HEADER(
+      log, "            Options.use_session_tmp_dir_for_remote_compaction: %s",
+      use_session_tmp_dir_for_remote_compaction ? "true" : "false");
   ROCKS_LOG_HEADER(log, "            Options.enforce_single_del_contracts: %s",
                    enforce_single_del_contracts ? "true" : "false");
   ROCKS_LOG_HEADER(log, "            Options.metadata_write_temperature: %s",

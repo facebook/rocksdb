@@ -20,6 +20,7 @@
 
 #include "db_stress_tool/db_stress_test_base.h"
 #include "file/file_util.h"
+#include "file/filename.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
@@ -722,9 +723,10 @@ static void ProcessCompactionResult(
 
 static void ProcessRemoteCompactionJob(
     const std::string& job_id, const CompactionServiceJobInfo& job_info,
-    const std::string& serialized_input, const std::string& output_directory,
-    bool was_canceled, SharedState* shared, StressTest* stress_test,
-    Random& rand, uint64_t& successful_compaction_end_to_end_micros) {
+    const std::string& serialized_input,
+    const std::string& output_directory_name, bool was_canceled,
+    SharedState* shared, StressTest* stress_test, Random& rand,
+    uint64_t& successful_compaction_end_to_end_micros) {
   auto options = stress_test->GetOptions(job_info.cf_id);
   assert(options.env != nullptr);
 
@@ -739,7 +741,9 @@ static void ProcessRemoteCompactionJob(
   }
 
   if (!open_compact_options.allow_resumption) {
-    CleanupOutputDirectory(output_directory);
+    CleanupOutputDirectory(RemoteCompactionJobDir(
+        job_info.db_name, options.use_session_tmp_dir_for_remote_compaction,
+        output_directory_name));
   }
 
   std::shared_ptr<std::atomic<bool>> canceled = nullptr;
@@ -752,11 +756,11 @@ static void ProcessRemoteCompactionJob(
   uint64_t start_micros = options.env->NowMicros();
 
   Status s = DB::OpenAndCompact(open_compact_options, job_info.db_name,
-                                output_directory, serialized_input,
+                                output_directory_name, serialized_input,
                                 &serialized_output, override_options);
 
   ProcessCompactionResult(s, job_id, job_info, serialized_input,
-                          output_directory, serialized_output, shared,
+                          output_directory_name, serialized_output, shared,
                           successful_compaction_end_to_end_micros, start_micros,
                           options.env);
 }

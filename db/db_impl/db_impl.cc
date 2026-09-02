@@ -2556,6 +2556,56 @@ void DBImpl::BackgroundCallPurge() {
   mutex_.Unlock();
 }
 
+void DBImpl::CleanupSessionTmpDir() {
+  if (!immutable_db_options_.use_session_tmp_dir_for_remote_compaction) {
+    return;
+  }
+
+  // Deletion is not routed through SstFileManager: these files were produced by
+  // a dead incarnation and were never in its accounting, and SFM's
+  // slow-deletion path renames a file to `<name>.trash` in place, which would
+  // leave the directory non-empty and therefore unremovable until a later open.
+  const std::string output_dir = SessionTmpDir(dbname_);
+  size_t num_removed = 0;
+
+  std::vector<std::string> children;
+  // Default IOOptions on purpose: setting IOOptions::do_not_recurse makes the
+  // Posix implementation drop directory entries from the listing altogether,
+  // and directory entries are precisely what this scan needs.
+  Status s = env_->GetChildren(output_dir, &children);
+  if (!s.ok()) {
+    if (!s.IsNotFound()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to list session temporary directory %s: %s",
+                     output_dir.c_str(), s.ToString().c_str());
+    }
+    return;
+  }
+
+  for (const std::string& child : children) {
+    if (child == "." || child == "..") {
+      continue;
+    }
+    std::string child_path = output_dir;
+    child_path.append("/").append(child);
+    s = DestroyDir(env_, child_path);
+    if (s.ok()) {
+      ++num_removed;
+    } else {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to delete stale session temporary "
+                     "directory %s/%s: %s",
+                     output_dir.c_str(), child.c_str(), s.ToString().c_str());
+    }
+  }
+
+  if (num_removed > 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Deleted %zu stale session temporary director%s",
+                   num_removed, num_removed == 1 ? "y" : "ies");
+  }
+}
+
 // A `SuperVersionHandle` holds a non-null `SuperVersion*` pointing at a
 // `SuperVersion` referenced once for this object. It also contains the state
 // needed to clean up the `SuperVersion` reference from outside of `DBImpl`
@@ -5766,6 +5816,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (!del.ok() && result.ok()) {
           result = del;
         }
+      } else if (soptions.use_session_tmp_dir_for_remote_compaction &&
+                 fname == kSessionTmpDirName) {
+        // The session temporary directory is owned by the DB, but
+        // ParseFileName rejects directories and the non-recursive
+        // DeleteDir(dbname) below would otherwise fail to remove the DB.
+        // Ignore failures: leftovers here must not fail DestroyDB.
+        DestroyDir(env, SessionTmpDir(dbname)).PermitUncheckedError();
       }
     }
     paths_to_delete.insert(dbname);

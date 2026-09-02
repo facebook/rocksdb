@@ -6,8 +6,11 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <string>
+
 #include "db/compaction/compaction_job.h"
 #include "db_stress_shared_state.h"
+#include "file/file_util.h"
 #include "rocksdb/options.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -27,7 +30,6 @@ class DbStressCompactionService : public CompactionService {
   const char* Name() const override { return kClassName(); }
 
   static constexpr uint64_t kWaitIntervalInMicros = 10 * 1000;  // 10ms
-
   static constexpr const char* kTempOutputDirectoryPrefix = "tmp_output_";
 
   CompactionServiceScheduleResponse Schedule(
@@ -40,12 +42,12 @@ class DbStressCompactionService : public CompactionService {
       return CompactionServiceScheduleResponse(
           job_id, CompactionServiceJobStatus::kUseLocal);
     }
-    std::string output_directory = info.db_name + "/" +
-                                   kTempOutputDirectoryPrefix +
-                                   Env::Default()->GenerateUniqueId();
+
+    const std::string output_directory_name =
+        kTempOutputDirectoryPrefix + Env::Default()->GenerateUniqueId();
 
     shared_->EnqueueRemoteCompaction(
-        job_id, info, compaction_service_input, output_directory,
+        job_id, info, compaction_service_input, output_directory_name,
         false /* was_cancelled */);  // Not canceled initially
     CompactionServiceScheduleResponse response(
         job_id, CompactionServiceJobStatus::kSuccess);
@@ -57,28 +59,14 @@ class DbStressCompactionService : public CompactionService {
 
   void OnInstallation(const std::string& scheduled_job_id,
                       CompactionServiceJobStatus /*status*/) override {
-    // Clean up tmp directory
     std::string serialized;
     CompactionServiceResult result;
     if (shared_->GetRemoteCompactionResult(scheduled_job_id, &serialized)
-            .has_value()) {
-      if (CompactionServiceResult::Read(serialized, &result).ok()) {
-        std::vector<std::string> filenames;
-        Status s = Env::Default()->GetChildren(result.output_path, &filenames);
-        for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
-          s = Env::Default()->DeleteFile(result.output_path + "/" +
-                                         filenames[i]);
-          if (!s.ok()) {
-            // TODO - Handle clean up failure?
-            break;
-          }
-        }
-        if (s.ok()) {
-          Env::Default()->DeleteDir(result.output_path).PermitUncheckedError();
-        }
-      }
-      shared_->RemoveRemoteCompactionResult(scheduled_job_id);
+            .has_value() &&
+        CompactionServiceResult::Read(serialized, &result).ok()) {
+      DestroyDir(Env::Default(), result.output_path).PermitUncheckedError();
     }
+    shared_->RemoveRemoteCompactionResult(scheduled_job_id);
   }
 
   void CancelAwaitingJobs() override { aborted_.store(true); }

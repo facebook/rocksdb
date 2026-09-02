@@ -2711,6 +2711,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     s = impl->CreateArchivalDirectory();
   }
+  if (s.ok() &&
+      impl->immutable_db_options_.use_session_tmp_dir_for_remote_compaction) {
+    // Create the session-scoped temporary directory before a CompactionService
+    // can create any per-job directory under it.
+    s = impl->env_->CreateDirIfMissing(SessionTmpDir(dbname));
+  }
   if (!s.ok()) {
     return s;
   }
@@ -2923,6 +2929,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // WAL write failures and resultant forced flushes
     sfm->ReserveDiskBuffer(max_write_buffer_size,
                            impl->immutable_db_options_.db_paths[0].path);
+  }
+
+  if (s.ok() &&
+      impl->immutable_db_options_.use_session_tmp_dir_for_remote_compaction) {
+    // Finish deleting data from the previous DB session before this open can
+    // schedule a new compaction in the directory.
+    impl->CleanupSessionTmpDir();
   }
 
   if (s.ok()) {

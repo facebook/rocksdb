@@ -9893,6 +9893,16 @@ unsigned char rocksdb_options_get_remote_compaction_manifest_floor(
   return opt->rep.remote_compaction_manifest_floor;
 }
 
+void rocksdb_options_set_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_session_tmp_dir_for_remote_compaction = v;
+}
+
+unsigned char rocksdb_options_get_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_session_tmp_dir_for_remote_compaction;
+}
+
 void rocksdb_options_set_lowest_used_cache_tier(rocksdb_options_t* opt, int v) {
   opt->rep.lowest_used_cache_tier =
       static_cast<decltype(opt->rep.lowest_used_cache_tier)>(v);
