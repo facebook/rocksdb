@@ -583,8 +583,10 @@ default_params = {
     "memtable_verify_per_key_checksum_on_seek": lambda: random.choice([0] * 7 + [1]),
     "memtable_batch_lookup_optimization": lambda: random.randint(0, 1),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `track_and_verify_wals` after stabalizing the stress test
-    "track_and_verify_wals": lambda: random.choice([0]),
+    # Keep this fixed across the whole crash-test run series. Enabling the
+    # option imposes stricter open-time WAL requirements on an existing DB, so
+    # it must not toggle on after an earlier invocation ran with WAL disabled.
+    "track_and_verify_wals": random.choice([0, 1]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
     "remote_compaction_failure_fall_back_to_local": lambda: random.choice([0, 1]),
@@ -1381,6 +1383,14 @@ def finalize_and_sanitize(src_params):
             dest_params["allow_concurrent_memtable_write"] = 1
         else:
             dest_params["unordered_write"] = 0
+    if dest_params.get("track_and_verify_wals", 0) == 1:
+        if dest_params.get("best_efforts_recovery", 0) == 1:
+            dest_params["track_and_verify_wals"] = 0
+        else:
+            # The verifier needs WAL files to build and check predecessor WAL
+            # chains. If selected, keep all invocations in this crash-test run
+            # on WAL-backed recovery rather than alternating with no-WAL runs.
+            dest_params["disable_wal"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         # WAL-disabled stress runs do not support in-process reopen. Blob
         # direct write v1 relies on this path so crash testing stays within its

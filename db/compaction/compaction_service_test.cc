@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <cstdio>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -154,6 +155,18 @@ class MyTestCompactionService : public CompactionService {
     Status s =
         DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
                            compaction_input, result, options_override);
+    if (!s.ok() && result->empty()) {
+      // OpenAndCompact serializes failures after compaction starts, but setup
+      // failures are returned directly. Preserve those failures in the test
+      // service response so the primary reports the underlying status.
+      CompactionServiceResult error_result;
+      error_result.status = s;
+      Status serialization_status = error_result.Write(result);
+      if (!serialization_status.ok()) {
+        fprintf(stderr, "Failed to serialize OpenAndCompact error '%s': %s\n",
+                s.ToString().c_str(), serialization_status.ToString().c_str());
+      }
+    }
     {
       InstrumentedMutexLock l(&mutex_);
       if (is_override_wait_result_) {
@@ -2164,8 +2177,9 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
 
   std::vector<std::thread> threads;
   for (const auto& file : meta.levels[1].files) {
-    threads.emplace_back([&]() {
-      std::string fname = file.db_path + "/" + file.name;
+    std::string fname = file.db_path + "/" + file.name;
+    threads.emplace_back([&, fname]() {
+      SCOPED_TRACE("input_file=" + fname);
       ASSERT_OK(db_->CompactFiles(CompactionOptions(), {fname}, 2));
     });
   }

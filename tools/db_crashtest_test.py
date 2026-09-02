@@ -219,6 +219,7 @@ class DBCrashTestTest(unittest.TestCase):
                 # finalize_and_sanitize() intentionally forces disable_wal=0
                 # when inplace_update_support=1.
                 "inplace_update_support": 0,
+                "track_and_verify_wals": 0,
             },
         )
 
@@ -226,6 +227,49 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual(1, finalized["disable_wal"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
+
+    def test_track_and_verify_wals_default_is_stable_across_crash_run(self):
+        db_crashtest = self.load_db_crashtest()
+
+        value = db_crashtest.default_params["track_and_verify_wals"]
+
+        self.assertIn(value, (0, 1))
+        self.assertFalse(callable(value))
+
+    def test_finalize_track_and_verify_wals_keeps_wal_enabled(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "disable_wal": 1,
+                "track_and_verify_wals": 1,
+                "best_efforts_recovery": 0,
+                "test_best_efforts_recovery": 0,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(1, finalized["track_and_verify_wals"])
+        self.assertEqual(0, finalized["disable_wal"])
+
+    def test_finalize_disables_track_and_verify_wals_for_best_efforts_recovery(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "best_efforts_recovery": 1,
+                "disable_wal": 1,
+                "track_and_verify_wals": 1,
+                "test_best_efforts_recovery": 1,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(1, finalized["best_efforts_recovery"])
+        self.assertEqual(1, finalized["disable_wal"])
+        self.assertEqual(0, finalized["track_and_verify_wals"])
 
     def test_finalize_disables_test_batches_snapshots_for_blob_direct_write(self):
         db_crashtest = self.load_db_crashtest()
@@ -236,6 +280,7 @@ class DBCrashTestTest(unittest.TestCase):
             ),
             {
                 "test_batches_snapshots": 1,
+                "track_and_verify_wals": 1,
             },
         )
 
@@ -243,6 +288,7 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual(1, finalized["enable_blob_direct_write"])
         self.assertEqual(1, finalized["disable_wal"])
+        self.assertEqual(0, finalized["track_and_verify_wals"])
         self.assertEqual(0, finalized["test_batches_snapshots"])
 
     def test_finalize_disables_sqfc_range_queries_with_range_conversion(self):
