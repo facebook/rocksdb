@@ -20,6 +20,33 @@
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
 
+void CompactionJob::EnterOffloadedWait() {
+  if (!offloaded_wait_callback_) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(offloaded_wait_mutex_);
+  ++num_subcompactions_in_offloaded_wait_;
+  if (num_subcompactions_in_offloaded_wait_ ==
+      compact_->sub_compact_states.size()) {
+    offloaded_wait_callback_(/*waiting=*/true);
+  }
+}
+
+void CompactionJob::ExitOffloadedWait() {
+  if (!offloaded_wait_callback_) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(offloaded_wait_mutex_);
+  assert(num_subcompactions_in_offloaded_wait_ > 0);
+  const bool was_fully_offloaded =
+      num_subcompactions_in_offloaded_wait_ ==
+      compact_->sub_compact_states.size();
+  --num_subcompactions_in_offloaded_wait_;
+  if (was_fully_offloaded) {
+    offloaded_wait_callback_(/*waiting=*/false);
+  }
+}
+
 CompactionServiceJobStatus
 CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     SubcompactionState* sub_compact) {
@@ -142,6 +169,10 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
         num_running->fetch_sub(1, std::memory_order_relaxed);
       }
     });
+    // Let the DB know this thread has no local compaction work left to do
+    // while it blocks below.
+    EnterOffloadedWait();
+    Defer exit_offloaded_wait([this]() { ExitOffloadedWait(); });
     compaction_status = db_options_.compaction_service->Wait(
         response.scheduled_job_id, &compaction_result_binary);
   }

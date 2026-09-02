@@ -1400,6 +1400,8 @@ class DBImpl : public DB
   size_t TEST_LogsWithPrepSize();
 
   int TEST_BGCompactionsAllowed() const;
+  // LOW + BOTTOM priority compactions running or scheduled.
+  int TEST_BGCompactionsScheduled() const;
   int TEST_BGFlushesAllowed() const;
   int TEST_NumRunningBottomCompactions() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
@@ -2800,6 +2802,29 @@ class DBImpl : public DB
 
   void MaybeScheduleFlushOrCompaction();
 
+  // Resolves DBOptions::max_background_remote_compactions, where a negative
+  // value means "no limit", into a comparable budget.
+  static int RemoteCompactionBudget(int max_background_remote_compactions) {
+    return max_background_remote_compactions < 0
+               ? std::numeric_limits<int>::max()
+               : max_background_remote_compactions;
+  }
+
+  // Number of scheduled compactions that are only waiting for offloaded
+  // (remote) results and are therefore not charged to the background
+  // compaction budget. Capped by
+  // `mutable_db_options_.max_background_remote_compactions`.
+  // REQUIRES: mutex held
+  int NumOffloadedCompactionsNotCharged() const;
+
+  // Called by a background compaction job when it starts (`waiting` = true) or
+  // stops (`waiting` = false) waiting for offloaded compaction results, i.e.
+  // when the thread running it becomes idle (or busy again) with respect to
+  // local compaction work. `thread_pri` is the priority the job was scheduled
+  // with, which determines the counter it is charged to.
+  // REQUIRES: mutex NOT held
+  void SetOffloadedCompactionWaiting(Env::Priority thread_pri, bool waiting);
+
   BackgroundJobPressure CaptureBackgroundJobPressure() const;
   void NotifyOnBackgroundJobPressureChanged();
 
@@ -3598,6 +3623,17 @@ class DBImpl : public DB
 
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_ = 0;
+
+  // Of the compactions counted in bg_bottom_compaction_scheduled_ /
+  // bg_compaction_scheduled_, how many have offloaded all of their work to a
+  // CompactionService and are only waiting for the remote result. Such jobs
+  // are not doing any local compaction work, so up to
+  // `max_background_remote_compactions` of them are excluded from the
+  // background compaction budget in MaybeScheduleFlushOrCompaction(). They are
+  // deliberately still counted in the bg_*_scheduled_ counters so that
+  // shutdown, pause and abort still see them as in flight.
+  int bg_bottom_compaction_offloaded_ = 0;
+  int bg_compaction_offloaded_ = 0;
 
   // stores the number of compactions are currently running
   int num_running_compactions_ = 0;

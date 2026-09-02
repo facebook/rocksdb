@@ -1915,7 +1915,12 @@ Status DBImpl::CompactFilesImpl(
       kManualCompactionCanceledFalse_, compaction_aborted_, db_id_,
       db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
       c->trim_ts(), &blob_callback_, &bg_compaction_scheduled_,
-      &bg_bottom_compaction_scheduled_, &num_running_remote_compactions_);
+      &bg_bottom_compaction_scheduled_, &num_running_remote_compactions_,
+      // CompactFiles runs on a user thread but is charged to
+      // bg_compaction_scheduled_, i.e. the LOW priority budget.
+      [this](bool waiting) {
+        SetOffloadedCompactionWaiting(Env::Priority::LOW, waiting);
+      });
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -3577,7 +3582,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ <
+  while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ -
+                 NumOffloadedCompactionsNotCharged() <
              bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
@@ -3588,6 +3594,30 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                    &DBImpl::UnscheduleCompactionCallback);
+  }
+}
+
+int DBImpl::NumOffloadedCompactionsNotCharged() const {
+  mutex_.AssertHeld();
+  return std::min(bg_compaction_offloaded_ + bg_bottom_compaction_offloaded_,
+                  RemoteCompactionBudget(
+                      mutable_db_options_.max_background_remote_compactions));
+}
+
+void DBImpl::SetOffloadedCompactionWaiting(Env::Priority thread_pri,
+                                           bool waiting) {
+  InstrumentedMutexLock l(&mutex_);
+  int& counter = thread_pri == Env::Priority::BOTTOM
+                     ? bg_bottom_compaction_offloaded_
+                     : bg_compaction_offloaded_;
+  if (waiting) {
+    ++counter;
+    // This job's slot in the background compaction budget may now be
+    // available for another compaction to use.
+    MaybeScheduleFlushOrCompaction();
+  } else {
+    assert(counter > 0);
+    --counter;
   }
 }
 
@@ -3639,6 +3669,8 @@ BackgroundJobPressure DBImpl::CaptureBackgroundJobPressure() const {
       std::max(0, num_running_compactions_ - num_running_bottom_compactions_);
   snapshot.compaction_bottom_scheduled = bg_bottom_compaction_scheduled_;
   snapshot.compaction_bottom_running = num_running_bottom_compactions_;
+  snapshot.compaction_low_offloaded = bg_compaction_offloaded_;
+  snapshot.compaction_bottom_offloaded = bg_bottom_compaction_offloaded_;
 
   // Flush
   snapshot.flush_scheduled = bg_flush_scheduled_;
@@ -5061,7 +5093,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         compaction_aborted_, db_id_, db_session_id_,
         c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
         &blob_callback_, &bg_compaction_scheduled_,
-        &bg_bottom_compaction_scheduled_, &num_running_remote_compactions_);
+        &bg_bottom_compaction_scheduled_, &num_running_remote_compactions_,
+        [this, thread_pri](bool waiting) {
+          SetOffloadedCompactionWaiting(thread_pri, waiting);
+        });
     compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
 
     std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;

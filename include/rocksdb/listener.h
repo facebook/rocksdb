@@ -572,6 +572,14 @@ struct BackgroundJobPressure {
   int compaction_bottom_scheduled = 0;
   int compaction_bottom_running = 0;
 
+  // Subsets of `compaction_low_scheduled` / `compaction_bottom_scheduled`
+  // that have offloaded all of their work to a CompactionService and are only
+  // waiting for the remote result, so they are consuming a background thread
+  // but no local compaction resources. See
+  // DBOptions::max_background_remote_compactions.
+  int compaction_low_offloaded = 0;
+  int compaction_bottom_offloaded = 0;
+
   // Flush scheduling
   int flush_scheduled = 0;
   int flush_running = 0;
