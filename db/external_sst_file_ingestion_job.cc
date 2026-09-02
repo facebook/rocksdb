@@ -281,6 +281,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db = TableFileName(
         cfd_->ioptions().cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
+    f.internal_file_path = path_inside_db;
     if (ingestion_options_.move_files || ingestion_options_.link_files) {
       status =
           fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
@@ -322,8 +323,6 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
 
     if (f.copy_file) {
-      TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
-                               nullptr);
       // Always determining the destination temperature from the ingested-to
       // level would be difficult because in general we only find out the level
       // ingested to later, during Run().
@@ -338,6 +337,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       status = CopyFile(fs_.get(), path_outside_db, f.file_temperature,
                         path_inside_db, dst_temp, 0, db_options_.use_fsync,
                         io_tracer_);
+      TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
+                               &status);
       // The destination of the copy will be ingested
       f.file_temperature = dst_temp;
 
@@ -354,7 +355,6 @@ Status ExternalSstFileIngestionJob::Prepare(
     if (!status.ok()) {
       break;
     }
-    f.internal_file_path = path_inside_db;
     // Initialize the checksum information of ingested files.
     f.file_checksum = kUnknownFileChecksum;
     f.file_checksum_func_name = kUnknownFileChecksumFuncName;
@@ -1127,7 +1127,7 @@ void ExternalSstFileIngestionJob::DeleteInternalFiles() {
       continue;
     }
     Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
-    if (!s.ok()) {
+    if (!s.ok() && !s.IsNotFound() && !s.IsPathNotFound()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "AddFile() clean up for file %s failed : %s",
                      f.internal_file_path.c_str(), s.ToString().c_str());
