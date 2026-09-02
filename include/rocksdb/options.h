@@ -2226,10 +2226,10 @@ struct ReadOptions {
   // NOTE: for all pointer members of ReadOptions (e.g. snapshot, timestamp,
   // iterate_lower_bound, iterate_upper_bound, table_filter, ...), when the
   // pointer is non-nullptr the caller retains ownership of the pointed-to
-  // object and is responsible for keeping it alive and unchanged for as long as
-  // the read operation using these options is in progress (which, for an
-  // iterator, is the lifetime of the iterator). This keeps ReadOptions cheap to
-  // copy (internal to RocksDB).
+  // object and, unless documented otherwise, is responsible for keeping it
+  // alive and unchanged for as long as the read operation using these options
+  // is in progress (which, for an iterator, is the lifetime of the iterator).
+  // This keeps ReadOptions cheap to copy (internal to RocksDB).
 
   // *** BEGIN options relevant to point lookups as well as scans ***
 
@@ -2337,6 +2337,16 @@ struct ReadOptions {
   // parallel if the keys in the MultiGet batch are in different levels. It
   // comes at the expense of slightly higher CPU overhead.
   bool optimize_multiget_for_io = true;
+
+  // EXPERIMENTAL
+  //
+  // An opaque, non-owning context passed to all table implementations for this
+  // read. RocksDB does not interpret, manage, or synchronize access to this
+  // context. It is intended to let external table implementations consume
+  // application-defined read options. The caller is responsible for keeping the
+  // context alive for the duration of the read operation (or iterator lifetime)
+  // and for any required synchronization.
+  void* custom_context = nullptr;
 
   // *** END options relevant to point lookups (as well as scans) ***
   // *** BEGIN options only relevant to iterators or scans ***
