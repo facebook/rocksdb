@@ -145,29 +145,28 @@ class CompactionJob {
   // Constant false aborted flag, used for compaction service jobs
   static const std::atomic<int> kCompactionAbortedFalse;
 
-  CompactionJob(int job_id, Compaction* compaction,
-                const ImmutableDBOptions& db_options,
-                const MutableDBOptions& mutable_db_options,
-                const FileOptions& file_options, VersionSet* versions,
-                const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
-                FSDirectory* db_directory, FSDirectory* output_directory,
-                FSDirectory* blob_output_directory, Statistics* stats,
-                InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-                JobContext* job_context, std::shared_ptr<Cache> table_cache,
-                EventLogger* event_logger, bool paranoid_file_checks,
-                bool measure_io_stats, const std::string& dbname,
-                CompactionJobStats* compaction_job_stats,
-                Env::Priority thread_pri,
-                const std::shared_ptr<IOTracer>& io_tracer,
-                const std::atomic<bool>& manual_compaction_canceled,
-                const std::atomic<int>& compaction_aborted,
-                const std::string& db_id = "",
-                const std::string& db_session_id = "",
-                std::string full_history_ts_low = "", std::string trim_ts = "",
-                BlobFileCompletionCallback* blob_callback = nullptr,
-                int* bg_compaction_scheduled = nullptr,
-                int* bg_bottom_compaction_scheduled = nullptr,
-                std::atomic<int>* num_running_remote_compactions = nullptr);
+  CompactionJob(
+      int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options,
+      const FileOptions& file_options, VersionSet* versions,
+      const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+      FSDirectory* db_directory, FSDirectory* output_directory,
+      FSDirectory* blob_output_directory, Statistics* stats,
+      InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
+      JobContext* job_context, std::shared_ptr<Cache> table_cache,
+      EventLogger* event_logger, bool paranoid_file_checks,
+      bool measure_io_stats, const std::string& dbname,
+      CompactionJobStats* compaction_job_stats, Env::Priority thread_pri,
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const std::atomic<bool>& manual_compaction_canceled,
+      const std::atomic<int>& compaction_aborted, const std::string& db_id = "",
+      const std::string& db_session_id = "",
+      std::string full_history_ts_low = "", std::string trim_ts = "",
+      BlobFileCompletionCallback* blob_callback = nullptr,
+      int* bg_compaction_scheduled = nullptr,
+      int* bg_bottom_compaction_scheduled = nullptr,
+      std::atomic<int>* num_running_remote_compactions = nullptr,
+      std::function<void(bool)> remote_compaction_wait_state_changed = {});
 
   virtual ~CompactionJob();
 
@@ -506,6 +505,10 @@ class CompactionJob {
   // has no owning DBImpl to report to (compaction service workers, unit tests).
   // Updated without the DB mutex held.
   std::atomic<int>* num_running_remote_compactions_;
+
+  // Notifies DBImpl when the background thread running this job enters or
+  // leaves CompactionService::Wait().
+  std::function<void(bool)> remote_compaction_wait_state_changed_;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.

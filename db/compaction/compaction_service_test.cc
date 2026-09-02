@@ -4,7 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 
 #include "db/db_test_util.h"
 #include "file/file_util.h"
@@ -1908,6 +1911,77 @@ class PropertySamplingCompactionService : public MyTestCompactionService {
   DB* db_ = nullptr;
   uint64_t num_running_while_waiting_ = 0;
 };
+
+class BlockingCompactionService : public MyTestCompactionService {
+ public:
+  using MyTestCompactionService::MyTestCompactionService;
+
+  CompactionServiceJobStatus Wait(const std::string& /*scheduled_job_id*/,
+                                  std::string* /*result*/) override {
+    {
+      std::unique_lock<std::mutex> lock(wait_mutex_);
+      ++num_waiting_;
+      wait_cv_.notify_all();
+      wait_cv_.wait(lock, [this] { return released_; });
+    }
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  bool WaitForNumWaiting(int expected) {
+    std::unique_lock<std::mutex> lock(wait_mutex_);
+    return wait_cv_.wait_for(lock, std::chrono::seconds(10), [this, expected] {
+      return num_waiting_ >= expected;
+    });
+  }
+
+  void Release() {
+    std::lock_guard<std::mutex> lock(wait_mutex_);
+    released_ = true;
+    wait_cv_.notify_all();
+  }
+
+ private:
+  std::mutex wait_mutex_;
+  std::condition_variable wait_cv_;
+  int num_waiting_ = 0;
+  bool released_ = false;
+};
+
+TEST_F(CompactionServiceTest, RemoteWaitDoesNotConsumeCompactionSlot) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_background_compactions = 1;
+  options.env = env_;
+  env_->SetBackgroundThreads(2, Env::Priority::LOW);
+
+  auto statistics = CreateDBStatistics();
+  auto compaction_service = std::make_shared<BlockingCompactionService>(
+      dbname_, options, statistics,
+      std::vector<std::shared_ptr<EventListener>>{},
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+  options.compaction_service = compaction_service;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  for (int cf_id = 0; cf_id < static_cast<int>(handles_.size()); ++cf_id) {
+    for (int file = 0; file < 2; ++file) {
+      for (int key = 0; key < 10; ++key) {
+        ASSERT_OK(
+            Put(cf_id, Key(key), "value" + std::to_string(file * 10 + key)));
+      }
+      ASSERT_OK(Flush(cf_id));
+    }
+  }
+
+  ASSERT_OK(dbfull()->EnableAutoCompaction(handles_));
+  const bool both_compactions_waiting =
+      compaction_service->WaitForNumWaiting(2);
+  compaction_service->Release();
+
+  ASSERT_TRUE(both_compactions_waiting);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+}
 
 TEST_F(CompactionServiceTest, NumRunningRemoteCompactionsProperty) {
   Options options = CurrentOptions();
