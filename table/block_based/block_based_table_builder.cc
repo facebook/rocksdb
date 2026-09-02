@@ -1069,8 +1069,14 @@ struct BlockBasedTableBuilder::Rep {
   RelaxedAtomic<uint64_t> sampled_input_data_bytes{0};
   RelaxedAtomic<uint64_t> sampled_output_slow_data_bytes{0};
   RelaxedAtomic<uint64_t> sampled_output_fast_data_bytes{0};
-  uint32_t compression_parallel_threads;
-  int max_compressed_bytes_per_kb;
+  // Effective values are computed in the constructor body after consulting the
+  // (data-block) Compressor via MaybeOverrideCompressionOptions(). They are
+  // poisoned here (0 == no parallelism / no threads; a negative threshold makes
+  // any block "not worth compressing") so that any use before that computation
+  // surfaces as visibly wrong behavior rather than silently applying the
+  // pre-override configured value.
+  uint32_t compression_parallel_threads = 0;
+  int max_compressed_bytes_per_kb = -1;
   // Dictionary guidance for data blocks (from GetDictGuidance())
   Compressor::DictConfig data_block_dict_guidance;
 
@@ -1425,9 +1431,6 @@ struct BlockBasedTableBuilder::Rep {
             /*uniform_cv_threshold=*/-1.0, /*use_common_prefix=*/false),
         internal_prefix_transform(prefix_extractor.get()),
         sample_for_compression(tbo.moptions.sample_for_compression),
-        compression_parallel_threads(tbo.compression_opts.parallel_threads),
-        max_compressed_bytes_per_kb(
-            tbo.compression_opts.max_compressed_bytes_per_kb),
         use_delta_encoding_for_index_values(
             table_opt.format_version >= 4 && !table_opt.block_align &&
             // Embedded blob records are interleaved between data blocks, which
@@ -1489,39 +1492,14 @@ struct BlockBasedTableBuilder::Rep {
         break;
     }
 
-    props.compression_options =
-        CompressionOptionsToString(tbo.compression_opts);
-
-    // Record the configured compression type as an extra pseudo-option for
-    // debugging/tracking. The per-block compression type actually recorded can
-    // differ from this (e.g. LZ4 vs LZ4HC is selected by compression level;
-    // compression manager can override), so this preserves the originally
-    // configured choice. Underscore prefix indicates a special pseudo-option.
-    props.compression_options.append("_type=");
-    props.compression_options.append(
-        std::to_string(static_cast<int>(tbo.compression_type)));
-    props.compression_options.append("; ");
-
     auto* compression_manager = tbo.moptions.compression_manager.get();
     if (compression_manager == nullptr) {
       uses_explicit_compression_manager = false;
       compression_manager = GetBuiltinV2CompressionManager().get();
     } else {
       uses_explicit_compression_manager = true;
-
-      // Stuff some extra debugging info as extra pseudo-options. Using
-      // underscore prefix to indicate they are special.
-      props.compression_options.append("_compression_manager=");
-      props.compression_options.append(compression_manager->GetId());
-      props.compression_options.append("; ");
     }
     assert(compression_manager);
-
-    // Sanitize to only allowing compression when it saves space.
-    max_compressed_bytes_per_kb =
-        std::min(int{1023}, tbo.compression_opts.max_compressed_bytes_per_kb);
-
-    AutoSkipSetup(tbo.compression_opts);
 
     basic_compressor = compression_manager->GetCompressorForSST(
         filter_context, tbo.compression_opts, tbo.compression_type);
@@ -1594,21 +1572,57 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    // AutoSkip needs a data-block compressor to have anything to skip. If
-    // compression is entirely disabled (no compressor at all), keep AutoSkip
-    // inactive so the hot path does no pointless work and the state stays
-    // consistent with the "requires a data-block compressor" invariant.
-    if (!basic_compressor) {
-      auto_skip = false;
+    // Let the Compressor override the subset of CompressionOptions that the
+    // builder is responsible for applying (parallel threads, the auto-skip
+    // heuristic, and the compression-worthwhile threshold), rather than the
+    // Compressor itself. These primarily govern how *data* blocks are
+    // compressed, so consult the data-block compressor. In dictionary-sampling
+    // mode the data-block compressor is not created until
+    // MaybeEnterUnbuffered(), so fall back to the basic compressor (parallel
+    // compression does not start in that mode regardless). When there is no
+    // compressor at all, AutoSkip has nothing to skip, so force it off to keep
+    // the hot path free of pointless work and consistent with the "requires a
+    // data-block compressor" invariant. See
+    // Compressor::MaybeOverrideCompressionOptions().
+    CompressionOptions compression_opts = tbo.compression_opts;
+    Compressor* compression_opts_source = data_block_compressor
+                                              ? data_block_compressor.get()
+                                              : basic_compressor.get();
+    if (compression_opts_source) {
+      compression_opts_source->MaybeOverrideCompressionOptions(
+          &compression_opts);
+    } else {
+      compression_opts.auto_skip = false;
     }
 
-    // Allow Compressor to override parallel_threads
-    if (basic_compressor) {
-      uint32_t recommended = basic_compressor->GetRecommendedParallelThreads();
-      if (recommended > 0) {
-        compression_parallel_threads = recommended;
-      }
+    // Record the compression options actually in effect: the configured options
+    // as possibly overridden by the Compressor just above, plus some pseudo-
+    // option debugging info (underscore prefix marks these as special). The
+    // per-block compression type actually recorded can differ from
+    // tbo.compression_type (e.g. LZ4 vs LZ4HC is selected by compression level;
+    // the compression manager can override), so this preserves the originally
+    // configured choice.
+    props.compression_options = CompressionOptionsToString(compression_opts);
+    props.compression_options.append("_type=");
+    props.compression_options.append(
+        std::to_string(static_cast<int>(tbo.compression_type)));
+    props.compression_options.append("; ");
+    if (uses_explicit_compression_manager) {
+      props.compression_options.append("_compression_manager=");
+      props.compression_options.append(compression_manager->GetId());
+      props.compression_options.append("; ");
     }
+
+    compression_parallel_threads = compression_opts.parallel_threads;
+
+    // Sanitize to only allowing compression when it saves space.
+    max_compressed_bytes_per_kb =
+        std::min(int{1023}, compression_opts.max_compressed_bytes_per_kb);
+
+    // Resolve the auto-skip options into internal form. Reads the sanitized
+    // max_compressed_bytes_per_kb set just above.
+    AutoSkipSetup(compression_opts);
+
     // Hard structural constraints override any recommendation
     if ((table_opt.partition_filters &&
          !table_opt.decouple_partitioned_filters) ||

@@ -2732,6 +2732,104 @@ TEST_F(DBCompressionTest, CompressionManagerOverridesParallelThreads) {
   }
 }
 
+TEST_F(DBCompressionTest, CompressorOverridesCompressionOptions) {
+  // A Compressor can steer the subset of CompressionOptions that the builder
+  // (rather than the Compressor) is responsible for applying by overriding
+  // MaybeOverrideCompressionOptions(). Here it forces parallel_threads and we
+  // verify parallel compression activates with that thread count via the
+  // builder's sync point. This exercises the new hook directly, not the
+  // deprecated GetRecommendedParallelThreads() bridge.
+  if (!ZSTD_Supported()) {
+    ROCKSDB_GTEST_SKIP("ZSTD not supported");
+    return;
+  }
+
+  // Wraps a compressor and forces parallel_threads via the new hook.
+  class ForceParallelCompressor : public CompressorWrapper {
+   public:
+    ForceParallelCompressor(std::unique_ptr<Compressor> wrapped,
+                            uint32_t forced_threads)
+        : CompressorWrapper(std::move(wrapped)),
+          forced_threads_(forced_threads) {}
+
+    const char* Name() const override { return "ForceParallelCompressor"; }
+
+    void MaybeOverrideCompressionOptions(
+        CompressionOptions* to_modify) const override {
+      to_modify->parallel_threads = forced_threads_;
+    }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<ForceParallelCompressor>(wrapped_->Clone(),
+                                                       forced_threads_);
+    }
+
+   private:
+    uint32_t forced_threads_;
+  };
+
+  // Returns the wrapping compressor for SSTs.
+  class ForceParallelManager : public CompressionManagerWrapper {
+   public:
+    ForceParallelManager(std::shared_ptr<CompressionManager> wrapped,
+                         uint32_t forced_threads)
+        : CompressionManagerWrapper(std::move(wrapped)),
+          forced_threads_(forced_threads) {}
+
+    const char* Name() const override { return "ForceParallelManager"; }
+
+    std::unique_ptr<Compressor> GetCompressorForSST(
+        const FilterBuildingContext& context, const CompressionOptions& opts,
+        CompressionType preferred) override {
+      auto inner = wrapped_->GetCompressorForSST(context, opts, preferred);
+      if (inner == nullptr) {
+        return nullptr;
+      }
+      return std::make_unique<ForceParallelCompressor>(std::move(inner),
+                                                       forced_threads_);
+    }
+
+   private:
+    uint32_t forced_threads_;
+  };
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  // Configure single-threaded; the compressor's override raises it to 4.
+  options.compression_opts.parallel_threads = 1;
+
+  auto mgr = std::make_shared<ForceParallelManager>(
+      GetBuiltinV2CompressionManager(), 4);
+  options.compression_manager = mgr;
+
+  uint32_t observed_threads = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      [&](void* arg) { observed_threads = *static_cast<uint32_t*>(arg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Parallel compression activated with the compressor-overridden thread count.
+  ASSERT_EQ(observed_threads, 4U);
+
+  // Data is readable (parallel compression produced correct output).
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value.size(), 100);
+  }
+}
+
 TEST_F(DBCompressionTest, UnifiedLZ4LZ4HCLevels) {
   // LZ4 and LZ4HC share the same wire format and decompressor, so the
   // compression level alone selects which algorithm runs. A given non-default
