@@ -217,6 +217,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.metadata_write_temperature;
   options.wal_write_temperature = immutable_db_options.wal_write_temperature;
   options.compaction_service = immutable_db_options.compaction_service;
+  options.use_session_tmp_dir_for_remote_compaction =
+      immutable_db_options.use_session_tmp_dir_for_remote_compaction;
   options.calculate_sst_write_lifetime_hint_set =
       immutable_db_options.calculate_sst_write_lifetime_hint_set;
 }

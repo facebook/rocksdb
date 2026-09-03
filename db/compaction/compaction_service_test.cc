@@ -5,6 +5,8 @@
 
 #include <atomic>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "db/db_test_util.h"
 #include "file/file_util.h"
@@ -114,6 +116,7 @@ class MyTestCompactionService : public CompactionService {
     start_info_ = info;
     assert(info.db_name == db_path_);
     std::string unique_id = Env::Default()->GenerateUniqueId();
+    last_output_directory_name_ = unique_id;
     jobs_.emplace(unique_id, compaction_service_input);
     infos_.emplace(unique_id, info);
     CompactionServiceScheduleResponse response(
@@ -151,9 +154,8 @@ class MyTestCompactionService : public CompactionService {
     OpenAndCompactOptions options;
     options.canceled = &canceled_;
 
-    Status s =
-        DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
-                           compaction_input, result, options_override);
+    Status s = DB::OpenAndCompact(options, db_path_, scheduled_job_id,
+                                  compaction_input, result, options_override);
     {
       InstrumentedMutexLock l(&mutex_);
       if (is_override_wait_result_) {
@@ -213,6 +215,11 @@ class MyTestCompactionService : public CompactionService {
 
   int GetCompactionNum() { return compaction_num_.load(); }
 
+  std::string GetLastOutputDirectoryName() {
+    InstrumentedMutexLock l(&mutex_);
+    return last_output_directory_name_;
+  }
+
   CompactionServiceJobInfo GetCompactionInfoForStart() { return start_info_; }
   CompactionServiceJobInfo GetCompactionInfoForWait() { return wait_info_; }
 
@@ -257,9 +264,12 @@ class MyTestCompactionService : public CompactionService {
   std::map<std::string, std::string> jobs_;
   std::map<std::string, CompactionServiceJobInfo> infos_;
   std::string result_;
+  std::string last_output_directory_name_;
 
   std::string GetOutputPath(const std::string& scheduled_job_id) {
-    return db_path_ + "/" + scheduled_job_id;
+    return RemoteCompactionJobDir(
+        db_path_, options_.use_session_tmp_dir_for_remote_compaction,
+        scheduled_job_id);
   }
 
  private:
@@ -451,6 +461,27 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   }
   ASSERT_TRUE(s.IsAborted());
 
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_NOK(result.status);
+
+  // The aborted job's output files were never installed, so they are still in
+  // the job's staging directory. Size them before reopening: the reopen starts
+  // a new DB session, and DB::Open() deletes staging directories belonging to
+  // any other session.
+  uint64_t total_size = 0;
+  Env* const env = options.env;
+  ASSERT_TRUE(options.env != nullptr);
+  for (const auto& output_file : result.output_files) {
+    std::string file_name = result.output_path + "/" + output_file.file_name;
+
+    uint64_t file_size = 0;
+    ASSERT_OK(env->GetFileSize(file_name, &file_size));
+    ASSERT_GT(file_size, 0);
+    total_size += file_size;
+  }
+  ASSERT_EQ(total_size, result.internal_stats.TotalBytesWritten());
+
   // Test re-open and successful unique id verification
   std::atomic_int verify_passed{0};
   SyncPoint::GetInstance()->SetCallBack(
@@ -465,30 +496,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
   ASSERT_GT(verify_passed, 0);
-  CompactionServiceResult result;
-  my_cs->GetResult(&result);
-  if (s.IsAborted()) {
-    ASSERT_NOK(result.status);
-  } else {
-    ASSERT_OK(result.status);
-  }
   ASSERT_GE(result.internal_stats.output_level_stats.micros, 1);
   ASSERT_GE(result.internal_stats.output_level_stats.cpu_micros, 1);
 
   ASSERT_EQ(20, result.internal_stats.output_level_stats.num_output_records);
   ASSERT_EQ(result.output_files.size(),
             result.internal_stats.output_level_stats.num_output_files);
-
-  uint64_t total_size = 0;
-  for (auto output_file : result.output_files) {
-    std::string file_name = result.output_path + "/" + output_file.file_name;
-
-    uint64_t file_size = 0;
-    ASSERT_OK(options.env->GetFileSize(file_name, &file_size));
-    ASSERT_GT(file_size, 0);
-    total_size += file_size;
-  }
-  ASSERT_EQ(total_size, result.internal_stats.TotalBytesWritten());
 
   ASSERT_TRUE(result.stats.is_remote_compaction);
   ASSERT_TRUE(result.stats.is_manual_compaction);
@@ -2503,7 +2516,7 @@ class LeftoverOutputCompactionService : public MyTestCompactionService {
 
     OpenAndCompactOptions open_options;
     open_options.allow_resumption = true;
-    Status s = DB::OpenAndCompact(open_options, db_path_, output_dir,
+    Status s = DB::OpenAndCompact(open_options, db_path_, scheduled_job_id,
                                   compaction_input, result, options_override);
     {
       InstrumentedMutexLock l(&mutex_);
@@ -2538,6 +2551,7 @@ TEST_F(CompactionServiceTest, CleansOutputDirWhenResumptionDisabled) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.paranoid_file_checks = true;  // disables resumption on the worker
+  options.use_session_tmp_dir_for_remote_compaction = true;
   options.env = env_;
   auto statistics = CreateDBStatistics();
 
@@ -3252,7 +3266,7 @@ class ResumableCompactionService : public MyTestCompactionService {
     EXPECT_OK(statistics_->Reset());
 
     Status s =
-        DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
+        DB::OpenAndCompact(options, db_path_, scheduled_job_id,
                            compaction_input, &temp_result, override_options);
 
     EXPECT_TRUE(s.IsManualCompactionPaused());
@@ -3269,9 +3283,8 @@ class ResumableCompactionService : public MyTestCompactionService {
       std::string* result) {
     EXPECT_OK(statistics_->Reset());
 
-    Status s =
-        DB::OpenAndCompact(options, db_path_, GetOutputPath(scheduled_job_id),
-                           compaction_input, result, override_options);
+    Status s = DB::OpenAndCompact(options, db_path_, scheduled_job_id,
+                                  compaction_input, result, override_options);
 
     EXPECT_TRUE(s.ok());
 
@@ -3776,6 +3789,182 @@ TEST_F(ResumableCompactionKeyTypeTest, CancelAndResumeWithTimedPut) {
 
   VerifyResumeBytes();
 }
+
+// Covers the DB session temporary directory lifecycle when remote compaction
+// opts in to using it.
+class SessionTmpDirTest : public DBTestBase {
+ public:
+  SessionTmpDirTest()
+      : DBTestBase("session_tmp_dir_test",
+                   /*env_do_fsync=*/true) {}
+
+ protected:
+  // Opens with a CompactionService opted in to the session temporary directory.
+  Options OptionsWithCompactionService() {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.use_session_tmp_dir_for_remote_compaction = true;
+    worker_statistics_ = CreateDBStatistics();
+    compaction_service_ = std::make_shared<MyTestCompactionService>(
+        dbname_, options, worker_statistics_,
+        std::vector<std::shared_ptr<EventListener>>{},
+        std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+    options.compaction_service = compaction_service_;
+    return options;
+  }
+
+  std::string SessionTmpPath() { return SessionTmpDir(dbname_); }
+
+  // Creates and closes a DB session before planting temporary output for the
+  // next session to delete.
+  void CreateDbAndQuiesce(const Options& options) {
+    DestroyAndReopen(options);
+    ASSERT_TRUE(Exists(SessionTmpPath()));
+    Close();
+  }
+
+  // Creates `parent/name/` holding one file, mimicking a leaked job directory.
+  void PlantDir(const std::string& parent, const std::string& name) {
+    SpecialEnv* const env = env_;
+    if (env == nullptr) {
+      ADD_FAILURE() << "Test environment is not initialized";
+      return;
+    }
+    ASSERT_OK(env->CreateDirIfMissing(parent));
+    const std::string dir = parent + "/" + name;
+    ASSERT_OK(env->CreateDirIfMissing(dir));
+    ASSERT_OK(WriteStringToFile(env, "leftover", dir + "/000123.sst"));
+  }
+
+  bool Exists(const std::string& path) {
+    return env_ != nullptr && env_->FileExists(path).ok();
+  }
+
+  // Reopens after planting stale output. Cleanup completes before DB::Open()
+  // schedules compactions or returns.
+  void ReopenAndDeleteStaleOutput(const Options& options) { Reopen(options); }
+
+  std::shared_ptr<Statistics> worker_statistics_;
+  std::shared_ptr<CompactionService> compaction_service_;
+};
+
+TEST_F(SessionTmpDirTest, ResolvesJobDirectory) {
+  const std::string job_dir_name = "SESSION01_4294967296";
+  const std::string legacy_output_path = dbname_ + "/" + job_dir_name;
+
+  ASSERT_EQ(RemoteCompactionJobDir(dbname_, false, job_dir_name),
+            legacy_output_path);
+  ASSERT_EQ(RemoteCompactionJobDir(dbname_, false, legacy_output_path),
+            legacy_output_path);
+  ASSERT_EQ(RemoteCompactionJobDir(dbname_, true, job_dir_name),
+            SessionTmpPath() + "/" + job_dir_name);
+}
+
+TEST_F(SessionTmpDirTest, DeletesDirsFromPreviousSessions) {
+  Options options = OptionsWithCompactionService();
+  CreateDbAndQuiesce(options);
+
+  // Two leaked job directories, one of them with a nested subdirectory to prove
+  // the removal is recursive.
+  PlantDir(SessionTmpPath(), "SESSIONFROMDEADHOST01_4294967296");
+  PlantDir(SessionTmpPath() + "/SESSIONFROMDEADHOST01_4294967296", "nested");
+  PlantDir(SessionTmpPath(), "ANOTHERDEADSESSION02_8589934592");
+
+  ReopenAndDeleteStaleOutput(options);
+
+  ASSERT_TRUE(Exists(SessionTmpPath()));
+  ASSERT_FALSE(Exists(SessionTmpPath() + "/SESSIONFROMDEADHOST01_4294967296"));
+  ASSERT_FALSE(Exists(SessionTmpPath() + "/ANOTHERDEADSESSION02_8589934592"));
+}
+
+TEST_F(SessionTmpDirTest, IgnoresDirsOutsideSessionTmpDir) {
+  Options options = OptionsWithCompactionService();
+  CreateDbAndQuiesce(options);
+
+  // A CompactionService that stages output outside the configured root owns
+  // cleaning it up; the DB must not touch it.
+  const std::string elsewhere = "service_owned_staging_dir";
+  PlantDir(dbname_, elsewhere);
+  PlantDir(SessionTmpPath(), "SESSIONFROMDEADHOST01_4294967296");
+
+  ReopenAndDeleteStaleOutput(options);
+
+  ASSERT_TRUE(Exists(dbname_ + "/" + elsewhere));
+  ASSERT_FALSE(Exists(SessionTmpPath() + "/SESSIONFROMDEADHOST01_4294967296"));
+
+  // Nothing in RocksDB owns this directory, so nothing else will remove it --
+  // including the DestroyDB that the next test's setup runs against the shared
+  // per-thread DB path.
+  ASSERT_OK(DestroyDir(env_, dbname_ + "/" + elsewhere));
+}
+
+TEST_F(SessionTmpDirTest, DisabledOptionSkipsCleanup) {
+  if (Exists(SessionTmpPath())) {
+    ASSERT_OK(DestroyDir(env_, SessionTmpPath()));
+  }
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_FALSE(Exists(SessionTmpPath()));
+
+  PlantDir(SessionTmpPath(), "SESSIONFROMDEADHOST01_4294967296");
+
+  Reopen(options);
+  Close();
+
+  ASSERT_TRUE(Exists(SessionTmpPath() + "/SESSIONFROMDEADHOST01_4294967296"));
+  ASSERT_OK(DestroyDir(env_, SessionTmpPath()));
+}
+
+TEST_F(SessionTmpDirTest, EnabledSessionTmpDirIsCreated) {
+  Options options = CurrentOptions();
+  options.use_session_tmp_dir_for_remote_compaction = true;
+  DestroyAndReopen(options);
+  ASSERT_TRUE(Exists(SessionTmpPath()));
+}
+
+TEST_F(SessionTmpDirTest, DestroyDBRemovesSessionTmpDir) {
+  Options options = OptionsWithCompactionService();
+  CreateDbAndQuiesce(options);
+  PlantDir(SessionTmpPath(), "SESSIONFROMDEADHOST01_4294967296");
+
+  // DestroyDB's final DeleteDir(dbname) is non-recursive, so it can only remove
+  // the DB directory if the session temporary directory is gone first.
+  ASSERT_OK(DestroyDB(dbname_, options));
+  ASSERT_FALSE(Exists(dbname_));
+}
+
+TEST_F(SessionTmpDirTest, CompactionUsesSessionTmpDir) {
+  Options options = OptionsWithCompactionService();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), "value_new" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  auto* my_cs = static_cast_with_check<MyTestCompactionService>(
+      compaction_service_.get());
+  ASSERT_GE(my_cs->GetCompactionNum(), 1);
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_EQ(result.output_path,
+            RemoteCompactionJobDir(dbname_, true,
+                                   my_cs->GetLastOutputDirectoryName()));
+
+  for (int i = 0; i < 20; i++) {
+    ASSERT_EQ(Get(Key(i)), (i % 2 ? "value" : "value_new") + std::to_string(i));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

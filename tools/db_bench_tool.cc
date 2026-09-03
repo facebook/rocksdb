@@ -6347,8 +6347,12 @@ class Benchmark {
     fprintf(stdout, "\nInput files: %" PRIu64 " files, %" PRIu64 " keys\n",
             total_input_files, total_input_keys);
 
-    std::string output_directory =
-        FLAGS_secondary_path + "/openandcompact_" + std::to_string(thread->tid);
+    const std::string output_directory_name =
+        "openandcompact_" + std::to_string(thread->tid);
+    const std::string output_directory = RemoteCompactionJobDir(
+        FLAGS_db,
+        db_.db->GetDBOptions().use_session_tmp_dir_for_remote_compaction,
+        output_directory_name);
 
     // Always clean up in odd run, depending on
     // !FLAGS_openandcompact_allow_resumption in even run
@@ -6376,15 +6380,6 @@ class Benchmark {
       }
     }
 
-    Status create_output_status =
-        FLAGS_env->CreateDirIfMissing(output_directory);
-    if (!create_output_status.ok()) {
-      fprintf(stderr, "Failed to create output directory %s: %s\n",
-              output_directory.c_str(),
-              create_output_status.ToString().c_str());
-      return;
-    }
-
     std::string result_string;
 
     CompactionServiceOptionsOverride options_override;
@@ -6404,7 +6399,7 @@ class Benchmark {
 
     if (FLAGS_openandcompact_test_cancel_on_odd && is_odd_run) {
       std::thread compaction_thread([&]() {
-        s = DB::OpenAndCompact(options, FLAGS_db, output_directory,
+        s = DB::OpenAndCompact(options, FLAGS_db, output_directory_name,
                                input_string, &result_string, options_override);
         end_time = FLAGS_env->NowMicros();
       });
@@ -6420,8 +6415,8 @@ class Benchmark {
     } else {
       // Normal synchronous operation for even runs or when test_cancel_on_odd
       // is false
-      s = DB::OpenAndCompact(options, FLAGS_db, output_directory, input_string,
-                             &result_string, options_override);
+      s = DB::OpenAndCompact(options, FLAGS_db, output_directory_name,
+                             input_string, &result_string, options_override);
       end_time = FLAGS_env->NowMicros();
     }
 

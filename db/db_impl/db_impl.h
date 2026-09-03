@@ -2869,6 +2869,9 @@ class DBImpl : public DB
                                 Env::Priority thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
+  // Recursively removes all children of the DB session temporary directory.
+  // Best effort: errors are logged, not returned. REQUIRES: mutex_ not held.
+  void CleanupSessionTmpDir();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,

@@ -5621,18 +5621,10 @@ void RemoteCompactionWorkerCommand::DoCommand() {
     return;
   }
 
-  std::string output_dir = job_dir_ + "/output";
-  Status dir_s = Env::Default()->CreateDirIfMissing(output_dir);
-  if (!dir_s.ok()) {
-    exec_state_ = LDBCommandExecuteResult::Failed("CreateDirIfMissing: " +
-                                                  dir_s.ToString());
-    return;
-  }
-
   std::string result;
   CompactionServiceOptionsOverride override_options;
   override_options.table_factory.reset(NewBlockBasedTableFactory());
-  Status s = DB::OpenAndCompact(OpenAndCompactOptions(), db_path_, output_dir,
+  Status s = DB::OpenAndCompact(OpenAndCompactOptions(), db_path_, "job_0001",
                                 input, &result, override_options);
   if (!s.ok()) {
     exec_state_ =

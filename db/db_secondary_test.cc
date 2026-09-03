@@ -914,11 +914,16 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(DB::OpenAndCompact(OpenAndCompactOptions(), dbname_,
-                               secondary_path_, compaction_input_binary,
+                               "options_override", compaction_input_binary,
                                &compaction_result_binary, override_options));
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   ASSERT_TRUE(verified);
+
+  CompactionServiceResult result;
+  ASSERT_OK(CompactionServiceResult::Read(compaction_result_binary, &result));
+  ASSERT_OK(result.status);
+  ASSERT_EQ(result.output_path, dbname_ + "/options_override");
 }
 
 namespace {

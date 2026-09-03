@@ -1645,6 +1645,10 @@ Status DB::OpenAndCompact(
   db_options.compaction_service = nullptr;
   db_options.info_log = override_options.info_log;
 
+  const std::string output_path = RemoteCompactionJobDir(
+      name, db_options.use_session_tmp_dir_for_remote_compaction,
+      output_directory);
+
   // 4. Filter CFs that are needed for OpenAndCompact()
   // We do not need to open all column families for the remote compaction.
   // Only open default CF + target CF. If target CF == default CF, we will open
@@ -1697,7 +1701,7 @@ Status DB::OpenAndCompact(
   std::vector<ColumnFamilyHandle*> handles;
   const uint64_t db_open_start_micros = db_options.env->NowMicros();
   s = DBImplSecondary::OpenAsSecondaryImpl(
-      db_options, name, output_directory, column_families, &handles, &db,
+      db_options, name, output_path, column_families, &handles, &db,
       /*recover_wal=*/false,
       /*trust_manifest_recovery=*/floor_provided);
   RecordTimeToHistogram(db_options.statistics.get(),
@@ -1773,7 +1777,7 @@ Status DB::OpenAndCompact(
   assert(cfh);
 
   // 7. Run the compaction without installation.
-  // Output will be stored in the directory specified by output_directory
+  // Output will be stored under the DB-owned staging directory.
   CompactionServiceResult compaction_result;
   DBImplSecondary* db_secondary =
       static_cast_with_check<DBImplSecondary>(db.get());
