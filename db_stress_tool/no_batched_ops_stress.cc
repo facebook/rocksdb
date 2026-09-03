@@ -852,7 +852,7 @@ class NonBatchedOpsStressTest : public StressTest {
                   key.ToString(true).c_str(), rand_keys[0]);
         }
       }
-    } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+    } else if (!IsRetryableOperationError(injected_error_count, s)) {
       thread->shared->SetVerificationFailure();
       fprintf(stderr, "error : Get() returns %s for key: %s (%" PRIi64 ").\n",
               s.ToString().c_str(), key.ToString(true).c_str(), rand_keys[0]);
@@ -1069,8 +1069,10 @@ class NonBatchedOpsStressTest : public StressTest {
             ThreadStatus::OperationType::OP_MULTIGET);
       }
       if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
-        fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
-        is_consistent = false;
+        if (!IsTolerableNonInjectedRemoteIOError(tmp_s)) {
+          fprintf(stderr, "Get error: %s\n", tmp_s.ToString().c_str());
+          is_consistent = false;
+        }
       } else if (!s.ok() && tmp_s.ok()) {
         fprintf(stderr,
                 "MultiGet(%d) returned different results with key %s. "
@@ -1126,7 +1128,7 @@ class NonBatchedOpsStressTest : public StressTest {
       } else if (s.IsMergeInProgress() && use_txn) {
         // With txn this is sometimes expected.
         thread->stats.AddGets(1, 1);
-      } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+      } else if (!IsRetryableOperationError(injected_error_count, s)) {
         fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
         shared->SetVerificationFailure();
@@ -1328,7 +1330,7 @@ class NonBatchedOpsStressTest : public StressTest {
                   StringToHex(key_str).c_str(), rand_keys[0]);
         }
       }
-    } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+    } else if (!IsRetryableOperationError(injected_error_count, s)) {
       fprintf(stderr,
               "error : GetEntity() returns %s for key: %s (%" PRIi64 ").\n",
               s.ToString().c_str(), StringToHex(key_str).c_str(), rand_keys[0]);
@@ -1495,9 +1497,11 @@ class NonBatchedOpsStressTest : public StressTest {
             ran_cmp_get_entity = true;
 
             if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
-              fprintf(stderr, "GetEntity error: %s\n",
-                      cmp_s.ToString().c_str());
-              is_consistent = false;
+              if (!IsTolerableNonInjectedRemoteIOError(cmp_s)) {
+                fprintf(stderr, "GetEntity error: %s\n",
+                        cmp_s.ToString().c_str());
+                is_consistent = false;
+              }
             } else if (cmp_s.IsNotFound()) {
               if (s.ok()) {
                 fprintf(
@@ -1616,8 +1620,7 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->stats.AddGets(1, 1);
         } else if (s.IsNotFound()) {
           thread->stats.AddGets(1, 0);
-        } else if (injected_error_count == 0 ||
-                   !IsErrorInjectedAndRetryable(s)) {
+        } else if (!IsRetryableOperationError(injected_error_count, s)) {
           fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
           thread->stats.AddErrors(1);
           thread->shared->SetVerificationFailure();
@@ -1933,7 +1936,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
-    } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
+    } else if (!IsRetryableOperationError(injected_error_count, s)) {
       fprintf(stderr,
               "TestPrefixScan error: %s with ReadOptions::iterate_upper_bound: "
               "%s, prefix_same_as_start: %s \n",

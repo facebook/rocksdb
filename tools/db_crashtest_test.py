@@ -489,6 +489,17 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertEqual(10, finalized["clear_column_family_one_in"])
         self.assertEqual(0, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
 
+    def test_finalize_defaults_tolerate_non_injected_io_errors_for_remote_db(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.is_remote_db = True
+        params = self.build_params(db_crashtest.default_params)
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        # Remote backends can return transient infrastructure IO errors that
+        # are not RocksDB bugs, so remote runs tolerate them by default.
+        self.assertEqual(1, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
+
     def test_finalize_tolerates_non_injected_io_errors_for_remote_db(self):
         db_crashtest = self.load_db_crashtest()
         db_crashtest.is_remote_db = True

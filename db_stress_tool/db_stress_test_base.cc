@@ -454,15 +454,29 @@ Status VerifyCheckpointColumnFamilies(
 
 }  // namespace
 
+bool StressTest::IsTolerableNonInjectedRemoteIOError(const Status& error_s) {
+  assert(!error_s.ok());
+  return FLAGS_tolerate_non_injected_io_errors_for_remote_dbs &&
+         (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) &&
+         error_s.IsIOError() &&
+         !status_to_io_status(Status(error_s)).GetDataLoss();
+}
+
 bool StressTest::IsErrorInjectedAndRetryable(const Status& error_s) {
   assert(!error_s.ok());
-  const IOStatus io_s = status_to_io_status(Status(error_s));
-  return !io_s.GetDataLoss() &&
-         ((error_s.getState() &&
-           FaultInjectionTestFS::IsInjectedError(error_s)) ||
-          (FLAGS_tolerate_non_injected_io_errors_for_remote_dbs &&
-           (!FLAGS_env_uri.empty() || !FLAGS_fs_uri.empty()) &&
-           error_s.IsIOError()));
+  const bool injected_and_retryable =
+      error_s.getState() && FaultInjectionTestFS::IsInjectedError(error_s) &&
+      !status_to_io_status(Status(error_s)).GetDataLoss();
+  return injected_and_retryable || IsTolerableNonInjectedRemoteIOError(error_s);
+}
+
+bool StressTest::IsRetryableOperationError(int injected_error_count,
+                                           const Status& error_s) {
+  assert(!error_s.ok());
+  if (IsTolerableNonInjectedRemoteIOError(error_s)) {
+    return true;
+  }
+  return injected_error_count > 0 && IsErrorInjectedAndRetryable(error_s);
 }
 
 bool StressTest::LazyEntityReadEnabled() const {
