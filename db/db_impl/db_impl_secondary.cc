@@ -1700,10 +1700,35 @@ Status DB::OpenAndCompact(
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   const uint64_t db_open_start_micros = db_options.env->NowMicros();
-  s = DBImplSecondary::OpenAsSecondaryImpl(
-      db_options, name, output_path, column_families, &handles, &db,
-      /*recover_wal=*/false,
-      /*trust_manifest_recovery=*/floor_provided);
+  // This opens the *live* primary's directory read-only, and the primary keeps
+  // rotating its MANIFEST underneath us: each rotation writes a new MANIFEST
+  // and renames a freshly written CURRENT over the old one. POSIX keeps an
+  // already-opened CURRENT/MANIFEST readable after such a replacement, but
+  // filesystems without read-after-unlink semantics (remote/object stores such
+  // as Warm Storage) report the replaced object as gone instead
+  // (Status::PathNotFound / NotFound, or Status::TryAgain from
+  // ReactiveVersionSet::MaybeSwitchManifest for the MANIFEST equivalent). That
+  // is a transient race, not a broken DB: the next attempt reads the
+  // replacement. Retry a bounded number of times so a concurrent rotation does
+  // not fail the compaction -- a CompactionService that does not fall back to a
+  // local compaction turns such a failure into a primary background error.
+  for (uint32_t retry_count = 0;; ++retry_count) {
+    s = DBImplSecondary::OpenAsSecondaryImpl(
+        db_options, name, output_path, column_families, &handles, &db,
+        /*recover_wal=*/false,
+        /*trust_manifest_recovery=*/floor_provided);
+    if (s.ok() || !(s.IsTryAgain() || s.IsPathNotFound() || s.IsNotFound()) ||
+        retry_count == options.max_secondary_open_retries) {
+      break;
+    }
+    ROCKS_LOG_WARN(db_options.info_log,
+                   "OpenAndCompact: secondary open of %s failed with %s "
+                   "(retry %" PRIu32 " of %" PRIu32
+                   "); the primary may have replaced "
+                   "CURRENT/MANIFEST concurrently, retrying",
+                   name.c_str(), s.ToString().c_str(), retry_count + 1,
+                   options.max_secondary_open_retries);
+  }
   RecordTimeToHistogram(db_options.statistics.get(),
                         OPEN_AND_COMPACT_DB_OPEN_MICROS,
                         db_options.env->NowMicros() - db_open_start_micros);

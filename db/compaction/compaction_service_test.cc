@@ -84,6 +84,82 @@ size_t CountFirstCountsFieldElements(const std::string& s) {
   return count;
 }
 
+// Simulates a filesystem without POSIX read-after-unlink semantics (a remote
+// object store such as Warm Storage): once the primary renames a freshly
+// written CURRENT over the old one, a reader that already opened the previous
+// CURRENT object can no longer read it and the filesystem reports the path as
+// gone rather than serving the unlinked object. Fails the first `fail_times`
+// reads of a CURRENT file that way; later reads succeed, as they do once the
+// reader picks up the replacement.
+class VanishingCurrentFileFS : public FileSystemWrapper {
+ public:
+  explicit VanishingCurrentFileFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "VanishingCurrentFileFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    IOStatus io_s = target()->NewSequentialFile(fname, opts, result, dbg);
+    if (io_s.ok() && IsCurrentFileName(fname)) {
+      *result = std::make_unique<MaybeVanishedFile>(std::move(*result), this);
+    }
+    return io_s;
+  }
+
+  void SetFailuresToInject(int failures) {
+    failures_to_inject_.store(failures);
+  }
+
+  int injected_failures() const { return injected_failures_.load(); }
+
+ private:
+  static bool IsCurrentFileName(const std::string& fname) {
+    const std::string suffix = "/" + kCurrentFileName;
+    return fname.size() > suffix.size() &&
+           fname.compare(fname.size() - suffix.size(), suffix.size(), suffix) ==
+               0;
+  }
+
+  // Returns true (consuming one injection) while failures remain.
+  bool ConsumeFailure() {
+    int remaining = failures_to_inject_.load();
+    while (remaining > 0) {
+      if (failures_to_inject_.compare_exchange_weak(remaining, remaining - 1)) {
+        injected_failures_.fetch_add(1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  class MaybeVanishedFile : public FSSequentialFileOwnerWrapper {
+   public:
+    MaybeVanishedFile(std::unique_ptr<FSSequentialFile>&& target,
+                      VanishingCurrentFileFS* fs)
+        : FSSequentialFileOwnerWrapper(std::move(target)), fs_(fs) {}
+
+    IOStatus Read(size_t n, const IOOptions& options, Slice* result,
+                  char* scratch, IODebugContext* dbg) override {
+      if (fs_->ConsumeFailure()) {
+        return IOStatus::PathNotFound(
+            "Failed to read CURRENT: the object was replaced and is marked as "
+            "TRASH");
+      }
+      return FSSequentialFileOwnerWrapper::Read(n, options, result, scratch,
+                                                dbg);
+    }
+
+   private:
+    VanishingCurrentFileFS* fs_;
+  };
+
+  std::atomic<int> failures_to_inject_{0};
+  std::atomic<int> injected_failures_{0};
+};
+
 }  // namespace
 
 class MyTestCompactionService : public CompactionService {
@@ -153,6 +229,7 @@ class MyTestCompactionService : public CompactionService {
 
     OpenAndCompactOptions options;
     options.canceled = &canceled_;
+    options.max_secondary_open_retries = max_secondary_open_retries_;
 
     Status s = DB::OpenAndCompact(options, db_path_, scheduled_job_id,
                                   compaction_input, result, options_override);
@@ -247,6 +324,10 @@ class MyTestCompactionService : public CompactionService {
   void SetCanceled(bool canceled) { canceled_ = canceled; }
   bool GetCanceled() { return canceled_; }
 
+  void SetMaxSecondaryOpenRetries(uint32_t retries) {
+    max_secondary_open_retries_ = retries;
+  }
+
   void GetResult(CompactionServiceResult* deserialized) {
     CompactionServiceResult::Read(result_, deserialized).PermitUncheckedError();
   }
@@ -291,6 +372,8 @@ class MyTestCompactionService : public CompactionService {
   std::atomic_int installation_callback_count_{0};
   std::atomic<CompactionServiceJobStatus> final_updated_status_{
       CompactionServiceJobStatus::kUseLocal};
+  uint32_t max_secondary_open_retries_ =
+      OpenAndCompactOptions().max_secondary_open_retries;
 
  protected:
   std::atomic_bool canceled_{false};
@@ -2579,6 +2662,104 @@ TEST_F(CompactionServiceTest, CleansOutputDirWhenResumptionDisabled) {
   ASSERT_EQ(Get(Key(1)), "v1");
   ASSERT_EQ(Get(Key(2)), "v2");
   ASSERT_EQ(Get(Key(3)), "v3new");
+}
+
+TEST_F(CompactionServiceTest, RetriesSecondaryOpenWhenCurrentFileVanishes) {
+  // The remote compaction worker opens the live primary's DB directory
+  // read-only inside OpenAndCompact. The primary replaces CURRENT on every
+  // MANIFEST rotation, and on a filesystem without POSIX read-after-unlink
+  // semantics the CURRENT object the worker already opened becomes unreadable
+  // ("marked as TRASH" on Warm Storage). That is a transient race, so the
+  // secondary open must be retried; otherwise a CompactionService that does not
+  // fall back to a local compaction (db_stress with
+  // remote_compaction_failure_fall_back_to_local=false) turns it into a primary
+  // background error that fails every later flush.
+  auto fs = std::make_shared<VanishingCurrentFileFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> vanishing_env(NewCompositeEnv(fs));
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = vanishing_env.get();
+  auto statistics = CreateDBStatistics();
+
+  auto cs = std::make_shared<MyTestCompactionService>(
+      dbname_, options, statistics,
+      std::vector<std::shared_ptr<EventListener>>{},
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+  cs->SetMaxSecondaryOpenRetries(3);
+  options.compaction_service = cs;
+  DestroyAndReopen(options);
+
+  // Two overlapping flushed files so the manual compaction has real work.
+  ASSERT_OK(Put(Key(1), "v1"));
+  ASSERT_OK(Put(Key(3), "v3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(2), "v2"));
+  ASSERT_OK(Put(Key(3), "v3new"));
+  ASSERT_OK(Flush());
+
+  // Arm the injection only now: the primary is done opening, so the failed
+  // CURRENT reads below happen in the worker's secondary open. Three failures
+  // exercise a non-default retry limit and require the fourth attempt.
+  fs->SetFailuresToInject(3);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  const Status compact_s = db_->CompactRange(cro, nullptr, nullptr);
+
+  // Collect everything before closing: the DB must be closed while the
+  // injecting Env is still alive, so no assertion may return early above it.
+  const int injected_failures = fs->injected_failures();
+  const int compactions = cs->GetCompactionNum();
+  const std::string v1 = Get(Key(1));
+  const std::string v2 = Get(Key(2));
+  const std::string v3 = Get(Key(3));
+  Close();
+
+  ASSERT_OK(compact_s);
+  ASSERT_EQ(3, injected_failures);
+  ASSERT_GE(compactions, 1);
+  ASSERT_EQ(v1, "v1");
+  ASSERT_EQ(v2, "v2");
+  ASSERT_EQ(v3, "v3new");
+}
+
+TEST_F(CompactionServiceTest, CanDisableSecondaryOpenRetry) {
+  auto fs = std::make_shared<VanishingCurrentFileFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> vanishing_env(NewCompositeEnv(fs));
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = vanishing_env.get();
+  auto statistics = CreateDBStatistics();
+
+  auto cs = std::make_shared<MyTestCompactionService>(
+      dbname_, options, statistics,
+      std::vector<std::shared_ptr<EventListener>>{},
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>{});
+  cs->SetMaxSecondaryOpenRetries(0);
+  options.compaction_service = cs;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put(Key(1), "v1"));
+  ASSERT_OK(Put(Key(3), "v3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(2), "v2"));
+  ASSERT_OK(Put(Key(3), "v3new"));
+  ASSERT_OK(Flush());
+
+  fs->SetFailuresToInject(1);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  const Status compact_s = db_->CompactRange(cro, nullptr, nullptr);
+  const int injected_failures = fs->injected_failures();
+  const int compactions = cs->GetCompactionNum();
+  Close();
+
+  ASSERT_TRUE(compact_s.IsIncomplete());
+  ASSERT_EQ(1, injected_failures);
+  ASSERT_EQ(1, compactions);
 }
 
 TEST_F(CompactionServiceTest, CompactionInfo) {
