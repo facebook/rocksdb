@@ -274,7 +274,11 @@ default_params = {
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
-    "tolerate_non_injected_io_errors_for_remote_dbs": 0,
+    # Remote backends can surface transient infrastructure IO errors that are
+    # not RocksDB bugs, so default to tolerating them whenever a remote
+    # --env_uri / --fs_uri is in use. A caller can still pass 0 explicitly, and
+    # finalize_and_sanitize() force-disables it for local DBs.
+    "tolerate_non_injected_io_errors_for_remote_dbs": lambda: 1 if is_remote_db else 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),

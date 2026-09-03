@@ -43,6 +43,28 @@ class StressTest {
   // header, so they are not visible here.
   static bool IsErrorInjectedAndRetryable(const Status& error_s);
 
+  // Returns true if `error_s` is a non-injected, non-data-loss IO error that
+  // --tolerate_non_injected_io_errors_for_remote_dbs asks us to tolerate while
+  // a remote backend (--env_uri / --fs_uri) is in use. Infrastructure behind a
+  // remote backend can fail a read transiently with no RocksDB bug involved.
+  //
+  // Defined out-of-line in db_stress_test_base.cc for the same reason as
+  // IsErrorInjectedAndRetryable.
+  static bool IsTolerableNonInjectedRemoteIOError(const Status& error_s);
+
+  // Returns true if `error_s`, surfaced by an operation during which
+  // `injected_error_count` faults were injected, is retryable rather than a
+  // verification failure.
+  //
+  // An injected-error status is only trusted when this operation actually
+  // injected a fault, because otherwise the status did not come from fault
+  // injection. A tolerated non-injected remote IO error has no injected fault
+  // to correlate with, so `injected_error_count` must not gate it -- gating it
+  // would make --tolerate_non_injected_io_errors_for_remote_dbs a no-op
+  // whenever fault injection is disabled.
+  static bool IsRetryableOperationError(int injected_error_count,
+                                        const Status& error_s);
+
   static bool IsTolerableCompactionFailure(const Status& s) {
     // TOOD (hx235): allow an exact list of tolerable failures under stress
     // test
