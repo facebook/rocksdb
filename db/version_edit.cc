@@ -134,7 +134,7 @@ bool VersionEdit::ShouldEmitPerColumnFamilyRecoveryEdit(
          HasLastSequence() || !GetCompactCursors().empty() || HasDbId() ||
          IsColumnFamilyManipulation() || IsInAtomicGroup() ||
          HasFullHistoryTsLow() || HasPersistUserDefinedTimestamps() ||
-         HasSubcompactionProgress();
+         HasSubcompactionProgress() || HasDynamicOffpeakModel();
 }
 
 bool VersionEdit::EncodeTo(std::string* dst,
@@ -262,6 +262,11 @@ bool VersionEdit::EncodeTo(std::string* dst,
     std::string varint_size;
     PutVarint64(&varint_size, last_compacted_manifest_file_size_);
     PutLengthPrefixedSlice(dst, Slice(varint_size));
+  }
+
+  if (has_dynamic_offpeak_model_) {
+    PutVarint32(dst, kDynamicOffpeakModel);
+    PutLengthPrefixedSlice(dst, dynamic_offpeak_model_);
   }
 
   return true;
@@ -925,6 +930,15 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kDynamicOffpeakModel:
+        if (GetLengthPrefixedSlice(&input, &str)) {
+          dynamic_offpeak_model_ = str.ToString();
+          has_dynamic_offpeak_model_ = true;
+        } else {
+          msg = "dynamic offpeak model";
+        }
+        break;
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -1103,6 +1117,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LastCompactedManifestFileSize: ");
     AppendNumberTo(&r, last_compacted_manifest_file_size_);
   }
+  if (has_dynamic_offpeak_model_) {
+    r.append("\n  DynamicOffpeakModelBytes: ");
+    AppendNumberTo(&r, dynamic_offpeak_model_.size());
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1261,6 +1279,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (has_last_compacted_manifest_file_size_) {
     jw << "LastCompactedManifestFileSize" << last_compacted_manifest_file_size_;
+  }
+  if (has_dynamic_offpeak_model_) {
+    jw << "DynamicOffpeakModelBytes" << dynamic_offpeak_model_.size();
   }
 
   jw.EndObject();

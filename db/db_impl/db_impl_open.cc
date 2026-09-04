@@ -23,6 +23,7 @@
 #include "monitoring/persistent_stats_history.h"
 #include "monitoring/statistics_impl.h"
 #include "monitoring/thread_status_util.h"
+#include "options/offpeak_time_info.h"
 #include "options/options_helper.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
@@ -316,6 +317,25 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
     } else if (start_time == end_time) {
       return Status::InvalidArgument(
           "start_time and end_time cannot be the same");
+    }
+  }
+
+  if (db_options.dynamic_offpeak_percentile > 50) {
+    return Status::InvalidArgument(
+        "dynamic_offpeak_percentile must be 0 (disabled) or in the range "
+        "[1, 50]");
+  }
+  if (db_options.dynamic_offpeak_percentile > 0) {
+    if (db_options.statistics == nullptr) {
+      return Status::InvalidArgument(
+          "dynamic_offpeak_percentile requires statistics when enabled");
+    }
+    if (db_options.stats_persist_period_sec == 0 ||
+        db_options.stats_persist_period_sec >
+            DynamicOffpeakModel::kBucketSeconds) {
+      return Status::InvalidArgument(
+          "dynamic_offpeak_percentile requires stats_persist_period_sec in "
+          "the range [1, 900] when enabled");
     }
   }
 

@@ -9933,6 +9933,16 @@ const char* rocksdb_options_get_daily_offpeak_time_utc(rocksdb_options_t* opt,
   return opt->rep.daily_offpeak_time_utc.data();
 }
 
+void rocksdb_options_set_dynamic_offpeak_percentile(rocksdb_options_t* opt,
+                                                    uint32_t v) {
+  opt->rep.dynamic_offpeak_percentile = v;
+}
+
+uint32_t rocksdb_options_get_dynamic_offpeak_percentile(
+    rocksdb_options_t* opt) {
+  return opt->rep.dynamic_offpeak_percentile;
+}
+
 void rocksdb_options_set_max_compaction_trigger_wakeup_seconds(
     rocksdb_options_t* opt, uint64_t v) {
   opt->rep.max_compaction_trigger_wakeup_seconds = v;

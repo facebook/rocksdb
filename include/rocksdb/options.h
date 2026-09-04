@@ -1848,6 +1848,15 @@ struct DBOptions {
   // this field blank. Default: Empty string (no offpeak).
   std::string daily_offpeak_time_utc = "";
 
+  // Percentile of the learned daily traffic profile considered off-peak.
+  // A value of 0 disables DB-wide stats-derived off-peak telemetry. Values in
+  // the range [1, 50] enable it and require statistics plus
+  // stats_persist_period_sec in the range [1, 900]. The learned window is
+  // exposed through DB::Properties::kDynamicOffpeak and does not affect
+  // compaction policy. Dynamically changeable through SetDBOptions().
+  // Default: 0
+  uint32_t dynamic_offpeak_percentile = 0;
+
   // Maximum interval in seconds between periodic compaction trigger checks.
   // The periodic trigger re-evaluates compaction scores for all column
   // families, which is necessary for features like read-triggered compaction

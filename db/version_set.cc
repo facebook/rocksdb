@@ -7546,6 +7546,20 @@ Status VersionSet::WriteCurrentStateToManifest(
     }
   }
 
+  if (!dynamic_offpeak_model_.empty()) {
+    VersionEdit edit;
+    edit.SetDynamicOffpeakModel(dynamic_offpeak_model_);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(write_options, record);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
   // Record the approximate compacted manifest size so it's available at
   // recovery time for TuneMaxManifestFileSize(). This record must come last
   // in WriteCurrentStateToManifest for an accurate size estimate.
