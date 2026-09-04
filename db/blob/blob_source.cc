@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <string>
+#include <vector>
 
 #include "cache/cache_reservation_manager.h"
 #include "cache/charged_cache.h"
@@ -636,6 +637,188 @@ Status BlobSource::GetSimpleGen2BlobRange(
   return s;
 }
 
+void BlobSource::MultiGetSimpleGen2Blob(
+    const ReadOptions& read_options, const OffsetableCacheKey& base_cache_key,
+    RandomAccessFileReader* file, ChecksumType checksum_type,
+    uint32_t base_context_checksum, size_t num_records,
+    SimpleGen2BlobReadRequest* reqs) {
+  assert(file);
+  if (num_records == 0) {
+    return;
+  }
+
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  MemoryAllocator* const allocator = (blob_cache_ && read_options.fill_cache)
+                                         ? blob_cache_.get()->memory_allocator()
+                                         : nullptr;
+
+  // Records that missed the cache and must be read from disk, in read order;
+  // each owns its buffer until we build a BlobContents from it below.
+  struct Pending {
+    size_t idx;
+    CacheAllocationPtr buf;
+    uint64_t record_size;
+  };
+  std::vector<Pending> pending;
+  std::vector<SimpleGen2RecordReadRequest> read_reqs;
+
+  for (size_t i = 0; i < num_records; ++i) {
+    SimpleGen2BlobReadRequest& req = reqs[i];
+    assert(req.result);
+    assert(req.status);
+
+    const uint64_t record_size = req.payload_size + kSimpleGen2BlobTrailerSize;
+    const CacheKey cache_key =
+        GetSimpleGen2BlobCacheKey(base_cache_key, req.record_offset);
+
+    if (blob_cache_) {
+      CacheHandleGuard<BlobContents> blob_handle;
+      const Status cs = GetBlobFromCache(cache_key.AsSlice(), &blob_handle);
+      if (cs.ok()) {
+        *req.status = cs;
+        PinCachedBlob(&blob_handle, req.result);
+        continue;
+      }
+    }
+
+    if (no_io) {
+      *req.status =
+          Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+      continue;
+    }
+
+    CacheAllocationPtr buf =
+        AllocateBlock(static_cast<size_t>(record_size), allocator);
+    read_reqs.push_back(SimpleGen2RecordReadRequest{
+        req.record_offset, static_cast<size_t>(req.payload_size),
+        static_cast<size_t>(record_size), req.expected_compression, buf.get(),
+        req.status});
+    pending.push_back(Pending{i, std::move(buf), record_size});
+  }
+
+  if (read_reqs.empty()) {
+    return;
+  }
+
+  ReadAndVerifySimpleGen2BlobRecords(read_options, file, checksum_type,
+                                     base_context_checksum, read_reqs.size(),
+                                     read_reqs.data());
+
+  for (size_t k = 0; k < pending.size(); ++k) {
+    SimpleGen2BlobReadRequest& req = reqs[pending[k].idx];
+    if (!req.status->ok()) {
+      continue;
+    }
+    const uint64_t record_size = pending[k].record_size;
+    std::unique_ptr<BlobContents> blob_contents(new BlobContents(
+        std::move(pending[k].buf), static_cast<size_t>(req.payload_size)));
+
+    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, record_size);
+    PERF_COUNTER_ADD(blob_read_count, 1);
+    PERF_COUNTER_ADD(blob_read_byte, record_size);
+    if (read_options.io_activity == Env::IOActivity::kLazyResolve) {
+      RecordLazyRead(statistics_, record_size);
+    }
+
+    if (blob_cache_ && read_options.fill_cache) {
+      const CacheKey cache_key =
+          GetSimpleGen2BlobCacheKey(base_cache_key, req.record_offset);
+      CacheHandleGuard<BlobContents> blob_handle;
+      const Status ps =
+          PutBlobIntoCache(cache_key.AsSlice(), &blob_contents, &blob_handle);
+      if (!ps.ok()) {
+        *req.status = ps;
+      } else {
+        PinCachedBlob(&blob_handle, req.result);
+      }
+    } else {
+      PinOwnedBlob(&blob_contents, req.result);
+    }
+  }
+}
+
+void BlobSource::MultiGetSimpleGen2BlobRange(
+    const ReadOptions& read_options, const OffsetableCacheKey& base_cache_key,
+    RandomAccessFileReader* file, size_t num_records,
+    SimpleGen2BlobRangeReadRequest* reqs) {
+  assert(file);
+  // Range reads are only issued while resolving a lazy result (partial reads
+  // are lazy-only), so the lazy read stats below are recorded unconditionally.
+  assert(read_options.io_activity == Env::IOActivity::kLazyResolve);
+  if (num_records == 0) {
+    return;
+  }
+
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+
+  struct Pending {
+    size_t idx;
+    CacheAllocationPtr buf;
+  };
+  std::vector<Pending> pending;
+  std::vector<SimpleGen2RangeReadRequest> read_reqs;
+
+  for (size_t i = 0; i < num_records; ++i) {
+    SimpleGen2BlobRangeReadRequest& req = reqs[i];
+    assert(req.result);
+    assert(req.status);
+
+    const CacheKey cache_key =
+        GetSimpleGen2BlobCacheKey(base_cache_key, req.record_offset);
+
+    // Probe the whole-payload cache; on a hit slice the requested sub-range.
+    if (blob_cache_) {
+      CacheHandleGuard<BlobContents> blob_handle;
+      const Status cs = GetBlobFromCache(cache_key.AsSlice(), &blob_handle);
+      if (cs.ok()) {
+        *req.status = cs;
+        PinCacheHitSubRange(&blob_handle, req.range_offset, req.range_length,
+                            req.result);
+        continue;
+      }
+    }
+
+    if (no_io) {
+      *req.status =
+          Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+      continue;
+    }
+
+    // No cache-fill allocator: a partial payload is never inserted.
+    CacheAllocationPtr buf =
+        AllocateBlock(req.range_length, /*allocator=*/nullptr);
+    read_reqs.push_back(SimpleGen2RangeReadRequest{
+        req.record_offset, static_cast<size_t>(req.payload_size),
+        req.range_offset, req.range_length, req.expected_compression, buf.get(),
+        req.status});
+    pending.push_back(Pending{i, std::move(buf)});
+  }
+
+  if (read_reqs.empty()) {
+    return;
+  }
+
+  ReadSimpleGen2BlobRanges(read_options, file, read_reqs.size(),
+                           read_reqs.data());
+
+  for (size_t k = 0; k < pending.size(); ++k) {
+    SimpleGen2BlobRangeReadRequest& req = reqs[pending[k].idx];
+    if (!req.status->ok()) {
+      continue;
+    }
+    std::unique_ptr<BlobContents> blob_contents(
+        new BlobContents(std::move(pending[k].buf), req.range_length));
+
+    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, req.range_length);
+    PERF_COUNTER_ADD(blob_read_count, 1);
+    PERF_COUNTER_ADD(blob_read_byte, req.range_length);
+    RecordLazyRead(statistics_, req.range_length);
+    RecordLazyPartialRead(statistics_, req.range_length, req.payload_size);
+
+    PinOwnedBlob(&blob_contents, req.result);
+  }
+}
+
 void BlobSource::MultiGetBlob(const ReadOptions& read_options,
                               autovector<BlobFileReadRequests>& blob_reqs,
                               uint64_t* bytes_read) {
@@ -887,10 +1070,159 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
       }
     }
 
+    // Whole-column reads on the lazy resolve path count as lazy reads (mirrors
+    // BlobSource::GetBlob, which records only on a disk read, not a cache hit).
+    // Gated on the activity so regular MultiGet is unaffected; the misses read
+    // above are exactly the disk reads for these blob columns.
+    if (read_options.io_activity == Env::IOActivity::kLazyResolve) {
+      for (auto& [req, blob_contents] : _blob_reqs) {
+        assert(req);
+        if (req->status->ok()) {
+          const uint64_t adjustment =
+              read_options.verify_checksums
+                  ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                        req->user_key->size())
+                  : 0;
+          RecordLazyRead(statistics_, req->len + adjustment);
+        }
+      }
+    }
+
     total_bytes += _bytes_read;
     if (bytes_read) {
       *bytes_read = total_bytes;
     }
+  }
+}
+
+void BlobSource::MultiGetBlobRange(
+    const ReadOptions& read_options,
+    autovector<BlobFileRangeReadRequests>& blob_reqs, uint64_t* bytes_read) {
+  assert(blob_reqs.size() > 0);
+
+  uint64_t total_bytes_read = 0;
+  uint64_t bytes_read_in_file = 0;
+
+  for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
+    // Sort by effective read offset so the file system layer can coalesce
+    // adjacent sub-range reads within one MultiRead.
+    std::sort(blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
+              [](const BlobRangeReadRequest& lhs,
+                 const BlobRangeReadRequest& rhs) -> bool {
+                return lhs.offset + lhs.range_offset <
+                       rhs.offset + rhs.range_offset;
+              });
+
+    MultiGetBlobRangeFromOneFile(read_options, file_number, file_size,
+                                 blob_reqs_in_file, &bytes_read_in_file);
+
+    total_bytes_read += bytes_read_in_file;
+  }
+
+  if (bytes_read) {
+    *bytes_read = total_bytes_read;
+  }
+}
+
+void BlobSource::MultiGetBlobRangeFromOneFile(
+    const ReadOptions& read_options, uint64_t file_number,
+    uint64_t /*file_size*/, autovector<BlobRangeReadRequest>& blob_reqs,
+    uint64_t* bytes_read) {
+  const size_t num_blobs = blob_reqs.size();
+  assert(num_blobs > 0);
+  assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
+  // Range reads are only issued while resolving a lazy result (partial reads
+  // are lazy-only), so the lazy read stats below are recorded unconditionally.
+  assert(read_options.io_activity == Env::IOActivity::kLazyResolve);
+
+  using Mask = uint64_t;
+  Mask cache_hit_mask = 0;
+
+  uint64_t total_bytes = 0;
+  const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
+
+  // Probe the whole-value cache per request; on a hit, slice the requested
+  // sub-range (zero-copy, no disk read). A partial read is never cache-filled.
+  if (blob_cache_) {
+    size_t cached_blob_count = 0;
+    for (size_t i = 0; i < num_blobs; ++i) {
+      BlobRangeReadRequest& req = blob_reqs[i];
+      assert(req.status);
+
+      CacheHandleGuard<BlobContents> blob_handle;
+      const CacheKey cache_key = base_cache_key.WithOffset(req.offset);
+      const Status s = GetBlobFromCache(cache_key.AsSlice(), &blob_handle);
+      if (s.ok()) {
+        *req.status = s;
+        PinCacheHitSubRange(&blob_handle, req.range_offset, req.range_length,
+                            req.result);
+        ++cached_blob_count;
+        cache_hit_mask |= (Mask{1} << i);  // hit -> no disk read
+      }
+    }
+
+    if (cached_blob_count == num_blobs) {
+      if (bytes_read) {
+        *bytes_read = 0;
+      }
+      return;
+    }
+  }
+
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  if (no_io) {
+    for (size_t i = 0; i < num_blobs; ++i) {
+      if (!(cache_hit_mask & (Mask{1} << i))) {
+        assert(blob_reqs[i].status);
+        *blob_reqs[i].status =
+            Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+      }
+    }
+    return;
+  }
+
+  autovector<std::pair<BlobRangeReadRequest*, std::unique_ptr<BlobContents>>>
+      _blob_reqs;
+  for (size_t i = 0; i < num_blobs; ++i) {
+    if (!(cache_hit_mask & (Mask{1} << i))) {
+      _blob_reqs.emplace_back(&blob_reqs[i], std::unique_ptr<BlobContents>());
+    }
+  }
+
+  // Lazy range reads run against a pinned SuperVersion (max_open_files == -1),
+  // and blob file numbers are never reused, so the stale cached-reader race
+  // that MultiGetBlobFromOneFile guards against cannot occur here; a Corruption
+  // is simply surfaced per request. Hence no reader-refresh retry and no
+  // cache-fill (a partial value cannot represent the whole-record cache entry).
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
+  Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+                                                 &blob_file_reader);
+  if (!s.ok()) {
+    for (auto& blob_req : _blob_reqs) {
+      assert(blob_req.first);
+      assert(blob_req.first->status);
+      *blob_req.first->status = s;
+    }
+    return;
+  }
+  assert(blob_file_reader.GetValue());
+
+  uint64_t _bytes_read = 0;
+  blob_file_reader.GetValue()->MultiGetBlobRange(read_options, _blob_reqs,
+                                                 &_bytes_read);
+
+  for (auto& [req, blob_contents] : _blob_reqs) {
+    assert(req);
+    if (req->status->ok()) {
+      PinOwnedBlob(&blob_contents, req->result);
+      RecordLazyRead(statistics_, req->range_length);
+      RecordLazyPartialRead(statistics_, req->range_length, req->value_size);
+    }
+  }
+
+  total_bytes += _bytes_read;
+  if (bytes_read) {
+    *bytes_read = total_bytes;
   }
 }
 

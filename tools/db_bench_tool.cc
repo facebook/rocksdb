@@ -273,6 +273,11 @@ DEFINE_string(
     "(byte-range/partial "
     "blob reads); requires open_files=-1\n"
     "\tmultireadentity -- read N in random batches via MultiGetEntity\n"
+    "\tmultireadrandomentitylazy -- read N in random batches via "
+    "MultiGetEntityLazy, then one batch MultiResolve of "
+    "lazy_entity_read_length "
+    "bytes of each column (cross-key coalesced blob reads); requires "
+    "open_files=-1\n"
     "\topenandcompact -- Open DB and compact all files to bottommost level, "
     "writing output to separate directory without modifying source DB. "
     "Designed for remote compaction service testing\n"
@@ -3476,6 +3481,9 @@ class Benchmark {
   bool read_entity_;       // read via GetEntity() (readrandomentity)
   bool multiread_entity_;  // read via MultiGetEntity() (multireadentity)
   bool read_entity_lazy_;  // read via GetEntityLazy() (readrandomentitylazy)
+  // read via MultiGetEntityLazy() + one batch MultiResolve
+  // (multireadrandomentitylazy)
+  bool multiread_entity_lazy_;
   std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
@@ -3999,7 +4007,8 @@ class Benchmark {
         read_operands_(false),
         read_entity_(false),
         multiread_entity_(false),
-        read_entity_lazy_(false) {
+        read_entity_lazy_(false),
+        multiread_entity_lazy_(false) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -4286,6 +4295,7 @@ class Benchmark {
       read_entity_ = false;
       multiread_entity_ = false;
       read_entity_lazy_ = false;
+      multiread_entity_lazy_ = false;
 
       int num_repeat = 1;
       int num_warmup = 0;
@@ -4427,6 +4437,11 @@ class Benchmark {
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
         multiread_entity_ = true;
+      } else if (name == "multireadrandomentitylazy") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        method = &Benchmark::MultiReadRandom;
+        multiread_entity_lazy_ = true;
       } else if (name == "multiscan") {
         fprintf(stderr, "multiscan_stride = %" PRIi64 "\n",
                 FLAGS_multiscan_stride);
@@ -7692,6 +7707,30 @@ class Benchmark {
       fprintf(stderr, "multireadentity does not support user timestamps\n");
       db_bench_exit(1);
     }
+    if (multiread_entity_lazy_) {
+      if (user_timestamp_size_ > 0) {
+        fprintf(stderr,
+                "multireadrandomentitylazy does not support user timestamps\n");
+        db_bench_exit(1);
+      }
+      if (open_options_.max_open_files != -1) {
+        fprintf(stderr,
+                "multireadrandomentitylazy requires max_open_files == -1\n");
+        db_bench_exit(1);
+      }
+    }
+    // Batch + reusable buffers for multireadrandomentitylazy; unused otherwise.
+    // lazy_read_length == kLazyWholeColumn resolves whole columns; a smaller
+    // value drives byte-range (partial) blob reads, coalesced across the batch.
+    LazyWideColumnsBatch lazy_batch;
+    std::vector<Status> lazy_get_statuses(entries_per_batch_);
+    std::vector<PinnableSlice> lazy_results;
+    std::vector<Status> lazy_read_statuses;
+    std::vector<LazyColumnReadRequest> lazy_reads;
+    const size_t lazy_read_length =
+        FLAGS_lazy_entity_read_length < 0
+            ? kLazyWholeColumn
+            : static_cast<size_t>(FLAGS_lazy_entity_read_length);
     int64_t read = 0;
     int64_t bytes = 0;
     int64_t num_multireads = 0;
@@ -7744,7 +7783,71 @@ class Benchmark {
         ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
         options.timestamp = &ts;
       }
-      if (multiread_entity_) {
+      if (multiread_entity_lazy_) {
+        db->MultiGetEntityLazy(options, db->DefaultColumnFamily(), keys.size(),
+                               keys.data(), &lazy_batch,
+                               lazy_get_statuses.data());
+        read += entries_per_batch_;
+        num_multireads++;
+
+        // Build one batch MultiResolve of lazy_read_length bytes of every
+        // column of every found entity, so blob reads coalesce across keys.
+        lazy_reads.clear();
+        size_t total_columns = 0;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (lazy_get_statuses[i].ok()) {
+            total_columns += lazy_batch[i].size();
+          }
+        }
+        lazy_results.clear();
+        lazy_results.resize(total_columns);
+        lazy_read_statuses.assign(total_columns, Status::OK());
+        lazy_reads.reserve(total_columns);
+        size_t slot = 0;
+        for (int64_t i = 0; i < entries_per_batch_; ++i) {
+          if (!lazy_get_statuses[i].ok()) {
+            if (!lazy_get_statuses[i].IsNotFound()) {
+              HandleBenchmarkIOError(lazy_get_statuses[i],
+                                     "MultiGetEntityLazy returned an error");
+            }
+            continue;
+          }
+          ++found;
+          bytes += keys[i].size();
+          const LazyWideColumns& entity = lazy_batch[i];
+          for (size_t c = 0; c < entity.size(); ++c) {
+            LazyColumnReadRequest req;
+            req.column = &entity[c];
+            req.offset = 0;
+            req.length = lazy_read_length;
+            req.result = &lazy_results[slot];
+            req.status = &lazy_read_statuses[slot];
+            lazy_reads.push_back(req);
+            ++slot;
+          }
+        }
+        if (!lazy_reads.empty()) {
+          const Status rs = lazy_batch.MultiResolve(lazy_reads);
+          if (rs.ok()) {
+            for (size_t r = 0; r < lazy_reads.size(); ++r) {
+              if (lazy_read_statuses[r].ok()) {
+                bytes += lazy_reads[r].column->name().size() +
+                         lazy_results[r].size();
+              } else if (!lazy_read_statuses[r].IsNotFound()) {
+                HandleBenchmarkIOError(
+                    lazy_read_statuses[r],
+                    "batch MultiResolve column read returned an error");
+              }
+            }
+          } else if (!rs.IsNotFound()) {
+            HandleBenchmarkIOError(rs, "batch MultiResolve returned an error");
+          }
+        }
+        // Release resolved slices before the batch (and its resolvers) is reset
+        // on the next iteration.
+        lazy_results.clear();
+        lazy_batch.Reset();
+      } else if (multiread_entity_) {
         db->MultiGetEntity(options, db->DefaultColumnFamily(), keys.size(),
                            keys.data(), pin_columns, stat_list.data());
 

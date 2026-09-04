@@ -1431,6 +1431,66 @@ Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
       range_offset, range_length, value, /*bytes_read=*/nullptr);
 }
 
+Status BlockBasedTable::MultiGetSameFileBlob(
+    const ReadOptions& read_options, size_t num_reads,
+    SameFileBlobReadRequest* reqs) const {
+  // Partition the requests into coalesceable whole-record and sub-range groups
+  // (dispatched to BlobSource as one MultiRead each). Force-verify reads
+  // (kVerifyIfPresent) and the no-BlobSource fallback go through the scalar
+  // GetSameFileBlob path since they cannot share the batch's single verify flag
+  // / BlobSource-backed cache path.
+  std::vector<SimpleGen2BlobReadRequest> whole_reqs;
+  std::vector<SimpleGen2BlobRangeReadRequest> range_reqs;
+
+  for (size_t i = 0; i < num_reads; ++i) {
+    SameFileBlobReadRequest& req = reqs[i];
+    assert(req.blob_index);
+    assert(req.result);
+    assert(req.status);
+
+    if (req.verify_policy == BlobVerifyPolicy::kVerifyIfPresent ||
+        rep_->blob_source_ == nullptr) {
+      *req.status =
+          GetSameFileBlob(read_options, *req.blob_index, req.range_offset,
+                          req.range_length, req.verify_policy, req.result);
+      continue;
+    }
+
+    size_t payload_size = 0;
+    size_t record_size = 0;
+    const Status vs =
+        ValidateEmbeddedBlobIndex(*req.blob_index, &payload_size, &record_size);
+    if (!vs.ok()) {
+      *req.status = vs;
+      continue;
+    }
+
+    if (req.range_length == kWholeBlobLength) {
+      whole_reqs.push_back(SimpleGen2BlobReadRequest{
+          req.blob_index->offset(), payload_size, req.blob_index->compression(),
+          req.result, req.status});
+    } else {
+      range_reqs.push_back(SimpleGen2BlobRangeReadRequest{
+          req.blob_index->offset(), payload_size, req.range_offset,
+          req.range_length, req.blob_index->compression(), req.result,
+          req.status});
+    }
+  }
+
+  if (!whole_reqs.empty()) {
+    rep_->blob_source_->MultiGetSimpleGen2Blob(
+        read_options, rep_->base_cache_key, rep_->file.get(),
+        rep_->footer.checksum_type(), rep_->footer.base_context_checksum(),
+        whole_reqs.size(), whole_reqs.data());
+  }
+  if (!range_reqs.empty()) {
+    rep_->blob_source_->MultiGetSimpleGen2BlobRange(
+        read_options, rep_->base_cache_key, rep_->file.get(), range_reqs.size(),
+        range_reqs.data());
+  }
+  return Status::OK();
+}
+
 Status BlockBasedTable::MaybeResolveEmbeddedValue(
     const ReadOptions& read_options, const Slice& internal_key,
     const Slice& value, std::string* resolved_internal_key,

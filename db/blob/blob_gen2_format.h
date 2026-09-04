@@ -91,6 +91,57 @@ Status ReadSimpleGen2BlobRange(const ReadOptions& read_options,
                                uint64_t range_offset, size_t range_length,
                                CompressionType expected_compression, char* buf);
 
+// One whole-record request in a batched SimpleGen2Blob read (see
+// ReadAndVerifySimpleGen2BlobRecords). Mirrors the scalar
+// ReadAndVerifySimpleGen2BlobRecord inputs, with the read bytes going into
+// caller-provided `buf` (capacity >= record_size) and the per-record outcome in
+// `*status`.
+struct SimpleGen2RecordReadRequest {
+  uint64_t record_offset = 0;
+  size_t payload_size = 0;
+  size_t record_size = 0;  // == payload_size + kSimpleGen2BlobTrailerSize
+  CompressionType expected_compression = kNoCompression;
+  char* buf = nullptr;
+  Status* status = nullptr;
+};
+
+// One sub-range request in a batched SimpleGen2Blob range read (see
+// ReadSimpleGen2BlobRanges). Mirrors the scalar ReadSimpleGen2BlobRange inputs.
+struct SimpleGen2RangeReadRequest {
+  uint64_t record_offset = 0;
+  size_t payload_size = 0;
+  uint64_t range_offset = 0;
+  size_t range_length = 0;
+  CompressionType expected_compression = kNoCompression;
+  char* buf = nullptr;
+  Status* status = nullptr;
+};
+
+// Batch counterpart of ReadAndVerifySimpleGen2BlobRecord: reads `num_records`
+// whole records from `file` in a single MultiRead, then per record verifies the
+// compression marker and (when read_options.verify_checksums) the
+// context-modified checksum, copying the record into reqs[i].buf. Per-record
+// outcome is written to *reqs[i].status; on success reqs[i].buf[0,
+// payload_size) holds the verified payload (the trailer sits unused at the
+// tail). Requests may be given in any order; they are sorted internally, as
+// RandomAccessFileReader::MultiRead requires ascending offsets.
+void ReadAndVerifySimpleGen2BlobRecords(const ReadOptions& read_options,
+                                        RandomAccessFileReader* file,
+                                        ChecksumType checksum_type,
+                                        uint32_t base_context_checksum,
+                                        size_t num_records,
+                                        SimpleGen2RecordReadRequest* reqs);
+
+// Batch counterpart of ReadSimpleGen2BlobRange: reads the requested sub-range
+// of `num_records` *uncompressed* payloads from `file` in a single MultiRead
+// (no trailer read, no checksum). Per-record outcome is in *reqs[i].status; on
+// success reqs[i].buf[0, range_length) holds the requested bytes. Requests may
+// be given in any order; they are sorted internally, as
+// RandomAccessFileReader::MultiRead requires ascending offsets.
+void ReadSimpleGen2BlobRanges(const ReadOptions& read_options,
+                              RandomAccessFileReader* file, size_t num_records,
+                              SimpleGen2RangeReadRequest* reqs);
+
 // Writes a SimpleGen2Blob record for `payload` at the current end of `file`,
 // which the caller asserts is byte offset `record_offset`. Appends the payload
 // bytes followed by the 5-byte trailer (compression marker + context-modified
