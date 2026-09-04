@@ -19,6 +19,7 @@
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -257,12 +258,12 @@ std::string trim(const std::string& str) {
     if (start >= end) {
       return {};  // all whitespace
     }
-    if (!isspace(str[start])) {
+    if (!isspace(lossless_cast<unsigned char>(str[start]))) {
       break;  // first non-whitespace found
     }
     ++start;
   }
-  while (isspace(str[end - 1]) != 0) {
+  while (isspace(lossless_cast<unsigned char>(str[end - 1])) != 0) {
     --end;
     assert(end > start);
   }
