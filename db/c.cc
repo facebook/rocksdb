@@ -11214,6 +11214,16 @@ int rocksdb_ingestexternalfileoptions_get_file_opening_threads(
 
 /* OpenAndCompactOptions */
 
+void rocksdb_open_and_compact_options_set_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt, uint32_t v) {
+  opt->rep.max_secondary_open_retries = v;
+}
+
+uint32_t rocksdb_open_and_compact_options_get_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt) {
+  return opt->rep.max_secondary_open_retries;
+}
+
 unsigned char rocksdb_open_and_compact_options_get_allow_resumption(
     rocksdb_open_and_compact_options_t* opt) {
   return opt->rep.allow_resumption;

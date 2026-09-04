@@ -3311,6 +3311,13 @@ struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
 
+  // Maximum number of times to retry opening the source DB as a secondary
+  // after the initial attempt fails because CURRENT or MANIFEST was replaced
+  // concurrently. A value of zero disables retries.
+  //
+  // Default: 2
+  uint32_t max_secondary_open_retries = 2;
+
   // EXPERIMENTAL
   //
   // Controls whether OpenAndCompact() should attempt to resume from previously

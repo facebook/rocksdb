@@ -340,6 +340,8 @@ class DB {
   //
   // Parameters:
   // - `options`: Additional controls
+  //   * `max_secondary_open_retries` bounds retries for transient failures
+  //     caused by concurrent CURRENT or MANIFEST replacement.
   //   * When `allow_resumption = false`: The `output_directory` MUST be empty
   //     before calling this function. Any existing files (including resume
   //     state or output files from previous runs) in the directory may

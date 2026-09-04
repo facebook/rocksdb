@@ -2185,6 +2185,12 @@ DEFINE_bool(openandcompact_allow_resumption, false,
             "Whether to keep existing progress and enable resume compaction in "
             "OpenAndCompact benchmark");
 
+DEFINE_uint32(
+    openandcompact_max_secondary_open_retries,
+    ROCKSDB_NAMESPACE::OpenAndCompactOptions().max_secondary_open_retries,
+    "Maximum number of retries when OpenAndCompact opens the source DB as a "
+    "secondary");
+
 DEFINE_bool(openandcompact_test_cancel_on_odd, false,
             "During OpenAndCompact[Xn], odd runs gets cancelled "
             "after specified `openandcompact_cancel_after_millseconds`");
@@ -6392,6 +6398,8 @@ class Benchmark {
     std::atomic<bool> should_cancel{false};
     options.canceled = &should_cancel;
     options.allow_resumption = FLAGS_openandcompact_allow_resumption;
+    options.max_secondary_open_retries =
+        FLAGS_openandcompact_max_secondary_open_retries;
 
     Status s;
     uint64_t start_time = FLAGS_env->NowMicros();
