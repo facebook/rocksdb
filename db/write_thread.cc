@@ -905,6 +905,36 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   mu->Lock();
 }
 
+bool WriteThread::EnterUnbatchedNonBlocking(Writer* w, InstrumentedMutex* mu) {
+  assert(w != nullptr && w->batch == nullptr);
+  w->no_slowdown = true;
+  mu->Unlock();
+  const bool linked_as_leader = LinkOne(w, &newest_writer_);
+  // no_slowdown makes LinkOne() reject an existing stall without linking.
+  if (w->state == STATE_COMPLETED) {
+    assert(!linked_as_leader);
+    assert(!w->status.ok());
+    mu->Lock();
+    return false;
+  }
+  if (!linked_as_leader) {
+    TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
+    // A new stall may sweep this queued writer and mark it completed.
+    const uint8_t state =
+        AwaitState(w, STATE_GROUP_LEADER | STATE_COMPLETED, &eu_ctx);
+    if (state == STATE_COMPLETED) {
+      assert(!w->status.ok());
+      mu->Lock();
+      return false;
+    }
+  }
+  if (enable_pipelined_write_) {
+    WaitForMemTableWriters();
+  }
+  mu->Lock();
+  return true;
+}
+
 void WriteThread::ExitUnbatched(Writer* w) {
   assert(w != nullptr);
   Writer* newest_writer = w;

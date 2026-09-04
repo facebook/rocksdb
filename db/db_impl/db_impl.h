@@ -1314,7 +1314,10 @@ class DBImpl : public DB
   // finishes. For example in CompactRange.
   Status TEST_AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& provided_candidate_cfds,
-      const FlushOptions& flush_opts);
+      const FlushOptions& flush_opts, bool non_blocking_write_thread = false);
+
+  void TEST_BeginWriteStall();
+  void TEST_EndWriteStall();
 
   // Wait for background threads to complete scheduled work.
   Status TEST_WaitForBackgroundWork();
@@ -1527,6 +1530,20 @@ class DBImpl : public DB
     State state_;
   };
 
+  // Adapts DBImpl to the shared WriteBufferManager flush registry.
+  class WBMFlushInitiator : public FlushInitiator {
+   public:
+    WBMFlushInitiator(DBImpl* db, bool atomic_flush)
+        : FlushInitiator(atomic_flush), db_(db) {}
+
+    bool ScheduleFlush() override {
+      return db_->ScheduleWriteBufferManagerFlush();
+    }
+
+   private:
+    DBImpl* const db_;
+  };
+
   static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
@@ -1544,6 +1561,9 @@ class DBImpl : public DB
   // db_session_id_ is an identifier that gets reset
   // every time the DB is opened
   std::string db_session_id_;
+  // Declared before versions_ so memtables cannot outlive their allocation
+  // accounting target during destruction.
+  std::unique_ptr<FlushInitiator> wbm_flush_initiator_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
@@ -2635,6 +2655,17 @@ class DBImpl : public DB
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
 
+  enum class WriteThreadJoinMode { kBlocking, kNonBlocking };
+
+  Status FlushMemTableImpl(ColumnFamilyData* cfd, const FlushOptions& options,
+                           FlushReason flush_reason, bool entered_write_thread,
+                           WriteThreadJoinMode join_mode);
+
+  Status AtomicFlushMemTablesImpl(
+      const FlushOptions& options, FlushReason flush_reason,
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+      bool entered_write_thread, WriteThreadJoinMode join_mode);
+
   // REQUIRES: mutex locked and write queues drained up to the recovery flush
   // fence that is about to switch memtables.
   void MaybeSyncLastSequenceWithAllocatedForRecovery(FlushReason flush_reason);
@@ -2721,6 +2752,15 @@ class DBImpl : public DB
     return static_cast<uint8_t*>(static_cast<void*>(this)) + type;
   }
 
+  // Checks DB-local write queues; manager-wide stall state would reject healthy
+  // DBs. REQUIRES: mutex_ held.
+  bool WouldBlockJoiningWriteThread() {
+    mutex_.AssertHeld();
+    return write_thread_.GetBegunCountOfOutstandingStall() != 0 ||
+           (two_write_queues_ &&
+            nonmem_write_thread_.GetBegunCountOfOutstandingStall() != 0);
+  }
+
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
@@ -2729,6 +2769,31 @@ class DBImpl : public DB
 
   // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferManagerFlush(WriteContext* write_context);
+
+  // Column families and memory eligible for a WriteBufferManager flush.
+  struct FlushableCFs {
+    ColumnFamilyData* largest = nullptr;  // most mutable memtable memory
+    ColumnFamilyData* oldest = nullptr;   // smallest memtable creation seq
+    size_t largest_mem = 0;
+    size_t total_mem = 0;
+  };
+
+  // Shared selection for bidding and flushing. REQUIRES: mutex_ held.
+  FlushableCFs CollectFlushableCFs();
+
+  // Registers an opened read-write DB without holding mutex_.
+  void MaybeRegisterFlushInitiator();
+
+  // Refreshes the published maximum after mutable memtables change.
+  // REQUIRES: mutex_ held and pending memtable writes drained.
+  void RefreshLargestMutableCFMem();
+
+  // Queues one WBM flush; false makes the requesting DB flush locally.
+  bool ScheduleWriteBufferManagerFlush();
+
+  static void BGWorkWBMFlush(void* arg);
+  static void UnscheduleWBMFlushCallback(void* arg);
+  void BackgroundCallWBMFlush();
 
   // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options,
@@ -3614,6 +3679,12 @@ class DBImpl : public DB
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
+
+  // LOW avoids consuming a flush worker while joining the target write thread.
+  static constexpr Env::Priority kWBMFlushPriority = Env::Priority::LOW;
+
+  // Outstanding cross-DB WBM flush jobs, drained during shutdown.
+  int bg_wbm_flush_scheduled_ = 0;
 
   // stores the number of flushes are currently running
   int num_running_flushes_ = 0;

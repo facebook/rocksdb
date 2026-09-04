@@ -21,13 +21,21 @@ namespace ROCKSDB_NAMESPACE {
 WriteBufferManager::WriteBufferManager(size_t _buffer_size,
                                        std::shared_ptr<Cache> cache,
                                        bool allow_stall)
+    : WriteBufferManager(_buffer_size, cache, allow_stall,
+                         WriteBufferFlushPolicy::kFlushOldest) {}
+
+WriteBufferManager::WriteBufferManager(size_t _buffer_size,
+                                       std::shared_ptr<Cache> cache,
+                                       bool allow_stall,
+                                       WriteBufferFlushPolicy flush_policy)
     : buffer_size_(_buffer_size),
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
       cache_res_mgr_(nullptr),
       allow_stall_(allow_stall),
-      stall_active_(false) {
+      stall_active_(false),
+      flush_policy_(flush_policy) {
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -40,8 +48,14 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
 
 WriteBufferManager::~WriteBufferManager() {
 #ifndef NDEBUG
-  std::unique_lock<std::mutex> lock(mu_);
-  assert(queue_.empty());
+  {
+    std::unique_lock<std::mutex> lock(mu_);
+    assert(queue_.empty());
+  }
+  {
+    std::lock_guard<std::mutex> lock(flush_initiators_mu_);
+    assert(flush_initiators_.empty());
+  }
 #endif
 }
 
@@ -126,7 +140,7 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
     // Verify if the stall conditions are stil active.
     if (ShouldStall()) {
       stall_active_.store(true, std::memory_order_relaxed);
-      queue_.splice(queue_.end(), std::move(new_node));
+      queue_.splice(queue_.end(), new_node);
     }
   }
 
@@ -180,6 +194,86 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
     }
   }
   wbm_stall->Signal();
+}
+
+void FlushInitiator::ReserveMem(size_t mem, size_t memtable_mem) {
+  total_mutable_mem_.fetch_add(mem, std::memory_order_relaxed);
+  if (!atomic_flush_) {
+    UpdateLargestMutableCFMem(memtable_mem);
+  }
+}
+
+void FlushInitiator::UpdateLargestMutableCFMem(size_t mem) {
+  size_t largest = largest_mutable_cf_mem_.load(std::memory_order_relaxed);
+  while (largest < mem &&
+         !largest_mutable_cf_mem_.compare_exchange_weak(
+             largest, mem, std::memory_order_relaxed)) {
+  }
+}
+
+void FlushInitiator::ScheduleFreeMem(size_t mem) {
+  const size_t previous =
+      total_mutable_mem_.fetch_sub(mem, std::memory_order_relaxed);
+  assert(previous >= mem);
+}
+
+void WriteBufferManager::RegisterFlushInitiator(FlushInitiator* initiator) {
+  assert(initiator != nullptr);
+  std::lock_guard<std::mutex> lock(flush_initiators_mu_);
+  assert(initiator->registry_index_ == FlushInitiator::kInvalidRegistryIndex);
+  assert(initiator->callbacks_in_progress_ == 0);
+  initiator->registry_index_ = flush_initiators_.size();
+  flush_initiators_.push_back(initiator);
+}
+
+void WriteBufferManager::DeregisterFlushInitiator(FlushInitiator* initiator) {
+  assert(initiator != nullptr);
+  std::unique_lock<std::mutex> lock(flush_initiators_mu_);
+  const size_t index = initiator->registry_index_;
+  assert(index < flush_initiators_.size());
+  assert(flush_initiators_[index] == initiator);
+  FlushInitiator* const last = flush_initiators_.back();
+  flush_initiators_[index] = last;
+  last->registry_index_ = index;
+  flush_initiators_.pop_back();
+  initiator->registry_index_ = FlushInitiator::kInvalidRegistryIndex;
+  flush_initiators_cv_.wait(
+      lock, [initiator] { return initiator->callbacks_in_progress_ == 0; });
+}
+
+bool WriteBufferManager::InitiateFlushOnLargestDB(FlushInitiator* self) {
+  std::unique_lock<std::mutex> lock(flush_initiators_mu_);
+  if (self != nullptr && flush_initiators_.size() == 1 &&
+      flush_initiators_.front() == self) {
+    return false;
+  }
+  FlushInitiator* best = nullptr;
+  size_t best_mem = 0;
+  for (FlushInitiator* initiator : flush_initiators_) {
+    size_t mem = initiator->GetFlushableMemUsage();
+    if (best == nullptr || mem > best_mem) {
+      best = initiator;
+      best_mem = mem;
+    }
+  }
+  if (best == nullptr || best == self || best_mem == 0) {
+    return false;
+  }
+  ++best->callbacks_in_progress_;
+  lock.unlock();
+
+  // DB state can change after bidding; propagate a declined schedule. The
+  // callback must run without the registry lock because it acquires DB and Env
+  // locks.
+  const bool scheduled = best->ScheduleFlush();
+
+  lock.lock();
+  assert(best->callbacks_in_progress_ > 0);
+  --best->callbacks_in_progress_;
+  if (best->callbacks_in_progress_ == 0) {
+    flush_initiators_cv_.notify_all();
+  }
+  return scheduled;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -834,6 +834,9 @@ void ColumnFamilyData::SetDropped() {
   // can't drop default CF
   assert(id_ != 0);
   dropped_ = true;
+  if (mem_ != nullptr) {
+    mem_->StopWBMTracking();
+  }
   write_controller_token_.reset();
 
   // remove from column_family_set
@@ -1246,7 +1249,10 @@ uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_manager_, earliest_seq, id_);
+                      write_buffer_manager_, earliest_seq, id_,
+                      column_family_set_ != nullptr
+                          ? column_family_set_->flush_initiator()
+                          : nullptr);
 }
 
 void ColumnFamilyData::CreateNewMemtable(SequenceNumber earliest_seq) {
@@ -1899,6 +1905,19 @@ size_t ColumnFamilySet::NumberOfColumnFamilies() const {
   return column_families_.size();
 }
 
+void ColumnFamilySet::RefreshLargestMutableCFMem() {
+  if (flush_initiator_ == nullptr || flush_initiator_->UsesTotalMutableMem()) {
+    return;
+  }
+  flush_initiator_->SetLargestMutableCFMem(0);
+  for (auto cfd : *this) {
+    if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
+      flush_initiator_->UpdateLargestMutableCFMem(
+          cfd->mem()->WBMTrackedMemoryUsage());
+    }
+  }
+}
+
 // under a DB mutex AND write thread
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
@@ -1939,6 +1958,7 @@ void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
   column_families_.erase(cfd->GetName());
   running_ts_sz_.erase(cf_id);
   ts_sz_for_record_.erase(cf_id);
+  RefreshLargestMutableCFMem();
 }
 
 // under a DB mutex OR from a write thread

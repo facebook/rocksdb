@@ -16,12 +16,24 @@
 #include <condition_variable>
 #include <cstddef>
 #include <list>
+#include <limits>
 #include <mutex>
+#include <vector>
 
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
+
+// Selects which mutable memtable to flush when the WBM exceeds its limit.
+enum class WriteBufferFlushPolicy {
+  // Flush the oldest mutable memtable; this is the historical default.
+  kFlushOldest,
+  // Flush the largest mutable memtable in the current DB.
+  kFlushLargest,
+  // Flush the DB that would reclaim the most memory among all sharing this WBM.
+  kFlushLargestAcrossDBs,
+};
 
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
@@ -32,6 +44,82 @@ class StallInterface {
   virtual void Block() = 0;
 
   virtual void Signal() = 0;
+};
+
+// Internal adapter for selecting and flushing a DB sharing a WBM.
+class FlushInitiator {
+ public:
+  explicit FlushInitiator(bool atomic_flush)
+      : atomic_flush_(atomic_flush),
+        total_mutable_mem_(0),
+        largest_mutable_cf_mem_(0),
+        flushable_(true),
+        registry_index_(kInvalidRegistryIndex) {}
+  virtual ~FlushInitiator() = default;
+
+  // Registry entries are raw pointers, so initiators must not move. The WBM
+  // pins an entry while calling ScheduleFlush() outside its registry lock.
+  FlushInitiator(const FlushInitiator&) = delete;
+  FlushInitiator& operator=(const FlushInitiator&) = delete;
+  FlushInitiator(FlushInitiator&&) = delete;
+  FlushInitiator& operator=(FlushInitiator&&) = delete;
+
+  // Updates this DB's WBM-visible counters from a memtable allocation.
+  // `memtable_mem` is that memtable's total allocation after adding `mem`.
+  void ReserveMem(size_t mem, size_t memtable_mem);
+
+  // Removes a sealed memtable from the mutable-memory total. The owner
+  // refreshes the largest-CF counter after installing its replacement.
+  void ScheduleFreeMem(size_t mem);
+
+  void SetLargestMutableCFMem(size_t mem) {
+    largest_mutable_cf_mem_.store(mem, std::memory_order_relaxed);
+  }
+
+  void UpdateLargestMutableCFMem(size_t mem);
+
+  size_t GetTotalMutableMem() const {
+    return total_mutable_mem_.load(std::memory_order_relaxed);
+  }
+
+  size_t GetLargestMutableCFMem() const {
+    return largest_mutable_cf_mem_.load(std::memory_order_relaxed);
+  }
+
+  size_t GetFlushableMemUsage() const {
+    if (!flushable_.load(std::memory_order_relaxed)) {
+      return 0;
+    }
+    return atomic_flush_ ? GetTotalMutableMem() : GetLargestMutableCFMem();
+  }
+
+  bool UsesTotalMutableMem() const { return atomic_flush_; }
+
+  void SetFlushable(bool flushable) {
+    flushable_.store(flushable, std::memory_order_relaxed);
+  }
+
+  bool IsRegistered() const {
+    return registry_index_ != kInvalidRegistryIndex;
+  }
+
+  // Queues one asynchronous flush. Must not block on the DB write thread or
+  // reacquire the registry mutex. A pending request returns false so the
+  // caller makes local progress instead of deferring repeatedly.
+  virtual bool ScheduleFlush() = 0;
+
+ private:
+  friend class WriteBufferManager;
+
+  static constexpr size_t kInvalidRegistryIndex =
+      std::numeric_limits<size_t>::max();
+
+  const bool atomic_flush_;
+  std::atomic<size_t> total_mutable_mem_;
+  std::atomic<size_t> largest_mutable_cf_mem_;
+  std::atomic<bool> flushable_;
+  size_t registry_index_;
+  size_t callbacks_in_progress_ = 0;
 };
 
 class WriteBufferManager final {
@@ -47,9 +135,14 @@ class WriteBufferManager final {
   // allow_stall: if set true, it will enable stalling of writes when
   // memory_usage() exceeds buffer_size. It will wait for flush to complete and
   // memory usage to drop down.
+  //
   explicit WriteBufferManager(size_t _buffer_size,
                               std::shared_ptr<Cache> cache = {},
                               bool allow_stall = false);
+
+  // flush_policy belongs to this shared manager, not serialized DBOptions.
+  WriteBufferManager(size_t _buffer_size, std::shared_ptr<Cache> cache,
+                     bool allow_stall, WriteBufferFlushPolicy flush_policy);
   // No copying allowed
   WriteBufferManager(const WriteBufferManager&) = delete;
   WriteBufferManager& operator=(const WriteBufferManager&) = delete;
@@ -93,6 +186,15 @@ class WriteBufferManager final {
   void SetAllowStall(bool new_allow_stall) {
     allow_stall_.store(new_allow_stall, std::memory_order_relaxed);
     MaybeEndWriteStall();
+  }
+
+  // Returns the policy used for WBM-triggered flushes.
+  WriteBufferFlushPolicy flush_policy() const {
+    return flush_policy_.load(std::memory_order_relaxed);
+  }
+
+  void SetFlushPolicy(WriteBufferFlushPolicy new_flush_policy) {
+    flush_policy_.store(new_flush_policy, std::memory_order_relaxed);
   }
 
   // Below functions should be called by RocksDB internally.
@@ -159,6 +261,14 @@ class WriteBufferManager final {
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
+  // Internal registry for DBs sharing this manager.
+  void RegisterFlushInitiator(FlushInitiator* initiator);
+  void DeregisterFlushInitiator(FlushInitiator* initiator);
+
+  // Flushes a larger peer and returns true; false means `self` must flush.
+  // Must not be called while holding the caller's DB mutex.
+  bool InitiateFlushOnLargestDB(FlushInitiator* self);
+
  private:
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
@@ -176,6 +286,12 @@ class WriteBufferManager final {
   // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
   // while holding mu_, but it can be read without a lock.
   std::atomic<bool> stall_active_;
+  std::atomic<WriteBufferFlushPolicy> flush_policy_;
+
+  // DBs participating in kFlushLargestAcrossDBs.
+  std::vector<FlushInitiator*> flush_initiators_;
+  std::mutex flush_initiators_mu_;
+  std::condition_variable flush_initiators_cv_;
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);
