@@ -46,8 +46,7 @@ namespace {
 
 class BlockingAsyncCallback : public DB::AsyncCallback {
  public:
-  void OnComplete(const PerfContext* /*perf_context*/,
-                  const IOStatsContext* /*iostats_context*/) override {
+  void OnComplete() override {
     std::lock_guard<std::mutex> lock(mu_);
     done_ = true;
     cv_.notify_one();
