@@ -560,12 +560,14 @@ std::string RocksDBOptionsParser::TrimAndRemoveComment(const std::string& line,
     }
   }
 
-  while (start < end && isspace(line[start]) != 0) {
+  while (start < end &&
+         isspace(lossless_cast<unsigned char>(line[start])) != 0) {
     ++start;
   }
 
   // start < end implies end > 0.
-  while (start < end && isspace(line[end - 1]) != 0) {
+  while (start < end &&
+         isspace(lossless_cast<unsigned char>(line[end - 1])) != 0) {
     --end;
   }
 
