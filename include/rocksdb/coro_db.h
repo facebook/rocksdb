@@ -36,11 +36,14 @@ class CoroStackableDBBase;
 // coroutine reads or a read executor are unavailable.
 //
 // STATS:
-// GetCoroutine() and MultiGetCoroutine() populate TLS with stats for only that
-// operation. CoGet() and CoMultiGet() can resume their callers on a different
-// thread, so reading TLS after awaiting them is not valid. To consume coroutine
-// stats, override the protected CoroStackableDB hook and copy the TLS values
-// immediately after awaiting the wrapped operation, before suspending again.
+// CoGet() and CoMultiGet() populate TLS with stats for only that operation.
+// Set the desired stats configuration on the thread that starts or awaits each
+// task. Starting the task captures that configuration and resets it to
+// disabled.
+// They can resume their callers on a different thread, so reading TLS after
+// awaiting them is not valid. To consume coroutine stats, override the
+// protected CoroStackableDB hook and copy the TLS values immediately after
+// awaiting the wrapped operation, before suspending again.
 //
 // Stats are generally more expensive in coroutine APIs than sync counterpart
 // due to request context overhead. For optimal performance when stats are not

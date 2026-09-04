@@ -7836,11 +7836,14 @@ class Benchmark {
   void PrepareCoroutineJobPerfContext(PerfContext* job_perf_context) {
     SetPerfLevel(static_cast<PerfLevel>(FLAGS_perf_level));
     IOSTATS_SET_DISABLE(!FLAGS_io_stats);
-    if (job_perf_context == nullptr) {
-      return;
-    }
 #ifndef NPERF_CONTEXT
-    get_perf_context()->EnablePerLevelPerfContext();
+    if (job_perf_context != nullptr) {
+      get_perf_context()->EnablePerLevelPerfContext();
+    } else {
+      get_perf_context()->DisablePerLevelPerfContext();
+    }
+#else
+    (void)job_perf_context;
 #endif
   }
 
@@ -7887,7 +7890,6 @@ class Benchmark {
     PerfContext job_perf_context;
     PerfContext* const job_perf_context_ptr =
         job_perf_contexts != nullptr ? &job_perf_context : nullptr;
-    PrepareCoroutineJobPerfContext(job_perf_context_ptr);
     for (int64_t done = 0; done < ops; ++done) {
       const uint64_t db_rand = rng.Next();
       DBWithColumnFamilies* db_with_cfh =
@@ -7917,6 +7919,7 @@ class Benchmark {
                 "reads\n");
         abort();
       }
+      PrepareCoroutineJobPerfContext(job_perf_context_ptr);
       Status s = co_await folly::coro::co_nothrow(CoroDB::CoGet(
           db_with_cfh->db, options, cfh, key, &pinnable_val, ts_ptr));
       MergeCoroutineJobPerfContext(job_perf_context_ptr);
@@ -7966,13 +7969,13 @@ class Benchmark {
     PerfContext job_perf_context;
     PerfContext* const job_perf_context_ptr =
         job_perf_contexts != nullptr ? &job_perf_context : nullptr;
-    PrepareCoroutineJobPerfContext(job_perf_context_ptr);
     for (int64_t done = 0; done < ops; done += entries_per_batch_) {
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         GenerateKeyFromInt(GetRandomKey(&rng), FLAGS_num, &keys[i]);
         statuses[i] = Status::OK();
         values[i].Reset();
       }
+      PrepareCoroutineJobPerfContext(job_perf_context_ptr);
       co_await folly::coro::co_nothrow(CoroDB::CoMultiGet(
           db, options, entries_per_batch_, cfs.data(), keys.data(),
           values.get(), /*timestamps=*/nullptr, statuses.data(),

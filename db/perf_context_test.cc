@@ -37,6 +37,7 @@
 #include "folly/coro/CurrentExecutor.h"
 #include "folly/coro/Task.h"
 #include "folly/executors/IOThreadPoolExecutor.h"
+#include "folly/executors/ManualExecutor.h"
 #include "folly/io/async/EventBase.h"
 #include "folly/io/async/Request.h"
 #include "util/coro_stats_util.h"
@@ -178,16 +179,16 @@ TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
   get_perf_context()->EnablePerLevelPerfContext();
   get_iostats_context()->disable_iostats = true;
   CoroutineStatsConfig second_stats_config = CaptureCoroutineStatsConfig();
+  CoroutineStatsConfig disabled_stats_config;
+  disabled_stats_config.perf_level = PerfLevel::kDisable;
+  disabled_stats_config.iostats_disabled = true;
 
-  folly::IOThreadPoolExecutor executor(1);
-  folly::EventBase* event_base = executor.getEventBase();
-  ASSERT_NE(nullptr, event_base);
-
-  folly::coro::blockingWait(folly::coro::co_withExecutor(
-      folly::Executor::getKeepAliveToken(event_base),
+  folly::ManualExecutor executor;
+  folly::coro::blockingWait(
       [first_stats_config = std::move(first_stats_config),
-       second_stats_config = std::move(
-           second_stats_config)]() mutable -> folly::coro::Task<void> {
+       second_stats_config = std::move(second_stats_config),
+       disabled_stats_config = std::move(
+           disabled_stats_config)]() mutable -> folly::coro::Task<void> {
         get_perf_context()->Reset();
         get_perf_context()->ClearPerLevelPerfContext();
         get_perf_context()->block_read_count = 100;
@@ -200,6 +201,7 @@ TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
           const bool expected_per_level_perf_context_enabled =
               stats_config.per_level_perf_context_enabled;
           const bool expected_iostats_disabled = stats_config.iostats_disabled;
+          const bool stats_enabled = IsCoroutineStatsEnabled(stats_config);
           {
             CoroutineStatsContextScope scope(std::move(stats_config),
                                              Env::Default());
@@ -209,11 +211,12 @@ TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
                       get_perf_context()->per_level_perf_context_enabled);
             EXPECT_EQ(expected_iostats_disabled,
                       get_iostats_context()->disable_iostats);
-            EXPECT_EQ(0, get_perf_context()->block_read_count);
-            EXPECT_EQ(0, get_iostats_context()->bytes_read);
-
-            get_perf_context()->block_read_count += first;
-            get_iostats_context()->bytes_read += first;
+            if (stats_enabled) {
+              EXPECT_EQ(0, get_perf_context()->block_read_count);
+              EXPECT_EQ(0, get_iostats_context()->bytes_read);
+              get_perf_context()->block_read_count += first;
+              get_iostats_context()->bytes_read += first;
+            }
             co_await folly::coro::co_reschedule_on_current_executor;
 
             EXPECT_EQ(expected_perf_level, GetPerfLevel());
@@ -221,6 +224,9 @@ TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
                       get_perf_context()->per_level_perf_context_enabled);
             EXPECT_EQ(expected_iostats_disabled,
                       get_iostats_context()->disable_iostats);
+            if (!stats_enabled) {
+              co_return 0;
+            }
             EXPECT_EQ(first, get_perf_context()->block_read_count);
             EXPECT_EQ(first, get_iostats_context()->bytes_read);
             get_perf_context()->block_read_count += second;
@@ -231,18 +237,22 @@ TEST_F(PerfContextTest, CoroutineStatsContextsRemainIsolatedWhenInterleaved) {
           co_return get_perf_context()->block_read_count;
         };
 
-        std::vector<folly::coro::Task<uint64_t>> tasks;
-        tasks.push_back(make_task(std::move(first_stats_config), 1, 10));
-        tasks.push_back(make_task(std::move(second_stats_config), 2, 20));
-        std::vector<uint64_t> results =
-            co_await folly::coro::collectAllRange(std::move(tasks));
-
-        EXPECT_EQ((std::vector<uint64_t>{11, 22}), results);
+        auto [disabled_result, first_result, second_result] =
+            co_await folly::coro::collectAll(
+                make_task(std::move(disabled_stats_config), 0, 0),
+                make_task(std::move(first_stats_config), 1, 10),
+                make_task(std::move(second_stats_config), 2, 20));
+        EXPECT_EQ(0, disabled_result);
+        EXPECT_EQ(11, first_result);
+        EXPECT_EQ(22, second_result);
 
         get_perf_context()->Reset();
         get_iostats_context()->Reset();
         co_return;
-      }()));
+      }(),
+      &executor);
+  EXPECT_EQ(PerfLevel::kDisable, GetPerfLevel());
+  EXPECT_TRUE(get_iostats_context()->disable_iostats);
 }
 
 TEST_F(PerfContextTest, CoroutineStatsContextScopeCollectsGetCpuNanos) {
@@ -326,10 +336,9 @@ TEST_F(PerfContextTest, AsyncCallbackStatsStartEmptyOnSyncFallback) {
 
   class StatsCallback final : public DB::AsyncCallback {
    public:
-    bool EnableStats() const override { return true; }
-
-    void OnComplete(const PerfContext* callback_perf_context,
-                    const IOStatsContext* callback_iostats_context) override {
+    void OnComplete() override {
+      const PerfContext* callback_perf_context = get_perf_context();
+      const IOStatsContext* callback_iostats_context = get_iostats_context();
       ASSERT_NE(nullptr, callback_perf_context);
       ASSERT_NE(nullptr, callback_iostats_context);
       called = true;
@@ -368,6 +377,8 @@ TEST_F(PerfContextTest, AsyncCallbackStatsStartEmptyOnSyncFallback) {
 
   get_perf_context()->Reset();
   get_perf_context()->multiget_read_bytes = 29;
+  SetPerfLevel(PerfLevel::kEnableCount);
+  get_iostats_context()->disable_iostats = false;
 
   StatsCallback multiget_callback;
   ColumnFamilyHandle* column_families[] = {db->DefaultColumnFamily(),

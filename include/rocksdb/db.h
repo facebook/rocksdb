@@ -1190,30 +1190,36 @@ class DB {
   // `DBOptions::read_io_executor_threads` before opening the DB to configure
   // executor parallelism for their workload.
   //
+  // Only selected data-block file reads can be issued asynchronously. Other
+  // work in the read path, including waiting for DB or cache locks, opening
+  // files, reading table metadata or blobs, waiting for caches, and invoking
+  // event listeners or other user callbacks, may block the thread running the
+  // request.
+  //
   // Callers must keep the DB, callback, inputs, and output buffers alive until
   // the callback returns. The callback may run inline before the async method
   // returns, or later from the implementation's completion path. Callbacks must
   // not invoke another async read.
   //
   // STATS:
-  // Callbacks can opt into perf and io metrics by overriding `EnableStats`.
-  // When provided, the returned contexts contain metrics for this request
-  // only. Most metrics should generally be available. Some scoped CPU metrics
-  // may be missing (e.g. `block_read_cpu_time`). Each returned context only has
-  // stats for a single operation, unlike the sync version which can re-use the
-  // same context for multiple operations. DO NOT use get_perf_context() or
-  // get_iostats_context() for statistics as you would for sync versions.
+  // When enabled through the calling thread's stats configuration,
+  // get_perf_context() and get_iostats_context() contain metrics for this
+  // request only while OnComplete() runs. Copy any needed metrics before the
+  // callback returns. Some scoped CPU metrics may be missing (e.g.
+  // `block_read_cpu_time`).
   //
-  // Also enabling perf for async reads is generally more expensive because each
-  // request needs a separate stats context, rather than relying on the
-  // traditional TLS stats. Stats configuration (e.g. perf level) can be set
-  // before calling async read, and the config is saved by the coroutine.
+  // Enabling stats for async reads is generally more expensive because each
+  // request needs a separate stats context. Stats configuration (e.g. perf
+  // level) is read when the async call begins.
+  //
+  // Callers must set the desired configuration for each async read instead of
+  // relying on TLS state left by an earlier async read. Disable both perf and
+  // IO stats before a call when no stats are needed. Async reads reset the
+  // calling thread's configuration to disabled.
   class AsyncCallback {
    public:
     virtual ~AsyncCallback() = default;
-    virtual bool EnableStats() const { return false; }
-    virtual void OnComplete(const PerfContext* callback_perf_context,
-                            const IOStatsContext* callback_iostats_context) = 0;
+    virtual void OnComplete() = 0;
   };
 
   virtual void GetAsync(const ReadOptions& options,
@@ -1236,17 +1242,14 @@ class DB {
 
       PinnableSlice* value() { return &pinnable_value_; }
 
-      bool EnableStats() const override { return callback_.EnableStats(); }
-
-      void OnComplete(const PerfContext* callback_perf_context,
-                      const IOStatsContext* callback_iostats_context) override {
+      void OnComplete() override {
         std::unique_ptr<CallbackWrapper> self(this);
         if (status_.ok() && pinnable_value_.IsPinned()) {
           value_->assign(pinnable_value_.data(), pinnable_value_.size());
         }
         AsyncCallback& callback = callback_;
         self.reset();
-        callback.OnComplete(callback_perf_context, callback_iostats_context);
+        callback.OnComplete();
       }
 
      private:

@@ -6,10 +6,6 @@
 
 #include "util/coro_utils.h"
 
-#if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
-#include "util/coro_stats_util.h"
-#endif  // USE_COROUTINES && WITH_COROUTINES
-
 #if defined(WITHOUT_COROUTINES) || \
     (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 
@@ -25,10 +21,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
 (const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
  const Slice& key, PinnableSlice* value, std::string* timestamp) {
-#ifdef WITH_COROUTINES
-  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
-      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
-#endif
   assert(value != nullptr);
   value->Reset();
 
@@ -51,10 +43,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::Get)
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetEntity)
 (const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
  const Slice& key, PinnableWideColumns* columns) {
-#ifdef WITH_COROUTINES
-  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
-      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
-#endif
   if (!column_family) {
     CO_RETURN Status::InvalidArgument(
         "Cannot call GetEntity without a column family handle");
@@ -85,10 +73,6 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetEntity)
 DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetEntity)
 (const ReadOptions& _read_options, const Slice& key,
  PinnableAttributeGroups* result) {
-#ifdef WITH_COROUTINES
-  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
-      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
-#endif
   if (!result) {
     CO_RETURN Status::InvalidArgument(
         "Cannot call GetEntity without PinnableAttributeGroups object");
@@ -908,10 +892,6 @@ DEFINE_SYNC_AND_ASYNC(void, DBImpl::MultiGet)
 (const ReadOptions& _read_options, const size_t num_keys,
  ColumnFamilyHandle** column_families, const Slice* keys, PinnableSlice* values,
  std::string* timestamps, Status* statuses, const bool sorted_input) {
-#ifdef WITH_COROUTINES
-  INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(
-      immutable_db_options_.fs->GetReadExecutor(), immutable_db_options_.env);
-#endif
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kMultiGet) {
     Status s = Status::InvalidArgument(
