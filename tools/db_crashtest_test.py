@@ -324,7 +324,7 @@ class DBCrashTestTest(unittest.TestCase):
                     0, finalized["ingest_external_file_atomic_replace_one_in"]
                 )
 
-    def test_strip_expected_sigterm_stderr_suppresses_only_known_lines(self):
+    def test_sanitize_known_stderr_suppresses_only_known_sigterm_lines(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"
         stderr = (
@@ -334,19 +334,17 @@ class DBCrashTestTest(unittest.TestCase):
             "returned terminal error: -9.\n"
         )
 
-        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
-            stdout, stderr, True
+        filtered_stdout, filtered_stderr = db_crashtest.sanitize_known_stderr(
+            stdout, stderr, True, {}
         )
 
         self.assertEqual("", filtered_stderr)
         self.assertEqual(
-            stdout
-            + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
-            + stderr,
+            stdout + "Ignored known stderr:\n" + stderr,
             filtered_stdout,
         )
 
-    def test_strip_expected_sigterm_stderr_suppresses_retryable_wait_cqe(self):
+    def test_sanitize_known_stderr_suppresses_retryable_wait_cqe(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"
 
@@ -356,32 +354,30 @@ class DBCrashTestTest(unittest.TestCase):
             for err in (-4, -11):
                 stderr = f"{caller}: io_uring_wait_cqe failed: {err}\n"
                 filtered_stdout, filtered_stderr = (
-                    db_crashtest.strip_expected_sigterm_stderr(stdout, stderr, True)
+                    db_crashtest.sanitize_known_stderr(stdout, stderr, True, {})
                 )
 
                 self.assertEqual("", filtered_stderr)
                 self.assertEqual(
-                    stdout
-                    + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
-                    + stderr,
+                    stdout + "Ignored known stderr:\n" + stderr,
                     filtered_stdout,
                 )
 
-    def test_strip_expected_sigterm_stderr_preserves_terminal_wait_cqe(self):
+    def test_sanitize_known_stderr_preserves_terminal_wait_cqe(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"
         stderr = "Poll: io_uring_wait_cqe failed: -5\n"
 
         # This guards against hiding real io_uring failures: even after SIGTERM,
         # non-retryable wait_cqe errors must remain visible on stderr.
-        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
-            stdout, stderr, True
+        filtered_stdout, filtered_stderr = db_crashtest.sanitize_known_stderr(
+            stdout, stderr, True, {}
         )
 
         self.assertEqual(stderr, filtered_stderr)
         self.assertEqual(stdout, filtered_stdout)
 
-    def test_strip_expected_sigterm_stderr_preserves_other_stderr(self):
+    def test_sanitize_known_stderr_preserves_other_stderr(self):
         db_crashtest = self.load_db_crashtest()
         stdout = "Received signal 15 (Terminated)\n"
         ignored_line = (
@@ -391,36 +387,57 @@ class DBCrashTestTest(unittest.TestCase):
         kept_line = "Different stderr line\n"
         stderr = ignored_line + kept_line
 
-        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
-            stdout, stderr, True
+        filtered_stdout, filtered_stderr = db_crashtest.sanitize_known_stderr(
+            stdout, stderr, True, {}
         )
 
         self.assertEqual(kept_line, filtered_stderr)
         self.assertEqual(
-            stdout
-            + "Ignored expected post-SIGTERM stderr while handling timeout:\n"
-            + ignored_line,
+            stdout + "Ignored known stderr:\n" + ignored_line,
             filtered_stdout,
         )
 
-    def test_strip_expected_sigterm_stderr_requires_timeout_and_sigterm_marker(self):
+    def test_sanitize_known_stderr_requires_timeout_and_sigterm_marker(self):
         db_crashtest = self.load_db_crashtest()
         stderr = (
             "PosixRandomAccessFile::MultiRead: io_uring_submit_and_wait "
             "returned terminal error: -9.\n"
         )
 
-        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
-            "Received signal 15 (Terminated)\n", stderr, False
+        filtered_stdout, filtered_stderr = db_crashtest.sanitize_known_stderr(
+            "Received signal 15 (Terminated)\n", stderr, False, {}
         )
         self.assertEqual("Received signal 15 (Terminated)\n", filtered_stdout)
         self.assertEqual(stderr, filtered_stderr)
 
-        filtered_stdout, filtered_stderr = db_crashtest.strip_expected_sigterm_stderr(
-            "other stdout\n", stderr, True
+        filtered_stdout, filtered_stderr = db_crashtest.sanitize_known_stderr(
+            "other stdout\n", stderr, True, {}
         )
         self.assertEqual("other stdout\n", filtered_stdout)
         self.assertEqual(stderr, filtered_stderr)
+
+    def test_print_run_output_tolerates_read_executor_io_uring_init_failure(self):
+        db_crashtest = self.load_db_crashtest()
+        args = self.build_mode_args()
+        finalized_params = {"db": self.test_tmpdir, "use_async_db_api": 1}
+        stdout = "Crash-recovery verification passed :)\n"
+        stderr = (
+            "I0903 14:05:39.470695 286445 IoUringBackend.cpp:527] "
+            "io_uring_queue_init_params(512,1024) failed errno = "
+            '0:"Success" 0x7d2e06295280 retrying with capacity = 512\n'
+            "E0903 14:05:39.470759 286445 IoUringBackend.cpp:537] "
+            "io_uring_queue_init_params(512,512) failed ret = "
+            '-12:"Unknown error -12" 0x7d2e06295280\n'
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            db_crashtest.print_run_output_and_exit_on_error(
+                args, finalized_params, stdout, stderr
+            )
+
+        self.assertIn("Ignored known stderr", output.getvalue())
+        self.assertIn(stderr, output.getvalue())
 
     def test_output_matches_no_space_catches_known_failure_strings(self):
         db_crashtest = self.load_db_crashtest()
