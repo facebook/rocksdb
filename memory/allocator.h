@@ -33,13 +33,23 @@ class Allocator {
 
 class AllocTracker {
  public:
-  explicit AllocTracker(WriteBufferManager* write_buffer_manager);
+  explicit AllocTracker(WriteBufferManager* write_buffer_manager,
+                        FlushInitiator* flush_initiator = nullptr);
   // No copying allowed
   AllocTracker(const AllocTracker&) = delete;
   void operator=(const AllocTracker&) = delete;
 
   ~AllocTracker();
   void Allocate(size_t bytes);
+
+  // Starts publishing this memtable's allocation to its DB-level counters.
+  // Safe to call repeatedly and concurrently after successful inserts.
+  void ActivateFlushInitiator();
+
+  // Stops publishing this memtable as mutable without changing the WBM's
+  // global allocation accounting.
+  void DeactivateFlushInitiator();
+
   // Call when we're finished allocating memory so we can free it from
   // the write buffer's limit.
   void DoneAllocating();
@@ -48,9 +58,18 @@ class AllocTracker {
 
   bool is_freed() const { return write_buffer_manager_ == nullptr || freed_; }
 
+  size_t tracked_bytes() const {
+    return bytes_reported_.load(std::memory_order_relaxed);
+  }
+
  private:
+  void ReportAllocations(size_t bytes_allocated);
+
   WriteBufferManager* write_buffer_manager_;
+  FlushInitiator* flush_initiator_;
   std::atomic<size_t> bytes_allocated_;
+  std::atomic<size_t> bytes_reported_;
+  std::atomic<bool> flush_initiator_active_;
   bool done_allocating_;
   bool freed_;
 };

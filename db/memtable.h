@@ -597,7 +597,8 @@ class MemTable final : public ReadOnlyMemTable {
                     const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id);
+                    SequenceNumber earliest_seq, uint32_t column_family_id,
+                    FlushInitiator* flush_initiator = nullptr);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -618,6 +619,15 @@ class MemTable final : public ReadOnlyMemTable {
     return table_->ApproximateMemoryUsage() +
            range_del_table_->ApproximateMemoryUsage() +
            arena_.MemoryAllocatedBytes();
+  }
+
+  size_t WBMTrackedMemoryUsage() const {
+    return mem_tracker_.tracked_bytes();
+  }
+
+  void StopWBMTracking() {
+    WriteLock wl(&immutable_mutex_);
+    mem_tracker_.DeactivateFlushInitiator();
   }
 
   void UniqueRandomSample(const uint64_t& target_sample_size,
@@ -739,7 +749,11 @@ class MemTable final : public ReadOnlyMemTable {
   // Used in concurrent memtable inserts.
   void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
     table_->BatchPostProcess();
-    num_entries_.FetchAddRelaxed(update_counters.num_entries);
+    const uint64_t old_num_entries =
+        num_entries_.FetchAddRelaxed(update_counters.num_entries);
+    if (old_num_entries == 0 && update_counters.num_entries != 0) {
+      mem_tracker_.ActivateFlushInitiator();
+    }
     data_size_.FetchAddRelaxed(update_counters.data_size);
     if (update_counters.num_deletes != 0) {
       num_deletes_.FetchAddRelaxed(update_counters.num_deletes);
