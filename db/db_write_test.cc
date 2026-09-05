@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -1074,6 +1076,26 @@ INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,
                                         DBTestBase::kPipelinedWrite));
+
+TEST_F(DBWriteTestUnparameterized,
+       UnorderedWriteManualWalFlushDoesNotDeadlock) {
+  Options options = CurrentOptions();
+  options.unordered_write = true;
+  options.manual_wal_flush = true;
+  DestroyAndReopen(options);
+
+  std::promise<Status> p;
+  auto f = p.get_future();
+  std::thread writer([&] { p.set_value(db_->Put(WriteOptions(), "k", "v")); });
+
+  if (f.wait_for(std::chrono::seconds(10)) == std::future_status::timeout) {
+    writer.detach();
+    FAIL() << "Put deadlocked (unordered_write + manual_wal_flush + "
+              "!two_write_queues)";
+  }
+  writer.join();
+  ASSERT_OK(f.get());
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -2278,7 +2278,8 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   // from the two queues anyway and wal_write_mutex_ is already held. Otherwise
   // if manual_wal_flush_ is enabled we need to protect log_writer->AddRecord
   // from possible concurrent calls via the FlushWAL by the application.
-  const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+  const bool needs_locking = manual_wal_flush_ && !two_write_queues_ &&
+                             !immutable_db_options_.unordered_write;
   // Due to performance cocerns of missed branch prediction penalize the new
   // manual_wal_flush_ feature (by UNLIKELY) instead of the more common case
   // when we do not need any locking.
@@ -2363,7 +2364,8 @@ IOStatus DBImpl::WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
     //   if without locked wal_write_mutex_, the log file may get data
     //   corruption
 
-    const bool needs_locking = manual_wal_flush_ && !two_write_queues_;
+    const bool needs_locking = manual_wal_flush_ && !two_write_queues_ &&
+                               !immutable_db_options_.unordered_write;
     if (UNLIKELY(needs_locking)) {
       wal_write_mutex_.Lock();
     }
