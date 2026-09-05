@@ -23,8 +23,8 @@
 #include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-inline Histograms GetFileReadHistograms(Statistics* stats,
-                                        Env::IOActivity io_activity) {
+Histograms GetFileReadHistograms(Statistics* stats,
+                                 Env::IOActivity io_activity) {
   switch (io_activity) {
     case Env::IOActivity::kFlush:
       return Histograms::FILE_READ_FLUSH_MICROS;
