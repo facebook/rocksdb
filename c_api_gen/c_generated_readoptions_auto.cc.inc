@@ -20,8 +20,9 @@
 
 /* ReadOptions */
 
-void rocksdb_readoptions_set_deadline(rocksdb_readoptions_t* opt,
-                                      uint64_t microseconds) {
+void rocksdb_readoptions_set_deadline(
+    rocksdb_readoptions_t* opt,
+    uint64_t microseconds) {
   opt->rep.deadline = std::chrono::microseconds(microseconds);
 }
 
@@ -29,8 +30,9 @@ uint64_t rocksdb_readoptions_get_deadline(rocksdb_readoptions_t* opt) {
   return opt->rep.deadline.count();
 }
 
-void rocksdb_readoptions_set_io_timeout(rocksdb_readoptions_t* opt,
-                                        uint64_t microseconds) {
+void rocksdb_readoptions_set_io_timeout(
+    rocksdb_readoptions_t* opt,
+    uint64_t microseconds) {
   opt->rep.io_timeout = std::chrono::microseconds(microseconds);
 }
 
@@ -46,18 +48,19 @@ int rocksdb_readoptions_get_read_tier(rocksdb_readoptions_t* opt) {
   return static_cast<int>(opt->rep.read_tier);
 }
 
-void rocksdb_readoptions_set_rate_limiter_priority(rocksdb_readoptions_t* opt,
-                                                   int v) {
-  opt->rep.rate_limiter_priority =
-      static_cast<decltype(opt->rep.rate_limiter_priority)>(v);
+void rocksdb_readoptions_set_rate_limiter_priority(
+    rocksdb_readoptions_t* opt,
+    int v) {
+  opt->rep.rate_limiter_priority = static_cast<decltype(opt->rep.rate_limiter_priority)>(v);
 }
 
 int rocksdb_readoptions_get_rate_limiter_priority(rocksdb_readoptions_t* opt) {
   return static_cast<int>(opt->rep.rate_limiter_priority);
 }
 
-void rocksdb_readoptions_set_value_size_soft_limit(rocksdb_readoptions_t* opt,
-                                                   uint64_t v) {
+void rocksdb_readoptions_set_value_size_soft_limit(
+    rocksdb_readoptions_t* opt,
+    uint64_t v) {
   opt->rep.value_size_soft_limit = v;
 }
 
@@ -66,8 +69,9 @@ uint64_t rocksdb_readoptions_get_value_size_soft_limit(
   return opt->rep.value_size_soft_limit;
 }
 
-void rocksdb_readoptions_set_verify_checksums(rocksdb_readoptions_t* opt,
-                                              unsigned char v) {
+void rocksdb_readoptions_set_verify_checksums(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.verify_checksums = v;
 }
 
@@ -76,8 +80,9 @@ unsigned char rocksdb_readoptions_get_verify_checksums(
   return opt->rep.verify_checksums;
 }
 
-void rocksdb_readoptions_set_fill_cache(rocksdb_readoptions_t* opt,
-                                        unsigned char v) {
+void rocksdb_readoptions_set_fill_cache(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.fill_cache = v;
 }
 
@@ -85,8 +90,9 @@ unsigned char rocksdb_readoptions_get_fill_cache(rocksdb_readoptions_t* opt) {
   return opt->rep.fill_cache;
 }
 
-void rocksdb_readoptions_set_ignore_range_deletions(rocksdb_readoptions_t* opt,
-                                                    unsigned char v) {
+void rocksdb_readoptions_set_ignore_range_deletions(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.ignore_range_deletions = v;
 }
 
@@ -95,8 +101,9 @@ unsigned char rocksdb_readoptions_get_ignore_range_deletions(
   return opt->rep.ignore_range_deletions;
 }
 
-void rocksdb_readoptions_set_async_io(rocksdb_readoptions_t* opt,
-                                      unsigned char v) {
+void rocksdb_readoptions_set_async_io(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.async_io = v;
 }
 
@@ -105,7 +112,8 @@ unsigned char rocksdb_readoptions_get_async_io(rocksdb_readoptions_t* opt) {
 }
 
 void rocksdb_readoptions_set_optimize_multiget_for_io(
-    rocksdb_readoptions_t* opt, unsigned char v) {
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.optimize_multiget_for_io = v;
 }
 
@@ -114,8 +122,9 @@ unsigned char rocksdb_readoptions_get_optimize_multiget_for_io(
   return opt->rep.optimize_multiget_for_io;
 }
 
-void rocksdb_readoptions_set_readahead_size(rocksdb_readoptions_t* opt,
-                                            size_t v) {
+void rocksdb_readoptions_set_readahead_size(
+    rocksdb_readoptions_t* opt,
+    size_t v) {
   opt->rep.readahead_size = v;
 }
 
@@ -124,7 +133,8 @@ size_t rocksdb_readoptions_get_readahead_size(rocksdb_readoptions_t* opt) {
 }
 
 void rocksdb_readoptions_set_max_skippable_internal_keys(
-    rocksdb_readoptions_t* opt, uint64_t v) {
+    rocksdb_readoptions_t* opt,
+    uint64_t v) {
   opt->rep.max_skippable_internal_keys = v;
 }
 
@@ -133,8 +143,9 @@ uint64_t rocksdb_readoptions_get_max_skippable_internal_keys(
   return opt->rep.max_skippable_internal_keys;
 }
 
-void rocksdb_readoptions_set_tailing(rocksdb_readoptions_t* opt,
-                                     unsigned char v) {
+void rocksdb_readoptions_set_tailing(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.tailing = v;
 }
 
@@ -142,8 +153,9 @@ unsigned char rocksdb_readoptions_get_tailing(rocksdb_readoptions_t* opt) {
   return opt->rep.tailing;
 }
 
-void rocksdb_readoptions_set_total_order_seek(rocksdb_readoptions_t* opt,
-                                              unsigned char v) {
+void rocksdb_readoptions_set_total_order_seek(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.total_order_seek = v;
 }
 
@@ -152,8 +164,9 @@ unsigned char rocksdb_readoptions_get_total_order_seek(
   return opt->rep.total_order_seek;
 }
 
-void rocksdb_readoptions_set_auto_prefix_mode(rocksdb_readoptions_t* opt,
-                                              unsigned char v) {
+void rocksdb_readoptions_set_auto_prefix_mode(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.auto_prefix_mode = v;
 }
 
@@ -162,8 +175,9 @@ unsigned char rocksdb_readoptions_get_auto_prefix_mode(
   return opt->rep.auto_prefix_mode;
 }
 
-void rocksdb_readoptions_set_prefix_same_as_start(rocksdb_readoptions_t* opt,
-                                                  unsigned char v) {
+void rocksdb_readoptions_set_prefix_same_as_start(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.prefix_same_as_start = v;
 }
 
@@ -172,8 +186,9 @@ unsigned char rocksdb_readoptions_get_prefix_same_as_start(
   return opt->rep.prefix_same_as_start;
 }
 
-void rocksdb_readoptions_set_pin_data(rocksdb_readoptions_t* opt,
-                                      unsigned char v) {
+void rocksdb_readoptions_set_pin_data(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.pin_data = v;
 }
 
@@ -181,8 +196,9 @@ unsigned char rocksdb_readoptions_get_pin_data(rocksdb_readoptions_t* opt) {
   return opt->rep.pin_data;
 }
 
-void rocksdb_readoptions_set_adaptive_readahead(rocksdb_readoptions_t* opt,
-                                                unsigned char v) {
+void rocksdb_readoptions_set_adaptive_readahead(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.adaptive_readahead = v;
 }
 
@@ -192,7 +208,8 @@ unsigned char rocksdb_readoptions_get_adaptive_readahead(
 }
 
 void rocksdb_readoptions_set_background_purge_on_iterator_cleanup(
-    rocksdb_readoptions_t* opt, unsigned char v) {
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.background_purge_on_iterator_cleanup = v;
 }
 
@@ -201,8 +218,9 @@ unsigned char rocksdb_readoptions_get_background_purge_on_iterator_cleanup(
   return opt->rep.background_purge_on_iterator_cleanup;
 }
 
-void rocksdb_readoptions_set_auto_readahead_size(rocksdb_readoptions_t* opt,
-                                                 unsigned char v) {
+void rocksdb_readoptions_set_auto_readahead_size(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.auto_readahead_size = v;
 }
 
@@ -211,8 +229,9 @@ unsigned char rocksdb_readoptions_get_auto_readahead_size(
   return opt->rep.auto_readahead_size;
 }
 
-void rocksdb_readoptions_set_allow_unprepared_value(rocksdb_readoptions_t* opt,
-                                                    unsigned char v) {
+void rocksdb_readoptions_set_allow_unprepared_value(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.allow_unprepared_value = v;
 }
 
@@ -222,7 +241,8 @@ unsigned char rocksdb_readoptions_get_allow_unprepared_value(
 }
 
 void rocksdb_readoptions_set_auto_refresh_iterator_with_snapshot(
-    rocksdb_readoptions_t* opt, unsigned char v) {
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
   opt->rep.auto_refresh_iterator_with_snapshot = v;
 }
 

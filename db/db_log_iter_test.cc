@@ -15,6 +15,7 @@
 #include "env/mock_env.h"
 #include "port/stack_trace.h"
 #include "util/atomic.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -58,6 +59,44 @@ void ExpectRecords(const int expected_no_records,
   int num_records;
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
+}
+
+// Renders a batch as "Put(key)"/"Delete(key)" so that a test can assert on
+// what was actually delivered rather than only on how much was.
+std::string BatchContents(const WriteBatch& batch) {
+  struct Handler : public WriteBatch::Handler {
+    std::string seen;
+    Status PutCF(uint32_t /*cf*/, const Slice& key,
+                 const Slice& /*value*/) override {
+      seen += "Put(" + key.ToString() + ")";
+      return Status::OK();
+    }
+    Status DeleteCF(uint32_t /*cf*/, const Slice& key) override {
+      seen += "Delete(" + key.ToString() + ")";
+      return Status::OK();
+    }
+  } handler;
+  EXPECT_OK(batch.Iterate(&handler));
+  return handler.seen;
+}
+
+// Reads everything the iterator can currently deliver, appending the contents
+// of each batch to *contents. Unlike ReadRecords() above, this checks that the
+// run is contiguous rather than merely increasing: every batch must start at
+// *next_expected_seq, which is advanced past the batch on the way out. A
+// skipped or repeated sequence number therefore fails here, which is what the
+// tests below need when the iterator crosses from one WAL into another.
+void DrainContiguous(std::unique_ptr<WalIterator>& iter,
+                     SequenceNumber* next_expected_seq,
+                     std::string* contents) {
+  while (iter->Valid()) {
+    ASSERT_OK(iter->status());
+    BatchResult res = iter->GetBatch();
+    ASSERT_EQ(*next_expected_seq, res.sequence);
+    *next_expected_seq = res.sequence + res.writeBatchPtr->Count();
+    *contents += BatchContents(*res.writeBatchPtr);
+    iter->Next();
+  }
 }
 }  // anonymous namespace
 
@@ -408,6 +447,419 @@ TEST_F(DBWalIteratorTest, SilentlySkipsUnavailableStart) {
   // Asked for seq 1, silently given seq 2, with no error anywhere.
   ASSERT_EQ(2U, iter->GetBatch().sequence);
 }
+
+// The tests below cover DBOptions::wal_iterator_tail_rotations, which lets a
+// caught-up iterator continue into a WAL it was not built with, after checking
+// that the WAL picks up exactly where the iterator left off.
+
+TEST_F(DBWalIteratorTest, FastRotation_SingleRotation_Continues) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 1
+  // Opened now, so that the iterator's snapshot of the WAL files cannot
+  // include the WAL created by the rotation below.
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+
+  SequenceNumber next_seq = 1;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)", seen);
+  ASSERT_EQ(2U, next_seq);
+  // Caught up to LastSequence(), which is not the same as end of file: the
+  // iterator is still usable.
+  ASSERT_OK(iter->status());
+
+  // Rotate the WAL and write two batches to the new one.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));  // seq 2
+  ASSERT_OK(Put("key3", DummyString(128)));  // seq 3
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // The iterator crosses into the new WAL on its own, and what it delivers
+  // continues the run exactly: the expected keys, in order, with no skipped
+  // and no repeated sequence number (checked by DrainContiguous).
+  iter->Next();
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  seen.clear();
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key2)Put(key3)", seen);
+  ASSERT_EQ(4U, next_seq);
+  ASSERT_OK(iter->status());
+}
+
+TEST_F(DBWalIteratorTest, FastRotation_MultipleRotations_ContinuesOnFastPath) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  DestroyAndReopen(options);
+  // Create a second column family so that flushing one CF rotates the WAL
+  // without making old WALs obsolete (the other CF still references them).
+  CreateAndReopenWithCF({"secondary"}, options);
+
+  // Write to both CFs so both reference the initial WAL
+  ASSERT_OK(Put(0, "key1", DummyString(128)));     // seq 1
+  ASSERT_OK(Put(1, "anchor1", DummyString(128)));  // seq 2
+
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  SequenceNumber next_seq = 1;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)Put(anchor1)", seen);
+  ASSERT_EQ(3U, next_seq);
+  ASSERT_OK(iter->status());
+
+  // Flush default CF -> rotates WAL. Old WAL stays alive because CF1 refs it.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Put(0, "key2", DummyString(128)));     // seq 3, in W2
+  ASSERT_OK(Put(1, "anchor2", DummyString(128)));  // seq 4, in W2
+
+  // Flush default CF again -> rotates WAL again. W2 stays alive (CF1 refs it).
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Put(0, "key3", DummyString(128)));  // seq 5, in W3
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // The iterator is caught up at the end of W1 and two rotations have
+  // happened. It walks W2 first, then W3 on the next end-of-file, delivering
+  // every batch in between exactly once.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  seen.clear();
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key2)Put(anchor2)Put(key3)", seen);
+  ASSERT_EQ(6U, next_seq);
+  ASSERT_OK(iter->status());
+}
+
+// LastSequence() advancing means writes were accepted, not that they are in a
+// WAL. A write with disableWAL therefore leaves a hole, and a hole at the tail
+// is exactly what the continuity check declines.
+TEST_F(DBWalIteratorTest, FastRotation_DisableWalHoleAtTail_Declines) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  DestroyAndReopen(options);
+
+  WriteOptions no_wal;
+  no_wal.disableWAL = true;
+
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 1, in the first WAL
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  SequenceNumber next_seq = 1;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)", seen);
+  ASSERT_OK(iter->status());
+
+  // Rotate, then leave a hole: seq 2 reaches no WAL, so the new WAL starts at
+  // seq 3 and cannot continue a run that stopped after seq 1.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128), no_wal));  // seq 2, not in the WAL
+  ASSERT_OK(Put("key3", DummyString(128)));          // seq 3, in the new WAL
+  ASSERT_OK(db_->FlushWAL(false));
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+TEST_F(DBWalIteratorTest, FastRotation_PurgedSuccessor_Declines) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  // Obsolete WALs are deleted outright rather than archived, so that the
+  // successor really is gone rather than merely moved.
+  options.WAL_ttl_seconds = 0;
+  options.WAL_size_limit_MB = 0;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 1, in W1
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  SequenceNumber next_seq = 1;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)", seen);
+  ASSERT_OK(iter->status());
+
+  // Hold off deletion so that the WAL numbers can be observed before the
+  // purge, which is what makes the assertions below exact.
+  ASSERT_OK(db_->DisableFileDeletions());
+
+  // Rotate twice, writing to each new WAL, so that the WAL immediately after
+  // the iterator's is itself obsolete by the end.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));  // seq 2, in W2
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key3", DummyString(128)));  // seq 3, in W3
+  ASSERT_OK(db_->FlushWAL(false));
+
+  VectorLogPtr wals;
+  ASSERT_OK(db_->GetSortedWalFiles(wals));
+  ASSERT_EQ(3U, wals.size());
+  const uint64_t successor_wal = wals[1]->LogNumber();
+  const uint64_t newest_wal = wals[2]->LogNumber();
+  ASSERT_EQ(2U, wals[1]->StartSequence());
+
+  ASSERT_OK(db_->EnableFileDeletions());
+  dbfull()->TEST_DeleteObsoleteFiles();
+
+  // Only the newest WAL is left. In particular the successor holding seq 2 is
+  // gone, so the only WAL the fast path can find starts at seq 3 and the
+  // continuity check must decline it.
+  ASSERT_OK(db_->GetSortedWalFiles(wals));
+  ASSERT_EQ(1U, wals.size());
+  ASSERT_EQ(newest_wal, wals[0]->LogNumber());
+  ASSERT_NE(successor_wal, wals[0]->LogNumber());
+  ASSERT_EQ(3U, wals[0]->StartSequence());
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+TEST_F(DBWalIteratorTest, FastRotation_OptInOff_PreservesBehavior) {
+  // Default options: wal_iterator_tail_rotations is false
+  Options options = OptionsForLogIterTest();
+  ASSERT_FALSE(options.wal_iterator_tail_rotations);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", DummyString(128)));
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  // Caught up, not end of file.
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Rotate and write to the new WAL
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Without the opt-in, a rotation always ends the run.
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+// The successor WAL exists but nothing has reached it on disk yet. With
+// manual_wal_flush this is exact rather than a race: no record is written to
+// the file until FlushWAL().
+TEST_F(DBWalIteratorTest, FastRotation_SuccessorNotYetOnDisk_Declines) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  options.manual_wal_flush = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 1
+  ASSERT_OK(db_->FlushWAL(false));
+
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  SequenceNumber next_seq = 1;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)", seen);
+  ASSERT_EQ(2U, next_seq);
+  ASSERT_OK(iter->status());
+
+  // Rotate, then write without flushing: the successor WAL exists and is
+  // empty, while LastSequence() has moved past what the iterator delivered.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));  // seq 2, still buffered
+  ASSERT_EQ(2U, dbfull()->GetLatestSequenceNumber());
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+
+  // Once the record is on disk, a rebuilt iterator picks up the run where the
+  // spent one left off.
+  ASSERT_OK(db_->FlushWAL(false));
+  auto iter2 = OpenWalIter(next_seq);
+  ASSERT_TRUE(iter2->Valid());
+  std::string seen2;
+  DrainContiguous(iter2, &next_seq, &seen2);
+  ASSERT_EQ("Put(key2)", seen2);
+  ASSERT_EQ(3U, next_seq);
+  ASSERT_OK(iter2->status());
+}
+
+TEST_F(DBWalIteratorTest, FastRotation_WalCompression) {
+  if (!StreamingCompressionTypeSupported(kZSTD)) {
+    ROCKSDB_GTEST_BYPASS("ZSTD streaming compression not supported");
+    return;
+  }
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  options.wal_compression = kZSTD;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 1
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+  SequenceNumber next_seq = 1;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)", seen);
+  ASSERT_OK(iter->status());
+
+  // A compressed WAL with a record in it reads back normally, so the fast path
+  // works as it does without compression.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  ASSERT_OK(Put("key2", DummyString(128)));  // seq 2, in W2
+  ASSERT_OK(db_->FlushWAL(false));
+  iter->Next();
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  seen.clear();
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key2)", seen);
+  ASSERT_EQ(3U, next_seq);
+  ASSERT_OK(iter->status());
+
+  // With compression a newly created WAL is not byte-empty: it holds a
+  // kSetCompressionType record, for which ReadFirstLine() reports the sentinel
+  // sequence number 1. That sentinel is not the sequence number this run needs
+  // next, so the fast path declines rather than trusting it.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+  WriteOptions no_wal;
+  no_wal.disableWAL = true;
+  ASSERT_OK(Put("key3", DummyString(128), no_wal));  // seq 3, not in any WAL
+  ASSERT_OK(db_->FlushWAL(false));
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+// SyncPoint callbacks only fire in debug builds, and the file is compiled in
+// release builds too, so these tests have to be guarded.
+#ifndef NDEBUG
+TEST_F(DBWalIteratorTest, FastRotation_SequenceGap_Declines) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 1
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+  // Open the iterator before the sync point is active.
+  auto iter = OpenWalIter(0);
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_OK(Put("key2", DummyString(128)));  // seq 2, in the new WAL
+  ASSERT_OK(db_->FlushWAL(false));
+
+  // Perturb the first sequence number reported for the successor WAL, as if an
+  // intermediate WAL had been skipped. The continuity check must reject it.
+  SyncPoint::GetInstance()->SetCallBack(
+      "WalManager::PrepareWalForTail:AfterReadFirst", [](void* arg) {
+        auto* seq = static_cast<SequenceNumber*>(arg);
+        if (*seq > 0) {
+          *seq = *seq + 100;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  // Deliver key1, then try to cross into the successor WAL.
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+}
+
+// A recycled WAL starts life holding the bytes of a previous WAL. Those stale
+// records carry the old WAL's log number, and PrepareWalForTail() must not
+// report one of them as the successor's first sequence number.
+TEST_F(DBWalIteratorTest, FastRotation_RecycledSuccessor_IgnoresStaleRecords) {
+  Options options = OptionsForLogIterTest();
+  options.wal_iterator_tail_rotations = true;
+  options.recycle_log_file_num = 1;
+  // Obsolete WALs have to go on the recycle list rather than the archive, and
+  // SanitizeOptions() turns recycling off entirely under the default recovery
+  // mode, so both of these are needed for recycling to happen at all.
+  options.WAL_ttl_seconds = 0;
+  options.WAL_size_limit_MB = 0;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  // Lets the successor WAL be written to without anything reaching the file,
+  // so that it still holds nothing but the recycled file's stale bytes when
+  // the iterator consults it. WriteOptions::disableWAL, used elsewhere for
+  // this, is rejected when recycling is on.
+  options.manual_wal_flush = true;
+  DestroyAndReopen(options);
+
+  // Fill the recycle list: this flush makes the WAL holding "stale" obsolete,
+  // and it is kept for reuse with its records still in it.
+  ASSERT_OK(Put("stale", DummyString(128)));  // seq 1
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+  ASSERT_OK(Put("key1", DummyString(128)));  // seq 2, in the second WAL
+  ASSERT_OK(db_->FlushWAL(false));
+
+  auto iter = OpenWalIter(2);
+  ASSERT_TRUE(iter->Valid());
+  SequenceNumber next_seq = 2;
+  std::string seen;
+  DrainContiguous(iter, &next_seq, &seen);
+  ASSERT_EQ("Put(key1)", seen);
+  ASSERT_EQ(3U, next_seq);
+  ASSERT_OK(iter->status());
+
+  // Rotate. The new WAL is created by renaming the recycled file, so it starts
+  // out holding the "stale" record.
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
+
+  // Pin that setup: a WAL nothing has been written to would be empty on disk
+  // had it not been recycled.
+  std::unique_ptr<WalFile> current_wal;
+  ASSERT_OK(db_->GetCurrentWalFile(&current_wal));
+  uint64_t recycled_bytes = 0;
+  ASSERT_OK(
+      env_->GetFileSize(dbname_ + current_wal->PathName(), &recycled_bytes));
+  ASSERT_GT(recycled_bytes, 0U);
+
+  // Advance LastSequence() without anything reaching the successor WAL.
+  ASSERT_OK(Put("key2", DummyString(128)));  // seq 3, still buffered
+  ASSERT_EQ(3U, dbfull()->GetLatestSequenceNumber());
+
+  std::vector<SequenceNumber> first_seqs_seen;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WalManager::PrepareWalForTail:AfterReadFirst", [&](void* arg) {
+        first_seqs_seen.push_back(*static_cast<SequenceNumber*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+  // The point of the test: the stale record's sequence number (1) was not
+  // reported as the successor's first sequence number. The successor is seen
+  // as having no readable record yet, because log::Reader is given the new WAL
+  // number and treats the old incarnation's records as end of file.
+  ASSERT_EQ(1U, first_seqs_seen.size());
+  ASSERT_EQ(0U, first_seqs_seen[0]);
+
+  // And the stale record is not delivered as data either: once the buffered
+  // record is on disk, a rebuilt iterator continues the run with it.
+  ASSERT_OK(db_->FlushWAL(false));
+  auto iter2 = OpenWalIter(next_seq);
+  ASSERT_TRUE(iter2->Valid());
+  std::string seen2;
+  DrainContiguous(iter2, &next_seq, &seen2);
+  ASSERT_EQ("Put(key2)", seen2);
+  ASSERT_EQ(4U, next_seq);
+  ASSERT_OK(iter2->status());
+}
+#endif  // NDEBUG
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

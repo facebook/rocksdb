@@ -20,24 +20,25 @@
 /* BlockBasedOptions simple */
 
 void rocksdb_block_based_options_set_data_block_hash_ratio(
-    rocksdb_block_based_table_options_t* options, double v) {
+    rocksdb_block_based_table_options_t* options,
+    double v) {
   options->rep.data_block_hash_table_util_ratio = v;
 }
 
 void rocksdb_block_based_options_set_top_level_index_pinning_tier(
-    rocksdb_block_based_table_options_t* options, int v) {
-  options->rep.metadata_cache_options.top_level_index_pinning =
-      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+    rocksdb_block_based_table_options_t* options,
+    int v) {
+  options->rep.metadata_cache_options.top_level_index_pinning = static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }
 
 void rocksdb_block_based_options_set_partition_pinning_tier(
-    rocksdb_block_based_table_options_t* options, int v) {
-  options->rep.metadata_cache_options.partition_pinning =
-      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+    rocksdb_block_based_table_options_t* options,
+    int v) {
+  options->rep.metadata_cache_options.partition_pinning = static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }
 
 void rocksdb_block_based_options_set_unpartitioned_pinning_tier(
-    rocksdb_block_based_table_options_t* options, int v) {
-  options->rep.metadata_cache_options.unpartitioned_pinning =
-      static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
+    rocksdb_block_based_table_options_t* options,
+    int v) {
+  options->rep.metadata_cache_options.unpartitioned_pinning = static_cast<ROCKSDB_NAMESPACE::PinningTier>(v);
 }

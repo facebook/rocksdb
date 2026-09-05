@@ -103,7 +103,8 @@ Status WalManager::GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos,
 Status WalManager::GetUpdatesSince(SequenceNumber seq,
                                    std::unique_ptr<WalIterator>* iter,
                                    const WalIterator::ReadOptions& read_options,
-                                   VersionSet* version_set) {
+                                   VersionSet* version_set,
+                                   NextWalForTailFn next_wal_for_tail_fn) {
   if (seq_per_batch_) {
     return Status::NotSupported();
   }
@@ -123,10 +124,55 @@ Status WalManager::GetUpdatesSince(SequenceNumber seq,
   if (!s.ok()) {
     return s;
   }
-  iter->reset(new WalIteratorImpl(wal_dir_, &db_options_, read_options,
-                                  file_options_, seq, std::move(wal_files),
-                                  version_set, seq_per_batch_, io_tracer_));
+  iter->reset(new WalIteratorImpl(
+      wal_dir_, &db_options_, read_options, file_options_, seq,
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_,
+      std::move(next_wal_for_tail_fn)));
   return (*iter)->status();
+}
+
+Status WalManager::PrepareWalForTail(uint64_t wal_number,
+                                     std::unique_ptr<WalFile>* next_wal,
+                                     SequenceNumber* first_seq) {
+  assert(next_wal != nullptr);
+  assert(first_seq != nullptr);
+  *first_seq = 0;
+  const std::string fname = LogFileName(wal_dir_, wal_number);
+
+  uint64_t size_bytes = 0;
+  Status s = env_->GetFileSize(fname, &size_bytes);
+  if (s.IsNotFound() || s.IsPathNotFound()) {
+    return Status::TryAgain("WAL is no longer in the DB directory");
+  } else if (!s.ok()) {
+    return s;
+  }
+
+  // Read the first sequence directly from disk (bypassing
+  // read_first_record_cache_). The cache uses insert-not-overwrite semantics,
+  // so if the WAL was probed while still empty (e.g. with wal_compression
+  // returning the sentinel value 1), the stale entry would permanently block
+  // the fast path for this WAL number. Reading fresh avoids that.
+  //
+  // ReadFirstLine() passes wal_number down to log::Reader, so records left over
+  // from a previous incarnation of a recycled file carry a different log number
+  // and are treated as end-of-file rather than reported as this WAL's first
+  // sequence number.
+  s = ReadFirstLine(fname, wal_number, first_seq);
+  TEST_SYNC_POINT_CALLBACK("WalManager::PrepareWalForTail:AfterReadFirst",
+                           first_seq);
+  if (s.IsNotFound() || s.IsPathNotFound()) {
+    // The WAL was removed between the size check and the read.
+    return Status::TryAgain("WAL is no longer in the DB directory");
+  } else if (!s.ok()) {
+    return s;
+  }
+  if (*first_seq == 0) {
+    return Status::TryAgain("WAL has no readable record yet");
+  }
+
+  next_wal->reset(
+      new WalFileImpl(wal_number, kAliveLogFile, *first_seq, size_bytes));
+  return Status::OK();
 }
 
 // 1. Go through all archived files and

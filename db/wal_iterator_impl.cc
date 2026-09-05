@@ -18,7 +18,8 @@ WalIteratorImpl::WalIteratorImpl(
     const WalIterator::ReadOptions& read_options, const EnvOptions& soptions,
     const SequenceNumber seq, std::unique_ptr<VectorWalPtr> files,
     VersionSet const* const versions, [[maybe_unused]] const bool seq_per_batch,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    const std::shared_ptr<IOTracer>& io_tracer,
+    NextWalForTailFn next_wal_for_tail_fn)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -27,6 +28,7 @@ WalIteratorImpl::WalIteratorImpl(
       files_(std::move(files)),
       versions_(versions),
       io_tracer_(io_tracer),
+      next_wal_for_tail_fn_(std::move(next_wal_for_tail_fn)),
       started_(false),
       is_valid_(false),
       current_file_index_(0),
@@ -215,18 +217,61 @@ void WalIteratorImpl::NextImpl(bool internal) {
         return;
       }
     } else {
-      is_valid_ = false;
       if (current_last_seq_ == versions_->LastSequence()) {
         // Caught up. Not an error: the caller may call Next() again later to
         // pick up writes that have not happened yet.
+        is_valid_ = false;
         current_status_ = Status::OK();
-      } else {
-        // The DB has moved on but this iterator's set of WAL files is
-        // exhausted, typically because the WAL was rotated after the file
-        // list was collected. The caller must build a new iterator.
-        const char* msg = "Create a new iterator to fetch the new tail.";
-        current_status_ = Status::TryAgain(msg);
+        return;
       }
+      // We have read everything in files_ but the DB's LastSequence() is
+      // beyond it. All that tells us is that writes were accepted after the
+      // last one we delivered -- a WAL rotation is the common cause, but not
+      // the only one, since WriteOptions::disableWAL and IngestExternalFile()
+      // also advance the sequence number without writing a WAL record.
+      //
+      // So we do not assume a successor WAL exists or that it continues from
+      // here. We ask for one, and only continue the run if its first record
+      // picks up exactly where we left off; anything else declines below and
+      // ends the run, leaving the caller to rebuild. started_ is required
+      // because before it we have not delivered a record yet, so there is no
+      // sequence number to check continuity against.
+      if (started_ && next_wal_for_tail_fn_) {
+        std::unique_ptr<WalFile> next_wal;
+        SequenceNumber first_seq = 0;
+        Status s = next_wal_for_tail_fn_(files_->back()->LogNumber(), &next_wal,
+                                         &first_seq);
+        if (!s.ok() && !s.IsTryAgain()) {
+          // A real error, as opposed to "no WAL to continue with right now".
+          is_valid_ = false;
+          current_status_ = s;
+          return;
+        }
+        if (s.ok() && first_seq == current_last_seq_ + 1) {
+          // Open before publishing: on failure the iterator must be left
+          // exactly as it was so that the fall-through below still describes
+          // its state.
+          Status open_s = OpenLogReader(next_wal.get());
+          if (!open_s.ok()) {
+            is_valid_ = false;
+            current_status_ = open_s;
+            return;
+          }
+          // Drop the WAL files we have already read past. Safe because the
+          // iterator only ever moves forward from current_file_index_ and
+          // never revisits an earlier entry.
+          files_->clear();
+          files_->push_back(std::move(next_wal));
+          current_file_index_ = 0;
+          continue;  // Re-enter the read loop on the new WAL
+        }
+      }
+      // The DB has moved on but this iterator's set of WAL files is
+      // exhausted, typically because the WAL was rotated after the file
+      // list was collected. The caller must build a new iterator.
+      is_valid_ = false;
+      current_status_ =
+          Status::TryAgain("Create a new iterator to fetch the new tail.");
       return;
     }
   }

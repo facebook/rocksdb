@@ -8,6 +8,7 @@
 
 #include "db/log_reader.h"
 #include "db/version_set.h"
+#include "db/wal_manager.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "options/db_options.h"
@@ -61,7 +62,8 @@ class WalIteratorImpl : public WalIterator {
                   const EnvOptions& soptions, const SequenceNumber seqNum,
                   std::unique_ptr<VectorWalPtr> files,
                   VersionSet const* const versions, const bool seq_per_batch,
-                  const std::shared_ptr<IOTracer>& io_tracer);
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  NextWalForTailFn next_wal_for_tail_fn = nullptr);
 
   bool Valid() override;
 
@@ -82,6 +84,10 @@ class WalIteratorImpl : public WalIterator {
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
   std::shared_ptr<IOTracer> io_tracer_;
+  // Used at the tail of files_ to look for a WAL beyond the ones this iterator
+  // was built with. Null when DBOptions::wal_iterator_tail_rotations is off,
+  // in which case running out of files_ always ends the run.
+  NextWalForTailFn next_wal_for_tail_fn_;
 
   // State variables
   bool started_;

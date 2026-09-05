@@ -20,60 +20,62 @@
 
 /* FlushJobInfo */
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_flushjobinfo_cf_id(const rocksdb_flushjobinfo_t* info);
-
-extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_cf_name(
-    const rocksdb_flushjobinfo_t* info, size_t* size);
-
-extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_file_path(
-    const rocksdb_flushjobinfo_t* info, size_t* size);
-
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_flushjobinfo_file_number(const rocksdb_flushjobinfo_t* info);
-
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_flushjobinfo_oldest_blob_file_number(
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_flushjobinfo_cf_id(
     const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_flushjobinfo_thread_id(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_cf_name(
+    const rocksdb_flushjobinfo_t* info,
+    size_t* size);
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_file_path(
+    const rocksdb_flushjobinfo_t* info,
+    size_t* size);
+
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_flushjobinfo_file_number(
+    const rocksdb_flushjobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_flushjobinfo_oldest_blob_file_number(
+    const rocksdb_flushjobinfo_t* info);
+
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_flushjobinfo_thread_id(
+    const rocksdb_flushjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_flushjobinfo_job_id(
     const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_flushjobinfo_triggered_writes_slowdown(
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushjobinfo_triggered_writes_slowdown(
     const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_flushjobinfo_triggered_writes_stop(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_flushjobinfo_triggered_writes_stop(
+    const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_flushjobinfo_smallest_seqno(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_flushjobinfo_smallest_seqno(
+    const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_flushjobinfo_largest_seqno(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_flushjobinfo_largest_seqno(
+    const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_flushjobinfo_flush_reason(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_flushjobinfo_flush_reason(
+    const rocksdb_flushjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_flushjobinfo_blob_compression_type(const rocksdb_flushjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_flushjobinfo_blob_compression_type(
+    const rocksdb_flushjobinfo_t* info);
 
 /* CompactionJobInfo */
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_compactionjobinfo_cf_id(const rocksdb_compactionjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_compactionjobinfo_cf_id(
+    const rocksdb_compactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionjobinfo_cf_name(
-    const rocksdb_compactionjobinfo_t* info, size_t* size);
+    const rocksdb_compactionjobinfo_t* info,
+    size_t* size);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionjobinfo_status(
-    const rocksdb_compactionjobinfo_t* info, char** errptr);
+    const rocksdb_compactionjobinfo_t* info,
+    char** errptr);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_compactionjobinfo_thread_id(const rocksdb_compactionjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionjobinfo_thread_id(
+    const rocksdb_compactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_compactionjobinfo_job_id(
     const rocksdb_compactionjobinfo_t* info);
@@ -90,11 +92,10 @@ extern ROCKSDB_LIBRARY_API int rocksdb_compactionjobinfo_output_level(
 extern ROCKSDB_LIBRARY_API uint32_t rocksdb_compactionjobinfo_compaction_reason(
     const rocksdb_compactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_compactionjobinfo_compression(const rocksdb_compactionjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_compactionjobinfo_compression(
+    const rocksdb_compactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_compactionjobinfo_blob_compression_type(
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_compactionjobinfo_blob_compression_type(
     const rocksdb_compactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionjobinfo_aborted(
@@ -102,14 +103,16 @@ extern ROCKSDB_LIBRARY_API unsigned char rocksdb_compactionjobinfo_aborted(
 
 /* SubcompactionJobInfo */
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_subcompactionjobinfo_cf_id(const rocksdb_subcompactionjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_subcompactionjobinfo_cf_id(
+    const rocksdb_subcompactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API const char* rocksdb_subcompactionjobinfo_cf_name(
-    const rocksdb_subcompactionjobinfo_t* info, size_t* size);
+    const rocksdb_subcompactionjobinfo_t* info,
+    size_t* size);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_subcompactionjobinfo_status(
-    const rocksdb_subcompactionjobinfo_t* info, char** errptr);
+    const rocksdb_subcompactionjobinfo_t* info,
+    char** errptr);
 
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_subcompactionjobinfo_thread_id(
     const rocksdb_subcompactionjobinfo_t* info);
@@ -117,8 +120,7 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_subcompactionjobinfo_thread_id(
 extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_job_id(
     const rocksdb_subcompactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API int
-rocksdb_subcompactionjobinfo_subcompaction_job_id(
+extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_subcompaction_job_id(
     const rocksdb_subcompactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_base_input_level(
@@ -127,51 +129,50 @@ extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_base_input_level(
 extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_output_level(
     const rocksdb_subcompactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_subcompactionjobinfo_compaction_reason(
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_subcompactionjobinfo_compaction_reason(
     const rocksdb_subcompactionjobinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API uint32_t rocksdb_subcompactionjobinfo_compression(
     const rocksdb_subcompactionjobinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint32_t
-rocksdb_subcompactionjobinfo_blob_compression_type(
+extern ROCKSDB_LIBRARY_API uint32_t rocksdb_subcompactionjobinfo_blob_compression_type(
     const rocksdb_subcompactionjobinfo_t* info);
 
 /* ExternalFileIngestionInfo */
 
-extern ROCKSDB_LIBRARY_API const char*
-rocksdb_externalfileingestioninfo_cf_name(
-    const rocksdb_externalfileingestioninfo_t* info, size_t* size);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_externalfileingestioninfo_cf_name(
+    const rocksdb_externalfileingestioninfo_t* info,
+    size_t* size);
 
-extern ROCKSDB_LIBRARY_API const char*
-rocksdb_externalfileingestioninfo_external_file_path(
-    const rocksdb_externalfileingestioninfo_t* info, size_t* size);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_externalfileingestioninfo_external_file_path(
+    const rocksdb_externalfileingestioninfo_t* info,
+    size_t* size);
 
-extern ROCKSDB_LIBRARY_API const char*
-rocksdb_externalfileingestioninfo_internal_file_path(
-    const rocksdb_externalfileingestioninfo_t* info, size_t* size);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_externalfileingestioninfo_internal_file_path(
+    const rocksdb_externalfileingestioninfo_t* info,
+    size_t* size);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_externalfileingestioninfo_global_seqno(
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_externalfileingestioninfo_global_seqno(
     const rocksdb_externalfileingestioninfo_t* info);
 
 /* MemTableInfo */
 
 extern ROCKSDB_LIBRARY_API const char* rocksdb_memtableinfo_cf_name(
-    const rocksdb_memtableinfo_t* info, size_t* size);
+    const rocksdb_memtableinfo_t* info,
+    size_t* size);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_memtableinfo_first_seqno(const rocksdb_memtableinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_memtableinfo_first_seqno(
+    const rocksdb_memtableinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_memtableinfo_earliest_seqno(const rocksdb_memtableinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_memtableinfo_earliest_seqno(
+    const rocksdb_memtableinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_memtableinfo_num_entries(const rocksdb_memtableinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_memtableinfo_num_entries(
+    const rocksdb_memtableinfo_t* info);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_memtableinfo_num_deletes(const rocksdb_memtableinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_memtableinfo_num_deletes(
+    const rocksdb_memtableinfo_t* info);
 
 extern ROCKSDB_LIBRARY_API const char* rocksdb_memtableinfo_newest_udt(
-    const rocksdb_memtableinfo_t* info, size_t* size);
+    const rocksdb_memtableinfo_t* info,
+    size_t* size);
