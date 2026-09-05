@@ -1346,6 +1346,10 @@ DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
             "decision for deleted keys.");
 
+DEFINE_bool(use_keep_stream_aggregation, false,
+            "If true, configures a keep-all StreamAggregation and uses full "
+            "ranges for CompactRange operations.");
+
 DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");

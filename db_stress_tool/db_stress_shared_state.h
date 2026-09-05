@@ -54,6 +54,7 @@ DECLARE_int32(inject_error_severity);
 DECLARE_bool(tolerate_non_injected_io_errors_for_remote_dbs);
 DECLARE_bool(disable_auto_compactions);
 DECLARE_bool(enable_compaction_filter);
+DECLARE_bool(use_keep_stream_aggregation);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;

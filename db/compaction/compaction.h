@@ -78,6 +78,8 @@ class Version;
 class ColumnFamilyData;
 class VersionStorageInfo;
 class CompactionFilter;
+class StreamAggregation;
+class StreamAggregationFactory;
 
 // A Compaction encapsulates metadata about a compaction.
 class Compaction {
@@ -330,6 +332,14 @@ class Compaction {
 
   // Create a CompactionFilter from compaction_filter_factory
   std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
+
+  bool HasStreamAggregation() const {
+    return immutable_options_.stream_aggregation_factory != nullptr;
+  }
+
+  bool ShouldUseStreamAggregation() const;
+
+  std::unique_ptr<StreamAggregation> CreateStreamAggregation() const;
 
   // Create a SstPartitioner from sst_partitioner_factory
   std::unique_ptr<SstPartitioner> CreateSstPartitioner() const;

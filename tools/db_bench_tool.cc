@@ -70,6 +70,7 @@
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/stream_aggregation.h"
 #include "rocksdb/table.h"
 #include "rocksdb/tool_hooks.h"
 #include "rocksdb/utilities/backup_engine.h"
@@ -936,6 +937,10 @@ DEFINE_bool(read_cache_direct_read, true,
             "Whether to use Direct IO for reading from read cache");
 
 DEFINE_bool(use_keep_filter, false, "Whether to use a noop compaction filter");
+
+DEFINE_bool(use_keep_stream_aggregation, false,
+            "Whether to use a keep-all StreamAggregation for full "
+            "compactions");
 
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
@@ -3817,6 +3822,28 @@ class Benchmark {
     const char* Name() const override { return "KeepFilter"; }
   };
 
+  class KeepStreamAggregation : public StreamAggregation {
+   public:
+    Status Aggregate(const std::vector<Input>& inputs, size_t* num_consumed,
+                     std::vector<OutputSegment>* outputs) override {
+      *num_consumed = inputs.size();
+      outputs->clear();
+      outputs->emplace_back();
+      outputs->back().input_end = inputs.size();
+      return Status::OK();
+    }
+  };
+
+  class KeepStreamAggregationFactory : public StreamAggregationFactory {
+   public:
+    const char* Name() const override { return "KeepStreamAggregationFactory"; }
+
+    std::unique_ptr<StreamAggregation> Create(
+        const Context& /*context*/) const override {
+      return std::make_unique<KeepStreamAggregation>();
+    }
+  };
+
   static std::shared_ptr<MemoryAllocator> GetCacheAllocator() {
     std::shared_ptr<MemoryAllocator> allocator;
 
@@ -6020,6 +6047,11 @@ class Benchmark {
         options.file_checksum_gen_factory.reset(
             new FileChecksumGenCrc32cFactory());
       }
+    }
+
+    if (FLAGS_use_keep_stream_aggregation) {
+      options.stream_aggregation_factory =
+          std::make_shared<KeepStreamAggregationFactory>();
     }
 
     if (FLAGS_num_multi_db <= 1) {
