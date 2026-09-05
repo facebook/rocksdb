@@ -213,6 +213,11 @@ class GetContext {
 
   void ReportCounters();
 
+  // Add per-level MultiGet details to the totals and reset them for reuse.
+  void AccumulateMultiGetStats(uint64_t* num_filter_read,
+                               uint64_t* num_index_read,
+                               uint64_t* num_sst_read);
+
   bool has_callback() const { return callback_ != nullptr; }
 
   const Slice& ukey_to_get_blob_value() const {

@@ -64,6 +64,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Report detailed I/O statistics accumulated while reading one level.
+void ReportMultiGetLevelStats(Statistics* statistics,
+                              uint64_t num_filter_read,
+                              uint64_t num_index_read, uint64_t num_sst_read);
+
 namespace log {
 class Writer;
 }

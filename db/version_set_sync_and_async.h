@@ -280,13 +280,8 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
       }
     }
     batch_size++;
-    num_index_read += get_context.get_context_stats_.num_index_read;
-    num_filter_read += get_context.get_context_stats_.num_filter_read;
-    num_sst_read += get_context.get_context_stats_.num_sst_read;
-    // Reset these stats since they're specific to a level
-    get_context.get_context_stats_.num_index_read = 0;
-    get_context.get_context_stats_.num_filter_read = 0;
-    get_context.get_context_stats_.num_sst_read = 0;
+    get_context.AccumulateMultiGetStats(&num_filter_read, &num_index_read,
+                                        &num_sst_read);
 
     // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
@@ -571,14 +566,9 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
             (prev_level != 0 && prev_level != (int)fp.GetHitFileLevel())) {
           // Dump the stats if the search has moved to the next level and
           // reset for next level.
-          if (num_filter_read + num_index_read) {
-            RecordInHistogram(db_statistics_,
-                              NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                              num_index_read + num_filter_read);
-          }
+          ReportMultiGetLevelStats(db_statistics_, num_filter_read,
+                                   num_index_read, num_sst_read);
           if (num_sst_read) {
-            RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL,
-                              num_sst_read);
             num_level_read++;
           }
           num_filter_read = 0;
@@ -590,13 +580,9 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
     }
 
     // Dump stats for most recent level
-    if (num_filter_read + num_index_read) {
-      RecordInHistogram(db_statistics_,
-                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                        num_index_read + num_filter_read);
-    }
+    ReportMultiGetLevelStats(db_statistics_, num_filter_read, num_index_read,
+                             num_sst_read);
     if (num_sst_read) {
-      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
       num_level_read++;
     }
     if (num_level_read) {
