@@ -1449,6 +1449,364 @@ TEST_F(WriteBatchTest, CommitWithTimestamp) {
             handler.seen);
 }
 
+// Scatter-gather (zero-copy) append API tests.
+
+TEST_F(WriteBatchTest, ScatterGatherBasicEquivalence) {
+  // Verify that a batch built entirely from SG appends produces the exact
+  // same serialized representation as an equivalent non-SG batch.
+  const std::string k1 = "alpha";
+  const std::string v1 = "one";
+  const std::string k2 = "beta";
+  const std::string k3 = "gamma";
+  const std::string v3 = "three";
+  const std::string k4 = "delta";
+  const std::string v4 = "four";
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put(k1, v1));
+  ASSERT_OK(reference.Delete(k2));
+  ASSERT_OK(reference.Merge(k3, v3));
+  ASSERT_OK(reference.SingleDelete(k4));
+
+  WriteBatch sg;
+  ASSERT_FALSE(sg.HasPendingSG());
+  ASSERT_OK(sg.PutSG(k1, v1));
+  ASSERT_TRUE(sg.HasPendingSG());
+  ASSERT_OK(sg.DeleteSG(k2));
+  ASSERT_OK(sg.MergeSG(k3, v3));
+  ASSERT_OK(sg.SingleDeleteSG(k4));
+  ASSERT_TRUE(sg.HasPendingSG());
+
+  // Count and HasXxx are updated eagerly without materialization.
+  ASSERT_EQ(4u, sg.Count());
+  ASSERT_TRUE(sg.HasPut());
+  ASSERT_TRUE(sg.HasDelete());
+  ASSERT_TRUE(sg.HasMerge());
+  ASSERT_TRUE(sg.HasSingleDelete());
+
+  // Calling Data() forces materialization; after that the two batches
+  // must have identical serialized content.
+  ASSERT_EQ(reference.Data(), sg.Data());
+  ASSERT_FALSE(sg.HasPendingSG());
+  ASSERT_EQ(reference.GetDataSize(), sg.GetDataSize());
+
+  // And InsertInto reproduces the same observable effect.
+  ASSERT_EQ(PrintContents(&reference), PrintContents(&sg));
+}
+
+TEST_F(WriteBatchTest, ScatterGatherLazyMaterialization) {
+  WriteBatch batch;
+  ASSERT_OK(batch.PutSG("k1", "v1"));
+  ASSERT_OK(batch.PutSG("k2", "v2"));
+
+  // Count/HasPut/rep_ header count work without materialization.
+  ASSERT_EQ(2u, batch.Count());
+  ASSERT_EQ(2u, WriteBatchInternal::Count(&batch));
+  ASSERT_TRUE(batch.HasPendingSG());
+  ASSERT_TRUE(batch.HasPut());
+
+  // Explicit materialization releases the pending state.
+  batch.MaterializeSG();
+  ASSERT_FALSE(batch.HasPendingSG());
+  ASSERT_EQ(2u, batch.Count());
+
+  // Idempotent.
+  batch.MaterializeSG();
+  ASSERT_FALSE(batch.HasPendingSG());
+}
+
+TEST_F(WriteBatchTest, ScatterGatherMixedWithRegularAppend) {
+  // Interleaving SG and non-SG appends: non-SG entries land in rep_ and
+  // are emitted first; SG entries are emitted after rep_ in their
+  // insertion order. See WriteBatch::PutSG documentation in
+  // include/rocksdb/write_batch.h for the ordering invariant.
+  WriteBatch sg;
+  ASSERT_OK(sg.PutSG("a", "1"));
+  ASSERT_OK(sg.Put("b", "2"));
+  ASSERT_OK(sg.PutSG("c", "3"));
+  ASSERT_OK(sg.Delete("d"));
+
+  // Expected serialization order after materialization: b, d (from rep_)
+  // followed by a, c (from sg_entries_ in insertion order).
+  WriteBatch reference;
+  ASSERT_OK(reference.Put("b", "2"));
+  ASSERT_OK(reference.Delete("d"));
+  ASSERT_OK(reference.Put("a", "1"));
+  ASSERT_OK(reference.Put("c", "3"));
+
+  ASSERT_EQ(reference.Data(), sg.Data());
+  ASSERT_EQ(4u, sg.Count());
+  ASSERT_EQ(PrintContents(&reference), PrintContents(&sg));
+}
+
+TEST_F(WriteBatchTest, ScatterGatherClearDropsPending) {
+  WriteBatch batch;
+  ASSERT_OK(batch.PutSG("k", "v"));
+  ASSERT_TRUE(batch.HasPendingSG());
+  batch.Clear();
+  ASSERT_FALSE(batch.HasPendingSG());
+  ASSERT_EQ(0u, batch.Count());
+  ASSERT_EQ("", PrintContents(&batch));
+}
+
+TEST_F(WriteBatchTest, ScatterGatherRollbackAfterMaterialize) {
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("kept", "v"));
+  batch.SetSavePoint();
+  ASSERT_OK(batch.PutSG("rolled_back", "rb"));
+  ASSERT_OK(batch.MergeSG("rolled_back2", "rb2"));
+  ASSERT_EQ(3u, batch.Count());
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_FALSE(batch.HasPendingSG());
+  ASSERT_EQ(1u, batch.Count());
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put("kept", "v"));
+  ASSERT_EQ(reference.Data(), batch.Data());
+}
+
+TEST_F(WriteBatchTest, ScatterGatherCopyAndMove) {
+  WriteBatch batch;
+  ASSERT_OK(batch.PutSG("a", "1"));
+  ASSERT_OK(batch.DeleteSG("b"));
+
+  // Copy construction keeps the entries pending but they still point at
+  // the same caller-owned buffers.
+  WriteBatch copy(batch);
+  ASSERT_EQ(2u, copy.Count());
+  ASSERT_EQ(batch.Data(), copy.Data());
+  ASSERT_EQ(PrintContents(&batch), PrintContents(&copy));
+
+  WriteBatch source;
+  ASSERT_OK(source.PutSG("m", "n"));
+  WriteBatch moved(std::move(source));
+  ASSERT_EQ(1u, moved.Count());
+  ASSERT_EQ(PrintContents(&moved), "Put(m, n)@0");
+}
+
+TEST_F(WriteBatchTest, ScatterGatherAppendBetweenBatches) {
+  WriteBatch dst;
+  WriteBatch src;
+  ASSERT_OK(src.PutSG("a", "1"));
+  ASSERT_OK(src.PutSG("b", "2"));
+  ASSERT_OK(WriteBatchInternal::Append(&dst, &src));
+  ASSERT_EQ(2u, dst.Count());
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put("a", "1"));
+  ASSERT_OK(reference.Put("b", "2"));
+  ASSERT_EQ(reference.Data(), dst.Data());
+}
+
+TEST_F(WriteBatchTest, ScatterGatherMaxBytesEnforced) {
+  WriteBatch batch(0 /* reserved */, 64 /* max_bytes */);
+  // Large value that blows the budget on its own.
+  std::string big(128, 'x');
+  ASSERT_TRUE(batch.PutSG("key", big).IsMemoryLimit());
+  ASSERT_EQ(0u, batch.Count());
+  ASSERT_FALSE(batch.HasPendingSG());
+}
+
+TEST_F(WriteBatchTest, ScatterGatherWithProtectionInfo) {
+  // When the batch has per-key-value protection enabled, the SG path
+  // must populate the protection info at materialization time so that
+  // VerifyChecksum() succeeds.
+  WriteBatch batch(0 /* reserved */, 0 /* max_bytes */,
+                   8 /* protection_bytes_per_key */, 0 /* default_cf_ts_sz */);
+  ASSERT_OK(batch.PutSG("k1", "v1"));
+  ASSERT_OK(batch.MergeSG("k2", "v2"));
+  ASSERT_OK(batch.DeleteSG("k3"));
+  ASSERT_OK(batch.VerifyChecksum());
+  ASSERT_FALSE(batch.HasPendingSG());
+}
+
+namespace {
+std::string ConcatSlices(const std::vector<Slice>& slices) {
+  std::string out;
+  for (const Slice& s : slices) {
+    out.append(s.data(), s.size());
+  }
+  return out;
+}
+}  // namespace
+
+TEST_F(WriteBatchTest, GatherForWalMatchesMaterialized) {
+  // The scatter-gather WAL gather must yield byte-identical output to
+  // the materialized rep_.
+  const std::string k1 = "alpha";
+  const std::string v1 = "one";
+  const std::string k2 = "beta";
+  const std::string k3 = "gamma";
+  const std::string v3 = "three";
+  const std::string k4 = "delta";
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put(k1, v1));
+  ASSERT_OK(reference.Delete(k2));
+  ASSERT_OK(reference.Merge(k3, v3));
+  ASSERT_OK(reference.SingleDelete(k4));
+
+  WriteBatch sg;
+  ASSERT_OK(sg.PutSG(k1, v1));
+  ASSERT_OK(sg.DeleteSG(k2));
+  ASSERT_OK(sg.MergeSG(k3, v3));
+  ASSERT_OK(sg.SingleDeleteSG(k4));
+  ASSERT_TRUE(sg.HasPendingSG());
+
+  WriteBatchInternal::WalGather gather;
+  WriteBatchInternal::GatherForWAL(&sg, &gather);
+  // Gather must not have materialized the pending entries.
+  ASSERT_TRUE(sg.HasPendingSG());
+  ASSERT_EQ(reference.Data(), ConcatSlices(gather.slices));
+  ASSERT_EQ(reference.Data().size(), gather.total_bytes);
+  // And the gathered view should contain more than one slice when SG
+  // entries are pending (otherwise we gained nothing).
+  ASSERT_GT(gather.slices.size(), 1u);
+}
+
+TEST_F(WriteBatchTest, GatherForWalSingleSliceWhenNoSg) {
+  WriteBatch b;
+  ASSERT_OK(b.Put("k", "v"));
+  WriteBatchInternal::WalGather gather;
+  WriteBatchInternal::GatherForWAL(&b, &gather);
+  ASSERT_EQ(1u, gather.slices.size());
+  ASSERT_EQ(b.Data().size(), gather.total_bytes);
+  ASSERT_EQ(b.Data(), ConcatSlices(gather.slices));
+}
+
+TEST_F(WriteBatchTest, GatherForWalWithColumnFamilyId) {
+  // Exercise the CF-id (non-default) encoding path in the gather.
+  ColumnFamilyHandleImplDummy cf7(7);
+  ColumnFamilyHandleImplDummy cf42(42);
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put(&cf7, "k", "v"));
+  ASSERT_OK(reference.Delete(&cf42, "k2"));
+  ASSERT_OK(reference.Merge(&cf7, "k3", "v3"));
+  ASSERT_OK(reference.SingleDelete(&cf42, "k4"));
+
+  WriteBatch sg;
+  ASSERT_OK(sg.PutSG(&cf7, "k", "v"));
+  ASSERT_OK(sg.DeleteSG(&cf42, "k2"));
+  ASSERT_OK(sg.MergeSG(&cf7, "k3", "v3"));
+  ASSERT_OK(sg.SingleDeleteSG(&cf42, "k4"));
+  ASSERT_TRUE(sg.HasPendingSG());
+
+  WriteBatchInternal::WalGather gather;
+  WriteBatchInternal::GatherForWAL(&sg, &gather);
+  ASSERT_TRUE(sg.HasPendingSG());  // gather did not materialize
+  ASSERT_EQ(reference.Data(), ConcatSlices(gather.slices));
+}
+
+TEST_F(WriteBatchTest, IterateEmitsSgWithoutMaterializing) {
+  // Custom handler that records callbacks and verifies that the slices
+  // it sees point directly at caller buffers, not a materialized rep_.
+  struct RecordingHandler : public WriteBatch::Handler {
+    std::vector<std::string> seen;
+    const char* expected_value_ptr = nullptr;
+    bool value_ptr_matched = false;
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
+      seen.push_back("Put(" + std::to_string(cf) + "," + key.ToString() + "," +
+                     value.ToString() + ")");
+      if (expected_value_ptr != nullptr &&
+          value.data() == expected_value_ptr) {
+        value_ptr_matched = true;
+      }
+      return Status::OK();
+    }
+    Status DeleteCF(uint32_t cf, const Slice& key) override {
+      seen.push_back("Delete(" + std::to_string(cf) + "," + key.ToString() +
+                     ")");
+      return Status::OK();
+    }
+    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+      seen.push_back("SD(" + std::to_string(cf) + "," + key.ToString() + ")");
+      return Status::OK();
+    }
+    Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
+      seen.push_back("Merge(" + std::to_string(cf) + "," + key.ToString() +
+                     "," + value.ToString() + ")");
+      return Status::OK();
+    }
+  };
+
+  std::string k1 = "alpha";
+  std::string v1 = "one";
+  std::string k2 = "beta";
+  WriteBatch sg;
+  ASSERT_OK(sg.PutSG(k1, v1));
+  ASSERT_OK(sg.DeleteSG(k2));
+  ASSERT_TRUE(sg.HasPendingSG());
+
+  RecordingHandler h;
+  h.expected_value_ptr = v1.data();
+  ASSERT_OK(sg.Iterate(&h));
+  // Iterate must have invoked the handler for both SG entries.
+  ASSERT_EQ(2u, h.seen.size());
+  ASSERT_EQ("Put(0,alpha,one)", h.seen[0]);
+  ASSERT_EQ("Delete(0,beta)", h.seen[1]);
+  // The value Slice the handler saw must reference the caller buffer,
+  // proving we bypassed rep_ materialization.
+  ASSERT_TRUE(h.value_ptr_matched);
+  // Iterate must not have materialized.
+  ASSERT_TRUE(sg.HasPendingSG());
+}
+
+TEST_F(WriteBatchTest, AppendPreservesScatterGather) {
+  // Two pure-SG batches merged should end up as one pure-SG batch
+  // (no materialization forced by Append), and the resulting WAL
+  // gather must match a reference non-SG merged batch byte-for-byte.
+  WriteBatch src1;
+  ASSERT_OK(src1.PutSG("a", "1"));
+  ASSERT_OK(src1.DeleteSG("b"));
+
+  WriteBatch src2;
+  ASSERT_OK(src2.MergeSG("c", "3"));
+  ASSERT_OK(src2.SingleDeleteSG("d"));
+
+  WriteBatch dst;
+  ASSERT_OK(WriteBatchInternal::Append(&dst, &src1));
+  ASSERT_OK(WriteBatchInternal::Append(&dst, &src2));
+  ASSERT_EQ(4u, dst.Count());
+  // src1 and src2 should not have been materialized by Append.
+  ASSERT_TRUE(src1.HasPendingSG());
+  ASSERT_TRUE(src2.HasPendingSG());
+  // And dst should carry the merged SG entries without materialization.
+  ASSERT_TRUE(dst.HasPendingSG());
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put("a", "1"));
+  ASSERT_OK(reference.Delete("b"));
+  ASSERT_OK(reference.Merge("c", "3"));
+  ASSERT_OK(reference.SingleDelete("d"));
+
+  WriteBatchInternal::WalGather gather;
+  WriteBatchInternal::GatherForWAL(&dst, &gather);
+  ASSERT_EQ(reference.Data(), ConcatSlices(gather.slices));
+}
+
+TEST_F(WriteBatchTest, AppendMixedFallsBackToMaterialize) {
+  // If src has rep-body content AND dst has pending SG entries, Append
+  // must materialize dst first (otherwise src's body would land ahead
+  // of dst's SG entries in the serialized order).
+  WriteBatch dst;
+  ASSERT_OK(dst.PutSG("first", "fv"));
+  ASSERT_TRUE(dst.HasPendingSG());
+
+  WriteBatch src;  // pure rep-body
+  ASSERT_OK(src.Put("second", "sv"));
+
+  ASSERT_OK(WriteBatchInternal::Append(&dst, &src));
+  // dst must have been materialized; the merge forced it.
+  ASSERT_FALSE(dst.HasPendingSG());
+
+  WriteBatch reference;
+  ASSERT_OK(reference.Put("first", "fv"));
+  ASSERT_OK(reference.Put("second", "sv"));
+  ASSERT_EQ(reference.Data(), dst.Data());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
