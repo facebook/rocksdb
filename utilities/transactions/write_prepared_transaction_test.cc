@@ -2091,7 +2091,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
 
   released = false;
   snap_seq = snap1->GetSequenceNumber();
-  // Invaid snapshot lower than max
+  // Invalid snapshot lower than max
   ASSERT_LE(snap_seq + 1, wp_db->max_evicted_seq_);
   ASSERT_TRUE(
       wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
@@ -2106,7 +2106,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   ASSERT_FALSE(released);
 
   released = false;
-  // Invaid snapshot lower than max
+  // Invalid snapshot lower than max
   ASSERT_TRUE(
       wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
@@ -2121,7 +2121,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
   ASSERT_TRUE(released);
 
   released = false;
-  // Invaid snapshot lower than max
+  // Invalid snapshot lower than max
   ASSERT_TRUE(
       wp_db->IsInSnapshot(seq, snap_seq + 1, min_uncommitted, &released));
   ASSERT_TRUE(released);
