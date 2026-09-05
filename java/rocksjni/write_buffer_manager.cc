@@ -33,6 +33,158 @@ jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
 
 /*
  * Class:     org_rocksdb_WriteBufferManager
+ * Method:    enabled
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteBufferManager_enabled(JNIEnv* /*env*/,
+                                                      jclass /*jcls*/,
+                                                      jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jboolean>((*write_buffer_manager)->enabled());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    costToCache
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteBufferManager_costToCache(JNIEnv* /*env*/,
+                                                         jclass /*jcls*/,
+                                                         jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jboolean>((*write_buffer_manager)->cost_to_cache());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    memoryUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_memoryUsage(JNIEnv* /*env*/,
+                                                      jclass /*jcls*/,
+                                                      jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jlong>((*write_buffer_manager)->memory_usage());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    mutableMemtableMemoryUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_mutableMemtableMemoryUsage(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jlong>(
+      (*write_buffer_manager)->mutable_memtable_memory_usage());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    dummyEntriesInCacheUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_dummyEntriesInCacheUsage(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jlong>(
+      (*write_buffer_manager)->dummy_entries_in_cache_usage());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    bufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_bufferSize(JNIEnv* /*env*/,
+                                                     jclass /*jcls*/,
+                                                     jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jlong>((*write_buffer_manager)->buffer_size());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    setBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_WriteBufferManager_setBufferSize(JNIEnv* /*env*/,
+                                                       jclass /*jcls*/,
+                                                       jlong jhandle,
+                                                       jlong jbuffer_size) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  (*write_buffer_manager)->SetBufferSize(static_cast<size_t>(jbuffer_size));
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    setAllowStall
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteBufferManager_setAllowStall(JNIEnv* /*env*/,
+                                                       jclass /*jcls*/,
+                                                       jlong jhandle,
+                                                       jboolean jallow_stall) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  (*write_buffer_manager)->SetAllowStall(static_cast<bool>(jallow_stall));
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    isStallActive
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteBufferManager_isStallActive(JNIEnv* /*env*/,
+                                                           jclass /*jcls*/,
+                                                           jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jboolean>((*write_buffer_manager)->IsStallActive());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    isStallThresholdExceeded
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteBufferManager_isStallThresholdExceeded(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jboolean>(
+      (*write_buffer_manager)->IsStallThresholdExceeded());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
  * Method:    disposeInternal
  * Signature: (J)V
  */
