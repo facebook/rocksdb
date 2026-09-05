@@ -97,6 +97,7 @@ class DBCrashTestTest(unittest.TestCase):
     def build_params(self, base_params, overrides=None):
         params = dict(base_params)
         params["db"] = self.test_tmpdir
+        params["wbm_flush_policy"] = 0
         if overrides:
             params.update(overrides)
         return params
@@ -178,6 +179,30 @@ class DBCrashTestTest(unittest.TestCase):
                 for arg in first_command
             )
         )
+
+    def test_wbm_flush_policy_coverage(self):
+        db_crashtest = self.load_db_crashtest()
+        for policy in db_crashtest._WBM_FLUSH_POLICIES:
+            params = self.build_params(
+                db_crashtest.default_params,
+                {
+                    "cache_size": 8 * 1024 * 1024,
+                    "db_write_buffer_size": 1024 * 1024,
+                    "num_dbs": 1,
+                    "use_write_buffer_manager": 1,
+                    "wbm_flush_policy": policy,
+                },
+            )
+
+            command, _ = db_crashtest.gen_cmd(params, [])
+
+            self.assertIn(f"--wbm_flush_policy={policy}", command)
+            expected_num_dbs = (
+                2
+                if policy == db_crashtest._WBM_FLUSH_LARGEST_ACROSS_DBS
+                else 1
+            )
+            self.assertIn(f"--num_dbs={expected_num_dbs}", command)
 
     def test_cache_and_write_buffer_size_multiplier_respects_write_buffer_minimum(
         self,

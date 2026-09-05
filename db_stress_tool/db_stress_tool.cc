@@ -121,6 +121,14 @@ int db_stress_tool(int argc, char** argv) {
   RegisterDbStressBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
 
+  if (FLAGS_wbm_flush_policy <
+          static_cast<int32_t>(WriteBufferFlushPolicy::kFlushOldest) ||
+      FLAGS_wbm_flush_policy >
+          static_cast<int32_t>(
+              WriteBufferFlushPolicy::kFlushLargestAcrossDBs)) {
+    return ReturnValidationError("--wbm_flush_policy must be 0, 1, or 2");
+  }
+
   SanitizeDoubleParam(&FLAGS_bloom_bits);
   SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
   SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
@@ -628,8 +636,9 @@ int db_stress_tool(int argc, char** argv) {
   block_cache =
       StressTest::NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits);
   if (FLAGS_use_write_buffer_manager) {
-    wbm = std::make_shared<WriteBufferManager>(FLAGS_db_write_buffer_size,
-                                               block_cache);
+    wbm = std::make_shared<WriteBufferManager>(
+        FLAGS_db_write_buffer_size, block_cache, false /* allow_stall */,
+        static_cast<WriteBufferFlushPolicy>(FLAGS_wbm_flush_policy));
   }
   if (FLAGS_rate_limiter_bytes_per_sec > 0) {
     rate_limiter.reset(NewGenericRateLimiter(

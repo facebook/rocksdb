@@ -54,6 +54,8 @@ REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER = 2
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
 _REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
 _MIN_WRITE_BUFFER_SIZE = 64 * 1024
+_WBM_FLUSH_POLICIES = (0, 1, 2)
+_WBM_FLUSH_LARGEST_ACROSS_DBS = 2
 
 
 def get_random_seed(override):
@@ -442,6 +444,7 @@ default_params = {
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
     "use_write_buffer_manager": lambda: random.randint(0, 1),
+    "wbm_flush_policy": lambda: random.choice(_WBM_FLUSH_POLICIES),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
     "write_identity_file": random.randint(0, 1),
@@ -1533,6 +1536,10 @@ def finalize_and_sanitize(src_params):
     if dest_params["use_write_buffer_manager"]:
         if dest_params["cache_size"] <= 0 or dest_params["db_write_buffer_size"] <= 0:
             dest_params["use_write_buffer_manager"] = 0
+    if not dest_params["use_write_buffer_manager"]:
+        dest_params["wbm_flush_policy"] = 0
+    elif dest_params["wbm_flush_policy"] == _WBM_FLUSH_LARGEST_ACROSS_DBS:
+        dest_params["num_dbs"] = max(dest_params.get("num_dbs", 1), 2)
     if (
         dest_params["user_timestamp_size"] > 0
         and dest_params["persist_user_defined_timestamps"] == 0

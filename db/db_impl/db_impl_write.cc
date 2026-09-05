@@ -2126,12 +2126,31 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     }
   }
 
+  bool deferred_flush_to_another_db = false;
   if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
+    // Let a larger DB flush first. Do not hold mutex_: registry locks precede
+    // DB locks.
+    deferred_flush_to_another_db =
+        write_buffer_manager_->flush_policy() ==
+            WriteBufferFlushPolicy::kFlushLargestAcrossDBs &&
+        write_buffer_manager_->InitiateFlushOnLargestDB(
+            wbm_flush_initiator_.get());
+    if (!deferred_flush_to_another_db) {
+      InstrumentedMutexLock l(&mutex_);
+      WaitForPendingWrites();
+      status = HandleWriteBufferManagerFlush(write_context);
+    }
+  }
+
+  // Before parking, seal locally so a failed deferred flush cannot deadlock the
+  // shared WBM stall.
+  if (UNLIKELY(status.ok() && deferred_flush_to_another_db &&
+               write_buffer_manager_->ShouldStall())) {
     InstrumentedMutexLock l(&mutex_);
     WaitForPendingWrites();
     status = HandleWriteBufferManagerFlush(write_context);
@@ -2722,25 +2741,14 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
-    ColumnFamilyData* cfd_picked = nullptr;
-    SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
-
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (!cfd->mem()->IsEmpty() && !cfd->imm()->IsFlushPendingOrRunning()) {
-        // We only consider flush on CFs with bytes in the mutable memtable,
-        // and no immutable memtables for which flush has yet to finish. If
-        // we triggered flush on CFs already trying to flush, we would risk
-        // creating too many immutable memtables leading to write stalls.
-        uint64_t seq = cfd->mem()->GetCreationSeq();
-        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-          cfd_picked = cfd;
-          seq_num_for_cf_picked = seq;
-        }
-      }
-    }
+    const WriteBufferFlushPolicy policy = write_buffer_manager_->flush_policy();
+    // Cross-DB selection still flushes the largest CF within the chosen DB.
+    const bool flush_largest =
+        policy == WriteBufferFlushPolicy::kFlushLargest ||
+        policy == WriteBufferFlushPolicy::kFlushLargestAcrossDBs;
+    const FlushableCFs flushable = CollectFlushableCFs();
+    ColumnFamilyData* cfd_picked =
+        flush_largest ? flushable.largest : flushable.oldest;
     if (cfd_picked != nullptr) {
       cfds.push_back(cfd_picked);
     }
