@@ -147,6 +147,10 @@ class InternalStats {
     // So we should improve, rename or clarify it
     kIntStatsWriteStallMicros,
     kIntStatsWriteBufferManagerLimitStopsCounts,
+    // Time writers spent blocked by the WriteBufferManager limit. Tracked
+    // separately because `kIntStatsWriteStallMicros` covers only CF-scope
+    // stalls (see the TODO above).
+    kIntStatsWriteBufferManagerStallMicros,
     kIntStatsNumMax,
   };
 
@@ -694,6 +698,7 @@ class InternalStats {
                              uint64_t* total_stall_count = nullptr);
 
   Cache* GetBlockCacheForStats();
+  WriteBufferManager* GetWriteBufferManagerForStats();
   Cache* GetBlobCacheForStats();
 
   // Per-DB stats
@@ -902,6 +907,14 @@ class InternalStats {
   bool HandleIsWriteStopped(uint64_t* value, DBImpl* db, Version* version);
   bool HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleWriteBufferManagerMemoryUsage(uint64_t* value, DBImpl* db,
+                                           Version* version);
+  bool HandleWriteBufferManagerMutableMemoryUsage(uint64_t* value, DBImpl* db,
+                                                  Version* version);
+  bool HandleWriteBufferManagerBufferSize(uint64_t* value, DBImpl* db,
+                                          Version* version);
+  bool HandleWriteBufferManagerStallActive(uint64_t* value, DBImpl* db,
+                                           Version* version);
   bool HandleBlockCacheCapacity(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,

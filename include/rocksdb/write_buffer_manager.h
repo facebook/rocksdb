@@ -23,6 +23,16 @@
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
 
+// Selects which mutable memtable to flush when the WBM exceeds its limit.
+enum class WriteBufferFlushPolicy {
+  // Flush the oldest mutable memtable; this is the historical default.
+  kFlushOldest,
+  // Flush the largest mutable memtable in the current DB.
+  kFlushLargest,
+  // Flush the DB that would reclaim the most memory among all sharing this WBM.
+  kFlushLargestAcrossDBs,
+};
+
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
@@ -32,6 +42,27 @@ class StallInterface {
   virtual void Block() = 0;
 
   virtual void Signal() = 0;
+};
+
+// Internal adapter for selecting and flushing a DB sharing a WBM.
+class FlushInitiator {
+ public:
+  FlushInitiator() = default;
+  virtual ~FlushInitiator() = default;
+
+  // Registry entries are raw pointers, so initiators must not move.
+  FlushInitiator(const FlushInitiator&) = delete;
+  FlushInitiator& operator=(const FlushInitiator&) = delete;
+  FlushInitiator(FlushInitiator&&) = delete;
+  FlushInitiator& operator=(FlushInitiator&&) = delete;
+
+  // Returns reclaimable bytes, or zero if this DB cannot flush. Called with the
+  // registry mutex held; implementations may acquire only the DB mutex.
+  virtual size_t GetFlushableMemUsage() = 0;
+
+  // Ensures a flush is in flight. Must not block on the DB write thread or
+  // reacquire the registry mutex; false makes the caller flush itself.
+  virtual bool ScheduleFlush() = 0;
 };
 
 class WriteBufferManager final {
@@ -47,9 +78,14 @@ class WriteBufferManager final {
   // allow_stall: if set true, it will enable stalling of writes when
   // memory_usage() exceeds buffer_size. It will wait for flush to complete and
   // memory usage to drop down.
+  //
   explicit WriteBufferManager(size_t _buffer_size,
                               std::shared_ptr<Cache> cache = {},
                               bool allow_stall = false);
+
+  // flush_policy belongs to this shared manager, not serialized DBOptions.
+  WriteBufferManager(size_t _buffer_size, std::shared_ptr<Cache> cache,
+                     bool allow_stall, WriteBufferFlushPolicy flush_policy);
   // No copying allowed
   WriteBufferManager(const WriteBufferManager&) = delete;
   WriteBufferManager& operator=(const WriteBufferManager&) = delete;
@@ -93,6 +129,15 @@ class WriteBufferManager final {
   void SetAllowStall(bool new_allow_stall) {
     allow_stall_.store(new_allow_stall, std::memory_order_relaxed);
     MaybeEndWriteStall();
+  }
+
+  // Returns the policy used for WBM-triggered flushes.
+  WriteBufferFlushPolicy flush_policy() const {
+    return flush_policy_.load(std::memory_order_relaxed);
+  }
+
+  void SetFlushPolicy(WriteBufferFlushPolicy new_flush_policy) {
+    flush_policy_.store(new_flush_policy, std::memory_order_relaxed);
   }
 
   // Below functions should be called by RocksDB internally.
@@ -159,6 +204,14 @@ class WriteBufferManager final {
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
+  // Internal registry for DBs sharing this manager.
+  void RegisterFlushInitiator(FlushInitiator* initiator);
+  void DeregisterFlushInitiator(FlushInitiator* initiator);
+
+  // Flushes a larger peer and returns true; false means `self` must flush.
+  // Must not be called while holding the caller's DB mutex.
+  bool InitiateFlushOnLargestDB(FlushInitiator* self);
+
  private:
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
@@ -176,6 +229,11 @@ class WriteBufferManager final {
   // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
   // while holding mu_, but it can be read without a lock.
   std::atomic<bool> stall_active_;
+  std::atomic<WriteBufferFlushPolicy> flush_policy_;
+
+  // DBs participating in kFlushLargestAcrossDBs.
+  std::list<FlushInitiator*> flush_initiators_;
+  std::mutex flush_initiators_mu_;
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);

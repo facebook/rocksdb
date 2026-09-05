@@ -3305,8 +3305,9 @@ TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   });
   FlushOptions flush_opts;
   flush_opts.allow_write_stall = true;
-  ASSERT_OK(dbfull()->TEST_AtomicFlushMemTables({cfd_default, cfd_pikachu},
-                                                flush_opts));
+  ASSERT_OK(dbfull()->TEST_AtomicFlushMemTables(
+      {cfd_default, cfd_pikachu}, flush_opts,
+      false /* non_blocking_write_thread */));
   drop_cf_thr.join();
   Close();
   SyncPoint::GetInstance()->DisableProcessing();

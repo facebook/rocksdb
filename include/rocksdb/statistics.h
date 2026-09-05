@@ -677,6 +677,11 @@ enum Tickers : uint32_t {
   // logical value size minus the bytes actually read.
   BLOB_DB_LAZY_PARTIAL_BYTES_SAVED,
 
+  // Time (microseconds) writers spent blocked by the WriteBufferManager's
+  // memory limit. This is NOT counted by STALL_MICROS, which only covers
+  // WriteController (column-family scope) stalls.
+  WRITE_BUFFER_MANAGER_STALL_MICROS,
+
   TICKER_ENUM_MAX
 };
 
