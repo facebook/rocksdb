@@ -646,6 +646,7 @@ class BatchedOpsStressTest : public StressTest {
     }
 
     uint64_t count = 0;
+    bool error_injected = false;
 
     while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
       ++count;
@@ -655,8 +656,24 @@ class BatchedOpsStressTest : public StressTest {
       // get list of all values for this iteration
       for (size_t i = 0; i < num_prefixes; ++i) {
         // no iterator should finish before the first one
-        assert(iters[i]->Valid() &&
-               iters[i]->key().starts_with(prefix_slices[i]));
+        if (!iters[i]->Valid() ||
+            !iters[i]->key().starts_with(prefix_slices[i])) {
+          // An injected IO error can cause an iterator to become invalid
+          // before others (e.g. secondary_cache_fault_one_in). Confirm the
+          // failure carries the injected-error marker (rather than swallowing
+          // any non-OK status, which would mask a genuine consistency bug) and
+          // stop the scan instead of asserting a false consistency failure.
+          const Status& iter_status = iters[i]->status();
+          if (!iter_status.ok() && IsErrorInjectedAndRetryable(iter_status)) {
+            error_injected = true;
+            break;
+          }
+          fprintf(stderr,
+                  "prefix scan error: iterator %" ROCKSDB_PRIszt
+                  " finished before iterator 0, prefix %s\n",
+                  i, prefix_slices[i].ToString(/* hex */ true).c_str());
+          assert(false);
+        }
 
         if (ro_copies[i].allow_unprepared_value) {
           // Save key in case PrepareValue fails and invalidates the iterator
@@ -713,14 +730,33 @@ class BatchedOpsStressTest : public StressTest {
 
         iters[i]->Next();
       }
+
+      if (error_injected) {
+        break;
+      }
     }
 
     // cleanup iterators and snapshot
+    if (!error_injected) {
+      // An injected IO error on any iterator's last Next() only surfaces on the
+      // following outer iteration, which never runs once iterator 0 finishes.
+      // Check every iterator's status (not just iterator 0) so we skip the
+      // cleanup assertions when any iterator hit a fault-injected error.
+      for (size_t i = 0; i < num_prefixes; ++i) {
+        const Status& iter_status = iters[i]->status();
+        if (!iter_status.ok() && IsErrorInjectedAndRetryable(iter_status)) {
+          error_injected = true;
+          break;
+        }
+      }
+    }
     for (size_t i = 0; i < num_prefixes; ++i) {
-      // if the first iterator finished, they should have all finished
-      assert(!iters[i]->Valid() ||
-             !iters[i]->key().starts_with(prefix_slices[i]));
-      DB_STRESS_ASSERT_OK(iters[i]->status());
+      if (!error_injected) {
+        // if the first iterator finished, they should have all finished
+        assert(!iters[i]->Valid() ||
+               !iters[i]->key().starts_with(prefix_slices[i]));
+        DB_STRESS_ASSERT_OK(iters[i]->status());
+      }
     }
 
     db_->ReleaseSnapshot(snapshot);
