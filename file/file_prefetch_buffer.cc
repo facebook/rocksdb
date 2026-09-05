@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
+#include <exception>
 
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
@@ -21,6 +23,74 @@
 #include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+FilePrefetchBuffer::~FilePrefetchBuffer() {
+  // Abort any pending async read request before destroying the class object.
+  // Both successful AbortIO and Poll calls guarantee callbacks have finished.
+  // If AbortIO fails, Poll all handles before releasing callback state and
+  // buffers. If Poll also fails, continuing destruction cannot be made safe:
+  // the filesystem API has no way to transfer ownership of the pending
+  // callbacks, which refer to this object and its buffers.
+  if (fs_ != nullptr) {
+    std::vector<BufferInfo*> bufs_with_io_handles;
+    for (BufferInfo* buf : bufs_) {
+      if (buf->io_handle_ != nullptr) {
+        bufs_with_io_handles.emplace_back(buf);
+      }
+    }
+    Status abort_status = AbortAllIOs();
+    if (!abort_status.ok()) {
+      Status poll_status = PollAllIOs();
+      if (!poll_status.ok()) {
+        std::fprintf(
+            stderr,
+            "FilePrefetchBuffer could not finish pending asynchronous I/O: "
+            "AbortIO failed with %s; Poll failed with %s\n",
+            abort_status.ToString().c_str(), poll_status.ToString().c_str());
+        std::terminate();
+      }
+    }
+    for (BufferInfo* buf : bufs_with_io_handles) {
+      buf->ClearBuffer();
+    }
+  }
+
+  // Prefetch buffer bytes discarded.
+  uint64_t bytes_discarded = 0;
+  // Iterated over buffers.
+  for (auto& buf : bufs_) {
+    if (buf->DoesBufferContainData()) {
+      // If last read was from this block and some bytes are still unconsumed.
+      if (prev_offset_ >= buf->offset_ &&
+          prev_offset_ + prev_len_ < buf->offset_ + buf->CurrentSize()) {
+        bytes_discarded +=
+            buf->CurrentSize() - (prev_offset_ + prev_len_ - buf->offset_);
+      }
+      // If last read was from previous blocks and this block is unconsumed.
+      else if (prev_offset_ < buf->offset_ &&
+               prev_offset_ + prev_len_ <= buf->offset_) {
+        bytes_discarded += buf->CurrentSize();
+      }
+    }
+  }
+
+  RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
+
+  for (auto& buf : bufs_) {
+    delete buf;
+    buf = nullptr;
+  }
+
+  for (auto& buf : free_bufs_) {
+    delete buf;
+    buf = nullptr;
+  }
+
+  if (overlap_buf_ != nullptr) {
+    delete overlap_buf_;
+    overlap_buf_ = nullptr;
+  }
+}
 
 void FilePrefetchBuffer::PrepareBufferForRead(
     BufferInfo* buf, size_t alignment, uint64_t offset, size_t roundup_len,
@@ -141,6 +211,8 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
                                      RandomAccessFileReader* reader,
                                      uint64_t read_len, uint64_t start_offset) {
   TEST_SYNC_POINT("FilePrefetchBuffer::ReadAsync");
+  assert(!buf->async_read_in_progress_);
+  buf->ResetAsyncReadStatus();
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
                       std::placeholders::_1, std::placeholders::_2);
@@ -159,7 +231,17 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
     if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
       RecordTick(stats_, PREFETCH_BYTES, read_len);
     }
-    buf->async_read_in_progress_ = true;
+    if (buf->io_handle_ == nullptr) {
+      // The default ReadAsync implementation completes synchronously and does
+      // not create a handle. Its callback has already populated the status.
+      IOStatus async_read_status = buf->TakeAsyncReadStatus();
+      if (!async_read_status.ok()) {
+        buf->ClearBuffer();
+        return async_read_status;
+      }
+    } else {
+      buf->async_read_in_progress_ = true;
+    }
   } else if (s.IsNotSupported()) {
     // Async IO is not available (e.g., io_uring failed to initialize).
     // Fall back to synchronous read so the buffer is populated inline
@@ -174,6 +256,24 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
     }
   }
   return s;
+}
+
+Status FilePrefetchBuffer::CleanupAfterAsyncReadFailure(
+    BufferInfo* buf, Status async_read_status) {
+  assert(!bufs_.empty());
+  assert(buf == GetLastBuffer());
+  DestroyAndClearIOHandle(buf);
+  FreeLastBuffer();
+
+  // A multi-buffer prefetch can have earlier requests in flight when a later
+  // submission fails. Cancel them so an error return does not leave a partial
+  // prefetch operation active.
+  Status abort_status = AbortAllIOs();
+  if (!abort_status.ok()) {
+    return abort_status;
+  }
+  FreeEmptyBuffers();
+  return async_read_status;
 }
 
 Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
@@ -259,7 +359,7 @@ void FilePrefetchBuffer::CopyDataToOverlapBuffer(BufferInfo* src,
 // Clear the buffers if it contains outdated data. Outdated data can be because
 // previous sequential reads were read from the cache instead of these buffer.
 // In that case outdated IOs should be aborted.
-void FilePrefetchBuffer::AbortOutdatedIO(uint64_t offset) {
+Status FilePrefetchBuffer::AbortOutdatedIO(uint64_t offset) {
   std::vector<void*> handles;
   std::vector<BufferInfo*> tmp_buf;
   for (auto& buf : bufs_) {
@@ -272,7 +372,9 @@ void FilePrefetchBuffer::AbortOutdatedIO(uint64_t offset) {
   if (!handles.empty()) {
     StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
     Status s = fs_->AbortIO(handles);
-    assert(s.ok());
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   for (auto& buf : tmp_buf) {
@@ -282,9 +384,10 @@ void FilePrefetchBuffer::AbortOutdatedIO(uint64_t offset) {
     }
     buf->ClearBuffer();
   }
+  return Status::OK();
 }
 
-void FilePrefetchBuffer::AbortAllIOs() {
+Status FilePrefetchBuffer::AbortAllIOs() {
   std::vector<void*> handles;
   for (auto& buf : bufs_) {
     if (buf->async_read_in_progress_ && buf->io_handle_ != nullptr) {
@@ -294,7 +397,9 @@ void FilePrefetchBuffer::AbortAllIOs() {
   if (!handles.empty()) {
     StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
     Status s = fs_->AbortIO(handles);
-    assert(s.ok());
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   for (auto& buf : bufs_) {
@@ -302,7 +407,34 @@ void FilePrefetchBuffer::AbortAllIOs() {
       DestroyAndClearIOHandle(buf);
     }
     buf->async_read_in_progress_ = false;
+    buf->ResetAsyncReadStatus();
   }
+  return Status::OK();
+}
+
+Status FilePrefetchBuffer::PollAllIOs() {
+  std::vector<void*> handles;
+  for (auto& buf : bufs_) {
+    if (buf->async_read_in_progress_ && buf->io_handle_ != nullptr) {
+      handles.emplace_back(buf->io_handle_);
+    }
+  }
+  if (!handles.empty()) {
+    StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
+    Status s = fs_->Poll(handles, handles.size());
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  for (auto& buf : bufs_) {
+    if (buf->io_handle_ != nullptr && buf->del_fn_ != nullptr) {
+      DestroyAndClearIOHandle(buf);
+    }
+    buf->async_read_in_progress_ = false;
+    buf->ResetAsyncReadStatus();
+  }
+  return Status::OK();
 }
 
 // Clear the buffers if it contains outdated data wrt offset. Outdated data can
@@ -312,7 +444,7 @@ void FilePrefetchBuffer::AbortAllIOs() {
 // offset - the offset requested to be read. This API makes sure that the
 // front/first buffer in bufs_ should contain this offset, otherwise, all
 // buffers will be freed.
-void FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
+Status FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
   while (!IsBufferQueueEmpty()) {
     BufferInfo* buf = GetFirstBuffer();
     // Offset is greater than this buffer's end offset.
@@ -324,18 +456,19 @@ void FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
   }
 
   if (IsBufferQueueEmpty() || NumBuffersAllocated() == 1) {
-    return;
+    return Status::OK();
   }
 
   BufferInfo* buf = GetFirstBuffer();
 
   if (buf->async_read_in_progress_) {
     FreeEmptyBuffers();
-    return;
+    return Status::OK();
   }
 
   // Below handles the case for Overlapping buffers (NumBuffersAllocated > 1).
   bool abort_io = false;
+  bool clear_first_buffer = false;
 
   if (buf->DoesBufferContainData() && buf->IsOffsetInBuffer(offset)) {
     BufferInfo* next_buf = bufs_[1];
@@ -348,12 +481,18 @@ void FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
   } else {
     // buffer with offset doesn't contain data or offset doesn't lie in this
     // buffer.
-    buf->ClearBuffer();
+    clear_first_buffer = true;
     abort_io = true;
   }
 
   if (abort_io) {
-    AbortAllIOs();
+    Status s = AbortAllIOs();
+    if (!s.ok()) {
+      return s;
+    }
+    if (clear_first_buffer) {
+      buf->ClearBuffer();
+    }
     // Clear all buffers after first.
     for (size_t i = 1; i < bufs_.size(); ++i) {
       bufs_[i]->ClearBuffer();
@@ -361,6 +500,7 @@ void FilePrefetchBuffer::ClearOutdatedData(uint64_t offset, size_t length) {
   }
   FreeEmptyBuffers();
   assert(IsBufferQueueEmpty() || buf->IsOffsetInBuffer(offset));
+  return Status::OK();
 }
 
 Status FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
@@ -379,9 +519,8 @@ Status FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
       TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::PollIfNeeded:IOStatus",
                                &io_s);
       if (!io_s.ok()) {
-        // On Poll failure, clean up the handle and abort.
-        // DestroyAndClearIOHandle also sets async_read_in_progress_ to false.
-        DestroyAndClearIOHandle(buf);
+        // Poll failure does not guarantee completion. Keep the handle and
+        // buffer alive so a later abort or poll can safely finish the request.
         return io_s;
       }
     }
@@ -389,12 +528,19 @@ Status FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
     // Reset and Release io_handle after the Poll API as request has been
     // completed.
     DestroyAndClearIOHandle(buf);
+
+    IOStatus async_read_status = buf->TakeAsyncReadStatus();
+    if (!async_read_status.ok()) {
+      // Do not retain partial data from a failed read. A later request can
+      // safely retry after this status has been returned to the caller.
+      buf->ClearBuffer();
+      return async_read_status;
+    }
   }
 
   // Always call outdated data after Poll as Buffers might be out of sync w.r.t
   // offset and length.
-  ClearOutdatedData(offset, length);
-  return Status::OK();
+  return ClearOutdatedData(offset, length);
 }
 
 // ReadAheadSizeTuning API calls readaheadsize_cb_
@@ -593,9 +739,7 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
       if (read_len > 0) {
         s = ReadAsync(new_buf, opts, reader, read_len, start_offset);
         if (!s.ok()) {
-          DestroyAndClearIOHandle(new_buf);
-          FreeLastBuffer();
-          return s;
+          return CleanupAfterAsyncReadFailure(new_buf, std::move(s));
         }
       }
     }
@@ -636,10 +780,16 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
 
   // Abort outdated IO.
   if (!explicit_prefetch_submitted_) {
-    AbortOutdatedIO(offset);
+    s = AbortOutdatedIO(offset);
+    if (!s.ok()) {
+      return s;
+    }
     FreeEmptyBuffers();
   }
-  ClearOutdatedData(offset, length);
+  s = ClearOutdatedData(offset, length);
+  if (!s.ok()) {
+    return s;
+  }
 
   // Handle overlapping data over two buffers (async prefetching case).
   s = HandleOverlappingAsyncData(opts, reader, offset, length, readahead_size,
@@ -769,7 +919,10 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
     s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1,
              use_fs_buffer);
     if (!s.ok()) {
-      AbortAllIOs();
+      Status abort_status = AbortAllIOs();
+      if (!abort_status.ok()) {
+        return abort_status;
+      }
       FreeAllBuffers();
       return s;
     }
@@ -823,7 +976,15 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     // buffers will be outdated.
     // Random offset called. So abort the IOs.
     if (prev_offset_ != offset) {
-      AbortAllIOs();
+      Status abort_status = AbortAllIOs();
+      if (!abort_status.ok()) {
+        if (status != nullptr) {
+          *status = abort_status;
+        } else {
+          abort_status.PermitUncheckedError();
+        }
+        return false;
+      }
       FreeAllBuffers();
       explicit_prefetch_submitted_ = false;
       return false;
@@ -912,6 +1073,10 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
 void FilePrefetchBuffer::PrefetchAsyncCallback(FSReadRequest& req,
                                                void* cb_arg) {
   BufferInfo* buf = static_cast<BufferInfo*>(cb_arg);
+  if (!req.status.ok()) {
+    assert(buf->async_read_error_ == nullptr);
+    buf->async_read_error_ = std::make_unique<IOStatus>(req.status);
+  }
 
 #ifndef NDEBUG
   if (req.result.size() < req.len) {
@@ -949,6 +1114,13 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:Start");
 
+  // Cancel any pending async read to make code simpler as buffers can be out
+  // of sync.
+  Status s = AbortAllIOs();
+  if (!s.ok()) {
+    return s;
+  }
+
   num_file_reads_ = 0;
   explicit_prefetch_submitted_ = false;
   bool is_eligible_for_prefetching = false;
@@ -959,12 +1131,12 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     is_eligible_for_prefetching = true;
   }
 
-  // Cancel any pending async read to make code simpler as buffers can be out
-  // of sync.
-  AbortAllIOs();
   // Free empty buffers after aborting IOs.
   FreeEmptyBuffers();
-  ClearOutdatedData(offset, n);
+  s = ClearOutdatedData(offset, n);
+  if (!s.ok()) {
+    return s;
+  }
 
   // - Since PrefetchAsync can be called on non sequential reads. So offset can
   //   be less than first buffers' offset. In that case it clears all
@@ -1010,7 +1182,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   std::string msg;
 
-  Status s;
   size_t alignment = GetRequiredBufferAlignment(reader);
   size_t readahead_size = is_eligible_for_prefetching ? readahead_size_ / 2 : 0;
   size_t offset_to_read = static_cast<size_t>(offset);
@@ -1055,9 +1226,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     if (read_len1 > 0) {
       s = ReadAsync(buf, opts, reader, read_len1, start_offset1);
       if (!s.ok()) {
-        DestroyAndClearIOHandle(buf);
-        FreeLastBuffer();
-        return s;
+        return CleanupAfterAsyncReadFailure(buf, std::move(s));
       }
       explicit_prefetch_submitted_ = true;
       prev_len_ = 0;
@@ -1100,9 +1269,7 @@ Status FilePrefetchBuffer::PrefetchRemBuffers(const IOOptions& opts,
       TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:ExtraPrefetching");
       s = ReadAsync(new_buf, opts, reader, read_len2, start_offset2);
       if (!s.ok()) {
-        DestroyAndClearIOHandle(new_buf);
-        FreeLastBuffer();
-        return s;
+        return CleanupAfterAsyncReadFailure(new_buf, std::move(s));
       }
     }
     end_offset1 = end_offset2;
