@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <cinttypes>
+#include <ctime>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -32,7 +33,9 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
@@ -119,6 +122,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   }
   if (s.ok()) {
     magic_number = footer.table_magic_number();
+    block_trailer_size_ = static_cast<uint32_t>(footer.GetBlockTrailerSize());
   }
 
   if (s.ok()) {
@@ -231,10 +235,89 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
   return out_file->Close();
 }
 
+namespace {
+// Process-wide CPU time (summed across all threads) in microseconds, or -1 if
+// unavailable on this platform. Unlike Env::NowCPUNanos(), which measures only
+// the calling thread (CLOCK_THREAD_CPUTIME_ID), this captures the parallel
+// compression worker threads used when compression_opts.parallel_threads > 1.
+// Used only for benchmarking, so degrading to -1 (reported as N/A) is fine.
+int64_t ProcessCpuMicros() {
+#if !defined(OS_WIN) && defined(CLOCK_PROCESS_CPUTIME_ID)
+  struct timespec ts;
+  if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) == 0) {
+    return static_cast<int64_t>(ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
+  }
+#endif
+  return -1;
+}
+
+// Returns the elapsed process CPU microseconds since `start_micros`, or -1 if
+// either endpoint is unavailable.
+int64_t ProcessCpuMicrosSince(int64_t start_micros) {
+  int64_t now = ProcessCpuMicros();
+  return (start_micros >= 0 && now >= 0) ? now - start_micros : -1;
+}
+
+// Computes the total on-disk (as stored, possibly compressed) size in bytes of
+// all index blocks of a block-based table: the single/top-level index block
+// plus, for a two-level (partitioned) index, every partition index block.
+// Sizes exclude block trailers (BlockHandle::size()), matching the trailer-free
+// convention used elsewhere for recompression sizes.
+Status GetOnDiskIndexSize(TableReader* reader, uint64_t* size) {
+  assert(size);
+  *size = 0;
+  if (reader == nullptr) {
+    return Status::NotSupported("No table reader");
+  }
+  // Recompression only deals with block-based tables.
+  BlockBasedTable* bbt = static_cast_with_check<BlockBasedTable>(reader);
+  const BlockBasedTable::Rep* rep = bbt->get_rep();
+  if (rep == nullptr) {
+    return Status::NotSupported("No block-based table rep");
+  }
+  uint64_t total = rep->index_handle.size();
+  if (rep->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    // The block at rep->index_handle is the top-level index; read it and sum
+    // the on-disk sizes of the partition index blocks it points to.
+    BlockContents contents;
+    ReadOptions ro;
+    BlockFetcher fetcher(
+        rep->file.get(), /*prefetch_buffer=*/nullptr, rep->footer, ro,
+        rep->index_handle, &contents, rep->ioptions, /*do_uncompress=*/true,
+        /*maybe_compressed=*/rep->decompressor != nullptr, BlockType::kIndex,
+        rep->decompressor.get(), rep->persistent_cache_options);
+    Status s = fetcher.ReadBlockContents();
+    if (!s.ok()) {
+      return s;
+    }
+    Block top_level_index(std::move(contents));
+    IndexBlockIter biter;
+    top_level_index.NewIndexIterator(
+        rep->internal_comparator.user_comparator(),
+        rep->get_global_seqno(BlockType::kIndex), &biter, /*stats=*/nullptr,
+        /*total_order_seek=*/true, rep->index_has_first_key,
+        rep->index_key_includes_seq, rep->index_value_is_full,
+        /*block_contents_pinned=*/false, rep->user_defined_timestamps_persisted,
+        /*prefix_index=*/nullptr, BlockBasedTableOptions::kBinary,
+        FormatVersionUsesValueDeltaEscape(rep->footer.format_version()));
+    for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
+      total += biter.value().handle.size();
+    }
+    s = biter.status();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  *size = total;
+  return Status::OK();
+}
+}  // namespace
+
 Status SstFileDumper::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, TableProperties* props,
-    std::chrono::microseconds* write_time,
-    std::chrono::microseconds* read_time) {
+    std::chrono::microseconds* write_time, std::chrono::microseconds* read_time,
+    std::chrono::microseconds* write_cpu_time,
+    std::chrono::microseconds* read_cpu_time, uint64_t* on_disk_index_size) {
   std::unique_ptr<Env> env(NewMemEnv(options_.env));
   std::unique_ptr<WritableFileWriter> dest_writer;
   Status s =
@@ -245,23 +328,22 @@ Status SstFileDumper::CalculateCompressedTableSize(
   }
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
+  int64_t cpu_start_micros = ProcessCpuMicros();
   std::unique_ptr<TableBuilder> table_builder{
       tb_options.moptions.table_factory->NewTableBuilder(tb_options,
                                                          dest_writer.get())};
-  std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
-      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    table_builder->Add(iter->key(), iter->value());
+  // Feed the builder from the pre-materialized input (see MaterializeInputKVs)
+  // rather than iterating the input reader, so the write benchmark measures the
+  // build + compression cost only -- not reading/decompressing the input -- and
+  // is independent of block-cache warmth.
+  for (const auto& kv : input_kvs_) {
+    table_builder->Add(kv.first, kv.second);
   }
-  s = iter->status();
-  if (!s.ok()) {
-    return s;
-  }
-  iter.reset();
   s = table_builder->Finish();
   *write_time = std::chrono::duration_cast<std::chrono::microseconds>(
       std::chrono::steady_clock::now() - start);
+  *write_cpu_time =
+      std::chrono::microseconds(ProcessCpuMicrosSince(cpu_start_micros));
   if (!s.ok()) {
     return s;
   }
@@ -272,6 +354,7 @@ Status SstFileDumper::CalculateCompressedTableSize(
   dest_writer.reset();
   *props = table_builder->GetTableProperties();
   start = std::chrono::steady_clock::now();
+  cpu_start_micros = ProcessCpuMicros();
   TableReaderOptions reader_options(ioptions_, moptions_.prefix_extractor,
                                     moptions_.compression_manager.get(),
                                     soptions_, internal_comparator_,
@@ -283,42 +366,151 @@ Status SstFileDumper::CalculateCompressedTableSize(
     return s;
   }
   std::unique_ptr<TableReader> table_reader;
-  s = tb_options.moptions.table_factory->NewTableReader(
-      reader_options, std::move(file_reader), table_builder->FileSize(),
-      &table_reader);
+  // Read the freshly built table back with the block cache disabled. Each
+  // iteration builds a distinct table into a fresh in-memory file, but these
+  // temporary tables all share the same (unknown) cache key identity
+  // (empty db_session_id and file number 0, see
+  // BlockBasedTable::SetupBaseCacheKey). If the DB's block cache were used,
+  // a later iteration could get a cache hit on a stale block written by an
+  // earlier iteration's differently-compressed table at a colliding offset,
+  // producing "Corruption: bad entry in block". Bypassing the cache also keeps
+  // the measured read time consistent (always a cold read + decompress).
+  std::shared_ptr<TableFactory> read_table_factory =
+      tb_options.moptions.table_factory;
+  if (read_table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName()) &&
+      read_table_factory->GetOptions<BlockBasedTableOptions>()) {
+    BlockBasedTableOptions read_bbto =
+        *read_table_factory->GetOptions<BlockBasedTableOptions>();
+    read_bbto.no_block_cache = true;
+    read_bbto.block_cache = nullptr;
+    read_table_factory = std::make_shared<BlockBasedTableFactory>(read_bbto);
+  }
+  s = read_table_factory->NewTableReader(reader_options, std::move(file_reader),
+                                         table_builder->FileSize(),
+                                         &table_reader);
   if (!s.ok()) {
     return s;
   }
-  iter.reset(table_reader->NewIterator(
+  std::unique_ptr<InternalIterator> read_iter(table_reader->NewIterator(
+      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
+  for (read_iter->SeekToFirst(); read_iter->Valid(); read_iter->Next()) {
+  }
+  s = read_iter->status();
+  // Stop the read benchmark here, before the (untimed) on-disk index-size
+  // accounting and teardown below, so read_time/read_cpu_time reflect only the
+  // block reads + decompression.
+  *read_time = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now() - start);
+  *read_cpu_time =
+      std::chrono::microseconds(ProcessCpuMicrosSince(cpu_start_micros));
+  read_iter.reset();
+  if (!s.ok()) {
+    return s;
+  }
+  // Total on-disk (compressed) index size of the freshly built table.
+  if (on_disk_index_size != nullptr) {
+    Status idx_s = GetOnDiskIndexSize(table_reader.get(), on_disk_index_size);
+    if (!idx_s.ok()) {
+      // Best effort: fall back to the uncompressed index content size so
+      // callers won't misreport it as compressed.
+      *on_disk_index_size =
+          props->index_size > BlockBasedTable::kBlockTrailerSize
+              ? props->index_size - BlockBasedTable::kBlockTrailerSize
+              : props->index_size;
+    }
+  }
+  table_reader.reset();
+  file_reader.reset();
+  return env->DeleteFile(testFileName);
+}
+
+Status SstFileDumper::PrimeCompression(CompressionType compress_type,
+                                       const CompressionOptions& compress_opt,
+                                       uint64_t block_size) {
+  Options opts = options_;    // Use compression_manager etc.
+  opts.statistics = nullptr;  // This warm-up run is not measured.
+  if (!opts.table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+    opts.table_factory = std::make_shared<BlockBasedTableFactory>();
+  }
+  const ImmutableOptions imoptions(opts);
+  const ColumnFamilyOptions cfo(opts);
+  const MutableCFOptions moptions(cfo);
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+  ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
+  InternalTblPropCollFactories coll_factories;
+  std::string column_family_name;
+  int unknown_level = -1;
+  TableBuilderOptions tb_opts(
+      imoptions, moptions, read_options, write_options, ikc, &coll_factories,
+      compress_type, compress_opt,
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      column_family_name, unknown_level, kUnknownNewestKeyTime);
+
+  std::unique_ptr<Env> env(NewMemEnv(options_.env));
+  std::unique_ptr<WritableFileWriter> dest_writer;
+  Status s =
+      WritableFileWriter::Create(env->GetFileSystem(), testFileName,
+                                 FileOptions(soptions_), &dest_writer, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  std::unique_ptr<TableBuilder> table_builder{
+      tb_opts.moptions.table_factory->NewTableBuilder(tb_opts,
+                                                      dest_writer.get())};
+  // Feed a prefix of key-value payload roughly 1.5x the block size, so about
+  // two data blocks are produced.
+  const uint64_t payload_limit = block_size + block_size / 2;
+  uint64_t payload = 0;
+  for (const auto& kv : input_kvs_) {
+    if (payload >= payload_limit) {
+      break;
+    }
+    table_builder->Add(kv.first, kv.second);
+    payload += kv.first.size() + kv.second.size();
+  }
+  s = table_builder->Finish();
+  // Discard the warm-up output regardless of outcome.
+  dest_writer->Close({}).PermitUncheckedError();
+  env->DeleteFile(testFileName).PermitUncheckedError();
+  return s;
+}
+
+Status SstFileDumper::MaterializeInputKVs() {
+  input_kvs_.clear();
+  std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    input_kvs_.emplace_back(iter->key().ToString(), iter->value().ToString());
   }
-  s = iter->status();
-  if (!s.ok()) {
-    return s;
-  }
-  iter.reset();
-  table_reader.reset();
-  file_reader.reset();
-  *read_time = std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::steady_clock::now() - start);
-  return env->DeleteFile(testFileName);
+  return iter->status();
 }
 
 Status SstFileDumper::ShowAllCompressionSizes(
     const std::vector<CompressionType>& compression_types,
-    int32_t compress_level_from, int32_t compress_level_to) {
-#ifndef NDEBUG
-  fprintf(stdout,
-          "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
-#endif
+    int32_t compress_level_from, int32_t compress_level_to,
+    const std::vector<int>& compression_strategies,
+    const std::function<void(const RecompressionMeasurement&)>&
+        per_measurement) {
+  recompress_measurements_.clear();
+  // Materialize the input once so the timed write builds feed from memory.
+  Status ms = MaterializeInputKVs();
+  if (!ms.ok()) {
+    return ms;
+  }
   BlockBasedTableOptions bbto;
   if (options_.table_factory->IsInstanceOf(
           TableFactory::kBlockBasedTableName())) {
     bbto = *(static_cast_with_check<BlockBasedTableFactory>(
                  options_.table_factory.get()))
                 ->GetOptions<BlockBasedTableOptions>();
+  }
+  // Strategies to sweep; empty means "use whatever is in compression_opts".
+  std::vector<int> strategies = compression_strategies;
+  if (strategies.empty()) {
+    strategies.push_back(options_.compression_opts.strategy);
   }
 
   for (CompressionType ctype : compression_types) {
@@ -331,29 +523,43 @@ Status SstFileDumper::ShowAllCompressionSizes(
             ? options_.compression_manager->SupportsCompressionType(ctype)
             : CompressionTypeSupported(ctype)) {
       CompressionOptions compress_opt = options_.compression_opts;
-      fprintf(stdout,
-              "Compression: %-24s Block Size: %" PRIu64 "  Threads: %u\n",
-              cname.c_str(), bbto.block_size, compress_opt.parallel_threads);
-      for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
-        fprintf(stdout, "Cx level: %d", j);
-        compress_opt.level = j;
-        // Measure each (type, level) independently: clear any AutoSkip
-        // inter-file estimate left by the previous iteration on this thread.
-        BlockBasedTableBuilder::ResetThreadLocalAutoSkipCarryover();
-        Status s = ShowCompressionSize(ctype, compress_opt);
-        if (!s.ok()) {
-          return s;
+      // Warm up the compressor once per compression type before timed
+      // measurements, so first-use overhead doesn't skew the results.
+      compress_opt.level = compress_level_from;
+      compress_opt.strategy = strategies.front();
+      Status ps = PrimeCompression(ctype, compress_opt, bbto.block_size);
+      if (!ps.ok()) {
+        return ps;
+      }
+      for (int strategy : strategies) {
+        compress_opt.strategy = strategy;
+        for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
+          compress_opt.level = j;
+          // Measure each combination independently: clear any AutoSkip
+          // inter-file estimate left by the previous iteration on this thread.
+          BlockBasedTableBuilder::ResetThreadLocalAutoSkipCarryover();
+          RecompressionMeasurement m;
+          m.compression_name = cname;
+          m.block_size = bbto.block_size;
+          Status s = ShowCompressionSize(ctype, compress_opt, &m);
+          if (!s.ok()) {
+            return s;
+          }
+          if (per_measurement) {
+            per_measurement(m);
+          }
+          recompress_measurements_.push_back(std::move(m));
         }
       }
-    } else {
-      fprintf(stdout, "Unsupported compression type: %s.\n", cname.c_str());
     }
   }
   return Status::OK();
 }
 
 Status SstFileDumper::ShowCompressionSize(
-    CompressionType compress_type, const CompressionOptions& compress_opt) {
+    CompressionType compress_type, const CompressionOptions& compress_opt,
+    RecompressionMeasurement* measurement) {
+  assert(measurement);
   Options opts = options_;  // Use compression_manager etc.
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.statistics->set_stats_level(StatsLevel::kAll);
@@ -384,59 +590,160 @@ Status SstFileDumper::ShowCompressionSize(
   TableProperties props;
   std::chrono::microseconds write_time;
   std::chrono::microseconds read_time;
-  Status s =
-      CalculateCompressedTableSize(tb_opts, &props, &write_time, &read_time);
+  std::chrono::microseconds write_cpu_time;
+  std::chrono::microseconds read_cpu_time;
+  uint64_t on_disk_index_size = 0;
+  Status s = CalculateCompressedTableSize(tb_opts, &props, &write_time,
+                                          &read_time, &write_cpu_time,
+                                          &read_cpu_time, &on_disk_index_size);
   if (!s.ok()) {
     return s;
   }
 
+  // Remember the properties of this (last) recompressed output so callers can
+  // report them alongside the input file's properties.
+  recompress_output_props_ = props;
+  have_recompress_output_props_ = true;
+
   uint64_t num_data_blocks = props.num_data_blocks;
 
-  fprintf(stdout, " Cx size: %10" PRIu64, props.data_size);
-  fprintf(stdout, " Uncx size: %10" PRIu64, props.uncompressed_data_size);
-  fprintf(stdout, " Ratio: %10s",
-          std::to_string(static_cast<double>(props.uncompressed_data_size) /
-                         static_cast<double>(props.data_size))
-              .c_str());
-  fprintf(stdout, " Write usec: %10s ",
-          std::to_string(write_time.count()).c_str());
-  fprintf(stdout, " Read usec: %10s ",
-          std::to_string(read_time.count()).c_str());
+  // Report data-block sizes as payload, excluding block trailers, so the
+  // compressed size, uncompressed size, and their ratio are all measured on the
+  // same (trailer-free) basis. props.data_size is the on-disk data section
+  // including one trailer per data block; props.uncompressed_data_size is
+  // already trailer-free block payload.
+  const uint64_t data_trailers =
+      props.num_data_blocks * BlockBasedTable::kBlockTrailerSize;
+  const uint64_t compressed_payload = props.data_size > data_trailers
+                                          ? props.data_size - data_trailers
+                                          : props.data_size;
+
   const uint64_t compressed_blocks =
       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
-  const uint64_t not_compressed_blocks =
-      opts.statistics->getAndResetTickerCount(
-          NUMBER_BLOCK_COMPRESSION_REJECTED);
-  // When the option enable_index_compression is true,
-  // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
-  if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
-    num_data_blocks = compressed_blocks + not_compressed_blocks;
+  // Compression attempted but rejected (didn't beat max_compressed_bytes_per_kb
+  // or failed verify_compression).
+  const uint64_t rejected_blocks = opts.statistics->getAndResetTickerCount(
+      NUMBER_BLOCK_COMPRESSION_REJECTED);
+  // Compression not attempted (e.g. AutoSkip, or kNoCompression).
+  const uint64_t bypassed_blocks = opts.statistics->getAndResetTickerCount(
+      NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  // These tickers also count index block(s) when enable_index_compression is
+  // true, so the total can exceed the (data-only) block count; report the
+  // larger total so the categories add up.
+  const uint64_t total_blocks =
+      compressed_blocks + rejected_blocks + bypassed_blocks;
+  if (total_blocks > num_data_blocks) {
+    num_data_blocks = total_blocks;
   }
 
-  const uint64_t ratio_not_compressed_blocks =
-      (num_data_blocks - compressed_blocks) - not_compressed_blocks;
-  const double compressed_pcnt =
-      (0 == num_data_blocks) ? 0.0
-                             : ((static_cast<double>(compressed_blocks) /
-                                 static_cast<double>(num_data_blocks)) *
-                                100.0);
-  const double ratio_not_compressed_pcnt =
-      (0 == num_data_blocks)
-          ? 0.0
-          : ((static_cast<double>(ratio_not_compressed_blocks) /
-              static_cast<double>(num_data_blocks)) *
-             100.0);
-  const double not_compressed_pcnt =
-      (0 == num_data_blocks) ? 0.0
-                             : ((static_cast<double>(not_compressed_blocks) /
-                                 static_cast<double>(num_data_blocks)) *
-                                100.0);
-  fprintf(stdout, " Cx count: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
-          compressed_pcnt);
-  fprintf(stdout, " Not cx for ratio: %6" PRIu64 " (%5.1f%%)",
-          ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
-  fprintf(stdout, " Not cx otherwise: %6" PRIu64 " (%5.1f%%)\n",
-          not_compressed_blocks, not_compressed_pcnt);
+  measurement->compression_type = compress_type;
+  measurement->compression_opts = compress_opt;
+  measurement->compression_manager =
+      options_.compression_manager ? options_.compression_manager->GetId() : "";
+  measurement->compressed_data_payload = compressed_payload;
+  measurement->uncompressed_data_payload = props.uncompressed_data_size;
+  measurement->uncompressed_index_payload =
+      props.index_size > BlockBasedTable::kBlockTrailerSize
+          ? props.index_size - BlockBasedTable::kBlockTrailerSize
+          : props.index_size;
+  measurement->compressed_index_payload = on_disk_index_size;
+  measurement->num_data_blocks = num_data_blocks;
+  measurement->blocks_compressed = compressed_blocks;
+  measurement->blocks_compression_rejected = rejected_blocks;
+  measurement->blocks_compression_bypassed = bypassed_blocks;
+  measurement->write_usec = write_time.count();
+  measurement->read_usec = read_time.count();
+  measurement->write_cpu_usec = write_cpu_time.count();
+  measurement->read_cpu_usec = read_cpu_time.count();
+  return Status::OK();
+}
+
+Status SstFileDumper::GetInputBenchmarkMeasurement(
+    RecompressionMeasurement* measurement) {
+  assert(measurement);
+  *measurement = RecompressionMeasurement();
+  measurement->is_input = true;
+  measurement->write_usec = -1;
+  measurement->read_usec = -1;
+  measurement->write_cpu_usec = -1;
+  measurement->read_cpu_usec = -1;
+  if (table_properties_ == nullptr) {
+    return Status::NotSupported("Input table properties unavailable");
+  }
+  const TableProperties& tp = *table_properties_;
+  measurement->compression_name = tp.compression_name;
+  measurement->num_data_blocks = tp.num_data_blocks;
+
+  // On-disk data-block payload (excluding per-block trailers). tp.data_size is
+  // the data section size including one trailer per data block.
+  const uint64_t data_trailers = tp.num_data_blocks * block_trailer_size_;
+  const uint64_t data_on_disk_payload = tp.data_size > data_trailers
+                                            ? tp.data_size - data_trailers
+                                            : tp.data_size;
+  measurement->compressed_data_payload = data_on_disk_payload;
+  measurement->uncompressed_index_payload =
+      tp.index_size > block_trailer_size_ ? tp.index_size - block_trailer_size_
+                                          : tp.index_size;
+
+  // On-disk (compressed) index size.
+  uint64_t on_disk_index = 0;
+  if (GetOnDiskIndexSize(table_reader_.get(), &on_disk_index).ok()) {
+    measurement->compressed_index_payload = on_disk_index;
+  } else {
+    measurement->compressed_index_payload =
+        measurement->uncompressed_index_payload;
+  }
+
+  // Uncompressed data size and a benchmarked read time from a single (cold)
+  // read pass over the file. Read-side decompression tickers are recorded only
+  // for blocks stored compressed; blocks stored uncompressed are recovered via
+  // data_on_disk_payload - decompressed_from.
+  Statistics* stats = ioptions_.stats;
+  if (stats == nullptr) {
+    // Statistics not enabled: fall back to the persisted value (may be 0) and
+    // leave read time unknown.
+    measurement->uncompressed_data_payload = tp.uncompressed_data_size;
+    return Status::OK();
+  }
+  const uint64_t from_before = stats->getTickerCount(BYTES_DECOMPRESSED_FROM);
+  const uint64_t to_before = stats->getTickerCount(BYTES_DECOMPRESSED_TO);
+  const std::chrono::steady_clock::time_point start =
+      std::chrono::steady_clock::now();
+  const int64_t cpu_start_micros = ProcessCpuMicros();
+  std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
+      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  }
+  Status s = iter->status();
+  const std::chrono::microseconds read_time =
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - start);
+  const int64_t read_cpu_usec = ProcessCpuMicrosSince(cpu_start_micros);
+  if (!s.ok()) {
+    return s;
+  }
+  measurement->read_usec = read_time.count();
+  measurement->read_cpu_usec = read_cpu_usec;
+  const uint64_t decompressed_from =
+      stats->getTickerCount(BYTES_DECOMPRESSED_FROM) - from_before;
+  const uint64_t decompressed_to =
+      stats->getTickerCount(BYTES_DECOMPRESSED_TO) - to_before;
+  // Recover the uncompressed data-block payload as: the uncompressed payload of
+  // blocks stored compressed (decompressed_to), plus the on-disk payload of
+  // blocks stored uncompressed (data_on_disk_payload - decompressed_from).
+  //
+  // CAVEAT: the read-side decompression tickers also count index blocks. This
+  // is exact when the input's index blocks are stored uncompressed (the
+  // default), but if the file was written with enable_index_compression,
+  // decompressing the index while iterating adds to decompressed_to (its
+  // uncompressed content) more than to decompressed_from (its on-disk content),
+  // overstating the reported uncompressed data size by that difference. The
+  // clean fix is a persisted uncompressed_data_size table property (see the
+  // follow-up noted in the commit that introduced this), which would remove the
+  // need for this inference on all but pre-existing files.
+  measurement->uncompressed_data_payload =
+      decompressed_to + data_on_disk_payload - decompressed_from;
   return Status::OK();
 }
 
