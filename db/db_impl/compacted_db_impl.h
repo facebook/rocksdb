@@ -81,6 +81,13 @@ class CompactedDBImpl : public DBImpl {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 
+  Status DisableWalDeletions() override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+  Status EnableWalDeletions() override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+
   Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }

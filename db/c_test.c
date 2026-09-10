@@ -3016,6 +3016,12 @@ int main(int argc, char** argv) {
       rocksdb_put_cf(db, woptions, handles[1], "buff", 4, "rocksdb", 7, &err);
       CheckNoError(err);
 
+      rocksdb_disable_wal_deletions(db, &err);
+      CheckNoError(err);
+      rocksdb_disable_wal_deletions(db, &err);
+      CheckNoError(err);
+      rocksdb_enable_wal_deletions(db, &err);
+      CheckNoError(err);
       rocksdb_disable_file_deletions(db, &err);
       CheckNoError(err);
       wal_files = rocksdb_get_sorted_wal_files(db, &err);
@@ -3035,6 +3041,9 @@ int main(int argc, char** argv) {
                          rocksdb_wal_file_type_archived_log);
       rocksdb_wal_files_destroy(wal_files);
       rocksdb_enable_file_deletions(db, &err);
+      CheckNoError(err);
+
+      rocksdb_enable_wal_deletions(db, &err);
       CheckNoError(err);
 
       current_wal_file = rocksdb_get_current_wal_file(db, &err);

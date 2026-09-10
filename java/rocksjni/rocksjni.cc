@@ -3199,6 +3199,34 @@ void Java_org_rocksdb_RocksDB_enableFileDeletions(JNIEnv* env, jclass,
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    disableWalDeletions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_disableWalDeletions(JNIEnv* env, jclass,
+                                                  jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  ROCKSDB_NAMESPACE::Status s = db->DisableWalDeletions();
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    enableWalDeletions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_enableWalDeletions(JNIEnv* env, jclass,
+                                                 jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  ROCKSDB_NAMESPACE::Status s = db->EnableWalDeletions();
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    getLiveFiles
  * Signature: (JZ)[Ljava/lang/String;
  */

@@ -4317,6 +4317,34 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * <p>Suspends automatic WAL deletion, archival, and recycling without
+   * stopping writes or SST cleanup. Already pending cleanup may finish.
+   * Requests are counted, thread-safe, and are not persisted across
+   * reopen.</p>
+   *
+   * @throws RocksDBException thrown if operation was not performed
+   *     successfully.
+   */
+  public void disableWalDeletions() throws RocksDBException {
+    disableWalDeletions(nativeHandle_);
+  }
+
+  /**
+   * <p>EnableWalDeletions will only resume automatic WAL cleanup after it's
+   * been called at least as many times as DisableWalDeletions(), and after all
+   * {@link #disableFileDeletions()} requests have been released too. Existing
+   * WAL retention options still apply once cleanup resumes. Extra calls do not
+   * make the counter negative, but each one still triggers a full obsolete
+   * file scan and purge when the counter is already zero.</p>
+   *
+   * @throws RocksDBException thrown if operation was not performed
+   *     successfully.
+   */
+  public void enableWalDeletions() throws RocksDBException {
+    enableWalDeletions(nativeHandle_);
+  }
+
+  /**
    * <p>Prevent file deletions. Compactions will continue to occur,
    * but no obsolete files will be deleted. Calling this multiple
    * times have the same effect as calling it once.</p>
@@ -5081,6 +5109,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private static native void syncWal(final long handle) throws RocksDBException;
   private static native long getLatestSequenceNumber(final long handle);
+  private static native void disableWalDeletions(long handle) throws RocksDBException;
+  private static native void enableWalDeletions(long handle) throws RocksDBException;
   private static native void disableFileDeletions(long handle) throws RocksDBException;
   private static native void enableFileDeletions(long handle) throws RocksDBException;
   private static native String[] getLiveFiles(final long handle, final boolean flushMemtable)

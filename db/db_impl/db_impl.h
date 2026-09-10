@@ -573,6 +573,9 @@ class DBImpl : public DB
 
   Status EnableFileDeletions() override;
 
+  Status DisableWalDeletions() override;
+  Status EnableWalDeletions() override;
+
   virtual bool IsFileDeletionsEnabled() const;
 
   Status GetStatsHistory(
@@ -3665,6 +3668,10 @@ class DBImpl : public DB
   // EnableFileDeletions() and DisableFileDeletions()
   // without any synchronization
   int disable_delete_obsolete_files_ = 0;
+
+  // WAL-only deletion requests, protected by mutex_. Independent of the
+  // all-files counter above; either counter prevents WAL reclamation.
+  int disable_wal_deletions_ = 0;
 
   // Number of times FindObsoleteFiles has found deletable files and the
   // corresponding call to PurgeObsoleteFiles has not yet finished.
