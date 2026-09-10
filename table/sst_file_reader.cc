@@ -104,6 +104,12 @@ std::vector<Status> SstFileReader::MultiGet(
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   autovector<GetContext, MultiGetContext::MAX_BATCH_SIZE> get_ctx;
   autovector<MergeContext, MultiGetContext::MAX_BATCH_SIZE> merge_ctx;
+  // The loop below hands out pointers to these elements, so they have to be
+  // reserved up front: past the inline capacity an autovector spills into a
+  // std::vector that would otherwise reallocate as more keys are appended.
+  key_context.reserve(num_keys);
+  get_ctx.reserve(num_keys);
+  merge_ctx.reserve(num_keys);
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     PinnableSlice* val = &(*values)[i];
@@ -136,12 +142,22 @@ std::vector<Status> SstFileReader::MultiGet(
   const auto sequence = roptions.snapshot != nullptr
                             ? roptions.snapshot->GetSequenceNumber()
                             : kMaxSequenceNumber;
-  MultiGetContext ctx(&sorted_keys, 0, num_keys, sequence, roptions,
-                      r->ioptions.fs.get(), nullptr);
-  MultiGetRange range = ctx.GetMultiGetRange();
-  r->table_reader->MultiGet(roptions, &range,
-                            r->moptions.prefix_extractor.get(),
-                            false /* skip filters */);
+  // A MultiGetContext holds at most MAX_BATCH_SIZE keys, so look the sorted
+  // keys up in batches of that size, as DBImpl::MultiGetImpl does. Exceeding
+  // it is undefined behavior, not just a missed optimization.
+  size_t keys_left = num_keys;
+  while (keys_left > 0) {
+    const size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
+                                  ? MultiGetContext::MAX_BATCH_SIZE
+                                  : keys_left;
+    MultiGetContext ctx(&sorted_keys, num_keys - keys_left, batch_size,
+                        sequence, roptions, r->ioptions.fs.get(), nullptr);
+    MultiGetRange range = ctx.GetMultiGetRange();
+    r->table_reader->MultiGet(roptions, &range,
+                              r->moptions.prefix_extractor.get(),
+                              false /* skip filters */);
+    keys_left -= batch_size;
+  }
 
   for (size_t i = 0; i < num_keys; ++i) {
     get_ctx[i].ReportCounters();

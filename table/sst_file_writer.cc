@@ -265,36 +265,39 @@ struct SstFileWriter::Rep {
     return DeleteRangeImpl(begin_key, end_key);
   }
 
+  // Returns `user_key` with `timestamp` appended. When the two are already
+  // adjacent in memory the result aliases them, otherwise `buf` supplies the
+  // backing storage and must outlive the returned slice. A single timestamp
+  // slice can be adjacent to at most one key, so each key has to be tested on
+  // its own; extending a key that is not ts-adjacent reads out of bounds.
+  static Slice AppendTimestamp(const Slice& user_key, const Slice& timestamp,
+                               std::string* buf) {
+    const size_t user_key_size = user_key.size();
+    const size_t timestamp_size = timestamp.size();
+
+    if (user_key.data() + user_key_size == timestamp.data()) {
+      return Slice(user_key.data(), user_key_size + timestamp_size);
+    }
+
+    buf->reserve(user_key_size + timestamp_size);
+    buf->append(user_key.data(), user_key_size);
+    buf->append(timestamp.data(), timestamp_size);
+    return Slice(*buf);
+  }
+
   // begin_key and end_key should be users keys without timestamp.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key,
                      const Slice& timestamp) {
-    const size_t timestamp_size = timestamp.size();
-
     if (internal_comparator.user_comparator()->timestamp_size() !=
-        timestamp_size) {
+        timestamp.size()) {
       return Status::InvalidArgument("Timestamp size mismatch");
     }
 
-    const size_t begin_key_size = begin_key.size();
-    const size_t end_key_size = end_key.size();
-    if (begin_key.data() + begin_key_size == timestamp.data() ||
-        end_key.data() + begin_key_size == timestamp.data()) {
-      assert(memcmp(begin_key.data() + begin_key_size,
-                    end_key.data() + end_key_size, timestamp_size) == 0);
-      Slice begin_key_with_ts(begin_key.data(),
-                              begin_key_size + timestamp_size);
-      Slice end_key_with_ts(end_key.data(), end_key.size() + timestamp_size);
-      return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
-    }
-    std::string begin_key_with_ts;
-    begin_key_with_ts.reserve(begin_key_size + timestamp_size);
-    begin_key_with_ts.append(begin_key.data(), begin_key_size);
-    begin_key_with_ts.append(timestamp.data(), timestamp_size);
-    std::string end_key_with_ts;
-    end_key_with_ts.reserve(end_key_size + timestamp_size);
-    end_key_with_ts.append(end_key.data(), end_key_size);
-    end_key_with_ts.append(timestamp.data(), timestamp_size);
-    return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
+    std::string begin_key_buf;
+    std::string end_key_buf;
+    return DeleteRangeImpl(
+        AppendTimestamp(begin_key, timestamp, &begin_key_buf),
+        AppendTimestamp(end_key, timestamp, &end_key_buf));
   }
 
   Status InvalidatePageCache(bool closing) {
