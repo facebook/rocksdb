@@ -224,6 +224,12 @@ void PrintTableProperties(const char* label,
 }
 
 // Appends a JSON string literal (with surrounding quotes) for `s` to `out`.
+// Control characters and any non-ASCII bytes (0x7f-0xff) are emitted as \u00XX
+// escapes so the result is always valid JSON even when `s` contains non-UTF-8
+// bytes (e.g. binary user-collected property values without --output_hex). Note
+// this treats high bytes as Latin-1 code points, so genuine multi-byte UTF-8
+// is emitted per byte rather than as its code point; prefer --output_hex for
+// binary values.
 void AppendJsonString(std::string* out, const std::string& s) {
   out->push_back('"');
   for (char c : s) {
@@ -243,14 +249,16 @@ void AppendJsonString(std::string* out, const std::string& s) {
       case '\t':
         out->append("\\t");
         break;
-      default:
-        if (static_cast<unsigned char>(c) < 0x20) {
+      default: {
+        unsigned char uc = static_cast<unsigned char>(c);
+        if (uc < 0x20 || uc >= 0x7f) {
           char buf[8];
-          snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+          snprintf(buf, sizeof(buf), "\\u%04x", uc);
           out->append(buf);
         } else {
           out->push_back(c);
         }
+      }
     }
   }
   out->push_back('"');

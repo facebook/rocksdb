@@ -263,6 +263,11 @@ int64_t ProcessCpuMicrosSince(int64_t start_micros) {
 // plus, for a two-level (partitioned) index, every partition index block.
 // Sizes exclude block trailers (BlockHandle::size()), matching the trailer-free
 // convention used elsewhere for recompression sizes.
+//
+// Precondition: `reader` must be a BlockBasedTable. Callers with an arbitrary
+// input reader (which may be a plain or cuckoo table) must guard with
+// TableFactory::kBlockBasedTableName(); static_cast_with_check would otherwise
+// abort in debug builds.
 Status GetOnDiskIndexSize(TableReader* reader, uint64_t* size) {
   assert(size);
   *size = 0;
@@ -460,7 +465,10 @@ Status SstFileDumper::PrimeCompression(CompressionType compress_type,
       tb_opts.moptions.table_factory->NewTableBuilder(tb_opts,
                                                       dest_writer.get())};
   // Feed a prefix of key-value payload roughly 1.5x the block size, so about
-  // two data blocks are produced.
+  // two data blocks are produced. This only warms up the compression code path
+  // (allocations, library/context init, any JIT) before the timed runs; it is
+  // intentionally too little to train a compression dictionary -- the full
+  // timed build trains the dictionary when one is configured.
   const uint64_t payload_limit = block_size + block_size / 2;
   uint64_t payload = 0;
   for (const auto& kv : input_kvs_) {
@@ -551,6 +559,11 @@ Status SstFileDumper::ShowAllCompressionSizes(
           recompress_measurements_.push_back(std::move(m));
         }
       }
+    } else {
+      // Diagnose (to stderr, so it doesn't corrupt JSON on stdout) rather than
+      // silently skipping a requested type that the build / compression manager
+      // doesn't support.
+      fprintf(stderr, "Unsupported compression type: %s.\n", cname.c_str());
     }
   }
   return Status::OK();
@@ -642,6 +655,10 @@ Status SstFileDumper::ShowCompressionSize(
       options_.compression_manager ? options_.compression_manager->GetId() : "";
   measurement->compressed_data_payload = compressed_payload;
   measurement->uncompressed_data_payload = props.uncompressed_data_size;
+  // props.index_size is uncompressed index content plus exactly one block
+  // trailer, regardless of how many index partitions exist (the builder adds a
+  // single kBlockTrailerSize to IndexBuilder::IndexSize()), so subtract one
+  // trailer to get the trailer-free index content size.
   measurement->uncompressed_index_payload =
       props.index_size > BlockBasedTable::kBlockTrailerSize
           ? props.index_size - BlockBasedTable::kBlockTrailerSize
@@ -681,13 +698,20 @@ Status SstFileDumper::GetInputBenchmarkMeasurement(
                                             ? tp.data_size - data_trailers
                                             : tp.data_size;
   measurement->compressed_data_payload = data_on_disk_payload;
+  // props.index_size (persisted) is uncompressed index content plus exactly one
+  // block trailer, regardless of how many index partitions exist, so subtract a
+  // single trailer to get the trailer-free index content size.
   measurement->uncompressed_index_payload =
       tp.index_size > block_trailer_size_ ? tp.index_size - block_trailer_size_
                                           : tp.index_size;
 
-  // On-disk (compressed) index size.
+  // On-disk (compressed) index size. Only block-based inputs have a
+  // BlockBasedTable reader (and an index in this sense); for a plain- or
+  // cuckoo-table input, fall back to the uncompressed index size.
   uint64_t on_disk_index = 0;
-  if (GetOnDiskIndexSize(table_reader_.get(), &on_disk_index).ok()) {
+  if (options_.table_factory->IsInstanceOf(
+          TableFactory::kBlockBasedTableName()) &&
+      GetOnDiskIndexSize(table_reader_.get(), &on_disk_index).ok()) {
     measurement->compressed_index_payload = on_disk_index;
   } else {
     measurement->compressed_index_payload =
@@ -742,8 +766,15 @@ Status SstFileDumper::GetInputBenchmarkMeasurement(
   // clean fix is a persisted uncompressed_data_size table property (see the
   // follow-up noted in the commit that introduced this), which would remove the
   // need for this inference on all but pre-existing files.
+  //
+  // decompressed_to >= decompressed_from (uncompressed >= on-disk for the same
+  // blocks), so (decompressed_to + data_on_disk_payload) >= decompressed_from
+  // and the subtraction below does not underflow; the guard is belt-and-braces
+  // in case of any ticker inconsistency, and the uncompressed payload is at
+  // least the on-disk payload.
+  const uint64_t sum = decompressed_to + data_on_disk_payload;
   measurement->uncompressed_data_payload =
-      decompressed_to + data_on_disk_payload - decompressed_from;
+      sum >= decompressed_from ? sum - decompressed_from : data_on_disk_payload;
   return Status::OK();
 }
 
