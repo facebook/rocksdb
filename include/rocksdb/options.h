@@ -41,6 +41,7 @@ namespace ROCKSDB_NAMESPACE {
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
+class StreamAggregationFactory;
 class Comparator;
 class ConcurrentTaskLimiter;
 class Env;
@@ -168,6 +169,23 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory = nullptr;
+
+  // EXPERIMENTAL and subject to change.
+  //
+  // When non-null, RocksDB applies a StreamAggregation while rewriting every
+  // SST file in a full compaction. Non-full compactions preserve the ordinary
+  // one-record-at-a-time output path. Full compactions using this option run
+  // locally with one subcompaction so the callback observes one ordered input
+  // stream. Compactions with active snapshots preserve ordinary compaction
+  // behavior instead of aggregating.
+  //
+  // Later writes to retained anchor keys must understand the transformed
+  // representation. If a CompactionFilter is configured, it runs before
+  // aggregation; aggregate outputs are not filtered a second time.
+  //
+  // Default: nullptr
+  std::shared_ptr<StreamAggregationFactory> stream_aggregation_factory =
+      nullptr;
 
   // -------------------
   // Parameters that affect performance

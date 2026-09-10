@@ -122,6 +122,15 @@ size_t CompactionBlobResolver::NumColumns() const {
   return columns_->size();
 }
 
+uint64_t CompactionBlobResolver::resolved_bytes() const {
+  uint64_t bytes = 0;
+  for (const auto& [column_index, value] : resolved_cache_) {
+    (void)column_index;
+    bytes += value->size();
+  }
+  return bytes;
+}
+
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
@@ -133,8 +142,8 @@ CompactionIterator::CompactionIterator(
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
-    bool must_count_input_entries, const Compaction* compaction,
-    const CompactionFilter* compaction_filter,
+    bool must_count_input_entries, ValuePreparation value_preparation,
+    const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
@@ -147,9 +156,9 @@ CompactionIterator::CompactionIterator(
           allow_data_in_errors, enforce_single_del_contracts,
           manual_compaction_canceled,
           compaction ? std::make_unique<RealCompaction>(compaction) : nullptr,
-          must_count_input_entries, compaction_filter, shutting_down, info_log,
-          full_history_ts_low, preserve_seqno_min, input_version,
-          blob_read_io_activity) {}
+          must_count_input_entries, value_preparation, compaction_filter,
+          shutting_down, info_log, full_history_ts_low, preserve_seqno_min,
+          input_version, blob_read_io_activity) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -163,6 +172,7 @@ CompactionIterator::CompactionIterator(
     bool enforce_single_del_contracts,
     const std::atomic<bool>& manual_compaction_canceled,
     std::unique_ptr<CompactionProxy> compaction, bool must_count_input_entries,
+    ValuePreparation value_preparation,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
@@ -198,6 +208,7 @@ CompactionIterator::CompactionIterator(
       enforce_single_del_contracts_(enforce_single_del_contracts),
       timestamp_size_(cmp_ ? cmp_->timestamp_size() : 0),
       full_history_ts_low_(full_history_ts_low),
+      defer_value_preparation_(value_preparation == ValuePreparation::kDefer),
       current_user_key_sequence_(0),
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
@@ -269,7 +280,11 @@ void CompactionIterator::ResetRecordCounts() {
 
 void CompactionIterator::SeekToFirst() {
   NextFromInput();
-  PrepareOutput();
+  if (defer_value_preparation_) {
+    PrepareOutputSequenceNumber();
+  } else {
+    PrepareOutput();
+  }
 }
 
 void CompactionIterator::Next() {
@@ -340,7 +355,11 @@ void CompactionIterator::Next() {
     has_outputted_key_ = true;
   }
 
-  PrepareOutput();
+  if (defer_value_preparation_) {
+    PrepareOutputSequenceNumber();
+  } else {
+    PrepareOutput();
+  }
 }
 
 bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
@@ -1896,73 +1915,76 @@ void CompactionIterator::PrepareOutput() {
       }
     }
 
-    // Zeroing out the sequence number leads to better compression.
-    // If this is the bottommost level (no files in lower levels)
-    // and the earliest snapshot is larger than this seqno
-    // and the userkey differs from the last userkey in compaction
-    // then we can squash the seqno to zero.
-    //
-    // This is safe for TransactionDB write-conflict checking since transactions
-    // only care about sequence number larger than any active snapshots.
-    //
-    // Can we do the same for levels above bottom level as long as
-    // KeyNotExistsBeyondOutputLevel() return true?
-    if (Valid() && bottommost_level_ &&
-        DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-        ikey_.type != kTypeMerge && current_key_committed_ && !is_range_del_) {
-      assert(compaction_ != nullptr && !compaction_->allow_ingest_behind());
-      if (ikey_.type == kTypeDeletion ||
-          (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
-        ROCKS_LOG_FATAL(
-            info_log_,
-            "Unexpected key %s for seq-zero optimization. "
-            "earliest_snapshot %" PRIu64
-            ", earliest_write_conflict_snapshot %" PRIu64
-            " job_snapshot %" PRIu64
-            ". timestamp_size: %d full_history_ts_low_ %s. validity %x",
-            ikey_.DebugString(allow_data_in_errors_, true).c_str(),
-            earliest_snapshot_, earliest_write_conflict_snapshot_,
-            job_snapshot_, static_cast<int>(timestamp_size_),
-            full_history_ts_low_ != nullptr
-                ? Slice(*full_history_ts_low_).ToString(true).c_str()
-                : "null",
-            validity_info_.rep);
-        assert(false);
-      }
+    PrepareOutputSequenceNumber();
+  }
+}
 
-      bool zeroed_seqno = false;
-      // Whether the sequence number can actually be zeroed out here is decided
-      // by the shared BottommostSeqnoCanBeZeroed() predicate, which the
-      // bottommost-file marking logic
-      // (VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction) also
-      // consults. Keeping both on one predicate ensures a file is only marked
-      // for a compaction that can make progress; otherwise the file would be
-      // re-marked forever (infinite compaction loop).
-      if (BottommostSeqnoCanBeZeroed(
-              ikey_.sequence, preserve_seqno_after_, timestamp_size_,
-              full_history_ts_low_ != nullptr, cmp_with_history_ts_low_ < 0)) {
-        if (!timestamp_size_) {
-          current_key_.UpdateInternalKey(0, ikey_.type);
-        } else {
-          // For UDT, the seqno and timestamp could only be zeroed out after the
-          // key is below history_ts_low_.
-          // For the same user key (excluding timestamp), the timestamp-based
-          // history can be collapsed to save some space if the timestamp is
-          // older than *full_history_ts_low_.
-          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
-          const Slice ts_slice = kTsMin;
-          ikey_.SetTimestamp(ts_slice);
-          current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
-        }
-        zeroed_seqno = true;
-      }
+void CompactionIterator::PrepareOutputSequenceNumber() {
+  // Zeroing out the sequence number leads to better compression.
+  // If this is the bottommost level (no files in lower levels)
+  // and the earliest snapshot is larger than this seqno
+  // and the userkey differs from the last userkey in compaction
+  // then we can squash the seqno to zero.
+  //
+  // This is safe for TransactionDB write-conflict checking since transactions
+  // only care about sequence number larger than any active snapshots.
+  //
+  // Can we do the same for levels above bottom level as long as
+  // KeyNotExistsBeyondOutputLevel() return true?
+  if (Valid() && bottommost_level_ &&
+      DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
+      ikey_.type != kTypeMerge && current_key_committed_ && !is_range_del_) {
+    assert(compaction_ != nullptr && !compaction_->allow_ingest_behind());
+    if (ikey_.type == kTypeDeletion ||
+        (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
+      ROCKS_LOG_FATAL(
+          info_log_,
+          "Unexpected key %s for seq-zero optimization. "
+          "earliest_snapshot %" PRIu64
+          ", earliest_write_conflict_snapshot %" PRIu64 " job_snapshot %" PRIu64
+          ". timestamp_size: %d full_history_ts_low_ %s. validity %x",
+          ikey_.DebugString(allow_data_in_errors_, true).c_str(),
+          earliest_snapshot_, earliest_write_conflict_snapshot_, job_snapshot_,
+          static_cast<int>(timestamp_size_),
+          full_history_ts_low_ != nullptr
+              ? Slice(*full_history_ts_low_).ToString(true).c_str()
+              : "null",
+          validity_info_.rep);
+      assert(false);
+    }
 
-      if (zeroed_seqno) {
-        ikey_.sequence = 0;
-        last_key_seq_zeroed_ = true;
-        TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput:ZeroingSeq",
-                                 &ikey_);
+    bool zeroed_seqno = false;
+    // Whether the sequence number can actually be zeroed out here is decided
+    // by the shared BottommostSeqnoCanBeZeroed() predicate, which the
+    // bottommost-file marking logic
+    // (VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction) also
+    // consults. Keeping both on one predicate ensures a file is only marked
+    // for a compaction that can make progress; otherwise the file would be
+    // re-marked forever (infinite compaction loop).
+    if (BottommostSeqnoCanBeZeroed(
+            ikey_.sequence, preserve_seqno_after_, timestamp_size_,
+            full_history_ts_low_ != nullptr, cmp_with_history_ts_low_ < 0)) {
+      if (!timestamp_size_) {
+        current_key_.UpdateInternalKey(0, ikey_.type);
+      } else {
+        // For UDT, the seqno and timestamp could only be zeroed out after the
+        // key is below history_ts_low_.
+        // For the same user key (excluding timestamp), the timestamp-based
+        // history can be collapsed to save some space if the timestamp is
+        // older than *full_history_ts_low_.
+        const std::string kTsMin(timestamp_size_, static_cast<char>(0));
+        const Slice ts_slice = kTsMin;
+        ikey_.SetTimestamp(ts_slice);
+        current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
       }
+      zeroed_seqno = true;
+    }
+
+    if (zeroed_seqno) {
+      ikey_.sequence = 0;
+      last_key_seq_zeroed_ = true;
+      TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput:ZeroingSeq",
+                               &ikey_);
     }
   }
 }

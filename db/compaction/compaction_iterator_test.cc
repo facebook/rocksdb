@@ -307,8 +307,9 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse_,
-        std::move(compaction), /*must_count_input_entries=*/false, filter,
-        &shutting_down_, /*info_log=*/nullptr, full_history_ts_low));
+        std::move(compaction), /*must_count_input_entries=*/false,
+        CompactionIterator::ValuePreparation::kApply, filter, &shutting_down_,
+        /*info_log=*/nullptr, full_history_ts_low));
   }
 
   void AddSnapshot(SequenceNumber snapshot,
@@ -1844,6 +1845,7 @@ class WideColumnEntityBlobExtractionTest : public testing::Test {
         &blob_file_builder, true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/, manual_compaction_canceled,
         nullptr /*compaction*/, false /*must_count_input_entries*/,
+        CompactionIterator::ValuePreparation::kApply,
         nullptr /*compaction_filter*/, &shutting_down);
 
     c_iter.SeekToFirst();
@@ -2292,7 +2294,8 @@ class WideColumnEntityBlobGCTest : public testing::Test {
         blob_file_builder.get(), true /*allow_data_in_errors*/,
         true /*enforce_single_del_contracts*/, manual_compaction_canceled,
         std::move(fake_compaction), false /*must_count_input_entries*/,
-        compaction_filter, &shutting_down);
+        CompactionIterator::ValuePreparation::kApply, compaction_filter,
+        &shutting_down);
 
     c_iter.SeekToFirst();
     while (c_iter.Valid()) {
@@ -2727,7 +2730,8 @@ TEST_F(WideColumnEntityBlobGCTest,
       kMaxSequenceNumber, kMaxSequenceNumber, kMaxSequenceNumber, nullptr,
       Env::Default(), false, range_del_agg.get(), nullptr /*blob_file_builder*/,
       true, true, manual_compaction_canceled, std::move(fake_compaction), false,
-      &keep_filter, &shutting_down);
+      CompactionIterator::ValuePreparation::kApply, &keep_filter,
+      &shutting_down);
 
   c_iter.SeekToFirst();
   ASSERT_TRUE(c_iter.Valid());

@@ -263,6 +263,7 @@ default_params = {
     "num_dbs": 1,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
+    "use_keep_stream_aggregation": lambda: random.choice([0, 0, 0, 1]),
     "enable_compaction_on_deletion_trigger": lambda: random.choice([0, 0, 0, 1]),
     # `inplace_update_support` is incompatible with a wide range of features.
     # The current sanitization process is not sufficient to reliably handle
