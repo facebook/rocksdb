@@ -384,6 +384,10 @@ class WriteThread {
   // REQUIRES: db mutex held
   void EnterUnbatched(Writer* w, InstrumentedMutex* mu);
 
+  // Refuses an existing or newly started stall. Call ExitUnbatched() only when
+  // this returns true; false leaves `w` unlinked with Incomplete status.
+  bool EnterUnbatchedNonBlocking(Writer* w, InstrumentedMutex* mu);
+
   // Completes a Writer begun with EnterUnbatched, unblocking subsequent
   // writers.
   void ExitUnbatched(Writer* w);

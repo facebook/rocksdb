@@ -295,6 +295,65 @@ TEST_F(ChargeWriteBufferTest, BasicWithCacheFull) {
             46 * kSizeDummyEntry + kMetaDataChargeOverhead);
 }
 
+namespace {
+// Test double for a DB in the cross-DB flush registry.
+class FakeFlushInitiator : public FlushInitiator {
+ public:
+  FakeFlushInitiator(size_t mem, bool can_flush)
+      : mem_(mem), can_flush_(can_flush) {}
+
+  size_t GetFlushableMemUsage() override { return mem_; }
+  bool ScheduleFlush() override {
+    ++schedule_calls_;
+    return can_flush_;
+  }
+
+  size_t mem_;
+  bool can_flush_;
+  int schedule_calls_ = 0;
+};
+}  // anonymous namespace
+
+// InitiateFlushOnLargestDB() must report true only when a flush is genuinely in
+// flight somewhere else, because the caller skips its own flush when it does.
+TEST_F(WriteBufferManagerTest, InitiateFlushOnLargestDBContract) {
+  WriteBufferManager wbf(100 * 1024 * 1024, nullptr /* cache */,
+                         false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  FakeFlushInitiator self(/*mem=*/100, /*can_flush=*/true);
+  FakeFlushInitiator bigger(/*mem=*/200, /*can_flush=*/true);
+  wbf.RegisterFlushInitiator(&self);
+  wbf.RegisterFlushInitiator(&bigger);
+
+  // The larger DB accepts, so the caller may defer to it.
+  ASSERT_TRUE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(1, bigger.schedule_calls_);
+  ASSERT_EQ(0, self.schedule_calls_);
+
+  // The larger DB's state changed after it won the bid and it now declines.
+  // The caller must be told so, otherwise nothing would flush at all.
+  bigger.can_flush_ = false;
+  ASSERT_FALSE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(2, bigger.schedule_calls_);
+  ASSERT_EQ(0, self.schedule_calls_);
+
+  // Caller is itself the largest: it flushes itself rather than deferring.
+  bigger.mem_ = 1;
+  bigger.can_flush_ = true;
+  ASSERT_FALSE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(2, bigger.schedule_calls_);
+
+  // Nobody has anything to reclaim: there is no one to defer to.
+  self.mem_ = 0;
+  bigger.mem_ = 0;
+  ASSERT_FALSE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(2, bigger.schedule_calls_);
+
+  wbf.DeregisterFlushInitiator(&self);
+  wbf.DeregisterFlushInitiator(&bigger);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

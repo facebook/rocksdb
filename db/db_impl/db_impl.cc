@@ -525,7 +525,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
 void DBImpl::WaitForBackgroundWork() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_pressure_callback_in_progress_) {
+         bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
+         bg_pressure_callback_in_progress_) {
     bg_cv_.Wait();
   }
 }
@@ -816,6 +817,21 @@ Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
                                 /*new_descriptor_log=*/false);
 }
 
+void DBImpl::MaybeRegisterFlushInitiator() {
+  // Register only fully opened read-write DBs. Do not hold mutex_: the lock
+  // order is registry mutex before DB mutex.
+  if (write_buffer_manager_ == nullptr || read_only_ || !opened_successfully_) {
+    return;
+  }
+  // Replacing a registered initiator would leave a dangling registry entry.
+  assert(wbm_flush_initiator_ == nullptr);
+  if (wbm_flush_initiator_ != nullptr) {
+    return;
+  }
+  wbm_flush_initiator_ = std::make_unique<WBMFlushInitiator>(this);
+  write_buffer_manager_->RegisterFlushInitiator(wbm_flush_initiator_.get());
+}
+
 Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
@@ -826,6 +842,12 @@ Status DBImpl::CloseHelper() {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
+
+  // Deregister before teardown and without mutex_ to preserve registry-to-DB
+  // lock ordering.
+  if (write_buffer_manager_ && wbm_flush_initiator_) {
+    write_buffer_manager_->DeregisterFlushInitiator(wbm_flush_initiator_.get());
+  }
 
   // Below check is added as recovery_error_ is not checked and it causes crash
   // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is
@@ -853,8 +875,8 @@ Status DBImpl::CloseHelper() {
 
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_purge_scheduled_ ||
-         bg_pressure_callback_in_progress_ ||
+         bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
+         bg_purge_scheduled_ || bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
          async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled ||
          pending_purge_obsolete_files_ ||
