@@ -65,6 +65,19 @@ TEST_F(VersionEditTest, EncodeDecode) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, DynamicOffpeakModel) {
+  VersionEdit edit;
+  edit.SetDynamicOffpeakModel("encoded-model");
+  std::string encoded;
+  ASSERT_TRUE(edit.EncodeTo(&encoded));
+
+  VersionEdit decoded;
+  ASSERT_OK(decoded.DecodeFrom(encoded));
+  ASSERT_TRUE(decoded.HasDynamicOffpeakModel());
+  ASSERT_EQ("encoded-model", decoded.GetDynamicOffpeakModel());
+  TestEncodeDecode(edit);
+}
+
 TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   static const uint64_t kBig = 1ull << 50;
 

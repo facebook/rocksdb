@@ -2306,6 +2306,19 @@ jstring Java_org_rocksdb_Options_dailyOffpeakTimeUTC(JNIEnv* env, jclass,
   return env->NewStringUTF(opt->daily_offpeak_time_utc.c_str());
 }
 
+void Java_org_rocksdb_Options_setDynamicOffpeakPercentile(JNIEnv*, jclass,
+                                                          jlong jhandle,
+                                                          jint percentile) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opt->dynamic_offpeak_percentile = static_cast<uint32_t>(percentile);
+}
+
+jint Java_org_rocksdb_Options_dynamicOffpeakPercentile(JNIEnv*, jclass,
+                                                       jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jint>(opt->dynamic_offpeak_percentile);
+}
+
 /*
  * Class:     org_rocksdb_Options
  * Method:    setAvoidFlushDuringShutdown
@@ -7934,6 +7947,19 @@ jstring Java_org_rocksdb_DBOptions_dailyOffpeakTimeUTC(JNIEnv* env, jclass,
                                                        jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return env->NewStringUTF(opt->daily_offpeak_time_utc.c_str());
+}
+
+void Java_org_rocksdb_DBOptions_setDynamicOffpeakPercentile(JNIEnv*, jclass,
+                                                            jlong jhandle,
+                                                            jint percentile) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  opt->dynamic_offpeak_percentile = static_cast<uint32_t>(percentile);
+}
+
+jint Java_org_rocksdb_DBOptions_dynamicOffpeakPercentile(JNIEnv*, jclass,
+                                                         jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  return static_cast<jint>(opt->dynamic_offpeak_percentile);
 }
 
 //////////////////////////////////////////////////////////////////////////////

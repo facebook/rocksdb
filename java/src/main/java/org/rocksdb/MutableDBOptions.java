@@ -79,7 +79,8 @@ public class MutableDBOptions extends AbstractMutableOptions {
     compaction_readahead_size(ValueType.LONG),
     max_compaction_trigger_wakeup_seconds(ValueType.LONG),
 
-    daily_offpeak_time_utc(ValueType.STRING);
+    daily_offpeak_time_utc(ValueType.STRING),
+    dynamic_offpeak_percentile(ValueType.INT);
 
     private final ValueType valueType;
     DBOption(final ValueType valueType) {
@@ -312,6 +313,16 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public String dailyOffpeakTimeUTC() {
       return getString(DBOption.daily_offpeak_time_utc);
+    }
+
+    @Override
+    public MutableDBOptionsBuilder setDynamicOffpeakPercentile(final int dynamicOffpeakPercentile) {
+      return setInt(DBOption.dynamic_offpeak_percentile, dynamicOffpeakPercentile);
+    }
+
+    @Override
+    public int dynamicOffpeakPercentile() {
+      return getInt(DBOption.dynamic_offpeak_percentile);
     }
   }
 }

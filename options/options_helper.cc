@@ -201,6 +201,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.optimize_manifest_for_recovery =
       mutable_db_options.optimize_manifest_for_recovery;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
+  options.dynamic_offpeak_percentile =
+      mutable_db_options.dynamic_offpeak_percentile;
   options.max_compaction_trigger_wakeup_seconds =
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
   options.remote_compaction_manifest_floor =
