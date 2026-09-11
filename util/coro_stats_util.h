@@ -7,15 +7,7 @@
 #pragma once
 
 #if defined(USE_COROUTINES)
-#include <cassert>
 #include <memory>
-#include <optional>
-
-#ifndef NDEBUG
-#include "folly/coro/CurrentExecutor.h"
-#include "folly/executors/IOExecutor.h"
-#include "folly/io/async/EventBase.h"
-#endif
 
 #include "rocksdb/perf_level.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -36,19 +28,17 @@ struct CoroutineStatsConfig {
 };
 
 CoroutineStatsConfig CaptureCoroutineStatsConfig();
-bool IsCoroutineStatsEnabled();
+CoroutineStatsConfig CaptureAndDisableCoroutineStatsConfig();
+bool IsCoroutineStatsEnabled(const CoroutineStatsConfig& stats_config);
 
-// Installs request-scoped perf and IO stats while a coroutine is active. Folly
-// request context is used to save the request stats on suspension and reload
-// them with the captured configuration on resumption, so multiple coroutines
-// can share a single executor thread, but each own separate stats contexts.
-// Restores on other threads are ignored; coroutine execution remains
-// owner-thread-affine.
-// Collected stats are published to thread-local storage on destruction.
+// Installs the captured stats configuration for one coroutine call. Enabled
+// calls preserve their counters across suspensions and publish them on exit.
+// Request-context restores on other threads are ignored because the collected
+// stats remain owned by the creating thread. All calls leave TLS stats
+// collection disabled.
 class CoroutineStatsContextScope {
  public:
-  explicit CoroutineStatsContextScope(CoroutineStatsConfig stats_config,
-                                      Env* env);
+  CoroutineStatsContextScope(CoroutineStatsConfig stats_config, Env* env);
   ~CoroutineStatsContextScope();
 
   CoroutineStatsContextScope(const CoroutineStatsContextScope&) = delete;
@@ -61,25 +51,6 @@ class CoroutineStatsContextScope {
   folly::RequestData* request_data_ = nullptr;
   std::unique_ptr<folly::ShallowCopyRequestContextScopeGuard> guard_;
 };
-
-#ifndef NDEBUG
-#define INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(read_executor_arg, env_arg) \
-  auto* const coroutine_stats_read_executor = (read_executor_arg);        \
-  if (coroutine_stats_read_executor != nullptr) {                         \
-    assert(co_await folly::coro::co_current_executor ==                   \
-           coroutine_stats_read_executor->getEventBase());                \
-  }                                                                       \
-  std::optional<CoroutineStatsContextScope> stats_scope;                  \
-  if (IsCoroutineStatsEnabled()) {                                        \
-    stats_scope.emplace(CaptureCoroutineStatsConfig(), (env_arg));        \
-  }
-#else
-#define INSTALL_COROUTINE_STATS_CONTEXT_SCOPE(read_executor_arg, env_arg) \
-  std::optional<CoroutineStatsContextScope> stats_scope;                  \
-  if (IsCoroutineStatsEnabled()) {                                        \
-    stats_scope.emplace(CaptureCoroutineStatsConfig(), (env_arg));        \
-  }
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 

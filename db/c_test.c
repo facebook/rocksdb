@@ -2474,6 +2474,35 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_readoptions_set_snapshot(roptions, snap);
     CheckGet(db, roptions, "foo", "hello");
+
+    size_t metadata_value_len = 0;
+    unsigned char newer_version_present = 0;
+    char* metadata_value =
+        rocksdb_get_with_metadata(db, roptions, "foo", 3, &metadata_value_len,
+                                  NULL, NULL, &newer_version_present, &err);
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+    CheckNoError(err);
+    CheckEqual("hello", metadata_value, metadata_value_len);
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+    CheckCondition(newer_version_present == 1);
+    Free(&metadata_value);
+
+    const char* metadata_keys[] = {"foo"};
+    const size_t metadata_key_sizes[] = {3};
+    char* metadata_values[1];
+    size_t metadata_value_sizes[1];
+    unsigned char newer_versions[1];
+    char* metadata_errors[1];
+    rocksdb_multi_get_with_metadata(
+        db, roptions, 1, metadata_keys, metadata_key_sizes, metadata_values,
+        metadata_value_sizes, NULL, NULL, newer_versions, metadata_errors);
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+    CheckCondition(metadata_errors[0] == NULL);
+    CheckEqual("hello", metadata_values[0], metadata_value_sizes[0]);
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+    CheckCondition(newer_versions[0] == 1);
+    Free(&metadata_values[0]);
+
     rocksdb_readoptions_set_snapshot(roptions, NULL);
     CheckGet(db, roptions, "foo", NULL);
     rocksdb_release_snapshot(db, snap);

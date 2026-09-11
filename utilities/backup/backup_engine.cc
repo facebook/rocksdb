@@ -1729,7 +1729,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     bool found = false;
     for (auto be : locked_restore_from_dirs) {
       auto it = be->backuped_file_infos_.find(file);
-      if (it != backuped_file_infos_.end()) {
+      if (it != be->backuped_file_infos_.end()) {
         restore_file_infos.emplace_back(be, &*it->second);
         found = true;
         break;

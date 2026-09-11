@@ -467,6 +467,36 @@ TEST_F(TtlTest, MultiGetCoroutine) {
 }
 #endif  // USE_COROUTINES
 
+TEST_F(TtlTest, SnapshotNewerVersionMetadata) {
+  OpenTtl();
+  assert(db_ttl_);
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "key", "old"));
+  const Snapshot* snapshot = db_ttl_->GetSnapshot();
+  ASSERT_OK(db_ttl_->Put(WriteOptions(), "key", "new"));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  OutputMetadata output_metadata;
+  output_metadata.WantNewerVersionPresent();
+  std::string value;
+  ASSERT_OK(
+      db_ttl_->GetWithMetadata(read_options, "key", &value, &output_metadata));
+  ASSERT_EQ("old", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  MultiGetOutputMetadata multiget_output_metadata;
+  multiget_output_metadata.WantNewerVersionPresent();
+  std::vector<Slice> keys{"key"};
+  std::vector<std::string> values;
+  const std::vector<Status> statuses = db_ttl_->MultiGetWithMetadata(
+      read_options, keys, &values, &multiget_output_metadata);
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+
+  db_ttl_->ReleaseSnapshot(snapshot);
+}
+
 // If TTL is non positive or not provided, the behaviour is TTL = infinity
 // This test opens the db 3 times with such default behavior and inserts a
 // bunch of kvs each time. All kvs should accumulate in the db till the end

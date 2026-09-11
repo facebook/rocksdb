@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 template <typename Base>
 class CoroStackableDBBase;
+class SstFileReader;
 
 // EXPERIMENTAL native coroutine read interface.
 //
@@ -36,11 +37,14 @@ class CoroStackableDBBase;
 // coroutine reads or a read executor are unavailable.
 //
 // STATS:
-// GetCoroutine() and MultiGetCoroutine() populate TLS with stats for only that
-// operation. CoGet() and CoMultiGet() can resume their callers on a different
-// thread, so reading TLS after awaiting them is not valid. To consume coroutine
-// stats, override the protected CoroStackableDB hook and copy the TLS values
-// immediately after awaiting the wrapped operation, before suspending again.
+// CoGet() and CoMultiGet() populate TLS with stats for only that operation.
+// Set the desired stats configuration on the thread that starts or awaits each
+// task. Starting the task captures that configuration and resets it to
+// disabled.
+// They can resume their callers on a different thread, so reading TLS after
+// awaiting them is not valid. To consume coroutine stats, override the
+// protected CoroStackableDB hook and copy the TLS values immediately after
+// awaiting the wrapped operation, before suspending again.
 //
 // Stats are generally more expensive in coroutine APIs than sync counterpart
 // due to request context overhead. For optimal performance when stats are not
@@ -82,6 +86,15 @@ class CoroDB {
                                          const Slice& key, std::string* value,
                                          std::string* timestamp);
 
+  static folly::coro::Task<Status> CoGet(SstFileReader* reader,
+                                         const ReadOptions& options,
+                                         const Slice& key,
+                                         PinnableSlice* value);
+
+  static folly::coro::Task<Status> CoGet(SstFileReader* reader,
+                                         const ReadOptions& options,
+                                         const Slice& key, std::string* value);
+
   static folly::coro::Task<std::vector<Status>> CoMultiGet(
       DB* db, const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
@@ -105,6 +118,14 @@ class CoroDB {
   static folly::coro::Task<std::vector<Status>> CoMultiGet(
       DB* db, const ReadOptions& options, const std::vector<Slice>& keys,
       std::vector<std::string>* values, std::vector<std::string>* timestamps);
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      SstFileReader* reader, const ReadOptions& options,
+      const std::vector<Slice>& keys, std::vector<PinnableSlice>* values);
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      SstFileReader* reader, const ReadOptions& options,
+      const std::vector<Slice>& keys, std::vector<std::string>* values);
 
   static folly::coro::Task<void> CoMultiGet(
       DB* db, const ReadOptions& options, size_t num_keys,

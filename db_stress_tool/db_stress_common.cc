@@ -46,8 +46,7 @@ namespace {
 
 class BlockingAsyncCallback : public DB::AsyncCallback {
  public:
-  void OnComplete(const PerfContext* /*perf_context*/,
-                  const IOStatsContext* /*iostats_context*/) override {
+  void OnComplete() override {
     std::lock_guard<std::mutex> lock(mu_);
     done_ = true;
     cv_.notify_one();
@@ -733,6 +732,8 @@ static void ProcessRemoteCompactionJob(
   auto override_options = CreateOverrideOptions(options, job_info);
 
   OpenAndCompactOptions open_compact_options;
+  open_compact_options.max_secondary_open_retries =
+      FLAGS_openandcompact_max_secondary_open_retries;
   if (FLAGS_allow_resumption_one_in > 0) {
     open_compact_options.allow_resumption =
         rand.OneIn(FLAGS_allow_resumption_one_in);

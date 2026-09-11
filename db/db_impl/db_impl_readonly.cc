@@ -11,6 +11,7 @@
 #include "db/blob/blob_fetcher.h"
 #include "db/db_impl/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/manifest_ops.h"
 #include "db/merge_context.h"
 #include "logging/logging.h"
@@ -29,6 +30,30 @@ DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
 }
 
 DBImplReadOnly::~DBImplReadOnly() = default;
+
+void DBImplReadOnly::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  DBImpl::MultiGet(options, num_keys, mutable_column_families, keys, values,
+                   timestamps != nullptr ? timestamps->data() : nullptr,
+                   statuses, sorted_input);
+}
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
                                       ColumnFamilyHandle* column_family) {

@@ -886,6 +886,14 @@ rocksdb_ingestexternalfileoptions_get_file_opening_threads(
 
 /* OpenAndCompactOptions */
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_open_and_compact_options_set_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt, uint32_t v);
+
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_open_and_compact_options_get_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_open_and_compact_options_get_allow_resumption(
     rocksdb_open_and_compact_options_t* opt);

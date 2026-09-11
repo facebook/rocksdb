@@ -32,6 +32,11 @@ _IGNORED_SIGTERM_STDERR_RE = re.compile(
     r"returned terminal error: -9\."
     r"|(?:Poll|AbortIO): io_uring_wait_cqe failed: -(?:4|11))$"
 )
+_IGNORED_IO_URING_INIT_STDERR_RE = re.compile(
+    r"^[IE]\d{4} \d{2}:\d{2}:\d{2}\.\d+ +\d+ "
+    r"IoUringBackend\.cpp:\d+\] "
+    r"io_uring_queue_init_params\([^)]*\) failed .*$"
+)
 _NO_SPACE_SUBSTRINGS = (
     "no space left on device",
     "out of disk space",
@@ -274,7 +279,11 @@ default_params = {
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
-    "tolerate_non_injected_io_errors_for_remote_dbs": 0,
+    # Remote backends can surface transient infrastructure IO errors that are
+    # not RocksDB bugs, so default to tolerating them whenever a remote
+    # --env_uri / --fs_uri is in use. A caller can still pass 0 explicitly, and
+    # finalize_and_sanitize() force-disables it for local DBs.
+    "tolerate_non_injected_io_errors_for_remote_dbs": lambda: 1 if is_remote_db else 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -2197,7 +2206,12 @@ def print_output_and_exit_on_error(
     sys.exit(2)
 
 
-def print_run_output_and_exit_on_error(args, finalized_params, stdout, stderr):
+def print_run_output_and_exit_on_error(
+    args, finalized_params, stdout, stderr, hit_timeout=False
+):
+    stdout, stderr = sanitize_known_stderr(
+        stdout, stderr, hit_timeout, finalized_params
+    )
     print_output_and_exit_on_error(
         stdout,
         stderr,
@@ -2206,17 +2220,27 @@ def print_run_output_and_exit_on_error(args, finalized_params, stdout, stderr):
     )
 
 
-def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
+def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
     # Blackbox crash tests intentionally terminate db_stress with SIGTERM.
-    # Filter this known post-SIGTERM io_uring stderr so it does not mask other
-    # stderr or fail the timeout path spuriously.
-    if not hit_timeout or _SIGTERM_STDOUT_MARKER not in stdout or len(stderr) == 0:
+    ignore_sigterm_stderr = hit_timeout and _SIGTERM_STDOUT_MARKER in stdout
+    # RocksDB falls back to synchronous reads if Folly cannot initialize io_uring.
+    ignore_io_uring_init_stderr = finalized_params.get("use_async_db_api") == 1
+    if len(stderr) == 0 or not (
+        ignore_sigterm_stderr or ignore_io_uring_init_stderr
+    ):
         return stdout, stderr
 
     kept_lines = []
     ignored_lines = []
     for line in stderr.splitlines(keepends=True):
-        if _IGNORED_SIGTERM_STDERR_RE.fullmatch(line.rstrip("\n")):
+        stripped_line = line.rstrip("\n")
+        if (
+            ignore_sigterm_stderr
+            and _IGNORED_SIGTERM_STDERR_RE.fullmatch(stripped_line)
+        ) or (
+            ignore_io_uring_init_stderr
+            and _IGNORED_IO_URING_INIT_STDERR_RE.fullmatch(stripped_line)
+        ):
             ignored_lines.append(line)
         else:
             kept_lines.append(line)
@@ -2226,7 +2250,7 @@ def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
 
     if stdout and not stdout.endswith("\n"):
         stdout += "\n"
-    stdout += "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+    stdout += "Ignored known stderr:\n"
     stdout += "".join(ignored_lines)
 
     stderr = "".join(kept_lines)
@@ -2332,8 +2356,9 @@ def liveness_main(args, unknown_args):
     )
 
     print_fault_injection_log(pid)
-    outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
-    print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+    print_run_output_and_exit_on_error(
+        args, finalized_params, outs, errs, hit_timeout
+    )
 
     if hit_timeout:
         if retcode == -9:
@@ -2381,18 +2406,20 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
         print_fault_injection_log(pid)
-        outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
-
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run only)
         cmd_params["destroy_db_initially"] = 0
 
         if not hit_timeout:
             print("Exit Before Killing")
-            print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+            print_run_output_and_exit_on_error(
+                args, finalized_params, outs, errs, hit_timeout
+            )
             sys.exit(2)
 
-        print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+        print_run_output_and_exit_on_error(
+            args, finalized_params, outs, errs, hit_timeout
+        )
 
         time.sleep(1)  # time to stabilize before the next run
 

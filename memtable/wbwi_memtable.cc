@@ -46,10 +46,25 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        PinnableWideColumns* columns, std::string* timestamp,
                        Status* s, MergeContext* merge_context,
                        SequenceNumber* max_covering_tombstone_seq,
-                       SequenceNumber* out_seq, const ReadOptions&,
+                       SequenceNumber* out_seq, const ReadOptions& read_opts,
                        bool immutable_memtable, ReadCallback* callback,
                        bool* is_blob_index, bool do_merge,
                        const BlobFetcher* blob_fetcher) {
+  return GetImpl(key, value, columns, timestamp, s, merge_context,
+                 max_covering_tombstone_seq, out_seq, read_opts,
+                 immutable_memtable, callback, is_blob_index, do_merge,
+                 blob_fetcher, /*newer_version_present=*/nullptr);
+}
+
+bool WBWIMemTable::GetImpl(const LookupKey& key, std::string* value,
+                           PinnableWideColumns* columns, std::string* timestamp,
+                           Status* s, MergeContext* merge_context,
+                           SequenceNumber* max_covering_tombstone_seq,
+                           SequenceNumber* out_seq, const ReadOptions&,
+                           bool immutable_memtable, ReadCallback* callback,
+                           bool* is_blob_index, bool do_merge,
+                           const BlobFetcher* blob_fetcher,
+                           bool* newer_version_present) {
   assert(s->ok() || s->IsMergeInProgress());
   (void)immutable_memtable;
   (void)timestamp;
@@ -89,6 +104,10 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
     assert(type != kTypeWideColumnEntity);
     assert(type != kTypeValuePreferredSeqno);
     assert(type != kTypeDeletionWithTimestamp);
+    if (UNLIKELY(callback != nullptr &&
+                 callback->NeedToTrackNewerVersions(newer_version_present))) {
+      callback->MaybeRecordNewerVersion(seq, type, newer_version_present);
+    }
     if (!callback || callback->IsVisible(seq)) {
       if (*out_seq == kMaxSequenceNumber) {
         *out_seq = std::max(seq, *max_covering_tombstone_seq);
@@ -171,11 +190,14 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
   // TODO: reuse the InternalIterator created in Get().
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     SequenceNumber dummy_seq = 0;
-    bool found_final_value =
-        Get(*iter->lkey, iter->value ? iter->value->GetSelf() : nullptr,
-            iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
-            &(iter->max_covering_tombstone_seq), &dummy_seq, read_options, true,
-            callback, nullptr, true);
+    bool found_final_value = GetImpl(
+        *iter->lkey, iter->value ? iter->value->GetSelf() : nullptr,
+        iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
+        &(iter->max_covering_tombstone_seq), &dummy_seq, read_options, true,
+        callback, nullptr, true, /*blob_fetcher=*/nullptr,
+        callback != nullptr && callback->GetMetadataReadBounds() != nullptr
+            ? &iter->newer_version_present
+            : nullptr);
     if (found_final_value) {
       if (iter->s->ok() || iter->s->IsNotFound()) {
         if (iter->value) {

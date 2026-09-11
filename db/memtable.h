@@ -1001,7 +1001,8 @@ class MemTable final : public ReadOnlyMemTable {
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress,
-                    const BlobFetcher* blob_fetcher);
+                    const BlobFetcher* blob_fetcher,
+                    bool* newer_version_present = nullptr);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime

@@ -795,9 +795,10 @@ struct DBOptions {
   // Default: 16
   int max_file_opening_threads = 16;
 
-  // Requested maximum number of threads in the shared read I/O executor. A DB
-  // open can increase the executor to this size but cannot reduce it. Used
-  // exclusively for asynchronous read requests (e.g. GetAsync, MultiGetAsync).
+  // Requested maximum number of threads in the shared read I/O executor.
+  // Opening a DB or SstFileReader can increase the executor to this size but
+  // cannot reduce it. Used exclusively for asynchronous read requests (e.g.
+  // GetAsync, MultiGetAsync).
   int read_io_executor_threads = 1;
 
   // If true, SST files are opened and validated asynchronously in the
@@ -3310,6 +3311,13 @@ struct CompactionServiceOptionsOverride {
 struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
+
+  // Maximum number of times to retry opening the source DB as a secondary
+  // after the initial attempt fails because CURRENT or MANIFEST was replaced
+  // concurrently. A value of zero disables retries.
+  //
+  // Default: 2
+  uint32_t max_secondary_open_retries = 2;
 
   // EXPERIMENTAL
   //
