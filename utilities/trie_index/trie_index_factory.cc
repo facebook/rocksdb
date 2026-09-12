@@ -19,10 +19,9 @@ namespace trie_index {
 
 int RegisterBuiltinTrieIndexFactory(ObjectLibrary& library,
                                     const std::string& /*arg*/) {
-  library.AddFactory<UserDefinedIndexFactory>(
+  library.AddFactory<IndexFactory>(
       TrieIndexFactory::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<UserDefinedIndexFactory>* guard,
+      [](const std::string& /*uri*/, std::unique_ptr<IndexFactory>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new TrieIndexFactory());
         return guard->get();
@@ -246,11 +245,10 @@ Status TrieIndexBuilder::Finish(Slice* index_contents) {
 // ============================================================================
 
 uint64_t TrieIndexBuilder::EstimatedSize() const {
-  // Estimate the serialized trie size from the running counters. A LOUDS trie
-  // uses ~2.5 bits per node plus the label data, rank/select tables, and block
-  // handle arrays. For a rough estimate:
-  // ~3 bytes per unique key byte + 16 bytes per entry for handles/metadata.
-  return total_separator_bytes_ * 3 + buffered_entries_.size() * 16;
+  // Dense/sparse labels, bitvectors, child positions, and capped chain metadata
+  // use at most 12 bytes per separator byte. Each handle and seqno record needs
+  // at most 20 bytes. Reserve 1 KiB for headers and alignment.
+  return 1024 + total_separator_bytes_ * 12 + buffered_entries_.size() * 20;
 }
 
 TrieIndexIterator::TrieIndexIterator(const LoudsTrie* trie,
@@ -547,10 +545,9 @@ IterBoundCheck TrieIndexIterator::CheckBounds(
 // ============================================================================
 
 TrieIndexReader::TrieIndexReader(const Comparator* comparator)
-    : comparator_(comparator), data_size_(0) {}
+    : comparator_(comparator) {}
 
 Status TrieIndexReader::InitFromSlice(const Slice& data) {
-  data_size_ = data.size();
   return trie_.InitFromData(data);
 }
 
@@ -561,12 +558,9 @@ std::unique_ptr<UserDefinedIndexIterator> TrieIndexReader::NewIterator(
 }
 
 size_t TrieIndexReader::ApproximateMemoryUsage() const {
-  // The trie uses zero-copy pointers into the serialized data for bitvectors
-  // and handle arrays, so the base cost is the serialized data size. On top
-  // of that, InitFromData() heap-allocates child position lookup tables
-  // (s_child_start_pos_ and s_child_end_pos_) for Select-free sparse
-  // traversal -- 8 bytes per sparse internal node.
-  return data_size_ + trie_.ApproximateAuxMemoryUsage();
+  // The serialized data is owned by the table reader or block cache. Only
+  // report the child-position lookup tables allocated by InitFromData().
+  return trie_.ApproximateAuxMemoryUsage();
 }
 
 // ============================================================================

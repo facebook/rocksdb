@@ -2440,8 +2440,71 @@ class TrieIndexFactoryTest : public testing::Test {
     ASSERT_EQ(result.bound_check_result, IterBoundCheck::kUnknown);
   }
 
+  void AssertSerializedSizeBound(const std::vector<std::string>& keys,
+                                 bool parallel) {
+    std::unique_ptr<IndexFactoryBuilder> builder;
+    ASSERT_OK(factory_->NewBuilder(IndexFactoryOptions(), builder));
+    if (parallel && !builder->SupportsParallelAddEntry()) {
+      return;
+    }
+    for (size_t i = 0; i < keys.size(); ++i) {
+      const Slice key(keys[i]);
+      const Slice next = i + 1 < keys.size() ? Slice(keys[i + 1]) : Slice();
+      const Slice* next_key = i + 1 < keys.size() ? &next : nullptr;
+      const IndexFactoryBuilder::BlockHandle handle{i * 100, 100};
+      const IndexFactoryBuilder::IndexEntryContext context =
+          EntryCtx(keys.size() - i, keys.size() - i - 1);
+      std::string scratch;
+      if (parallel) {
+        auto prepared = builder->CreatePreparedAddEntry();
+        builder->PrepareAddEntry(key, next_key, context, prepared.get());
+        builder->FinishAddEntry(handle, prepared.get(), &scratch,
+                                /*skip_delta_encoding=*/false);
+      } else {
+        builder->AddIndexEntry(key, next_key, handle, &scratch, context);
+      }
+    }
+    const uint64_t estimate = builder->EstimatedSize();
+    Slice contents;
+    ASSERT_OK(builder->Finish(&contents));
+    EXPECT_GE(estimate, contents.size());
+  }
+
   std::shared_ptr<TrieIndexFactory> factory_;
 };
+
+TEST_F(TrieIndexFactoryTest, EstimatedSizeBoundsSerializedTrie) {
+  struct KeySet {
+    const char* name;
+    std::vector<std::string> keys;
+  };
+  std::vector<KeySet> cases = {
+      {"empty", {}},
+      {"single", {"a"}},
+      {"long", {std::string(1024, 'a')}},
+      {"prefixes", {"a", "ab", "abc", "abcd", "b"}},
+      {"overflow", std::vector<std::string>(64, "same")},
+      {"dense", {}},
+      {"shared_prefix", {}},
+      {"sparse", {}},
+  };
+  for (int i = 1; i < 256; ++i) {
+    cases[5].keys.emplace_back(1, static_cast<char>(i));
+    cases[6].keys.push_back(std::string(64, 'p') + std::to_string(i));
+  }
+  for (int i = 1; i <= 64; ++i) {
+    cases[7].keys.emplace_back(32 + i, static_cast<char>(i));
+  }
+
+  for (auto& key_set : cases) {
+    SCOPED_TRACE(key_set.name);
+    std::sort(key_set.keys.begin(), key_set.keys.end());
+    for (bool parallel : {false, true}) {
+      SCOPED_TRACE(parallel);
+      AssertSerializedSizeBound(key_set.keys, parallel);
+    }
+  }
+}
 
 TEST_F(TrieIndexFactoryTest, BasicBuildAndRead) {
   // Build a trie index using the factory interface.
@@ -2827,9 +2890,9 @@ TEST_F(TrieIndexFactoryTest, RejectsNonBytewiseComparator) {
   ASSERT_NE(builder, nullptr);
 }
 
-TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
-  // Verify that ApproximateMemoryUsage() accounts for auxiliary heap
-  // allocations (child position lookup tables), not just serialized data.
+TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageReportsOnlyAuxData) {
+  // The reader reports its auxiliary heap allocations. The serialized block
+  // is accounted separately by the table reader or block cache.
   UserDefinedIndexOption option;
   option.comparator = BytewiseComparator();
 
@@ -2865,13 +2928,8 @@ TEST_F(TrieIndexFactoryTest, ApproximateMemoryUsageIncludesAuxData) {
   ASSERT_OK(factory_->NewReader(option, index_contents, reader));
 
   size_t mem_usage = reader->ApproximateMemoryUsage();
-  // Memory usage should be at least the serialized data size.
-  ASSERT_GE(mem_usage, serialized_size);
-
-  fprintf(stderr,
-          "ApproximateMemoryUsage: serialized=%zu, reported=%zu, "
-          "aux_overhead=%zu bytes\n",
-          serialized_size, mem_usage, mem_usage - serialized_size);
+  ASSERT_GT(mem_usage, 0U);
+  ASSERT_LT(mem_usage, serialized_size);
 }
 
 TEST_F(TrieIndexFactoryTest, EmptyTrieIterator) {
@@ -2998,15 +3056,16 @@ TEST_F(TrieIndexFactoryTest, OnKeyAddedNoOp) {
   ASSERT_OK(factory_->NewBuilder(option, builder));
 
   // Call OnKeyAdded with all ValueType variants -- all should be no-ops.
-  builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::kValue,
+  builder->OnKeyAdded(Slice("key1"), UserDefinedIndexBuilder::ValueType::kValue,
                       Slice("value1"));
-  builder->OnKeyAdded(Slice("key2"), UserDefinedIndexBuilder::kDelete,
-                      Slice(""));
-  builder->OnKeyAdded(Slice("key3"), UserDefinedIndexBuilder::kMerge,
+  builder->OnKeyAdded(Slice("key2"),
+                      UserDefinedIndexBuilder::ValueType::kDelete, Slice(""));
+  builder->OnKeyAdded(Slice("key3"), UserDefinedIndexBuilder::ValueType::kMerge,
                       Slice("merge_operand"));
-  builder->OnKeyAdded(Slice("key4"), UserDefinedIndexBuilder::kOther,
+  builder->OnKeyAdded(Slice("key4"), UserDefinedIndexBuilder::ValueType::kOther,
                       Slice("blob_ref"));
-  builder->OnKeyAdded(Slice(""), UserDefinedIndexBuilder::kValue, Slice(""));
+  builder->OnKeyAdded(Slice(""), UserDefinedIndexBuilder::ValueType::kValue,
+                      Slice(""));
 
   // Building should still succeed (OnKeyAdded should not affect state).
   UserDefinedIndexBuilder::BlockHandle handle{0, 500};
@@ -5070,7 +5129,7 @@ TEST_F(TrieIndexFactoryTest, WrapperNextAndGetResultReturnsInternalKey) {
   ReadOptions ro;
   auto udi_iter = reader->NewIterator(ro);
   // Wrap the UDI iterator in the adapter that converts to InternalIterator.
-  UserDefinedIndexIteratorWrapper wrapper(std::move(udi_iter));
+  IndexFactoryIteratorWrapper wrapper(std::move(udi_iter));
 
   // Seek to "a" -- constructs an internal key from user key "a".
   InternalKey seek_ikey;
