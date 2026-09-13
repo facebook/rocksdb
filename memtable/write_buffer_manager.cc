@@ -9,25 +9,323 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
+#include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <thread>
+#include <vector>
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/db_impl/db_impl.h"
+#include "port/port.h"
 #include "rocksdb/status.h"
+#include "util/atomic.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct FlushInitiator::RegistrationState {
+  RegistrationState(FlushInitiator* owner_arg, bool atomic_flush_arg)
+      : initiator(owner_arg), atomic_flush(atomic_flush_arg) {}
+
+  size_t GetFlushableMemUsage() const {
+    if (!flushable.load(std::memory_order_relaxed)) {
+      return 0;
+    }
+    if (!has_flushable_cf.load(std::memory_order_relaxed)) {
+      return 0;
+    }
+    if (!flushable_mem_accurate.load(std::memory_order_acquire)) {
+      return 0;
+    }
+    return atomic_flush
+               ? total_mutable_mem.load(std::memory_order_relaxed)
+               : largest_mutable_cf_mem.load(std::memory_order_relaxed);
+  }
+
+  FlushInitiator* Pin() {
+    callbacks_in_progress.fetch_add(1, std::memory_order_acq_rel);
+    FlushInitiator* const result = initiator.load(std::memory_order_acquire);
+    if (result == nullptr) {
+      Unpin();
+    }
+    return result;
+  }
+
+  void Unpin() {
+    const size_t previous =
+        callbacks_in_progress.fetch_sub(1, std::memory_order_acq_rel);
+    assert(previous > 0);
+    if (previous == 1) {
+      std::lock_guard<std::mutex> lock(callbacks_mu);
+      callbacks_cv.notify_all();
+    }
+  }
+
+  void Detach() {
+    initiator.store(nullptr, std::memory_order_release);
+    std::unique_lock<std::mutex> lock(callbacks_mu);
+    callbacks_cv.wait(lock, [this] {
+      return callbacks_in_progress.load(std::memory_order_acquire) == 0;
+    });
+  }
+
+  std::atomic<FlushInitiator*> initiator;
+  const bool atomic_flush;
+  std::atomic<size_t> total_mutable_mem{0};
+  std::atomic<size_t> largest_mutable_cf_mem{0};
+  std::atomic<uint64_t> largest_mutable_cf_update_seq{0};
+  std::atomic<bool> flushable_mem_accurate{true};
+  std::atomic<bool> flushable{true};
+  std::atomic<bool> has_flushable_cf{true};
+  std::atomic<size_t> registry_index{kInvalidRegistryIndex};
+  std::atomic<size_t> callbacks_in_progress{0};
+  std::mutex callbacks_mu;
+  std::condition_variable callbacks_cv;
+};
+
+struct WriteBufferManager::FlushInitiatorRegistry {
+  explicit FlushInitiatorRegistry(WriteBufferManager* owner_arg)
+      : owner(owner_arg) {}
+
+  FlushInitiatorRegistry(const FlushInitiatorRegistry&) = delete;
+  FlushInitiatorRegistry& operator=(const FlushInitiatorRegistry&) = delete;
+  FlushInitiatorRegistry(FlushInitiatorRegistry&&) = delete;
+  FlushInitiatorRegistry& operator=(FlushInitiatorRegistry&&) = delete;
+
+  ~FlushInitiatorRegistry() { Stop(); }
+
+  void Register(
+      const std::shared_ptr<FlushInitiator::RegistrationState>& state) {
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      assert(state->registry_index.load(std::memory_order_relaxed) ==
+             FlushInitiator::kInvalidRegistryIndex);
+      state->registry_index.store(active.size(), std::memory_order_release);
+      active.push_back(state);
+    }
+    if (owner->flush_policy() ==
+        WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+      StartSorter();
+    }
+    RequestRefresh();
+  }
+
+  void Deregister(
+      const std::shared_ptr<FlushInitiator::RegistrationState>& state) {
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      const size_t index =
+          state->registry_index.load(std::memory_order_acquire);
+      assert(index < active.size());
+      assert(active[index] == state);
+      const std::shared_ptr<FlushInitiator::RegistrationState> last =
+          active.back();
+      active[index] = last;
+      last->registry_index.store(index, std::memory_order_release);
+      active.pop_back();
+      state->registry_index.store(FlushInitiator::kInvalidRegistryIndex,
+                                  std::memory_order_release);
+
+      if (AtomicSharedPtrLoad(&largest, std::memory_order_acquire) == state) {
+        AtomicSharedPtrStore(
+            &largest, std::shared_ptr<FlushInitiator::RegistrationState>{},
+            std::memory_order_release);
+      }
+    }
+
+    state->Detach();
+    RequestRefresh();
+  }
+
+  void PolicyChanged(WriteBufferFlushPolicy policy) {
+    if (policy != WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+      StopSorter();
+      owner->ResetFlushHandoff();
+      return;
+    }
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      for (const auto& state : active) {
+        state->flushable_mem_accurate.store(false, std::memory_order_release);
+      }
+    }
+    StartSorter();
+    RequestRefresh();
+  }
+
+  void RequestRefresh() {
+    refresh_requested.store(true, std::memory_order_release);
+    cv.notify_one();
+  }
+
+  void Refresh() {
+    std::lock_guard<std::mutex> refresh_lock(refresh_mu);
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      refresh_snapshot.assign(active.begin(), active.end());
+    }
+
+    std::shared_ptr<FlushInitiator::RegistrationState> best;
+    size_t best_mem = 0;
+    if (owner->flush_policy() ==
+        WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+      for (const auto& candidate : refresh_snapshot) {
+        if (candidate->registry_index.load(std::memory_order_acquire) ==
+            FlushInitiator::kInvalidRegistryIndex) {
+          continue;
+        }
+        if (!candidate->flushable_mem_accurate.load(
+                std::memory_order_acquire)) {
+          FlushInitiator* const initiator = candidate->Pin();
+          if (initiator != nullptr) {
+            initiator->TryRefreshMemoryAccounting();
+            candidate->Unpin();
+          }
+        }
+        const size_t mem = candidate->GetFlushableMemUsage();
+        if (best == nullptr || mem > best_mem) {
+          best = candidate;
+          best_mem = mem;
+        }
+      }
+    }
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      if (owner->flush_policy() ==
+              WriteBufferFlushPolicy::kFlushLargestAcrossDBs &&
+          best != nullptr && best_mem > 0 &&
+          best->registry_index.load(std::memory_order_acquire) !=
+              FlushInitiator::kInvalidRegistryIndex) {
+        AtomicSharedPtrStore(&largest, best, std::memory_order_release);
+      } else {
+        AtomicSharedPtrStore(
+            &largest, std::shared_ptr<FlushInitiator::RegistrationState>{},
+            std::memory_order_release);
+      }
+    }
+    refresh_snapshot.clear();
+  }
+
+  std::shared_ptr<FlushInitiator::RegistrationState> PinLargest(
+      FlushInitiator** initiator) {
+    std::shared_ptr<FlushInitiator::RegistrationState> state =
+        AtomicSharedPtrLoad(&largest, std::memory_order_acquire);
+    *initiator = state == nullptr ? nullptr : state->Pin();
+    if (*initiator == nullptr) {
+      state.reset();
+    }
+    return state;
+  }
+
+  void Stop() {
+    StopSorter();
+    AtomicSharedPtrStore(&largest,
+                         std::shared_ptr<FlushInitiator::RegistrationState>{},
+                         std::memory_order_release);
+  }
+
+  bool Empty() const {
+    std::lock_guard<std::mutex> lock(mu);
+    return active.empty();
+  }
+
+  size_t TEST_Size() const {
+    std::lock_guard<std::mutex> lock(mu);
+    return active.size();
+  }
+
+  bool TEST_HasSorter() const {
+    std::lock_guard<std::mutex> lifecycle_lock(sorter_lifecycle_mu);
+    return sorter != nullptr;
+  }
+
+ private:
+  void StartSorter() {
+    std::lock_guard<std::mutex> lifecycle_lock(sorter_lifecycle_mu);
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      if (owner->flush_policy() !=
+              WriteBufferFlushPolicy::kFlushLargestAcrossDBs ||
+          active.empty() || sorter != nullptr) {
+        return;
+      }
+      stopping = false;
+      sorter = std::make_unique<port::Thread>([this] { Run(); });
+    }
+  }
+
+  void StopSorter() {
+    std::lock_guard<std::mutex> lifecycle_lock(sorter_lifecycle_mu);
+    std::unique_ptr<port::Thread> sorter_to_join;
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      stopping = true;
+      sorter_to_join = std::move(sorter);
+      AtomicSharedPtrStore(&largest,
+                           std::shared_ptr<FlushInitiator::RegistrationState>{},
+                           std::memory_order_release);
+    }
+    cv.notify_all();
+    if (sorter_to_join != nullptr) {
+      sorter_to_join->join();
+    }
+  }
+
+  void Run() {
+    constexpr auto kPressureRefreshInterval = std::chrono::milliseconds(10);
+    constexpr auto kIdleRefreshInterval = std::chrono::seconds(1);
+    for (;;) {
+      Refresh();
+      owner->ProcessFlushHandoffRequest();
+      std::unique_lock<std::mutex> lock(mu);
+      const auto refresh_interval = owner->ShouldFlush()
+                                        ? kPressureRefreshInterval
+                                        : kIdleRefreshInterval;
+      cv.wait_for(lock, refresh_interval, [this] {
+        return stopping ||
+               refresh_requested.exchange(false, std::memory_order_acq_rel);
+      });
+      if (stopping) {
+        return;
+      }
+    }
+  }
+
+  WriteBufferManager* const owner;
+  mutable std::mutex mu;
+  std::condition_variable cv;
+  bool stopping = false;
+  std::atomic<bool> refresh_requested{false};
+  mutable std::mutex sorter_lifecycle_mu;
+  std::unique_ptr<port::Thread> sorter;
+  std::mutex refresh_mu;
+  std::vector<std::shared_ptr<FlushInitiator::RegistrationState>>
+      refresh_snapshot;
+  std::vector<std::shared_ptr<FlushInitiator::RegistrationState>> active;
+  std::shared_ptr<FlushInitiator::RegistrationState> largest;
+};
+
 WriteBufferManager::WriteBufferManager(size_t _buffer_size,
                                        std::shared_ptr<Cache> cache,
                                        bool allow_stall)
+    : WriteBufferManager(_buffer_size, cache, allow_stall,
+                         WriteBufferFlushPolicy::kFlushOldest) {}
+
+WriteBufferManager::WriteBufferManager(size_t _buffer_size,
+                                       std::shared_ptr<Cache> cache,
+                                       bool allow_stall,
+                                       WriteBufferFlushPolicy flush_policy)
     : buffer_size_(_buffer_size),
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
       cache_res_mgr_(nullptr),
       allow_stall_(allow_stall),
-      stall_active_(false) {
+      stall_active_(false),
+      flush_policy_(flush_policy),
+      flush_initiator_registry_(
+          std::make_unique<FlushInitiatorRegistry>(this)) {
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -39,10 +337,24 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
 }
 
 WriteBufferManager::~WriteBufferManager() {
+  flush_initiator_registry_->Stop();
 #ifndef NDEBUG
-  std::unique_lock<std::mutex> lock(mu_);
-  assert(queue_.empty());
+  {
+    std::unique_lock<std::mutex> lock(mu_);
+    assert(queue_.empty());
+  }
+  assert(flush_initiator_registry_->Empty());
 #endif
+}
+
+void WriteBufferManager::SetFlushPolicy(
+    WriteBufferFlushPolicy new_flush_policy) {
+  std::lock_guard<std::mutex> lock(flush_policy_mu_);
+  if (flush_policy_.load(std::memory_order_relaxed) == new_flush_policy) {
+    return;
+  }
+  flush_policy_.store(new_flush_policy, std::memory_order_relaxed);
+  flush_initiator_registry_->PolicyChanged(new_flush_policy);
 }
 
 std::size_t WriteBufferManager::dummy_entries_in_cache_usage() const {
@@ -60,7 +372,12 @@ void WriteBufferManager::ReserveMem(size_t mem) {
     memory_used_.fetch_add(mem, std::memory_order_relaxed);
   }
   if (enabled()) {
-    memory_active_.fetch_add(mem, std::memory_order_relaxed);
+    const size_t previous =
+        memory_active_.fetch_add(mem, std::memory_order_relaxed);
+    const size_t mutable_limit = mutable_limit_.load(std::memory_order_relaxed);
+    if (previous <= mutable_limit && previous + mem > mutable_limit) {
+      flush_initiator_registry_->RequestRefresh();
+    }
   }
 }
 
@@ -126,7 +443,7 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
     // Verify if the stall conditions are stil active.
     if (ShouldStall()) {
       stall_active_.store(true, std::memory_order_relaxed);
-      queue_.splice(queue_.end(), std::move(new_node));
+      queue_.splice(queue_.end(), new_node);
     }
   }
 
@@ -180,6 +497,334 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
     }
   }
   wbm_stall->Signal();
+}
+
+FlushInitiator::FlushInitiator(bool atomic_flush)
+    : registration_state_(
+          std::make_shared<RegistrationState>(this, atomic_flush)) {}
+
+FlushInitiator::~FlushInitiator() {
+  assert(!IsRegistered());
+  registration_state_->Detach();
+}
+
+void FlushInitiator::ReserveMem(size_t mem, size_t memtable_mem) {
+  registration_state_->total_mutable_mem.fetch_add(mem,
+                                                   std::memory_order_relaxed);
+  if (!registration_state_->atomic_flush) {
+    UpdateLargestMutableCFMem(memtable_mem);
+  }
+}
+
+void FlushInitiator::SetLargestMutableCFMem(size_t mem) {
+  registration_state_->largest_mutable_cf_mem.store(mem,
+                                                    std::memory_order_seq_cst);
+  registration_state_->flushable_mem_accurate.store(true,
+                                                    std::memory_order_release);
+}
+
+bool FlushInitiator::TrySetLargestMutableCFMem(size_t mem,
+                                               uint64_t update_seq) {
+  if (registration_state_->largest_mutable_cf_update_seq.load(
+          std::memory_order_seq_cst) != update_seq) {
+    return false;
+  }
+
+  size_t previous = registration_state_->largest_mutable_cf_mem.load(
+      std::memory_order_seq_cst);
+  if (!registration_state_->largest_mutable_cf_mem.compare_exchange_strong(
+          previous, mem, std::memory_order_seq_cst)) {
+    return false;
+  }
+  if (registration_state_->largest_mutable_cf_update_seq.load(
+          std::memory_order_seq_cst) == update_seq) {
+    registration_state_->flushable_mem_accurate.store(
+        true, std::memory_order_release);
+    return true;
+  }
+
+  // Preserve the old upper bound when an allocation overlapped the rebuild.
+  // The allocator might have skipped its max update based on that value.
+  size_t current = registration_state_->largest_mutable_cf_mem.load(
+      std::memory_order_seq_cst);
+  while (current < previous &&
+         !registration_state_->largest_mutable_cf_mem.compare_exchange_weak(
+             current, previous, std::memory_order_seq_cst)) {
+  }
+  return false;
+}
+
+void FlushInitiator::InvalidateLargestMutableCFMem() {
+  registration_state_->flushable_mem_accurate.store(false,
+                                                    std::memory_order_release);
+}
+
+void FlushInitiator::UpdateLargestMutableCFMem(size_t mem) {
+  registration_state_->largest_mutable_cf_update_seq.fetch_add(
+      1, std::memory_order_seq_cst);
+  size_t largest = registration_state_->largest_mutable_cf_mem.load(
+      std::memory_order_seq_cst);
+  while (largest < mem &&
+         !registration_state_->largest_mutable_cf_mem.compare_exchange_weak(
+             largest, mem, std::memory_order_seq_cst)) {
+  }
+}
+
+uint64_t FlushInitiator::GetLargestMutableCFUpdateSequence() const {
+  return registration_state_->largest_mutable_cf_update_seq.load(
+      std::memory_order_seq_cst);
+}
+
+void FlushInitiator::ScheduleFreeMem(size_t mem) {
+  [[maybe_unused]] const size_t previous =
+      registration_state_->total_mutable_mem.fetch_sub(
+          mem, std::memory_order_relaxed);
+  assert(previous >= mem);
+}
+
+size_t FlushInitiator::GetTotalMutableMem() const {
+  return registration_state_->total_mutable_mem.load(std::memory_order_relaxed);
+}
+
+size_t FlushInitiator::GetLargestMutableCFMem() const {
+  return registration_state_->largest_mutable_cf_mem.load(
+      std::memory_order_relaxed);
+}
+
+size_t FlushInitiator::GetFlushableMemUsage() const {
+  return registration_state_->GetFlushableMemUsage();
+}
+
+bool FlushInitiator::HasAccurateFlushableMemUsage() const {
+  return registration_state_->flushable_mem_accurate.load(
+      std::memory_order_acquire);
+}
+
+void FlushInitiator::MarkFlushableMemUsageAccurate() {
+  registration_state_->flushable_mem_accurate.store(true,
+                                                    std::memory_order_release);
+}
+
+bool FlushInitiator::UsesTotalMutableMem() const {
+  return registration_state_->atomic_flush;
+}
+
+void FlushInitiator::SetFlushable(bool flushable) {
+  registration_state_->flushable.store(flushable, std::memory_order_relaxed);
+}
+
+void FlushInitiator::SetHasFlushableCF(bool has_flushable_cf) {
+  registration_state_->has_flushable_cf.store(has_flushable_cf,
+                                              std::memory_order_relaxed);
+}
+
+bool FlushInitiator::IsRegistered() const {
+  return registration_state_->registry_index.load(std::memory_order_acquire) !=
+         kInvalidRegistryIndex;
+}
+
+void WriteBufferManager::RegisterFlushInitiator(FlushInitiator* initiator) {
+  assert(initiator != nullptr);
+  flush_initiator_registry_->Register(initiator->registration_state_);
+}
+
+void WriteBufferManager::DeregisterFlushInitiator(FlushInitiator* initiator) {
+  assert(initiator != nullptr);
+  flush_initiator_registry_->Deregister(initiator->registration_state_);
+}
+
+void WriteBufferManager::NotifyFlushInitiatorChanged() {
+  flush_initiator_registry_->RequestRefresh();
+}
+
+namespace {
+uint64_t SteadyClockMicros() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+}
+}  // namespace
+
+bool WriteBufferManager::InitiateFlushOnLargestDB() {
+  if (flush_policy() != WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+    return false;
+  }
+
+  constexpr uint64_t kHandoffIntervalMicros = 20 * 1000;
+  const uint64_t now_micros = SteadyClockMicros();
+
+  FlushHandoffState state =
+      flush_handoff_state_.load(std::memory_order_acquire);
+  uint64_t deadline =
+      flush_handoff_deadline_micros_.load(std::memory_order_acquire);
+
+  if (state == FlushHandoffState::kNeedsLocalFallback) {
+    if (flush_handoff_state_.compare_exchange_strong(
+            state, FlushHandoffState::kIdle, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      flush_handoff_deadline_micros_.store(now_micros + kHandoffIntervalMicros,
+                                           std::memory_order_release);
+      return false;
+    }
+    return true;
+  }
+
+  if (state == FlushHandoffState::kRequested) {
+    if (deadline > now_micros) {
+      return true;
+    }
+    if (flush_handoff_state_.compare_exchange_strong(
+            state, FlushHandoffState::kIdle, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      flush_handoff_deadline_micros_.store(now_micros + kHandoffIntervalMicros,
+                                           std::memory_order_release);
+      return false;
+    }
+    return true;
+  }
+
+  if (state == FlushHandoffState::kRemotePending) {
+    if (deadline <= now_micros &&
+        flush_handoff_deadline_micros_.compare_exchange_strong(
+            deadline, now_micros + kHandoffIntervalMicros,
+            std::memory_order_acq_rel, std::memory_order_acquire)) {
+      return false;
+    }
+    return true;
+  }
+
+  if (deadline > now_micros ||
+      !flush_handoff_deadline_micros_.compare_exchange_strong(
+          deadline, now_micros + kHandoffIntervalMicros,
+          std::memory_order_acq_rel, std::memory_order_acquire)) {
+    return true;
+  }
+  state = FlushHandoffState::kIdle;
+  if (flush_handoff_state_.compare_exchange_strong(
+          state, FlushHandoffState::kRequested, std::memory_order_acq_rel,
+          std::memory_order_acquire)) {
+    flush_initiator_registry_->RequestRefresh();
+  }
+  return true;
+}
+
+void WriteBufferManager::ProcessFlushHandoffRequest() {
+  FlushHandoffState expected = FlushHandoffState::kRequested;
+  if (!flush_handoff_state_.compare_exchange_strong(
+          expected, FlushHandoffState::kRemotePending,
+          std::memory_order_acq_rel, std::memory_order_acquire)) {
+    return;
+  }
+
+  if (flush_policy() != WriteBufferFlushPolicy::kFlushLargestAcrossDBs ||
+      !ShouldFlush()) {
+    flush_handoff_state_.store(FlushHandoffState::kIdle,
+                               std::memory_order_release);
+    return;
+  }
+
+  FlushInitiator* initiator = nullptr;
+  const std::shared_ptr<FlushInitiator::RegistrationState> best =
+      flush_initiator_registry_->PinLargest(&initiator);
+  bool scheduled = false;
+  if (best != nullptr) {
+    scheduled = initiator->ScheduleFlush();
+    best->Unpin();
+  }
+  if (!scheduled) {
+    flush_handoff_state_.store(FlushHandoffState::kNeedsLocalFallback,
+                               std::memory_order_release);
+  }
+}
+
+void WriteBufferManager::NotifyFlushInitiatorFlushCompleted(
+    bool made_progress) {
+  if (!made_progress) {
+    flush_handoff_state_.store(FlushHandoffState::kNeedsLocalFallback,
+                               std::memory_order_release);
+  } else {
+    flush_handoff_state_.store(FlushHandoffState::kIdle,
+                               std::memory_order_release);
+  }
+  flush_initiator_registry_->RequestRefresh();
+}
+
+void WriteBufferManager::NotifyFlushInitiatorFlushCancelled() {
+  NotifyFlushInitiatorFlushCompleted(false);
+}
+
+void WriteBufferManager::ResetFlushHandoff() {
+  FlushHandoffState expected = FlushHandoffState::kRequested;
+  flush_handoff_state_.compare_exchange_strong(
+      expected, FlushHandoffState::kIdle, std::memory_order_acq_rel,
+      std::memory_order_acquire);
+  const FlushHandoffState state =
+      flush_handoff_state_.load(std::memory_order_acquire);
+  if (state == FlushHandoffState::kNeedsLocalFallback) {
+    flush_handoff_state_.store(FlushHandoffState::kIdle,
+                               std::memory_order_release);
+  }
+  if (state != FlushHandoffState::kRemotePending) {
+    flush_handoff_deadline_micros_.store(0, std::memory_order_release);
+  }
+}
+
+bool WriteBufferManager::TEST_ScheduleFlushOnLargestDB(FlushInitiator* self) {
+  if (self != nullptr && !self->HasAccurateFlushableMemUsage()) {
+    return false;
+  }
+  FlushInitiator* initiator = nullptr;
+  const std::shared_ptr<FlushInitiator::RegistrationState> best =
+      flush_initiator_registry_->PinLargest(&initiator);
+  if (best == nullptr ||
+      (self != nullptr && best.get() == self->registration_state_.get())) {
+    if (best != nullptr) {
+      best->Unpin();
+    }
+    return false;
+  }
+  const size_t best_mem = best->GetFlushableMemUsage();
+  if (best_mem == 0 ||
+      (self != nullptr && best_mem <= self->GetFlushableMemUsage())) {
+    best->Unpin();
+    return false;
+  }
+
+  const bool scheduled = initiator->ScheduleFlush();
+  best->Unpin();
+  return scheduled;
+}
+
+void WriteBufferManager::TEST_WaitForFlushHandoff() {
+  while (flush_handoff_state_.load(std::memory_order_acquire) ==
+         FlushHandoffState::kRequested) {
+    std::this_thread::yield();
+  }
+}
+
+void WriteBufferManager::TEST_WaitForFlushHandoffCompletion() {
+  for (;;) {
+    const FlushHandoffState state =
+        flush_handoff_state_.load(std::memory_order_acquire);
+    if (state != FlushHandoffState::kRequested &&
+        state != FlushHandoffState::kRemotePending) {
+      return;
+    }
+    std::this_thread::yield();
+  }
+}
+
+size_t WriteBufferManager::TEST_GetFlushInitiatorRegistrySize() const {
+  return flush_initiator_registry_->TEST_Size();
+}
+
+bool WriteBufferManager::TEST_HasFlushInitiatorSorter() const {
+  return flush_initiator_registry_->TEST_HasSorter();
+}
+
+void WriteBufferManager::TEST_RefreshFlushInitiatorCandidate() {
+  flush_initiator_registry_->Refresh();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
