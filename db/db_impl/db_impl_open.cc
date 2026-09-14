@@ -3013,6 +3013,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
   if (s.ok()) {
+    // Register only after open succeeds and without holding the DB mutex.
+    impl->MaybeRegisterFlushInitiator();
     *dbptr = std::move(impl);
   } else {
     for (auto* h : *handles) {
