@@ -3231,6 +3231,13 @@ class DBImpl : public DB
                          bool extra_sv_ref, SequenceNumber* snapshot,
                          bool* sv_from_thread_local);
 
+  Status MultiCFSnapshot(const ReadOptions& read_options,
+                         ReadCallback* callback,
+                         autovector<ColumnFamilySuperVersionPair,
+                                    MultiGetContext::MAX_BATCH_SIZE>* cf_list,
+                         bool extra_sv_ref, SequenceNumber* snapshot,
+                         bool* sv_from_thread_local);
+
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number
   // in order to construct the LookupKeys. The start_key and num_keys specify

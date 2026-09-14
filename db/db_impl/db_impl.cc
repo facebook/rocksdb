@@ -3636,6 +3636,20 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
   return s;
 }
 
+Status DBImpl::MultiCFSnapshot(
+    const ReadOptions& read_options, ReadCallback* callback,
+    autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>*
+        cf_list,
+    bool extra_sv_ref, SequenceNumber* snapshot, bool* sv_from_thread_local) {
+  return MultiCFSnapshot(
+      read_options, callback,
+      [](autovector<ColumnFamilySuperVersionPair,
+                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
+        return &(*cf_iter);
+      },
+      cf_list, extra_sv_ref, snapshot, sv_from_thread_local);
+}
+
 void DBImpl::MultiGetWithMetadata(const ReadOptions& _read_options,
                                   const size_t num_keys,
                                   ColumnFamilyHandle* const* column_families,
@@ -4728,15 +4742,9 @@ Status DBImpl::NewIterators(
 
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local = false;
-  s = MultiCFSnapshot<autovector<ColumnFamilySuperVersionPair,
-                                 MultiGetContext::MAX_BATCH_SIZE>>(
-      read_options, nullptr /* read_callback*/,
-      [](autovector<ColumnFamilySuperVersionPair,
-                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
-        return &(*cf_iter);
-      },
-      &cf_sv_pairs,
-      /* extra_sv_ref */ true, &consistent_seqnum, &sv_from_thread_local);
+  s = MultiCFSnapshot(read_options, nullptr /* read_callback*/, &cf_sv_pairs,
+                      /* extra_sv_ref */ true, &consistent_seqnum,
+                      &sv_from_thread_local);
   if (!s.ok()) {
     return s;
   }

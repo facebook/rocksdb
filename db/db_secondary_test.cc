@@ -1748,6 +1748,62 @@ TEST_F(DBSecondaryTest, CatchUpKeepsUnflushedWalData) {
   VerifySecondaryValue(handles_secondary_[1], "bar", "v1");
 }
 
+TEST_F(DBSecondaryTest, NewIteratorsConsistentViewDuringCatchUp) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  ASSERT_OK(Put(0, "key", "old"));
+  ASSERT_OK(Put(1, "key", "old"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, secondary_options);
+  ASSERT_EQ(2, handles_secondary_.size());
+
+  ASSERT_OK(Put(0, "key", "new"));
+  ASSERT_OK(Put(1, "key", "new"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  bool caught_up = false;
+  Status catch_up_status;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::NewIterators:AfterCreateIterator", [&](void*) {
+        if (!caught_up) {
+          caught_up = true;
+          catch_up_status = db_secondary_->TryCatchUpWithPrimary();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<Iterator*> iterators;
+  const Status new_iterators_status = db_secondary_->NewIterators(
+      ReadOptions(), handles_secondary_, &iterators);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::vector<std::unique_ptr<Iterator>> owned_iterators;
+  owned_iterators.reserve(iterators.size());
+  for (Iterator* iterator : iterators) {
+    owned_iterators.emplace_back(iterator);
+  }
+
+  ASSERT_OK(catch_up_status);
+  ASSERT_TRUE(caught_up);
+  ASSERT_OK(new_iterators_status);
+  ASSERT_EQ(2, owned_iterators.size());
+  for (const auto& iterator : owned_iterators) {
+    iterator->Seek("key");
+    ASSERT_OK(iterator->status());
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ("old", iterator->value());
+  }
+}
+
 TEST_F(DBSecondaryTest, RefreshIterator) {
   Options options;
   options.env = env_;
