@@ -3209,11 +3209,23 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     expect_total_order = true;
   } else if (options_.prefix_extractor.get() == nullptr) {
     expect_total_order = true;
+  } else if (thread->rand.OneIn(2)) {
+    ro.prefix_same_as_start = true;
   }
+  // Run SeekToFirst() after Seek() on the same table iterator under
+  // prefix_same_as_start, without bounds. DBIter converts SeekToFirst() with a
+  // lower bound to Seek(lower_bound). An upper bound inside the first prefix
+  // ends the scan before the verifier can tell a truncated scan from a complete
+  // one. prefix_hash returns nothing from a prefix SeekToFirst().
+  const bool cover_seek_to_first_after_seek =
+      ro.prefix_same_as_start && FLAGS_memtablerep != "prefix_hash" &&
+      thread->rand.OneIn(8);
+
   std::string upper_bound_str;
   Slice upper_bound;
   // Prefer no bound with no range query filtering; prefer bound with it
-  if (FLAGS_use_sqfc_for_range_queries ^ thread->rand.OneIn(16)) {
+  if (!cover_seek_to_first_after_seek &&
+      (FLAGS_use_sqfc_for_range_queries ^ thread->rand.OneIn(16))) {
     // Note: upper_bound can be smaller than the seek key.
     const int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
     upper_bound_str = Key(rand_upper_key);
@@ -3223,7 +3235,8 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
   std::string lower_bound_str;
   Slice lower_bound;
-  if (FLAGS_use_sqfc_for_range_queries ^ thread->rand.OneIn(16)) {
+  if (!cover_seek_to_first_after_seek &&
+      (FLAGS_use_sqfc_for_range_queries ^ thread->rand.OneIn(16))) {
     // Note: lower_bound can be greater than the seek key.
     const int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
     lower_bound_str = Key(rand_lower_key);
@@ -3312,8 +3325,13 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
 
     Slice key(key_str);
 
+    // DBIter converts SeekToFirst() with a lower bound to Seek(lower_bound),
+    // which VerifyIterator() does not handle. SeekToLast() is only verified
+    // under total order.
     const bool support_seek_to_first =
-        expect_total_order && FLAGS_test_backward_scan;
+        (expect_total_order && FLAGS_test_backward_scan) ||
+        (ro.prefix_same_as_start && ro.iterate_lower_bound == nullptr &&
+         FLAGS_memtablerep != "prefix_hash");
     const bool support_seek_to_last =
         expect_total_order && FLAGS_test_backward_scan;
     const bool support_seek_for_prev = FLAGS_test_backward_scan;
@@ -3331,11 +3349,30 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     }
 
     LastIterateOp last_op;
-    if (support_seek_to_first && thread->rand.OneIn(100)) {
+    // Under prefix_same_as_start a SeekToFirst() scan covers the prefix of the
+    // first key.
+    std::string verify_key_str;
+    Slice verify_key = key;
+    if (support_seek_to_first &&
+        thread->rand.OneIn(cover_seek_to_first_after_seek ? 4 : 100)) {
+      if (cover_seek_to_first_after_seek) {
+        // If this Seek() read the first data block, the block would be cached
+        // and SeekToFirst() would not read the file.
+        const std::string pre_seek_key =
+            Key(GenerateOneKey(thread, FLAGS_ops_per_thread));
+        iter->Seek(pre_seek_key);
+        cmp_iter->Seek(pre_seek_key);
+        op_logs += "PreS " + Slice(pre_seek_key).ToString(true) + " ";
+        thread->stats.AddSeekToFirstAfterSeek(1);
+      }
       iter->SeekToFirst();
       cmp_iter->SeekToFirst();
       last_op = kLastOpSeekToFirst;
       op_logs += "STF ";
+      if (ro.prefix_same_as_start && cmp_iter->Valid()) {
+        verify_key_str = cmp_iter->key().ToString();
+        verify_key = verify_key_str;
+      }
     } else if (support_seek_to_last && thread->rand.OneIn(100)) {
       iter->SeekToLast();
       cmp_iter->SeekToLast();
@@ -3370,11 +3407,14 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     }
 
     VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                   key, rand_column_families, op_logs, verify_func, &diverged);
+                   verify_key, rand_column_families, op_logs, verify_func,
+                   &diverged);
 
+    // Prev() resets the table iterator's readahead lookup state.
     const bool no_reverse =
         (FLAGS_memtablerep == "prefix_hash" && !expect_total_order) ||
-        !FLAGS_test_backward_scan;
+        !FLAGS_test_backward_scan ||
+        (cover_seek_to_first_after_seek && last_op == kLastOpSeekToFirst);
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); ++i) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
@@ -3411,7 +3451,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       }
 
       VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
-                     key, rand_column_families, op_logs, verify_func,
+                     verify_key, rand_column_families, op_logs, verify_func,
                      &diverged);
     }
 
@@ -3459,13 +3499,13 @@ Status StressTest::TestGetCurrentWalFile() const {
 }
 
 void StressTest::DumpIteratorDivergenceDiagnostics(
-    ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro, const Slice& seek_key,
+    ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro, const Slice& verify_key,
     const std::vector<int>& rand_column_families) const {
   fprintf(stderr,
-          "Iterator divergence diagnostics: seek_key=%s, cmp_cf=%s, "
+          "Iterator divergence diagnostics: verify_key=%s, cmp_cf=%s, "
           "prefix_extractor=%d, using_udi=%d, use_multi_cf_iterator=%d, "
           "selected_cf_count=%zu\n",
-          seek_key.ToString(/*hex=*/true).c_str(), cmp_cfh->GetName().c_str(),
+          verify_key.ToString(/*hex=*/true).c_str(), cmp_cfh->GetName().c_str(),
           static_cast<int>(options_.prefix_extractor != nullptr),
           static_cast<int>(ro.table_index_factory != nullptr),
           static_cast<int>(FLAGS_use_multi_cf_iterator),
@@ -3488,7 +3528,7 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
   auto dump_debug_iter = [&](const char* label, const ReadOptions& debug_ro,
                              bool use_multi_cf_iter) {
     auto debug_iter = make_debug_iter(debug_ro, use_multi_cf_iter);
-    debug_iter->Seek(seek_key);
+    debug_iter->Seek(verify_key);
 
     std::string sv_number;
     const Status prop_s = debug_iter->GetProperty(
@@ -3560,9 +3600,9 @@ void StressTest::DumpIteratorDivergenceDiagnostics(
 template <typename IterType, typename VerifyFuncType>
 void StressTest::VerifyIterator(
     ThreadState* thread, ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro,
-    IterType* iter, Iterator* cmp_iter, LastIterateOp op, const Slice& seek_key,
-    const std::vector<int>& rand_column_families, const std::string& op_logs,
-    VerifyFuncType verify_func, bool* diverged) {
+    IterType* iter, Iterator* cmp_iter, LastIterateOp op,
+    const Slice& verify_key, const std::vector<int>& rand_column_families,
+    const std::string& op_logs, VerifyFuncType verify_func, bool* diverged) {
   assert(diverged);
 
   if (*diverged) {
@@ -3587,7 +3627,7 @@ void StressTest::VerifyIterator(
     return;
   } else if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
              (options_.comparator->CompareWithoutTimestamp(
-                  *ro.iterate_lower_bound, /*a_has_ts=*/false, seek_key,
+                  *ro.iterate_lower_bound, /*a_has_ts=*/false, verify_key,
                   /*b_has_ts=*/false) >= 0 ||
               (ro.iterate_upper_bound != nullptr &&
                options_.comparator->CompareWithoutTimestamp(
@@ -3599,7 +3639,7 @@ void StressTest::VerifyIterator(
     return;
   } else if (op == kLastOpSeekForPrev && ro.iterate_upper_bound != nullptr &&
              (options_.comparator->CompareWithoutTimestamp(
-                  *ro.iterate_upper_bound, /*a_has_ts=*/false, seek_key,
+                  *ro.iterate_upper_bound, /*a_has_ts=*/false, verify_key,
                   /*b_has_ts=*/false) <= 0 ||
               (ro.iterate_lower_bound != nullptr &&
                options_.comparator->CompareWithoutTimestamp(
@@ -3614,9 +3654,9 @@ void StressTest::VerifyIterator(
   if (!ro.total_order_seek && options_.prefix_extractor != nullptr &&
       ro.iterate_lower_bound != nullptr) {
     const SliceTransform* prefix_extractor = options_.prefix_extractor.get();
-    if (!prefix_extractor->InDomain(seek_key) ||
+    if (!prefix_extractor->InDomain(verify_key) ||
         !prefix_extractor->InDomain(*ro.iterate_lower_bound) ||
-        prefix_extractor->Transform(seek_key) !=
+        prefix_extractor->Transform(verify_key) !=
             prefix_extractor->Transform(*ro.iterate_lower_bound)) {
       // ReadOptions requires the seek target and iterate_lower_bound to share
       // a prefix when prefix iteration is enabled. Skip verification for this
@@ -3636,6 +3676,7 @@ void StressTest::VerifyIterator(
                << ro.background_purge_on_iterator_cleanup
                << ", total_order_seek: " << ro.total_order_seek
                << ", auto_prefix_mode: " << ro.auto_prefix_mode
+               << ", prefix_same_as_start: " << ro.prefix_same_as_start
                << ", iterate_upper_bound: "
                << (ro.iterate_upper_bound
                        ? ro.iterate_upper_bound->ToString(true).c_str()
@@ -3656,7 +3697,7 @@ void StressTest::VerifyIterator(
 
   if (iter->Valid() && !cmp_iter->Valid()) {
     if (pe != nullptr) {
-      if (!pe->InDomain(seek_key)) {
+      if (!pe->InDomain(verify_key)) {
         // Prefix seek a non-in-domain key is undefined. Skip checking for
         // this scenario.
         *diverged = true;
@@ -3665,7 +3706,7 @@ void StressTest::VerifyIterator(
         // out of range is iterator key is not in domain anymore.
         *diverged = true;
         return;
-      } else if (pe->Transform(iter->key()) != pe->Transform(seek_key)) {
+      } else if (pe->Transform(iter->key()) != pe->Transform(verify_key)) {
         *diverged = true;
         return;
       }
@@ -3684,7 +3725,7 @@ void StressTest::VerifyIterator(
     const Slice& total_order_key = cmp_iter->key();
 
     if (pe != nullptr) {
-      if (!pe->InDomain(seek_key)) {
+      if (!pe->InDomain(verify_key)) {
         // Prefix seek a non-in-domain key is undefined. Skip checking for
         // this scenario.
         *diverged = true;
@@ -3692,13 +3733,13 @@ void StressTest::VerifyIterator(
       }
 
       if (!pe->InDomain(total_order_key) ||
-          pe->Transform(total_order_key) != pe->Transform(seek_key)) {
+          pe->Transform(total_order_key) != pe->Transform(verify_key)) {
         // If the prefix is exhausted, the only thing needs to check
         // is the iterator isn't return a position in prefix.
         // Either way, checking can stop from here.
         *diverged = true;
         if (!iter->Valid() || !pe->InDomain(iter->key()) ||
-            pe->Transform(iter->key()) != pe->Transform(seek_key)) {
+            pe->Transform(iter->key()) != pe->Transform(verify_key)) {
           return;
         }
         fprintf(stderr,
@@ -3749,7 +3790,7 @@ void StressTest::VerifyIterator(
   }
 
   if (*diverged) {
-    DumpIteratorDivergenceDiagnostics(cmp_cfh, ro, seek_key,
+    DumpIteratorDivergenceDiagnostics(cmp_cfh, ro, verify_key,
                                       rand_column_families);
     fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
             cmp_cfh->GetName().c_str());
