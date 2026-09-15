@@ -97,6 +97,7 @@ class DBCrashTestTest(unittest.TestCase):
     def build_params(self, base_params, overrides=None):
         params = dict(base_params)
         params["db"] = self.test_tmpdir
+        params["wbm_flush_policy"] = 0
         if overrides:
             params.update(overrides)
         return params
@@ -178,6 +179,73 @@ class DBCrashTestTest(unittest.TestCase):
                 for arg in first_command
             )
         )
+
+    def test_wbm_flush_policy_coverage(self):
+        db_crashtest = self.load_db_crashtest()
+        for policy in db_crashtest._WBM_FLUSH_POLICIES:
+            params = db_crashtest.gen_cmd_params(
+                self.build_mode_args(
+                    cache_size=8 * 1024 * 1024,
+                    db=self.test_tmpdir,
+                    db_write_buffer_size=1024 * 1024,
+                    num_dbs=1,
+                    use_write_buffer_manager=1,
+                    wbm_flush_policy=policy,
+                )
+            )
+
+            command, _ = db_crashtest.gen_cmd(params, [])
+
+            self.assertIn(f"--wbm_flush_policy={policy}", command)
+            expected_num_dbs = (
+                2
+                if policy == db_crashtest._WBM_FLUSH_LARGEST_ACROSS_DBS
+                else 1
+            )
+            self.assertIn(f"--num_dbs={expected_num_dbs}", command)
+
+    def test_cross_db_wbm_policy_keeps_db_topology_stable(self):
+        db_crashtest = self.load_db_crashtest()
+        policies = iter([db_crashtest._WBM_FLUSH_LARGEST_ACROSS_DBS, 0])
+        params = db_crashtest.gen_cmd_params(
+            self.build_mode_args(
+                cache_size=8 * 1024 * 1024,
+                db=self.test_tmpdir,
+                db_write_buffer_size=1024 * 1024,
+                num_dbs=1,
+                use_write_buffer_manager=1,
+                wbm_flush_policy=lambda: next(policies),
+            )
+        )
+
+        first_command, _ = db_crashtest.gen_cmd(params, [])
+        second_command, _ = db_crashtest.gen_cmd(params, [])
+
+        self.assertEqual(
+            db_crashtest._WBM_FLUSH_LARGEST_ACROSS_DBS,
+            params["wbm_flush_policy"],
+        )
+        self.assertEqual(2, params["num_dbs"])
+        for command in (first_command, second_command):
+            self.assertIn("--wbm_flush_policy=2", command)
+            self.assertIn("--num_dbs=2", command)
+
+    def test_cross_db_wbm_policy_does_not_force_two_dbs_when_disabled(self):
+        db_crashtest = self.load_db_crashtest()
+        params = db_crashtest.gen_cmd_params(
+            self.build_mode_args(
+                db=self.test_tmpdir,
+                num_dbs=1,
+                use_write_buffer_manager=0,
+                wbm_flush_policy=db_crashtest._WBM_FLUSH_LARGEST_ACROSS_DBS,
+            )
+        )
+
+        command, _ = db_crashtest.gen_cmd(params, [])
+
+        self.assertEqual(1, params["num_dbs"])
+        self.assertIn("--wbm_flush_policy=0", command)
+        self.assertIn("--num_dbs=1", command)
 
     def test_cache_and_write_buffer_size_multiplier_respects_write_buffer_minimum(
         self,

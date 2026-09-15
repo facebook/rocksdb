@@ -12,6 +12,7 @@
 #include "rocksdb/utilities/backup_engine.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "util/cast_util.h"
 
 static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   if (value > std::numeric_limits<uint32_t>::max()) {
@@ -172,6 +173,14 @@ DEFINE_uint64(db_write_buffer_size,
 
 DEFINE_bool(use_write_buffer_manager, false,
             "Charge WriteBufferManager memory to the block cache");
+
+DEFINE_int32(
+    wbm_flush_policy,
+    ROCKSDB_NAMESPACE::lossless_cast<int32_t>(
+        ROCKSDB_NAMESPACE::WriteBufferFlushPolicy::kFlushOldest),
+    "Which memtable the WriteBufferManager flushes to free memory (see `enum "
+    "class WriteBufferFlushPolicy` in write_buffer_manager.h): 0 = oldest, 1 = "
+    "largest in the same DB, 2 = largest across all DBs sharing the manager");
 
 DEFINE_int32(
     write_buffer_size,
