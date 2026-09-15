@@ -2774,9 +2774,34 @@ class DBImpl : public DB
   // wal_index in one DB-wide critical section. The mutex is released before
   // batch merging, WAL append, or any other I/O. The future durability
   // watermark's RegisterPending operation belongs in this same section.
+  //
+  // Rule for that watermark diff: a failed append leaves its entry in
+  // pending_low[p], and the cover for the burned index must be written and
+  // synced before that entry may be popped. Popping first would advance the
+  // watermark past an uncovered hole and acknowledge writes above it. At
+  // kWALIndexSingleFile no extra sync is needed -- appends to one file are
+  // ordered, so the cover inherits the durability of whatever is synced after
+  // it.
   IOStatus AllocateSequenceAndWALIndex(size_t sequence_count, bool write_wal,
                                        SequenceNumber* last_sequence_before,
                                        uint64_t* wal_index);
+
+  // Writes a void record covering `wal_index`, which was allocated but whose
+  // data record never reached the WAL. Every allocated index must end up
+  // either on a data record or under a cover, so that a later gap check can
+  // tell a deliberate hole from a lost record and does not truncate on it.
+  // No-op when `wal_index` is 0, meaning nothing was consumed.
+  //
+  // A failed cover leaves the index uncovered, and no write above it may then
+  // be acknowledged. See the implementation for why that holds today.
+  //
+  // Taking a single writer means the cover can only go to the one that just
+  // failed. That is the whole story at kWALIndexSingleFile, but under
+  // partitioning a poisoned writer for partition p may want to fall back to a
+  // healthy partition, so this signature needs revisiting then -- unless the
+  // durability watermark rule above makes the fallback unnecessary.
+  IOStatus CoverBurnedWALIndex(const WriteOptions& write_options,
+                               log::Writer* log_writer, uint64_t wal_index);
 
   IOStatus WriteToWAL(const WriteBatch& merged_batch,
                       const WriteOptions& write_options,
