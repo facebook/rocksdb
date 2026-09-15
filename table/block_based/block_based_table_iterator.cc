@@ -37,8 +37,6 @@ void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
-  // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
-  // even when `target == nullptr` that is when `SeekToFirst()` is called
   if (!multi_scan_status_.ok()) {
     return;
   }
@@ -50,8 +48,17 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     return;
   }
 
-  if (target != nullptr && prefix_extractor_ &&
-      read_options_.prefix_same_as_start) {
+  if (target == nullptr) {
+    // `SeekToFirst()` has no seek key, so no prefix to trim readahead against.
+    // An earlier `Seek()` on this iterator can have left one behind, and
+    // `ResetBlockCacheLookupVar()` below does not clear it. Without this clear,
+    // `IsNextBlockOutOfReadaheadBound()` would trim against a key range that
+    // this positioning does not scan.
+    //
+    // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
+    // even when `target == nullptr` that is when `SeekToFirst()` is called
+    seek_key_prefix_for_readahead_trimming_.clear();
+  } else if (prefix_extractor_ && read_options_.prefix_same_as_start) {
     const Slice& seek_user_key = ExtractUserKey(*target);
     seek_key_prefix_for_readahead_trimming_ =
         prefix_extractor_->InDomain(seek_user_key)

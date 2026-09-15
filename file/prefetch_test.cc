@@ -12,6 +12,7 @@
 #include "tools/io_tracer_parser_tool.h"
 #endif
 #include "rocksdb/flush_block_policy.h"
+#include "util/defer.h"
 #include "util/random.h"
 
 namespace {
@@ -1550,6 +1551,19 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   Close();
 }
 
+// A `MockFS` that advertises async IO support. `ArenaWrappedDBIter` clears
+// `ReadOptions::async_io` unless the file system advertises it, so without this
+// the `async_io` test variant would run the sync path.
+class AsyncIOMockFS : public MockFS {
+ public:
+  using MockFS::MockFS;
+
+  void SupportedOps(int64_t& supported_ops) override {
+    MockFS::SupportedOps(supported_ops);
+    supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+  }
+};
+
 class PrefetchTrimReadaheadTestParam
     : public DBTestBase,
       public ::testing::WithParamInterface<
@@ -1581,6 +1595,147 @@ class PrefetchTrimReadaheadTestParam
     table_options.block_size = 1;
     table_options.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
+  }
+
+  void RunSeekToFirstAfterSeekIgnoresStalePrefix(bool async_io) {
+    const bool auto_readahead_size = std::get<1>(GetParam());
+
+    std::shared_ptr<MockFS> fs =
+        async_io ? std::make_shared<AsyncIOMockFS>(
+                       FileSystem::Default(), false /* support_prefetch */,
+                       true /* small_buffer_alignment */)
+                 : std::make_shared<MockFS>(FileSystem::Default(),
+                                            false /* support_prefetch */,
+                                            true /* small_buffer_alignment */);
+    std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+    // Close the DB before the local `env` is destroyed, even if an assertion
+    // below exits early: ~DBTestBase() closes it after `env` is already gone.
+    Defer close_db_on_exit([this]() { Close(); });
+
+    Options options;
+    SetGenericOptions(env.get(), options);
+    BlockBasedTableOptions table_options;
+    SetBlockBasedTableOptions(table_options);
+    // An explicit cache so both scans below start equally cold: a warm cache
+    // serves every block without touching the file, which suppresses readahead
+    // and would make the comparison meaningless.
+    std::shared_ptr<Cache> block_cache = NewLRUCache(8 * 1024 * 1024);
+    table_options.block_cache = block_cache;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    ASSERT_OK(TryReopen(options));
+
+    constexpr int kNumKeysUnderPrefix = 40;
+    constexpr int kNumOtherPrefixes = 10;
+    WriteBatch batch;
+    for (int i = 0; i < kNumKeysUnderPrefix; i++) {
+      ASSERT_OK(batch.Put(kPrefix + Key(i), rnd.RandomString(100)));
+    }
+    // Keys under other prefixes, so that a trim against a prefix other than
+    // "a_prefix_" has somewhere to stop short of.
+    for (int i = 0; i < kNumOtherPrefixes; i++) {
+      const std::string diff_prefix =
+          std::string(1, char('c' + i)) + kPrefix.substr(1);
+      ASSERT_OK(batch.Put(diff_prefix + Key(i), rnd.RandomString(100)));
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+
+    // The file must stay in L0 so the merging iterator holds and reuses this
+    // table iterator across Seek()/SeekToFirst() instead of rebuilding it,
+    // which would discard the stale member and hide the bug.
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+    ReadOptions ro;
+    ro.prefix_same_as_start = true;
+    ro.auto_readahead_size = auto_readahead_size;
+    ro.async_io = async_io;
+    // Small enough that the scan exhausts the buffer and re-prefetches, so the
+    // trimming prefix is consulted repeatedly rather than once for the file.
+    ro.readahead_size = 1024;
+
+    // The `async_io` variant reaches the key-loss form of the bug only because
+    // `FilePrefetchBuffer` has a second buffer, prefetched with
+    // `read_curr_block=false`. Count that path so this variant cannot silently
+    // decay into a duplicate of the synchronous one.
+    int extra_prefetch_buff_cnt = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::PrefetchAsync:ExtraPrefetching",
+        [&extra_prefetch_buff_cnt](void*) { ++extra_prefetch_buff_cnt; });
+    SyncPoint::GetInstance()->EnableProcessing();
+    Defer disable_sync_point([]() {
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+    });
+
+    auto count_from_seek_to_first = [this](Iterator* iter) {
+      int num_keys = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        EXPECT_EQ(kPrefix, iter->key().ToString().substr(0, kPrefix.size()));
+        ++num_keys;
+      }
+      EXPECT_OK(iter->status());
+      return num_keys;
+    };
+
+    // Control: SeekToFirst() on an iterator with nothing stale, cold cache.
+    block_cache->EraseUnRefEntries();
+    ASSERT_OK(options.statistics->Reset());
+    int num_keys_control = 0;
+    {
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+      num_keys_control = count_from_seek_to_first(iter.get());
+    }
+    const uint64_t trimmed_control =
+        options.statistics->getTickerCount(READAHEAD_TRIMMED);
+
+    // The same scan from an equally cold cache, differing only in that it
+    // follows a Seek() past the last key, which assigns the trimming prefix.
+    block_cache->EraseUnRefEntries();
+    ASSERT_OK(options.statistics->Reset());
+    extra_prefetch_buff_cnt = 0;
+    int num_keys_after_seek = 0;
+    {
+      auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+      const std::string seek_key = std::string(1, 'z') + kPrefix.substr(1);
+      iter->Seek(seek_key);
+      ASSERT_OK(iter->status());
+      ASSERT_FALSE(iter->Valid());
+      // That Seek() must read no data block, or this scan does not start as
+      // cold as the control and the two trim counts are not comparable.
+      ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
+      ASSERT_EQ(0, options.statistics->getTickerCount(READAHEAD_TRIMMED));
+
+      num_keys_after_seek = count_from_seek_to_first(iter.get());
+    }
+    const uint64_t trimmed_after_seek =
+        options.statistics->getTickerCount(READAHEAD_TRIMMED);
+
+    ASSERT_EQ(kNumKeysUnderPrefix, num_keys_control);
+    // Pin the trim counter down on the control side so the comparison below
+    // cannot pass vacuously: without `auto_readahead_size` nothing may be
+    // trimmed at all, and with it the trimming path has to be live.
+    if (auto_readahead_size) {
+      ASSERT_GT(trimmed_control, 0);
+    } else {
+      ASSERT_EQ(0, trimmed_control);
+    }
+
+    // A preceding Seek() must not change what SeekToFirst() does: this scan
+    // visits the same blocks, so it must return the same keys and trim exactly
+    // as much as the control -- no more. (The control's trims come from
+    // block-cache hits and index bounds, which a stale prefix does not affect.)
+    ASSERT_EQ(num_keys_control, num_keys_after_seek);
+    ASSERT_EQ(trimmed_control, trimmed_after_seek);
+
+    // Last, so the two assertions above stay the ones that report a
+    // regression: the `async_io` variant is only worth having while it reaches
+    // the extra-buffer prefetch path, and the synchronous one must not.
+    if (async_io) {
+      ASSERT_GT(extra_prefetch_buff_cnt, 0);
+    } else {
+      ASSERT_EQ(0, extra_prefetch_buff_cnt);
+    }
   }
 };
 
@@ -1673,6 +1828,40 @@ TEST_P(PrefetchTrimReadaheadTestParam, PrefixSameAsStart) {
     ASSERT_EQ(readahead_trimmed, 0);
   }
   Close();
+}
+
+// Regression test: a `SeekToFirst()` must not trim readahead against a prefix
+// left behind by an earlier `Seek()` on the same iterator. Under
+// `prefix_same_as_start`, `DBIter::SeekToFirst()` derives its prefix from the
+// first key it finds, so an earlier seek key describes a key range this
+// positioning is not scanning, and trimming against it defeats readahead for
+// the whole scan.
+//
+// The key count is asserted as well as the trim counter because a mis-trim can
+// also end the scan early and drop keys, which the `async_io` variant below
+// exhibits and explains.
+TEST_P(PrefetchTrimReadaheadTestParam, SeekToFirstAfterSeekIgnoresStalePrefix) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  RunSeekToFirstAfterSeekIgnoresStalePrefix(false /* async_io */);
+}
+
+// With `async_io`, `FilePrefetchBuffer` prefetches into extra buffers with
+// `read_curr_block=false`, which skips the early return in
+// `BlockCacheLookupForReadAheadSize()` and lets a mis-trim escalate into
+// `is_index_out_of_bound_` -- ending the scan early and silently dropping keys
+// rather than only slowing it down.
+TEST_P(PrefetchTrimReadaheadTestParam,
+       SeekToFirstAfterSeekIgnoresStalePrefixAsyncIO) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  RunSeekToFirstAfterSeekIgnoresStalePrefix(true /* async_io */);
 }
 
 TEST_P(PrefetchTrimReadaheadTestParam, IterateUpperBoundAtEndOfIndex) {
@@ -3108,6 +3297,10 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
 
   {
     ASSERT_OK(options.statistics->Reset());
+    // `get_perf_context()` is cumulative and thread-local; reset it so the
+    // `number_async_seek` assertion below is about this iterator, as the
+    // sibling tests above do.
+    get_perf_context()->Reset();
     // Each block contains around 4 keys.
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->Seek(BuildKey(0));  // Prefetch data because of seek parallelization.

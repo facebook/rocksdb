@@ -110,7 +110,7 @@ A `readaheadsize_cb` callback bound to `BlockBasedTableIterator::BlockCacheLooku
 
 1. **Cache hit trimming**: Iterates ahead in the index, looks up blocks in the block cache, and trims readahead to avoid re-fetching blocks already cached
 2. **Upper bound trimming**: Trims readahead so data beyond `iterate_upper_bound` is not prefetched
-3. **Prefix trimming**: When `prefix_same_as_start` is true, trims readahead at the prefix boundary
+3. **Prefix trimming**: When `prefix_same_as_start` is true and the iterator was positioned with `Seek()`, trims readahead at the seek key's prefix boundary. A bare `SeekToFirst()` does not trim by prefix, because its prefix is not known when the first readahead decision is made; with `iterate_lower_bound` set it does, since `DBIter::SeekToFirst()` delegates to `Seek(*iterate_lower_bound)`
 
 `DecreaseReadAheadIfEligible()` reduces readahead size when prefetched blocks were already in cache (wasted prefetch).
 
