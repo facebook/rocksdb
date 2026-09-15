@@ -2,6 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import argparse
+import errno
 import glob
 import math
 import os
@@ -9,6 +10,7 @@ import random
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -52,6 +54,15 @@ DEFAULT_LIVENESS_TIMEOUT_SEC = 3600
 DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC = 300
 REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER = 2
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
+_STRESS_DIAGNOSTICS_DIR_NAME = "rocksdb_crashtest_diagnostics"
+_MAX_STRESS_DIAGNOSTIC_PROCESS_GROUPS = 8
+_STRESS_DIAGNOSTIC_FILE_RE = re.compile(
+    r"^[A-Za-z0-9_.-]*\.pid_([0-9]+)\.thread_[0-9]+(?:"
+    r"\.breadcrumbs\.txt(?:\.tmp)?|"
+    r"\."
+    r"(?:multi_scan|prefix_scan|prefix_scan_batched|"
+    r"prefix_scan_cf_consistency)\.witness\.txt(?:\.tmp)?)$"
+)
 _REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
 _MIN_WRITE_BUFFER_SIZE = 64 * 1024
 
@@ -260,6 +271,9 @@ default_params = {
     "db": "",
     "destroy_db_initially": 0,
     "expected_values_dir": "",
+    "stress_diagnostics_dir": "",
+    "stress_diagnostics_breadcrumbs": 1,
+    "stress_diagnostics_breadcrumb_entries": 256,
     "num_dbs": 1,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
@@ -690,6 +704,127 @@ def setup_multiops_txn_key_spaces_file():
             prefix=key_spaces_file_prefix, dir=test_exp_tmpdir
         )[1]
     return multiops_txn_key_spaces_file
+
+
+diagnostics_dir_global = None
+
+
+def is_real_directory(path):
+    try:
+        return stat.S_ISDIR(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def create_stress_diagnostics_dir(test_tmpdir):
+    if not test_tmpdir or not os.path.isdir(test_tmpdir):
+        return tempfile.mkdtemp(prefix=_STRESS_DIAGNOSTICS_DIR_NAME)
+
+    diagnostics_dir = os.path.join(test_tmpdir, _STRESS_DIAGNOSTICS_DIR_NAME)
+    if not os.path.lexists(diagnostics_dir):
+        os.mkdir(diagnostics_dir)
+        return diagnostics_dir
+    if not is_real_directory(diagnostics_dir):
+        raise OSError(
+            errno.ENOTDIR,
+            "stress diagnostics path is not a real directory",
+            diagnostics_dir,
+        )
+    return diagnostics_dir
+
+
+def get_diagnostics_dir():
+    # Diagnostics are local process artifacts, independent of whether the DB
+    # itself uses a local or remote filesystem.
+    global diagnostics_dir_global
+    if diagnostics_dir_global is not None:
+        return diagnostics_dir_global
+
+    try:
+        diagnostics_dir_global = create_stress_diagnostics_dir(
+            os.environ.get(_TEST_DIR_ENV_VAR)
+        )
+    except OSError as error:
+        print(f"Failed to create stress diagnostics directory: {error}")
+        diagnostics_dir_global = None
+        return ""
+    return diagnostics_dir_global
+
+
+def stress_diagnostics_enabled(params):
+    return params.get("stress_diagnostics_breadcrumbs", 0) == 1
+
+
+def set_default_stress_diagnostics_dir(params):
+    if stress_diagnostics_enabled(params) and not params.get("stress_diagnostics_dir"):
+        params["stress_diagnostics_dir"] = get_diagnostics_dir()
+
+
+def cleanup_stress_diagnostics_dir():
+    global diagnostics_dir_global
+    if diagnostics_dir_global is None:
+        return
+
+    try:
+        if is_real_directory(diagnostics_dir_global):
+            with os.scandir(diagnostics_dir_global) as entries:
+                for entry in entries:
+                    if entry.is_file(
+                        follow_symlinks=False
+                    ) and _STRESS_DIAGNOSTIC_FILE_RE.fullmatch(entry.name):
+                        os.remove(entry.path)
+            try:
+                os.rmdir(diagnostics_dir_global)
+            except OSError as error:
+                if error.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise
+    except OSError as error:
+        print(
+            "Failed to clean up stress diagnostics directory "
+            f"{diagnostics_dir_global}: {error}"
+        )
+    finally:
+        diagnostics_dir_global = None
+
+
+def prune_stress_diagnostics_dir(current_pid):
+    if diagnostics_dir_global is None or not is_real_directory(
+        diagnostics_dir_global
+    ):
+        return
+
+    try:
+        process_files = {}
+        with os.scandir(diagnostics_dir_global) as entries:
+            for entry in entries:
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                match = _STRESS_DIAGNOSTIC_FILE_RE.fullmatch(entry.name)
+                if match is None:
+                    continue
+                pid = int(match.group(1))
+                process_files.setdefault(pid, []).append(
+                    (entry.stat(follow_symlinks=False).st_mtime_ns, entry.path)
+                )
+
+        if len(process_files) <= _MAX_STRESS_DIAGNOSTIC_PROCESS_GROUPS:
+            return
+
+        groups_by_age = sorted(
+            process_files.items(),
+            key=lambda item: max(mtime for mtime, _ in item[1]),
+        )
+        groups_to_remove = len(process_files) - _MAX_STRESS_DIAGNOSTIC_PROCESS_GROUPS
+        for pid, files in groups_by_age:
+            if groups_to_remove == 0:
+                break
+            if pid == current_pid:
+                continue
+            for _, path in files:
+                os.remove(path)
+            groups_to_remove -= 1
+    except OSError as error:
+        print(f"Failed to prune stress diagnostics directory: {error}")
 
 
 def is_direct_io_supported(dbname):
@@ -2137,6 +2272,7 @@ def diagnostic_paths(finalized_params):
     return [
         finalized_params.get("db"),
         finalized_params.get("expected_values_dir"),
+        finalized_params.get("stress_diagnostics_dir"),
     ]
 
 
@@ -2176,6 +2312,7 @@ def execute_cmd(cmd, timeout=None, timeout_pstack=False, expected_to_timeout=Tru
             print("KILLED %d (SIGTERM did not work)\n" % child.pid)
             outs, errs = child.communicate()
 
+    prune_stress_diagnostics_dir(pid)
     return (
         hit_timeout,
         child.returncode,
@@ -2333,6 +2470,7 @@ def liveness_main(args, unknown_args):
         cmd_params["db"] = db_parent_dir
     if is_remote_db and not cmd_params.get("expected_values_dir"):
         cmd_params["expected_values_dir"] = get_ev_parent_dir()
+    set_default_stress_diagnostics_dir(cmd_params)
 
     apply_random_seed_per_iteration()
     wrapper_timeout = liveness_timeout(cmd_params)
@@ -2386,6 +2524,7 @@ def blackbox_crash_main(args, unknown_args):
         cmd_params["db"] = db_parent_dir
     if not cmd_params.get("expected_values_dir"):
         cmd_params["expected_values_dir"] = ev_parent_dir
+    set_default_stress_diagnostics_dir(cmd_params)
 
     exit_time = time.time() + cmd_params["duration"]
 
@@ -2457,6 +2596,7 @@ def whitebox_crash_main(args, unknown_args):
         cmd_params["db"] = db_parent_dir
     if not cmd_params.get("expected_values_dir"):
         cmd_params["expected_values_dir"] = ev_parent_dir
+    set_default_stress_diagnostics_dir(cmd_params)
 
     cur_time = time.time()
     exit_time = cur_time + cmd_params["duration"]
@@ -2717,6 +2857,7 @@ def main():
             shutil.rmtree(ev_parent_dir_global)
     if multiops_txn_key_spaces_file is not None:
         os.remove(multiops_txn_key_spaces_file)
+    cleanup_stress_diagnostics_dir()
 
 
 if __name__ == "__main__":
