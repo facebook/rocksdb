@@ -332,12 +332,14 @@ class DBCrashTestTest(unittest.TestCase):
         command, finalized = db_crashtest.gen_cmd(params, [])
 
         self.assertEqual(1, finalized["stress_diagnostics_breadcrumbs"])
+        self.assertEqual(1, finalized["stress_diagnostics_scan_witness"])
         self.assertEqual(
             os.path.join(self.test_tmpdir, "rocksdb_crashtest_diagnostics"),
             finalized["stress_diagnostics_dir"],
         )
         self.assertTrue(os.path.isdir(finalized["stress_diagnostics_dir"]))
         self.assertIn("--stress_diagnostics_breadcrumbs=1", command)
+        self.assertIn("--stress_diagnostics_scan_witness=1", command)
         self.assertIn(
             "--stress_diagnostics_dir=" + finalized["stress_diagnostics_dir"],
             command,
@@ -347,6 +349,7 @@ class DBCrashTestTest(unittest.TestCase):
         db_crashtest = self.load_db_crashtest()
         params = {
             "stress_diagnostics_breadcrumbs": 0,
+            "stress_diagnostics_scan_witness": 0,
             "stress_diagnostics_dir": "",
         }
 
@@ -354,6 +357,22 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual("", params["stress_diagnostics_dir"])
         self.assertIsNone(db_crashtest.diagnostics_dir_global)
+
+    def test_stress_diagnostics_scan_witness_uses_independent_gate(self):
+        db_crashtest = self.load_db_crashtest()
+        self.register_diagnostics_dir_cleanup(db_crashtest)
+        params = {
+            "stress_diagnostics_breadcrumbs": 0,
+            "stress_diagnostics_scan_witness": 1,
+            "stress_diagnostics_dir": "",
+        }
+
+        db_crashtest.set_default_stress_diagnostics_dir(params)
+
+        self.assertEqual(
+            os.path.join(self.test_tmpdir, "rocksdb_crashtest_diagnostics"),
+            params["stress_diagnostics_dir"],
+        )
 
     def test_stress_diagnostics_paths_include_artifact_dir(self):
         db_crashtest = self.load_db_crashtest()

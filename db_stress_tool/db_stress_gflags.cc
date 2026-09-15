@@ -195,6 +195,21 @@ static const bool FLAGS_stress_diagnostics_breadcrumb_entries_dummy
         RegisterFlagValidator(&FLAGS_stress_diagnostics_breadcrumb_entries,
                               &ValidateStressDiagnosticEntryCount);
 
+DEFINE_bool(stress_diagnostics_scan_witness, false,
+            "If true, retain a bounded in-memory witness log for PrefixScan "
+            "and MultiScan operations and write it to --stress_diagnostics_dir "
+            "only when the operation reports a verification failure.");
+
+DEFINE_uint64(stress_diagnostics_scan_witness_entries, 128,
+              "Number of recent public iterator events retained per "
+              "PrefixScan/MultiScan operation when "
+              "--stress_diagnostics_scan_witness is true. Maximum is 65536.");
+// NOLINTNEXTLINE(cert-err58-cpp)
+static const bool FLAGS_stress_diagnostics_scan_witness_entries_dummy
+    __attribute__((__unused__)) =
+        RegisterFlagValidator(&FLAGS_stress_diagnostics_scan_witness_entries,
+                              &ValidateStressDiagnosticEntryCount);
+
 DEFINE_uint64(db_write_buffer_size,
               ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
               "Number of bytes to buffer in all memtables before compacting");

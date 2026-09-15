@@ -110,6 +110,8 @@ DECLARE_bool(progress_reports);
 DECLARE_string(stress_diagnostics_dir);
 DECLARE_bool(stress_diagnostics_breadcrumbs);
 DECLARE_uint64(stress_diagnostics_breadcrumb_entries);
+DECLARE_bool(stress_diagnostics_scan_witness);
+DECLARE_uint64(stress_diagnostics_scan_witness_entries);
 DECLARE_uint64(db_write_buffer_size);
 DECLARE_int32(write_buffer_size);
 DECLARE_int32(max_write_buffer_number);
