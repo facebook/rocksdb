@@ -301,6 +301,79 @@ TEST_F(SSTDumpToolTest, VerifyCompression) {
   cleanup(opts, file_path);
 }
 
+TEST_F(SSTDumpToolTest, BlockBasedTableOptions) {
+  Options opts;
+  opts.env = env();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  opts.table_factory = std::make_shared<BlockBasedTableFactory>(table_opts);
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  char* usage[5];
+  auto cleanup_usage = CleanupUsage{usage};
+  PopulateCommandArgs(file_path, "--command=recompress", usage);
+  // Catch-all string sets arbitrary BlockBasedTableOptions fields, including
+  // ones without their own dedicated command-line flag.
+  snprintf(usage[3], kOptLength,
+           "--block_based_table_options=index_type=kTwoLevelIndexSearch;data_"
+           "block_index_type=kDataBlockBinaryAndHash");
+  SSTDumpTool tool;
+  ASSERT_TOOL_PASS(tool.Run(4, usage, opts));
+
+  // Applied in command-line order: the later argument wins over the earlier
+  // one, whether it is a specific flag or the catch-all.
+  snprintf(usage[3], kOptLength, "--block_based_table_options=block_size=1024");
+  snprintf(usage[4], kOptLength, "--block_size=4096");
+  ASSERT_TOOL_PASS(tool.Run(5, usage, opts));
+  snprintf(usage[3], kOptLength, "--block_size=4096");
+  snprintf(usage[4], kOptLength, "--block_based_table_options=block_size=1024");
+  ASSERT_TOOL_PASS(tool.Run(5, usage, opts));
+
+  cleanup(opts, file_path);
+}
+
+TEST_F(SSTDumpToolTest, RecompressShowProperties) {
+  Options opts;
+  opts.env = env();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  opts.table_factory = std::make_shared<BlockBasedTableFactory>(table_opts);
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  char* usage[4];
+  auto cleanup_usage = CleanupUsage{usage};
+  PopulateCommandArgs(file_path, "--command=recompress", usage);
+  snprintf(usage[3], kOptLength, "--show_properties");
+
+  SSTDumpTool tool;
+  ASSERT_TOOL_PASS(tool.Run(4, usage, opts));
+
+  cleanup(opts, file_path);
+}
+
+TEST_F(SSTDumpToolTest, RecompressJson) {
+  Options opts;
+  opts.env = env();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  opts.table_factory = std::make_shared<BlockBasedTableFactory>(table_opts);
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  char* usage[5];
+  auto cleanup_usage = CleanupUsage{usage};
+  PopulateCommandArgs(file_path, "--command=recompress", usage);
+  snprintf(usage[3], kOptLength, "--json");
+  snprintf(usage[4], kOptLength, "--show_properties");
+
+  SSTDumpTool tool;
+  ASSERT_TOOL_PASS(tool.Run(5, usage, opts));
+
+  cleanup(opts, file_path);
+}
+
 TEST_F(SSTDumpToolTest, ListMetaBlocks) {
   Options opts;
   SSTDumpToolTestCase(opts, /*filter=*/true, /*wide_column_one_in=*/0,
