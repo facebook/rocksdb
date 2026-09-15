@@ -22,6 +22,17 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   return true;
 }
 
+static bool ValidateStressDiagnosticEntryCount(const char* flagname,
+                                               uint64_t value) {
+  constexpr uint64_t kMaxStressDiagnosticEntries = 64 * 1024;
+  if (value > kMaxStressDiagnosticEntries) {
+    fprintf(stderr, "Invalid value for --%s: %lu, maximum is %lu\n", flagname,
+            (unsigned long)value, (unsigned long)kMaxStressDiagnosticEntries);
+    return false;
+  }
+  return true;
+}
+
 DEFINE_uint64(seed, 2341234,
               "Seed for PRNG. When --nooverwritepercent is "
               "nonzero and --expected_values_dir is nonempty, this value "
@@ -165,6 +176,39 @@ DEFINE_uint64(
     liveness_no_progress_timeout_sec, 0,
     "If non-zero with --liveness_check_interval_sec, terminate db_stress when "
     "no operation completes for this many seconds during the operation phase.");
+
+DEFINE_string(stress_diagnostics_dir, "",
+              "Directory where db_stress writes optional diagnostic artifacts. "
+              "If empty, diagnostics that require file output are disabled.");
+
+DEFINE_bool(stress_diagnostics_breadcrumbs, false,
+            "If true, keep a bounded per-thread memory-mapped ring of recent "
+            "stress operations in --stress_diagnostics_dir when set.");
+
+DEFINE_uint64(stress_diagnostics_breadcrumb_entries, 256,
+              "Number of recent operation breadcrumbs retained per stress "
+              "thread when --stress_diagnostics_breadcrumbs is true. Maximum "
+              "is 65536.");
+// NOLINTNEXTLINE(cert-err58-cpp)
+static const bool FLAGS_stress_diagnostics_breadcrumb_entries_dummy
+    __attribute__((__unused__)) =
+        RegisterFlagValidator(&FLAGS_stress_diagnostics_breadcrumb_entries,
+                              &ValidateStressDiagnosticEntryCount);
+
+DEFINE_bool(stress_diagnostics_scan_witness, false,
+            "If true, retain a bounded in-memory witness log for PrefixScan "
+            "and MultiScan operations and write it to --stress_diagnostics_dir "
+            "only when the operation reports a verification failure.");
+
+DEFINE_uint64(stress_diagnostics_scan_witness_entries, 128,
+              "Number of recent public iterator events retained per "
+              "PrefixScan/MultiScan operation when "
+              "--stress_diagnostics_scan_witness is true. Maximum is 65536.");
+// NOLINTNEXTLINE(cert-err58-cpp)
+static const bool FLAGS_stress_diagnostics_scan_witness_entries_dummy
+    __attribute__((__unused__)) =
+        RegisterFlagValidator(&FLAGS_stress_diagnostics_scan_witness_entries,
+                              &ValidateStressDiagnosticEntryCount);
 
 DEFINE_uint64(db_write_buffer_size,
               ROCKSDB_NAMESPACE::Options().db_write_buffer_size,
