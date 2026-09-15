@@ -11,6 +11,7 @@
 #include "db/dbformat.h"
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
+#include "db/read_callback.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -36,6 +37,7 @@ struct KeyContext {
   SequenceNumber max_covering_tombstone_seq;
   bool key_exists;
   bool is_blob_index;
+  bool newer_version_present;
   void* cb_arg;
   PinnableSlice* value;
   PinnableWideColumns* columns;
@@ -52,6 +54,7 @@ struct KeyContext {
         max_covering_tombstone_seq(0),
         key_exists(false),
         is_blob_index(false),
+        newer_version_present(false),
         cb_arg(nullptr),
         value(val),
         columns(cols),

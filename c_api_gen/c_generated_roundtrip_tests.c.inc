@@ -592,6 +592,20 @@ static void rocksdb_roundtrip_test_rocksdb_livefiles_storage_info_options(
   rocksdb_livefiles_storage_info_options_destroy(obj);
 }
 
+static void rocksdb_roundtrip_test_rocksdb_open_and_compact_options(void) {
+  rocksdb_open_and_compact_options_t* obj =
+      rocksdb_open_and_compact_options_create();
+  rocksdb_open_and_compact_options_set_max_secondary_open_retries(obj, 1);
+  CheckCondition(
+      rocksdb_open_and_compact_options_get_max_secondary_open_retries(obj) ==
+      1);
+  rocksdb_open_and_compact_options_set_max_secondary_open_retries(obj, 0);
+  CheckCondition(
+      rocksdb_open_and_compact_options_get_max_secondary_open_retries(obj) ==
+      0);
+  rocksdb_open_and_compact_options_destroy(obj);
+}
+
 static void rocksdb_roundtrip_test_rocksdb_optimistictransactiondb_options(
     void) {
   rocksdb_optimistictransactiondb_options_t* obj =
@@ -923,6 +937,12 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   CheckCondition(rocksdb_options_get_use_fsync(obj) == 1);
   rocksdb_options_set_use_fsync(obj, 0);
   CheckCondition(rocksdb_options_get_use_fsync(obj) == 0);
+  rocksdb_options_set_use_session_tmp_dir_for_remote_compaction(obj, 1);
+  CheckCondition(
+      rocksdb_options_get_use_session_tmp_dir_for_remote_compaction(obj) == 1);
+  rocksdb_options_set_use_session_tmp_dir_for_remote_compaction(obj, 0);
+  CheckCondition(
+      rocksdb_options_get_use_session_tmp_dir_for_remote_compaction(obj) == 0);
   rocksdb_options_set_verify_manifest_content_on_close(obj, 1);
   CheckCondition(rocksdb_options_get_verify_manifest_content_on_close(obj) ==
                  1);
@@ -1381,6 +1401,7 @@ static void rocksdb_run_generated_roundtrip_tests(void) {
   rocksdb_roundtrip_test_rocksdb_flushwaloptions();
   rocksdb_roundtrip_test_rocksdb_ingestexternalfileoptions();
   rocksdb_roundtrip_test_rocksdb_livefiles_storage_info_options();
+  rocksdb_roundtrip_test_rocksdb_open_and_compact_options();
   rocksdb_roundtrip_test_rocksdb_optimistictransactiondb_options();
   rocksdb_roundtrip_test_rocksdb_options();
   rocksdb_roundtrip_test_rocksdb_readoptions();

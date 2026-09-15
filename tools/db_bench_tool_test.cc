@@ -75,13 +75,15 @@ class DBBenchTest : public testing::Test {
     return SanitizeOptions(db_path_, opt);
   }
 
-  void RunDbBench(const std::string& options_file_name) {
+  void RunDbBench(const std::string& options_file_name,
+                  const std::vector<std::string>& extra_args = {}) {
     AppendArgs({"./db_bench", "--benchmarks=fillseq", "--use_existing_db=0",
                 "--num=1000", "--compression_type=none",
                 std::string(std::string("--db=") + db_path_).c_str(),
                 std::string(std::string("--wal_dir=") + wal_path_).c_str(),
                 std::string(std::string("--options_file=") + options_file_name)
                     .c_str()});
+    AppendArgs(extra_args);
     ASSERT_EQ(0, db_bench_tool(argc(), argv()));
   }
 
@@ -105,15 +107,21 @@ class DBBenchTest : public testing::Test {
     ASSERT_EQ(0, db_bench_tool(argc(), argv()));
   }
 
-  void VerifyOptions(const Options& opt) {
-    DBOptions loaded_db_opts;
+  void LoadPersistedOptions(
+      DBOptions* loaded_db_opts,
+      std::vector<ColumnFamilyDescriptor>* cf_descs) const {
     ConfigOptions config_opts;
     config_opts.ignore_unknown_options = false;
     config_opts.input_strings_escaped = true;
     config_opts.env = Env::Default();
-    std::vector<ColumnFamilyDescriptor> cf_descs;
     ASSERT_OK(
-        LoadLatestOptions(config_opts, db_path_, &loaded_db_opts, &cf_descs));
+        LoadLatestOptions(config_opts, db_path_, loaded_db_opts, cf_descs));
+  }
+
+  void VerifyOptions(const Options& opt) {
+    DBOptions loaded_db_opts;
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    LoadPersistedOptions(&loaded_db_opts, &cf_descs);
 
     ConfigOptions exact;
     exact.input_strings_escaped = false;
@@ -162,6 +170,37 @@ TEST_F(DBBenchTest, OptionsFile) {
   opt.delayed_write_rate = 16 * 1024 * 1024;  // Set by SanitizeOptions
 
   VerifyOptions(opt);
+}
+
+TEST_F(DBBenchTest, OptionsFileDisableAutoCompactionsOverride) {
+  GFLAGS_NAMESPACE::FlagSaver flag_saver;
+  const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
+  Options opt = GetDefaultOptions();
+  opt.disable_auto_compactions = false;
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), DBOptions(opt), {"default"},
+                                  {ColumnFamilyOptions(opt)}, kOptionsFileName,
+                                  opt.env->GetFileSystem().get()));
+
+  opt.wal_dir = wal_path_;
+  RunDbBench(kOptionsFileName, {"--disable_auto_compactions=true"});
+
+  DBOptions loaded_db_opts;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  LoadPersistedOptions(&loaded_db_opts, &cf_descs);
+  ASSERT_TRUE(cf_descs[0].options.disable_auto_compactions);
+}
+
+TEST_F(DBBenchTest, CompactAllParallelMultiDb) {
+  GFLAGS_NAMESPACE::FlagSaver flag_saver;
+  ResetArgs();
+  AppendArgs({"./db_bench", "--benchmarks=fillseq,compactall",
+              "--use_existing_db=0", "--num=1000", "--threads=4",
+              "--num_multi_db=4", "--compact_all_parallelism=2",
+              "--subcompactions=2", "--disable_auto_compactions=true",
+              "--compression_type=none", "--db=" + db_path_,
+              "--wal_dir=" + wal_path_});
+
+  ASSERT_EQ(0, db_bench_tool(argc(), argv()));
 }
 
 TEST_F(DBBenchTest, IngestExternalFile) {

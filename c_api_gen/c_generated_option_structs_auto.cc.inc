@@ -826,6 +826,16 @@ unsigned char rocksdb_options_get_remote_compaction_manifest_floor(
   return opt->rep.remote_compaction_manifest_floor;
 }
 
+void rocksdb_options_set_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_session_tmp_dir_for_remote_compaction = v;
+}
+
+unsigned char rocksdb_options_get_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_session_tmp_dir_for_remote_compaction;
+}
+
 void rocksdb_options_set_lowest_used_cache_tier(rocksdb_options_t* opt, int v) {
   opt->rep.lowest_used_cache_tier =
       static_cast<decltype(opt->rep.lowest_used_cache_tier)>(v);
@@ -2136,6 +2146,16 @@ int rocksdb_ingestexternalfileoptions_get_file_opening_threads(
 }
 
 /* OpenAndCompactOptions */
+
+void rocksdb_open_and_compact_options_set_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt, uint32_t v) {
+  opt->rep.max_secondary_open_retries = v;
+}
+
+uint32_t rocksdb_open_and_compact_options_get_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt) {
+  return opt->rep.max_secondary_open_retries;
+}
 
 unsigned char rocksdb_open_and_compact_options_get_allow_resumption(
     rocksdb_open_and_compact_options_t* opt) {

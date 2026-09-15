@@ -254,6 +254,14 @@ rocksdb_options_set_remote_compaction_manifest_floor(rocksdb_options_t* opt,
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_remote_compaction_manifest_floor(rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_lowest_used_cache_tier(
     rocksdb_options_t* opt, int v);
 
@@ -877,6 +885,14 @@ rocksdb_ingestexternalfileoptions_get_file_opening_threads(
     rocksdb_ingestexternalfileoptions_t* opt);
 
 /* OpenAndCompactOptions */
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_open_and_compact_options_set_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt, uint32_t v);
+
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_open_and_compact_options_get_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt);
 
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_open_and_compact_options_get_allow_resumption(

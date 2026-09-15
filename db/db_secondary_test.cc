@@ -324,6 +324,19 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   ASSERT_OK(ReopenAsSecondary(options));
   ASSERT_EQ("foo_value", Get("foo"));
   ASSERT_EQ("bar_value", Get("bar"));
+
+  MultiGetOutputMetadata output_metadata;
+  output_metadata.WantNewerVersionPresent();
+  std::vector<Slice> metadata_keys{"foo", "missing"};
+  std::vector<std::string> metadata_values;
+  const std::vector<Status> metadata_statuses = db_->MultiGetWithMetadata(
+      ReadOptions(), metadata_keys, &metadata_values, &output_metadata);
+  ASSERT_OK(metadata_statuses[0]);
+  ASSERT_EQ("foo_value", metadata_values[0]);
+  ASSERT_FALSE((*output_metadata.newer_version_present)[0]);
+  ASSERT_TRUE(metadata_statuses[1].IsNotFound());
+  ASSERT_FALSE((*output_metadata.newer_version_present)[1]);
+
   PinnableWideColumns result;
   ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), "baz",
                            &result));
@@ -914,11 +927,16 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(DB::OpenAndCompact(OpenAndCompactOptions(), dbname_,
-                               secondary_path_, compaction_input_binary,
+                               "options_override", compaction_input_binary,
                                &compaction_result_binary, override_options));
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   ASSERT_TRUE(verified);
+
+  CompactionServiceResult result;
+  ASSERT_OK(CompactionServiceResult::Read(compaction_result_binary, &result));
+  ASSERT_OK(result.status);
+  ASSERT_EQ(result.output_path, dbname_ + "/options_override");
 }
 
 namespace {

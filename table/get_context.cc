@@ -113,6 +113,15 @@ void GetContext::MarkKeyMayExist() {
   }
 }
 
+void GetContext::RecordNewerVersionIfNeeded(SequenceNumber seq,
+                                            ValueType type) {
+  // Caller already filtered out the no-tracking case via
+  // NeedToTrackNewerVersions().
+  assert(callback_ != nullptr);
+  callback_->MaybeRecordNewerVersion(
+      seq, type, has_newer_version_result_ ? newer_version_present_ : nullptr);
+}
+
 Status GetContext::SaveWideColumnEntityToPinnable(
     const Slice& user_key, const Slice& entity, Cleanable* value_pinner,
     const SameFileBlobReader* same_file_reader) {
@@ -155,7 +164,7 @@ Status GetContext::SaveWideColumnEntityToColumns(
     return status;
   }
 
-  if (lazy_columns_same_file_reader_ != nullptr) {
+  if (!has_newer_version_result_ && lazy_columns_same_file_reader_ != nullptr) {
     // Lazy mode (GetEntityLazy): leave blob references unresolved so the caller
     // can resolve them on demand (by column / byte range). Capture the
     // SameFileBlobReader (the SST that held this entity, if it has embedded
@@ -361,9 +370,14 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
          merge_context_ != nullptr);
   if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key, user_key_)) {
     *matched = true;
-    // If the value is not in the snapshot, skip it
-    if (!CheckCallback(parsed_key.sequence)) {
-      return true;  // to continue to the next seq
+    if (callback_ != nullptr) {
+      if (UNLIKELY(NeedToTrackNewerVersions())) {
+        RecordNewerVersionIfNeeded(parsed_key.sequence, parsed_key.type);
+      }
+      // If the value is not in the snapshot, skip it.
+      if (!callback_->IsVisible(parsed_key.sequence)) {
+        return true;  // to continue to the next seq
+      }
     }
 
     if (seq_ != nullptr) {

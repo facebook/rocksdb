@@ -1655,8 +1655,9 @@ TEST_F(CompactionJobTest, OpenAndCompactRejectsUnorderedSnapshots) {
     ASSERT_OK(input.Write(&serialized_input));
 
     std::string serialized_result;
-    Status s = DB::OpenAndCompact("", "", serialized_input, &serialized_result,
-                                  CompactionServiceOptionsOverride());
+    Status s =
+        DB::OpenAndCompact("", "output", serialized_input, &serialized_result,
+                           CompactionServiceOptionsOverride());
     ASSERT_TRUE(s.IsInvalidArgument());
     ASSERT_NE(s.ToString().find("snapshots must be strictly increasing"),
               std::string::npos);

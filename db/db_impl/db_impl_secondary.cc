@@ -11,6 +11,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_fetcher.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -519,6 +520,42 @@ void DBImplSecondary::DeleteResolvedRecoveredTransactions() {
                     " recovered transaction(s) prepared before WAL %" PRIu64,
                     deleted, min_log_number_to_keep);
   }
+}
+
+void DBImplSecondary::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  // The only secondary-specific policy here is rejecting newer-version
+  // tracking for explicit snapshots: catch-up can advance a secondary's view.
+  // The remaining code initializes requested metadata and forwards to the
+  // existing MultiGet implementation.
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+    if (options.snapshot != nullptr) {
+      const Status s = Status::NotSupported(
+          "MultiGetWithMetadata is not supported in secondary DB mode");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  DBImpl::MultiGet(options, num_keys, mutable_column_families, keys, values,
+                   timestamps != nullptr ? timestamps->data() : nullptr,
+                   statuses, sorted_input);
 }
 
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
@@ -1186,27 +1223,48 @@ Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
 }
 
 Status DBImplSecondary::InitializeCompactionWorkspace(
-    bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+    bool allow_resumption, bool resumption_requested,
+    std::unique_ptr<FSDirectory>* output_dir,
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
   // Create output directory if it doest exist yet
   Status s = CreateAndNewDirectory(fs_.get(), secondary_path_, output_dir);
-  if (!s.ok() || !allow_resumption) {
-    return s;
-  }
-
-  s = PrepareCompactionProgressState();
-
   if (!s.ok()) {
     return s;
   }
 
-  s = FinalizeCompactionProgressWriter(compaction_progress_writer);
-
-  if (!s.ok()) {
-    return s;
+  if (allow_resumption) {
+    s = PrepareCompactionProgressState();
+    if (!s.ok()) {
+      return s;
+    }
+    return FinalizeCompactionProgressWriter(compaction_progress_writer);
   }
 
-  return Status::OK();
+  if (resumption_requested) {
+    // Resumption was requested by the caller but has been disabled internally
+    // (see CompactWithoutInstallation: incompatible with output hash
+    // verification). The caller therefore did not empty output_directory (it
+    // expects the resumption path to own that state), so honor the
+    // OpenAndCompactOptions::allow_resumption=true fallback contract by
+    // cleaning any leftover progress and output files here, starting the fresh
+    // compaction from a clean directory. Without this, output files left by a
+    // previously interrupted attempt collide with the file numbers the fresh
+    // compaction reuses.
+    CompactionProgressFilesScan scan_result;
+    s = ScanCompactionProgressFiles(&scan_result);
+    if (!s.ok()) {
+      return s;
+    }
+    s = CleanupOldAndTemporaryCompactionProgressFiles(
+        /*preserve_latest=*/false, scan_result);
+    if (!s.ok()) {
+      return s;
+    }
+    s = HandleInvalidOrNoCompactionProgress(
+        /*compaction_progress_file_path=*/std::nullopt, scan_result);
+  }
+
+  return s;
 }
 
 // PrepareCompactionProgressState() manages compaction progress files and output
@@ -1434,8 +1492,9 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   mutex_.Unlock();
 
-  s = InitializeCompactionWorkspace(allow_resumption, &output_dir,
-                                    &compaction_progress_writer);
+  s = InitializeCompactionWorkspace(
+      allow_resumption, /*resumption_requested=*/options.allow_resumption,
+      &output_dir, &compaction_progress_writer);
 
   mutex_.Lock();
 
@@ -1623,6 +1682,10 @@ Status DB::OpenAndCompact(
   db_options.compaction_service = nullptr;
   db_options.info_log = override_options.info_log;
 
+  const std::string output_path = RemoteCompactionJobDir(
+      name, db_options.use_session_tmp_dir_for_remote_compaction,
+      output_directory);
+
   // 4. Filter CFs that are needed for OpenAndCompact()
   // We do not need to open all column families for the remote compaction.
   // Only open default CF + target CF. If target CF == default CF, we will open
@@ -1674,10 +1737,35 @@ Status DB::OpenAndCompact(
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   const uint64_t db_open_start_micros = db_options.env->NowMicros();
-  s = DBImplSecondary::OpenAsSecondaryImpl(
-      db_options, name, output_directory, column_families, &handles, &db,
-      /*recover_wal=*/false,
-      /*trust_manifest_recovery=*/floor_provided);
+  // This opens the *live* primary's directory read-only, and the primary keeps
+  // rotating its MANIFEST underneath us: each rotation writes a new MANIFEST
+  // and renames a freshly written CURRENT over the old one. POSIX keeps an
+  // already-opened CURRENT/MANIFEST readable after such a replacement, but
+  // filesystems without read-after-unlink semantics (remote or object stores)
+  // report the replaced object as gone instead (Status::PathNotFound /
+  // NotFound, or Status::TryAgain from
+  // ReactiveVersionSet::MaybeSwitchManifest for the MANIFEST equivalent). That
+  // is a transient race, not a broken DB: the next attempt reads the
+  // replacement. Retry a bounded number of times so a concurrent rotation does
+  // not fail the compaction -- a CompactionService that does not fall back to a
+  // local compaction turns such a failure into a primary background error.
+  for (uint32_t retry_count = 0;; ++retry_count) {
+    s = DBImplSecondary::OpenAsSecondaryImpl(
+        db_options, name, output_path, column_families, &handles, &db,
+        /*recover_wal=*/false,
+        /*trust_manifest_recovery=*/floor_provided);
+    if (s.ok() || !(s.IsTryAgain() || s.IsPathNotFound() || s.IsNotFound()) ||
+        retry_count == options.max_secondary_open_retries) {
+      break;
+    }
+    ROCKS_LOG_WARN(db_options.info_log,
+                   "OpenAndCompact: secondary open of %s failed with %s "
+                   "(retry %" PRIu32 " of %" PRIu32
+                   "); the primary may have replaced "
+                   "CURRENT/MANIFEST concurrently, retrying",
+                   name.c_str(), s.ToString().c_str(), retry_count + 1,
+                   options.max_secondary_open_retries);
+  }
   RecordTimeToHistogram(db_options.statistics.get(),
                         OPEN_AND_COMPACT_DB_OPEN_MICROS,
                         db_options.env->NowMicros() - db_open_start_micros);
@@ -1751,7 +1839,7 @@ Status DB::OpenAndCompact(
   assert(cfh);
 
   // 7. Run the compaction without installation.
-  // Output will be stored in the directory specified by output_directory
+  // Output will be stored under the DB-owned staging directory.
   CompactionServiceResult compaction_result;
   DBImplSecondary* db_secondary =
       static_cast_with_check<DBImplSecondary>(db.get());

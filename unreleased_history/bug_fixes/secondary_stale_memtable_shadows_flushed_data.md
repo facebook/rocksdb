@@ -1,1 +1,0 @@
-Fixed stale reads on secondary instances, where entries replayed from a WAL that the primary had already flushed could shadow the newer values in the flushed files indefinitely. Also fixed a case where a secondary could stop returning such a key altogether while the primary's flushed file holding it was unreadable.

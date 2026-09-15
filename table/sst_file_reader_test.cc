@@ -7,6 +7,8 @@
 
 #include <atomic>
 #include <cinttypes>
+#include <cstring>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -25,6 +27,7 @@
 #include "table/format.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
+#include "table/multiget_context.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_reader.h"
 #include "test_util/sync_point.h"
@@ -33,6 +36,11 @@
 #include "util/compression.h"
 #include "util/defer.h"
 #include "utilities/merge_operators.h"
+
+#if USE_COROUTINES
+#include "folly/coro/BlockingWait.h"
+#include "rocksdb/coro_db.h"
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -156,6 +164,149 @@ class SstFileReaderTest : public testing::Test {
   Env* env_;
 };
 
+#if USE_COROUTINES
+TEST_F(SstFileReaderTest, CoroutinePointReads) {
+  const std::vector<std::string> keys = {"a", "b", "c", "d", "e", "f"};
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  int coroutine_read_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync",
+      [&](void*) { ++coroutine_read_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  std::string string_value;
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGet(&reader, read_options, keys[0], &string_value)));
+  ASSERT_EQ(string_value, keys[0]);
+
+  PinnableSlice pinnable_value;
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGet(&reader, read_options, keys[3], &pinnable_value)));
+  ASSERT_EQ(pinnable_value, keys[3]);
+
+  const std::vector<Slice> read_keys = {keys[0], keys[2], "missing"};
+  std::vector<std::string> string_values;
+  std::vector<Status> statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, read_options, read_keys, &string_values));
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(string_values[0], keys[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  std::vector<PinnableSlice> pinnable_values;
+  statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, read_options, read_keys, &pinnable_values));
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(pinnable_values[0], keys[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  if (options_.env->GetFileSystem()->GetReadExecutor() != nullptr) {
+    ASSERT_GT(coroutine_read_count, 0);
+  }
+}
+
+TEST_F(SstFileReaderTest, CoroutinePointReadFallback) {
+  class NoReadExecutorFileSystem final : public FileSystemWrapper {
+   public:
+    explicit NoReadExecutorFileSystem(const std::shared_ptr<FileSystem>& target)
+        : FileSystemWrapper(target) {}
+
+    const char* Name() const override { return "NoReadExecutorFileSystem"; }
+    folly::IOExecutor* GetReadExecutor() override { return nullptr; }
+    void SetReadIOExecutorThreads(int /*number*/) override {}
+  };
+
+  const std::vector<std::string> keys = {"a", "b", "c"};
+  CreateFile(sst_name_, keys);
+
+  auto file_system =
+      std::make_shared<NoReadExecutorFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env = NewCompositeEnv(file_system);
+  Options options = options_;
+  options.env = env.get();
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  int coroutine_read_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync",
+      [&](void*) { ++coroutine_read_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value;
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGet(&reader, ReadOptions(), keys[0], &value)));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_EQ(value, keys[0]);
+  ASSERT_EQ(coroutine_read_count, 0);
+}
+#endif  // USE_COROUTINES
+
+TEST_F(SstFileReaderTest, MultiGetBatchBoundaries) {
+  constexpr size_t kNumKeys = MultiGetContext::MAX_BATCH_SIZE * 2 + 1;
+  std::vector<std::string> key_storage;
+  key_storage.reserve(kNumKeys);
+
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.Open(sst_name_));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    key_storage.emplace_back(EncodeAsString(i));
+    ASSERT_OK(writer.Put(key_storage.back(), key_storage.back()));
+  }
+  ASSERT_OK(writer.Finish());
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<Slice> keys;
+  std::vector<std::string> expected_values;
+  keys.reserve(key_storage.size());
+  expected_values.reserve(key_storage.size());
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    const size_t key_index = (i * 17) % kNumKeys;
+    keys.emplace_back(key_storage[key_index]);
+    expected_values.emplace_back(key_storage[key_index]);
+  }
+
+  std::vector<std::string> values;
+  std::vector<Status> statuses = reader.MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(statuses.size(), kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+  }
+  ASSERT_EQ(values, expected_values);
+
+  statuses = reader.MultiGet(ReadOptions(), {}, &values);
+  ASSERT_TRUE(statuses.empty());
+  ASSERT_TRUE(values.empty());
+
+#if USE_COROUTINES
+  statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, ReadOptions(), keys, &values));
+  ASSERT_EQ(statuses.size(), kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+  }
+  ASSERT_EQ(values, expected_values);
+
+  statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, ReadOptions(), {}, &values));
+  ASSERT_TRUE(statuses.empty());
+  ASSERT_TRUE(values.empty());
+#endif  // USE_COROUTINES
+}
+
 class FailingAppendWritableFile : public FSWritableFileOwnerWrapper {
  public:
   FailingAppendWritableFile(std::unique_ptr<FSWritableFile>&& target,
@@ -218,6 +369,65 @@ TEST_F(SstFileReaderTest, Basic) {
     keys.emplace_back(EncodeAsString(i));
   }
   CreateFileAndCheck(keys);
+}
+
+TEST_F(SstFileReaderTest, MultiGetExceedingMaxBatchSize) {
+  // A MultiGetContext holds at most MAX_BATCH_SIZE keys, so a larger request
+  // has to be split into batches. Query the keys in descending order and mix
+  // in absent ones so that results have to survive the sort back into the
+  // caller's order.
+  const size_t num_keys = MultiGetContext::MAX_BATCH_SIZE * 2 + 5;
+
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.Open(sst_name_));
+  for (size_t i = 0; i < num_keys; ++i) {
+    ASSERT_OK(writer.Put(EncodeAsString(i), "val" + std::to_string(i)));
+  }
+  ASSERT_OK(writer.Finish());
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<std::string> key_storage;
+  std::vector<std::string> expected_values;
+  std::vector<bool> expected_found;
+  for (size_t i = num_keys; i > 0; --i) {
+    key_storage.emplace_back(EncodeAsString(i - 1));
+    expected_values.emplace_back("val" + std::to_string(i - 1));
+    expected_found.push_back(true);
+
+    key_storage.emplace_back("absent" + std::to_string(i - 1));
+    // A key that is not in the file leaves its output slot untouched.
+    expected_values.emplace_back("");
+    expected_found.push_back(false);
+  }
+  std::vector<Slice> keys(key_storage.begin(), key_storage.end());
+
+  auto found_flags = [](const std::vector<Status>& statuses) {
+    std::vector<bool> found;
+    found.reserve(statuses.size());
+    for (const Status& s : statuses) {
+      EXPECT_TRUE(s.ok() || s.IsNotFound()) << s.ToString();
+      found.push_back(s.ok());
+    }
+    return found;
+  };
+
+  std::vector<std::string> values;
+  std::vector<Status> statuses = reader.MultiGet(ReadOptions(), keys, &values);
+  EXPECT_EQ(found_flags(statuses), expected_found);
+  EXPECT_EQ(values, expected_values);
+
+  std::vector<PinnableSlice> pinnable_values;
+  std::vector<Status> pinnable_statuses =
+      reader.MultiGet(ReadOptions(), keys, &pinnable_values);
+  std::vector<std::string> pinnable_as_strings;
+  pinnable_as_strings.reserve(pinnable_values.size());
+  for (const PinnableSlice& value : pinnable_values) {
+    pinnable_as_strings.emplace_back(value.data(), value.size());
+  }
+  EXPECT_EQ(found_flags(pinnable_statuses), expected_found);
+  EXPECT_EQ(pinnable_as_strings, expected_values);
 }
 
 TEST_F(SstFileReaderTest, EmbeddedBlobRoundTrip) {
@@ -1078,6 +1288,45 @@ class SstFileReaderTimestampTest : public testing::Test {
     ASSERT_OK(iter->status());
   }
 
+  // Writes a file holding a single timestamped range tombstone. Each key gets
+  // its own exactly sized heap buffer so that reading past one is caught, and
+  // `timestamp` is placed right after whichever key `timestamp_follows_end_key`
+  // selects -- a lone timestamp can only ever be adjacent to one of the two.
+  void CreateFileWithDeleteRange(const std::string& begin_key,
+                                 const std::string& end_key,
+                                 const std::string& timestamp,
+                                 bool timestamp_follows_end_key,
+                                 ExternalSstFileInfo* file_info) {
+    const std::string& adjacent_key =
+        timestamp_follows_end_key ? end_key : begin_key;
+    const std::string& lone_key =
+        timestamp_follows_end_key ? begin_key : end_key;
+
+    std::unique_ptr<char[]> adjacent_buf(
+        new char[adjacent_key.size() + timestamp.size()]);
+    memcpy(adjacent_buf.get(), adjacent_key.data(), adjacent_key.size());
+    memcpy(adjacent_buf.get() + adjacent_key.size(), timestamp.data(),
+           timestamp.size());
+    std::unique_ptr<char[]> lone_buf(new char[lone_key.size()]);
+    memcpy(lone_buf.get(), lone_key.data(), lone_key.size());
+
+    const Slice adjacent_slice(adjacent_buf.get(), adjacent_key.size());
+    const Slice lone_slice(lone_buf.get(), lone_key.size());
+    const Slice timestamp_slice(adjacent_buf.get() + adjacent_key.size(),
+                                timestamp.size());
+
+    SstFileWriter writer(soptions_, options_);
+    ASSERT_OK(writer.Open(sst_name_));
+    if (timestamp_follows_end_key) {
+      ASSERT_OK(
+          writer.DeleteRange(lone_slice, adjacent_slice, timestamp_slice));
+    } else {
+      ASSERT_OK(
+          writer.DeleteRange(adjacent_slice, lone_slice, timestamp_slice));
+    }
+    ASSERT_OK(writer.Finish(file_info));
+  }
+
  protected:
   std::shared_ptr<Env> env_guard_;
   Options options_;
@@ -1153,6 +1402,31 @@ TEST_F(SstFileReaderTimestampTest, Basic) {
     }
 
     CheckFile(EncodeAsUint64(ts), output_descs);
+  }
+}
+
+TEST_F(SstFileReaderTimestampTest, DeleteRangeTimestampAdjacentToOneKey) {
+  const std::string timestamp = EncodeAsUint64(1);
+
+  {
+    // Only begin_key is followed in memory by the timestamp.
+    ExternalSstFileInfo file_info;
+    CreateFileWithDeleteRange("begin", "end", timestamp,
+                              /* timestamp_follows_end_key */ false,
+                              &file_info);
+    ASSERT_EQ(file_info.smallest_range_del_key, "begin" + timestamp);
+    ASSERT_EQ(file_info.largest_range_del_key, "end" + timestamp);
+  }
+
+  {
+    // Only end_key is followed in memory by the timestamp, and the two keys
+    // are the same length, so testing end_key's adjacency with begin_key's
+    // size would match here.
+    ExternalSstFileInfo file_info;
+    CreateFileWithDeleteRange("aaa", "bbb", timestamp,
+                              /* timestamp_follows_end_key */ true, &file_info);
+    ASSERT_EQ(file_info.smallest_range_del_key, "aaa" + timestamp);
+    ASSERT_EQ(file_info.largest_range_del_key, "bbb" + timestamp);
   }
 }
 

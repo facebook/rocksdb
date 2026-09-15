@@ -358,6 +358,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(FileTypeSet)},
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
+      {offsetof(struct DBOptions, use_session_tmp_dir_for_remote_compaction),
+       sizeof(bool)},
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
       {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
        sizeof(CompactionStyleSet)},
@@ -503,6 +505,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "prefix_seek_opt_in_only=true;"
       "fast_sst_open=true;"
       "remote_compaction_manifest_floor=false;"
+      "use_session_tmp_dir_for_remote_compaction=true;"
       "reuse_manifest_on_open=true;",
       new_options));
 

@@ -574,6 +574,10 @@ class CompactionService : public Customizable {
   ~CompactionService() override = default;
 };
 
+// Canonical name for the DB session temporary directory, which can be used as
+// the remote compaction output root when enabled.
+inline constexpr char kSessionTmpDirName[] = "session_tmp";
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   // NOT MAINTAINED: This function has not been and is not maintained.
@@ -791,9 +795,10 @@ struct DBOptions {
   // Default: 16
   int max_file_opening_threads = 16;
 
-  // Requested maximum number of threads in the shared read I/O executor. A DB
-  // open can increase the executor to this size but cannot reduce it. Used
-  // exclusively for asynchronous read requests (e.g. GetAsync, MultiGetAsync).
+  // Requested maximum number of threads in the shared read I/O executor.
+  // Opening a DB or SstFileReader can increase the executor to this size but
+  // cannot reduce it. Used exclusively for asynchronous read requests (e.g.
+  // GetAsync, MultiGetAsync).
   int read_io_executor_threads = 1;
 
   // If true, SST files are opened and validated asynchronously in the
@@ -1787,6 +1792,19 @@ struct DBOptions {
   // when compaction_service is not configured.
   bool remote_compaction_manifest_floor = true;
 
+  // When true, remote compaction uses the DB session temporary directory.
+  // An `output_directory` argument of `job_1` to `DB::OpenAndCompact()` is
+  // resolved to `<dbname>/session_tmp/job_1`. DB::Open() creates the directory
+  // and deletes contents left by the previous DB session before scheduling new
+  // compactions. Cleanup is best effort and never fails open.
+  //
+  // When false, output is written directly to `<dbname>/<output_directory>`
+  // and DB::Open() performs no remote compaction output cleanup, preserving
+  // the legacy behavior.
+  //
+  // Default: false
+  bool use_session_tmp_dir_for_remote_compaction = false;
+
   // It indicates, which lowest cache tier we want to
   // use for a certain DB. Currently we support volatile_tier and
   // non_volatile_tier. They are layered. By setting it to kVolatileTier, only
@@ -2226,10 +2244,10 @@ struct ReadOptions {
   // NOTE: for all pointer members of ReadOptions (e.g. snapshot, timestamp,
   // iterate_lower_bound, iterate_upper_bound, table_filter, ...), when the
   // pointer is non-nullptr the caller retains ownership of the pointed-to
-  // object and is responsible for keeping it alive and unchanged for as long as
-  // the read operation using these options is in progress (which, for an
-  // iterator, is the lifetime of the iterator). This keeps ReadOptions cheap to
-  // copy (internal to RocksDB).
+  // object and, unless documented otherwise, is responsible for keeping it
+  // alive and unchanged for as long as the read operation using these options
+  // is in progress (which, for an iterator, is the lifetime of the iterator).
+  // This keeps ReadOptions cheap to copy (internal to RocksDB).
 
   // *** BEGIN options relevant to point lookups as well as scans ***
 
@@ -2337,6 +2355,16 @@ struct ReadOptions {
   // parallel if the keys in the MultiGet batch are in different levels. It
   // comes at the expense of slightly higher CPU overhead.
   bool optimize_multiget_for_io = true;
+
+  // EXPERIMENTAL
+  //
+  // An opaque, non-owning context passed to all table implementations for this
+  // read. RocksDB does not interpret, manage, or synchronize access to this
+  // context. It is intended to let external table implementations consume
+  // application-defined read options. The caller is responsible for keeping the
+  // context alive for the duration of the read operation (or iterator lifetime)
+  // and for any required synchronization.
+  void* custom_context = nullptr;
 
   // *** END options relevant to point lookups (as well as scans) ***
   // *** BEGIN options only relevant to iterators or scans ***
@@ -3283,6 +3311,13 @@ struct CompactionServiceOptionsOverride {
 struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
+
+  // Maximum number of times to retry opening the source DB as a secondary
+  // after the initial attempt fails because CURRENT or MANIFEST was replaced
+  // concurrently. A value of zero disables retries.
+  //
+  // Default: 2
+  uint32_t max_secondary_open_retries = 2;
 
   // EXPERIMENTAL
   //

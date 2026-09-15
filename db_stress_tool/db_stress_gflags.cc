@@ -1060,6 +1060,12 @@ DEFINE_bool(remote_compaction_failure_fall_back_to_local, true,
             "If true, remote compaction failures will be ignored and "
             "compactions will fall back to local and retried");
 
+DEFINE_uint32(
+    openandcompact_max_secondary_open_retries,
+    ROCKSDB_NAMESPACE::OpenAndCompactOptions().max_secondary_open_retries,
+    "Maximum number of retries when OpenAndCompact opens the source DB as a "
+    "secondary");
+
 DEFINE_int32(allow_resumption_one_in, 0,
              "If non-zero, enable resumable compaction with 1/N probability "
              "for each OpenAndCompact call.Requires "

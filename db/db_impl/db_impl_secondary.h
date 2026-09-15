@@ -104,6 +104,14 @@ class DBImplSecondary : public DBImpl {
                                   const Slice& key,
                                   GetImplOptions& get_impl_options);
 
+  using DBImpl::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false) override;
+
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being
   // deleted by the primary. To avoid IOError in this case, application can
@@ -420,7 +428,8 @@ class DBImplSecondary : public DBImpl {
   };
 
   Status InitializeCompactionWorkspace(
-      bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+      bool allow_resumption, bool resumption_requested,
+      std::unique_ptr<FSDirectory>* output_dir,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
   Status PrepareCompactionProgressState();
