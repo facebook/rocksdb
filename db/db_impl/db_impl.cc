@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+
+#include "db/db_impl/db_impl_metadata.h"
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -2786,6 +2788,92 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
   return persist_stats_cf_handle_;
 }
 
+namespace {
+
+void CopyNewerVersionPresent(
+    const autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+    std::vector<uint8_t>* output) {
+  if (output == nullptr) {
+    return;
+  }
+  for (size_t i = 0; i < key_context.size(); ++i) {
+    (*output)[i] = key_context[i].newer_version_present;
+  }
+}
+
+}  // namespace
+
+Status DB::GetWithMetadata(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value,
+                           OutputMetadata* output_metadata) {
+  std::string* timestamp = GetOutputTimestamp(output_metadata);
+  bool* newer_version_present = GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  if (newer_version_present == nullptr || options.snapshot == nullptr) {
+    return Get(options, column_family, key, value, timestamp);
+  }
+  return Status::NotSupported(
+      "GetWithMetadata is not implemented by this DB subclass");
+}
+
+Status DBImpl::GetWithMetadata(const ReadOptions& _read_options,
+                               ColumnFamilyHandle* column_family,
+                               const Slice& key, PinnableSlice* value,
+                               OutputMetadata* output_metadata) {
+  std::string* timestamp = GetOutputTimestamp(output_metadata);
+  bool* newer_version_present = GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  value->Reset();
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+  if (newer_version_present != nullptr && read_options.snapshot != nullptr &&
+      read_options.read_tier == kPersistedTier) {
+    return Status::NotSupported(
+        "Newer-version metadata is not supported with kPersistedTier");
+  }
+
+  return GetImpl(
+      read_options, column_family, key, value, timestamp,
+      read_options.snapshot != nullptr ? newer_version_present : nullptr);
+}
+
+Status DBImpl::GetImpl(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, std::string* timestamp,
+                       bool* newer_version_present) {
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = value;
+  get_impl_options.timestamp = timestamp;
+  get_impl_options.newer_version_present = newer_version_present;
+
+  Status s = GetImpl(read_options, key, get_impl_options);
+  return s;
+}
+
 Status DBImpl::GetEntityLazyImpl(const ReadOptions& read_options,
                                  ColumnFamilyHandle* column_family,
                                  const Slice& key, LazyWideColumns* result) {
@@ -3548,6 +3636,66 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
   return s;
 }
 
+void DBImpl::MultiGetWithMetadata(const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle* const* column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  Status* statuses,
+                                  MultiGetOutputMetadata* output_metadata,
+                                  const bool sorted_input) {
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  std::string* timestamp_data =
+      timestamps != nullptr ? timestamps->data() : nullptr;
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+  const bool newer_version_present_requested =
+      newer_version_present != nullptr && read_options.snapshot != nullptr;
+  if (newer_version_present_requested &&
+      read_options.read_tier == kPersistedTier) {
+    Status s = Status::NotSupported(
+        "Newer-version metadata is not supported with kPersistedTier");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  MultiGetCommon(
+      read_options, num_keys, mutable_column_families, keys, values,
+      /* columns */ nullptr, timestamp_data, statuses,
+      newer_version_present_requested ? newer_version_present : nullptr,
+      sorted_input);
+}
+
 namespace {
 // Order keys by CF ID, followed by key contents
 struct CompareKeyContext {
@@ -3590,6 +3738,64 @@ void DBImpl::PrepareMultiGetKeys(
 
   std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
             CompareKeyContext());
+}
+
+void DB::MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                              ColumnFamilyHandle* const* column_families,
+                              const Slice* keys, PinnableSlice* values,
+                              Status* statuses,
+                              MultiGetOutputMetadata* output_metadata,
+                              const bool sorted_input) {
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  std::string* timestamp_data =
+      timestamps != nullptr ? timestamps->data() : nullptr;
+  if (newer_version_present == nullptr || options.snapshot == nullptr) {
+    autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        stack_column_families;
+    std::vector<ColumnFamilyHandle*> heap_column_families;
+    ColumnFamilyHandle** mutable_column_families =
+        MakeMutableCfHandles(column_families, num_keys, &stack_column_families,
+                             &heap_column_families);
+    MultiGet(options, num_keys, mutable_column_families, keys, values,
+             timestamp_data, statuses, sorted_input);
+    return;
+  }
+  const Status s = Status::NotSupported(
+      "MultiGetWithMetadata is not implemented by this DB subclass");
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      statuses[i] = s;
+    }
+  }
+}
+
+void DB::MultiGetWithMetadata(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const size_t num_keys, const Slice* keys,
+                              PinnableSlice* values, Status* statuses,
+                              MultiGetOutputMetadata* output_metadata,
+                              const bool sorted_input) {
+  // Use std::array, if possible, to avoid memory allocation overhead
+  if (num_keys > MultiGetContext::MAX_BATCH_SIZE) {
+    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+    MultiGetWithMetadata(options, num_keys, column_families.data(), keys,
+                         values, statuses, output_metadata, sorted_input);
+  } else {
+    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        column_families{};
+    std::fill(column_families.begin(), column_families.begin() + num_keys,
+              column_family);
+    MultiGetWithMetadata(options, num_keys, column_families.data(), keys,
+                         values, statuses, output_metadata, sorted_input);
+  }
 }
 
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
@@ -3773,7 +3979,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
 
   MultiGetCommon(read_options, num_keys, column_families, keys,
                  /* values */ nullptr, results, /* timestamps */ nullptr,
-                 statuses, sorted_input);
+                 statuses, /* newer_version_present */ nullptr, sorted_input);
 }
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
@@ -3888,6 +4094,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                  all_keys.data(),
                  /* values */ nullptr, columns.data(),
                  /* timestamps */ nullptr, statuses.data(),
+                 /* newer_version_present */ nullptr,
                  /* sorted_input */ false);
 
   // Set results

@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 template <typename Base>
 class CoroStackableDBBase;
+class SstFileReader;
 
 // EXPERIMENTAL native coroutine read interface.
 //
@@ -85,6 +86,15 @@ class CoroDB {
                                          const Slice& key, std::string* value,
                                          std::string* timestamp);
 
+  static folly::coro::Task<Status> CoGet(SstFileReader* reader,
+                                         const ReadOptions& options,
+                                         const Slice& key,
+                                         PinnableSlice* value);
+
+  static folly::coro::Task<Status> CoGet(SstFileReader* reader,
+                                         const ReadOptions& options,
+                                         const Slice& key, std::string* value);
+
   static folly::coro::Task<std::vector<Status>> CoMultiGet(
       DB* db, const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
@@ -108,6 +118,14 @@ class CoroDB {
   static folly::coro::Task<std::vector<Status>> CoMultiGet(
       DB* db, const ReadOptions& options, const std::vector<Slice>& keys,
       std::vector<std::string>* values, std::vector<std::string>* timestamps);
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      SstFileReader* reader, const ReadOptions& options,
+      const std::vector<Slice>& keys, std::vector<PinnableSlice>* values);
+
+  static folly::coro::Task<std::vector<Status>> CoMultiGet(
+      SstFileReader* reader, const ReadOptions& options,
+      const std::vector<Slice>& keys, std::vector<std::string>* values);
 
   static folly::coro::Task<void> CoMultiGet(
       DB* db, const ReadOptions& options, size_t num_keys,

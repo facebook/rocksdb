@@ -11,6 +11,7 @@
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_fetcher.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -519,6 +520,42 @@ void DBImplSecondary::DeleteResolvedRecoveredTransactions() {
                     " recovered transaction(s) prepared before WAL %" PRIu64,
                     deleted, min_log_number_to_keep);
   }
+}
+
+void DBImplSecondary::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  // The only secondary-specific policy here is rejecting newer-version
+  // tracking for explicit snapshots: catch-up can advance a secondary's view.
+  // The remaining code initializes requested metadata and forwards to the
+  // existing MultiGet implementation.
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+    if (options.snapshot != nullptr) {
+      const Status s = Status::NotSupported(
+          "MultiGetWithMetadata is not supported in secondary DB mode");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  DBImpl::MultiGet(options, num_keys, mutable_column_families, keys, values,
+                   timestamps != nullptr ? timestamps->data() : nullptr,
+                   statuses, sorted_input);
 }
 
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,

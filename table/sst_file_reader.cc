@@ -5,43 +5,34 @@
 
 #include "rocksdb/sst_file_reader.h"
 
+#include <algorithm>
+
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/lookup_key.h"
 #include "file/random_access_file_reader.h"
-#include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/utilities/types_util.h"
 #include "table/get_context.h"
+#include "table/sst_file_reader_impl.h"
 #include "table/table_builder.h"
 #include "table/table_iterator.h"
 #include "table/table_reader.h"
 
+// Generate the regular and coroutine versions of the point-read methods.
+// clang-format off
+#define WITHOUT_COROUTINES
+#include "table/sst_file_reader_sync_and_async.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
+#include "table/sst_file_reader_sync_and_async.h"
+#undef WITH_COROUTINES
+// clang-format on
+
 namespace ROCKSDB_NAMESPACE {
-
-struct SstFileReader::Rep {
-  Options options;
-  EnvOptions soptions;
-  ImmutableOptions ioptions;
-  MutableCFOptions moptions;
-  // Keep a member variable for this, since `NewIterator()` uses a const
-  // reference of `ReadOptions`.
-  ReadOptions roptions_for_table_iter;
-
-  std::unique_ptr<TableReader> table_reader;
-
-  Rep(const Options& opts)
-      : options(opts),
-        soptions(options),
-        ioptions(options),
-        moptions(ColumnFamilyOptions(options)) {
-    roptions_for_table_iter =
-        ReadOptions(/*_verify_checksums=*/true, /*_fill_cache=*/false);
-  }
-};
 
 SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
 
@@ -56,6 +47,14 @@ Status SstFileReader::Open(const std::string& file_path) {
   FileOptions fopts(r->soptions);
   fopts.file_checksum_func_name = kNoFileChecksumFuncName;
   const auto& fs = r->options.env->GetFileSystem();
+#if USE_COROUTINES
+  if (r->options.read_io_executor_threads <= 0) {
+    return Status::InvalidArgument(
+        "read_io_executor_threads must be greater than zero");
+  }
+  fs->SetReadIOExecutorThreads(r->options.read_io_executor_threads);
+  r->read_executor = fs->GetReadExecutor();
+#endif  // USE_COROUTINES
 
   s = fs->GetFileSize(file_path, fopts.io_options, &file_size, nullptr);
   if (s.ok()) {
@@ -88,102 +87,7 @@ Status SstFileReader::Open(const std::string& file_path) {
 std::vector<Status> SstFileReader::MultiGet(
     const ReadOptions& roptions, const std::vector<Slice>& keys,
     std::vector<PinnableSlice>* values) {
-  const auto num_keys = keys.size();
-  std::vector<Status> statuses(num_keys, Status::OK());
-  values->resize(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    (*values)[i].Reset();
-  }
-
-  auto r = rep_.get();
-  const Comparator* user_comparator =
-      r->ioptions.internal_comparator.user_comparator();
-  Statistics* statistics = r->ioptions.stats;
-
-  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-  autovector<GetContext, MultiGetContext::MAX_BATCH_SIZE> get_ctx;
-  autovector<MergeContext, MultiGetContext::MAX_BATCH_SIZE> merge_ctx;
-  // The loop below hands out pointers to these elements, so they have to be
-  // reserved up front: past the inline capacity an autovector spills into a
-  // std::vector that would otherwise reallocate as more keys are appended.
-  key_context.reserve(num_keys);
-  get_ctx.reserve(num_keys);
-  merge_ctx.reserve(num_keys);
-  sorted_keys.resize(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    PinnableSlice* val = &(*values)[i];
-    merge_ctx.emplace_back();
-    key_context.emplace_back(nullptr, keys[i], val, nullptr,
-                             nullptr /* timestamp */, &statuses[i]);
-    get_ctx.emplace_back(
-        user_comparator, r->ioptions.merge_operator.get(), nullptr /* logger */,
-        statistics, GetContext::kNotFound, *key_context[i].key, val,
-        nullptr /* columns */, nullptr /* timestamp */,
-        nullptr /* value_found */, &merge_ctx[i], true,
-        &key_context[i].max_covering_tombstone_seq, r->ioptions.clock);
-    key_context[i].get_context = &get_ctx[i];
-  }
-  for (size_t i = 0; i < num_keys; ++i) {
-    sorted_keys[i] = &key_context[i];
-  }
-
-  struct CompareKeyContext {
-    explicit CompareKeyContext(const Comparator* comp) : comparator(comp) {}
-    inline bool operator()(const KeyContext* lhs, const KeyContext* rhs) const {
-      return comparator->CompareWithoutTimestamp(*(lhs->key), false,
-                                                 *(rhs->key), false) < 0;
-    }
-    const Comparator* comparator;
-  };
-
-  std::sort(sorted_keys.begin(), sorted_keys.end(),
-            CompareKeyContext(user_comparator));
-  const auto sequence = roptions.snapshot != nullptr
-                            ? roptions.snapshot->GetSequenceNumber()
-                            : kMaxSequenceNumber;
-  // A MultiGetContext holds at most MAX_BATCH_SIZE keys, so look the sorted
-  // keys up in batches of that size, as DBImpl::MultiGetImpl does. Exceeding
-  // it is undefined behavior, not just a missed optimization.
-  size_t keys_left = num_keys;
-  while (keys_left > 0) {
-    const size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
-                                  ? MultiGetContext::MAX_BATCH_SIZE
-                                  : keys_left;
-    MultiGetContext ctx(&sorted_keys, num_keys - keys_left, batch_size,
-                        sequence, roptions, r->ioptions.fs.get(), nullptr);
-    MultiGetRange range = ctx.GetMultiGetRange();
-    r->table_reader->MultiGet(roptions, &range,
-                              r->moptions.prefix_extractor.get(),
-                              false /* skip filters */);
-    keys_left -= batch_size;
-  }
-
-  for (size_t i = 0; i < num_keys; ++i) {
-    get_ctx[i].ReportCounters();
-
-    if (statuses[i].ok()) {
-      switch (get_ctx[i].State()) {
-        case GetContext::kFound:
-          break;
-        case GetContext::kNotFound:
-        case GetContext::kDeleted:
-          statuses[i] = Status::NotFound();
-          break;
-        case GetContext::kMerge:
-          statuses[i] = Status::MergeInProgress();
-          break;
-        case GetContext::kCorrupt:
-          statuses[i] = Status::Corruption();
-          break;
-        case GetContext::kUnexpectedBlobIndex:
-        case GetContext::kMergeOperatorFailed:
-          statuses[i] = Status::Corruption();
-          break;
-      };
-    }
-  }
-  return statuses;
+  return rep_->MultiGet(roptions, keys, values);
 }
 
 std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
@@ -202,50 +106,7 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
 
 Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,
                           PinnableSlice* value) {
-  auto r = rep_.get();
-  value->Reset();
-
-  const Comparator* user_comparator =
-      r->ioptions.internal_comparator.user_comparator();
-  Statistics* statistics = r->ioptions.stats;
-
-  Status status;
-  MergeContext merge_context;
-  SequenceNumber max_covering_tombstone_seq = 0;
-  GetContext get_ctx(user_comparator, r->ioptions.merge_operator.get(),
-                     nullptr /* logger */, statistics, GetContext::kNotFound,
-                     key, value, nullptr /* columns */, nullptr /* timestamp */,
-                     nullptr /* value_found */, &merge_context, true,
-                     &max_covering_tombstone_seq, r->ioptions.clock);
-
-  LookupKey lkey(key, kMaxSequenceNumber);
-  status = r->table_reader->Get(roptions, lkey.internal_key(), &get_ctx,
-                                r->moptions.prefix_extractor.get(),
-                                false /* skip_filters */);
-
-  get_ctx.ReportCounters();
-
-  if (status.ok()) {
-    switch (get_ctx.State()) {
-      case GetContext::kFound:
-        break;
-      case GetContext::kNotFound:
-      case GetContext::kDeleted:
-        status = Status::NotFound();
-        break;
-      case GetContext::kMerge:
-        status = Status::MergeInProgress();
-        break;
-      case GetContext::kCorrupt:
-        status = Status::Corruption();
-        break;
-      case GetContext::kUnexpectedBlobIndex:
-      case GetContext::kMergeOperatorFailed:
-        status = Status::Corruption();
-        break;
-    }
-  }
-  return status;
+  return rep_->Get(roptions, key, value);
 }
 
 Status SstFileReader::Get(const ReadOptions& roptions, const Slice& key,

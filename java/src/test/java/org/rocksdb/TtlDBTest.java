@@ -52,6 +52,33 @@ public class TtlDBTest {
   }
 
   @Test
+  public void metadataReadsWithSnapshot() throws RocksDBException {
+    final byte[] key = "key".getBytes(StandardCharsets.UTF_8);
+    final byte[] oldValue = "old".getBytes(StandardCharsets.UTF_8);
+    final byte[] newValue = "new".getBytes(StandardCharsets.UTF_8);
+    try (final Options options = new Options().setCreateIfMissing(true);
+        final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      ttlDB.put(key, oldValue);
+      try (final Snapshot snapshot = ttlDB.getSnapshot();
+          final ReadOptions readOptions = new ReadOptions().setSnapshot(snapshot)) {
+        ttlDB.put(key, newValue);
+
+        final GetWithMetadataResult result = ttlDB.getWithMetadata(readOptions, key);
+        assertThat(result.value).isEqualTo(oldValue);
+        assertThat(result.timestamp).isEmpty();
+        assertThat(result.newerVersionPresent).isTrue();
+
+        final List<GetWithMetadataResult> results =
+            ttlDB.multiGetWithMetadata(readOptions, Arrays.asList(key));
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).value).isEqualTo(oldValue);
+        assertThat(results.get(0).timestamp).isEmpty();
+        assertThat(results.get(0).newerVersionPresent).isTrue();
+      }
+    }
+  }
+
+  @Test
   public void ttlDBSimpleIterator() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
          final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath())) {

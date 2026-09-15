@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <cstring>
 #include <new>
 #include <semaphore>
@@ -376,6 +377,63 @@ TEST(StatusTest, Update) {
   ASSERT_TRUE(
       s.UpdateIfOk(Status()).UpdateIfOk(notf).UpdateIfOk(inc).IsNotFound());
   ASSERT_TRUE(s.IsNotFound());
+}
+
+// ***************************************************************** //
+// Unit test for lossless_cast
+namespace {
+enum class TestEnum8 : uint8_t { kZero = 0, kMax = 255 };
+enum TestEnumUnscoped : int { kNegative = -1, kPositive = 1 };
+}  // namespace
+
+TEST(LosslessCastTest, Values) {
+  // Signed <-> unsigned of the same size
+  ASSERT_EQ(lossless_cast<uint8_t>(int8_t{-1}), uint8_t{255});
+  ASSERT_EQ(lossless_cast<int8_t>(uint8_t{255}), int8_t{-1});
+  // Widening
+  ASSERT_EQ(lossless_cast<int64_t>(int16_t{-42}), int64_t{-42});
+  ASSERT_EQ(lossless_cast<uint64_t>(uint16_t{42}), uint64_t{42});
+  // Enum <-> underlying type
+  ASSERT_EQ(lossless_cast<uint8_t>(TestEnum8::kMax), uint8_t{255});
+  ASSERT_EQ(lossless_cast<TestEnum8>(uint8_t{0}), TestEnum8::kZero);
+  ASSERT_EQ(lossless_cast<int>(kNegative), -1);
+  ASSERT_EQ(lossless_cast<TestEnumUnscoped>(1), kPositive);
+}
+
+TEST(LosslessCastTest, Pointers) {
+  // Signed <-> unsigned of the same size
+  int32_t i = -1;
+  uint32_t* up = lossless_cast<uint32_t*>(&i);
+  ASSERT_EQ(*up, uint32_t{0xffffffff});
+  ASSERT_EQ(lossless_cast<int32_t*>(up), &i);
+
+  // Enum type -> underlying type
+  TestEnum8 e = TestEnum8::kMax;
+  uint8_t* bp = lossless_cast<uint8_t*>(&e);
+  ASSERT_EQ(*bp, uint8_t{255});
+
+  // Underlying type -> enum type
+  uint8_t b = 0;
+  TestEnum8* ep = lossless_cast<TestEnum8*>(&b);
+  ASSERT_EQ(*ep, TestEnum8::kZero);
+
+  // Enum type -> enum type of the same size
+  ASSERT_EQ(lossless_cast<TestEnum8*>(&e), &e);
+
+  // These must not compile:
+  /*
+  // Not lossless
+  lossless_cast<uint64_t*>(&i);
+  // Not a pointer destination
+  lossless_cast<uint32_t>(&i);
+  // Not an integral or enum type
+  struct Foo {
+    uint32_t x;
+  } foo;
+  lossless_cast<Foo*>(&i);
+  lossless_cast<uint32_t*>(&foo);
+  */
+  // END must not compile
 }
 
 // ***************************************************************** //

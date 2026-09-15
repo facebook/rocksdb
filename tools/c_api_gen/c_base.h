@@ -497,6 +497,11 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get(
     rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
     size_t keylen, size_t* vallen, char** errptr);
 
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, size_t* vallen, char** timestamp, size_t* timestamp_len,
+    unsigned char* newer_version_present, char** errptr);
+
 extern ROCKSDB_LIBRARY_API char* rocksdb_get_with_ts(
     rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
     size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
@@ -505,6 +510,12 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, size_t* vallen, char** timestamp, size_t* timestamp_len,
+    unsigned char* newer_version_present, char** errptr);
 
 extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_ts(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
@@ -534,6 +545,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get(
     const char* const* keys_list, const size_t* keys_list_sizes,
     char** values_list, size_t* values_list_sizes, char** errs);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** timestamp_list,
+    size_t* timestamp_list_sizes, unsigned char* newer_version_present,
+    char** errs);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_with_ts(
     rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_keys,
     const char* const* keys_list, const size_t* keys_list_sizes,
@@ -546,6 +564,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf(
     size_t num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** timestamp_list,
+    size_t* timestamp_list_sizes, unsigned char* newer_version_present,
+    char** errs);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf_with_ts(
     rocksdb_t* db, const rocksdb_readoptions_t* options,

@@ -2429,6 +2429,59 @@ char* rocksdb_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
   return result;
 }
 
+static char* rocksdb_get_with_metadata_impl(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    ColumnFamilyHandle* column_family, const char* key, size_t keylen,
+    size_t* vallen, char** timestamp, size_t* timestamp_len,
+    unsigned char* newer_version_present, char** errptr) {
+  ROCKSDB_NAMESPACE::OutputMetadata output_metadata;
+  if (timestamp != nullptr && timestamp_len != nullptr) {
+    output_metadata.WantTimestamp();
+  }
+  if (newer_version_present != nullptr) {
+    output_metadata.WantNewerVersionPresent();
+  }
+
+  PinnableSlice pinnable_val;
+  const Status s =
+      db->rep->GetWithMetadata(options->rep, column_family, Slice(key, keylen),
+                               &pinnable_val, &output_metadata);
+  if (newer_version_present != nullptr) {
+    *newer_version_present = *output_metadata.newer_version_present ? 1 : 0;
+  }
+
+  char* result = nullptr;
+  if (s.ok()) {
+    *vallen = pinnable_val.size();
+    result = CopyString(pinnable_val);
+    if (output_metadata.timestamp.has_value()) {
+      *timestamp_len = output_metadata.timestamp->size();
+      *timestamp = CopyString(*output_metadata.timestamp);
+    }
+  } else {
+    *vallen = 0;
+    if (output_metadata.timestamp.has_value()) {
+      *timestamp = nullptr;
+      *timestamp_len = 0;
+    }
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
+char* rocksdb_get_with_metadata(rocksdb_t* db,
+                                const rocksdb_readoptions_t* options,
+                                const char* key, size_t keylen, size_t* vallen,
+                                char** timestamp, size_t* timestamp_len,
+                                unsigned char* newer_version_present,
+                                char** errptr) {
+  return rocksdb_get_with_metadata_impl(
+      db, options, db->rep->DefaultColumnFamily(), key, keylen, vallen,
+      timestamp, timestamp_len, newer_version_present, errptr);
+}
+
 char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
                      rocksdb_column_family_handle_t* column_family,
                      const char* key, size_t keylen, size_t* vallen,
@@ -2449,6 +2502,16 @@ char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
     }
   }
   return result;
+}
+
+char* rocksdb_get_cf_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, size_t* vallen, char** timestamp, size_t* timestamp_len,
+    unsigned char* newer_version_present, char** errptr) {
+  return rocksdb_get_with_metadata_impl(
+      db, options, column_family->rep, key, keylen, vallen, timestamp,
+      timestamp_len, newer_version_present, errptr);
 }
 
 char* rocksdb_get_with_ts(rocksdb_t* db, const rocksdb_readoptions_t* options,
@@ -2542,6 +2605,72 @@ void rocksdb_multi_get(rocksdb_t* db, const rocksdb_readoptions_t* options,
   }
 }
 
+static void rocksdb_multi_get_with_metadata_impl(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    ColumnFamilyHandle* const* column_families, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** timestamp_list,
+    size_t* timestamp_list_sizes, unsigned char* newer_version_present,
+    char** errs) {
+  std::unique_ptr<Slice[]> keys(new Slice[num_keys]);
+  std::vector<PinnableSlice> values(num_keys);
+  std::vector<Status> statuses(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+
+  ROCKSDB_NAMESPACE::MultiGetOutputMetadata output_metadata;
+  if (timestamp_list != nullptr && timestamp_list_sizes != nullptr) {
+    output_metadata.WantTimestamps();
+  }
+  if (newer_version_present != nullptr) {
+    output_metadata.WantNewerVersionPresent();
+  }
+  db->rep->MultiGetWithMetadata(options->rep, num_keys, column_families,
+                                keys.get(), values.data(), statuses.data(),
+                                &output_metadata);
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (newer_version_present != nullptr) {
+      newer_version_present[i] =
+          (*output_metadata.newer_version_present)[i] ? 1 : 0;
+    }
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      if (output_metadata.timestamps.has_value()) {
+        timestamp_list[i] = CopyString((*output_metadata.timestamps)[i]);
+        timestamp_list_sizes[i] = (*output_metadata.timestamps)[i].size();
+      }
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (output_metadata.timestamps.has_value()) {
+        timestamp_list[i] = nullptr;
+        timestamp_list_sizes[i] = 0;
+      }
+      errs[i] = statuses[i].IsNotFound()
+                    ? nullptr
+                    : strdup(statuses[i].ToString().c_str());
+    }
+  }
+}
+
+void rocksdb_multi_get_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** timestamp_list,
+    size_t* timestamp_list_sizes, unsigned char* newer_version_present,
+    char** errs) {
+  std::vector<ColumnFamilyHandle*> column_families(
+      num_keys, db->rep->DefaultColumnFamily());
+  rocksdb_multi_get_with_metadata_impl(
+      db, options, column_families.data(), num_keys, keys_list, keys_list_sizes,
+      values_list, values_list_sizes, timestamp_list, timestamp_list_sizes,
+      newer_version_present, errs);
+}
+
 void rocksdb_multi_get_with_ts(rocksdb_t* db,
                                const rocksdb_readoptions_t* options,
                                size_t num_keys, const char* const* keys_list,
@@ -2615,6 +2744,24 @@ void rocksdb_multi_get_cf(
       }
     }
   }
+}
+
+void rocksdb_multi_get_cf_with_metadata(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes, char** values_list,
+    size_t* values_list_sizes, char** timestamp_list,
+    size_t* timestamp_list_sizes, unsigned char* newer_version_present,
+    char** errs) {
+  std::vector<ColumnFamilyHandle*> cfs(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    cfs[i] = column_families[i]->rep;
+  }
+  rocksdb_multi_get_with_metadata_impl(
+      db, options, cfs.data(), num_keys, keys_list, keys_list_sizes,
+      values_list, values_list_sizes, timestamp_list, timestamp_list_sizes,
+      newer_version_present, errs);
 }
 
 void rocksdb_multi_get_cf_with_ts(

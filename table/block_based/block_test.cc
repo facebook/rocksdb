@@ -2206,7 +2206,7 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
   }
 }
 
-class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
+class BlockEntryCorruptionTest : public testing::TestWithParam<bool> {
  public:
   bool useSeparatedKVStorage() const { return GetParam(); }
 
@@ -2229,13 +2229,24 @@ class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
 
   // Get the restart offset for a given restart index from the raw block data.
   uint32_t GetRestartOffset(const std::string& block_data, int restart_idx) {
+    size_t restarts_start = GetRestartsStart(block_data);
+    return DecodeFixed32(block_data.data() + restarts_start +
+                         restart_idx * sizeof(uint32_t));
+  }
+
+  void SetRestartOffset(std::string* block_data, int restart_idx,
+                        uint32_t restart_offset) {
+    size_t restarts_start = GetRestartsStart(*block_data);
+    EncodeFixed32(
+        &(*block_data)[restarts_start + restart_idx * sizeof(uint32_t)],
+        restart_offset);
+  }
+
+  size_t GetRestartsStart(const std::string& block_data) {
     size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
     uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
     uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
-    size_t restarts_start =
-        block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
-    return DecodeFixed32(block_data.data() + restarts_start +
-                         restart_idx * sizeof(uint32_t));
+    return block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
   }
 
   uint32_t GetKeyEnd(const std::string& block_data) {
@@ -2260,12 +2271,12 @@ class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
   }
 };
 
-INSTANTIATE_TEST_CASE_P(P, MetaBlockEntryCorruptionTest, ::testing::Bool(),
+INSTANTIATE_TEST_CASE_P(P, BlockEntryCorruptionTest, ::testing::Bool(),
                         [](const testing::TestParamInfo<bool>& args) {
                           return args.param ? "SeparatedKV" : "InlineKV";
                         });
 
-TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
+TEST_P(BlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
   std::string block_data = BuildBlock();
   uint32_t key_end = GetKeyEnd(block_data);
 
@@ -2285,7 +2296,7 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
   ASSERT_TRUE(iter->status().IsCorruption());
 }
 
-TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
+TEST_P(BlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
   std::string block_data = BuildBlock();
   uint32_t value_end = GetValueEnd(block_data);
 
@@ -2303,6 +2314,110 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(BlockEntryCorruptionTest, DataIteratorRejectsEntryPastSectionEnd) {
+  for (int length_byte_offset : {1, 2}) {
+    SCOPED_TRACE("length_byte_offset=" + std::to_string(length_byte_offset));
+    std::string block_data = BuildBlock();
+    uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+    uint32_t invalid_length = length_byte_offset == 1 ? GetKeyEnd(block_data)
+                                                      : GetValueEnd(block_data);
+    ASSERT_LT(invalid_length, 128);
+    block_data[first_entry_offset + length_byte_offset] =
+        static_cast<char>(invalid_length);
+
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+    std::unique_ptr<DataBlockIter> iter(block.NewDataIterator(
+        BytewiseComparator(), kDisableGlobalSequenceNumber, nullptr, nullptr,
+        true /* block_contents_pinned */,
+        true /* user_defined_timestamps_persisted */));
+
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_P(BlockEntryCorruptionTest, SeekRejectsRestartKeyPastKeysEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t key_end = GetKeyEnd(block_data);
+  uint32_t second_entry_offset = GetRestartOffset(block_data, 1);
+  ASSERT_LT(key_end, 128);
+  block_data[second_entry_offset + 1] = static_cast<char>(key_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  iter->Seek("key999");
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(BlockEntryCorruptionTest, RejectsValueOffsetPastValuesEnd) {
+  if (!useSeparatedKVStorage()) {
+    return;
+  }
+
+  std::string block_data = BuildBlock();
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  uint32_t values_size = GetValueEnd(block_data) - GetKeyEnd(block_data);
+  ASSERT_LT(values_size, 128);
+  block_data[first_entry_offset + 3] = static_cast<char>(values_size);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<DataBlockIter> iter(
+      block.NewDataIterator(BytewiseComparator(), kDisableGlobalSequenceNumber,
+                            nullptr, nullptr, true /* block_contents_pinned */,
+                            true /* user_defined_timestamps_persisted */));
+
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(BlockEntryCorruptionTest, InvalidRestartOffsets) {
+  for (bool past_keys_end : {false, true}) {
+    SCOPED_TRACE("past_keys_end=" + std::to_string(past_keys_end));
+    std::string block_data = BuildBlock();
+    uint32_t invalid_offset =
+        past_keys_end ? GetKeyEnd(block_data) : GetRestartOffset(block_data, 0);
+    SetRestartOffset(&block_data, 1, invalid_offset);
+
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+    ASSERT_EQ(block.size(), 0);
+    std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST(BlockEntryCorruptionStandaloneTest, TruncatedEntryHeader) {
+  for (size_t entry_size : {1U, 2U}) {
+    SCOPED_TRACE("entry_size=" + std::to_string(entry_size));
+    std::string block_data(entry_size, '\0');
+    PutFixed32(&block_data, 0);
+    DataBlockFooter(BlockBasedTableOptions::kDataBlockBinarySearch,
+                    1 /* num_restarts */)
+        .EncodeTo(&block_data);
+
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+    std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
 }
 
 TEST_F(BlockTest, SeparatedKVInvalidValuesSectionOffset) {

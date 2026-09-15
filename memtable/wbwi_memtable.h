@@ -226,6 +226,14 @@ class WBWIMemTable final : public ReadOnlyMemTable {
  private:
   inline InternalIterator* NewIterator() const;
 
+  bool GetImpl(const LookupKey& key, std::string* value,
+               PinnableWideColumns* columns, std::string* timestamp, Status* s,
+               MergeContext* merge_context,
+               SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+               const ReadOptions& read_opts, bool immutable_memtable,
+               ReadCallback* callback, bool* is_blob_index, bool do_merge,
+               const BlobFetcher* blob_fetcher, bool* newer_version_present);
+
   std::shared_ptr<WriteBatchWithIndex> wbwi_;
   const Comparator* comparator_;
   InternalKeyComparator ikey_comparator_;

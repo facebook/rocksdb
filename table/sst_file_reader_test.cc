@@ -37,6 +37,11 @@
 #include "util/defer.h"
 #include "utilities/merge_operators.h"
 
+#if USE_COROUTINES
+#include "folly/coro/BlockingWait.h"
+#include "rocksdb/coro_db.h"
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 std::string EncodeAsString(uint64_t v) {
@@ -158,6 +163,149 @@ class SstFileReaderTest : public testing::Test {
   std::shared_ptr<Env> env_guard_;
   Env* env_;
 };
+
+#if USE_COROUTINES
+TEST_F(SstFileReaderTest, CoroutinePointReads) {
+  const std::vector<std::string> keys = {"a", "b", "c", "d", "e", "f"};
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  int coroutine_read_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync",
+      [&](void*) { ++coroutine_read_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  std::string string_value;
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGet(&reader, read_options, keys[0], &string_value)));
+  ASSERT_EQ(string_value, keys[0]);
+
+  PinnableSlice pinnable_value;
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGet(&reader, read_options, keys[3], &pinnable_value)));
+  ASSERT_EQ(pinnable_value, keys[3]);
+
+  const std::vector<Slice> read_keys = {keys[0], keys[2], "missing"};
+  std::vector<std::string> string_values;
+  std::vector<Status> statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, read_options, read_keys, &string_values));
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(string_values[0], keys[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  std::vector<PinnableSlice> pinnable_values;
+  statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, read_options, read_keys, &pinnable_values));
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(pinnable_values[0], keys[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[2].IsNotFound());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  if (options_.env->GetFileSystem()->GetReadExecutor() != nullptr) {
+    ASSERT_GT(coroutine_read_count, 0);
+  }
+}
+
+TEST_F(SstFileReaderTest, CoroutinePointReadFallback) {
+  class NoReadExecutorFileSystem final : public FileSystemWrapper {
+   public:
+    explicit NoReadExecutorFileSystem(const std::shared_ptr<FileSystem>& target)
+        : FileSystemWrapper(target) {}
+
+    const char* Name() const override { return "NoReadExecutorFileSystem"; }
+    folly::IOExecutor* GetReadExecutor() override { return nullptr; }
+    void SetReadIOExecutorThreads(int /*number*/) override {}
+  };
+
+  const std::vector<std::string> keys = {"a", "b", "c"};
+  CreateFile(sst_name_, keys);
+
+  auto file_system =
+      std::make_shared<NoReadExecutorFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> env = NewCompositeEnv(file_system);
+  Options options = options_;
+  options.env = env.get();
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  int coroutine_read_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync",
+      [&](void*) { ++coroutine_read_count; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value;
+  ASSERT_OK(folly::coro::blockingWait(
+      CoroDB::CoGet(&reader, ReadOptions(), keys[0], &value)));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_EQ(value, keys[0]);
+  ASSERT_EQ(coroutine_read_count, 0);
+}
+#endif  // USE_COROUTINES
+
+TEST_F(SstFileReaderTest, MultiGetBatchBoundaries) {
+  constexpr size_t kNumKeys = MultiGetContext::MAX_BATCH_SIZE * 2 + 1;
+  std::vector<std::string> key_storage;
+  key_storage.reserve(kNumKeys);
+
+  SstFileWriter writer(soptions_, options_);
+  ASSERT_OK(writer.Open(sst_name_));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    key_storage.emplace_back(EncodeAsString(i));
+    ASSERT_OK(writer.Put(key_storage.back(), key_storage.back()));
+  }
+  ASSERT_OK(writer.Finish());
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  std::vector<Slice> keys;
+  std::vector<std::string> expected_values;
+  keys.reserve(key_storage.size());
+  expected_values.reserve(key_storage.size());
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    const size_t key_index = (i * 17) % kNumKeys;
+    keys.emplace_back(key_storage[key_index]);
+    expected_values.emplace_back(key_storage[key_index]);
+  }
+
+  std::vector<std::string> values;
+  std::vector<Status> statuses = reader.MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ(statuses.size(), kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+  }
+  ASSERT_EQ(values, expected_values);
+
+  statuses = reader.MultiGet(ReadOptions(), {}, &values);
+  ASSERT_TRUE(statuses.empty());
+  ASSERT_TRUE(values.empty());
+
+#if USE_COROUTINES
+  statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, ReadOptions(), keys, &values));
+  ASSERT_EQ(statuses.size(), kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+  }
+  ASSERT_EQ(values, expected_values);
+
+  statuses = folly::coro::blockingWait(
+      CoroDB::CoMultiGet(&reader, ReadOptions(), {}, &values));
+  ASSERT_TRUE(statuses.empty());
+  ASSERT_TRUE(values.empty());
+#endif  // USE_COROUTINES
+}
 
 class FailingAppendWritableFile : public FSWritableFileOwnerWrapper {
  public:

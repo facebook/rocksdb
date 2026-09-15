@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "db/dbformat.h"
+#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
@@ -33,7 +34,9 @@ struct DecodeEntry {
     // We need 2 bytes for shared and non_shared size. We also need one more
     // byte either for value size or the actual value in case of value delta
     // encoding.
-    assert(limit - p >= 3);
+    if (UNLIKELY(limit - p < 3)) {
+      return nullptr;
+    }
     *shared = reinterpret_cast<const unsigned char*>(p)[0];
     *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
     *value_length = reinterpret_cast<const unsigned char*>(p)[2];
