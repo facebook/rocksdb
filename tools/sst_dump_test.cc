@@ -10,9 +10,11 @@
 #include <cstdint>
 
 #include "db/wide/wide_column_serialization.h"
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_dump_tool.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -656,6 +658,76 @@ TEST_F(SSTDumpToolTest, SstFileDumperMmapReads) {
       ASSERT_EQ(data_size, tp->data_size);
     }
   }
+
+  cleanup(opts, file_path);
+}
+
+namespace {
+// SstFileDumper re-opens plain and cuckoo tables with mmap enabled. Fail only
+// that second open; the first, non-mmap open still succeeds.
+class FailMmapOpenFileSystem : public FileSystemWrapper {
+ public:
+  explicit FailMmapOpenFileSystem(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "FailMmapOpenFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& options,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (options.use_mmap_reads) {
+      return IOStatus::IOError("injected mmap open failure");
+    }
+    return FileSystemWrapper::NewRandomAccessFile(fname, options, result, dbg);
+  }
+};
+}  // namespace
+
+TEST_F(SSTDumpToolTest, PlainTableMmapReopenFailure) {
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = kPlainTableVariableLength;
+  plain_table_options.bloom_bits_per_key = 0;
+  plain_table_options.hash_table_ratio = 0;
+
+  Options opts;
+  opts.env = env();
+  opts.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  std::string file_path = MakeFilePath("rocksdb_sst_test_plain.sst");
+  createSST(opts, file_path);
+
+  // Same options, but every mmap open fails.
+  auto failing_fs =
+      std::make_shared<FailMmapOpenFileSystem>(env()->GetFileSystem());
+  std::unique_ptr<Env> failing_env = NewCompositeEnv(failing_fs);
+  Options failing_opts = opts;
+  failing_opts.env = failing_env.get();
+
+  SstFileDumper dumper(failing_opts, file_path, Temperature::kUnknown,
+                       1024 /*readahead_size*/, true /*verify_checksum*/,
+                       false /*output_hex*/, false /*decode_blob_index*/,
+                       EnvOptions(), /*silent=*/true);
+  ASSERT_NOK(dumper.getStatus());
+
+  cleanup(opts, file_path);
+}
+
+TEST_F(SSTDumpToolTest, DumpTableOutputFileCreationFails) {
+  Options opts;
+  opts.env = env();
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  SstFileDumper dumper(opts, file_path, Temperature::kUnknown,
+                       1024 /*readahead_size*/, true /*verify_checksum*/,
+                       false /*output_hex*/, false /*decode_blob_index*/,
+                       EnvOptions(), /*silent=*/true);
+  ASSERT_OK(dumper.getStatus());
+
+  // Parent directory does not exist, so NewWritableFile fails and leaves the
+  // output handle null.
+  ASSERT_NOK(dumper.DumpTable(MakeFilePath("no_such_dir/dump.txt")));
 
   cleanup(opts, file_path);
 }

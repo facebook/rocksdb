@@ -138,7 +138,10 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
         fopts.file_checksum_func_name = kNoFileChecksumFuncName;
       }
 
-      fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
+      s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
+      if (!s.ok()) {
+        return s;
+      }
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
 
@@ -224,9 +227,10 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = options_.env;
   Status s = env->NewWritableFile(out_filename, &out_file, soptions_);
-  if (s.ok()) {
-    s = table_reader_->DumpTable(out_file.get(), show_sequence_number_type_);
+  if (!s.ok()) {
+    return s;
   }
+  s = table_reader_->DumpTable(out_file.get(), show_sequence_number_type_);
   if (!s.ok()) {
     // close the file before return error, ignore the close error if there's any
     out_file->Close().PermitUncheckedError();
