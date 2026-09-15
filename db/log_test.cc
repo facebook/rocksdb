@@ -1853,6 +1853,68 @@ TEST_P(CompressionLogTest, ChecksumMismatch) {
   }
 }
 
+// wal_index round-trips through WAL compression, including a record large
+// enough to fragment across blocks. The reader recomputes the per-record
+// checksum over the stripped payload so it still matches upper-layer
+// expectations.
+TEST_P(CompressionLogTest, WALIndexReadWrite) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  EnableWALIndex();
+
+  const std::string big = BigString("bar", 60 * 1000);
+  Write("foo");
+  Write(big);
+  Write("baz");
+
+  ASSERT_EQ("foo", Read());
+  ASSERT_EQ(1U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ(big, Read());
+  ASSERT_EQ(2U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("baz", Read());
+  ASSERT_EQ(3U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ(0U, DroppedBytes());
+}
+
+// BigString compresses away to almost nothing, so the record above completes
+// in a single Compress() call. Incompressible data forces the streaming
+// compressor to return output across several calls, which is the path where
+// the wal_index prefix has to survive `compress_remaining > 0` looping.
+TEST_P(CompressionLogTest, WALIndexLargeIncompressible) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  ASSERT_OK(SetupTestEnv());
+  EnableWALIndex();
+
+  Random rnd(301);
+  std::string incompressible;
+  incompressible.reserve(3 * kBlockSize / 2);
+  for (size_t i = 0; i < 3 * kBlockSize / 2; i++) {
+    incompressible.push_back(static_cast<char>(rnd.Uniform(256)));
+  }
+
+  Write("head");
+  Write(incompressible);
+  Write("tail");
+
+  ASSERT_EQ("head", Read());
+  ASSERT_EQ(1U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ(incompressible, Read());
+  ASSERT_EQ(2U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("tail", Read());
+  ASSERT_EQ(3U, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ(0U, DroppedBytes());
+}
+
 INSTANTIATE_TEST_CASE_P(
     Compression, CompressionLogTest,
     ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
