@@ -264,17 +264,22 @@ int64_t ProcessCpuMicrosSince(int64_t start_micros) {
 // Sizes exclude block trailers (BlockHandle::size()), matching the trailer-free
 // convention used elsewhere for recompression sizes.
 //
-// Precondition: `reader` must be a BlockBasedTable. Callers with an arbitrary
-// input reader (which may be a plain or cuckoo table) must guard with
-// TableFactory::kBlockBasedTableName(); static_cast_with_check would otherwise
-// abort in debug builds.
-Status GetOnDiskIndexSize(TableReader* reader, uint64_t* size) {
+// `reader` must have been produced by `factory`. Returns NotSupported (rather
+// than downcasting) unless `factory` is a block-based table factory -- i.e.
+// `reader` is a BlockBasedTable. This guards the static_cast_with_check below,
+// which would otherwise abort in debug builds (and be undefined behavior in
+// release) when handed a plain- or cuckoo-table input reader.
+Status GetOnDiskIndexSize(TableFactory* factory, TableReader* reader,
+                          uint64_t* size) {
   assert(size);
   *size = 0;
   if (reader == nullptr) {
     return Status::NotSupported("No table reader");
   }
-  // Recompression only deals with block-based tables.
+  if (factory == nullptr ||
+      !factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+    return Status::NotSupported("Not a block-based table");
+  }
   BlockBasedTable* bbt = static_cast_with_check<BlockBasedTable>(reader);
   const BlockBasedTable::Rep* rep = bbt->get_rep();
   if (rep == nullptr) {
@@ -415,7 +420,8 @@ Status SstFileDumper::CalculateCompressedTableSize(
   }
   // Total on-disk (compressed) index size of the freshly built table.
   if (on_disk_index_size != nullptr) {
-    Status idx_s = GetOnDiskIndexSize(table_reader.get(), on_disk_index_size);
+    Status idx_s = GetOnDiskIndexSize(read_table_factory.get(),
+                                      table_reader.get(), on_disk_index_size);
     if (!idx_s.ok()) {
       // Best effort: fall back to the uncompressed index content size so
       // callers won't misreport it as compressed.
@@ -656,9 +662,12 @@ Status SstFileDumper::ShowCompressionSize(
   measurement->compressed_data_payload = compressed_payload;
   measurement->uncompressed_data_payload = props.uncompressed_data_size;
   // props.index_size is uncompressed index content plus exactly one block
-  // trailer, regardless of how many index partitions exist (the builder adds a
-  // single kBlockTrailerSize to IndexBuilder::IndexSize()), so subtract one
-  // trailer to get the trailer-free index content size.
+  // trailer, regardless of how many index partitions exist: for a partitioned
+  // index, IndexBuilder::IndexSize() sums the (trailer-free) contents of every
+  // partition index block plus the top-level index block, and the builder then
+  // adds a single kBlockTrailerSize (see block_based_table_builder.cc). The
+  // individual partition-block trailers are therefore not counted here (NOTE),
+  // so subtracting one trailer yields the trailer-free index content size.
   measurement->uncompressed_index_payload =
       props.index_size > BlockBasedTable::kBlockTrailerSize
           ? props.index_size - BlockBasedTable::kBlockTrailerSize
@@ -698,20 +707,26 @@ Status SstFileDumper::GetInputBenchmarkMeasurement(
                                             ? tp.data_size - data_trailers
                                             : tp.data_size;
   measurement->compressed_data_payload = data_on_disk_payload;
-  // props.index_size (persisted) is uncompressed index content plus exactly one
-  // block trailer, regardless of how many index partitions exist, so subtract a
-  // single trailer to get the trailer-free index content size.
+  // tp.index_size (persisted) follows the same convention as the builder
+  // output: uncompressed index content plus exactly one block trailer,
+  // regardless of how many index partitions exist (NOTE the per-partition block
+  // trailers are not counted; see the fuller explanation in ShowCompressionSize
+  // and block_based_table_builder.cc). So subtract a single trailer to get the
+  // trailer-free index content size.
   measurement->uncompressed_index_payload =
       tp.index_size > block_trailer_size_ ? tp.index_size - block_trailer_size_
                                           : tp.index_size;
 
   // On-disk (compressed) index size. Only block-based inputs have a
   // BlockBasedTable reader (and an index in this sense); for a plain- or
-  // cuckoo-table input, fall back to the uncompressed index size.
+  // cuckoo-table input, GetOnDiskIndexSize returns NotSupported and we fall
+  // back to the uncompressed index size. options_.table_factory is the factory
+  // that produced table_reader_ (see SetTableOptionsByMagicNumber), so it
+  // correctly identifies the reader's type.
   uint64_t on_disk_index = 0;
-  if (options_.table_factory->IsInstanceOf(
-          TableFactory::kBlockBasedTableName()) &&
-      GetOnDiskIndexSize(table_reader_.get(), &on_disk_index).ok()) {
+  if (GetOnDiskIndexSize(options_.table_factory.get(), table_reader_.get(),
+                         &on_disk_index)
+          .ok()) {
     measurement->compressed_index_payload = on_disk_index;
   } else {
     measurement->compressed_index_payload =

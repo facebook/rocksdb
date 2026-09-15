@@ -1035,9 +1035,15 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
           compression_types = GetSupportedCompressions();
         }
       }
-      // Measure the input file's benchmark entry before ShowAllCompressionSizes
-      // warms the block cache, so the read time / decompression tickers reflect
-      // a cold read.
+      // Measure the input file's benchmark entry before
+      // ShowAllCompressionSizes. This ordering is required:
+      // GetInputBenchmarkMeasurement infers the input's uncompressed size and
+      // read time from before/after decompression ticker deltas on the shared
+      // options.statistics, and it must run first so those tickers reflect a
+      // single cold read of the input (before the block cache is warmed).
+      // ShowAllCompressionSizes does not perturb this: it creates its own
+      // per-recompression Statistics and its MaterializeInputKVs pre-read
+      // happens inside that call, after this measurement.
       ROCKSDB_NAMESPACE::SstFileDumper::RecompressionMeasurement input_m;
       bool have_input_m = dumper.GetInputBenchmarkMeasurement(&input_m).ok();
 

@@ -306,7 +306,7 @@ TEST_F(SSTDumpToolTest, BlockBasedTableOptions) {
   opts.env = env();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  opts.table_factory = std::make_shared<BlockBasedTableFactory>(table_opts);
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, file_path, 10);
 
@@ -338,7 +338,7 @@ TEST_F(SSTDumpToolTest, RecompressShowProperties) {
   opts.env = env();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  opts.table_factory = std::make_shared<BlockBasedTableFactory>(table_opts);
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, file_path, 10);
 
@@ -358,7 +358,7 @@ TEST_F(SSTDumpToolTest, RecompressJson) {
   opts.env = env();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  opts.table_factory = std::make_shared<BlockBasedTableFactory>(table_opts);
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, file_path, 10);
 
