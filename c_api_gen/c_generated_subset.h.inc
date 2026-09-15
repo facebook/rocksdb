@@ -119,6 +119,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
 extern ROCKSDB_LIBRARY_API void rocksdb_enable_file_deletions(rocksdb_t* db,
                                                               char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_disable_wal_deletions(rocksdb_t* db,
+                                                              char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_enable_wal_deletions(rocksdb_t* db,
+                                                             char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_verify_checksum(rocksdb_t* db,
                                                         char** errptr);
 

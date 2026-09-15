@@ -103,6 +103,13 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  Status DisableWalDeletions() override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  Status EnableWalDeletions() override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }

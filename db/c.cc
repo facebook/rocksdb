@@ -2543,6 +2543,14 @@ void rocksdb_enable_file_deletions(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->EnableFileDeletions());
 }
 
+void rocksdb_disable_wal_deletions(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->DisableWalDeletions());
+}
+
+void rocksdb_enable_wal_deletions(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->EnableWalDeletions());
+}
+
 void rocksdb_verify_checksum(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->VerifyChecksum());
 }

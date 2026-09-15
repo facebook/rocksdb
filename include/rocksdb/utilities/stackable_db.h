@@ -495,6 +495,10 @@ class StackableDB : public DB {
 
   Status EnableFileDeletions() override { return db_->EnableFileDeletions(); }
 
+  Status DisableWalDeletions() override { return db_->DisableWalDeletions(); }
+
+  Status EnableWalDeletions() override { return db_->EnableWalDeletions(); }
+
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override {
     db_->GetLiveFilesMetaData(metadata);
   }

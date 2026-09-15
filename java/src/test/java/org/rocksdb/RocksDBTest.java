@@ -1265,6 +1265,18 @@ public class RocksDBTest {
   }
 
   @Test
+  public void enableDisableWalDeletions() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      db.disableWalDeletions();
+      db.disableWalDeletions();
+      db.enableWalDeletions();
+      db.enableWalDeletions();
+      db.enableWalDeletions();
+    }
+  }
+
+  @Test
   public void setOptions() throws RocksDBException {
     try (final DBOptions options = new DBOptions()
              .setCreateIfMissing(true)
