@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+#include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "db/column_family.h"
@@ -17,6 +19,7 @@
 #include "options/db_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/lsm_edit.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 
@@ -24,6 +27,18 @@ namespace ROCKSDB_NAMESPACE {
 
 class Directories;
 class SystemClock;
+
+// The extra per-job state that turns a file ingestion job into the job behind
+// DB::ApplyLsmEdit(): the caller states where each file goes instead of the
+// job deriving it, and an existing file that only partly overlaps the edit
+// range may be probed for live keys instead of failing the job.
+struct LsmEditJobSpec {
+  // Target level of each file, parallel to the paths passed to Prepare().
+  std::vector<int> levels;
+
+  // See LsmEditOptions::probe_straddling_files.
+  bool probe_straddling_files = true;
+};
 
 struct KeyRangeInfo {
   // Smallest internal key in an external file or for a batch of external files.
@@ -191,6 +206,10 @@ struct IngestedFileInfo : public KeyRangeInfo {
 
   SequenceNumber largest_seqno = kMaxSequenceNumber;
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
+
+  // Level this file must be installed at, as declared through
+  // DB::ApplyLsmEdit(). Negative means the job picks the level itself.
+  int declared_level = -1;
 };
 
 // A batch of files.
@@ -225,8 +244,8 @@ class ExternalSstFileIngestionJob {
       const MutableDBOptions& mutable_db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
-      Directories* directories, EventLogger* event_logger,
-      const std::shared_ptr<IOTracer>& io_tracer)
+      std::optional<LsmEditJobSpec> lsm_edit_spec, Directories* directories,
+      EventLogger* event_logger, const std::shared_ptr<IOTracer>& io_tracer)
       : clock_(db_options.clock),
         fs_(db_options.fs, io_tracer),
         versions_(versions),
@@ -238,6 +257,7 @@ class ExternalSstFileIngestionJob {
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
+        lsm_edit_spec_(std::move(lsm_edit_spec)),
         directories_(directories),
         event_logger_(event_logger),
         job_start_time_(clock_->NowMicros()),
@@ -424,6 +444,40 @@ class ExternalSstFileIngestionJob {
       IngestedFileInfo* file_to_ingest, SequenceNumber* assigned_seqno,
       std::optional<int> prev_batch_uppermost_level);
 
+  // Validate the levels declared through DB::ApplyLsmEdit() and record each on
+  // its IngestedFileInfo. `external_files_paths` is only used for error
+  // messages.
+  Status RecordDeclaredLevels(
+      const std::vector<std::string>& external_files_paths);
+
+  // Verify that overlapping files declared at different levels preserve the
+  // LSM invariant that every entry in the higher level is newer than any
+  // intersecting entry in the lower level. For overlapping L0 files, their
+  // order in the input is used and equal sequence numbers are allowed.
+  Status ValidateDeclaredLevelSequenceOrder(SuperVersion* super_version);
+
+  // Validate the level `file_to_ingest` declared through DB::ApplyLsmEdit()
+  // and record it as the picked level. Never assigns a sequence number: an
+  // LSM edit installs files with the sequence numbers they carry.
+  // REQUIRES: Mutex held
+  Status UseDeclaredLevelForIngestedFile(IngestedFileInfo* file_to_ingest);
+
+  // Like IngestedFileFitInLevel(), but ignores the files this job is about to
+  // remove, so a declared level occupied only by doomed files is still usable.
+  // REQUIRES: Mutex held
+  bool DeclaredFileFitsInLevel(const IngestedFileInfo* file_to_ingest,
+                               int level) const;
+
+  // Verify that no key in [start, limit) survives outside the files the edit
+  // is about to delete, so that installing `add_files` with their own sequence
+  // numbers cannot shadow or resurrect existing data. `straddling_files` are
+  // the files that overlap the range without being contained in it, paired
+  // with their level; each is probed with an iterator.
+  // REQUIRES: Mutex held
+  Status ProbeStraddlingFiles(
+      SuperVersion* super_version,
+      const autovector<std::pair<int, const FileMetaData*>>& straddling_files);
+
   // File that we want to ingest behind always goes to the lowest level;
   // we just check that it fits in the level, that the CF allows ingest_behind,
   // and that we don't have 0 seqnums at the upper levels.
@@ -473,6 +527,8 @@ class ExternalSstFileIngestionJob {
   autovector<IngestedFileInfo> files_to_ingest_;
   std::vector<FileBatchInfo> file_batches_to_ingest_;
   const IngestExternalFileOptions ingestion_options_;
+  // Set when this job backs a DB::ApplyLsmEdit() call rather than an ingestion.
+  const std::optional<LsmEditJobSpec> lsm_edit_spec_;
   std::optional<KeyRangeInfo> atomic_replace_range_;
   std::optional<IngestedFileInfo> atomic_replace_range_tombstone_;
   bool atomic_replace_range_tombstone_active_{false};
