@@ -2789,7 +2789,12 @@ class DBImpl : public DB
 
   // Used by WriteImpl to update bg_error_ when IO error happens, e.g., write
   // WAL, sync WAL fails, if paranoid check is enabled.
-  void WALIOStatusCheck(const IOStatus& status);
+  void WALIOStatusCheck(const IOStatus& status, uint64_t failed_wal_number = 0,
+                        SequenceNumber failed_wal_sequence = 0);
+
+  // Extends the inclusive WAL-number cutoff that must not receive more I/O.
+  // This is lock-free because a WAL error can race with public SyncWAL().
+  void ExtendWALRecoveryCutoff(uint64_t failed_wal_number);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void HandleMemTableInsertFailure(const Status& nonok_memtable_insert_status);
@@ -3374,6 +3379,16 @@ class DBImpl : public DB
   // * whenever SetOptions successfully updates options.
   // * whenever a column family is dropped.
   InstrumentedCondVar bg_cv_;
+
+  // Set only while ResumeImpl performs a file-scoped WAL recovery. Protected
+  // by mutex_; SwitchMemtable uses it to avoid touching the failed writer.
+  bool recovering_from_wal_write_error_ = false;
+  uint64_t recover_wal_through_number_ = 0;
+
+  // Once a file-scoped WAL error is reported, all writers through this
+  // inclusive cutoff are quarantined until recovery detaches them. A
+  // concurrent SyncWAL() reads this without taking the DB mutex.
+  std::atomic<uint64_t> wal_recovery_cutoff_{0};
 
   ColumnFamilyHandleImpl* persist_stats_cf_handle_ = nullptr;
 

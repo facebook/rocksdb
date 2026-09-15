@@ -1032,6 +1032,10 @@ StressTest::StressTest(int db_index, const std::string& db_path,
     // and keep error accounting focused on DB data and metadata.
     db_fault_injection_fs_->SetFileTypesExcludedFromFaultInjection(
         {FileType::kInfoLogFile});
+    db_fault_injection_fs_->SetInjectFileScopeOnWALWriteError(
+        FLAGS_file_scope_wal_write_faults);
+    db_fault_injection_fs_->SetInjectWriteFaultsOnlyOnWAL(
+        FLAGS_file_scope_wal_write_faults);
     // Set it to direct writable here to initially bypass any fault injection
     // during DB open. This will correspondingly be overwritten in
     // StressTest::Open() for open fault injection and in RunStressTestImpl()
@@ -2228,6 +2232,20 @@ void StressTest::OperateDb(ThreadState* thread) {
           FLAGS_inject_error_severity == 2 /* has_data_loss*/);
       db_fault_injection_fs_->EnableThreadLocalErrorInjection(
           FaultInjectionIOType::kMetadataWrite);
+    }
+#else
+    // Most fault injection is debug-only. Keep the dedicated file-scoped WAL
+    // recovery mode available in optimized and sanitizer stress binaries so
+    // the recovery state machine gets the same matrix coverage as normal
+    // db_stress operation.
+    if (db_fault_injection_fs_ && FLAGS_file_scope_wal_write_faults) {
+      db_fault_injection_fs_->SetThreadLocalErrorContext(
+          FaultInjectionIOType::kWrite, thread->shared->GetSeed(),
+          FLAGS_write_fault_one_in,
+          FLAGS_inject_error_severity == 1 /* retryable */,
+          FLAGS_inject_error_severity == 2 /* has_data_loss*/);
+      db_fault_injection_fs_->EnableThreadLocalErrorInjection(
+          FaultInjectionIOType::kWrite);
     }
 #endif  // NDEBUG
 
@@ -5224,6 +5242,8 @@ void StressTest::PrintEnv() const {
           FLAGS_metadata_write_fault_one_in);
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
   fprintf(stdout, "Write fault one in        : %d\n", FLAGS_write_fault_one_in);
+  fprintf(stdout, "File-scoped WAL write faults: %d\n",
+          static_cast<int>(FLAGS_file_scope_wal_write_faults));
   fprintf(stdout, "Open metadata read fault one in:\n");
   fprintf(stdout, "                            %d\n",
           FLAGS_open_metadata_read_fault_one_in);
@@ -6426,7 +6446,10 @@ void InitializeOptionsFromFlags(
       FLAGS_max_write_batch_group_size_bytes;
   options.level_compaction_dynamic_level_bytes =
       FLAGS_level_compaction_dynamic_level_bytes;
-  options.track_and_verify_wals_in_manifest = true;
+  // File-scoped WAL recovery deliberately rejects either WAL-tracking mode.
+  // Disable the normally-on stress setting only for its dedicated fault mode.
+  options.track_and_verify_wals_in_manifest =
+      !FLAGS_file_scope_wal_write_faults;
   options.track_and_verify_wals = FLAGS_track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;

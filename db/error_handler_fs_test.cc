@@ -2686,6 +2686,1062 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
   Close();
 }
 
+TEST_F(DBErrorHandlingFSTest, FileScopedWALWriteErrorReplacesFailedWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.background_close_inactive_wals = false;
+  CreateAndReopenWithCF({"one", "empty"}, options);
+  ASSERT_OK(db_->DisableFileDeletions());
+
+  ASSERT_OK(Put(0, "accepted-before-error", "value-default"));
+  ASSERT_OK(Put(1, "accepted-before-error", "value-one"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+
+  std::atomic<bool> injected{false};
+  std::atomic<bool> abandoned{false};
+  std::atomic<bool> skipped_failed_wal_sync{false};
+  std::atomic<bool> synced_failed_wal{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedWALWriteError:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FileScopedWALWriteError:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error = IOStatus::IOError(
+              "injected file-scoped WAL error after complete append");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::SwitchMemtable:AbandonWAL",
+                                        [&](void*) { abandoned.store(true); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWalImpl:SkipFailedWAL", [&](void* arg) {
+        if (*static_cast<uint64_t*>(arg) == failed_wal) {
+          skipped_failed_wal_sync.store(true);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWalImpl:BeforeSyncWAL", [&](void* arg) {
+        auto* writer = static_cast<log::Writer*>(arg);
+        if (writer->get_log_number() == failed_wal) {
+          synced_failed_wal.store(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteBatch failed_batch;
+  ASSERT_OK(failed_batch.Put(handles_[0], "failed", "default-value"));
+  ASSERT_OK(failed_batch.Put(handles_[1], "failed", "one-value"));
+  Status write_status = db_->Write(WriteOptions(), &failed_batch);
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_FALSE(write_status.IsTryAgain()) << write_status.ToString();
+  ASSERT_TRUE(dbfull()->TEST_IsRecoveryInProgress());
+  ASSERT_EQ("NOT_FOUND", Get(0, "failed"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "failed"));
+
+  Status fenced_write = Put(0, "while-recovering", "value");
+  ASSERT_TRUE(fenced_write.IsIOError()) << fenced_write.ToString();
+
+  TEST_SYNC_POINT("FileScopedWALWriteError:AllowRecovery");
+  TEST_SYNC_POINT("FileScopedWALWriteError:RecoveryDone");
+  ASSERT_TRUE(abandoned.load());
+  ASSERT_TRUE(skipped_failed_wal_sync.load());
+  ASSERT_FALSE(synced_failed_wal.load());
+
+  ASSERT_OK(db_->SyncWAL());
+  ASSERT_FALSE(synced_failed_wal.load());
+  ASSERT_OK(db_->EnableFileDeletions());
+
+  for (ColumnFamilyHandle* handle : handles_) {
+    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
+    ASSERT_GT(cfd->GetLogNumber(), failed_wal);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ("value-default", Get(0, "accepted-before-error"));
+  ASSERT_EQ("value-one", Get(1, "accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get(0, "failed"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "failed"));
+  ASSERT_OK(Put(0, "accepted-after-recovery", "value2-default"));
+  ASSERT_OK(Put(1, "accepted-after-recovery", "value2-one"));
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "one", "empty"}, options);
+  ASSERT_EQ("value-default", Get(0, "accepted-before-error"));
+  ASSERT_EQ("value-one", Get(1, "accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get(0, "failed"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "failed"));
+  ASSERT_EQ("value2-default", Get(0, "accepted-after-recovery"));
+  ASSERT_EQ("value2-one", Get(1, "accepted-after-recovery"));
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALRecoveryUsesAndReplenishesAsyncPrecreatedWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.statistics = CreateDBStatistics();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkAsyncWALPrecreate:Done",
+        "AsyncWALRecovery:InitialPrecreateDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+  TEST_SYNC_POINT("AsyncWALRecovery:InitialPrecreateDone");
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({});
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("accepted-before-error", "value"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+
+  std::atomic<bool> injected{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"AsyncWALRecovery:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "AsyncWALRecovery:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error = IOStatus::IOError(
+              "injected file-scoped WAL error after complete append");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  TEST_SYNC_POINT("AsyncWALRecovery:AllowRecovery");
+  TEST_SYNC_POINT("AsyncWALRecovery:RecoveryDone");
+
+  ASSERT_GT(dbfull()->TEST_GetCurrentLogNumber(), failed_wal);
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+  ASSERT_EQ(0, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({});
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("accepted-after-recovery", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_EQ(2, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+  ASSERT_EQ(0, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+
+  Reopen(options);
+  ASSERT_EQ("value", Get("accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value2", Get("accepted-after-recovery"));
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedAsyncWALStartErrorDoesNotQuarantineCurrentWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 0;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.async_wal_precreate = true;
+  options.recycle_log_file_num = 0;
+  options.statistics = CreateDBStatistics();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkAsyncWALPrecreate:Done",
+        "AsyncWALStartError:InitialPrecreateDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  DestroyAndReopen(options);
+  TEST_SYNC_POINT("AsyncWALStartError:InitialPrecreateDone");
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({});
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("before", "value-before"));
+  const uint64_t current_wal = dbfull()->TEST_GetCurrentLogNumber();
+  std::atomic<bool> injected{false};
+  std::atomic<bool> abandoned{false};
+  std::vector<DBRecoverContext> recovery_contexts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartWALFile:AfterCompressionTypeRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected file-scoped new WAL start error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::SwitchMemtable:AbandonWAL",
+                                        [&](void*) { abandoned.store(true); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ErrorHandler::RecoverFromBGError:Context", [&](void* arg) {
+        recovery_contexts.push_back(*static_cast<DBRecoverContext*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status switch_status = dbfull()->TEST_SwitchMemtable();
+  ASSERT_TRUE(switch_status.IsIOError()) << switch_status.ToString();
+  ASSERT_EQ(current_wal, dbfull()->TEST_GetCurrentLogNumber());
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+
+  ASSERT_OK(dbfull()->Resume());
+  ASSERT_EQ(1, recovery_contexts.size());
+  ASSERT_EQ(0, recovery_contexts[0].failed_wal_number);
+  ASSERT_FALSE(abandoned.load());
+  ASSERT_GT(dbfull()->TEST_GetCurrentLogNumber(), current_wal);
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({});
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("after", "value-after"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_EQ(2, options.statistics->getTickerCount(WAL_PRECREATE_HIT));
+  ASSERT_EQ(1, options.statistics->getTickerCount(WAL_PRECREATE_MISS));
+
+  Reopen(options);
+  ASSERT_EQ("value-before", Get("before"));
+  ASSERT_EQ("value-after", Get("after"));
+}
+
+TEST_F(DBErrorHandlingFSTest, FileScopedWALNoSpacePreservesRecoveryContext) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.background_close_inactive_wals = false;
+  listener->EnableAutoRecovery(false);
+  CreateAndReopenWithCF({"one", "empty"}, options);
+
+  ASSERT_OK(Put(0, "accepted-before-error", "value-default"));
+  ASSERT_OK(Put(1, "accepted-before-error", "value-one"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+
+  std::atomic<bool> injected{false};
+  std::atomic<bool> abandoned{false};
+  std::vector<DBRecoverContext> recovery_contexts;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error = IOStatus::NoSpace(
+              "injected file-scoped WAL no-space error after complete append");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::SwitchMemtable:AbandonWAL",
+                                        [&](void*) { abandoned.store(true); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ErrorHandler::RecoverFromBGError:Context", [&](void* arg) {
+        recovery_contexts.push_back(*static_cast<DBRecoverContext*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteBatch failed_batch;
+  ASSERT_OK(failed_batch.Put(handles_[0], "failed", "default-value"));
+  ASSERT_OK(failed_batch.Put(handles_[1], "failed", "one-value"));
+  Status write_status = db_->Write(WriteOptions(), &failed_batch);
+  ASSERT_TRUE(write_status.IsNoSpace()) << write_status.ToString();
+  ASSERT_FALSE(abandoned.load());
+
+  ASSERT_OK(dbfull()->Resume());
+  ASSERT_TRUE(abandoned.load());
+  ASSERT_EQ(1, recovery_contexts.size());
+  ASSERT_EQ(failed_wal, recovery_contexts[0].failed_wal_number);
+
+  IOStatus unrelated_error = IOStatus::IOError("unrelated retryable error");
+  unrelated_error.SetRetryable(true);
+  dbfull()->TEST_SetBGError(unrelated_error,
+                            BackgroundErrorReason::kFlushNoWAL);
+  ASSERT_OK(dbfull()->Resume());
+  ASSERT_EQ(2, recovery_contexts.size());
+  ASSERT_EQ(0, recovery_contexts[1].failed_wal_number);
+  ASSERT_EQ(0, recovery_contexts[1].failed_wal_sequence);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (ColumnFamilyHandle* handle : handles_) {
+    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
+    ASSERT_GT(cfd->GetLogNumber(), failed_wal);
+  }
+  ASSERT_EQ("value-default", Get(0, "accepted-before-error"));
+  ASSERT_EQ("value-one", Get(1, "accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get(0, "failed"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "failed"));
+  ASSERT_OK(Put(0, "accepted-after-recovery", "value2-default"));
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "one", "empty"}, options);
+  ASSERT_EQ("value-default", Get(0, "accepted-before-error"));
+  ASSERT_EQ("value-one", Get(1, "accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get(0, "failed"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "failed"));
+  ASSERT_EQ("value2-default", Get(0, "accepted-after-recovery"));
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALWriteErrorReservesIndeterminateSequence) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.background_close_inactive_wals = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("before", "value-before"));
+  const SequenceNumber before = db_->GetLatestSequenceNumber();
+  std::unique_ptr<WalIterator> iter;
+  ASSERT_OK(db_->GetUpdatesSince(0, &iter));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(before, iter->GetBatch().sequence);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  std::atomic<bool> injected{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedSequence:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FileScopedSequence:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error = IOStatus::IOError(
+              "injected file-scoped error after complete append");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value-failed");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_EQ(before, db_->GetLatestSequenceNumber());
+  TEST_SYNC_POINT("FileScopedSequence:AllowRecovery");
+  TEST_SYNC_POINT("FileScopedSequence:RecoveryDone");
+  ASSERT_EQ(before + 1, db_->GetLatestSequenceNumber());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("after", "value-after"));
+  ASSERT_EQ(before + 2, db_->GetLatestSequenceNumber());
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(before + 1, iter->GetBatch().sequence);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+
+  Reopen(options);
+  ASSERT_EQ("value-before", Get("before"));
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value-after", Get("after"));
+  ASSERT_EQ(before + 2, db_->GetLatestSequenceNumber());
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALRecoveryMergesConcurrentIndeterminateSequence) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.background_close_inactive_wals = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("before", "value-before"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+
+  std::future<Status> failed_write;
+  // Disable SyncPoint processing before joining failed_write during unwinding.
+  // Otherwise an assertion failure can leave the writer blocked at
+  // ConcurrentWALSequence:AllowWriteError.
+  struct SyncPointDisabler {
+    ~SyncPointDisabler() { SyncPoint::GetInstance()->DisableProcessing(); }
+  } sync_point_disabler;
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"ConcurrentWALSequence:AllowInitialFlush", "DBImpl::BGWorkFlush"},
+       {"ConcurrentWALSequence:WriteErrorReady",
+        "ConcurrentWALSequence:StartSync"},
+       {"ConcurrentWALSequence:SyncErrorRecorded",
+        "ConcurrentWALSequence:AllowWriteError"},
+       {"ConcurrentWALSequence:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "ConcurrentWALSequence:RecoveryDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Keep the flush triggered by the WAL switch from making failed_wal
+  // obsolete before the concurrent SyncWAL() can inject its error.
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(Put("iterator-anchor", "value-anchor"));
+  const SequenceNumber before = db_->GetLatestSequenceNumber();
+
+  std::unique_ptr<WalIterator> iter;
+  ASSERT_OK(db_->GetUpdatesSince(before, &iter));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(before, iter->GetBatch().sequence);
+
+  std::atomic<bool> injected_write_error{false};
+  std::atomic<bool> injected_sync_error{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected_write_error.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected concurrent retryable WAL error");
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteImpl:BeforeWALIOStatusCheck", [&](void*) {
+        TEST_SYNC_POINT("ConcurrentWALSequence:WriteErrorReady");
+        TEST_SYNC_POINT("ConcurrentWALSequence:AllowWriteError");
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWalImpl:AfterSyncWAL", [&](void* arg) {
+        auto* wal_and_status =
+            static_cast<std::pair<log::Writer*, IOStatus*>*>(arg);
+        if (wal_and_status->first->get_log_number() == failed_wal &&
+            !injected_sync_error.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected older file-scoped WAL error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *wal_and_status->second = error;
+        }
+      });
+  failed_write = std::async(std::launch::async,
+                            [&] { return Put("failed", "value-failed"); });
+
+  TEST_SYNC_POINT("ConcurrentWALSequence:StartSync");
+  Status sync_status = db_->SyncWAL();
+  TEST_SYNC_POINT("ConcurrentWALSequence:SyncErrorRecorded");
+  TEST_SYNC_POINT("ConcurrentWALSequence:AllowInitialFlush");
+
+  Status write_status = failed_write.get();
+  if (write_status.IsIOError()) {
+    TEST_SYNC_POINT("ConcurrentWALSequence:AllowRecovery");
+    TEST_SYNC_POINT("ConcurrentWALSequence:RecoveryDone");
+  } else {
+    // Recovery is not expected without the injected write error. Wake any
+    // remaining SyncPoint waiters before reporting the failed expectation.
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+  ASSERT_TRUE(sync_status.IsIOError()) << sync_status.ToString();
+  ASSERT_TRUE(injected_sync_error.load());
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_EQ(before + 1, db_->GetLatestSequenceNumber());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("after", "value-after"));
+  ASSERT_EQ(before + 2, db_->GetLatestSequenceNumber());
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(before + 1, iter->GetBatch().sequence);
+
+  std::unique_ptr<WalIterator> after_iter;
+  ASSERT_OK(db_->GetUpdatesSince(before + 2, &after_iter));
+  ASSERT_TRUE(after_iter->Valid());
+  ASSERT_EQ(before + 2, after_iter->GetBatch().sequence);
+  ASSERT_OK(iter->status());
+  ASSERT_OK(after_iter->status());
+
+  Reopen(options);
+  ASSERT_EQ("value-before", Get("before"));
+  ASSERT_EQ("value-anchor", Get("iterator-anchor"));
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value-after", Get("after"));
+  ASSERT_EQ(before + 2, db_->GetLatestSequenceNumber());
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALRecoveryQuarantinesConcurrentSyncWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  options.background_close_inactive_wals = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("before", "value-before"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+  IOStatus injected_error =
+      IOStatus::IOError("injected file-scoped WAL append error");
+  injected_error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+  injected_error.SetRetryable(true);
+
+  std::atomic<bool> inject_write_error{true};
+  std::atomic<int> underlying_sync_calls{0};
+  std::atomic<bool> skipped_failed_wal{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"ConcurrentSyncWAL:WriteErrorReady", "ConcurrentSyncWAL:StartSync"},
+       {"ConcurrentSyncWAL:SyncFinished", "ConcurrentSyncWAL:AllowWriteError"},
+       {"ConcurrentSyncWAL:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "ConcurrentSyncWAL:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::Append:BeforePrepareWrite", [&](void*) {
+        if (inject_write_error.exchange(false)) {
+          fault_fs_->SetFilesystemActive(false, injected_error);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteImpl:BeforeWALIOStatusCheck", [&](void*) {
+        TEST_SYNC_POINT("ConcurrentSyncWAL:WriteErrorReady");
+        TEST_SYNC_POINT("ConcurrentSyncWAL:AllowWriteError");
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::SyncWithoutFlush:1",
+      [&](void*) { underlying_sync_calls.fetch_add(1); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWalImpl:SkipFailedWAL", [&](void* arg) {
+        if (*static_cast<uint64_t*>(arg) == failed_wal) {
+          skipped_failed_wal.store(true);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions sync_write;
+  sync_write.sync = true;
+  auto failed_write = std::async(std::launch::async, [&] {
+    return db_->Put(sync_write, "failed", "value-failed");
+  });
+  TEST_SYNC_POINT("ConcurrentSyncWAL:StartSync");
+  fault_fs_->SetFilesystemActive(true);
+
+  Status concurrent_sync = db_->SyncWAL();
+  ASSERT_TRUE(concurrent_sync.IsIOError()) << concurrent_sync.ToString();
+  ASSERT_EQ(0, underlying_sync_calls.load());
+  ASSERT_OK(dbfull()->TEST_GetBGError());
+  TEST_SYNC_POINT("ConcurrentSyncWAL:SyncFinished");
+
+  Status write_status = failed_write.get();
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_EQ(Status::Severity::kHardError,
+            dbfull()->TEST_GetBGError().severity());
+
+  Status quarantined_sync = db_->SyncWAL();
+  ASSERT_TRUE(quarantined_sync.IsIOError()) << quarantined_sync.ToString();
+  ASSERT_EQ(Status::Severity::kHardError, quarantined_sync.severity());
+  ASSERT_TRUE(skipped_failed_wal.load());
+  ASSERT_EQ(0, underlying_sync_calls.load());
+
+  TEST_SYNC_POINT("ConcurrentSyncWAL:AllowRecovery");
+  TEST_SYNC_POINT("ConcurrentSyncWAL:RecoveryDone");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(dbfull()->TEST_GetBGError());
+  ASSERT_OK(Put("after", "value-after"));
+  Reopen(options);
+  ASSERT_EQ("value-before", Get("before"));
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value-after", Get("after"));
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       SyncWALCachedErrorResetsWriterWithoutParanoidChecks) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = false;
+  options.avoid_flush_during_shutdown = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("before", "value-before"));
+
+  IOStatus injected_error = IOStatus::IOError("injected WAL append error");
+  std::atomic<bool> inject_write_error{true};
+  std::atomic<int> underlying_sync_calls{0};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"NonParanoidCachedError:WriteErrorReady",
+        "NonParanoidCachedError:StartSync"},
+       {"NonParanoidCachedError:SyncFinished",
+        "NonParanoidCachedError:AllowWriteError"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::Append:BeforePrepareWrite", [&](void*) {
+        if (inject_write_error.exchange(false)) {
+          fault_fs_->SetFilesystemActive(false, injected_error);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteImpl:BeforeWALIOStatusCheck", [&](void*) {
+        TEST_SYNC_POINT("NonParanoidCachedError:WriteErrorReady");
+        TEST_SYNC_POINT("NonParanoidCachedError:AllowWriteError");
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::SyncWithoutFlush:1",
+      [&](void*) { underlying_sync_calls.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions sync_write;
+  sync_write.sync = true;
+  auto failed_write = std::async(std::launch::async, [&] {
+    return db_->Put(sync_write, "failed", "value-failed");
+  });
+  // This guard is declared after the future so it disables SyncPoints before
+  // the future destructor joins the blocked writer during assertion unwinding.
+  struct SyncPointDisabler {
+    ~SyncPointDisabler() { SyncPoint::GetInstance()->DisableProcessing(); }
+  } sync_point_disabler;
+
+  TEST_SYNC_POINT("NonParanoidCachedError:StartSync");
+  fault_fs_->SetFilesystemActive(true);
+
+  Status cached_sync = db_->SyncWAL();
+  const int calls_after_cached_sync = underlying_sync_calls.load();
+  Status retried_sync = db_->SyncWAL();
+  const int calls_after_retried_sync = underlying_sync_calls.load();
+  TEST_SYNC_POINT("NonParanoidCachedError:SyncFinished");
+  Status write_status = failed_write.get();
+
+  ASSERT_TRUE(cached_sync.IsIOError()) << cached_sync.ToString();
+  ASSERT_EQ(0, calls_after_cached_sync);
+  ASSERT_OK(retried_sync);
+  ASSERT_EQ(1, calls_after_retried_sync);
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_OK(dbfull()->TEST_GetBGError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("after", "value-after"));
+}
+
+TEST_F(DBErrorHandlingFSTest, FileScopedErrorReplacesEmptyCurrentWAL) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  DestroyAndReopen(options);
+
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+  std::atomic<bool> injected{false};
+  std::atomic<bool> abandoned{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedEmptyWAL:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FileScopedEmptyWAL:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterMaybeAddUserDefinedTimestampSizeRecord",
+      [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected file-scoped empty WAL error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::SwitchMemtable:AbandonWAL",
+                                        [&](void*) { abandoned.store(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  TEST_SYNC_POINT("FileScopedEmptyWAL:AllowRecovery");
+  TEST_SYNC_POINT("FileScopedEmptyWAL:RecoveryDone");
+
+  ASSERT_TRUE(abandoned.load());
+  ASSERT_GT(dbfull()->TEST_GetCurrentLogNumber(), failed_wal);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_OK(Put("accepted-after-recovery", "value2"));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value2", Get("accepted-after-recovery"));
+}
+
+TEST_F(DBErrorHandlingFSTest, FileScopedErrorOnOlderWALSkipsExactWriter) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  DestroyAndReopen(options);
+
+  options.env->SetBackgroundThreads(1, Env::Priority::HIGH);
+  test::SleepingBackgroundTask sleeping_task;
+  options.env->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                        &sleeping_task, Env::Priority::HIGH);
+  sleeping_task.WaitUntilSleeping();
+
+  ASSERT_OK(Put("accepted-before-error", "value"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+  std::atomic<int> failed_wal_sync_attempts{0};
+  std::atomic<uint64_t> first_synced_wal{0};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedOlderWAL:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FileScopedOlderWAL:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWalImpl:AfterSyncWAL", [&](void* arg) {
+        auto* wal_and_status =
+            static_cast<std::pair<log::Writer*, IOStatus*>*>(arg);
+        auto* writer = wal_and_status->first;
+        if (failed_wal_sync_attempts.fetch_add(1) == 0) {
+          first_synced_wal.store(writer->get_log_number());
+          IOStatus error = IOStatus::IOError("older WAL is poisoned");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *wal_and_status->second = error;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  const uint64_t current_wal = dbfull()->TEST_GetCurrentLogNumber();
+  ASSERT_GT(current_wal, failed_wal);
+  Status sync_status = db_->SyncWAL();
+  ASSERT_TRUE(sync_status.IsIOError()) << sync_status.ToString();
+  ASSERT_EQ(1, failed_wal_sync_attempts.load());
+  ASSERT_EQ(failed_wal, first_synced_wal.load());
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+  TEST_SYNC_POINT("FileScopedOlderWAL:AllowRecovery");
+  TEST_SYNC_POINT("FileScopedOlderWAL:RecoveryDone");
+
+  ASSERT_EQ(1, failed_wal_sync_attempts.load());
+  ASSERT_EQ(current_wal, dbfull()->TEST_GetCurrentLogNumber());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("accepted-after-recovery", "value2"));
+  Reopen(options);
+  ASSERT_EQ("value", Get("accepted-before-error"));
+  ASSERT_EQ("value2", Get("accepted-after-recovery"));
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       SyncWALPersistsLaterTrackedWALBeforeReturningBackgroundError) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 0;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.background_close_inactive_wals = false;
+  options.max_write_buffer_number = 4;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("failed-wal", "value"));
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(Put("later-wal", "value"));
+  const uint64_t later_wal = dbfull()->TEST_GetCurrentLogNumber();
+  ASSERT_GT(later_wal, failed_wal);
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  std::atomic<bool> injected{false};
+  std::atomic<int> manifest_writes{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWalImpl:AfterSyncWAL", [&](void* arg) {
+        auto* wal_and_status =
+            static_cast<std::pair<log::Writer*, IOStatus*>*>(arg);
+        if (wal_and_status->first->get_log_number() == failed_wal &&
+            !injected.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected older file-scoped WAL error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *wal_and_status->second = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AddRecord",
+      [&](void*) { manifest_writes.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status first_sync = db_->SyncWAL();
+  ASSERT_TRUE(first_sync.IsIOError()) << first_sync.ToString();
+  ASSERT_TRUE(injected.load());
+  ASSERT_EQ(0, manifest_writes.exchange(0));
+
+  Status quarantined_sync = db_->SyncWAL();
+  ASSERT_TRUE(quarantined_sync.IsIOError()) << quarantined_sync.ToString();
+  ASSERT_EQ(Status::Severity::kHardError, quarantined_sync.severity());
+  ASSERT_EQ(1, manifest_writes.load());
+  const auto& tracked_wals = dbfull()->GetVersionSet()->GetWalSet().GetWals();
+  auto later_wal_entry = tracked_wals.find(later_wal);
+  ASSERT_NE(tracked_wals.end(), later_wal_entry);
+  ASSERT_TRUE(later_wal_entry->second.HasSyncedSize());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBErrorHandlingFSTest, RecoveryLearnsThatCurrentWALIsFileScoped) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 1000;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("accepted-before-error", "value"));
+  const SequenceNumber before = db_->GetLatestSequenceNumber();
+  std::unique_ptr<WalIterator> iter;
+  ASSERT_OK(db_->GetUpdatesSince(0, &iter));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(before, iter->GetBatch().sequence);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  const uint64_t failed_wal = dbfull()->TEST_GetCurrentLogNumber();
+
+  std::atomic<bool> injected_write_error{false};
+  std::atomic<bool> failed_first_recovery{false};
+  std::atomic<bool> abandoned{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedWALRetry:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FileScopedWALRetry:RecoveryDone"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected_write_error.exchange(true)) {
+          IOStatus error = IOStatus::IOError(
+              "injected retryable WAL error after complete append");
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SwitchMemtable:AfterCreateWAL", [&](void*) {
+        if (!failed_first_recovery.exchange(true)) {
+          IOStatus error = IOStatus::IOError("current WAL is poisoned");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          fault_fs_->SetFilesystemActive(false, error);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "RecoverFromRetryableBGIOError:BeforeWait0",
+      [&](void*) { fault_fs_->SetFilesystemActive(true); });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::SwitchMemtable:AbandonWAL",
+                                        [&](void*) { abandoned.store(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  TEST_SYNC_POINT("FileScopedWALRetry:AllowRecovery");
+  TEST_SYNC_POINT("FileScopedWALRetry:RecoveryDone");
+
+  ASSERT_TRUE(failed_first_recovery.load());
+  ASSERT_TRUE(abandoned.load());
+  ASSERT_GT(dbfull()->TEST_GetCurrentLogNumber(), failed_wal);
+  ASSERT_EQ(before + 1, db_->GetLatestSequenceNumber());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("accepted-after-recovery", "value2"));
+  ASSERT_EQ(before + 2, db_->GetLatestSequenceNumber());
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(before + 1, iter->GetBatch().sequence);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsTryAgain()) << iter->status().ToString();
+  Reopen(options);
+  ASSERT_EQ("value", Get("accepted-before-error"));
+  ASSERT_EQ("NOT_FOUND", Get("failed"));
+  ASSERT_EQ("value2", Get("accepted-after-recovery"));
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALWriteErrorWithManualFlushFailsClosedAsNotSupported) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.manual_wal_flush = true;
+  options.max_bgerror_resume_count = 0;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  DestroyAndReopen(options);
+
+  std::atomic<bool> injected{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected file-scoped manual WAL error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_NOK(dbfull()->TEST_GetBGError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Status resume_status = dbfull()->Resume();
+  ASSERT_TRUE(resume_status.IsNotSupported()) << resume_status.ToString();
+  ASSERT_NOK(dbfull()->TEST_GetBGError());
+  Status fenced_write = Put("while-stopped", "value");
+  ASSERT_TRUE(fenced_write.IsIOError()) << fenced_write.ToString();
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALWriteErrorWithRetentionFailsClosedAsNotSupported) {
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.WAL_ttl_seconds = 60;
+  options.max_bgerror_resume_count = 0;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = false;
+  DestroyAndReopen(options);
+
+  std::atomic<bool> injected{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error =
+              IOStatus::IOError("injected file-scoped retained WAL error");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Status resume_status = dbfull()->Resume();
+  ASSERT_TRUE(resume_status.IsNotSupported()) << resume_status.ToString();
+  ASSERT_NOK(dbfull()->TEST_GetBGError());
+  Status fenced_write = Put("while-stopped", "value");
+  ASSERT_TRUE(fenced_write.IsIOError()) << fenced_write.ToString();
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       FileScopedWALWriteErrorFailsClosedWhenUnsupported) {
+  auto listener = std::make_shared<ErrorHandlerFSListener>();
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 1;
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+
+  std::atomic<bool> injected{false};
+  std::atomic<bool> abandoned{false};
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"FileScopedWALWriteErrorUnsupported:AllowRecovery",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       {"NotifyOnErrorRecoveryEnd:MutexUnlocked:1",
+        "FileScopedWALWriteErrorUnsupported:RecoveryStopped"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:AfterAddRecord", [&](void* arg) {
+        if (!injected.exchange(true)) {
+          IOStatus error = IOStatus::IOError(
+              "injected file-scoped WAL error after complete append");
+          error.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+          error.SetRetryable(true);
+          *static_cast<IOStatus*>(arg) = error;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::SwitchMemtable:AbandonWAL",
+                                        [&](void*) { abandoned.store(true); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status write_status = Put("failed", "value");
+  ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+  ASSERT_FALSE(write_status.IsTryAgain()) << write_status.ToString();
+  TEST_SYNC_POINT("FileScopedWALWriteErrorUnsupported:AllowRecovery");
+  TEST_SYNC_POINT("FileScopedWALWriteErrorUnsupported:RecoveryStopped");
+
+  ASSERT_FALSE(abandoned.load());
+  ASSERT_NOK(dbfull()->TEST_GetBGError());
+  Status fenced_write = Put("while-stopped", "value");
+  ASSERT_TRUE(fenced_write.IsIOError()) << fenced_write.ToString();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // Fail auto resume from a flush retryable error and verify that
 // OnErrorRecoveryEnd listener callback is called
 TEST_F(DBErrorHandlingFSTest, FlushWritRetryableErrorAbortRecovery) {

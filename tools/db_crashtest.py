@@ -467,6 +467,7 @@ default_params = {
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
     "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "exclude_wal_from_write_fault_injection": 0,
+    "file_scope_wal_write_faults": 0,
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_metadata_read_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
@@ -754,6 +755,7 @@ whitebox_default_params = {
 liveness_fault_injection_params = {
     "error_recovery_with_no_fault_injection": 0,
     "exclude_wal_from_write_fault_injection": 0,
+    "file_scope_wal_write_faults": 0,
     "metadata_read_fault_one_in": 0,
     "metadata_write_fault_one_in": 0,
     "open_metadata_read_fault_one_in": 0,
@@ -1767,6 +1769,43 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["test_batches_snapshots"] = 0
 
+    if dest_params.get("file_scope_wal_write_faults", 0) == 1:
+        # Exercise the supported file-scoped WAL recovery envelope without
+        # unrelated injected faults obscuring failures. The production path
+        # deliberately fails closed for the options disabled here.
+        dest_params["disable_wal"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+        dest_params["use_txn"] = 0
+        dest_params["txn_write_policy"] = 0
+        dest_params["use_optimistic_txn"] = 0
+        dest_params["test_multi_ops_txns"] = 0
+        dest_params["test_batches_snapshots"] = 0
+        dest_params["two_write_queues"] = 0
+        dest_params["enable_pipelined_write"] = 0
+        dest_params["unordered_write"] = 0
+        dest_params["recycle_log_file_num"] = 0
+        dest_params["WAL_ttl_seconds"] = 0
+        dest_params["WAL_size_limit_MB"] = 0
+        dest_params["track_and_verify_wals"] = 0
+        dest_params["enable_blob_direct_write"] = 0
+        dest_params["reopen"] = 0
+        dest_params["exclude_wal_from_write_fault_injection"] = 0
+        dest_params["inject_error_severity"] = 1
+        if dest_params.get("write_fault_one_in", 0) <= 0:
+            dest_params["write_fault_one_in"] = 128
+        dest_params["max_write_buffer_number"] = max(
+            dest_params["max_write_buffer_number"], 10
+        )
+        dest_params["sync_fault_injection"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["secondary_cache_fault_one_in"] = 0
+        dest_params["open_metadata_read_fault_one_in"] = 0
+        dest_params["open_metadata_write_fault_one_in"] = 0
+        dest_params["open_read_fault_one_in"] = 0
+        dest_params["open_write_fault_one_in"] = 0
+
     if dest_params.get("num_dbs", 1) > 1:
         # These features assume a single DB instance.
         # See ValidateNumDbsFlags() in db_stress_tool.cc for C++ guards.
@@ -1776,7 +1815,7 @@ def finalize_and_sanitize(src_params):
     return dest_params
 
 
-def gen_cmd_params(args):
+def gen_cmd_params(args, unknown_params=None):
     params = {}
 
     params.update(default_params)
@@ -1838,6 +1877,70 @@ def gen_cmd_params(args):
     for k, v in vars(args).items():
         if v is not None:
             params[k] = v
+
+    # Reserve a small fraction of ordinary crash-test invocations for the
+    # file-scoped WAL recovery state machine. Do this after merging command
+    # line arguments so automatic selection cannot override an explicit opt-out
+    # or an explicitly requested incompatible mode.
+    explicit_incompatible_file_scope_flags = [
+        "best_efforts_recovery",
+        "disable_wal",
+        "manual_wal_flush_one_in",
+        "test_cf_consistency",
+        "use_txn",
+        "test_multi_ops_txns",
+        "test_batches_snapshots",
+        "two_write_queues",
+        "enable_pipelined_write",
+        "unordered_write",
+        "recycle_log_file_num",
+        "WAL_ttl_seconds",
+        "WAL_size_limit_MB",
+        "track_and_verify_wals",
+        "enable_blob_direct_write",
+        "reopen",
+        "exclude_wal_from_write_fault_injection",
+        "sync_fault_injection",
+        "metadata_read_fault_one_in",
+        "metadata_write_fault_one_in",
+        "read_fault_one_in",
+        "secondary_cache_fault_one_in",
+        "open_metadata_read_fault_one_in",
+        "open_metadata_write_fault_one_in",
+        "open_read_fault_one_in",
+        "open_write_fault_one_in",
+    ]
+    has_explicit_file_scope_conflict = any(
+        getattr(args, flag, None) not in (None, 0)
+        for flag in explicit_incompatible_file_scope_flags
+    )
+    # Unknown arguments are forwarded to db_stress after the generated flags,
+    # so they can change the effective configuration without being visible in
+    # `args`. Only auto-select this specialized profile when every option was
+    # parsed and checked here. Explicit selection remains available.
+    has_unparsed_file_scope_args = bool(unknown_params)
+    if (
+        getattr(args, "file_scope_wal_write_faults", None) is None
+        and getattr(args, "write_fault_one_in", None) != 0
+        and (
+            getattr(args, "inject_error_severity", None) is None
+            or getattr(args, "inject_error_severity") == 1
+        )
+        and not has_explicit_file_scope_conflict
+        and not has_unparsed_file_scope_args
+        and args.test_type != "liveness"
+        and not args.cf_consistency
+        and not args.txn
+        and not args.optimistic_txn
+        and not args.test_best_efforts_recovery
+        and not args.enable_ts
+        and not args.test_multiops_txn
+        and not args.test_tiered_storage
+        and params.get("test_batches_snapshots", 0) == 0
+        and params.get("enable_blob_direct_write", 0) == 0
+        and random.choice([0] * 19 + [1]) == 1
+    ):
+        params["file_scope_wal_write_faults"] = 1
     if args.test_type == "liveness":
         apply_liveness_remote_defaults(params, args)
         params.update(liveness_fault_injection_params)
@@ -2325,7 +2428,7 @@ def liveness_timeout(cmd_params):
 
 
 def liveness_main(args, unknown_args):
-    cmd_params = gen_cmd_params(args)
+    cmd_params = gen_cmd_params(args, unknown_args)
     db_parent_dir = get_db_parent_dir("liveness")
     num_dbs = cmd_params.get("num_dbs", 1)
 
@@ -2377,7 +2480,7 @@ def liveness_main(args, unknown_args):
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
-    cmd_params = gen_cmd_params(args)
+    cmd_params = gen_cmd_params(args, unknown_args)
     db_parent_dir = get_db_parent_dir("blackbox")
     ev_parent_dir = get_ev_parent_dir()
     num_dbs = cmd_params.get("num_dbs", 1)
@@ -2448,7 +2551,7 @@ def blackbox_crash_main(args, unknown_args):
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
 def whitebox_crash_main(args, unknown_args):
-    cmd_params = gen_cmd_params(args)
+    cmd_params = gen_cmd_params(args, unknown_args)
     db_parent_dir = get_db_parent_dir("whitebox")
     ev_parent_dir = get_ev_parent_dir()
     num_dbs = cmd_params.get("num_dbs", 1)

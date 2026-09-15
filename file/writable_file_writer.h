@@ -280,10 +280,20 @@ class WritableFileWriter {
 
   IOStatus Sync(const IOOptions& opts, bool use_fsync);
 
+  // As above. `previously_seen_error` reports whether no sync was attempted
+  // because this writer had already observed an error.
+  IOStatus Sync(const IOOptions& opts, bool use_fsync,
+                bool* previously_seen_error);
+
   // Sync only the data that was already Flush()ed. Safe to call concurrently
   // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(const IOOptions& opts, bool use_fsync);
+
+  // As above. `previously_seen_error` reports whether no sync was attempted
+  // because this writer had already observed an error.
+  IOStatus SyncWithoutFlush(const IOOptions& opts, bool use_fsync,
+                            bool* previously_seen_error);
 
   // Size including unflushed data written to this writer. If the next op is
   // a successful Close, the file size will be this.
