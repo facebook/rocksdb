@@ -237,6 +237,10 @@ class LogTest
     dest_contents()[offset] = new_byte;
   }
 
+  void SetFixed64(int offset, uint64_t value) {
+    EncodeFixed64(&dest_contents()[offset], value);
+  }
+
   void ShrinkSize(int bytes) { sink_->Drop(bytes); }
 
   void FixChecksum(int header_offset, int len, bool recyclable) {
@@ -1116,6 +1120,100 @@ TEST_P(LogTest, WALIndexVoidRecordMayTrailTheHighWaterMark) {
   ASSERT_EQ(kWALIndexStartNumber + 5, reader_->GetLastReadWALIndex());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(0U, DroppedBytes());
+}
+
+// The reader folds valid void range ends into a separate high-water mark
+// without disturbing the per-record index.
+TEST_P(LogTest, WALIndexVoidHiIsTrackedSeparately) {
+  EnableWALIndex();
+  Write("before");
+  ASSERT_OK(writer_->AddWALIndexVoidRecord(WriteOptions(), kWALIndexStartNumber,
+                                           kWALIndexStartNumber + 4));
+  Write("after");
+
+  ASSERT_EQ("before", Read());
+  ASSERT_EQ(kWALIndexStartNumber, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("after", Read());
+  ASSERT_EQ(kWALIndexStartNumber + 1, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  EXPECT_EQ(kWALIndexStartNumber + 4, reader_->GetMaxVoidWALIndexHi());
+  ASSERT_EQ(0U, DroppedBytes());
+}
+
+// A void record too short to hold its range fails closed.
+TEST_P(LogTest, WALIndexShortVoidRecordReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  Write("before");
+  const uint64_t burned = next_wal_index_++;
+  ASSERT_OK(writer_->AddWALIndexVoidRecord(WriteOptions(), burned, burned));
+
+  const int void_header = 2 * header_size + static_cast<int>(kWALIndexSize) + 6;
+  SetByte(void_header + 4, 8);
+  SetByte(void_header + 5, 0);
+  FixChecksum(void_header, 8, recyclable);
+
+  ASSERT_EQ("before", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("OK", MatchError("too short to hold a range"));
+  EXPECT_EQ(0U, reader_->GetMaxVoidWALIndexHi());
+}
+
+// The format has no extension bytes, so accepting a longer payload would let
+// malformed declarations acquire accidental meaning.
+TEST_P(LogTest, WALIndexLongVoidRecordReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  Write("before");
+  const uint64_t burned = next_wal_index_++;
+  ASSERT_OK(writer_->AddWALIndexVoidRecord(WriteOptions(), burned, burned));
+  Write("after");
+
+  const int void_header = 2 * header_size + static_cast<int>(kWALIndexSize) + 6;
+  SetByte(void_header + 4,
+          static_cast<char>(kWALIndexVoidPayloadSize + 1));
+  FixChecksum(void_header, kWALIndexVoidPayloadSize + 1, recyclable);
+
+  ASSERT_EQ("before", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("OK", MatchError("longer than its range"));
+  EXPECT_EQ(0U, reader_->GetMaxVoidWALIndexHi());
+}
+
+// Zero is the unassigned sentinel, not a valid member of a void range.
+TEST_P(LogTest, WALIndexZeroVoidRangeStartReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  ASSERT_OK(writer_->AddWALIndexVoidRecord(WriteOptions(), 1, 2));
+
+  const int void_header = header_size;
+  const int void_payload = void_header + header_size;
+  SetFixed64(void_payload, 0);
+  FixChecksum(void_header, kWALIndexVoidPayloadSize, recyclable);
+
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("OK", MatchError("starts at the unassigned index"));
+  EXPECT_EQ(0U, reader_->GetMaxVoidWALIndexHi());
+}
+
+// An empty or descending closed range cannot truthfully declare any indices.
+TEST_P(LogTest, WALIndexReversedVoidRangeReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  ASSERT_OK(writer_->AddWALIndexVoidRecord(WriteOptions(), 8, 9));
+
+  const int void_header = header_size;
+  const int void_payload = void_header + header_size;
+  SetFixed64(void_payload, 10);
+  FixChecksum(void_header, kWALIndexVoidPayloadSize, recyclable);
+
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("OK", MatchError("range is reversed"));
+  EXPECT_EQ(0U, reader_->GetMaxVoidWALIndexHi());
 }
 
 // A cover written after a torn append lands mid-record, so both readers must

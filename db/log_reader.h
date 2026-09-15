@@ -138,6 +138,10 @@ class Reader {
   // hold both indexed and non-indexed records.
   uint64_t GetLastReadWALIndex() const { return last_read_wal_index_; }
 
+  // Highest wal_index covered by any valid void record read so far, or zero
+  // if no void record has been read.
+  uint64_t GetMaxVoidWALIndexHi() const { return max_void_wal_index_hi_; }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
@@ -199,6 +203,9 @@ class Reader {
   // WAL index (LSN) state. See db/log_writer.h.
   // wal_index extracted from the most recent logical record.
   uint64_t last_read_wal_index_ = 0;
+  // Highest `hi` of any valid void range read so far. Tracked separately
+  // because a void record deliberately leaves last_read_wal_index_ alone.
+  uint64_t max_void_wal_index_hi_ = 0;
 
   // Extend record types with the following special values
   enum : uint8_t {
@@ -253,6 +260,10 @@ class Reader {
   // to hold an index.
   void MaybeStripAndVerifyWALIndex(bool record_has_wal_index, Slice* record,
                                    uint64_t* record_checksum);
+
+  // Validates a void record and folds its upper bound into the separate void
+  // high-water mark. Shared by both logical-reader implementations.
+  void DecodeWALIndexVoidRecord(const Slice& fragment);
 };
 
 class FragmentBufferedReader : public Reader {
