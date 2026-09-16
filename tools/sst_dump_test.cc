@@ -685,6 +685,88 @@ class FailMmapOpenFileSystem : public FileSystemWrapper {
 };
 }  // namespace
 
+namespace {
+// Reads fail only once the test arms the flag, so the table opens normally and
+// the failure lands during the data-block scan.
+class ToggleFailReadsFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ToggleFailReadsFile(std::unique_ptr<FSRandomAccessFile>&& target,
+                      std::shared_ptr<std::atomic<bool>> fail)
+      : FSRandomAccessFileOwnerWrapper(std::move(target)),
+        fail_(std::move(fail)) {}
+
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    if (fail_->load()) {
+      return IOStatus::IOError("injected data block read failure");
+    }
+    return FSRandomAccessFileOwnerWrapper::Read(offset, n, options, result,
+                                                scratch, dbg);
+  }
+
+ private:
+  std::shared_ptr<std::atomic<bool>> fail_;
+};
+
+class ToggleFailReadsFileSystem : public FileSystemWrapper {
+ public:
+  ToggleFailReadsFileSystem(const std::shared_ptr<FileSystem>& base,
+                            std::shared_ptr<std::atomic<bool>> fail)
+      : FileSystemWrapper(base), fail_(std::move(fail)) {}
+
+  static const char* kClassName() { return "ToggleFailReadsFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& options,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> target;
+    IOStatus s =
+        FileSystemWrapper::NewRandomAccessFile(fname, options, &target, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    result->reset(new ToggleFailReadsFile(std::move(target), fail_));
+    return IOStatus::OK();
+  }
+
+ private:
+  std::shared_ptr<std::atomic<bool>> fail_;
+};
+}  // namespace
+
+TEST_F(SSTDumpToolTest, RecompressReturnsSourceReadError) {
+  Options opts;
+  opts.env = env();
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path);
+
+  auto fail_reads = std::make_shared<std::atomic<bool>>(false);
+  auto failing_fs = std::make_shared<ToggleFailReadsFileSystem>(
+      env()->GetFileSystem(), fail_reads);
+  std::unique_ptr<Env> failing_env = NewCompositeEnv(failing_fs);
+  Options failing_opts = opts;
+  failing_opts.env = failing_env.get();
+
+  SstFileDumper dumper(failing_opts, file_path, Temperature::kUnknown,
+                       1024 /*readahead_size*/, true /*verify_checksum*/,
+                       false /*output_hex*/, false /*decode_blob_index*/,
+                       EnvOptions(), /*silent=*/true);
+  ASSERT_OK(dumper.getStatus());
+  fail_reads->store(true);
+
+  ASSERT_NOK(dumper.ShowAllCompressionSizes(
+      {CompressionType::kNoCompression},
+      /*compress_level_from=*/CompressionOptions().level,
+      /*compress_level_to=*/CompressionOptions().level,
+      /*compression_strategies=*/{},
+      /*per_measurement=*/{}));
+
+  cleanup(opts, file_path);
+}
+
 TEST_F(SSTDumpToolTest, PlainTableMmapReopenFailure) {
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = kPlainTableVariableLength;
@@ -709,6 +791,27 @@ TEST_F(SSTDumpToolTest, PlainTableMmapReopenFailure) {
                        false /*output_hex*/, false /*decode_blob_index*/,
                        EnvOptions(), /*silent=*/true);
   ASSERT_NOK(dumper.getStatus());
+
+  cleanup(opts, file_path);
+}
+
+TEST_F(SSTDumpToolTest, ReadSequentialCountsOnlyTheKeysItRead) {
+  Options opts;
+  opts.env = env();
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path);
+
+  SstFileDumper dumper(opts, file_path, Temperature::kUnknown,
+                       1024 /*readahead_size*/, true /*verify_checksum*/,
+                       false /*output_hex*/, false /*decode_blob_index*/,
+                       EnvOptions(), /*silent=*/true);
+  ASSERT_OK(dumper.getStatus());
+
+  constexpr uint64_t kLimit = 5;
+  ASSERT_OK(dumper.ReadSequential(/*print_kv=*/false, kLimit,
+                                  /*has_from=*/false, /*from_key=*/"",
+                                  /*has_to=*/false, /*to_key=*/""));
+  EXPECT_EQ(dumper.GetReadNumber(), kLimit);
 
   cleanup(opts, file_path);
 }

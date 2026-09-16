@@ -913,12 +913,12 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
     iter->SeekToFirst();
   }
   for (; iter->Valid(); iter->Next()) {
+    if (read_num_limit > 0 && i >= read_num_limit) {
+      break;
+    }
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
-    if (read_num_limit > 0 && i > read_num_limit) {
-      break;
-    }
 
     ParsedInternalKey ikey;
     Status pik_status = ParseInternalKey(key, &ikey, true /* log_err_key */);
