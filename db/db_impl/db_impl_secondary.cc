@@ -622,8 +622,9 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* read_callback, bool expose_blob_index, bool allow_refresh) {
   assert(nullptr != cfh);
-  assert(snapshot == kMaxSequenceNumber);
-  snapshot = versions_->LastSequence();
+  if (snapshot == kMaxSequenceNumber) {
+    snapshot = versions_->LastSequence();
+  }
   assert(snapshot != kMaxSequenceNumber);
   return NewArenaWrappedDbIterator(env_, read_options, cfh, super_version,
                                    snapshot, read_callback, this,
@@ -680,30 +681,38 @@ Status DBImplSecondary::NewIterators(
     // TODO (yanqin) support snapshot.
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
-    SequenceNumber read_seq(kMaxSequenceNumber);
-    autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
-    const bool check_read_ts =
-        read_options.timestamp && read_options.timestamp->size() > 0;
-    for (auto cf : column_families) {
-      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
-      auto cfd = cfh->cfd();
-      SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-      cfh_to_sv.emplace_back(cfh, sv);
-      if (check_read_ts) {
+    autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>
+        cf_sv_pairs;
+    SequenceNumber consistent_seqnum;
+    {
+      InstrumentedMutexLock lock_guard(&mutex_);
+      consistent_seqnum = versions_->LastSequence();
+      for (auto* cf : column_families) {
+        auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+        cf_sv_pairs.emplace_back(cfh, cfh->cfd()->GetSuperVersion()->Ref());
+      }
+    }
+
+    if (read_options.timestamp && !read_options.timestamp->empty()) {
+      for (const auto& cf_sv_pair : cf_sv_pairs) {
         const Status s =
-            FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+            FailIfReadCollapsedHistory(cf_sv_pair.cfd, cf_sv_pair.super_version,
+                                       *(read_options.timestamp));
         if (!s.ok()) {
-          for (auto prev_entry : cfh_to_sv) {
-            CleanupSuperVersion(std::get<1>(prev_entry));
+          for (const auto& cleanup_pair : cf_sv_pairs) {
+            CleanupSuperVersion(cleanup_pair.super_version);
           }
           return s;
         }
       }
     }
-    assert(cfh_to_sv.size() == column_families.size());
-    for (auto [cfh, sv] : cfh_to_sv) {
-      iterators->push_back(
-          NewIteratorImpl(read_options, cfh, sv, read_seq, read_callback));
+
+    assert(cf_sv_pairs.size() == column_families.size());
+    for (const auto& cf_sv_pair : cf_sv_pairs) {
+      iterators->push_back(NewIteratorImpl(read_options, cf_sv_pair.cfh,
+                                           cf_sv_pair.super_version,
+                                           consistent_seqnum, read_callback));
+      TEST_SYNC_POINT("DBImplSecondary::NewIterators:AfterCreateIterator");
     }
   }
   return Status::OK();
