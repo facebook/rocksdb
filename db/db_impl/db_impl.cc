@@ -3029,6 +3029,25 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
     return;
   }
 
+  // Validate the read timestamp against the column family up front -- before
+  // MultiCFSnapshot, whose collapsed-history check (FailIfReadCollapsedHistory)
+  // assumes a correctly-sized timestamp and would otherwise assert in debug (or
+  // read past a wrong-width timestamp buffer in release) when
+  // full_history_ts_low is set. Mirrors NewIterator; the per-key GetImpl below
+  // re-validates as defense in depth.
+  {
+    const Status ts_status =
+        _read_options.timestamp
+            ? FailIfTsMismatchCf(column_family, *(_read_options.timestamp))
+            : FailIfCfHasTs(column_family);
+    if (!ts_status.ok()) {
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = ts_status;
+      }
+      return;
+    }
+  }
+
   LazyWideColumnsHelper::InitBatch(result, num_keys);
 
   ReadOptions read_options(_read_options);

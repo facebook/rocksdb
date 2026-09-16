@@ -11,6 +11,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -73,6 +74,24 @@ class LazyResolveThreadOpScope {
   LazyResolveThreadOpScope(const LazyResolveThreadOpScope&) = delete;
   LazyResolveThreadOpScope& operator=(const LazyResolveThreadOpScope&) = delete;
 };
+
+// Identity of a physical blob record, shared across the batch: two reads that
+// resolve to the same on-disk record and blob-cache key (e.g. duplicate keys
+// in the batch, whose distinct entities reference the same record) map to the
+// same id. The batch planner uses this to keep every read of a force-verified
+// record on the individual path, so a non-verifying coalesced fetch cannot
+// populate the shared blob cache ahead of the force_verify read.
+using PhysicalBlobId = std::tuple<const void*, uint64_t, uint64_t>;
+PhysicalBlobId MakePhysicalBlobId(const ReadPathBlobResolver& resolver,
+                                  const BlobIndex& blob_index) {
+  if (blob_index.IsSameFile()) {
+    // Embedded record: keyed by the owning SST reader + in-file offset.
+    return PhysicalBlobId(resolver.same_file_reader(), 0, blob_index.offset());
+  }
+  // Separate blob file: keyed by Version + blob file number + offset.
+  return PhysicalBlobId(resolver.version(), blob_index.file_number(),
+                        blob_index.offset());
+}
 }  // namespace
 
 // Internal representation. Owns the serialized-entity backing buffer + inline
@@ -392,13 +411,30 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
   // the individual path, preserving the "verify on the first actual read"
   // semantics of resolving key-by-key.
   std::set<std::pair<EntityRep*, size_t>> force_verify_columns;
+  // Physical blob records force-verified anywhere in this batch. Complements
+  // force_verify_columns to also cover reads from a *different* entity that
+  // resolve to the same on-disk record and shared blob-cache key -- e.g. a
+  // duplicate key in the batch. Without this, such a read's non-verifying
+  // coalesced whole fetch could populate the shared blob cache before the
+  // force_verify read runs, and that read would then hit the cache and skip
+  // checksum verification.
+  std::set<PhysicalBlobId> force_verify_blobs;
   for (size_t i = 0; i < num_reads; ++i) {
     const LazyColumnReadRequest& read = reads[i];
     if (read.force_verify && read.column != nullptr) {
       EntityRep* entity_rep =
           static_cast<const EntityRep::ColumnImpl*>(read.column)->parent_rep_;
       if (entity_rep != nullptr) {
-        force_verify_columns.emplace(entity_rep, read.column->index());
+        const size_t column_index = read.column->index();
+        force_verify_columns.emplace(entity_rep, column_index);
+        if (entity_rep->resolver_) {
+          const BlobIndex* blob_index = blob_resolver_util::FindBlobColumn(
+              &entity_rep->blob_columns_, column_index);
+          if (blob_index != nullptr && !blob_index->IsInlined()) {
+            force_verify_blobs.insert(
+                MakePhysicalBlobId(*entity_rep->resolver_, *blob_index));
+          }
+        }
       }
     }
   }
@@ -453,6 +489,17 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
     const ReadPathBlobResolver::LazyColumnReadClassification cls =
         entity_rep->resolver_->ClassifyColumnRange(
             column_index, read.offset, read.length, read.force_verify);
+    // If some force_verify read in this batch targets the same physical blob
+    // (e.g. this read is for a duplicate key referencing that record), keep
+    // this read on the individual path too, so its non-verifying coalesced
+    // fetch cannot fill the shared blob cache ahead of the force_verify read
+    // (which would then hit the cache and skip verification).
+    if (cls.blob_index != nullptr &&
+        force_verify_blobs.count(
+            MakePhysicalBlobId(*entity_rep->resolver_, *cls.blob_index)) != 0) {
+      serve_individually.push_back(&read);
+      continue;
+    }
     if (resolve_ro == nullptr) {
       resolve_ro = &entity_rep->resolver_->read_options();
     }

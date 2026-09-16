@@ -72,12 +72,6 @@ class SameFileBlobReader {
   // disk reads into a single MultiRead. The default implementation simply loops
   // over GetSameFileBlob (correct, but not coalesced); BlockBasedTable
   // overrides it to coalesce reads of embedded records in the same SST.
-  // Batched counterpart of GetSameFileBlob: resolves `num_reads` same-file blob
-  // references (whole or sub-range, mixed) against this reader, writing each
-  // outcome to *reqs[i].status. Implementations may coalesce the underlying
-  // disk reads into a single MultiRead. The default implementation simply loops
-  // over GetSameFileBlob (correct, but not coalesced); BlockBasedTable
-  // overrides it to coalesce reads of embedded records in the same SST.
   virtual void MultiGetSameFileBlob(const ReadOptions& read_options,
                                     size_t num_reads,
                                     SameFileBlobReadRequest* reqs) const {

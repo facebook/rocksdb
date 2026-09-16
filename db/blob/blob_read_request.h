@@ -18,6 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 // BlobFileReader::MultiGetBlob.
 struct BlobReadRequest {
   // User key to lookup the paired blob
+  // TODO: consider simplifying to copied Slice?
   const Slice* user_key = nullptr;
 
   // File offset in bytes

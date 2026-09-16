@@ -1551,10 +1551,76 @@ TEST_F(DBLazyEntityTest, BatchForceVerifyNotSkippedByCoalescedRead) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-// Regression test: multiple byte-range reads that omit a per-read status (a
-// supported case) must each get an isolated internal status, so one read's
-// outcome cannot clobber another's and leave a valid read's result unpinned.
-// Here all reads succeed and must return their bytes.
+// Regression test: a force_verify read must not be served from the shared blob
+// cache after a non-verifying coalesced read of a *duplicate key* filled it.
+// The two keys are distinct entities that resolve to the same physical blob
+// record and blob-cache key, so the non-verifying whole fetch must not run
+// (caching unverified bytes) ahead of the force_verify read. Requires a blob
+// cache (that is the shared state at risk); without one each entity's resolver
+// is independent and the reordering is harmless.
+TEST_F(DBLazyEntityTest, BatchForceVerifyNotSkippedAcrossDuplicateKeys) {
+  Options options = GetLazyTestOptionsWithBlobCache();
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Corrupt the value bytes on each file read so a checksum verification (if it
+  // runs) fails; a cache hit that skips verification would not surface it.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:TamperWithResult", [](void* arg) {
+        Slice* const record_slice = static_cast<Slice*>(arg);
+        ASSERT_NE(record_slice, nullptr);
+        ASSERT_FALSE(record_slice->empty());
+        char* const data = const_cast<char*>(record_slice->data());
+        data[record_slice->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions ro;
+  ro.verify_checksums = false;  // globally off; force_verify overrides per-read
+  // Duplicate keys: two distinct entities that resolve to the same physical
+  // blob record and cache key.
+  const std::array<Slice, 2> key_slices{Slice(key), Slice(key)};
+  LazyWideColumnsBatch batch;
+  std::array<Status, 2> get_statuses;
+  db_->MultiGetEntityLazy(ro, db_->DefaultColumnFamily(), key_slices.size(),
+                          key_slices.data(), &batch, get_statuses.data());
+  ASSERT_OK(get_statuses[0]);
+  ASSERT_OK(get_statuses[1]);
+  ASSERT_EQ(batch.size(), 2U);
+
+  // reads[0] force-verifies entity 0's "data"; reads[1] reads entity 1's "data"
+  // whole without verification. The duplicate key shares the physical record,
+  // so reads[1] must not coalesce a non-verifying fetch that caches unverified
+  // bytes ahead of reads[0].
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+  std::array<LazyColumnReadRequest, 2> reads;
+  reads[0].column = &batch[0][1];
+  reads[0].force_verify = true;
+  reads[0].result = &results[0];
+  reads[0].status = &statuses[0];
+  reads[1].column = &batch[1][1];  // duplicate key's same column, unverified
+  reads[1].result = &results[1];
+  reads[1].status = &statuses[1];
+  ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
+
+  // The force_verify read ran a real verified read and caught the corruption
+  // rather than being served unverified bytes from the shared blob cache.
+  ASSERT_TRUE(statuses[0].IsCorruption()) << statuses[0].ToString();
+  // The unverified whole read runs no verification, so it still succeeds
+  // (returning unverified bytes).
+  ASSERT_OK(statuses[1]);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // A read that omits its status out-param is a caller error (there is nowhere to
 // report that read's outcome), so MultiResolve fails the whole call with
 // InvalidArgument rather than silently resolving.
@@ -2097,6 +2163,46 @@ TEST_F(DBLazyEntityTest, UserTimestampParityWithGetEntity) {
   ASSERT_EQ(Slice(value), "plain");
 }
 
+// A wrong-width read timestamp must be rejected up front (InvalidArgument for
+// every key), before MultiCFSnapshot's collapsed-history check -- which assumes
+// a correctly-sized timestamp and would otherwise assert in debug builds (or
+// read past the timestamp buffer in release) when full_history_ts_low is set.
+TEST_F(DBLazyEntityTest, BatchWrongWidthTimestampRejected) {
+  Options options = GetLazyTestOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* const cfh = db_->DefaultColumnFamily();
+
+  // Write a plain value with a valid (8-byte) timestamp.
+  std::string write_ts;
+  PutFixed64(&write_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), cfh, "k", write_ts, "plain"));
+  ASSERT_OK(Flush());
+
+  // Set full_history_ts_low so the collapsed-history check would run (and, on a
+  // wrong-width timestamp, trip the size assertion) if reached before the
+  // width validation this test covers.
+  std::string ts_low;
+  PutFixed64(&ts_low, 1);
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(cfh, ts_low));
+
+  // A 1-byte timestamp does not match the column family's 8-byte width.
+  const std::string bad_ts_storage(1, '\x01');
+  const Slice bad_ts(bad_ts_storage);
+  ReadOptions ro;
+  ro.timestamp = &bad_ts;
+
+  const std::array<Slice, 2> keys{Slice("k"), Slice("k")};
+  LazyWideColumnsBatch batch;
+  std::array<Status, 2> statuses;
+  db_->MultiGetEntityLazy(ro, cfh, keys.size(), keys.data(), &batch,
+                          statuses.data());
+  for (const Status& s : statuses) {
+    ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  }
+}
+
 // The lazy read API must be forwarded through StackableDB wrappers (e.g.
 // TransactionDB) to the underlying DB, not fall through to the DB base class
 // default (Status::NotSupported). Exercises committed data read outside a
@@ -2325,8 +2431,10 @@ TEST_F(DBLazyEntityTest, SecondaryInstanceBatched) {
     ASSERT_EQ(results[i], values[i]);
   }
 }
-// reproduces the scenario from T283693234 where the thread operation was left
-// stale at OP_GETENTITY after a consistency check, causing a mismatch with the
+// Verify that MultiGetEntityLazy sets IOOptions::io_activity to kMultiGetEntity
+// for its reads, so it matches the thread's operation type. This reproduces the
+// scenario from T283693234 where the thread operation was left stale at
+// OP_GETENTITY after a consistency check, causing a mismatch with the
 // kMultiGetEntity activity that MultiGetEntityLazy correctly propagates.
 TEST_F(DBLazyEntityTest, MultiGetEntityLazyIOActivity) {
   Options options = GetLazyTestOptions();
