@@ -2492,6 +2492,12 @@ class DBImpl : public DB
                          bool is_retry, bool* corrupted_wal_found,
                          RecoveryContext* recovery_ctx);
 
+  Status SeedNextWALIndexFromRecovery();
+  IOStatus WriteWALIndexVoidRecordForTruncation(
+      const WriteOptions& write_options, log::Writer* new_log);
+  Status MaybeScanWALIndicesPastCut(const std::vector<uint64_t>& wal_numbers,
+                                    bool read_only, bool is_retry);
+
   void SetupLogFilesRecovery(
       const std::vector<uint64_t>& wal_numbers,
       std::unordered_map<int, VersionEdit>* version_edits, int* job_id,
@@ -3386,6 +3392,38 @@ class DBImpl : public DB
   // partitions. It is never held across batch merging or I/O.
   InstrumentedMutex sequence_wal_index_mutex_;
   uint64_t next_wal_index_ = log::kWALIndexStartNumber;
+
+  class WALIndexRecoveryState {
+   public:
+    void Reset();
+    void NoteDataIndex(uint64_t wal_index);
+    void NoteReplayIndex(uint64_t wal_index);
+    void NoteVoidHi(uint64_t void_hi);
+    void NoteFileReadOutcome(uint64_t wal_number, bool reader_initialized,
+                             const Status& status,
+                             bool stop_replay_for_corruption,
+                             bool stop_replay_by_wal_filter,
+                             bool old_log_record);
+    void NoteCorruptionStop();
+    bool NeedsRescan() const;
+    bool HasTruncation() const;
+    bool MaxSeenIndexIsValid() const;
+    // REQUIRES: MaxSeenIndexIsValid()
+    uint64_t Seed() const;
+    uint64_t GetMaxSeenIndex() const;
+    uint64_t GetReplayCut() const;
+    uint64_t GetFirstUnfinishedWAL() const;
+    std::optional<std::pair<uint64_t, uint64_t>> GetDiscardedRange() const;
+
+   private:
+    uint64_t min_data_index_ = kMaxSequenceNumber;
+    uint64_t max_data_index_ = 0;
+    uint64_t max_seen_index_ = 0;
+    uint64_t replay_cut_ = 0;
+    uint64_t first_unfinished_wal_ = kMaxSequenceNumber;
+    bool corruption_stop_observed_ = false;
+  };
+  WALIndexRecoveryState wal_index_recovery_state_;
 
   // If zero, manual compactions are allowed to proceed. If non-zero, manual
   // compactions may still be running, but will quickly fail with

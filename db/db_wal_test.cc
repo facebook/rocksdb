@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <optional>
 
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
@@ -17,7 +18,9 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
+#include "util/crc32c.h"
 #include "util/defer.h"
 #include "util/udt_util.h"
 #include "utilities/fault_injection_env.h"
@@ -3641,13 +3644,22 @@ class DBWALIndexTest : public DBWALTestBase {
     return LogFileName(dbname_, wal_number);
   }
 
-  // Walks the physical block layout of `wal_path`, calling `visit` with each
-  // record's type byte and payload. Goes below log::Reader on purpose: the
-  // reader consumes marker and void records without exposing them.
-  template <typename Visitor>
-  void ForEachPhysicalRecord(const std::string& wal_path, Visitor visit) {
-    std::string contents;
-    EXPECT_OK(ReadFileToString(env_, wal_path, &contents));
+  // Framing of one physical log record.
+  struct PhysicalRecord {
+    uint8_t type;
+    size_t header_offset;
+    size_t header_size;
+    size_t payload_size;
+
+    size_t payload_offset() const { return header_offset + header_size; }
+  };
+
+  // Walks the physical block layout of `contents`. Goes below log::Reader on
+  // purpose: the reader consumes marker and void records without exposing
+  // them, and the corruption helpers below need record framing to edit.
+  static std::vector<PhysicalRecord> ScanPhysicalRecords(
+      const std::string& contents) {
+    std::vector<PhysicalRecord> records;
     size_t offset = 0;
     while (offset + log::kHeaderSize <= contents.size()) {
       const size_t block_remaining =
@@ -3667,8 +3679,66 @@ class DBWALIndexTest : public DBWALTestBase {
       const size_t header_size = log::IsRecyclableRecordType(type)
                                      ? log::kRecyclableHeaderSize
                                      : log::kHeaderSize;
-      visit(type, Slice(contents.data() + offset + header_size, payload_size));
+      records.push_back({type, offset, header_size, payload_size});
       offset += header_size + payload_size;
+    }
+    return records;
+  }
+
+  std::string ReadWALContents(const std::string& wal_path) {
+    std::string contents;
+    EXPECT_OK(ReadFileToString(env_, wal_path, &contents));
+    return contents;
+  }
+
+  void WriteWALContents(const std::string& wal_path,
+                        const std::string& contents) {
+    std::unique_ptr<WritableFile> file;
+    ASSERT_OK(env_->NewWritableFile(wal_path, &file, EnvOptions()));
+    ASSERT_OK(file->Append(contents));
+    ASSERT_OK(file->Close());
+  }
+
+  // Recomputes the record CRC over the type byte, the recyclable header's log
+  // number when present, and the payload, matching log::Writer.
+  static void FixRecordChecksum(const PhysicalRecord& record,
+                                std::string* contents) {
+    const uint32_t crc =
+        crc32c::Value(&(*contents)[record.header_offset + 6],
+                      record.header_size - 6 + record.payload_size);
+    EncodeFixed32(&(*contents)[record.header_offset], crc32c::Mask(crc));
+  }
+
+  // Framing of the first (resp. last) physical record carrying a wal_index.
+  // Void records declare a range instead of carrying an index, so they are
+  // not data records.
+  static std::optional<PhysicalRecord> FindFirstDataRecord(
+      const std::string& contents) {
+    for (const PhysicalRecord& record : ScanPhysicalRecords(contents)) {
+      if (log::IsWALIndexRecordType(record.type)) {
+        return record;
+      }
+    }
+    return std::nullopt;
+  }
+
+  static std::optional<PhysicalRecord> FindLastDataRecord(
+      const std::string& contents) {
+    std::optional<PhysicalRecord> found;
+    for (const PhysicalRecord& record : ScanPhysicalRecords(contents)) {
+      if (log::IsWALIndexRecordType(record.type)) {
+        found = record;
+      }
+    }
+    return found;
+  }
+
+  template <typename Visitor>
+  void ForEachPhysicalRecord(const std::string& wal_path, Visitor visit) {
+    const std::string contents = ReadWALContents(wal_path);
+    for (const PhysicalRecord& record : ScanPhysicalRecords(contents)) {
+      visit(record.type, Slice(contents.data() + record.payload_offset(),
+                               record.payload_size));
     }
   }
 
@@ -3744,6 +3814,92 @@ class DBWALIndexTest : public DBWALTestBase {
           {WriteBatchInternal::Sequence(&batch), reader.GetLastReadWALIndex()});
     }
     return metadata;
+  }
+
+  // Writes `count` single-key batches starting at Key(start).
+  void WriteKeyRange(int start, int count) {
+    for (int i = 0; i < count; i++) {
+      ASSERT_OK(Put(Key(start + i), "value" + std::to_string(start + i)));
+    }
+  }
+
+  // Flips a payload byte of the last indexed data record in `wal_path`,
+  // leaving framing intact so exactly that record becomes unreadable. The
+  // rest of its block is dropped with it; records in later blocks, or in
+  // later files, stay readable.
+  void CorruptLastDataRecordPayload(const std::string& wal_path) {
+    std::string contents = ReadWALContents(wal_path);
+    const std::optional<PhysicalRecord> last = FindLastDataRecord(contents);
+    ASSERT_TRUE(last.has_value());
+    ASSERT_GT(last->payload_size, 2U);
+    contents[last->payload_offset() + 2] ^= 0xff;
+    WriteWALContents(wal_path, contents);
+  }
+
+  // Keeps the first indexed physical record readable by log::Reader but
+  // shortens its logical WriteBatch below the minimum header size. Recovery
+  // therefore observes its wal_index before rejecting the batch.
+  void CorruptFirstDataRecordForReplay(const std::string& wal_path) {
+    std::string contents = ReadWALContents(wal_path);
+    std::optional<PhysicalRecord> first = FindFirstDataRecord(contents);
+    ASSERT_TRUE(first.has_value());
+    const size_t shortened_payload_size =
+        log::kWALIndexSize + WriteBatchInternal::kHeader - 1;
+    ASSERT_GT(first->payload_size, shortened_payload_size);
+    contents[first->header_offset + 4] =
+        static_cast<char>(shortened_payload_size & 0xff);
+    contents[first->header_offset + 5] =
+        static_cast<char>((shortened_payload_size >> 8) & 0xff);
+    first->payload_size = shortened_payload_size;
+    FixRecordChecksum(*first, &contents);
+    WriteWALContents(wal_path, contents);
+  }
+
+  // Rewrites the wal_index of the last data record in `wal_path`, leaving the
+  // record readable. Nothing on the read path bounds a wal_index by
+  // magnitude, so recovery observes exactly what is written here.
+  void OverwriteLastDataRecordWALIndex(const std::string& wal_path,
+                                       uint64_t wal_index) {
+    std::string contents = ReadWALContents(wal_path);
+    const std::optional<PhysicalRecord> last = FindLastDataRecord(contents);
+    ASSERT_TRUE(last.has_value());
+    ASSERT_GE(last->payload_size, static_cast<size_t>(log::kWALIndexSize));
+    EncodeFixed64(&contents[last->payload_offset()], wal_index);
+    FixRecordChecksum(*last, &contents);
+    WriteWALContents(wal_path, contents);
+  }
+
+  Status TryReopenAsRetry(const Options& options) {
+    Close();
+    last_options_.table_factory.reset();
+    last_options_ = options;
+    std::vector<ColumnFamilyDescriptor> column_families;
+    column_families.emplace_back(kDefaultColumnFamilyName,
+                                 ColumnFamilyOptions(options));
+    bool can_retry = false;
+    return DBImpl::Open(DBOptions(options), dbname_, column_families, &handles_,
+                        &db_, /*seq_per_batch=*/false,
+                        /*batch_per_txn=*/true, /*is_retry=*/true, &can_retry);
+  }
+
+  // Two sessions: `first_count` keys into WAL A, then `second_count` keys
+  // into WAL B, then the tail record of A is damaged. Both files stay in the
+  // recovery set. `options` must keep WALs across close/reopen.
+  void SetupTwoWALsWithDamagedFirstTail(const Options& options, int first_count,
+                                        int second_count, uint64_t* wal_a,
+                                        uint64_t* wal_b) {
+    assert(wal_a != nullptr);
+    assert(wal_b != nullptr);
+    DestroyAndReopen(options);
+    WriteKeyRange(0, first_count);
+    *wal_a = LatestWALNumber();
+    Close();
+    Reopen(options);
+    WriteKeyRange(first_count, second_count);
+    *wal_b = LatestWALNumber();
+    ASSERT_NE(*wal_a, *wal_b);
+    Close();
+    CorruptLastDataRecordPayload(WALPath(*wal_a));
   }
 };
 
@@ -4056,7 +4212,11 @@ TEST_F(DBWALIndexTest, DefaultUsageWritesNoVoidRecords) {
   Destroy(options);
 }
 
-TEST_F(DBWALIndexTest, WALIndexNumberingRestartsAcrossLiveWALs) {
+// Renamed from WALIndexNumberingRestartsAcrossLiveWALs, which pinned the
+// restart-on-reopen bug on purpose: both live WALs carried [1..16]. The
+// recovery seed continues numbering across the restart instead, so the union
+// across both live files is one contiguous run.
+TEST_F(DBWALIndexTest, WALIndexNumberingContinuesAcrossLiveWALs) {
   Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
   DestroyAndReopen(options);
 
@@ -4071,13 +4231,589 @@ TEST_F(DBWALIndexTest, WALIndexNumberingRestartsAcrossLiveWALs) {
   ASSERT_NE(first_wal, second_wal);
   Close();
 
+  std::vector<uint64_t> first_expected;
+  first_expected.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    first_expected.push_back(log::kWALIndexStartNumber + i);
+  }
+  std::vector<uint64_t> second_expected;
+  second_expected.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    second_expected.push_back(log::kWALIndexStartNumber + kNumKeys + i);
+  }
+  const std::vector<uint64_t> first_indices =
+      ReadWALIndices(WALPath(first_wal), first_wal);
+  const std::vector<uint64_t> second_indices =
+      ReadWALIndices(WALPath(second_wal), second_wal);
+  EXPECT_EQ(first_expected, first_indices);
+  EXPECT_EQ(second_expected, second_indices);
+
+  std::vector<uint64_t> union_expected;
+  union_expected.reserve(2 * kNumKeys);
+  for (int i = 0; i < 2 * kNumKeys; i++) {
+    union_expected.push_back(log::kWALIndexStartNumber + i);
+  }
+  std::vector<uint64_t> union_indices = first_indices;
+  union_indices.insert(union_indices.end(), second_indices.begin(),
+                       second_indices.end());
+  std::sort(union_indices.begin(), union_indices.end());
+  EXPECT_EQ(union_expected, union_indices);
+
+  Destroy(options);
+}
+
+// Recovery set holds 1-5, damaged 6, intact 7-10. Point-in-time recovery
+// truncates at the cut (5) but seeds from the file maximum (10): the seed is
+// 11, not 6, the discarded [6, 10] is declared obsolete in the new WAL before
+// any new data record, and the recovery dummy carries 11.
+TEST_F(DBWALIndexTest, TruncatedIndicesAreSeededAboveAndDeclared) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  uint64_t wal_a = 0, wal_b = 0;
+  SetupTwoWALsWithDamagedFirstTail(options, 6, 4, &wal_a, &wal_b);
+
+  // The damage landed on record 6 exactly: A reads 1-5, B reads 7-10. Read
+  // before the reopen: the truncation flush below retires A and B.
+  std::vector<uint64_t> a_expected;
+  for (uint64_t i = log::kWALIndexStartNumber;
+       i < log::kWALIndexStartNumber + 5; i++) {
+    a_expected.push_back(i);
+  }
+  EXPECT_EQ(a_expected, ReadWALIndices(WALPath(wal_a), wal_a));
+  std::vector<uint64_t> b_expected;
+  for (uint64_t i = log::kWALIndexStartNumber + 6;
+       i < log::kWALIndexStartNumber + 10; i++) {
+    b_expected.push_back(i);
+  }
+  EXPECT_EQ(b_expected, ReadWALIndices(WALPath(wal_b), wal_b));
+
+  Reopen(options);
+  const uint64_t new_wal = LatestWALNumber();
+  ASSERT_NE(wal_b, new_wal);
+  WriteKeyRange(10, 4);
+  // The truncation took effect: the damaged batch and the intact batches
+  // above it never replayed.
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), Key(5), &value).IsNotFound());
+  ASSERT_TRUE(db_->Get(ReadOptions(), Key(6), &value).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), Key(0), &value));
+  EXPECT_EQ("value0", value);
+  ASSERT_OK(db_->Get(ReadOptions(), Key(10), &value));
+  EXPECT_EQ("value10", value);
+  Close();
+
+  // The dummy took 11 (above the recovered maximum) and user data follows;
+  // no new record carries an index in 6-10.
+  const std::string new_wal_path = WALPath(new_wal);
+  std::vector<uint64_t> new_expected;
+  for (uint64_t i = 11; i <= 15; i++) {
+    new_expected.push_back(i);
+  }
+  EXPECT_EQ(new_expected, ReadWALIndices(new_wal_path, new_wal));
+
+  // The discarded range is declared on the raw bytes...
+  const std::vector<std::pair<uint64_t, uint64_t>> voids =
+      ReadWALVoidRanges(new_wal_path);
+  ASSERT_EQ(1U, voids.size());
+  EXPECT_EQ(6U, voids[0].first);
+  EXPECT_EQ(10U, voids[0].second);
+
+  // ...before any new data record.
+  const std::vector<uint8_t> types = ReadWALRecordTypes(new_wal_path);
+  size_t void_pos = types.size();
+  size_t data_pos = types.size();
+  for (size_t i = 0; i < types.size(); i++) {
+    if ((types[i] == log::kWALIndexVoidType ||
+         types[i] == log::kRecyclableWALIndexVoidType) &&
+        void_pos == types.size()) {
+      void_pos = i;
+    }
+    if (log::IsWALIndexRecordType(types[i]) && data_pos == types.size()) {
+      data_pos = i;
+    }
+  }
+  ASSERT_NE(types.size(), void_pos);
+  ASSERT_NE(types.size(), data_pos);
+  EXPECT_LT(void_pos, data_pos);
+
+  Destroy(options);
+}
+
+// When the first data record is corrupt there is no replay cut. The void must
+// start at the lowest data index in the recovery set, not at index 1 and not
+// at indices that were allocated without appearing in these WALs.
+TEST_F(DBWALIndexTest, FirstDamagedRecordUsesLowestPresentIndex) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  DestroyAndReopen(options);
+
+  constexpr int kAbsentLowerIndices = 16;
+  for (int i = 0; i < kAbsentLowerIndices; ++i) {
+    SequenceNumber last_sequence_before = 0;
+    uint64_t wal_index = 0;
+    ASSERT_OK(dbfull()->TEST_AllocateSequenceAndWALIndex(
+        /*sequence_count=*/0, /*write_wal=*/true, &last_sequence_before,
+        &wal_index));
+  }
+  WriteKeyRange(0, 1);
+  const uint64_t wal_a = LatestWALNumber();
+  const std::vector<uint64_t> a_indices = ReadWALIndices(WALPath(wal_a), wal_a);
+  ASSERT_EQ(1U, a_indices.size());
+  ASSERT_GT(a_indices.front(), log::kWALIndexStartNumber);
+
+  Close();
+  Reopen(options);
+  WriteKeyRange(1, 2);
+  const uint64_t wal_b = LatestWALNumber();
+  ASSERT_NE(wal_a, wal_b);
+  const std::vector<uint64_t> b_indices = ReadWALIndices(WALPath(wal_b), wal_b);
+  ASSERT_FALSE(b_indices.empty());
+  Close();
+
+  CorruptFirstDataRecordForReplay(WALPath(wal_a));
+  Reopen(options);
+  const uint64_t new_wal = LatestWALNumber();
+  ASSERT_NE(wal_b, new_wal);
+  Close();
+
+  const std::vector<std::pair<uint64_t, uint64_t>> voids =
+      ReadWALVoidRanges(WALPath(new_wal));
+  ASSERT_EQ(1U, voids.size());
+  EXPECT_EQ(a_indices.front(), voids[0].first);
+  EXPECT_EQ(b_indices.back(), voids[0].second);
+
+  Destroy(options);
+}
+
+TEST_F(DBWALIndexTest, IndexRescanUsesRetryVerificationMode) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  uint64_t wal_a = 0, wal_b = 0;
+  SetupTwoWALsWithDamagedFirstTail(options, 6, 4, &wal_a, &wal_b);
+
+  std::vector<bool> rescan_verification_modes;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScanWALIndicesPastCut:verify_and_reconstruct_read",
+      [&](void* arg) {
+        rescan_verification_modes.push_back(*static_cast<bool*>(arg));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Status s = TryReopenAsRetry(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(s);
+  ASSERT_FALSE(rescan_verification_modes.empty());
+  EXPECT_TRUE(std::all_of(rescan_verification_modes.begin(),
+                          rescan_verification_modes.end(),
+                          [](bool enabled) { return enabled; }));
+  Destroy(options);
+}
+
+TEST_F(DBWALIndexTest, InteriorGapRefusesToOpenUnderAbsoluteConsistency) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+  uint64_t wal_a = 0, wal_b = 0;
+  SetupTwoWALsWithDamagedFirstTail(options, 6, 4, &wal_a, &wal_b);
+  ASSERT_NOK(TryReopen(options));
+  Destroy(options);
+}
+
+TEST_F(DBWALIndexTest, InteriorGapRefusesToOpenUnderTolerateTailRecords) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+  uint64_t wal_a = 0, wal_b = 0;
+  SetupTwoWALsWithDamagedFirstTail(options, 6, 4, &wal_a, &wal_b);
+  ASSERT_NOK(TryReopen(options));
+  Destroy(options);
+}
+
+// Skip mode replays past the damage instead of truncating: everything intact
+// is applied, the seed still clears the file maximum, and there is no void
+// record (and no dummy) because nothing was discarded.
+TEST_F(DBWALIndexTest, SkipModeReplaysPastGapWithoutVoidRecord) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
+  uint64_t wal_a = 0, wal_b = 0;
+  SetupTwoWALsWithDamagedFirstTail(options, 6, 4, &wal_a, &wal_b);
+
+  Reopen(options);
+  const uint64_t new_wal = LatestWALNumber();
+  ASSERT_NE(wal_b, new_wal);
+  WriteKeyRange(10, 4);
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), Key(5), &value).IsNotFound());
+  ASSERT_OK(db_->Get(ReadOptions(), Key(6), &value));
+  EXPECT_EQ("value6", value);
+  Close();
+
+  const std::string new_wal_path = WALPath(new_wal);
+  std::vector<uint64_t> new_expected;
+  for (uint64_t i = 11; i <= 14; i++) {
+    new_expected.push_back(i);
+  }
+  EXPECT_EQ(new_expected, ReadWALIndices(new_wal_path, new_wal));
+  EXPECT_TRUE(ReadWALVoidRanges(new_wal_path).empty());
+
+  Destroy(options);
+}
+
+// The seed counts records that were read, not records that were applied: a
+// batch for a dropped column family is skipped by recovery but still
+// occupies its index in a file that survives.
+TEST_F(DBWALIndexTest, DroppedColumnFamilyBatchContributesToSeed) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"cf1"}, options);
+  WriteKeyRange(0, 4);
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(db_->Put(WriteOptions(), handles_[1], Key(100 + i),
+                       "cf1_value" + std::to_string(i)));
+  }
+  const uint64_t first_wal = LatestWALNumber();
+  const std::vector<uint64_t> first_indices =
+      ReadWALIndices(WALPath(first_wal), first_wal);
+  ASSERT_FALSE(first_indices.empty());
+  const uint64_t last_recovered = first_indices.back();
+
+  ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+  delete handles_[1];
+  handles_.erase(handles_.begin() + 1);
+  Close();
+
+  Reopen(options);
+  WriteKeyRange(4, 4);
+  const uint64_t second_wal = LatestWALNumber();
+  ASSERT_NE(first_wal, second_wal);
+  Close();
+
+  std::vector<uint64_t> second_expected;
+  for (int i = 0; i < 4; i++) {
+    second_expected.push_back(last_recovered + 1 + i);
+  }
+  EXPECT_EQ(second_expected, ReadWALIndices(WALPath(second_wal), second_wal));
+
+  Destroy(options);
+}
+
+// WALs written before the option was enabled carry no indices, and a fresh
+// DB has no WALs at all: both seed at the start number and emit no void
+// record.
+TEST_F(DBWALIndexTest, UnindexedAndEmptySetsSeedAtStartNumber) {
+  Options none_options = WALIndexOptions(PartitionWALUsage::kNone);
+  DestroyAndReopen(none_options);
+  WriteKeys();
+  Close();
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  Reopen(options);
+  WriteKeys();
+  const uint64_t second_wal = LatestWALNumber();
+  Close();
   std::vector<uint64_t> expected;
   expected.reserve(kNumKeys);
   for (int i = 0; i < kNumKeys; i++) {
     expected.push_back(log::kWALIndexStartNumber + i);
   }
-  EXPECT_EQ(expected, ReadWALIndices(WALPath(first_wal), first_wal));
-  EXPECT_EQ(expected, ReadWALIndices(WALPath(second_wal), second_wal));
+  const std::string second_wal_path = WALPath(second_wal);
+  EXPECT_EQ(expected, ReadWALIndices(second_wal_path, second_wal));
+  EXPECT_TRUE(ReadWALVoidRanges(second_wal_path).empty());
+  Destroy(options);
+
+  DestroyAndReopen(options);
+  WriteKeys();
+  const uint64_t wal_number = LatestWALNumber();
+  Close();
+  const std::string wal_path = WALPath(wal_number);
+  EXPECT_EQ(expected, ReadWALIndices(wal_path, wal_number));
+  EXPECT_TRUE(ReadWALVoidRanges(wal_path).empty());
+  Destroy(options);
+}
+
+// The post-truncation flush runs even with avoid_flush_during_recovery, and
+// its failure fails the open rather than leaving the DB writing above an
+// undeclared hole.
+TEST_F(DBWALIndexTest, TruncationFlushFailureFailsOpen) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.env = fault_fs_env.get();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  uint64_t wal_a = 0, wal_b = 0;
+  SetupTwoWALsWithDamagedFirstTail(options, 6, 4, &wal_a, &wal_b);
+
+  // Proves the failure below comes from the post-truncation flush: without
+  // the forced flush the recovery flush never runs and the point never fires
+  // (the open would fail later, at WAL creation, with faults still armed).
+  bool flush_attempted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteLevel0TableForRecovery:s",
+      [&](void* /*arg*/) { flush_attempted = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable", [&](void* /*arg*/) {
+        fault_fs->SetThreadLocalErrorContext(
+            FaultInjectionIOType::kWrite, 7 /* seed */, 1 /* one_in */,
+            true /* retryable */, false /* has_data_loss */);
+        fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = TryReopen(options);
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_NOK(s);
+  EXPECT_TRUE(flush_attempted);
+  Destroy(options);
+}
+
+// A void record at the tail still occupies its indices: the seed clears
+// them instead of handing a voided index to new data.
+TEST_F(DBWALIndexTest, BurnVoidAtTailAdvancesSeed) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  DestroyAndReopen(options);
+
+  WriteKeys();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:log_entry", [](void* arg) {
+        Slice* const log_entry = static_cast<Slice*>(arg);
+        char* const data = const_cast<char*>(log_entry->data());
+        data[log_entry->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(WriteProtectedBatch(Key(kNumKeys), "burned"));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  const uint64_t first_wal = LatestWALNumber();
+  const uint64_t burned = log::kWALIndexStartNumber + kNumKeys;
+  const std::vector<std::pair<uint64_t, uint64_t>> first_voids =
+      ReadWALVoidRanges(WALPath(first_wal));
+  ASSERT_EQ(1U, first_voids.size());
+  EXPECT_EQ(burned, first_voids[0].first);
+  EXPECT_EQ(burned, first_voids[0].second);
+  Close();
+
+  Reopen(options);
+  WriteKeyRange(kNumKeys + 1, 4);
+  const uint64_t second_wal = LatestWALNumber();
+  ASSERT_NE(first_wal, second_wal);
+  Close();
+
+  std::vector<uint64_t> second_expected;
+  second_expected.reserve(4);
+  for (int i = 0; i < 4; i++) {
+    second_expected.push_back(burned + 1 + i);
+  }
+  EXPECT_EQ(second_expected, ReadWALIndices(WALPath(second_wal), second_wal));
+
+  Destroy(options);
+}
+
+// The allocator never hands out the type limit, so an index at it can only
+// come from a corrupt fixed64. There is no seed above it, and seeding below
+// would duplicate indices still in the recovery set: the open fails instead.
+TEST_F(DBWALIndexTest, IndexAtTypeLimitFailsOpen) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  DestroyAndReopen(options);
+  WriteKeyRange(0, 4);
+  const uint64_t wal_number = LatestWALNumber();
+  Close();
+
+  OverwriteLastDataRecordWALIndex(WALPath(wal_number),
+                                  std::numeric_limits<uint64_t>::max());
+  ASSERT_EQ(std::numeric_limits<uint64_t>::max(),
+            ReadWALIndices(WALPath(wal_number), wal_number).back());
+
+  // The message pins where the open failed: seeding, not the later allocation
+  // for the recovery dummy, which also fails closed at this value.
+  const Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  EXPECT_NE(std::string::npos, s.ToString().find("type limit")) << s.ToString();
+  Destroy(options);
+}
+
+// Stops replay partway through the first WAL, without damaging anything.
+class StopReplayAfterRecordsWalFilter : public WalFilter {
+ public:
+  explicit StopReplayAfterRecordsWalFilter(int stop_after)
+      : stop_after_(stop_after) {}
+  static const char* kClassName() { return "StopReplayAfterRecordsWalFilter"; }
+  const char* Name() const override { return kClassName(); }
+  WalProcessingOption LogRecordFound(unsigned long long /*log_number*/,
+                                     const std::string& /*log_file_name*/,
+                                     const WriteBatch& /*batch*/,
+                                     WriteBatch* /*new_batch*/,
+                                     bool* /*batch_changed*/) override {
+    return records_found_++ < stop_after_
+               ? WalProcessingOption::kContinueProcessing
+               : WalProcessingOption::kStopReplay;
+  }
+
+ private:
+  const int stop_after_;
+  int records_found_ = 0;
+};
+
+// The WAL filter is the one unfinished-file condition reachable without
+// corruption. The stop lands inside the last WAL, so the records after it go
+// unread while still holding their indices, and the seed must clear them.
+TEST_F(DBWALIndexTest, WalFilterStopReplaySeedsAboveUnreadIndices) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  DestroyAndReopen(options);
+  WriteKeyRange(0, 6);
+  const uint64_t wal_a = LatestWALNumber();
+  Close();
+  Reopen(options);
+  WriteKeyRange(6, 4);
+  const uint64_t wal_b = LatestWALNumber();
+  ASSERT_NE(wal_a, wal_b);
+  Close();
+  const std::vector<uint64_t> b_indices = ReadWALIndices(WALPath(wal_b), wal_b);
+  ASSERT_FALSE(b_indices.empty());
+  const uint64_t max_on_disk = b_indices.back();
+
+  // Past the six records of the first WAL, so the stop falls inside the
+  // second one and leaves records behind it unread.
+  StopReplayAfterRecordsWalFilter filter(/*stop_after=*/8);
+  options.wal_filter = &filter;
+  Reopen(options);
+  const uint64_t new_wal = LatestWALNumber();
+  ASSERT_NE(wal_b, new_wal);
+  WriteKeyRange(10, 2);
+  Close();
+  options.wal_filter = nullptr;
+
+  // Without the rescan the seed would stop at the third replayed record.
+  const std::vector<uint64_t> new_indices =
+      ReadWALIndices(WALPath(new_wal), new_wal);
+  ASSERT_FALSE(new_indices.empty());
+  EXPECT_EQ(max_on_disk + 1, new_indices.front());
+
+  Destroy(options);
+}
+
+// A FileSystem that fails sequential opens of one WAL file while listing it
+// normally, so the file sits in the recovery set but can never be read.
+class FailWALOpenFileSystem : public FileSystemWrapper {
+ public:
+  FailWALOpenFileSystem(const std::shared_ptr<FileSystem>& base,
+                        const std::string& blocked)
+      : FileSystemWrapper(base), blocked_(blocked) {}
+  static const char* kClassName() { return "FailWALOpenFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+  IOStatus NewSequentialFile(const std::string& fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    if (fname == blocked_) {
+      return IOStatus::IOError("injected WAL open failure", fname);
+    }
+    return FileSystemWrapper::NewSequentialFile(fname, file_opts, result, dbg);
+  }
+
+ private:
+  std::string blocked_;
+};
+
+// A WAL the main loop cannot open is unfinished, not absent: the rescan fails
+// the open on it rather than seeding under an unreadable file.
+TEST_F(DBWALIndexTest, UnopenableWALFailsOpen) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.paranoid_checks = false;
+  DestroyAndReopen(options);
+  WriteKeyRange(0, 4);
+  const uint64_t wal_a = LatestWALNumber();
+  Close();
+  Reopen(options);
+  WriteKeyRange(4, 4);
+  const uint64_t wal_b = LatestWALNumber();
+  ASSERT_NE(wal_a, wal_b);
+  Close();
+
+  auto fail_fs = std::make_shared<FailWALOpenFileSystem>(FileSystem::Default(),
+                                                         WALPath(wal_a));
+  std::unique_ptr<Env> fail_fs_env(NewCompositeEnv(fail_fs));
+  options.env = fail_fs_env.get();
+  const Status s = TryReopen(options);
+  // Close before asserting: if the open unexpectedly succeeded, the DB must
+  // not outlive the function-local env it runs on.
+  Close();
+  ASSERT_NOK(s);
+  Destroy(options);
+}
+
+// The last unfinished-file condition: a recycled WAL whose bytes past the new
+// content still belong to its previous incarnation stops the reader with
+// `old_log_record` while the status is still OK. `ReportOldLogRecord` fires
+// only under `kPointInTimeRecovery`, which is also the only mode that keeps
+// recycling through sanitization. The file is marked before
+// `HandleNonOkStatusOrOldLogRecord` converts the stop into a corruption stop,
+// so `old_log_record` is the only condition that marks it and the rescan
+// callback firing is the assertion that it did. The stale records the reader
+// drops must not enter the maximum, and nothing live was discarded, so the
+// seed lands one past the live tail and no void range is declared.
+TEST_F(DBWALIndexTest, RecycledWALStaleTailIsRescanned) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.recycle_log_file_num = 1;
+
+  // Approximates a crash: a recycled WAL keeps the tail of its previous
+  // incarnation instead of being truncated to the new content.
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixWritableFile::Close",
+      [](void* arg) { *(static_cast<size_t*>(arg)) = 0; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Every batch is the same size in both incarnations, so the new records of
+  // the recycled file end exactly on one of its old record boundaries. The
+  // reader then finds an intact header carrying the previous log number --
+  // an old record -- rather than a half-overwritten one, which would report a
+  // corruption and exercise a different condition.
+  const std::string kFixedValue(16, 'v');
+  auto write_fixed = [&](int start, int count) {
+    for (int i = 0; i < count; i++) {
+      ASSERT_OK(Put(Key(start + i), kFixedValue));
+    }
+  };
+
+  DestroyAndReopen(options);
+  ASSERT_EQ(1U, db_->GetOptions().recycle_log_file_num);
+  write_fixed(0, 8);
+  ASSERT_OK(Flush());  // Retires the first WAL into the recycle list.
+  write_fixed(8, 2);
+  ASSERT_OK(Flush());  // Reuses that file, stale tail and all.
+  write_fixed(10, 4);
+  const uint64_t recycled_wal = LatestWALNumber();
+  Close();
+
+  // The reader drops the stale records, so this is the live tail alone.
+  const std::vector<uint64_t> live_indices =
+      ReadWALIndices(WALPath(recycled_wal), recycled_wal);
+  ASSERT_FALSE(live_indices.empty());
+  const uint64_t live_max = live_indices.back();
+
+  int rescanned_files = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScanWALIndicesPastCut:verify_and_reconstruct_read",
+      [&](void* /*arg*/) { rescanned_files++; });
+  Reopen(options);
+  const uint64_t new_wal = LatestWALNumber();
+  ASSERT_NE(recycled_wal, new_wal);
+  // The live records of the recycled WAL replayed; only its stale tail was
+  // dropped.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), Key(13), &value));
+  EXPECT_EQ(kFixedValue, value);
+  write_fixed(14, 2);
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_GT(rescanned_files, 0);
+  const std::string new_wal_path = WALPath(new_wal);
+  const std::vector<uint64_t> new_indices =
+      ReadWALIndices(new_wal_path, new_wal);
+  ASSERT_FALSE(new_indices.empty());
+  EXPECT_EQ(live_max + 1, new_indices.front());
+  EXPECT_TRUE(ReadWALVoidRanges(new_wal_path).empty());
 
   Destroy(options);
 }

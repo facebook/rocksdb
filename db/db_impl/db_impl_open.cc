@@ -1209,12 +1209,112 @@ void DBOpenLogRecordReadReporter::OldLogRecord(size_t bytes) {
                  static_cast<int>(bytes));
 }
 
+void DBImpl::WALIndexRecoveryState::Reset() {
+  min_data_index_ = kMaxSequenceNumber;
+  max_data_index_ = 0;
+  max_seen_index_ = 0;
+  replay_cut_ = 0;
+  first_unfinished_wal_ = kMaxSequenceNumber;
+  corruption_stop_observed_ = false;
+}
+
+void DBImpl::WALIndexRecoveryState::NoteDataIndex(uint64_t wal_index) {
+  if (wal_index == 0) {
+    return;
+  }
+  min_data_index_ = std::min(min_data_index_, wal_index);
+  max_data_index_ = std::max(max_data_index_, wal_index);
+  max_seen_index_ = std::max(max_seen_index_, wal_index);
+}
+
+void DBImpl::WALIndexRecoveryState::NoteReplayIndex(uint64_t wal_index) {
+  if (wal_index != 0) {
+    replay_cut_ = std::max(replay_cut_, wal_index);
+  }
+}
+
+void DBImpl::WALIndexRecoveryState::NoteVoidHi(uint64_t void_hi) {
+  // A malformed void record is rejected by the reader and never reaches here,
+  // so the maximum can end up below an index that was actually burned. That
+  // under-count cannot produce a duplicate record: a void range covers indices
+  // that carry no data record, so reissuing one only repeats a burn. The
+  // rescan passes no reporter, so such a rejection is silent by design.
+  max_seen_index_ = std::max(max_seen_index_, void_hi);
+}
+
+void DBImpl::WALIndexRecoveryState::NoteFileReadOutcome(
+    uint64_t wal_number, bool reader_initialized, const Status& status,
+    bool stop_replay_for_corruption, bool stop_replay_by_wal_filter,
+    bool old_log_record) {
+  // This is the complete list of ways a successful recovery can leave a WAL
+  // unread. Keep it next to the state transition so additions to the recovery
+  // loop have one checklist to update.
+  if (!reader_initialized || !status.ok() || stop_replay_for_corruption ||
+      stop_replay_by_wal_filter || old_log_record) {
+    first_unfinished_wal_ = std::min(first_unfinished_wal_, wal_number);
+  }
+}
+
+void DBImpl::WALIndexRecoveryState::NoteCorruptionStop() {
+  corruption_stop_observed_ = true;
+}
+
+bool DBImpl::WALIndexRecoveryState::NeedsRescan() const {
+  return first_unfinished_wal_ != kMaxSequenceNumber;
+}
+
+std::optional<std::pair<uint64_t, uint64_t>>
+DBImpl::WALIndexRecoveryState::GetDiscardedRange() const {
+  if (!corruption_stop_observed_ || max_data_index_ <= replay_cut_) {
+    return std::nullopt;
+  }
+  const uint64_t lo = replay_cut_ == 0 ? min_data_index_ : replay_cut_ + 1;
+  assert(lo <= max_data_index_);
+  return std::make_pair(lo, max_data_index_);
+}
+
+bool DBImpl::WALIndexRecoveryState::HasTruncation() const {
+  return GetDiscardedRange().has_value();
+}
+
+bool DBImpl::WALIndexRecoveryState::MaxSeenIndexIsValid() const {
+  // DBImpl::AllocateSequenceAndWALIndex refuses to allocate once the counter
+  // reaches the type limit, so no healthy writer ever puts UINT64_MAX in a
+  // WAL; reading one back means a corrupt fixed64, since nothing bounds an
+  // index by magnitude on the read path. There is no seed for it either way:
+  // the successor does not exist, and restarting at kWALIndexStartNumber
+  // would collide with the low indices still in the recovery set. The open
+  // fails instead.
+  return max_seen_index_ != std::numeric_limits<uint64_t>::max();
+}
+
+uint64_t DBImpl::WALIndexRecoveryState::Seed() const {
+  assert(MaxSeenIndexIsValid());
+  if (max_seen_index_ == 0) {
+    return log::kWALIndexStartNumber;
+  }
+  return max_seen_index_ + 1;
+}
+
+uint64_t DBImpl::WALIndexRecoveryState::GetMaxSeenIndex() const {
+  return max_seen_index_;
+}
+
+uint64_t DBImpl::WALIndexRecoveryState::GetReplayCut() const {
+  return replay_cut_;
+}
+
+uint64_t DBImpl::WALIndexRecoveryState::GetFirstUnfinishedWAL() const {
+  return first_unfinished_wal_;
+}
+
 // REQUIRES: wal_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
                                bool is_retry, bool* corrupted_wal_found,
                                RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
+  wal_index_recovery_state_.Reset();
 
   std::unordered_map<int, VersionEdit> version_edits;
   int job_id = 0;
@@ -1227,6 +1327,120 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
   FinishLogFilesRecovery(job_id, status);
   return status;
+}
+
+Status DBImpl::SeedNextWALIndexFromRecovery() {
+  if (!log::WALIndexEnabled(immutable_db_options_.partition_wal_usage)) {
+    return Status::OK();
+  }
+  mutex_.AssertHeld();
+  if (!wal_index_recovery_state_.MaxSeenIndexIsValid()) {
+    return Status::Corruption(
+        "Recovered a wal_index at the type limit, which no allocation can "
+        "produce");
+  }
+  // One past the highest index the scan saw, so no new record reuses an index
+  // held by a WAL in the recovery set. Empty and unindexed sets seed at the
+  // start number, since nothing indexed was read.
+  //
+  // The guarantee stops at the recovery set. WAL_ttl_seconds and
+  // WAL_size_limit_MB move retired WALs to the archive instead of deleting
+  // them, and those files keep the indices they were written with, below
+  // min_log_number_to_keep and outside `wal_numbers`. Scanning them would
+  // mean reading the whole archive on every open. A consumer that merges
+  // wal_index streams must therefore read the live set only; archived WALs
+  // can repeat indices that the live set reissues.
+  next_wal_index_ = wal_index_recovery_state_.Seed();
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Seeding next wal_index to %" PRIu64
+                 " from recovery (max seen %" PRIu64 ", cut %" PRIu64 ")",
+                 next_wal_index_, wal_index_recovery_state_.GetMaxSeenIndex(),
+                 wal_index_recovery_state_.GetReplayCut());
+  return Status::OK();
+}
+
+IOStatus DBImpl::WriteWALIndexVoidRecordForTruncation(
+    const WriteOptions& write_options, log::Writer* new_log) {
+  if (!log::WALIndexEnabled(immutable_db_options_.partition_wal_usage)) {
+    return IOStatus::OK();
+  }
+  const auto discarded_range = wal_index_recovery_state_.GetDiscardedRange();
+  if (!discarded_range.has_value()) {
+    return IOStatus::OK();
+  }
+  assert(new_log != nullptr);
+  const uint64_t lo = discarded_range->first;
+  const uint64_t hi = discarded_range->second;
+  ROCKS_LOG_INFO(
+      immutable_db_options_.info_log,
+      "Recovery truncated at wal_index %" PRIu64 " with wal_index %" PRIu64
+      " still on disk; declaring [%" PRIu64 ", %" PRIu64 "] obsolete",
+      wal_index_recovery_state_.GetReplayCut(), hi, lo, hi);
+  IOStatus io_s = new_log->AddWALIndexVoidRecord(write_options, lo, hi);
+  if (!io_s.ok()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                    "Failed to declare truncated wal_index range [%" PRIu64
+                    ", %" PRIu64 "] obsolete; failing open: %s",
+                    lo, hi, io_s.ToString().c_str());
+  }
+  return io_s;
+}
+
+Status DBImpl::MaybeScanWALIndicesPastCut(
+    const std::vector<uint64_t>& wal_numbers, bool read_only, bool is_retry) {
+  // A read-only open leaves the maximum reflecting the main loop alone. That
+  // is safe because it never creates a WAL and never allocates an index, so
+  // nothing consumes the seed; skipping the rescan keeps the open free of the
+  // extra I/O.
+  if (read_only ||
+      !log::WALIndexEnabled(immutable_db_options_.partition_wal_usage) ||
+      !wal_index_recovery_state_.NeedsRescan()) {
+    return Status::OK();
+  }
+  // The main loop stops at damage, and files after a stop are dropped after
+  // at most one record, so their indices above the cut were never read.
+  // Re-read the unfinished files to EOF for their indices only: no replay,
+  // no application. Files before the first unfinished one were read in full
+  // and piggybacked already, and a damage report here is expected -- it is
+  // why the file is unfinished -- so there is no reporter and skip mode
+  // reads past it to whatever is still intact.
+  const uint64_t first_unfinished =
+      wal_index_recovery_state_.GetFirstUnfinishedWAL();
+  for (uint64_t wal_number : wal_numbers) {
+    if (wal_number < first_unfinished) {
+      continue;
+    }
+    const std::string fname =
+        LogFileName(immutable_db_options_.GetWalDir(), wal_number);
+    std::unique_ptr<FSSequentialFile> file;
+    Status s = fs_->NewSequentialFile(
+        fname, fs_->OptimizeForLogRead(file_options_), &file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    bool verify_and_reconstruct_read = is_retry;
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::MaybeScanWALIndicesPastCut:verify_and_reconstruct_read",
+        &verify_and_reconstruct_read);
+    std::unique_ptr<SequentialFileReader> file_reader(new SequentialFileReader(
+        std::move(file), fname, immutable_db_options_.log_readahead_size,
+        io_tracer_, /*listeners=*/{}, /*rate_limiter=*/nullptr,
+        verify_and_reconstruct_read));
+    log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
+                       /*reporter=*/nullptr, /*checksum=*/true, wal_number);
+    std::string scratch;
+    Slice record;
+    while (reader.ReadRecord(&record, &scratch,
+                             WALRecoveryMode::kSkipAnyCorruptedRecords)) {
+      wal_index_recovery_state_.NoteDataIndex(reader.GetLastReadWALIndex());
+    }
+    wal_index_recovery_state_.NoteVoidHi(reader.GetMaxVoidWALIndexHi());
+    if (reader.hasReadError()) {
+      return Status::IOError("IO error scanning WAL for wal_index past cut",
+                             fname);
+    }
+  }
+  return Status::OK();
 }
 
 void DBImpl::SetupLogFilesRecovery(
@@ -1307,6 +1521,10 @@ Status DBImpl::ProcessLogFiles(
   }
 
   if (status.ok()) {
+    status = MaybeScanWALIndicesPastCut(wal_numbers, read_only, is_retry);
+  }
+
+  if (status.ok()) {
     status = MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
         wal_numbers, read_only, job_id, flushed, version_edits, recovery_ctx);
   }
@@ -1366,6 +1584,12 @@ Status DBImpl::ProcessLogFile(
 
   if (*stop_replay_by_wal_filter) {
     logFileDropped();
+    if (log::WALIndexEnabled(immutable_db_options_.partition_wal_usage)) {
+      wal_index_recovery_state_.NoteFileReadOutcome(
+          wal_number, /*reader_initialized=*/false, status,
+          *stop_replay_for_corruption, *stop_replay_by_wal_filter,
+          old_log_record);
+    }
     assert(status.ok());
     return status;
   }
@@ -1382,8 +1606,14 @@ Status DBImpl::ProcessLogFile(
   } else if (reader == nullptr) {
     // TODO(hx235): remove this case since it's confusing
     assert(status.ok());
-    // Fail initializing log reader for one log file with an ok status.
-    // Try next one.
+    // Fail initializing log reader for one log file with an ok status. Try the
+    // file again in the index-only rescan before proceeding.
+    if (log::WALIndexEnabled(immutable_db_options_.partition_wal_usage)) {
+      wal_index_recovery_state_.NoteFileReadOutcome(
+          wal_number, /*reader_initialized=*/false, status,
+          *stop_replay_for_corruption, *stop_replay_by_wal_filter,
+          old_log_record);
+    }
     return status;
   }
 
@@ -1397,6 +1627,15 @@ Status DBImpl::ProcessLogFile(
     bool read_record = reader->ReadRecord(
         &record, &scratch, immutable_db_options_.wal_recovery_mode,
         &record_checksum);
+
+    if (read_record &&
+        log::WALIndexEnabled(immutable_db_options_.partition_wal_usage)) {
+      // Sample on read, before ProcessLogRecord decides whether to apply the
+      // record: a batch skipped for a dropped column family still occupies
+      // its index. The replay cut advances only after processing below, so a
+      // malformed first batch can be present without being part of the cut.
+      wal_index_recovery_state_.NoteDataIndex(reader->GetLastReadWALIndex());
+    }
 
     // `reader->ReadRecord` will change `status` through reporter in `reader`
     // when a corruption is encountered
@@ -1415,15 +1654,32 @@ Status DBImpl::ProcessLogFile(
 
     if (!process_status.ok()) {
       return process_status;
-    } else if (Status seqno_check_status = CheckSeqnoNotSetBackDuringRecovery(
-                   prev_next_sequence, *next_sequence);
-               !seqno_check_status.ok()) {
+    }
+    if (Status seqno_check_status = CheckSeqnoNotSetBackDuringRecovery(
+            prev_next_sequence, *next_sequence);
+        !seqno_check_status.ok()) {
       // Sequence number being set back indicates a serious software bug, the DB
       // should not be opened in this case.
       return seqno_check_status;
-    } else if (*stop_replay_for_corruption) {
+    }
+    if (log::WALIndexEnabled(immutable_db_options_.partition_wal_usage) &&
+        status.ok() && !*stop_replay_for_corruption &&
+        !*stop_replay_by_wal_filter) {
+      wal_index_recovery_state_.NoteReplayIndex(reader->GetLastReadWALIndex());
+    }
+    if (*stop_replay_for_corruption) {
       break;
     }
+  }
+
+  if (log::WALIndexEnabled(immutable_db_options_.partition_wal_usage)) {
+    // Void records are consumed inside ReadRecord without being returned, so
+    // fold their `hi` here rather than in the loop above.
+    wal_index_recovery_state_.NoteVoidHi(reader->GetMaxVoidWALIndexHi());
+    wal_index_recovery_state_.NoteFileReadOutcome(
+        wal_number, /*reader_initialized=*/true, status,
+        *stop_replay_for_corruption, *stop_replay_by_wal_filter,
+        old_log_record);
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1776,6 +2032,7 @@ Status DBImpl::HandleNonOkStatusOrOldLogRecord(
     // We should ignore the error but not continue replaying
     *old_log_record = false;
     *stop_replay_for_corruption = true;
+    wal_index_recovery_state_.NoteCorruptionStop();
     // TODO(hx235): have a single source of corrupted WAL number once we
     // consolidate the statuses
     uint64_t reporter_corrupted_wal_number = reporter.GetCorruptedLogNumber();
@@ -1898,6 +2155,14 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
     // no need to refcount since client still doesn't have access
     // to the DB and can not drop column families while we iterate
     const WalNumber max_wal_number = wal_numbers.back();
+    // A wal_index truncation discards indices that are still on disk. Flush
+    // even when avoid_flush_during_recovery is set so min_log_number_to_keep
+    // advances past the truncated files and they leave the recovery set. A
+    // failed flush fails the open below rather than leaving the DB writing
+    // above an undeclared hole.
+    const bool force_flush_for_wal_index_truncation =
+        log::WALIndexEnabled(immutable_db_options_.partition_wal_usage) &&
+        wal_index_recovery_state_.HasTruncation();
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       auto iter = version_edits->find(cfd->GetID());
       assert(iter != version_edits->end());
@@ -1921,7 +2186,8 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
         // If flush happened in the middle of recovery (e.g. due to memtable
         // being full), we flush at the end. Otherwise we'll need to record
         // where we were on last flush, which make the logic complicated.
-        if (flushed || !immutable_db_options_.avoid_flush_during_recovery) {
+        if (flushed || !immutable_db_options_.avoid_flush_during_recovery ||
+            force_flush_for_wal_index_truncation) {
           status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
           if (!status.ok()) {
             // Recovery failed
@@ -2221,6 +2487,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           nullptr /* memtable_payload_bytes */,
           nullptr /* memtable_garbage_bytes */, &flush_stats);
       version->Unref();
+      TEST_SYNC_POINT_CALLBACK("DBImpl::WriteLevel0TableForRecovery:s", &s);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -2765,10 +3032,16 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // recovered.
     const DBOptions db_options_snapshot =
         BuildDBOptions(impl->immutable_db_options_, impl->mutable_db_options_);
-    s = impl->CreateWAL(db_options_snapshot, write_options, new_log_number,
-                        0 /*recycle_log_number*/, preallocate_block_size,
-                        PredecessorWALInfo() /* predecessor_wal_info */,
-                        &new_log);
+    // Install the recovery seed before any WAL write of the open. The dummy
+    // record below already takes a wal_index; without the seed it would
+    // restart at 1 on top of a recovered set that ends at N.
+    s = impl->SeedNextWALIndexFromRecovery();
+    if (s.ok()) {
+      s = impl->CreateWAL(db_options_snapshot, write_options, new_log_number,
+                          0 /*recycle_log_number*/, preallocate_block_size,
+                          PredecessorWALInfo() /* predecessor_wal_info */,
+                          &new_log);
+    }
     if (s.ok()) {
       // Prevent log files created by previous instance from being recycled.
       // They might be in alive_log_file_, and might get recycled otherwise.
@@ -2784,6 +3057,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
     if (s.ok()) {
       impl->alive_wal_files_.emplace_back(impl->cur_wal_number_);
+      // Declare a truncation cut before any new data record: the void record
+      // precedes the dummy write below, so a crash can never leave a dummy
+      // (which a later recovery treats as continuity) without its cover.
+      s = impl->WriteWALIndexVoidRecordForTruncation(write_options, new_log);
+    }
+    if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
