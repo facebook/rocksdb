@@ -201,7 +201,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
 void EventHelpers::LogAndNotifyTableFileDeletion(
     EventLogger* event_logger, int job_id, uint64_t file_number,
     const std::string& file_path, const Status& status,
-    const std::string& dbname,
+    const std::string& dbname, const std::string& db_session_id,
     const std::vector<std::shared_ptr<EventListener>>& listeners) {
   if (!event_logger && listeners.empty()) {
     status.PermitUncheckedError();
@@ -213,7 +213,8 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
     AppendCurrentTime(&jwriter);
 
     jwriter << "job" << job_id << "event" << "table_file_deletion"
-            << "file_number" << file_number << "status" << status.ToString();
+            << "file_number" << file_number << "db_session_id" << db_session_id
+            << "status" << status.ToString();
 
     jwriter.EndObject();
 
@@ -322,7 +323,7 @@ void EventHelpers::LogAndNotifyBlobFileDeletion(
     EventLogger* event_logger,
     const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
     uint64_t file_number, const std::string& file_path, const Status& status,
-    const std::string& dbname) {
+    const std::string& dbname, const std::string& db_session_id) {
   if (!event_logger && listeners.empty()) {
     status.PermitUncheckedError();
     return;
@@ -333,7 +334,8 @@ void EventHelpers::LogAndNotifyBlobFileDeletion(
     AppendCurrentTime(&jwriter);
 
     jwriter << "job" << job_id << "event" << "blob_file_deletion"
-            << "file_number" << file_number << "status" << status.ToString();
+            << "file_number" << file_number << "db_session_id" << db_session_id
+            << "status" << status.ToString();
 
     jwriter.EndObject();
     event_logger->Log(jwriter);

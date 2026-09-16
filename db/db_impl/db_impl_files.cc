@@ -489,31 +489,33 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                            &file_deletion_status);
   if (file_deletion_status.ok()) {
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
-                    "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", job_id,
-                    fname.c_str(), type, number,
+                    "[JOB %d] [db_session_id=%s] Delete %s type=%d #%" PRIu64
+                    " -- %s\n",
+                    job_id, db_session_id_.c_str(), fname.c_str(), type, number,
                     file_deletion_status.ToString().c_str());
   } else if (env_->FileExists(fname).IsNotFound()) {
     ROCKS_LOG_INFO(
         immutable_db_options_.info_log,
-        "[JOB %d] Tried to delete a non-existing file %s type=%d #%" PRIu64
-        " -- %s\n",
-        job_id, fname.c_str(), type, number,
+        "[JOB %d] [db_session_id=%s] Tried to delete a non-existing file %s"
+        " type=%d #%" PRIu64 " -- %s\n",
+        job_id, db_session_id_.c_str(), fname.c_str(), type, number,
         file_deletion_status.ToString().c_str());
   } else {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                    "[JOB %d] Failed to delete %s type=%d #%" PRIu64 " -- %s\n",
-                    job_id, fname.c_str(), type, number,
+                    "[JOB %d] [db_session_id=%s] Failed to delete %s type=%d"
+                    " #%" PRIu64 " -- %s\n",
+                    job_id, db_session_id_.c_str(), fname.c_str(), type, number,
                     file_deletion_status.ToString().c_str());
   }
   if (type == kTableFile) {
     EventHelpers::LogAndNotifyTableFileDeletion(
         &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
-        immutable_db_options_.listeners);
+        db_session_id_, immutable_db_options_.listeners);
   }
   if (type == kBlobFile) {
     EventHelpers::LogAndNotifyBlobFileDeletion(
         &event_logger_, immutable_db_options_.listeners, job_id, number, fname,
-        file_deletion_status, GetName());
+        file_deletion_status, GetName(), db_session_id_);
   }
 }
 

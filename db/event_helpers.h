@@ -39,7 +39,7 @@ class EventHelpers {
   static void LogAndNotifyTableFileDeletion(
       EventLogger* event_logger, int job_id, uint64_t file_number,
       const std::string& file_path, const Status& status,
-      const std::string& db_name,
+      const std::string& db_name, const std::string& db_session_id,
       const std::vector<std::shared_ptr<EventListener>>& listeners);
   static void NotifyOnErrorRecoveryEnd(
       const std::vector<std::shared_ptr<EventListener>>& listeners,
@@ -66,7 +66,7 @@ class EventHelpers {
       EventLogger* event_logger,
       const std::vector<std::shared_ptr<EventListener>>& listeners, int job_id,
       uint64_t file_number, const std::string& file_path, const Status& status,
-      const std::string& db_name);
+      const std::string& db_name, const std::string& db_session_id);
 
  private:
   static void LogAndNotifyTableFileCreation(
