@@ -151,12 +151,40 @@ class Compressor {
     return CompressionType::kDisableCompressionOption;
   }
 
+  // DEPRECATED: override MaybeOverrideCompressionOptions() instead, which
+  // subsumes this hook.
+  //
   // Returns a recommended number of parallel compression threads for SST
   // file building, or 0 to defer to CompressionOptions::parallel_threads.
   // Built-in compressors return the parallel_threads from their
   // CompressionOptions, enabling CompressionManager to override this by
   // customizing the options passed to GetCompressor().
   virtual uint32_t GetRecommendedParallelThreads() const { return 0; }
+
+  // Allows this Compressor to override the subset of CompressionOptions that
+  // are applied by the *caller* of the Compressor (e.g. the SST file builder)
+  // rather than by the Compressor itself. These options govern how compression
+  // is applied across a stream of blocks, not how any individual block is
+  // compressed, so they are the builder's responsibility to honor. On entry,
+  // `*to_modify` holds the options the caller is about to apply; the Compressor
+  // may modify in place any of the following (and possibly more such options in
+  // the future), and MUST leave all other fields unchanged:
+  //   * parallel_threads
+  //   * max_compressed_bytes_per_kb
+  //   * auto_skip
+  //   * auto_skip_min_sample_every
+  // This does not affect the Compressor's own per-block compression behavior;
+  // it only informs caller-side handling.
+  //
+  // The default implementation defers to the deprecated
+  // GetRecommendedParallelThreads().
+  virtual void MaybeOverrideCompressionOptions(
+      CompressionOptions* to_modify) const {
+    uint32_t recommended_parallel_threads = GetRecommendedParallelThreads();
+    if (recommended_parallel_threads > 0) {
+      to_modify->parallel_threads = recommended_parallel_threads;
+    }
+  }
 
   // Return a distinct but functionally equivalent Compressor. This is often
   // needed to implement MaybeCloneSpecialized() in wrapper compressors.
@@ -544,6 +572,11 @@ class CompressorWrapper : public Compressor {
 
   uint32_t GetRecommendedParallelThreads() const override {
     return wrapped_->GetRecommendedParallelThreads();
+  }
+
+  void MaybeOverrideCompressionOptions(
+      CompressionOptions* to_modify) const override {
+    wrapped_->MaybeOverrideCompressionOptions(to_modify);
   }
 
   // NOTE: Clone() not implemented here because it needs to be in the derived

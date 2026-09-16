@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "monitoring/perf_context_imp.h"
+#include "port/likely.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
@@ -41,7 +42,7 @@ void DataBlockIter::NextImpl() {
 
 void MetaBlockIter::NextImpl() {
   bool is_shared = false;
-  ParseNextKey<DecodeEntry, true>(&is_shared);
+  ParseNextKey<DecodeEntry>(&is_shared);
 }
 
 void IndexBlockIter::NextImpl() { ParseNextIndexKey(); }
@@ -84,7 +85,7 @@ void MetaBlockIter::PrevImpl() {
   SeekToRestartPoint(restart_index_);
   bool is_shared = false;
   // Loop until end of current entry hits the start of original entry
-  while (ParseNextKey<DecodeEntry, true>(&is_shared) &&
+  while (ParseNextKey<DecodeEntry>(&is_shared) &&
          NextEntryOffset() < original) {
   }
   cur_entry_idx_ = prev_entry_idx;
@@ -569,7 +570,7 @@ void MetaBlockIter::SeekToFirstImpl() {
   }
   SeekToRestartPoint(0);
   bool is_shared = false;
-  ParseNextKey<DecodeEntry, true>(&is_shared);
+  ParseNextKey<DecodeEntry>(&is_shared);
 }
 
 void IndexBlockIter::SeekToFirstImpl() {
@@ -606,7 +607,7 @@ void MetaBlockIter::SeekToLastImpl() {
   SeekToRestartPoint(num_restarts_ - 1);
   bool is_shared = false;
   assert(num_restarts_ >= 1);
-  while (ParseNextKey<DecodeEntry, true>(&is_shared) &&
+  while (ParseNextKey<DecodeEntry>(&is_shared) &&
          NextEntryOffset() < GetKeysEndOffset()) {
     // Will probably never reach here since restart_interval is always 1
   }
@@ -623,7 +624,7 @@ void IndexBlockIter::SeekToLastImpl() {
 }
 
 template <class TValue>
-template <typename DecodeEntryFunc, bool StrictCheck>
+template <typename DecodeEntryFunc>
 bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   current_ = NextEntryOffset();
   ++cur_entry_idx_;
@@ -650,21 +651,23 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   p = DecodeEntryFunc()(p, key_limit, &shared, &non_shared, &value_length,
                         value_offset_encoded ? &value_offset : nullptr);
 
-  if (p == nullptr || raw_key_.Size() < shared) {
+  if (UNLIKELY(p == nullptr || raw_key_.Size() < shared)) {
     CorruptionError();
     return false;
   } else {
-    if constexpr (StrictCheck) {
-      auto entry_length =
-          non_shared + (values_section_ == nullptr ? value_length : 0);
-      if (static_cast<uint32_t>(key_limit - p) < entry_length) {
-        CorruptionError();
-        return false;
-      }
+    const uint64_t entry_length =
+        static_cast<uint64_t>(non_shared) +
+        (values_section_ == nullptr ? value_length : 0);
+    if (UNLIKELY(entry_length > static_cast<uint64_t>(key_limit - p))) {
+      CorruptionError();
+      return false;
     }
 
-    assert(values_section_ == nullptr ||
-           cur_entry_idx_ % block_restart_interval_ != 0 || shared == 0);
+    if (UNLIKELY(values_section_ != nullptr && value_offset_encoded &&
+                 shared != 0)) {
+      CorruptionError();
+      return false;
+    }
     entry_ = Slice(p_old, p - p_old + non_shared);
     if (shared == 0) {
       *is_shared = false;
@@ -701,20 +704,28 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
     }
 
     if (values_section_) {
+      const char* values_end = data_ + restarts_;
       if (value_offset_encoded) {
         // Restart point, derive from offset
+        const size_t values_size =
+            static_cast<size_t>(values_end - values_section_);
+        if (UNLIKELY(value_offset > values_size ||
+                     value_length > values_size - value_offset)) {
+          CorruptionError();
+          return false;
+        }
         value_ = Slice(values_section_ + value_offset, value_length);
       } else {
         // Non-restart point, derive from previous value
         assert(value_.data() >= values_section_);
-        value_ = Slice(value_.data() + value_.size(), value_length);
-      }
-
-      if constexpr (StrictCheck) {
-        if ((value_.data() + value_.size()) > data_ + restarts_) {
+        const char* value_start = value_.data() + value_.size();
+        if (UNLIKELY(value_start > values_end ||
+                     value_length >
+                         static_cast<size_t>(values_end - value_start))) {
           CorruptionError();
           return false;
         }
+        value_ = Slice(value_start, value_length);
       }
     } else {
       value_ = Slice(entry_.data() + entry_.size(), value_length);
@@ -871,10 +882,12 @@ template <typename DecodeKeyFunc>
 bool BlockIter<TValue>::GetRestartKey(uint32_t index, Slice* key) {
   uint32_t region_offset = GetRestartPoint(index);
   uint32_t shared, non_shared, value_offset;
+  const char* key_limit = data_ + GetKeysEndOffset();
   const char* key_ptr =
-      DecodeKeyFunc()(data_ + region_offset, data_ + restarts_, &shared,
-                      &non_shared, values_section_ ? &value_offset : nullptr);
-  if (key_ptr == nullptr || (shared != 0)) {
+      DecodeKeyFunc()(data_ + region_offset, key_limit, &shared, &non_shared,
+                      values_section_ ? &value_offset : nullptr);
+  if (UNLIKELY(key_ptr == nullptr || shared != 0 ||
+               non_shared > static_cast<size_t>(key_limit - key_ptr))) {
     CorruptionError();
     return false;
   }
@@ -1592,20 +1605,34 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
         values_section_ = data() + footer.values_section_offset;
       }
     }
-    // Common user-key prefix section (format_version >= 8): the prefix occupies
-    // the block's leading bytes [0, restarts[0]). A non-zero restarts[0]
-    // self-signals it -- restarts[0] is always 0 in every other block (all
-    // versions, all block types) -- so no footer bit or format_version is
-    // needed here. (Older readers would misread it, hence the file-level
-    // format_version 8 gate.)
+    // Validate each restart offset before any iterator can use it for pointer
+    // arithmetic. Empty blocks have one restart at offset zero. Non-empty
+    // blocks require strictly increasing offsets within the keys section.
     if (size != 0 && num_restarts_ >= 1) {
-      uint32_t first_restart =
-          DecodeFixed32(contents_.data.data() + restart_offset_);
-      if (first_restart > 0) {
-        if (first_restart >= restart_offset_) {
-          restart_offset_ = 0;
-          size = 0;  // Error marker
-        } else {
+      const char* restart_data = contents_.data.data() + restart_offset_;
+      const uint32_t keys_end_offset =
+          footer.separated_kv ? footer.values_section_offset : restart_offset_;
+      uint32_t previous_restart = 0;
+      bool invalid_restart = false;
+      for (uint32_t i = 0; i < num_restarts_; ++i) {
+        uint32_t restart = DecodeFixed32(restart_data + i * sizeof(uint32_t));
+        if (UNLIKELY((keys_end_offset == 0 && (i != 0 || restart != 0)) ||
+                     (keys_end_offset > 0 && restart >= keys_end_offset) ||
+                     (i > 0 && restart <= previous_restart))) {
+          invalid_restart = true;
+          break;
+        }
+        previous_restart = restart;
+      }
+      if (invalid_restart) {
+        restart_offset_ = 0;
+        size = 0;  // Error marker
+      } else {
+        // Common user-key prefix section (format_version >= 8): the prefix
+        // occupies the block's leading bytes [0, restarts[0]). A non-zero
+        // restarts[0] self-signals it.
+        const uint32_t first_restart = DecodeFixed32(restart_data);
+        if (first_restart > 0) {
           common_prefix_size_ = first_restart;
         }
       }

@@ -580,7 +580,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Sets raw_key_, value_ to the current parsed key and value.
   // Sets restart_index_ to point to the restart interval that contains
   // the current key.
-  template <typename DecodeEntryFunc, bool StrictCheck = false>
+  template <typename DecodeEntryFunc>
   inline bool ParseNextKey(bool* is_shared);
 
   // protection_bytes_per_key, kv_checksum, and block_restart_interval
