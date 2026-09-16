@@ -706,10 +706,9 @@ void BlobFileReader::MultiGetBlobRange(
   for (size_t i = 0; i < num_blobs; ++i) {
     BlobRangeReadRequest* const req = blob_reqs[i].first;
     assert(req);
-    assert(req->user_key);
     assert(req->status);
 
-    const size_t key_size = req->user_key->size();
+    const size_t key_size = req->user_key.size();
     // Validate that the full value region is within the file (same check
     // GetBlob performs); this guards the sub-range read below.
     if (!IsValidBlobOffset(req->offset, key_size, req->value_size, file_size_,
@@ -779,6 +778,8 @@ void BlobFileReader::MultiGetBlobRange(
                                 &direct_io_context, &dbg);
   }
   if (!s.ok()) {
+    // Batch read failed; s is written to every request's status below, so these
+    // per-request FS statuses carry nothing extra.
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();
     }

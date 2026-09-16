@@ -89,12 +89,10 @@ class BlobReadIOActivityFS : public FileSystemWrapper {
   void ResetBlobReadCounts() {
     blob_read_count_.store(0);
     blob_multiread_count_.store(0);
-    sst_read_count_.store(0);
     sst_multiread_count_.store(0);
   }
   uint64_t blob_read_count() const { return blob_read_count_.load(); }
   uint64_t blob_multiread_count() const { return blob_multiread_count_.load(); }
-  uint64_t sst_read_count() const { return sst_read_count_.load(); }
   uint64_t sst_multiread_count() const { return sst_multiread_count_.load(); }
 
  private:
@@ -113,8 +111,6 @@ class BlobReadIOActivityFS : public FileSystemWrapper {
         fs_->last_blob_read_io_activity_.store(
             static_cast<uint8_t>(options.io_activity));
         fs_->blob_read_count_.fetch_add(1);
-      } else {
-        fs_->sst_read_count_.fetch_add(1);
       }
       return FSRandomAccessFileOwnerWrapper::Read(offset, n, options, result,
                                                   scratch, dbg);
@@ -142,7 +138,6 @@ class BlobReadIOActivityFS : public FileSystemWrapper {
       static_cast<uint8_t>(Env::IOActivity::kUnknown)};
   std::atomic<uint64_t> blob_read_count_{0};
   std::atomic<uint64_t> blob_multiread_count_{0};
-  std::atomic<uint64_t> sst_read_count_{0};
   std::atomic<uint64_t> sst_multiread_count_{0};
 };
 }  // namespace
@@ -1056,7 +1051,7 @@ TEST_F(DBLazyEntityTest, BatchCoalescesWholeColumnSeparateFileReads) {
   std::vector<std::string> values;
   for (size_t i = 0; i < kNumKeys; ++i) {
     keys.push_back("k" + std::to_string(i));
-    values.push_back(std::string(2000 + i, static_cast<char>('a' + i)));
+    values.emplace_back(2000 + i, static_cast<char>('a' + i));
     ASSERT_OK(db_->PutEntity(
         WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
         {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
@@ -1138,7 +1133,7 @@ TEST_F(DBLazyEntityTest, BatchCoalescesRangeSeparateFileReads) {
   std::vector<std::string> values;
   for (size_t i = 0; i < kNumKeys; ++i) {
     keys.push_back("k" + std::to_string(i));
-    values.push_back(std::string(kValueSize, static_cast<char>('a' + i)));
+    values.emplace_back(kValueSize, static_cast<char>('a' + i));
     ASSERT_OK(db_->PutEntity(
         WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
         {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
@@ -1207,9 +1202,10 @@ TEST_F(DBLazyEntityTest, BatchCoalescesEmbeddedReads) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
   std::vector<std::pair<std::string, WideColumns>> entities;
+  entities.reserve(kNumKeys);
   for (size_t i = 0; i < kNumKeys; ++i) {
     keys.push_back("ek" + std::to_string(i));
-    values.push_back(std::string(2000 + i, static_cast<char>('a' + i)));
+    values.emplace_back(2000 + i, static_cast<char>('a' + i));
   }
   for (size_t i = 0; i < kNumKeys; ++i) {
     entities.emplace_back(
@@ -1268,9 +1264,10 @@ TEST_F(DBLazyEntityTest, BatchCoalescesEmbeddedReadsOutOfOrder) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
   std::vector<std::pair<std::string, WideColumns>> entities;
+  entities.reserve(kNumKeys);
   for (size_t i = 0; i < kNumKeys; ++i) {
     keys.push_back("ek" + std::to_string(i));
-    values.push_back(std::string(2000 + i, static_cast<char>('a' + i)));
+    values.emplace_back(2000 + i, static_cast<char>('a' + i));
   }
   for (size_t i = 0; i < kNumKeys; ++i) {
     entities.emplace_back(
@@ -1377,7 +1374,7 @@ TEST_F(DBLazyEntityTest, BatchedResolveMatchesPerKey) {
   std::vector<std::string> values;
   for (size_t i = 0; i < kNumKeys; ++i) {
     keys.push_back("k" + std::to_string(i));
-    values.push_back(std::string(1500 + 37 * i, static_cast<char>('a' + i)));
+    values.emplace_back(1500 + 37 * i, static_cast<char>('a' + i));
     ASSERT_OK(db_->PutEntity(
         WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
         {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
@@ -1419,8 +1416,187 @@ TEST_F(DBLazyEntityTest, BatchedResolveMatchesPerKey) {
   }
 }
 
-// The lazy result outlives the producing call: it pins the SuperVersion, so a
-// deferred read still works after GetEntityLazy has returned and even after the
+// Regression test: a single blob file can hold more references than the
+// MultiGet batch limit (MultiGetContext::MAX_BATCH_SIZE).
+// Version::MultiGetBlobLazy must split per-file requests into batches no larger
+// than that limit, since the lower-level BlobFileReader::MultiGetBlob[Range]
+// asserts it and BlobSource tracks cache hits in a 64-bit mask. Here all keys
+// are flushed into one blob file and resolved (whole, then byte-range) in one
+// batch each; kNumKeys exceeds both 32 and 64.
+TEST_F(DBLazyEntityTest, BatchManyKeysInOneBlobFileExceedsBatchLimit) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumKeys = 70;  // > MAX_BATCH_SIZE (32) and > 64
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  keys.reserve(kNumKeys);
+  values.reserve(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    keys.push_back("k" + std::to_string(i));
+    values.emplace_back(1000 + i, static_cast<char>('a' + (i % 26)));
+    ASSERT_OK(db_->PutEntity(
+        WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
+        {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
+  }
+  ASSERT_OK(Flush());  // one flush -> one blob file holding all kNumKeys blobs
+
+  std::vector<Slice> key_slices(keys.begin(), keys.end());
+  LazyWideColumnsBatch batch;
+  std::vector<Status> get_statuses(kNumKeys);
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys,
+                          key_slices.data(), &batch, get_statuses.data());
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(get_statuses[i]);
+  }
+  ASSERT_EQ(batch.size(), kNumKeys);
+
+  // Whole-column reads of every key in one batch.
+  {
+    std::vector<PinnableSlice> results(kNumKeys);
+    std::vector<Status> statuses(kNumKeys);
+    std::vector<LazyColumnReadRequest> reads(kNumKeys);
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      reads[i].column = &batch[i][1];
+      reads[i].result = &results[i];
+      reads[i].status = &statuses[i];
+    }
+    ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i], values[i]);
+    }
+  }
+
+  // Byte-range reads of every key in one batch.
+  {
+    std::vector<PinnableSlice> results(kNumKeys);
+    std::vector<Status> statuses(kNumKeys);
+    std::vector<LazyColumnReadRequest> reads(kNumKeys);
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      reads[i].column = &batch[i][1];
+      reads[i].offset = 10;
+      reads[i].length = 50;
+      reads[i].result = &results[i];
+      reads[i].status = &statuses[i];
+    }
+    ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(results[i], values[i].substr(10, 50));
+    }
+  }
+}
+
+// Regression test: a force_verify read must not be silently skipped when the
+// same column is also read (whole, unverified) in the same batch. Coalescing
+// must not adopt unverified bytes into the resolver cache ahead of the
+// force_verify read. A corrupted record is detected because the force_verify
+// read runs a full verified read rather than slicing the coalesced cache entry.
+TEST_F(DBLazyEntityTest, BatchForceVerifyNotSkippedByCoalescedRead) {
+  Options options = GetLazyTestOptions();  // no blob cache: reads hit the file
+  DestroyAndReopen(options);
+
+  constexpr char key[] = "entity";
+  const std::string big(4000, 'a');
+  const WideColumns columns{{kDefaultWideColumnName, "inline"}, {"data", big}};
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key, columns));
+  ASSERT_OK(Flush());
+
+  // Corrupt the value bytes after they are read from the file so a checksum
+  // verification (if it runs) fails.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:TamperWithResult", [](void* arg) {
+        Slice* const record_slice = static_cast<Slice*>(arg);
+        ASSERT_NE(record_slice, nullptr);
+        ASSERT_FALSE(record_slice->empty());
+        char* const data = const_cast<char*>(record_slice->data());
+        data[record_slice->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions ro;
+  ro.verify_checksums = false;  // globally off; force_verify overrides per-read
+  const std::array<Slice, 1> key_slices{Slice(key)};
+  LazyWideColumnsBatch batch;
+  std::array<Status, 1> get_statuses;
+  db_->MultiGetEntityLazy(ro, db_->DefaultColumnFamily(), key_slices.size(),
+                          key_slices.data(), &batch, get_statuses.data());
+  ASSERT_OK(get_statuses[0]);
+
+  // reads[0] forces verification of the "data" column; reads[1] reads the same
+  // column whole without verification. reads[1] must not cause reads[0] to be
+  // served from an unverified coalesced cache entry.
+  std::array<PinnableSlice, 2> results;
+  std::array<Status, 2> statuses;
+  std::array<LazyColumnReadRequest, 2> reads;
+  reads[0].column = &batch[0][1];
+  reads[0].force_verify = true;
+  reads[0].result = &results[0];
+  reads[0].status = &statuses[0];
+  reads[1].column = &batch[0][1];  // same column, whole, unverified
+  reads[1].result = &results[1];
+  reads[1].status = &statuses[1];
+  ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
+
+  // The force_verify read detected the corruption.
+  ASSERT_TRUE(statuses[0].IsCorruption()) << statuses[0].ToString();
+  // The unverified whole read of the same column runs no verification, so it
+  // still succeeds (returning the unverified bytes) rather than surfacing the
+  // corruption.
+  ASSERT_OK(statuses[1]);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Regression test: multiple byte-range reads that omit a per-read status (a
+// supported case) must each get an isolated internal status, so one read's
+// outcome cannot clobber another's and leave a valid read's result unpinned.
+// Here all reads succeed and must return their bytes.
+// A read that omits its status out-param is a caller error (there is nowhere to
+// report that read's outcome), so MultiResolve fails the whole call with
+// InvalidArgument rather than silently resolving.
+TEST_F(DBLazyEntityTest, BatchNullStatusReturnsInvalidArgument) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumKeys = 3;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  keys.reserve(kNumKeys);
+  values.reserve(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    keys.push_back("k" + std::to_string(i));
+    values.emplace_back(3000, static_cast<char>('a' + i));
+    ASSERT_OK(db_->PutEntity(
+        WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
+        {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<Slice> key_slices(keys.begin(), keys.end());
+  LazyWideColumnsBatch batch;
+  std::vector<Status> get_statuses(kNumKeys);
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys,
+                          key_slices.data(), &batch, get_statuses.data());
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(get_statuses[i]);
+  }
+
+  std::vector<PinnableSlice> results(kNumKeys);
+  std::vector<LazyColumnReadRequest> reads(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    reads[i].column = &batch[i][1];
+    reads[i].offset = 100;
+    reads[i].length = 80;
+    reads[i].result = &results[i];
+    reads[i].status = nullptr;  // caller error: no status out-param
+  }
+  const Status s = batch.MultiResolve(reads.size(), reads.data());
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+}
 // result has been moved.
 TEST_F(DBLazyEntityTest, ResultOutlivesGetEntityLazyCall) {
   Options options = GetLazyTestOptions();
@@ -2058,9 +2234,97 @@ TEST_F(DBLazyEntityTest, SecondaryInstance) {
   ASSERT_EQ(Slice(value), big);
 }
 
-// Verify that MultiGetEntityLazy sets IOOptions::io_activity to
-// kMultiGetEntity (not kGetEntity or kUnknown) so that the stress test's
-// CheckIOActivity assertion in db_stress_env_wrapper.h passes. This
+// Batched MultiGetEntityLazy works on a read-only instance: the read-only
+// GetImpl override must honor the batch's shared SuperVersion / sequence number
+// and hand back the resolution Version even though no per-key pin is taken.
+TEST_F(DBLazyEntityTest, ReadOnlyInstanceBatched) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumKeys = 3;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  keys.reserve(kNumKeys);
+  values.reserve(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    keys.push_back("k" + std::to_string(i));
+    values.emplace_back(200 + i, static_cast<char>('a' + i));
+    ASSERT_OK(db_->PutEntity(
+        WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
+        {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  std::vector<Slice> key_slices(keys.begin(), keys.end());
+  LazyWideColumnsBatch batch;
+  std::vector<Status> get_statuses(kNumKeys);
+  db_->MultiGetEntityLazy(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys,
+                          key_slices.data(), &batch, get_statuses.data());
+  std::vector<PinnableSlice> results(kNumKeys);
+  std::vector<Status> statuses(kNumKeys);
+  std::vector<LazyColumnReadRequest> reads(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(get_statuses[i]);
+    reads[i].column = &batch[i][1];
+    reads[i].result = &results[i];
+    reads[i].status = &statuses[i];
+  }
+  ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
+  }
+}
+
+// Batched MultiGetEntityLazy works on a secondary instance (same requirement on
+// its GetImpl override as read-only).
+TEST_F(DBLazyEntityTest, SecondaryInstanceBatched) {
+  Options options = GetLazyTestOptions();
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumKeys = 3;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  keys.reserve(kNumKeys);
+  values.reserve(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    keys.push_back("k" + std::to_string(i));
+    values.emplace_back(250 + i, static_cast<char>('b' + i));
+    ASSERT_OK(db_->PutEntity(
+        WriteOptions(), db_->DefaultColumnFamily(), keys.back(),
+        {{kDefaultWideColumnName, "inline"}, {"data", values.back()}}));
+  }
+  ASSERT_OK(Flush());
+
+  const std::string secondary_path = dbname_ + "_secondary";
+  ASSERT_OK(DestroyDB(secondary_path, options));
+  std::unique_ptr<DB> secondary;
+  ASSERT_OK(DB::OpenAsSecondary(options, dbname_, secondary_path, &secondary));
+  ASSERT_OK(secondary->TryCatchUpWithPrimary());
+
+  std::vector<Slice> key_slices(keys.begin(), keys.end());
+  LazyWideColumnsBatch batch;
+  std::vector<Status> get_statuses(kNumKeys);
+  secondary->MultiGetEntityLazy(ReadOptions(), secondary->DefaultColumnFamily(),
+                                kNumKeys, key_slices.data(), &batch,
+                                get_statuses.data());
+  std::vector<PinnableSlice> results(kNumKeys);
+  std::vector<Status> statuses(kNumKeys);
+  std::vector<LazyColumnReadRequest> reads(kNumKeys);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(get_statuses[i]);
+    reads[i].column = &batch[i][1];
+    reads[i].result = &results[i];
+    reads[i].status = &statuses[i];
+  }
+  ASSERT_OK(batch.MultiResolve(reads.size(), reads.data()));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_EQ(results[i], values[i]);
+  }
+}
 // reproduces the scenario from T283693234 where the thread operation was left
 // stale at OP_GETENTITY after a consistency check, causing a mismatch with the
 // kMultiGetEntity activity that MultiGetEntityLazy correctly propagates.

@@ -1117,6 +1117,7 @@ void BlobSource::MultiGetBlobRange(
                                  blob_reqs_in_file, &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
+    bytes_read_in_file = 0;  // reset: some early-return paths do not write it
   }
 
   if (bytes_read) {

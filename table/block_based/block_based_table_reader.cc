@@ -1431,7 +1431,7 @@ Status BlockBasedTable::ResolveEmbeddedBlobRangeCached(
       range_offset, range_length, value, /*bytes_read=*/nullptr);
 }
 
-Status BlockBasedTable::MultiGetSameFileBlob(
+void BlockBasedTable::MultiGetSameFileBlob(
     const ReadOptions& read_options, size_t num_reads,
     SameFileBlobReadRequest* reqs) const {
   // Partition the requests into coalesceable whole-record and sub-range groups
@@ -1488,7 +1488,6 @@ Status BlockBasedTable::MultiGetSameFileBlob(
         read_options, rep_->base_cache_key, rep_->file.get(), range_reqs.size(),
         range_reqs.data());
   }
-  return Status::OK();
 }
 
 Status BlockBasedTable::MaybeResolveEmbeddedValue(

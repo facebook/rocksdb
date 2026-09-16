@@ -3048,7 +3048,7 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
   // to the DB mutex only if a flush races) without adding a snapshot-list
   // entry, and every key reads from the same Version so cross-key blob
   // resolution coalesces maximally.
-  std::array<ColumnFamilySuperVersionPair, 1> cf_sv_pairs;
+  std::array<ColumnFamilySuperVersionPair, 1> cf_sv_pairs{};
   cf_sv_pairs[0] = ColumnFamilySuperVersionPair(column_family, nullptr);
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local = false;

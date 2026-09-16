@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -181,9 +182,8 @@ class LazyWideColumns::Rep {
     const Status s = resolver_->ResolveColumnRange(
         index, read.offset, read.length, read.force_verify, read.result);
 
-    if (read.status) {
-      *read.status = s;
-    }
+    assert(read.status);  // callers reject a null status up front
+    *read.status = s;
   }
 };
 
@@ -206,11 +206,18 @@ const LazyWideColumn& LazyWideColumns::operator[](size_t i) const {
 Status LazyWideColumns::MultiResolve(size_t num_reads,
                                      LazyColumnReadRequest* reads) {
   LazyResolveThreadOpScope thread_op_scope;
+  // Each read must supply a status out-param; a null one is a caller error with
+  // nowhere to report that read's outcome, so fail the whole call (see
+  // LazyColumnReadRequest::status).
+  for (size_t i = 0; i < num_reads; ++i) {
+    if (reads[i].status == nullptr) {
+      return Status::InvalidArgument(
+          "LazyColumnReadRequest::status must not be null");
+    }
+  }
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];
-    if (read.status) {
-      *read.status = Status::OK();
-    }
+    *read.status = Status::OK();
     if (read.result) {
       read.result->Reset();  // failure paths below leave an empty result
     }
@@ -219,10 +226,8 @@ Status LazyWideColumns::MultiResolve(size_t num_reads,
     if (read.column == nullptr ||
         static_cast<const Rep::ColumnImpl*>(read.column)->parent_rep_ !=
             rep_.get()) {
-      if (read.status) {
-        *read.status = Status::InvalidArgument(
-            "Column does not belong to this LazyWideColumns");
-      }
+      *read.status = Status::InvalidArgument(
+          "Column does not belong to this LazyWideColumns");
       continue;
     }
     rep_->ResolveOneRead(read.column->index(), read);
@@ -273,6 +278,14 @@ class LazyWideColumnsBatch::Rep {
   // One result per key of the MultiGetEntityLazy call, in key order.
   std::vector<LazyWideColumns> entities;
 
+  Rep() = default;
+  // Not copyable or movable: the entities' resolvers hold pointers back into
+  // this Rep, and the custom destructor below has teardown-ordering semantics.
+  Rep(const Rep&) = delete;
+  Rep& operator=(const Rep&) = delete;
+  Rep(Rep&&) = delete;
+  Rep& operator=(Rep&&) = delete;
+
   ~Rep() {
     // Releasing a shared SuperVersion pin can trigger obsolete-file cleanup I/O
     // (e.g. FindObsoleteFiles) when the batch held the last reference. Mirror
@@ -317,6 +330,15 @@ LazyWideColumns& LazyWideColumnsBatch::operator[](size_t i) {
 Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
                                           LazyColumnReadRequest* reads) {
   LazyResolveThreadOpScope thread_op_scope;
+  // Each read must supply a status out-param; a null one is a caller error with
+  // nowhere to report that read's outcome, so fail the whole call (see
+  // LazyColumnReadRequest::status).
+  for (size_t i = 0; i < num_reads; ++i) {
+    if (reads[i].status == nullptr) {
+      return Status::InvalidArgument(
+          "LazyColumnReadRequest::status must not be null");
+    }
+  }
   const void* this_rep = rep_.get();
 
   using EntityRep = LazyWideColumns::Rep;
@@ -340,7 +362,7 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
     uint64_t range_offset = 0;
     size_t range_length = 0;
     PinnableSlice* result = nullptr;
-    Status* status = nullptr;  // the user's status, or &range_status_sink
+    Status* status = nullptr;  // the caller's status (never null; validated)
   };
   // Binds an original whole read to the whole fetch that satisfies it.
   struct WholeBinding {
@@ -353,9 +375,33 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
   std::vector<WholeBinding> whole_bindings;
   std::vector<LazyColumnReadRequest*> serve_individually;
   std::map<std::pair<EntityRep*, size_t>, size_t> whole_index;
-  // Fallback status sink for range reads whose caller supplied no status (the
-  // per-read outcome is then not wanted); permitted-unchecked at the end.
-  Status range_status_sink;
+  // Each read contributes at most one entry to one of these plans; reserve up
+  // front to avoid repeated reallocation on the batch path.
+  whole_fetches.reserve(num_reads);
+  range_fetches.reserve(num_reads);
+  whole_bindings.reserve(num_reads);
+  serve_individually.reserve(num_reads);
+
+  // Any column with a force_verify read must be resolved entirely on the
+  // individual (sequential) path, never coalesced: otherwise a non-verified
+  // coalesced whole fetch for that column could adopt its bytes into the
+  // resolver cache before the force_verify read runs, so that read would hit
+  // the cache and skip checksum verification. Collect those columns first (a
+  // read requesting verification may follow a non-verifying read of the same
+  // column in the batch) so classification below can route all their reads to
+  // the individual path, preserving the "verify on the first actual read"
+  // semantics of resolving key-by-key.
+  std::set<std::pair<EntityRep*, size_t>> force_verify_columns;
+  for (size_t i = 0; i < num_reads; ++i) {
+    const LazyColumnReadRequest& read = reads[i];
+    if (read.force_verify && read.column != nullptr) {
+      EntityRep* entity_rep =
+          static_cast<const EntityRep::ColumnImpl*>(read.column)->parent_rep_;
+      if (entity_rep != nullptr) {
+        force_verify_columns.emplace(entity_rep, read.column->index());
+      }
+    }
+  }
 
   // The (single-CF, shared) lazy ReadOptions used for every coalesced dispatch;
   // captured from the first classified entity. A future cross-CF batch would
@@ -365,16 +411,12 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
   // Pass 1: reset outputs, validate ownership, classify.
   for (size_t i = 0; i < num_reads; ++i) {
     LazyColumnReadRequest& read = reads[i];
-    if (read.status) {
-      *read.status = Status::OK();
-    }
+    *read.status = Status::OK();
     if (read.result) {
       read.result->Reset();  // failure paths below leave an empty result
     }
     if (read.column == nullptr) {
-      if (read.status) {
-        *read.status = Status::InvalidArgument("Null column in batch read");
-      }
+      *read.status = Status::InvalidArgument("Null column in batch read");
       continue;
     }
     // Route the read to the entity that owns its column, and require that
@@ -387,10 +429,8 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
         static_cast<const EntityRep::ColumnImpl*>(read.column)->parent_rep_;
     if (entity_rep == nullptr || entity_rep->owning_batch_rep_ == nullptr ||
         entity_rep->owning_batch_rep_ != this_rep) {
-      if (read.status) {
-        *read.status =
-            Status::InvalidArgument("Column does not belong to this batch");
-      }
+      *read.status =
+          Status::InvalidArgument("Column does not belong to this batch");
       continue;
     }
     // A read with no output buffer only wants to surface an I/O/integrity
@@ -403,6 +443,13 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
     }
 
     const size_t column_index = read.column->index();
+    // A column with any force_verify read in this batch is resolved entirely on
+    // the individual path (see force_verify_columns above) so verification is
+    // never skipped by a coalesced adoption.
+    if (force_verify_columns.count({entity_rep, column_index}) != 0) {
+      serve_individually.push_back(&read);
+      continue;
+    }
     const ReadPathBlobResolver::LazyColumnReadClassification cls =
         entity_rep->resolver_->ClassifyColumnRange(
             column_index, read.offset, read.length, read.force_verify);
@@ -490,7 +537,6 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
     }
     for (RangeFetch& rf : range_fetches) {
       ReadPathBlobResolver& resolver = *rf.entity_rep->resolver_;
-      Status* const status = rf.status ? rf.status : &range_status_sink;
       if (rf.same_file) {
         SameFileBlobReadRequest req;
         req.blob_index = rf.blob_index;
@@ -499,7 +545,7 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
         req.verify_policy =
             whole_policy;  // range never verifies; policy unused
         req.result = rf.result;
-        req.status = status;
+        req.status = rf.status;
         same_groups[resolver.same_file_reader()].push_back(req);
       } else {
         Version::LazyBlobReadRequest req;
@@ -508,7 +554,7 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
         req.range_offset = rf.range_offset;
         req.range_length = rf.range_length;
         req.result = rf.result;
-        req.status = status;
+        req.status = rf.status;
         separate_groups[resolver.version()].emplace_back(req);
       }
     }
@@ -517,8 +563,7 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
       version->MultiGetBlobLazy(*resolve_ro, reqs);
     }
     for (auto& [reader, reqs] : same_groups) {
-      reader->MultiGetSameFileBlob(*resolve_ro, reqs.size(), reqs.data())
-          .PermitUncheckedError();  // per-request outcomes are in each status
+      reader->MultiGetSameFileBlob(*resolve_ro, reqs.size(), reqs.data());
     }
   }
 
@@ -536,17 +581,13 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
   for (WholeBinding& b : whole_bindings) {
     WholeFetch& wf = whole_fetches[b.fetch_idx];
     if (!wf.status.ok()) {
-      if (b.read->status) {
-        *b.read->status = wf.status;
-      }
+      *b.read->status = wf.status;
       continue;
     }
     const Status s = wf.entity_rep->resolver_->ResolveColumnRange(
         b.read->column->index(), b.read->offset, b.read->length,
         b.read->force_verify, b.read->result);
-    if (b.read->status) {
-      *b.read->status = s;
-    }
+    *b.read->status = s;
   }
 
   // Pass 5: serve the individual (non-coalesced) reads.
@@ -555,10 +596,6 @@ Status LazyWideColumnsBatch::MultiResolve(size_t num_reads,
         static_cast<const EntityRep::ColumnImpl*>(read->column)->parent_rep_;
     entity_rep->ResolveOneRead(read->column->index(), *read);
   }
-
-  // The shared sink only absorbs outcomes of range reads whose caller wanted no
-  // status; nothing reads it, so mark it checked for ASSERT_STATUS_CHECKED.
-  range_status_sink.PermitUncheckedError();
 
   return Status::OK();
 }

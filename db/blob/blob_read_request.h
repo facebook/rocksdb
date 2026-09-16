@@ -64,7 +64,7 @@ using BlobFileReadRequests =
 // BlobSource::GetBlobRange / BlobFileReader::GetBlobRange.
 struct BlobRangeReadRequest {
   // User key that pairs with the blob value (used for offset validation).
-  const Slice* user_key = nullptr;
+  Slice user_key;
 
   // The blob value's file offset and full (logical == on-disk, uncompressed)
   // size, from the BlobIndex.
@@ -81,11 +81,10 @@ struct BlobRangeReadRequest {
   PinnableSlice* result = nullptr;
   Status* status = nullptr;
 
-  BlobRangeReadRequest(const Slice& _user_key, uint64_t _offset,
-                       uint64_t _value_size, uint64_t _range_offset,
-                       size_t _range_length, PinnableSlice* _result,
-                       Status* _status)
-      : user_key(&_user_key),
+  BlobRangeReadRequest(Slice _user_key, uint64_t _offset, uint64_t _value_size,
+                       uint64_t _range_offset, size_t _range_length,
+                       PinnableSlice* _result, Status* _status)
+      : user_key(_user_key),
         offset(_offset),
         value_size(_value_size),
         range_offset(_range_offset),
@@ -94,8 +93,6 @@ struct BlobRangeReadRequest {
         status(_status) {}
 
   BlobRangeReadRequest() = default;
-  BlobRangeReadRequest(const BlobRangeReadRequest& other) = default;
-  BlobRangeReadRequest& operator=(const BlobRangeReadRequest& other) = default;
 };
 
 using BlobFileRangeReadRequests =

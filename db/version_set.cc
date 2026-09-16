@@ -2850,8 +2850,16 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
                                autovector<LazyBlobReadRequest>& reqs) const {
   assert(blob_source_);
 
-  // Group whole-value and sub-range requests separately, each keyed by blob
-  // file, so BlobSource issues one coalesced MultiRead per file.
+  // Turn the flat list of separate-file blob references into per-blob-file
+  // batches that BlobSource can each resolve with a single coalesced MultiRead.
+  // Whole-value and sub-range requests use different BlobSource entry points,
+  // so they are grouped independently:
+  //   whole_reqs -- batches of whole-value reads (BlobReadRequest)
+  //   range_reqs -- batches of sub-range reads (BlobRangeReadRequest)
+  // Each batch holds at most MultiGetContext::MAX_BATCH_SIZE requests (see the
+  // loop below), so one file may contribute several batches. whole_idx /
+  // range_idx map a file number to the index, within whole_reqs / range_reqs,
+  // of that file's current (most recently started, still fillable) batch.
   autovector<BlobFileReadRequests> whole_reqs;
   autovector<BlobFileRangeReadRequests> range_reqs;
   std::unordered_map<uint64_t, size_t> whole_idx;
@@ -2880,15 +2888,23 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
     const uint64_t file_size = blob_file_meta->GetBlobFileSize();
 
     if (req.range_length == kWholeBlobLength) {
-      auto it = whole_idx.find(file_number);
+      // Append to this file's current batch, or start a new batch when the file
+      // has none yet or its current batch is full. Capping each batch at
+      // MAX_BATCH_SIZE is required, not just an optimization:
+      // BlobFileReader::MultiGetBlob[Range] asserts a batch is at most
+      // MAX_BATCH_SIZE, and BlobSource tracks a batch's cache hits in a 64-bit
+      // mask -- while MultiGetEntityLazy does not otherwise bound how many keys
+      // can reference a single blob file.
       size_t idx;
-      if (it == whole_idx.end()) {
-        idx = whole_reqs.size();
+      auto it = whole_idx.find(file_number);
+      if (it != whole_idx.end() && std::get<2>(whole_reqs[it->second]).size() <
+                                       MultiGetContext::MAX_BATCH_SIZE) {
+        idx = it->second;  // this file's current batch still has room
+      } else {
+        idx = whole_reqs.size();  // no batch yet for this file, or it is full
         whole_idx[file_number] = idx;
         whole_reqs.emplace_back(file_number, file_size,
                                 autovector<BlobReadRequest>());
-      } else {
-        idx = it->second;
       }
       std::get<2>(whole_reqs[idx])
           .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
@@ -2900,15 +2916,18 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
         *req.status = Status::Corruption("Cannot range-read a compressed blob");
         continue;
       }
-      auto it = range_idx.find(file_number);
+      // Same per-file batching and MAX_BATCH_SIZE cap as the whole-value path
+      // above.
       size_t idx;
-      if (it == range_idx.end()) {
-        idx = range_reqs.size();
+      auto it = range_idx.find(file_number);
+      if (it != range_idx.end() && std::get<2>(range_reqs[it->second]).size() <
+                                       MultiGetContext::MAX_BATCH_SIZE) {
+        idx = it->second;  // this file's current batch still has room
+      } else {
+        idx = range_reqs.size();  // no batch yet for this file, or it is full
         range_idx[file_number] = idx;
         range_reqs.emplace_back(file_number, file_size,
                                 autovector<BlobRangeReadRequest>());
-      } else {
-        idx = it->second;
       }
       std::get<2>(range_reqs[idx])
           .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
@@ -2917,6 +2936,7 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
     }
   }
 
+  // Resolve every batch; BlobSource issues one coalesced MultiRead per batch.
   if (!whole_reqs.empty()) {
     blob_source_->MultiGetBlob(read_options, whole_reqs,
                                /*bytes_read=*/nullptr);

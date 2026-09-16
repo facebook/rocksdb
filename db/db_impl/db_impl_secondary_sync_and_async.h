@@ -56,7 +56,12 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  SequenceNumber snapshot = versions_->LastSequence();
+  // For a batched lazy read (MultiGetEntityLazy) use the sequence number the
+  // batch fixed (see GetImplOptions::lazy_columns_shared_sv); otherwise this
+  // instance's last sequence.
+  SequenceNumber snapshot = get_impl_options.lazy_columns_shared_sv != nullptr
+                                ? get_impl_options.lazy_columns_snapshot_seq
+                                : versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
@@ -82,21 +87,32 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
     }
   }
 
-  // Acquire SuperVersion
+  // Acquire SuperVersion, or use the batch's shared one for a batched lazy read
+  // (see GetImplOptions::lazy_columns_shared_sv), skipping the per-key
+  // reference and its release.
+  const bool own_super_version =
+      get_impl_options.lazy_columns_shared_sv == nullptr;
+  SuperVersion* super_version;
+  if (own_super_version) {
 #if defined(WITH_COROUTINES)
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
+    super_version = cfd->GetReferencedSuperVersion(this);
 #else
-  SuperVersion* super_version = GetAndRefSuperVersion(cfd);
+    super_version = GetAndRefSuperVersion(cfd);
 #endif
+  } else {
+    super_version = get_impl_options.lazy_columns_shared_sv;
+  }
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     s = FailIfReadCollapsedHistory(cfd, super_version,
                                    *(read_options.timestamp));
     if (!s.ok()) {
+      if (own_super_version) {
 #if defined(WITH_COROUTINES)
-      CleanupSuperVersion(super_version);
+        CleanupSuperVersion(super_version);
 #else
-      ReturnAndCleanupSuperVersion(cfd, super_version);
+        ReturnAndCleanupSuperVersion(cfd, super_version);
 #endif
+      }
       CO_RETURN s;
     }
   }
@@ -177,11 +193,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
   }
   if (!s.ok() && !s.IsMergeInProgress() && !s.IsNotFound()) {
     assert(done);
+    if (own_super_version) {
 #if defined(WITH_COROUTINES)
-    CleanupSuperVersion(super_version);
+      CleanupSuperVersion(super_version);
 #else
-    ReturnAndCleanupSuperVersion(cfd, super_version);
+      ReturnAndCleanupSuperVersion(cfd, super_version);
 #endif
+    }
     CO_RETURN s;
   }
   if (!done) {
@@ -199,21 +217,27 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
   }
   {
     PERF_TIMER_GUARD(get_post_process_time);
+    if (get_impl_options.lazy_columns_version != nullptr && s.ok()) {
+      // Lazy result (GetEntityLazy / MultiGetEntityLazy): hand back the Version
+      // the entity's blob references must be resolved against (both the
+      // single-key and batched paths).
+      *get_impl_options.lazy_columns_version = super_version->current;
+    }
     if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
-      // Lazy result (GetEntityLazy): hand back the resolution Version and take
-      // a SuperVersion pin for the result before the borrowed reference below
-      // is released, so the result -- and deferred blob reads -- stay valid
-      // after this call (as an iterator's pin does).
-      if (get_impl_options.lazy_columns_version != nullptr) {
-        *get_impl_options.lazy_columns_version = super_version->current;
-      }
+      // Single-key GetEntityLazy: take a SuperVersion pin for the result before
+      // the borrowed reference below is released, so the result -- and deferred
+      // blob reads -- stay valid after this call (as an iterator's pin does).
+      // The batched path passes no pin (it uses lazy_columns_shared_sv); the
+      // batch holds one shared pin per column family instead.
       TransferSuperVersionPin(super_version, get_impl_options.lazy_columns_pin);
     }
+    if (own_super_version) {
 #if defined(WITH_COROUTINES)
-    CleanupSuperVersion(super_version);
+      CleanupSuperVersion(super_version);
 #else
-    ReturnAndCleanupSuperVersion(cfd, super_version);
+      ReturnAndCleanupSuperVersion(cfd, super_version);
 #endif
+    }
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     // Mirror DBImpl::GetImpl: only produce merge-operand output and count bytes

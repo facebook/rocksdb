@@ -260,6 +260,8 @@ void MultiReadGen2(const ReadOptions& read_options,
                         &direct_io_context, &dbg);
   }
   if (!s.ok()) {
+    // Batch read failed; s is written to every slot's status below, so these
+    // per-request FS statuses carry nothing extra.
     for (auto& read_req : read_reqs) {
       read_req.status.PermitUncheckedError();
     }

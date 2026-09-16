@@ -53,7 +53,13 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
 
   const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  SequenceNumber snapshot = versions_->LastSequence();
+  // For a batched lazy read (MultiGetEntityLazy), use the SuperVersion and
+  // consistent sequence number the batch already fixed (see
+  // GetImplOptions::lazy_columns_shared_sv); otherwise this read-only
+  // instance's stable current SuperVersion and last sequence.
+  SequenceNumber snapshot = get_impl_options.lazy_columns_shared_sv != nullptr
+                                ? get_impl_options.lazy_columns_snapshot_seq
+                                : versions_->LastSequence();
   GetWithTimestampReadCallback read_cb(snapshot);
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
       get_impl_options.column_family);
@@ -81,7 +87,10 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
 
   // In read-only mode Get(), no super version operation is needed (i.e.
   // GetAndRefSuperVersion and ReturnAndCleanupSuperVersion)
-  SuperVersion* super_version = cfd->GetSuperVersion();
+  SuperVersion* super_version =
+      get_impl_options.lazy_columns_shared_sv != nullptr
+          ? get_impl_options.lazy_columns_shared_sv
+          : cfd->GetSuperVersion();
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     s = FailIfReadCollapsedHistory(cfd, super_version,
                                    *(read_options.timestamp));
@@ -161,15 +170,19 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplReadOnly::GetImpl)
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
   }
+  if (get_impl_options.lazy_columns_version != nullptr && s.ok()) {
+    // Lazy result (GetEntityLazy / MultiGetEntityLazy): hand back the Version
+    // the entity's blob references must be resolved against (both the
+    // single-key and batched paths).
+    *get_impl_options.lazy_columns_version = super_version->current;
+  }
   if (get_impl_options.lazy_columns_pin != nullptr && s.ok()) {
-    // Lazy result (GetEntityLazy): hand back the Version the entity's blob
-    // references must be resolved against, and transfer a SuperVersion pin into
-    // the result so it -- and deferred blob reads -- stay valid after this call
-    // (as an iterator's pin does). Read-only borrows the current SuperVersion
-    // without a reference, so the pin takes its own.
-    if (get_impl_options.lazy_columns_version != nullptr) {
-      *get_impl_options.lazy_columns_version = super_version->current;
-    }
+    // Single-key GetEntityLazy: transfer a SuperVersion pin into the result so
+    // it -- and deferred blob reads -- stay valid after this call (as an
+    // iterator's pin does). Read-only borrows the current SuperVersion without
+    // a reference, so the pin takes its own. The batched path passes no pin (it
+    // uses lazy_columns_shared_sv); the batch holds one shared pin per column
+    // family instead.
     TransferSuperVersionPin(super_version, get_impl_options.lazy_columns_pin);
   }
   CO_RETURN s;
