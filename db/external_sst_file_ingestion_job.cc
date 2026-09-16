@@ -7,16 +7,22 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <map>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
+#include "db/range_del_aggregator.h"
+#include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
+#include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
+#include "memory/arena.h"
 #include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
 #include "table/merging_iterator.h"
@@ -28,6 +34,252 @@
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+class LsmEditSequenceOrderValidator {
+ public:
+  LsmEditSequenceOrderValidator(const InternalKeyComparator& icmp,
+                                const SliceTransform* prefix_extractor,
+                                bool fill_cache, bool allow_data_in_errors)
+      : ucmp_(icmp.user_comparator()),
+        prefix_extractor_(prefix_extractor),
+        allow_data_in_errors_(allow_data_in_errors) {
+    read_options_.fill_cache = fill_cache;
+    read_options_.total_order_seek = true;
+  }
+
+  Status Validate(const IngestedFileInfo& newer_file, TableReader* newer_reader,
+                  const IngestedFileInfo& older_file, TableReader* older_reader,
+                  bool allow_equal_sequence_numbers) const {
+    Status status =
+        ValidatePointEntries(newer_file, newer_reader, older_file, older_reader,
+                             allow_equal_sequence_numbers);
+    if (!status.ok()) {
+      return status;
+    }
+    status = ValidateTombstonesAgainstPoints(
+        newer_file, newer_reader, older_file, older_reader,
+        /*tombstones_are_newer=*/true, allow_equal_sequence_numbers);
+    if (!status.ok()) {
+      return status;
+    }
+    status = ValidateTombstonesAgainstPoints(
+        older_file, older_reader, newer_file, newer_reader,
+        /*tombstones_are_newer=*/false, allow_equal_sequence_numbers);
+    if (!status.ok()) {
+      return status;
+    }
+    return ValidateRangeTombstones(newer_file, newer_reader, older_file,
+                                   older_reader, allow_equal_sequence_numbers);
+  }
+
+ private:
+  struct PointGroup {
+    std::string user_key;
+    SequenceNumber smallest_seqno = kMaxSequenceNumber;
+    SequenceNumber largest_seqno = 0;
+  };
+
+  bool IsOrdered(SequenceNumber newer_seqno, SequenceNumber older_seqno,
+                 bool allow_equal_sequence_numbers) const {
+    return newer_seqno > older_seqno ||
+           (allow_equal_sequence_numbers && newer_seqno == older_seqno);
+  }
+
+  Status InvalidOrder(const IngestedFileInfo& newer_file,
+                      SequenceNumber newer_seqno,
+                      const IngestedFileInfo& older_file,
+                      SequenceNumber older_seqno) const {
+    return Status::InvalidArgument(
+        "LSM edit has invalid sequence number ordering: file " +
+        newer_file.external_file_path + " at level " +
+        std::to_string(newer_file.declared_level) + " has sequence " +
+        std::to_string(newer_seqno) + ", while overlapping file " +
+        older_file.external_file_path + " at level " +
+        std::to_string(older_file.declared_level) + " has sequence " +
+        std::to_string(older_seqno));
+  }
+
+  std::unique_ptr<InternalIterator> NewPointIterator(
+      TableReader* reader) const {
+    return std::unique_ptr<InternalIterator>(reader->NewIterator(
+        read_options_, prefix_extractor_, /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
+  }
+
+  Status ReadPointGroup(InternalIterator* iter, PointGroup* group,
+                        bool* valid) const {
+    assert(iter != nullptr);
+    assert(group != nullptr);
+    assert(valid != nullptr);
+    if (!iter->Valid()) {
+      *valid = false;
+      return iter->status();
+    }
+
+    ParsedInternalKey parsed;
+    Status status =
+        ParseInternalKey(iter->key(), &parsed, allow_data_in_errors_);
+    if (!status.ok()) {
+      return status;
+    }
+    group->user_key.assign(parsed.user_key.data(), parsed.user_key.size());
+    group->smallest_seqno = parsed.sequence;
+    group->largest_seqno = parsed.sequence;
+    iter->Next();
+    while (iter->Valid()) {
+      status = ParseInternalKey(iter->key(), &parsed, allow_data_in_errors_);
+      if (!status.ok()) {
+        return status;
+      }
+      if (ucmp_->Compare(group->user_key, parsed.user_key) != 0) {
+        break;
+      }
+      group->smallest_seqno = std::min(group->smallest_seqno, parsed.sequence);
+      group->largest_seqno = std::max(group->largest_seqno, parsed.sequence);
+      iter->Next();
+    }
+    *valid = true;
+    return iter->status();
+  }
+
+  Status ValidatePointEntries(const IngestedFileInfo& newer_file,
+                              TableReader* newer_reader,
+                              const IngestedFileInfo& older_file,
+                              TableReader* older_reader,
+                              bool allow_equal_sequence_numbers) const {
+    std::unique_ptr<InternalIterator> newer_iter =
+        NewPointIterator(newer_reader);
+    std::unique_ptr<InternalIterator> older_iter =
+        NewPointIterator(older_reader);
+    newer_iter->SeekToFirst();
+    older_iter->SeekToFirst();
+
+    PointGroup newer_group;
+    PointGroup older_group;
+    bool has_newer = false;
+    bool has_older = false;
+    Status status = ReadPointGroup(newer_iter.get(), &newer_group, &has_newer);
+    if (!status.ok()) {
+      return status;
+    }
+    status = ReadPointGroup(older_iter.get(), &older_group, &has_older);
+    if (!status.ok()) {
+      return status;
+    }
+
+    while (has_newer && has_older) {
+      const int cmp =
+          ucmp_->Compare(newer_group.user_key, older_group.user_key);
+      if (cmp == 0) {
+        if (!IsOrdered(newer_group.smallest_seqno, older_group.largest_seqno,
+                       allow_equal_sequence_numbers)) {
+          return InvalidOrder(newer_file, newer_group.smallest_seqno,
+                              older_file, older_group.largest_seqno);
+        }
+        status = ReadPointGroup(newer_iter.get(), &newer_group, &has_newer);
+        if (status.ok()) {
+          status = ReadPointGroup(older_iter.get(), &older_group, &has_older);
+        }
+      } else if (cmp < 0) {
+        status = ReadPointGroup(newer_iter.get(), &newer_group, &has_newer);
+      } else {
+        status = ReadPointGroup(older_iter.get(), &older_group, &has_older);
+      }
+      if (!status.ok()) {
+        return status;
+      }
+    }
+    return Status::OK();
+  }
+
+  Status ValidateTombstonesAgainstPoints(
+      const IngestedFileInfo& tombstone_file, TableReader* tombstone_reader,
+      const IngestedFileInfo& point_file, TableReader* point_reader,
+      bool tombstones_are_newer, bool allow_equal_sequence_numbers) const {
+    std::unique_ptr<FragmentedRangeTombstoneIterator> tombstone_iter(
+        tombstone_reader->NewRangeTombstoneIterator(read_options_));
+    if (tombstone_iter == nullptr) {
+      return Status::OK();
+    }
+    std::unique_ptr<InternalIterator> point_iter =
+        NewPointIterator(point_reader);
+
+    for (tombstone_iter->SeekToFirst(); tombstone_iter->Valid();
+         tombstone_iter->Next()) {
+      InternalKey seek_key(tombstone_iter->start_key(), kMaxSequenceNumber,
+                           kValueTypeForSeek);
+      point_iter->Seek(seek_key.Encode());
+      PointGroup point_group;
+      bool has_point = false;
+      Status status =
+          ReadPointGroup(point_iter.get(), &point_group, &has_point);
+      if (!status.ok()) {
+        return status;
+      }
+      while (has_point && ucmp_->Compare(point_group.user_key,
+                                         tombstone_iter->end_key()) < 0) {
+        const SequenceNumber newer_seqno = tombstones_are_newer
+                                               ? tombstone_iter->seq()
+                                               : point_group.smallest_seqno;
+        const SequenceNumber older_seqno = tombstones_are_newer
+                                               ? point_group.largest_seqno
+                                               : tombstone_iter->seq();
+        if (!IsOrdered(newer_seqno, older_seqno,
+                       allow_equal_sequence_numbers)) {
+          return tombstones_are_newer
+                     ? InvalidOrder(tombstone_file, newer_seqno, point_file,
+                                    older_seqno)
+                     : InvalidOrder(point_file, newer_seqno, tombstone_file,
+                                    older_seqno);
+        }
+        status = ReadPointGroup(point_iter.get(), &point_group, &has_point);
+        if (!status.ok()) {
+          return status;
+        }
+      }
+    }
+    return tombstone_iter->status();
+  }
+
+  Status ValidateRangeTombstones(const IngestedFileInfo& newer_file,
+                                 TableReader* newer_reader,
+                                 const IngestedFileInfo& older_file,
+                                 TableReader* older_reader,
+                                 bool allow_equal_sequence_numbers) const {
+    std::unique_ptr<FragmentedRangeTombstoneIterator> newer_iter(
+        newer_reader->NewRangeTombstoneIterator(read_options_));
+    std::unique_ptr<FragmentedRangeTombstoneIterator> older_iter(
+        older_reader->NewRangeTombstoneIterator(read_options_));
+    if (newer_iter == nullptr || older_iter == nullptr) {
+      return Status::OK();
+    }
+
+    for (newer_iter->SeekToFirst(); newer_iter->Valid(); newer_iter->Next()) {
+      older_iter->Seek(newer_iter->start_key());
+      while (older_iter->Valid() && ucmp_->Compare(older_iter->start_key(),
+                                                   newer_iter->end_key()) < 0) {
+        if (ucmp_->Compare(newer_iter->start_key(), older_iter->end_key()) <
+                0 &&
+            !IsOrdered(newer_iter->seq(), older_iter->seq(),
+                       allow_equal_sequence_numbers)) {
+          return InvalidOrder(newer_file, newer_iter->seq(), older_file,
+                              older_iter->seq());
+        }
+        older_iter->Next();
+      }
+    }
+    return Status::OK();
+  }
+
+  const Comparator* const ucmp_;
+  const SliceTransform* const prefix_extractor_;
+  const bool allow_data_in_errors_;
+  ReadOptions read_options_;
+};
+
+}  // namespace
 
 bool ExternalSstFileIngestionJob::SupportsAtomicReplaceRangeTombstone() const {
   return cfd_->is_delete_range_supported() &&
@@ -152,6 +404,139 @@ void ExternalSstFileIngestionJob::ActivateAtomicReplaceRangeTombstone() {
   DivideInputFilesIntoBatches();
 }
 
+Status ExternalSstFileIngestionJob::RecordDeclaredLevels(
+    const std::vector<std::string>& external_files_paths) {
+  assert(lsm_edit_spec_.has_value());
+  const std::vector<int>& levels = lsm_edit_spec_->levels;
+  const size_t num_files = files_to_ingest_.size();
+  if (levels.size() != num_files) {
+    return Status::InvalidArgument(
+        "LSM edit declares " + std::to_string(levels.size()) + " levels for " +
+        std::to_string(num_files) + " files");
+  }
+  if (ucmp_->timestamp_size() > 0) {
+    return Status::NotSupported(
+        "LSM edit is not supported on a column family with user-defined "
+        "timestamps");
+  }
+
+  const int num_levels = cfd_->NumberLevels();
+  const bool fifo_compaction =
+      cfd_->ioptions().compaction_style == kCompactionStyleFIFO;
+  // Files sharing a level above L0 must be disjoint, which is the invariant
+  // that level maintains. Group by level so the check is per level rather than
+  // over all input files, which may legitimately overlap across levels.
+  std::map<int, autovector<const IngestedFileInfo*>> files_per_level;
+  for (size_t i = 0; i < num_files; i++) {
+    const int level = levels[i];
+    if (level < 0 || level >= num_levels) {
+      return Status::InvalidArgument(
+          "LSM edit declares level " + std::to_string(level) + " for file " +
+          external_files_paths[i] + ", outside [0, " +
+          std::to_string(num_levels) + ")");
+    }
+    if (fifo_compaction && level != 0) {
+      return Status::InvalidArgument(
+          "LSM edit declares nonzero level " + std::to_string(level) +
+          " for a column family using FIFO compaction");
+    }
+    files_to_ingest_[i].declared_level = level;
+    if (level > 0) {
+      files_per_level[level].push_back(&files_to_ingest_[i]);
+    }
+  }
+
+  for (auto& [level, files] : files_per_level) {
+    std::sort(files.begin(), files.end(), file_range_checker_);
+    for (size_t i = 0; i + 1 < files.size(); i++) {
+      if (file_range_checker_.Overlaps(*files[i], *files[i + 1],
+                                       /* known_sorted= */ true)) {
+        return Status::InvalidArgument(
+            "LSM edit declares level " + std::to_string(level) +
+            " for files whose key ranges overlap each other");
+      }
+    }
+  }
+  return Status::OK();
+}
+
+Status ExternalSstFileIngestionJob::ValidateDeclaredLevelSequenceOrder(
+    SuperVersion* super_version) {
+  assert(lsm_edit_spec_.has_value());
+  const size_t num_files = files_to_ingest_.size();
+  std::vector<std::unique_ptr<TableReader>> readers(num_files);
+  LsmEditSequenceOrderValidator validator(
+      cfd_->internal_comparator(),
+      super_version->mutable_cf_options.prefix_extractor.get(),
+      ingestion_options_.fill_cache, db_options_.allow_data_in_errors);
+
+  std::vector<std::pair<IngestedFileInfo*, size_t>> files_by_range;
+  files_by_range.reserve(num_files);
+  for (size_t i = 0; i < num_files; ++i) {
+    files_by_range.emplace_back(&files_to_ingest_[i], i);
+  }
+  std::sort(files_by_range.begin(), files_by_range.end(),
+            [this](const auto& first, const auto& second) {
+              return file_range_checker_(first.first, second.first);
+            });
+
+  // Sorting makes candidate selection O(n log n + P), where P is the number
+  // of overlapping pairs. Disjoint sequence-number ranges avoid table scans,
+  // and each TableReader is opened at most once. A large P with ambiguous
+  // sequence ranges still warrants a tagged multiway scan in the future.
+  for (size_t i = 0; i < num_files; ++i) {
+    for (size_t j = i + 1; j < num_files; ++j) {
+      IngestedFileInfo* first = files_by_range[i].first;
+      IngestedFileInfo* second = files_by_range[j].first;
+      const size_t first_index = files_by_range[i].second;
+      const size_t second_index = files_by_range[j].second;
+      if (!file_range_checker_.Overlaps(*first, *second,
+                                        /* known_sorted= */ true)) {
+        break;
+      }
+
+      IngestedFileInfo* newer = first;
+      IngestedFileInfo* older = second;
+      size_t newer_index = first_index;
+      size_t older_index = second_index;
+      const bool same_level = first->declared_level == second->declared_level;
+      assert(!same_level || first->declared_level == 0);
+      if ((same_level && first_index < second_index) ||
+          (!same_level && first->declared_level > second->declared_level)) {
+        std::swap(newer, older);
+        std::swap(newer_index, older_index);
+      }
+      const bool allow_equal_sequence_numbers = same_level;
+      if (newer->smallest_seqno > older->largest_seqno ||
+          (allow_equal_sequence_numbers &&
+           newer->smallest_seqno == older->largest_seqno)) {
+        continue;
+      }
+
+      for (const size_t index : {newer_index, older_index}) {
+        if (readers[index] != nullptr) {
+          continue;
+        }
+        IngestedFileInfo* file = &files_to_ingest_[index];
+        Status status =
+            ResetTableReader(file->external_file_path, file->fd.GetNumber(),
+                             file->user_defined_timestamps_persisted,
+                             super_version, file, &readers[index]);
+        if (!status.ok()) {
+          return status;
+        }
+      }
+      Status status = validator.Validate(*newer, readers[newer_index].get(),
+                                         *older, readers[older_index].get(),
+                                         allow_equal_sequence_numbers);
+      if (!status.ok()) {
+        return status;
+      }
+    }
+  }
+  return Status::OK();
+}
+
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
     const std::vector<std::string>& files_checksums,
@@ -212,6 +597,17 @@ Status ExternalSstFileIngestionJob::Prepare(
   // are divided into batches below.
   files_overlap_ = ComputeFilesOverlap(files_to_ingest_);
 
+  if (lsm_edit_spec_.has_value()) {
+    status = RecordDeclaredLevels(external_files_paths);
+    if (!status.ok()) {
+      return status;
+    }
+    status = ValidateDeclaredLevelSequenceOrder(sv);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
   if (atomic_replace_range.has_value()) {
     atomic_replace_range_.emplace();
 
@@ -238,7 +634,9 @@ Status ExternalSstFileIngestionJob::Prepare(
         if (!file_range_checker_.Contains(*atomic_replace_range_,
                                           files_to_ingest_[i])) {
           return Status::InvalidArgument(
-              "Atomic replace range does not contain all files");
+              lsm_edit_spec_.has_value()
+                  ? "LSM edit range does not contain all files"
+                  : "Atomic replace range does not contain all files");
         }
       }
     } else {
@@ -729,6 +1127,7 @@ Status ExternalSstFileIngestionJob::Run() {
       assert(!atomic_replace_range_->smallest_internal_key.unset());
       assert(!atomic_replace_range_->largest_internal_key.unset());
       bool has_partial_overlap = false;
+      autovector<std::pair<int, const FileMetaData*>> straddling_files;
       for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
         if (cfd_->RangeOverlapWithCompaction(
                 atomic_replace_range_->smallest_internal_key.user_key(),
@@ -746,9 +1145,25 @@ Status ExternalSstFileIngestionJob::Run() {
               edit_.DeleteFile(lvl, file->fd.GetNumber());
             } else {
               has_partial_overlap = true;
+              straddling_files.emplace_back(lvl, file);
             }
           }
         }
+      }
+      if (has_partial_overlap && lsm_edit_spec_.has_value()) {
+        // A straddling file keeps the part of itself that lies outside the
+        // edit, so it cannot be deleted. Retaining it is only correct if it
+        // holds nothing inside the edit's range.
+        if (!lsm_edit_spec_->probe_straddling_files) {
+          return Status::InvalidArgument(
+              "LSM edit range partially overlaps an existing file and "
+              "probe_straddling_files is disabled");
+        }
+        status = ProbeStraddlingFiles(super_version, straddling_files);
+        if (!status.ok()) {
+          return status;
+        }
+        has_partial_overlap = false;
       }
       if (has_partial_overlap) {
         if (ingestion_options_.fail_if_not_bottommost_level &&
@@ -1656,8 +2071,13 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SequenceNumber last_seqno, IngestedFileInfo* file_to_ingest,
     SequenceNumber* assigned_seqno,
     std::optional<int> prev_batch_uppermost_level) {
-  Status status;
   *assigned_seqno = 0;
+  if (file_to_ingest->declared_level >= 0) {
+    // DB::ApplyLsmEdit(): the caller stated where this file goes, so validate
+    // that instead of searching for a level.
+    return UseDeclaredLevelForIngestedFile(file_to_ingest);
+  }
+  Status status;
   const size_t ts_sz = ucmp_->timestamp_size();
   assert(!prev_batch_uppermost_level.has_value() ||
          prev_batch_uppermost_level.value() < cfd_->NumberLevels());
@@ -1810,6 +2230,115 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
   }
 
   file_to_ingest->picked_level = last_lvl;
+  return Status::OK();
+}
+
+Status ExternalSstFileIngestionJob::ProbeStraddlingFiles(
+    SuperVersion* super_version,
+    const autovector<std::pair<int, const FileMetaData*>>& straddling_files) {
+  assert(lsm_edit_spec_.has_value());
+  assert(atomic_replace_range_.has_value());
+  assert(!atomic_replace_range_->unset());
+  assert(ucmp_->timestamp_size() == 0);
+
+  const Slice start = atomic_replace_range_->smallest_internal_key.user_key();
+  const Slice limit = atomic_replace_range_->largest_internal_key.user_key();
+  const InternalKeyComparator& icmp = cfd_->internal_comparator();
+  InternalKey seek_key;
+  seek_key.Set(start, kMaxSequenceNumber, kValueTypeForSeek);
+
+  // TODO: plumb Env::IOActivity, Env::IOPriority
+  ReadOptions ro;
+  ro.fill_cache = ingestion_options_.fill_cache;
+  ro.total_order_seek = true;
+
+  for (const auto& [level, file] : straddling_files) {
+    Arena arena;
+    ReadRangeDelAggregator range_del_agg(&icmp,
+                                         kMaxSequenceNumber /* upper_bound */);
+    ScopedArenaPtr<InternalIterator> iter(cfd_->table_cache()->NewIterator(
+        ro, env_options_, icmp, *file, &range_del_agg,
+        super_version->mutable_cf_options, /*table_reader_ptr=*/nullptr,
+        cfd_->internal_stats()->GetFileReadHist(level),
+        TableReaderCaller::kExternalSSTIngestion, &arena,
+        /*skip_filters=*/false, level, /*max_file_size_for_l0_meta_pin=*/0,
+        /*smallest_compaction_key=*/nullptr,
+        /*largest_compaction_key=*/nullptr, /*allow_unprepared_value=*/false));
+    iter->Seek(seek_key.Encode());
+    Status s = iter->status();
+    if (!s.ok()) {
+      return s;
+    }
+    bool in_range = false;
+    if (iter->Valid()) {
+      ParsedInternalKey parsed;
+      s = ParseInternalKey(iter->key(), &parsed,
+                           db_options_.allow_data_in_errors);
+      if (!s.ok()) {
+        return s;
+      }
+      in_range = ucmp_->Compare(parsed.user_key, limit) < 0;
+    }
+    // A range tombstone reaching into the edit's range would shadow the
+    // grafted data, which carries the sequence numbers it was written with.
+    if (!in_range) {
+      in_range = range_del_agg.IsRangeOverlapped(start, limit,
+                                                 /*end_exclusive=*/true);
+    }
+    if (in_range) {
+      return Status::InvalidArgument("LSM edit range is not empty: " +
+                                     MakeTableFileName(file->fd.GetNumber()) +
+                                     " at level " + std::to_string(level) +
+                                     " holds keys inside it");
+    }
+  }
+  return Status::OK();
+}
+
+bool ExternalSstFileIngestionJob::DeclaredFileFitsInLevel(
+    const IngestedFileInfo* file_to_ingest, int level) const {
+  if (level == 0) {
+    // Level 0 sorted runs are allowed to overlap.
+    return true;
+  }
+  const VersionEdit::DeletedFiles& deleted = edit_.GetDeletedFiles();
+  const Slice start(file_to_ingest->start_ukey);
+  const Slice limit(file_to_ingest->limit_ukey);
+  const std::vector<FileMetaData*>& files =
+      cfd_->current()->storage_info()->LevelFiles(level);
+  // OverlapInLevel() cannot exclude files removed by this VersionEdit. Find
+  // the first possible overlap, then scan only intersecting surviving files.
+  auto existing = std::lower_bound(
+      files.begin(), files.end(), start,
+      [this](const FileMetaData* file, const Slice& key) {
+        return ucmp_->Compare(file->largest.user_key(), key) < 0;
+      });
+  for (; existing != files.end() &&
+         ucmp_->Compare((*existing)->smallest.user_key(), limit) <= 0;
+       ++existing) {
+    if (deleted.count({level, (*existing)->fd.GetNumber()}) > 0) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+Status ExternalSstFileIngestionJob::UseDeclaredLevelForIngestedFile(
+    IngestedFileInfo* file_to_ingest) {
+  assert(lsm_edit_spec_.has_value());
+  const int level = file_to_ingest->declared_level;
+  assert(level >= 0 && level < cfd_->NumberLevels());
+
+  // Run() has already rejected the edit if its range overlaps a pending
+  // compaction, and every file being installed lies inside that range, so the
+  // only thing left to establish is that the level has room.
+  if (!DeclaredFileFitsInLevel(file_to_ingest, level)) {
+    return Status::InvalidArgument(
+        "LSM edit declares level " + std::to_string(level) +
+        " for a file whose key range overlaps a file that stays at that level");
+  }
+  file_to_ingest->picked_level = level;
   return Status::OK();
 }
 

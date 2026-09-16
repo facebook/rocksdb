@@ -697,6 +697,9 @@ class DBImpl : public DB
   Status CommitFileIngestionHandles(
       std::vector<std::unique_ptr<FileIngestionHandle>> handles) override;
 
+  Status ApplyLsmEdit(const LsmEditOptions& options,
+                      const std::vector<LsmEdit>& edits) override;
+
   using DB::CreateColumnFamilyWithImport;
   Status CreateColumnFamilyWithImport(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
@@ -2444,6 +2447,14 @@ class DBImpl : public DB
   // Rolls back one prepared file ingestion (delete its staged files, release
   // the reserved file numbers)
   void RollbackPreparedFileIngestion(FileIngestionHandleImpl* const h);
+
+  // Shared prepare phase of PrepareFileIngestion() and ApplyLsmEdit().
+  // `lsm_edit_specs` is either empty, for plain file ingestion, or parallel to
+  // `args`, giving each column family's declared LSM placement.
+  Status PrepareFileIngestionImpl(
+      const std::vector<IngestExternalFileArg>& args,
+      const std::vector<std::optional<LsmEditJobSpec>>& lsm_edit_specs,
+      std::unique_ptr<FileIngestionHandle>* handle);
 
   // Similar to pending_outputs, preserve OPTIONS file. Used for remote
   // compaction.
