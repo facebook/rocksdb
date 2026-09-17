@@ -325,27 +325,53 @@ IOStatus Writer::AddWALIndexVoidRecord(const WriteOptions& write_options,
   assert(lo != 0);
   assert(lo <= hi);
 
-  IOStatus s = MaybeHandleSeenFileWriterError();
-  if (!s.ok()) {
-    return s;
-  }
-
   std::string payload;
   payload.reserve(kWALIndexVoidPayloadSize);
   PutFixed64(&payload, lo);
   PutFixed64(&payload, hi);
+  return EmitWALIndexControlRecord(
+      write_options,
+      recycle_log_files_ ? kRecyclableWALIndexVoidType : kWALIndexVoidType,
+      payload);
+}
+
+IOStatus Writer::AddWALIndexSupersessionRecord(
+    const WriteOptions& write_options, uint64_t superseded_wal_number,
+    uint64_t first_superseded_wal_index) {
+  if (!WALIndexEnabled()) {
+    return IOStatus::OK();
+  }
+  assert(superseded_wal_number != 0);
+  assert(superseded_wal_number < log_number_);
+  assert(first_superseded_wal_index != 0);
+
+  std::string payload;
+  payload.reserve(kWALIndexSupersessionPayloadSize);
+  PutFixed64(&payload, superseded_wal_number);
+  PutFixed64(&payload, first_superseded_wal_index);
+  return EmitWALIndexControlRecord(write_options,
+                                   recycle_log_files_
+                                       ? kRecyclableWALIndexSupersessionType
+                                       : kWALIndexSupersessionType,
+                                   payload);
+}
+
+IOStatus Writer::EmitWALIndexControlRecord(const WriteOptions& write_options,
+                                           RecordType type,
+                                           const std::string& payload) {
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
+  }
 
   s = MaybeSwitchToNewBlock(write_options, payload);
   if (!s.ok()) {
     return s;
   }
 
-  // Deliberately does not touch last_wal_index_recorded_. A cover is written
-  // after the append it stands in for failed, so [lo, hi] is behind the high
-  // water mark by construction and the strictly-increasing check that guards
-  // data records would reject it.
-  RecordType type =
-      recycle_log_files_ ? kRecyclableWALIndexVoidType : kWALIndexVoidType;
+  // Deliberately does not touch last_wal_index_recorded_. A control record
+  // describes indices at or behind the high water mark by construction, so the
+  // strictly-increasing check that guards data records would reject it.
   s = EmitPhysicalRecord(write_options, type, Slice(), payload.data(),
                          payload.size());
   if (!s.ok()) {

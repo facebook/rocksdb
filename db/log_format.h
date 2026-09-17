@@ -81,6 +81,12 @@ enum RecordType : uint8_t {
   kWALIndexVoidType = 22,
   kRecyclableWALIndexVoidType = 23,
 
+  // Declares that records at or above a wal_index in one identified older WAL
+  // file are obsolete. Records carrying the same indices in other files remain
+  // live. Consumes no wal_index.
+  kWALIndexSupersessionType = 24,
+  kRecyclableWALIndexSupersessionType = 25,
+
   // For WAL verification
   kPredecessorWALInfoType = 130,
   kRecyclePredecessorWALInfoType = 131,
@@ -101,6 +107,8 @@ static_assert(kRecyclableWALIndexMarkerType < kRecordTypeSafeIgnoreMask,
 // the covered range for data that is simply missing.
 static_assert(kRecyclableWALIndexVoidType < kRecordTypeSafeIgnoreMask,
               "WAL index void types must fail closed on older readers");
+static_assert(kRecyclableWALIndexSupersessionType < kRecordTypeSafeIgnoreMask,
+              "WAL index supersession types must fail closed on older readers");
 
 inline constexpr bool IsWALIndexRecordType(uint8_t type) {
   return (type >= kWALIndexFullType && type <= kWALIndexLastType) ||
@@ -112,7 +120,9 @@ inline constexpr bool IsWALIndexRecordType(uint8_t type) {
 // They are never returned as logical records and never consume an index.
 inline constexpr bool IsWALIndexMetadataRecordType(uint8_t type) {
   return type == kWALIndexMarkerType || type == kRecyclableWALIndexMarkerType ||
-         type == kWALIndexVoidType || type == kRecyclableWALIndexVoidType;
+         type == kWALIndexVoidType || type == kRecyclableWALIndexVoidType ||
+         type == kWALIndexSupersessionType ||
+         type == kRecyclableWALIndexSupersessionType;
 }
 
 inline constexpr bool IsRecyclableRecordType(uint8_t type) {
@@ -122,6 +132,7 @@ inline constexpr bool IsRecyclableRecordType(uint8_t type) {
          type == kRecyclableUserDefinedTimestampSizeType ||
          type == kRecyclableWALIndexMarkerType ||
          type == kRecyclableWALIndexVoidType ||
+         type == kRecyclableWALIndexSupersessionType ||
          type == kRecyclePredecessorWALInfoType;
 }
 
@@ -134,6 +145,10 @@ constexpr uint32_t kWALIndexSize = 8;
 // A void record's payload is the covered range as fixed64 lo followed by
 // fixed64 hi, both inclusive.
 constexpr uint32_t kWALIndexVoidPayloadSize = 2 * kWALIndexSize;
+
+// A supersession record's payload is the superseded WAL file number followed
+// by its first obsolete wal_index. The index range is open-ended.
+constexpr uint32_t kWALIndexSupersessionPayloadSize = 2 * kWALIndexSize;
 
 // Header is checksum (4 bytes), length (2 bytes), type (1 byte)
 constexpr int kHeaderSize = 4 + 2 + 1;

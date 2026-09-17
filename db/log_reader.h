@@ -142,6 +142,20 @@ class Reader {
   // if no void record has been read.
   uint64_t GetMaxVoidWALIndexHi() const { return max_void_wal_index_hi_; }
 
+  // Returns whether a supersession record in this reader's WAL makes the
+  // identified record obsolete. Supersession is open-ended in wal_index but
+  // applies only to the WAL named by the record.
+  bool IsWALIndexSuperseded(uint64_t wal_number, uint64_t wal_index) const {
+    const auto it = first_superseded_wal_indices_.find(wal_number);
+    return it != first_superseded_wal_indices_.end() && wal_index >= it->second;
+  }
+
+  // First wal_index superseded in `wal_number`, or zero if none was declared.
+  uint64_t GetFirstSupersededWALIndex(uint64_t wal_number) const {
+    const auto it = first_superseded_wal_indices_.find(wal_number);
+    return it == first_superseded_wal_indices_.end() ? 0 : it->second;
+  }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
@@ -206,6 +220,8 @@ class Reader {
   // Highest `hi` of any valid void range read so far. Tracked separately
   // because a void record deliberately leaves last_read_wal_index_ alone.
   uint64_t max_void_wal_index_hi_ = 0;
+  // Lowest open-ended supersession boundary declared for each older WAL.
+  UnorderedMap<uint64_t, uint64_t> first_superseded_wal_indices_;
 
   // Extend record types with the following special values
   enum : uint8_t {
@@ -264,6 +280,11 @@ class Reader {
   // Validates a void record and folds its upper bound into the separate void
   // high-water mark. Shared by both logical-reader implementations.
   void DecodeWALIndexVoidRecord(const Slice& fragment);
+
+  // Validates an open-ended supersession record and folds its lower bound into
+  // the bearer-scoped supersession state. Shared by both reader
+  // implementations.
+  void DecodeWALIndexSupersessionRecord(const Slice& fragment);
 };
 
 class FragmentBufferedReader : public Reader {

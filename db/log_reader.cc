@@ -285,6 +285,29 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;  // switch
       }
 
+      case kWALIndexSupersessionType:
+      case kRecyclableWALIndexSupersessionType: {
+        if (first_record_read_) {
+          ReportCorruption(fragment.size(),
+                           "WAL_Index supersession follows a data record");
+        } else {
+          DecodeWALIndexSupersessionRecord(fragment);
+        }
+        if (in_fragmented_record && !scratch->empty()) {
+          ReportCorruption(
+              scratch->size(),
+              "WAL_Index supersession interspersed partial record");
+          if (record_checksum != nullptr) {
+            XXH3_64bits_reset(hash_state_);
+          }
+        }
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        in_fragmented_record = false;
+        last_record_offset_ = prospective_record_offset;
+        break;  // switch
+      }
+
       case kWALIndexMarkerType:
       case kRecyclableWALIndexMarkerType: {
         // Identifies the file as carrying per-record wal_index values. The
@@ -544,6 +567,33 @@ void Reader::DecodeWALIndexVoidRecord(const Slice& fragment) {
     return;
   }
   max_void_wal_index_hi_ = std::max(max_void_wal_index_hi_, hi);
+}
+
+void Reader::DecodeWALIndexSupersessionRecord(const Slice& fragment) {
+  if (fragment.size() != kWALIndexSupersessionPayloadSize) {
+    ReportCorruption(fragment.size(),
+                     "WAL_Index supersession record has invalid size");
+    return;
+  }
+
+  const uint64_t superseded_wal_number = DecodeFixed64(fragment.data());
+  const uint64_t first_superseded =
+      DecodeFixed64(fragment.data() + kWALIndexSize);
+  if (superseded_wal_number == 0 || superseded_wal_number >= log_number_) {
+    ReportCorruption(fragment.size(),
+                     "WAL_Index supersession names a non-older WAL");
+    return;
+  }
+  if (first_superseded == 0) {
+    ReportCorruption(fragment.size(),
+                     "WAL_Index supersession starts at the unassigned index");
+    return;
+  }
+  const auto [it, inserted] = first_superseded_wal_indices_.emplace(
+      superseded_wal_number, first_superseded);
+  if (!inserted) {
+    it->second = std::min(it->second, first_superseded);
+  }
 }
 
 uint64_t Reader::LastRecordOffset() { return last_record_offset_; }
@@ -1034,6 +1084,26 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         if (in_fragmented_record_ && !fragments_.empty()) {
           ReportCorruption(fragments_.size(),
                            "WAL_Index void interspersed partial record");
+        }
+        fragments_.clear();
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
+        break;
+      }
+
+      case kWALIndexSupersessionType:
+      case kRecyclableWALIndexSupersessionType: {
+        if (first_record_read_) {
+          ReportCorruption(fragment.size(),
+                           "WAL_Index supersession follows a data record");
+        } else {
+          DecodeWALIndexSupersessionRecord(fragment);
+        }
+        if (in_fragmented_record_ && !fragments_.empty()) {
+          ReportCorruption(
+              fragments_.size(),
+              "WAL_Index supersession interspersed partial record");
         }
         fragments_.clear();
         prospective_record_offset = physical_record_offset;

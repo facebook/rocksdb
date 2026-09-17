@@ -1122,6 +1122,123 @@ TEST_P(LogTest, WALIndexVoidRecordMayTrailTheHighWaterMark) {
   ASSERT_EQ(0U, DroppedBytes());
 }
 
+// A supersession is an open-ended cut over one older WAL file, not over the
+// wal_index namespace. The same index is therefore obsolete in the named file
+// while remaining live in the WAL that bears the supersession record.
+TEST_P(LogTest, WALIndexSupersessionIsBearerScoped) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  constexpr uint64_t kFirstSuperseded = 7;
+
+  Slice older_contents;
+  std::unique_ptr<FSWritableFile> older_sink(
+      new test::StringSink(&older_contents));
+  std::unique_ptr<WritableFileWriter> older_file_writer(
+      new WritableFileWriter(std::move(older_sink), "", FileOptions()));
+  Writer older_writer(std::move(older_file_writer), 122, recyclable);
+  older_writer.SetPartitionWALUsage(PartitionWALUsage::kWALIndexSingleFile);
+  ASSERT_OK(older_writer.MaybeAddWALIndexMarkerRecord(WriteOptions()));
+  ASSERT_OK(older_writer.AddRecord(WriteOptions(), Slice("older"),
+                                   /*seqno=*/0, kFirstSuperseded));
+
+  EnableWALIndex();
+  ASSERT_OK(writer_->AddWALIndexSupersessionRecord(WriteOptions(), 122,
+                                                   kFirstSuperseded));
+  next_wal_index_ = kFirstSuperseded;
+  Write("newer");
+  const std::string contents = get_reader_contents()->ToString();
+
+  const std::vector<uint64_t> expected = {kFirstSuperseded};
+  EXPECT_EQ(expected, DecodeWALIndices(older_contents.ToString(), {5}));
+  ASSERT_EQ("newer", Read());
+  ASSERT_EQ(kFirstSuperseded, reader_->GetLastReadWALIndex());
+  ASSERT_EQ("EOF", Read());
+  EXPECT_EQ(kFirstSuperseded, reader_->GetFirstSupersededWALIndex(122));
+  EXPECT_EQ(0U, reader_->GetFirstSupersededWALIndex(121));
+  EXPECT_FALSE(reader_->IsWALIndexSuperseded(122, kFirstSuperseded - 1));
+  EXPECT_TRUE(reader_->IsWALIndexSuperseded(122, kFirstSuperseded));
+  EXPECT_TRUE(
+      reader_->IsWALIndexSuperseded(122, std::numeric_limits<uint64_t>::max()));
+  EXPECT_FALSE(reader_->IsWALIndexSuperseded(123, kFirstSuperseded));
+  EXPECT_FALSE(reader_->IsWALIndexSuperseded(124, kFirstSuperseded));
+
+  const size_t supersession_header = static_cast<size_t>(header_size);
+  ASSERT_GE(contents.size(), supersession_header + header_size +
+                                 kWALIndexSupersessionPayloadSize);
+  const uint8_t type = static_cast<uint8_t>(contents[supersession_header + 6]);
+  EXPECT_EQ(recyclable ? kRecyclableWALIndexSupersessionType
+                       : kWALIndexSupersessionType,
+            type);
+  const uint32_t length =
+      (static_cast<uint32_t>(contents[supersession_header + 4]) & 0xff) |
+      ((static_cast<uint32_t>(contents[supersession_header + 5]) & 0xff) << 8);
+  ASSERT_EQ(kWALIndexSupersessionPayloadSize, length);
+  const char* payload = contents.data() + supersession_header + header_size;
+  EXPECT_EQ(122U, DecodeFixed64(payload));
+  EXPECT_EQ(kFirstSuperseded, DecodeFixed64(payload + kWALIndexSize));
+}
+
+TEST_P(LogTest, WALIndexSupersessionWithInvalidSizeReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  ASSERT_OK(writer_->AddWALIndexSupersessionRecord(WriteOptions(), 122, 7));
+
+  const int supersession_header = header_size;
+  SetByte(supersession_header + 4,
+          static_cast<char>(kWALIndexSupersessionPayloadSize - 1));
+  SetByte(supersession_header + 5, 0);
+  FixChecksum(supersession_header, kWALIndexSupersessionPayloadSize - 1,
+              recyclable);
+
+  ASSERT_EQ("EOF", Read());
+  EXPECT_EQ("OK", MatchError("supersession record has invalid size"));
+  EXPECT_EQ(0U, reader_->GetFirstSupersededWALIndex(122));
+}
+
+TEST_P(LogTest, WALIndexSupersessionAtZeroReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  ASSERT_OK(writer_->AddWALIndexSupersessionRecord(WriteOptions(), 122, 7));
+
+  const int supersession_header = header_size;
+  SetFixed64(supersession_header + header_size + kWALIndexSize, 0);
+  FixChecksum(supersession_header, kWALIndexSupersessionPayloadSize,
+              recyclable);
+
+  ASSERT_EQ("EOF", Read());
+  EXPECT_EQ("OK", MatchError("starts at the unassigned index"));
+  EXPECT_EQ(0U, reader_->GetFirstSupersededWALIndex(122));
+}
+
+TEST_P(LogTest, WALIndexSupersessionForNonOlderWALReportsCorruption) {
+  const bool recyclable = std::get<0>(GetParam()) != 0;
+  const int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+  EnableWALIndex();
+  ASSERT_OK(writer_->AddWALIndexSupersessionRecord(WriteOptions(), 122, 7));
+
+  const int supersession_header = header_size;
+  SetFixed64(supersession_header + header_size, 123);
+  FixChecksum(supersession_header, kWALIndexSupersessionPayloadSize,
+              recyclable);
+
+  ASSERT_EQ("EOF", Read());
+  EXPECT_EQ("OK", MatchError("names a non-older WAL"));
+  EXPECT_EQ(0U, reader_->GetFirstSupersededWALIndex(123));
+}
+
+TEST_P(LogTest, WALIndexSupersessionAfterDataReportsCorruption) {
+  EnableWALIndex();
+  Write("before");
+  ASSERT_OK(writer_->AddWALIndexSupersessionRecord(WriteOptions(), 122, 7));
+
+  ASSERT_EQ("before", Read());
+  ASSERT_EQ("EOF", Read());
+  EXPECT_EQ("OK", MatchError("supersession follows a data record"));
+  EXPECT_EQ(0U, reader_->GetFirstSupersededWALIndex(122));
+}
+
 // The reader folds valid void range ends into a separate high-water mark
 // without disturbing the per-record index.
 TEST_P(LogTest, WALIndexVoidHiIsTrackedSeparately) {
