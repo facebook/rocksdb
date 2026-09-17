@@ -2811,6 +2811,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               &wal_index);
         }
         if (s.ok()) {
+          // No cover on this path, deliberately: a failure here fails Open(),
+          // so the DB never becomes writable and nothing can be acknowledged
+          // above the burned index. The file is discarded with the failed
+          // open rather than left holding an undeclared hole.
           s = impl->WriteToWAL(empty_batch, write_options, log_writer,
                                &wal_used, &log_size, wal_file_number_size,
                                recovered_seq, wal_index);

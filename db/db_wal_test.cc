@@ -3612,6 +3612,19 @@ class DBWALIndexTest : public DBWALTestBase {
     }
   }
 
+  // Writes through a protected WriteBatch so that a corrupted log entry is
+  // caught by WriteBatch::VerifyChecksum inside WriteToWAL -- a failure that
+  // happens before any append and so leaves the WAL writer usable.
+  Status WriteProtectedBatch(const std::string& key, const std::string& value) {
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     /*protection_bytes_per_key=*/8, /*default_cf_ts_sz=*/0);
+    Status s = batch.Put(key, value);
+    if (!s.ok()) {
+      return s;
+    }
+    return db_->Write(WriteOptions(), &batch);
+  }
+
   void VerifyKeys() {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_EQ("value" + std::to_string(i), Get(Key(i)));
@@ -3628,13 +3641,13 @@ class DBWALIndexTest : public DBWALTestBase {
     return LogFileName(dbname_, wal_number);
   }
 
-  // Physical record type bytes in `wal_path`, in file order. Walks the block
-  // layout directly rather than going through log::Reader, which hides the
-  // record types it consumes internally.
-  std::vector<uint8_t> ReadWALRecordTypes(const std::string& wal_path) {
+  // Walks the physical block layout of `wal_path`, calling `visit` with each
+  // record's type byte and payload. Goes below log::Reader on purpose: the
+  // reader consumes marker and void records without exposing them.
+  template <typename Visitor>
+  void ForEachPhysicalRecord(const std::string& wal_path, Visitor visit) {
     std::string contents;
     EXPECT_OK(ReadFileToString(env_, wal_path, &contents));
-    std::vector<uint8_t> types;
     size_t offset = 0;
     while (offset + log::kHeaderSize <= contents.size()) {
       const size_t block_remaining =
@@ -3651,12 +3664,41 @@ class DBWALIndexTest : public DBWALTestBase {
           static_cast<uint8_t>(contents[offset + 4]) |
           (static_cast<size_t>(static_cast<uint8_t>(contents[offset + 5]))
            << 8);
-      types.push_back(type);
-      offset += (log::IsRecyclableRecordType(type) ? log::kRecyclableHeaderSize
-                                                   : log::kHeaderSize) +
-                payload_size;
+      const size_t header_size = log::IsRecyclableRecordType(type)
+                                     ? log::kRecyclableHeaderSize
+                                     : log::kHeaderSize;
+      visit(type, Slice(contents.data() + offset + header_size, payload_size));
+      offset += header_size + payload_size;
     }
+  }
+
+  // Physical record type bytes in `wal_path`, in file order.
+  std::vector<uint8_t> ReadWALRecordTypes(const std::string& wal_path) {
+    std::vector<uint8_t> types;
+    ForEachPhysicalRecord(wal_path, [&types](uint8_t type, Slice /*payload*/) {
+      types.push_back(type);
+    });
     return types;
+  }
+
+  // Ranges declared by void records in `wal_path`, in file order. Each is the
+  // closed range of wal_index values that record covers.
+  std::vector<std::pair<uint64_t, uint64_t>> ReadWALVoidRanges(
+      const std::string& wal_path) {
+    std::vector<std::pair<uint64_t, uint64_t>> ranges;
+    ForEachPhysicalRecord(wal_path, [&ranges](uint8_t type, Slice payload) {
+      if (type != log::kWALIndexVoidType &&
+          type != log::kRecyclableWALIndexVoidType) {
+        return;
+      }
+      EXPECT_EQ(log::kWALIndexVoidPayloadSize, payload.size());
+      if (payload.size() < log::kWALIndexVoidPayloadSize) {
+        return;
+      }
+      ranges.emplace_back(DecodeFixed64(payload.data()),
+                          DecodeFixed64(payload.data() + log::kWALIndexSize));
+    });
+    return ranges;
   }
 
   // wal_index of every logical record in `wal_path`, in replay order. Zero for
@@ -3858,6 +3900,166 @@ TEST_F(DBWALIndexTest, IndexedWALReplaysThroughRecovery) {
 // index yet, so this is a documented limitation rather than a bug -- pinned
 // here because plain writes after a reopen reach it, and a future fix should
 // have to change this test deliberately.
+// An append that fails after the index was allocated leaves the index burned.
+// It must be declared with a void record, so a later gap check reads it as a
+// deliberate hole rather than as data that was written and lost.
+//
+// The failure is injected by corrupting the log entry, which fails
+// VerifyChecksum before anything is appended. That matters: it is a real
+// non-poisoning failure, so the writer is still usable and the cover can be
+// written. See UncoveredWALIndexFailsSubsequentWrites for the IO-error case.
+TEST_F(DBWALIndexTest, BurnedWALIndexIsCovered) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  DestroyAndReopen(options);
+
+  WriteKeys();
+  const uint64_t wal_number = LatestWALNumber();
+  const std::string wal_path = WALPath(wal_number);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:log_entry", [](void* arg) {
+        Slice* const log_entry = static_cast<Slice*>(arg);
+        // Flip a byte past the sequence/count header so the batch fails its
+        // own checksum inside WriteToWAL, before log::Writer::AddRecord.
+        char* const data = const_cast<char*>(log_entry->data());
+        data[log_entry->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(WriteProtectedBatch(Key(kNumKeys), "burned"));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+
+  // The burned index is the one after the last record that did land.
+  const uint64_t burned = log::kWALIndexStartNumber + kNumKeys;
+  const std::vector<std::pair<uint64_t, uint64_t>> expected = {
+      {burned, burned}};
+  EXPECT_EQ(expected, ReadWALVoidRanges(wal_path));
+
+  Destroy(options);
+}
+
+// The union of what data records carry and what void records cover is exactly
+// the contiguous run the allocator handed out: nothing allocated goes missing.
+TEST_F(DBWALIndexTest, NoWALIndexIsLostWhenAppendFails) {
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  DestroyAndReopen(options);
+
+  WriteKeys();
+  const uint64_t wal_number = LatestWALNumber();
+  const std::string wal_path = WALPath(wal_number);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:log_entry", [](void* arg) {
+        Slice* const log_entry = static_cast<Slice*>(arg);
+        char* const data = const_cast<char*>(log_entry->data());
+        data[log_entry->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(WriteProtectedBatch(Key(kNumKeys), "burned"));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+
+  std::vector<uint64_t> accounted = ReadWALIndices(wal_path, wal_number);
+  for (const auto& [lo, hi] : ReadWALVoidRanges(wal_path)) {
+    for (uint64_t i = lo; i <= hi; i++) {
+      accounted.push_back(i);
+    }
+  }
+  std::sort(accounted.begin(), accounted.end());
+
+  std::vector<uint64_t> expected;
+  expected.reserve(kNumKeys + 1);
+  for (int i = 0; i <= kNumKeys; i++) {
+    expected.push_back(log::kWALIndexStartNumber + i);
+  }
+  EXPECT_EQ(expected, accounted);
+
+  Destroy(options);
+}
+
+// The other failure shape: a real IO error. It poisons the WritableFileWriter,
+// so the cover cannot be written either and the index stays uncovered. The
+// requirement then is that nothing above the burned index is ever
+// acknowledged, which the poisoned writer enforces -- every later append fails
+// through MaybeHandleSeenFileWriterError.
+TEST_F(DBWALIndexTest, UncoveredWALIndexFailsSubsequentWrites) {
+  // Layer the injector over the fixture's own file system, not the default
+  // one: the assertions below read the WAL back through `env_`, and under
+  // ENCRYPTED_ENV (or MEM_ENV) a WAL written straight to the default file
+  // system is not readable through it.
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
+  options.env = fault_fs_env.get();
+  DestroyAndReopen(options);
+
+  WriteKeys();
+  const uint64_t wal_number = LatestWALNumber();
+  const std::string wal_path = WALPath(wal_number);
+
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kWrite, 7 /* seed */, 1 /* one_in */,
+      true /* retryable */, false /* has_data_loss */);
+  fault_fs->EnableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  // The append fails, and so does the cover: same poisoned writer.
+  ASSERT_NOK(Put(Key(kNumKeys), "burned"));
+  // Nothing above the burned index may be acknowledged afterwards.
+  ASSERT_NOK(Put(Key(kNumKeys + 1), "after"));
+
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+  // Still refused with injection off, so the guarantee does not depend on the
+  // fault staying armed: the failed WAL write has already put the DB in
+  // read-only mode, on top of the poisoned writer.
+  ASSERT_NOK(Put(Key(kNumKeys + 2), "later"));
+
+  // No data record above the burned index reached the WAL. The run stops at
+  // the last index that actually landed.
+  const std::vector<uint64_t> indices = ReadWALIndices(wal_path, wal_number);
+  std::vector<uint64_t> expected;
+  expected.reserve(kNumKeys);
+  for (int i = 0; i < kNumKeys; i++) {
+    expected.push_back(log::kWALIndexStartNumber + i);
+  }
+  EXPECT_EQ(expected, indices);
+
+  Close();
+  Destroy(options);
+}
+
+// Indexing off means no void records, the same way it means no marker and no
+// indexed data types: the WAL stays byte-for-byte vanilla.
+TEST_F(DBWALIndexTest, DefaultUsageWritesNoVoidRecords) {
+  Options options = WALIndexOptions(PartitionWALUsage::kNone);
+  DestroyAndReopen(options);
+
+  WriteKeys();
+  const uint64_t wal_number = LatestWALNumber();
+  const std::string wal_path = WALPath(wal_number);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:log_entry", [](void* arg) {
+        Slice* const log_entry = static_cast<Slice*>(arg);
+        char* const data = const_cast<char*>(log_entry->data());
+        data[log_entry->size() - 1] ^= 0xff;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(WriteProtectedBatch(Key(kNumKeys), "burned"));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+
+  for (const uint8_t type : ReadWALRecordTypes(wal_path)) {
+    EXPECT_NE(log::kWALIndexVoidType, type);
+    EXPECT_NE(log::kRecyclableWALIndexVoidType, type);
+  }
+  EXPECT_TRUE(ReadWALVoidRanges(wal_path).empty());
+
+  Destroy(options);
+}
+
 TEST_F(DBWALIndexTest, WALIndexNumberingRestartsAcrossLiveWALs) {
   Options options = WALIndexOptions(PartitionWALUsage::kWALIndexSingleFile);
   DestroyAndReopen(options);
