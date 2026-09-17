@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifdef GFLAGS
+#include <sstream>
+
 #include "db_stress_tool/db_stress_common.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -641,6 +643,15 @@ class BatchedOpsStressTest : public StressTest {
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
 
+    ScanWitnessLog witness(thread, "prefix_scan_batched");
+    if (witness.Enabled()) {
+      std::ostringstream start_oss;
+      start_oss << "action=start cf=" << rand_column_families[0] << " key={"
+                << FormatDiagnosticSlice(Slice(key))
+                << "} prefix_count=" << num_prefixes;
+      witness.Add(start_oss.str());
+    }
+
     for (size_t i = 0; i < num_prefixes; ++i) {
       prefixes[i] = std::to_string(i) + key;
       prefix_slices[i] = Slice(prefixes[i].data(), prefix_to_use);
@@ -668,6 +679,19 @@ class BatchedOpsStressTest : public StressTest {
 
       iters[i].reset(db_->NewIterator(ro_copies[i], cfh));
       iters[i]->Seek(prefix_slices[i]);
+      if (witness.Enabled()) {
+        std::ostringstream seek_oss;
+        seek_oss << "action=seek_setup iterator=" << i << " prefix={"
+                 << FormatDiagnosticSlice(prefix_slices[i]) << "} upper_bound={"
+                 << (upper_bounds[i].empty()
+                         ? "none"
+                         : FormatDiagnosticSlice(Slice(upper_bounds[i])))
+                 << "} read_options={"
+                 << FormatReadOptionsForDiagnostics(ro_copies[i]) << "}";
+        witness.Add(seek_oss.str());
+      }
+      witness.AddIteratorState("Seek", i, *iters[i],
+                               !ro_copies[i].allow_unprepared_value);
     }
 
     uint64_t count = 0;
@@ -680,6 +704,15 @@ class BatchedOpsStressTest : public StressTest {
       // get list of all values for this iteration
       for (size_t i = 0; i < num_prefixes; ++i) {
         // no iterator should finish before the first one
+        if (!(iters[i]->Valid() &&
+              iters[i]->key().starts_with(prefix_slices[i]))) {
+          witness.Add("failure=prefix_iterator_finished_early iterator=" +
+                      std::to_string(i) + " prefix={" +
+                      FormatDiagnosticSlice(prefix_slices[i]) + "}");
+          witness.AddIteratorState("IteratorFinishedEarly", i, *iters[i],
+                                   !ro_copies[i].allow_unprepared_value);
+          witness.Flush("prefix_scan_batched_iterator_finished_early");
+        }
         assert(iters[i]->Valid() &&
                iters[i]->key().starts_with(prefix_slices[i]));
 
@@ -687,14 +720,18 @@ class BatchedOpsStressTest : public StressTest {
           // Save key in case PrepareValue fails and invalidates the iterator
           const std::string prepare_value_key =
               iters[i]->key().ToString(/* hex */ true);
+          witness.AddIteratorState("PrepareValueBefore", i, *iters[i], false);
 
           if (!iters[i]->PrepareValue()) {
+            witness.AddIteratorState("PrepareValueFailed", i, *iters[i], false);
+            witness.Flush("prefix_scan_batched_prepare_value");
             fprintf(stderr,
                     "prefix scan error: PrepareValue failed for key %s: %s\n",
                     prepare_value_key.c_str(),
                     iters[i]->status().ToString().c_str());
             continue;
           }
+          witness.AddIteratorState("PrepareValue", i, *iters[i], true);
         }
 
         values[i] = iters[i]->value().ToString();
@@ -707,6 +744,12 @@ class BatchedOpsStressTest : public StressTest {
         const char actual = values[i].back();
 
         if (expected != actual) {
+          witness.Add("failure=prefix_value_suffix_mismatch iterator=" +
+                      std::to_string(i) +
+                      " expected=" + std::string(1, expected) +
+                      " actual=" + std::string(1, actual));
+          witness.AddIteratorState("ValueSuffixMismatch", i, *iters[i], true);
+          witness.Flush("prefix_scan_batched_value_suffix");
           fprintf(stderr, "prefix scan error expected = %c actual = %c\n",
                   expected, actual);
         }
@@ -715,6 +758,11 @@ class BatchedOpsStressTest : public StressTest {
 
         // make sure all values are equivalent
         if (values[i] != values[0]) {
+          witness.Add("failure=prefix_values_inconsistent iterator=" +
+                      std::to_string(i) + " prefix={" +
+                      FormatDiagnosticSlice(prefix_slices[i]) + "}");
+          witness.AddIteratorState("ValueMismatch", i, *iters[i], true);
+          witness.Flush("prefix_scan_batched_value_mismatch");
           fprintf(stderr,
                   "prefix scan error : %" ROCKSDB_PRIszt
                   ", inconsistent values for prefix %s: %s, %s\n",
@@ -727,6 +775,11 @@ class BatchedOpsStressTest : public StressTest {
 
         // make sure value() and columns() are consistent
         if (!VerifyWideColumns(iters[i]->value(), iters[i]->columns())) {
+          witness.Add("failure=prefix_wide_columns_inconsistent iterator=" +
+                      std::to_string(i) + " prefix={" +
+                      FormatDiagnosticSlice(prefix_slices[i]) + "}");
+          witness.AddIteratorState("WideColumnsMismatch", i, *iters[i], true);
+          witness.Flush("prefix_scan_batched_wide_columns");
           fprintf(stderr,
                   "prefix scan error : %" ROCKSDB_PRIszt
                   ", value and columns inconsistent for prefix %s: value: %s, "
@@ -737,14 +790,33 @@ class BatchedOpsStressTest : public StressTest {
         }
 
         iters[i]->Next();
+        witness.AddIteratorState("Next", i, *iters[i],
+                                 !ro_copies[i].allow_unprepared_value);
       }
     }
 
     // cleanup iterators and snapshot
     for (size_t i = 0; i < num_prefixes; ++i) {
       // if the first iterator finished, they should have all finished
+      if (!(!iters[i]->Valid() ||
+            !iters[i]->key().starts_with(prefix_slices[i]))) {
+        witness.Add("failure=prefix_iterator_not_exhausted iterator=" +
+                    std::to_string(i) + " prefix={" +
+                    FormatDiagnosticSlice(prefix_slices[i]) + "}");
+        witness.AddIteratorState("IteratorNotExhausted", i, *iters[i],
+                                 !ro_copies[i].allow_unprepared_value);
+        witness.Flush("prefix_scan_batched_iterator_not_exhausted");
+      }
       assert(!iters[i]->Valid() ||
              !iters[i]->key().starts_with(prefix_slices[i]));
+      if (!iters[i]->status().ok()) {
+        witness.Add(
+            "failure=prefix_iterator_status iterator=" + std::to_string(i) +
+            " status=" + iters[i]->status().ToString());
+        witness.AddIteratorState("IteratorStatus", i, *iters[i],
+                                 !ro_copies[i].allow_unprepared_value);
+        witness.Flush("prefix_scan_batched_status");
+      }
       DB_STRESS_ASSERT_OK(iters[i]->status());
     }
 

@@ -918,6 +918,8 @@ class CfConsistencyStressTest : public StressTest {
 
     const Slice prefix(key.data(), prefix_to_use);
 
+    ScanWitnessLog witness(thread, "prefix_scan_cf_consistency");
+
     std::string upper_bound;
     Slice ub_slice;
     std::function<bool(const TableProperties&)> table_filter;
@@ -948,35 +950,79 @@ class CfConsistencyStressTest : public StressTest {
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
 
+    if (witness.Enabled()) {
+      std::ostringstream start_oss;
+      start_oss << "action=start cf=" << cfh->GetName() << " key={"
+                << FormatDiagnosticSlice(Slice(key)) << "} prefix={"
+                << FormatDiagnosticSlice(prefix) << "} upper_bound={"
+                << (upper_bound.empty()
+                        ? "none"
+                        : FormatDiagnosticSlice(Slice(upper_bound)))
+                << "} read_options={"
+                << FormatReadOptionsForDiagnostics(ro_copy) << "}";
+      witness.Add(start_oss.str());
+    }
+
     uint64_t count = 0;
     Status s;
 
-    for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
-         iter->Next()) {
+    iter->Seek(prefix);
+    witness.AddIteratorState("Seek", "prefix_scan", *iter,
+                             !ro_copy.allow_unprepared_value);
+    while (iter->Valid() && iter->key().starts_with(prefix)) {
       ++count;
 
       if (ro_copy.allow_unprepared_value) {
+        witness.AddIteratorState("PrepareValueBefore", "prefix_scan", *iter,
+                                 false);
         if (!iter->PrepareValue()) {
           s = iter->status();
+          witness.AddIteratorState("PrepareValueFailed", "prefix_scan", *iter,
+                                   false);
           break;
         }
+        witness.AddIteratorState("PrepareValue", "prefix_scan", *iter, true);
       }
 
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         s = Status::Corruption("Value and columns inconsistent",
                                DebugString(iter->value(), iter->columns()));
+        witness.Add("failure=wide_columns_inconsistent key={" +
+                    FormatDiagnosticSlice(iter->key()) +
+                    "} value_size=" + std::to_string(iter->value().size()) +
+                    " status=" + SanitizeDiagnosticValue(s.ToString()));
         break;
       }
+      iter->Next();
+      witness.AddIteratorState("Next", "prefix_scan", *iter,
+                               !ro_copy.allow_unprepared_value);
     }
 
-    assert(prefix_to_use == 0 ||
-           count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+    if (prefix_to_use != 0) {
+      if (witness.Enabled()) {
+        const uint64_t expected_count =
+            GetPrefixKeyCount(prefix.ToString(), upper_bound);
+        if (count > expected_count) {
+          std::ostringstream failure_oss;
+          failure_oss << "failure=prefix_count_exceeded count=" << count
+                      << " expected_count=" << expected_count;
+          witness.Add(failure_oss.str());
+          witness.Flush("prefix_scan_cf_consistency_count");
+        }
+        assert(count <= expected_count);
+      } else {
+        assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+      }
+    }
 
     if (s.ok()) {
       s = iter->status();
     }
 
     if (!s.ok() && !IsErrorInjectedAndRetryable(s)) {
+      witness.Add("failure=prefix_scan_status status=" +
+                  SanitizeDiagnosticValue(s.ToString()));
+      witness.Flush("prefix_scan_cf_consistency_status");
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
 
