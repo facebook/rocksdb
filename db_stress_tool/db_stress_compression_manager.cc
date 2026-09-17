@@ -13,7 +13,6 @@ void DbStressCustomCompressionManager::Register() {
   // the current invocation, we can still read the SST files requiring it.
   static std::once_flag loaded;
   std::call_once(loaded, [&]() {
-    TEST_AllowUnsupportedFormatVersion() = true;
     auto& library = *ObjectLibrary::Default();
     library.AddFactory<CompressionManager>(
         DbStressCustomCompressionManager().CompatibilityName(),

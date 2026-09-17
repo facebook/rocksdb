@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="430" viewBox="0 0 940 430" font-family="Helvetica, Arial, sans-serif">
+  <title>How request statistics survive coroutine suspension</title>
+  <desc>A suspended request cannot leave its statistics in thread-local storage because another request can run on that worker. RocksDB swaps per-request statistics and accumulates CPU time only while each request is active.</desc>
+  <defs>
+    <marker id="arrow-tls" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 z" fill="#546e7a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="940" height="430" fill="#ffffff"/>
+  <text x="235" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#c62828">Unsafe: statistics belong to a thread</text>
+  <text x="705" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#1565c0">Coroutine-safe: statistics belong to a request</text>
+
+  <rect x="20" y="52" width="430" height="322" rx="10" fill="#fffafa" stroke="#ef9a9a" stroke-width="1.5"/>
+  <rect x="490" y="52" width="430" height="322" rx="10" fill="#f8fbff" stroke="#90caf9" stroke-width="1.5"/>
+
+  <text x="42" y="84" font-size="12" font-weight="bold" fill="#455a64">Read-executor worker</text>
+  <line x1="42" y1="100" x2="425" y2="100" stroke="#b0bec5" stroke-width="2" marker-end="url(#arrow-tls)"/>
+
+  <rect x="58" y="119" width="110" height="46" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="113" y="138" text-anchor="middle" font-size="10" font-weight="bold" fill="#0d47a1">Request A runs</text>
+  <text x="113" y="153" text-anchor="middle" font-size="9" fill="#0d47a1">TLS = A</text>
+  <line x1="168" y1="142" x2="210" y2="142" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arrow-tls)"/>
+  <text x="189" y="132" text-anchor="middle" font-size="9" fill="#546e7a">suspend</text>
+
+  <rect x="218" y="119" width="110" height="46" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="273" y="138" text-anchor="middle" font-size="10" font-weight="bold" fill="#4527a0">Request B runs</text>
+  <text x="273" y="153" text-anchor="middle" font-size="9" fill="#4527a0">TLS = B</text>
+  <line x1="328" y1="142" x2="370" y2="142" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arrow-tls)"/>
+  <text x="349" y="132" text-anchor="middle" font-size="9" fill="#546e7a">resume A</text>
+
+  <rect x="370" y="119" width="58" height="46" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="399" y="138" text-anchor="middle" font-size="10" font-weight="bold" fill="#b71c1c">A?</text>
+  <text x="399" y="153" text-anchor="middle" font-size="9" fill="#b71c1c">TLS = B</text>
+
+  <rect x="55" y="194" width="360" height="61" rx="6" fill="#ffebee" stroke="#e57373"/>
+  <text x="235" y="214" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">A suspension point breaks thread-local accounting</text>
+  <text x="235" y="231" text-anchor="middle" font-size="10" fill="#b71c1c">Request B can overwrite A's counters while A waits.</text>
+  <text x="235" y="247" text-anchor="middle" font-size="10" fill="#b71c1c">A resumes on that worker, whose TLS now contains B.</text>
+
+  <text x="52" y="286" font-size="11" font-weight="bold" fill="#37474f">Failures to avoid:</text>
+  <text x="66" y="309" font-size="10" fill="#455a64">- A and B update the same PerfContext</text>
+  <text x="66" y="329" font-size="10" fill="#455a64">- A's CPU timer charges B's work</text>
+  <text x="66" y="349" font-size="10" fill="#455a64">- A's CPU timer charges suspended I/O wait</text>
+
+  <text x="512" y="84" font-size="12" font-weight="bold" fill="#455a64">Same interleaving, isolated state</text>
+  <line x1="512" y1="100" x2="895" y2="100" stroke="#b0bec5" stroke-width="2" marker-end="url(#arrow-tls)"/>
+
+  <rect x="526" y="119" width="120" height="56" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="586" y="138" text-anchor="middle" font-size="10" font-weight="bold" fill="#0d47a1">Request A runs</text>
+  <text x="586" y="153" text-anchor="middle" font-size="9" fill="#0d47a1">load A context</text>
+  <text x="586" y="167" text-anchor="middle" font-size="9" fill="#0d47a1">save before suspend</text>
+
+  <line x1="646" y1="147" x2="675" y2="147" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arrow-tls)"/>
+
+  <rect x="681" y="119" width="120" height="56" rx="5" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="741" y="138" text-anchor="middle" font-size="10" font-weight="bold" fill="#4527a0">Request B runs</text>
+  <text x="741" y="153" text-anchor="middle" font-size="9" fill="#4527a0">load B context</text>
+  <text x="741" y="167" text-anchor="middle" font-size="9" fill="#4527a0">save before suspend</text>
+
+  <line x1="801" y1="147" x2="830" y2="147" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arrow-tls)"/>
+
+  <rect x="836" y="119" width="68" height="56" rx="5" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="870" y="138" text-anchor="middle" font-size="10" font-weight="bold" fill="#0d47a1">A runs</text>
+  <text x="870" y="153" text-anchor="middle" font-size="9" fill="#0d47a1">reload A</text>
+  <text x="870" y="167" text-anchor="middle" font-size="9" fill="#0d47a1">context</text>
+
+  <rect x="525" y="198" width="360" height="58" rx="6" fill="#e3f2fd" stroke="#64b5f6"/>
+  <text x="705" y="218" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">Folly RequestContext carries request statistics</text>
+  <text x="705" y="236" text-anchor="middle" font-size="10" fill="#0d47a1">and swaps them into TLS only while that request is active.</text>
+
+  <rect x="525" y="278" width="360" height="68" rx="6" fill="#ede7f6" stroke="#9575cd"/>
+  <text x="705" y="297" text-anchor="middle" font-size="11" font-weight="bold" fill="#4527a0">CPU time includes only A's active slices</text>
+  <rect x="557" y="306" width="90" height="18" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="602" y="318" text-anchor="middle" font-size="9" fill="#0d47a1">A slice 1</text>
+  <rect x="647" y="306" width="150" height="18" rx="3" fill="#eceff1" stroke="#90a4ae"/>
+  <text x="722" y="318" text-anchor="middle" font-size="9" fill="#546e7a">I/O wait + B: not charged</text>
+  <rect x="797" y="306" width="60" height="18" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="827" y="318" text-anchor="middle" font-size="9" fill="#0d47a1">A slice 2</text>
+  <text x="705" y="340" text-anchor="middle" font-size="10" fill="#4527a0">get_cpu_nanos(A) = slice 1 + slice 2</text>
+
+  <rect x="110" y="395" width="16" height="12" rx="2" fill="#bbdefb" stroke="#1565c0"/>
+  <text x="132" y="405" font-size="10" fill="#546e7a">request A</text>
+  <rect x="212" y="395" width="16" height="12" rx="2" fill="#d1c4e9" stroke="#5e35b1"/>
+  <text x="234" y="405" font-size="10" fill="#546e7a">request B</text>
+  <rect x="314" y="395" width="16" height="12" rx="2" fill="#ffcdd2" stroke="#c62828"/>
+  <text x="336" y="405" font-size="10" fill="#546e7a">state collision</text>
+</svg>

@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_constants.h"
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_index.h"
 #include "rocksdb/cleanable.h"
@@ -124,11 +125,27 @@ class ReadPathBlobResolver {
   }
 
  private:
+  // Maps the public (ReadOptions::verify_checksums, force_verify) pair to the
+  // internal 3-valued verify policy, once at this boundary (see
+  // BlobVerifyPolicy). Every downstream blob read is driven by the resulting
+  // policy rather than by re-deriving verification from two bools.
+  static BlobVerifyPolicy DeriveVerifyPolicy(bool verify_checksums,
+                                             bool force_verify);
+
+  // Reads a blob reference into *out, applying `policy`. range_length ==
+  // kWholeBlobLength selects the whole value; any other length selects the
+  // strict sub-range [range_offset, range_offset + range_length). Routes
+  // same-file ("embedded") references to the current SST's SameFileBlobReader
+  // and separate-file references to the Version-backed fetcher.
+  Status FetchBlobRef(const BlobIndex& blob_index, uint64_t range_offset,
+                      size_t range_length, BlobVerifyPolicy policy,
+                      PinnableSlice* out);
+
   // Shared implementation of ResolveColumn / the whole-column path of
-  // ResolveColumnRange. When force_verify is set, a separate-file blob
-  // reference is read with checksum verification forced on even if
-  // ReadOptions::verify_checksums is off (see LazyColumnReadRequest).
-  Status ResolveColumnInternal(size_t column_index, bool force_verify,
+  // ResolveColumnRange: resolves and caches the whole column value under the
+  // given verify policy (kVerifyIfPresent forces whole-record verification even
+  // when ReadOptions::verify_checksums is off; see LazyColumnReadRequest).
+  Status ResolveColumnInternal(size_t column_index, BlobVerifyPolicy policy,
                                Slice* resolved_value);
 
   // Owns its ReadOptions: a resolver's lifetime is independent of the caller

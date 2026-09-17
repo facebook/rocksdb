@@ -1,0 +1,1 @@
+Fixed a usually-minor performance bug where `Cache::ApplyToAllEntries()` used single-entry batches instead of the intended 256-entry default for `ApplyToAllEntriesOptions::average_entries_per_lock`. All of the Cache implementations (LRU and HCC) benefit from the fix, but the disfavored LRU cache was especially impacted by repeated mutex acquisition and release.

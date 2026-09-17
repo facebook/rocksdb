@@ -11,6 +11,7 @@
 #include <functional>
 #include <set>
 
+#include "db/read_callback.h"
 #include "util/autovector.h"
 #include "util/kv_map.h"
 #include "util/vector_iterator.h"
@@ -488,6 +489,29 @@ SequenceNumber FragmentedRangeTombstoneIterator::MaxCoveringTombstoneSeqnum(
                                                       target_user_key) <= 0
              ? seq()
              : 0;
+}
+
+SequenceNumber FragmentedRangeTombstoneIterator::MaxCoveringTombstoneSeqnum(
+    const Slice& target_user_key, ReadCallback* callback) {
+  assert(callback != nullptr);
+  SeekToCoveringTombstone(target_user_key);
+  if (!ValidPos() ||
+      ucmp_->CompareWithoutTimestamp(start_key(), target_user_key) > 0) {
+    return 0;
+  }
+
+  const auto seq_end = tombstones_->seq_iter(pos_->seq_end_idx);
+  // Sequence numbers are ordered newest to oldest and seq_pos_ is already
+  // bounded by upper_bound_. Return the first tombstone the metadata callback
+  // considers newer than the read snapshot.
+  while (seq_pos_ != seq_end && *seq_pos_ >= lower_bound_) {
+    const SequenceNumber candidate_seq = *seq_pos_;
+    if (callback->IsNewerVisibleForMetadataRead(candidate_seq)) {
+      return candidate_seq;
+    }
+    ++seq_pos_;
+  }
+  return 0;
 }
 
 std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>

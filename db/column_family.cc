@@ -1281,15 +1281,15 @@ Compaction* ColumnFamilyData::PickCompaction(
 }
 
 bool ColumnFamilyData::RangeOverlapWithCompaction(
-    const Slice& smallest_user_key, const Slice& largest_user_key,
-    int level) const {
+    const Slice& smallest_user_key, const Slice& largest_user_key, int level,
+    bool range_limit_exclusive) const {
   return compaction_picker_->RangeOverlapWithCompaction(
-      smallest_user_key, largest_user_key, level);
+      smallest_user_key, largest_user_key, level, range_limit_exclusive);
 }
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
     const autovector<UserKeyRange>& ranges, SuperVersion* super_version,
-    bool allow_data_in_errors, bool* overlap) {
+    bool allow_data_in_errors, bool* overlap, bool range_limit_exclusive) {
   assert(overlap != nullptr);
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
@@ -1334,12 +1334,15 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
     }
 
     if (status.ok()) {
+      const int limit_cmp = memtable_iter->Valid()
+                                ? ucmp->CompareWithoutTimestamp(
+                                      seek_result.user_key, ranges[i].limit)
+                                : 1;
       if (memtable_iter->Valid() &&
-          ucmp->CompareWithoutTimestamp(seek_result.user_key,
-                                        ranges[i].limit) <= 0) {
+          (range_limit_exclusive ? limit_cmp < 0 : limit_cmp <= 0)) {
         *overlap = true;
-      } else if (range_del_agg.IsRangeOverlapped(ranges[i].start,
-                                                 ranges[i].limit)) {
+      } else if (range_del_agg.IsRangeOverlapped(
+                     ranges[i].start, ranges[i].limit, range_limit_exclusive)) {
         *overlap = true;
       }
     }

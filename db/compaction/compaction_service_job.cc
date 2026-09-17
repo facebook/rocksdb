@@ -50,6 +50,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.end =
       compaction_input.has_end ? sub_compact->end->ToString() : "";
   compaction_input.options_file_number = options_file_number_;
+  compaction_input.min_manifest_file_number = min_manifest_file_number_;
+  compaction_input.min_manifest_file_size = min_manifest_file_size_;
 
   TEST_SYNC_POINT_CALLBACK(
       "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
@@ -82,7 +84,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       compaction->is_full_compaction(), compaction->is_manual_compaction(),
       compaction->bottommost_level(), compaction->start_level(),
       compaction->output_level());
-
   CompactionServiceScheduleResponse response =
       db_options_.compaction_service->Schedule(info, compaction_input_binary);
   switch (response.status) {
@@ -562,6 +563,14 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"options_file_number",
      {offsetof(struct CompactionServiceInput, options_file_number),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"min_manifest_file_number",
+     {offsetof(struct CompactionServiceInput, min_manifest_file_number),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"min_manifest_file_size",
+     {offsetof(struct CompactionServiceInput, min_manifest_file_size),
       OptionType::kUInt64T, OptionVerificationType::kNormal,
       OptionTypeFlags::kNone}},
 };
@@ -1075,9 +1084,19 @@ Status CompactionServiceInput::Read(const std::string& data_str,
     ConfigOptions cf;
     cf.invoke_prepare_options = false;
     cf.ignore_unknown_options = true;
-    return OptionTypeInfo::ParseType(
+    Status s = OptionTypeInfo::ParseType(
         cf, data_str.substr(sizeof(BinaryFormatVersion)), cs_input_type_info,
         obj);
+    if (!s.ok()) {
+      return s;
+    }
+    for (size_t i = 1; i < obj->snapshots.size(); ++i) {
+      if (obj->snapshots[i - 1] >= obj->snapshots[i]) {
+        return Status::InvalidArgument(
+            "CompactionServiceInput snapshots must be strictly increasing");
+      }
+    }
+    return Status::OK();
   } else {
     return Status::NotSupported(
         "Compaction Service Input data version not supported: " +

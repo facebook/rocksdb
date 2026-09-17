@@ -18,8 +18,10 @@
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
+#include "table/format.h"
 #include "table/prepared_file_info.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/random.h"
 #include "util/thread_guard.h"
 #include "utilities/fault_injection_env.h"
@@ -429,6 +431,47 @@ TEST_F(ExternalSSTFileTest, PrepareThenCommit) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
   ASSERT_EQ("v3", Get("k3"));
+}
+
+TEST_F(ExternalSSTFileTest,
+       AtomicReplaceRangeRetriesIfPartialOverlapAppearsAfterPrepare) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(
+      GenerateAndAddExternalFile(options, {{"c", "old-c"}, {"d", "old-d"}}));
+
+  std::string replacement_file;
+  ASSERT_OK(GenerateExternalFileOnly(options, {{"c", "new-c"}, {"d", "new-d"}},
+                                     &replacement_file));
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {replacement_file};
+  arg.options.allow_global_seqno = true;
+  arg.options.snapshot_consistency = false;
+  arg.atomic_replace_range = {{"b", "e"}};
+
+  std::unique_ptr<FileIngestionHandle> handle;
+  ASSERT_OK(db_->PrepareFileIngestion({arg}, &handle));
+
+  ASSERT_OK(
+      GenerateAndAddExternalFile(options, {{"a", "old-a"}, {"b", "old-b"}}));
+
+  Status status = db_->CommitFileIngestionHandle(std::move(handle));
+  ASSERT_TRUE(status.IsTryAgain()) << status.ToString();
+  ASSERT_EQ("old-a", Get("a"));
+  ASSERT_EQ("old-b", Get("b"));
+  ASSERT_EQ("old-c", Get("c"));
+  ASSERT_EQ("old-d", Get("d"));
+
+  ASSERT_OK(db_->IngestExternalFiles({arg}));
+  ASSERT_EQ("old-a", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+  ASSERT_EQ("new-c", Get("c"));
+  ASSERT_EQ("new-d", Get("d"));
 }
 
 TEST_F(ExternalSSTFileTest, ParallelFileOpenWithFileOpeningThreads) {
@@ -3528,6 +3571,9 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, ExternalSSTBlockChecksumTest,
 TEST_P(ExternalSSTBlockChecksumTest, DISABLED_HugeBlockChecksum) {
   BlockBasedTableOptions table_options;
   table_options.format_version = GetParam();
+  // kFooterFormatVersionsToTest includes the unpublished draft format_version
+  // 8; writing it requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
   for (auto t : GetSupportedChecksums()) {
     table_options.checksum = t;
     Options options = CurrentOptions();

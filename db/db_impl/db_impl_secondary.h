@@ -5,7 +5,10 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
@@ -100,6 +103,14 @@ class DBImplSecondary : public DBImpl {
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetImpl, const ReadOptions& options,
                                   const Slice& key,
                                   GetImplOptions& get_impl_options);
+
+  using DBImpl::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false) override;
 
   using DBImpl::NewIterator;
   // Operations on the created iterators can return IOError due to files being
@@ -287,6 +298,23 @@ class DBImplSecondary : public DBImpl {
     return false;
   }
 
+  // Seals `cfd`'s active memtable: adds it to the immutable memtable list and
+  // puts a fresh, empty active memtable in its place. This is the counterpart
+  // of DBImpl::SwitchMemtable(), which cannot be used here because there is no
+  // writer queue and no WAL of this instance's own.
+  //
+  // `next_log_number` is recorded on the sealed memtable. A subsequent
+  // MemTableList::RemoveOldMemTables(log_number) call considers the sealed
+  // memtable collectible once `next_log_number <= log_number`, so pass a log
+  // number above every WAL whose entries the memtable holds.
+  // `new_mem_earliest_seq` becomes the replacement memtable's earliest
+  // sequence number.
+  //
+  // REQUIRES: mutex_ held
+  void SealActiveMemtable(ColumnFamilyData* cfd, uint64_t next_log_number,
+                          SequenceNumber new_mem_earliest_seq,
+                          JobContext* job_context);
+
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
@@ -304,12 +332,62 @@ class DBImplSecondary : public DBImpl {
       std::unordered_set<ColumnFamilyData*>* cfds_changed,
       JobContext* job_context);
   Status FindNewLogNumbers(std::vector<uint64_t>* logs);
-  // After manifest recovery, replay WALs and refresh log_readers_ if necessary
+  // Replays WALs after manifest recovery, refreshes log_readers_ as needed, and
+  // drops recovered transactions the primary resolved. Cleanup runs even when
+  // `log_numbers` is empty.
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence,
                          std::unordered_set<ColumnFamilyData*>* cfds_changed,
                          JobContext* job_context);
+
+  // Records `log_number` as the newest WAL whose entries `cf_id`'s active
+  // memtable may hold, never lowering what is already recorded. Returns what
+  // was recorded before this call, or nullopt if nothing was.
+  //
+  // REQUIRES: mutex_ held
+  std::optional<uint64_t> RecordCurrentLog(uint32_t cf_id, uint64_t log_number);
+
+  // Seals the column family's active memtable if everything it holds is
+  // already readable through the installed Version, so that a following
+  // RemoveOldMemTables(installed_log_number) call drops it. Returns whether the
+  // memtable was sealed; in the common case it is not, and this is a no-op.
+  //
+  // `installed_log_number` is the column family's log number as of the Version
+  // most recently installed for it, from
+  // ReactiveVersionSet::GetInstalledVersionLogNumber(). It gates the seal, and
+  // the sealed memtable's next log number is at most that value.
+  //
+  // REQUIRES: mutex_ held
+  // REQUIRES: installed_log_number <= cfd->GetLogNumber()
+  // REQUIRES: cf_id_to_current_log_[cfd->GetID()] is at least as new as the
+  // newest WAL whose entries the active memtable holds, i.e. any WAL replay for
+  // this round has run. Too low a value drops a memtable the installed Version
+  // does not cover; too high only retains it for longer. RecoverLogFiles()
+  // records both before and after each insert to keep that true; see there.
+  bool MaybeSealFullyFlushedActiveMemtable(ColumnFamilyData* cfd,
+                                           uint64_t installed_log_number,
+                                           JobContext* job_context);
+
+  // Warns while `installed_log_number` lags behind cfd->GetLogNumber() and the
+  // column family is holding immutable memtables that RemoveOldMemTables()
+  // cannot collect as a result. Nothing on a secondary flushes them, so their
+  // number grows by one per WAL switch until the primary's flushed files become
+  // readable or the instance is reopened.
+  //
+  // Warns only when what it would report has changed, since the condition can
+  // persist across arbitrarily many catch-up calls.
+  //
+  // REQUIRES: mutex_ held
+  void MaybeWarnAboutRetainedMemtables(ColumnFamilyData* cfd,
+                                       uint64_t installed_log_number);
+
+  // Drops recovered transactions the primary resolved and flushed.
+  //
+  // REQUIRES: mutex_ held
+  // REQUIRES: every WAL reader for the round opened successfully
+  // REQUIRES: called before replaying records from the round
+  void DeleteResolvedRecoveredTransactions();
 
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still
@@ -350,7 +428,8 @@ class DBImplSecondary : public DBImpl {
   };
 
   Status InitializeCompactionWorkspace(
-      bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+      bool allow_resumption, bool resumption_requested,
+      std::unique_ptr<FSDirectory>* output_dir,
       std::unique_ptr<log::Writer>* compaction_progress_writer);
 
   Status PrepareCompactionProgressState();
@@ -404,19 +483,33 @@ class DBImplSecondary : public DBImpl {
   // MANIFEST only. When recover_wal is true, WAL files are also replayed
   // (needed by DB::OpenAsSecondary). When false, WAL replay is skipped
   // (used by DB::OpenAndCompact which only needs LSM state).
+  //
+  // When trust_manifest_recovery is true (only DB::OpenAndCompact), MANIFEST
+  // recovery trusts the manifest and does not stat/open SST or blob files, so
+  // only the compaction's (deletion-protected) input files are opened later, on
+  // demand. Must be false for normal secondary opens.
   static Status OpenAsSecondaryImpl(
       const DBOptions& db_options, const std::string& dbname,
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
-      bool recover_wal);
+      bool recover_wal, bool trust_manifest_recovery);
 
   // Cache log readers for each log number, used for continue WAL replay
   // after recovery
   std::map<uint64_t, std::unique_ptr<LogReaderContainer>> log_readers_;
 
-  // Current WAL number replayed for each column family.
-  std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
+  // The newest WAL whose entries each column family's active memtable may
+  // hold, keyed by column family id. An upper bound, not necessarily a WAL the
+  // memtable took entries from. Column family ids are never reused, so an entry
+  // left behind by a dropped column family can never be mistaken for a new
+  // column family's.
+  std::unordered_map<uint32_t, uint64_t> cf_id_to_current_log_;
+
+  // The installed Version's log number and retained memtable count last
+  // reported by MaybeWarnAboutRetainedMemtables() for each column family.
+  std::unordered_map<uint32_t, std::pair<uint64_t, int>>
+      cf_id_to_retention_warning_;
 
   const std::string secondary_path_;
 

@@ -139,7 +139,7 @@ class VersionStorageInfoTestBase : public testing::Test {
                   /*_force_consistency_checks=*/false,
                   EpochNumberRequirement::kMustPresent, ioptions_.clock,
                   mutable_cf_options_.bottommost_file_compaction_delay,
-                  OffpeakTimeOption()) {}
+                  OffpeakTimeOption(), PeriodicCompactionPhaseParams{}) {}
 
   ~VersionStorageInfoTestBase() override {
     for (int i = 0; i < vstorage_.num_levels(); ++i) {
@@ -3002,6 +3002,70 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
   EXPECT_EQ(kAtomicGroupSize, num_recovered_edits_);
+}
+
+TEST_F(VersionSetAtomicGroupTest,
+       ReactiveVersionSetResetsManifestAppendBoundaryOnSwitch) {
+  CreateCurrentFile();
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+  std::unique_ptr<Status> manifest_reader_status;
+  ASSERT_OK(reactive_versions_->Recover(column_families_, &manifest_reader,
+                                        &manifest_reporter,
+                                        &manifest_reader_status));
+
+  uint64_t old_manifest_end = 0;
+  ASSERT_OK(reactive_versions_->GetManifestAppendBoundary(&old_manifest_end));
+  ASSERT_GT(old_manifest_end, 0);
+  log_writer_.reset();
+
+  constexpr uint64_t kNewManifestFileNumber = 2;
+  const std::string new_manifest_path =
+      DescriptorFileName(dbname_, kNewManifestFileNumber);
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ASSERT_OK(WritableFileWriter::Create(
+      fs_, new_manifest_path, fs_->OptimizeForManifestWrite(env_options_),
+      &file_writer, nullptr));
+  log::Writer new_manifest_writer(std::move(file_writer), /*log_number=*/0,
+                                  /*recycle_log_files=*/false);
+
+  edits_.emplace_back();
+  VersionEdit& incomplete_edit = edits_.back();
+  incomplete_edit.SetLogNumber(0);
+  incomplete_edit.SetNextFile(kNewManifestFileNumber + 1);
+  incomplete_edit.SetLastSequence(last_seqno_++);
+  incomplete_edit.SetDBId(std::string(2 * log::kBlockSize, 'x'));
+  incomplete_edit.MarkAtomicGroup(1);
+  std::string record;
+  ASSERT_TRUE(incomplete_edit.EncodeTo(&record, 0));
+  ASSERT_OK(new_manifest_writer.AddRecord(WriteOptions(), record));
+  ASSERT_OK(new_manifest_writer.Close(WriteOptions()));
+
+  uint64_t new_manifest_size = 0;
+  ASSERT_OK(fs_->GetFileSize(new_manifest_path, IOOptions(), &new_manifest_size,
+                             nullptr));
+  ASSERT_GE(new_manifest_size, old_manifest_end);
+  ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_,
+                           kNewManifestFileNumber, Temperature::kUnknown,
+                           /*dir_contains_current_file=*/nullptr));
+
+  InstrumentedMutex mu;
+  std::unordered_set<ColumnFamilyData*> cfds_changed;
+  uint64_t new_manifest_end = 0;
+  Status boundary_status;
+  mu.Lock();
+  Status read_status = reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
+      /*files_to_delete=*/nullptr);
+  if (read_status.ok()) {
+    boundary_status =
+        reactive_versions_->GetManifestAppendBoundary(&new_manifest_end);
+  }
+  mu.Unlock();
+
+  ASSERT_OK(read_status);
+  ASSERT_EQ(1, reactive_versions_->TEST_read_edits_in_atomic_group());
+  ASSERT_TRUE(boundary_status.IsCorruption()) << boundary_status.ToString();
 }
 
 TEST_F(VersionSetAtomicGroupTest,

@@ -62,6 +62,13 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return table_->get_rep()->index_value_is_full;
   }
 
+  bool index_value_delta_escape() const {
+    assert(table_ != nullptr);
+    assert(table_->get_rep() != nullptr);
+    return FormatVersionUsesValueDeltaEscape(
+        table_->get_rep()->footer.format_version());
+  }
+
   bool cache_index_blocks() const {
     assert(table_ != nullptr);
     assert(table_->get_rep() != nullptr);

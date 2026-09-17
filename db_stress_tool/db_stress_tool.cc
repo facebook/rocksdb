@@ -29,6 +29,7 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "table/format.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -123,6 +124,15 @@ int db_stress_tool(int argc, char** argv) {
   SanitizeDoubleParam(&FLAGS_bloom_bits);
   SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
   SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
+
+  // db_stress may read and write in-development draft format_versions that are
+  // not yet published to users. Enable the TEST-only opt-in once, centrally,
+  // for the whole run. It stays on regardless of this run's --format_version:
+  // the crash test re-randomizes format_version per invocation on the same DB,
+  // so a run picking an older version may still need to READ draft-version SSTs
+  // written by an earlier run. The opt-in is inert unless an unsupported
+  // format_version is actually requested.
+  TEST_AllowUnsupportedFormatVersion() = true;
 
 #ifndef NDEBUG
   if (FLAGS_mock_direct_io) {
@@ -349,6 +359,33 @@ int db_stress_tool(int argc, char** argv) {
       FLAGS_nooverwritepercent == 100) {
     return ReturnValidationError(
         "nooverwritepercent must not be 100 when using file ingestion");
+  }
+  if (FLAGS_ingest_external_file_atomic_replace_one_in > 0) {
+    if (FLAGS_ingest_external_file_one_in <= 0) {
+      return ReturnValidationError(
+          "ingest_external_file_one_in must be positive when testing atomic "
+          "range replacement");
+    }
+    if (FLAGS_ingest_external_file_width < 2) {
+      return ReturnValidationError(
+          "ingest_external_file_width must be at least 2 when testing atomic "
+          "range replacement");
+    }
+    if (FLAGS_compaction_style != kCompactionStyleUniversal) {
+      return ReturnValidationError(
+          "atomic range replacement ingestion requires universal "
+          "compaction");
+    }
+    if (FLAGS_user_timestamp_size > 0) {
+      return ReturnValidationError(
+          "atomic range replacement ingestion does not support user-defined "
+          "timestamps");
+    }
+    if (FLAGS_acquire_snapshot_one_in > 0) {
+      return ReturnValidationError(
+          "atomic range replacement ingestion is incompatible with acquired "
+          "snapshots");
+    }
   }
   if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {
     return ReturnValidationError(

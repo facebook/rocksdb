@@ -838,6 +838,7 @@ set(SOURCES
         db/merge_operator.cc
         db/multi_scan.cc
         db/output_validator.cc
+        db/periodic_compaction_phaser.cc
         db/periodic_task_scheduler.cc
         db/range_del_aggregator.cc
         db/range_tombstone_fragmenter.cc
@@ -937,6 +938,7 @@ set(SOURCES
         table/block_based/block_cache.cc
         table/block_based/block_prefetcher.cc
         table/block_based/block_prefix_index.cc
+        table/block_based/builtin_index_factory.cc
         table/block_based/data_block_hash_index.cc
         table/block_based/data_block_footer.cc
         table/block_based/filter_block_reader_common.cc
@@ -1594,6 +1596,7 @@ if(WITH_TESTS)
         options/options_test.cc
         table/block_based/block_based_table_reader_test.cc
         table/block_based/block_test.cc
+        table/block_based/builtin_index_factory_test.cc
         table/block_based/data_block_hash_index_test.cc
         table/block_based/full_filter_block_test.cc
         table/block_based/partitioned_filter_block_test.cc

@@ -25,7 +25,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::Get)
   // Check row cache if enabled.
   // Reuse row_cache_key sequence number when row cache hits.
   Status s;
-  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
+  if (ioptions_.row_cache && !get_context->NeedToReadSequence() &&
+      !get_context->NeedToTrackNewerVersions()) {
     auto user_key = ExtractUserKey(k);
     uint64_t cache_entry_seq_no =
         CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
@@ -49,18 +50,37 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::Get)
                   should_pin_table_handles_);
     SequenceNumber* max_covering_tombstone_seq =
         get_context->max_covering_tombstone_seq();
-    if (s.ok() && max_covering_tombstone_seq != nullptr &&
-        !options.ignore_range_deletions) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          t->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        SequenceNumber seq =
-            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k));
-        if (seq > *max_covering_tombstone_seq) {
-          *max_covering_tombstone_seq = seq;
-          if (get_context->NeedTimestamp()) {
-            get_context->SetTimestampFromRangeTombstone(
-                range_del_iter->timestamp());
+    const bool track_newer_versions = get_context->NeedToTrackNewerVersions();
+    if (s.ok() && ((max_covering_tombstone_seq != nullptr &&
+                    !options.ignore_range_deletions) ||
+                   track_newer_versions)) {
+      if (track_newer_versions) {
+        std::unique_ptr<FragmentedRangeTombstoneIterator> latest_range_del_iter(
+            t->NewRangeTombstoneIterator(GetInternalKeySeqno(k),
+                                         options.timestamp));
+        const SequenceNumber covering_seq =
+            latest_range_del_iter != nullptr
+                ? latest_range_del_iter->MaxCoveringTombstoneSeqnum(
+                      ExtractUserKey(k), get_context->read_callback())
+                : 0;
+        if (covering_seq != 0) {
+          get_context->RecordNewerVersionIfNeeded(covering_seq,
+                                                  kTypeRangeDeletion);
+        }
+      }
+      if (max_covering_tombstone_seq != nullptr &&
+          !options.ignore_range_deletions) {
+        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+            t->NewRangeTombstoneIterator(options));
+        if (range_del_iter != nullptr) {
+          SequenceNumber seq =
+              range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k));
+          if (seq > *max_covering_tombstone_seq) {
+            *max_covering_tombstone_seq = seq;
+            if (get_context->NeedTimestamp()) {
+              get_context->SetTimestampFromRangeTombstone(
+                  range_del_iter->timestamp());
+            }
           }
         }
       }
@@ -116,15 +136,30 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   IterKey row_cache_key;
   size_t row_cache_key_prefix_size = 0;
   KeyContext& first_key = *table_range.begin();
-  bool lookup_row_cache =
-      ioptions_.row_cache && !first_key.get_context->NeedToReadSequence();
+  bool track_newer_versions = false;
+  ReadCallback* callback = first_key.get_context->read_callback();
+  const bool is_metadata_read =
+      callback != nullptr && callback->GetMetadataReadBounds() != nullptr;
+  if (is_metadata_read) {
+    for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+      if (iter->get_context->NeedToTrackNewerVersions()) {
+        track_newer_versions = true;
+        break;
+      }
+    }
+  }
+  bool lookup_row_cache = ioptions_.row_cache &&
+                          !first_key.get_context->NeedToReadSequence() &&
+                          !track_newer_versions;
 
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (lookup_row_cache) {
     GetContext* first_context = first_key.get_context;
-    CreateRowCacheKeyPrefix(options, fd, first_key.ikey, first_context,
-                            row_cache_key);
+    const SequenceNumber row_cache_entry_seq_no = CreateRowCacheKeyPrefix(
+        options, fd, first_key.ikey, first_context, row_cache_key);
+    const SequenceNumber replay_seq_no =
+        is_metadata_read ? row_cache_entry_seq_no : kMaxSequenceNumber;
     row_cache_key_prefix_size = row_cache_key.Size();
 
     for (auto miter = table_range.begin(); miter != table_range.end();
@@ -136,7 +171,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       Status read_status;
       bool ret =
           GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
-                          get_context, &read_status);
+                          get_context, &read_status, replay_seq_no);
       if (!read_status.ok()) {
         CO_RETURN read_status;
       }
@@ -164,7 +199,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       assert(!s.ok() || t);
     }
-    if (s.ok() && !options.ignore_range_deletions && !skip_range_deletions) {
+    if (s.ok() && !skip_range_deletions &&
+        (!options.ignore_range_deletions || track_newer_versions)) {
       UpdateRangeTombstoneSeqnums(options, t, table_range);
     }
     if (s.ok()) {

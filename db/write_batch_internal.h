@@ -9,6 +9,7 @@
 
 #pragma once
 #include <array>
+#include <unordered_set>
 #include <vector>
 
 #include "db/flush_scheduler.h"
@@ -203,8 +204,17 @@ class WriteBatchInternal {
   // Convenience form of InsertInto when you have only one batch
   // next_seq returns the seq after last sequence number used in MemTable insert
   //
-  // Under concurrent use, the caller is responsible for making sure that
-  // the memtables object itself is thread-local.
+  // `selected_cf_ids`, when not null, receives the id of every column family
+  // this batch selected for writing, which matches neither the ids the batch
+  // names nor what reached a memtable. Replaying a 2PC commit marker applies
+  // the prepared batch's column families while naming none; a column family
+  // already past `log_number` is skipped and never added; and an id is added
+  // before the write, so a later per-write rejection can leave one recorded
+  // for a column family nothing was written to. It accumulates as the batch
+  // is applied, so it is meaningful when this returns an error partway.
+  //
+  // Under concurrent use, the caller is responsible for making sure that the
+  // memtables object and `selected_cf_ids` are thread-local.
   static Status InsertInto(
       const WriteBatch* batch, ColumnFamilyMemTables* memtables,
       FlushScheduler* flush_scheduler,
@@ -212,7 +222,8 @@ class WriteBatchInternal {
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
       DB* db = nullptr, bool concurrent_memtable_writes = false,
       SequenceNumber* next_seq = nullptr, bool* has_valid_writes = nullptr,
-      bool seq_per_batch = false, bool batch_per_txn = true);
+      bool seq_per_batch = false, bool batch_per_txn = true,
+      std::unordered_set<uint32_t>* selected_cf_ids = nullptr);
 
   static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,

@@ -445,8 +445,8 @@ class ColumnFamilyData {
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
   bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
-                                  const Slice& largest_user_key,
-                                  int level) const;
+                                  const Slice& largest_user_key, int level,
+                                  bool range_limit_exclusive) const;
 
   // Check if the passed ranges overlap with any unflushed memtables
   // (immutable or mutable).
@@ -457,7 +457,8 @@ class ColumnFamilyData {
   // Thread-safe
   Status RangesOverlapWithMemtables(const autovector<UserKeyRange>& ranges,
                                     SuperVersion* super_version,
-                                    bool allow_data_in_errors, bool* overlap);
+                                    bool allow_data_in_errors, bool* overlap,
+                                    bool range_limit_exclusive);
 
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.

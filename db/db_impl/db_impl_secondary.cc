@@ -7,9 +7,11 @@
 
 #include <cinttypes>
 #include <optional>
+#include <unordered_set>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_fetcher.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/merge_context.h"
@@ -81,7 +83,9 @@ Status DBImplSecondary::FindAndRecoverLogFiles(
   Status s;
   std::vector<uint64_t> logs;
   s = FindNewLogNumbers(&logs);
-  if (s.ok() && !logs.empty()) {
+  if (s.ok()) {
+    // Empty recovery rounds still prune resolved transactions and completed
+    // prep tracking.
     SequenceNumber next_sequence(kMaxSequenceNumber);
     s = RecoverLogFiles(logs, &next_sequence, cfds_changed, job_context);
   }
@@ -204,6 +208,8 @@ Status DBImplSecondary::RecoverLogFiles(
     assert(reader != nullptr);
   }
 
+  DeleteResolvedRecoveredTransactions();
+
   const UnorderedMap<uint32_t, size_t>& running_ts_sz =
       versions_->GetRunningColumnFamiliesTimestampSize();
   for (auto log_number : log_numbers) {
@@ -220,6 +226,10 @@ Status DBImplSecondary::RecoverLogFiles(
     std::string scratch;
     Slice record;
     WriteBatch batch;
+    // Hoisted alongside `scratch`, `record` and `batch`: the loop below runs
+    // once per replayed WAL record, and clear() keeps the bucket array that a
+    // set constructed there would allocate again for every record.
+    std::unordered_set<uint32_t> selected_cf_ids;
 
     while (reader->ReadRecord(&record, &scratch,
                               immutable_db_options_.wal_recovery_mode) &&
@@ -253,42 +263,62 @@ Status DBImplSecondary::RecoverLogFiles(
             continue;
           }
           cfds_changed->insert(cfd);
+          // The return value is what the seal below compares against
+          // `log_number`, so the call has to stay. The write also names a WAL
+          // for column families whose inserts are skipped as already flushed
+          // and never reach the set recorded after the insert.
+          const std::optional<uint64_t> prev_log_number =
+              RecordCurrentLog(id, log_number);
           const std::vector<FileMetaData*>& l0_files =
               cfd->current()->storage_info()->LevelFiles(0);
           SequenceNumber seq =
               l0_files.empty() ? 0 : l0_files.back()->fd.largest_seqno;
-          // If the write batch's sequence number is smaller than the last
-          // sequence number of the largest sequence persisted for this column
-          // family, then its data must reside in an SST that has already been
-          // added in the prior MANIFEST replay.
+          // `l0_files` is ordered newest first, so `seq` is the largest
+          // sequence number in the oldest L0 file. A write batch at or below it
+          // must reside in an SST that a prior MANIFEST replay already added.
           if (seq_of_batch <= seq) {
             continue;
           }
-          auto curr_log_num = std::numeric_limits<uint64_t>::max();
-          if (cfd_to_current_log_.count(cfd) > 0) {
-            curr_log_num = cfd_to_current_log_[cfd];
-          }
           // If the active memtable contains records added by replaying an
           // earlier WAL, then we need to seal the memtable, add it to the
-          // immutable memtable list and create a new active memtable.
-          if (!cfd->mem()->IsEmpty() &&
-              (curr_log_num == std::numeric_limits<uint64_t>::max() ||
-               curr_log_num != log_number)) {
-            MemTable* new_mem = cfd->ConstructNewMemtable(
-                cfd->GetLatestMutableCFOptions(), seq_of_batch);
-            cfd->mem()->SetNextLogNumber(log_number);
-            cfd->mem()->ConstructFragmentedRangeTombstones();
-            cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
-            new_mem->Ref();
-            cfd->SetMemtable(new_mem);
+          // immutable memtable list and create a new active memtable, so that
+          // the sealed memtable can be dropped once the primary has flushed
+          // that earlier WAL.
+          //
+          // This is best effort: the sequence number check above can skip the
+          // seal without skipping the insert that follows, leaving the active
+          // memtable holding entries from more than one WAL.
+          // MaybeSealFullyFlushedActiveMemtable() tolerates that because
+          // `cf_id_to_current_log_[id]` is the newest of them.
+          if (!cfd->mem()->IsEmpty() && prev_log_number != log_number) {
+            SealActiveMemtable(cfd, log_number, seq_of_batch, job_context);
           }
         }
         bool has_valid_writes = false;
+        selected_cf_ids.clear();
         status = WriteBatchInternal::InsertInto(
             &batch, column_family_memtables_.get(),
             nullptr /* flush_scheduler */, nullptr /* trim_history_scheduler*/,
             true, log_number, this, false /* concurrent_memtable_writes */,
-            next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
+            next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_,
+            &selected_cf_ids);
+        // A 2PC commit marker names no column family yet replays its prepared
+        // batch into the memtables, so the recorded WAL would lag the committed
+        // data and the gate would drop it. Mark them changed too, or a
+        // commit-replay-only round skips the super version install and the
+        // retention warning.
+        //
+        // The seal loop above runs over named ids, so a commit marker takes no
+        // seal decision: its data joins the memtable's current WAL generation,
+        // which then stays until the primary flushes the commit's WAL.
+        for (const uint32_t id : selected_cf_ids) {
+          RecordCurrentLog(id, log_number);
+          ColumnFamilyData* cfd =
+              versions_->GetColumnFamilySet()->GetColumnFamily(id);
+          if (cfd != nullptr) {
+            cfds_changed->insert(cfd);
+          }
+        }
       }
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
@@ -298,20 +328,6 @@ Status DBImplSecondary::RecoverLogFiles(
       // passing null flush_scheduler will disable memtable flushing which is
       // needed for secondary instances
       if (status.ok()) {
-        for (const auto id : column_family_ids) {
-          ColumnFamilyData* cfd =
-              versions_->GetColumnFamilySet()->GetColumnFamily(id);
-          if (cfd == nullptr) {
-            continue;
-          }
-          std::unordered_map<ColumnFamilyData*, uint64_t>::iterator iter =
-              cfd_to_current_log_.find(cfd);
-          if (iter == cfd_to_current_log_.end()) {
-            cfd_to_current_log_.insert({cfd, log_number});
-          } else if (log_number > iter->second) {
-            iter->second = log_number;
-          }
-        }
         auto last_sequence = *next_sequence - 1;
         if ((*next_sequence != kMaxSequenceNumber) &&
             (versions_->LastSequence() <= last_sequence)) {
@@ -334,6 +350,212 @@ Status DBImplSecondary::RecoverLogFiles(
     }
   }
   return status;
+}
+
+void DBImplSecondary::SealActiveMemtable(ColumnFamilyData* cfd,
+                                         uint64_t next_log_number,
+                                         SequenceNumber new_mem_earliest_seq,
+                                         JobContext* job_context) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  assert(job_context != nullptr);
+  MemTable* new_mem = cfd->ConstructNewMemtable(
+      cfd->GetLatestMutableCFOptions(), new_mem_earliest_seq);
+  cfd->mem()->SetNextLogNumber(next_log_number);
+  cfd->mem()->ConstructFragmentedRangeTombstones();
+  cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
+  new_mem->Ref();
+  cfd->SetMemtable(new_mem);
+}
+
+std::optional<uint64_t> DBImplSecondary::RecordCurrentLog(uint32_t cf_id,
+                                                          uint64_t log_number) {
+  mutex_.AssertHeld();
+  const auto [log_iter, inserted] =
+      cf_id_to_current_log_.try_emplace(cf_id, log_number);
+  if (inserted) {
+    return std::nullopt;
+  }
+  const uint64_t prev_log_number = log_iter->second;
+  if (log_number > prev_log_number) {
+    log_iter->second = log_number;
+  }
+  return prev_log_number;
+}
+
+bool DBImplSecondary::MaybeSealFullyFlushedActiveMemtable(
+    ColumnFamilyData* cfd, uint64_t installed_log_number,
+    JobContext* job_context) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  assert(job_context != nullptr);
+  assert(installed_log_number <= cfd->GetLogNumber());
+  if (cfd->mem()->IsEmpty()) {
+    return false;
+  }
+  const auto log_iter = cf_id_to_current_log_.find(cfd->GetID());
+  if (log_iter == cf_id_to_current_log_.end()) {
+    return false;
+  }
+  // Keep the memtable unless the installed Version covers everything it holds:
+  // only the WALs older than `installed_log_number` are readable from the files
+  // that Version references. The loop in TryCatchUpWithPrimary() explains why
+  // the watermark has to come from the Version.
+  if (log_iter->second >= installed_log_number) {
+    return false;
+  }
+  // The file set is now the authority for these entries, so keeping them would
+  // be incorrect rather than merely redundant: point lookups stop at the
+  // memtable, and bottommost compaction rewriting the flushed entry's sequence
+  // number to 0 makes the shadowing permanent.
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] Sealing active memtable replayed from WAL %" PRIu64
+                 ", flushed by the primary and readable as of log number "
+                 "%" PRIu64 "; its first sequence number is %" PRIu64,
+                 cfd->GetName().c_str(), log_iter->second, installed_log_number,
+                 static_cast<uint64_t>(cfd->mem()->GetFirstSequenceNumber()));
+  // The memtable holds no entries from a WAL newer than `log_iter->second`, so
+  // + 1 is the log number following its contents, and the check above puts that
+  // at or below `installed_log_number`. The older immutable memtables that
+  // RemoveOldMemTables() examines first were themselves sealed on a WAL switch
+  // and stamped no higher, so nothing stops its scan short of this memtable and
+  // it is collected in the same round.
+  //
+  // The replacement memtable's earliest sequence number is the VersionSet's
+  // last sequence number, as in DBImplFollower::TryCatchUpWithLeader():
+  // DBImpl::MultiCFSnapshot() compares it against the last sequence number to
+  // detect a version change while collecting super version references without
+  // the mutex. That can be above the sequence number replayed next, so it is
+  // not yet the lower bound MemTable::SetEarliestSequenceNumber() documents;
+  // MemTable::Add() corrects it downward on the first insert, and until then
+  // the memtable holds no key a too-high bound could hide.
+  SealActiveMemtable(cfd, log_iter->second + 1, versions_->LastSequence(),
+                     job_context);
+  cf_id_to_current_log_.erase(log_iter);
+  return true;
+}
+
+void DBImplSecondary::MaybeWarnAboutRetainedMemtables(
+    ColumnFamilyData* cfd, uint64_t installed_log_number) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  // Tested before the count below because it is false whenever the secondary
+  // is keeping up with the primary, which is the normal case.
+  if (installed_log_number >= cfd->GetLogNumber()) {
+    cf_id_to_retention_warning_.erase(cfd->GetID());
+    return;
+  }
+  const int retained = cfd->imm()->NumNotFlushed();
+  if (retained == 0) {
+    cf_id_to_retention_warning_.erase(cfd->GetID());
+    return;
+  }
+  // Warn only when either number changes. The condition lasts until the
+  // primary's flushed files become readable, and TryCatchUpWithPrimary() is
+  // called as often as the application chooses, so reporting it every round
+  // would bury everything else in the log. Both values move only as the
+  // condition worsens, making this one line per newly retained memtable.
+  const std::pair<uint64_t, int> warning{installed_log_number, retained};
+  const auto [warning_iter, inserted] =
+      cf_id_to_retention_warning_.insert({cfd->GetID(), warning});
+  if (!inserted) {
+    if (warning_iter->second == warning) {
+      return;
+    }
+    warning_iter->second = warning;
+  }
+  // ColumnFamilyData::RecalculateWriteStallConditions() also counts this as a
+  // memtable limit stop, but attributes it to a flush that is not coming and to
+  // a `max_write_buffer_number` that no writer of this instance's own can hit,
+  // so name the actual cause.
+  ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                 "[%s] Retaining %d immutable memtable(s): the primary has "
+                 "flushed up to log number %" PRIu64
+                 " but no Version past log number %" PRIu64
+                 " could be installed, so they may hold the only readable copy "
+                 "of what was flushed",
+                 cfd->GetName().c_str(), retained, cfd->GetLogNumber(),
+                 installed_log_number);
+}
+
+// The primary keeps min_log_number_to_keep at or below every unresolved prepare
+// and every prepare with unflushed committed data. A recovered transaction
+// entirely below it is therefore committed and flushed, or rolled back; see
+// PrecomputeMinLogNumberToKeep2PC(). FindNewLogNumbers() uses the same
+// threshold, so no marker below it can be replayed. If a resolution marker
+// appears in a later WAL, its handler tolerates missing recovery state.
+// Committed writes are skipped because the column family's log number is
+// already past their WAL.
+//
+// Drop before replay so a reused name starts a new generation instead of
+// merging with stale state. Open every reader first so a round that cannot
+// replay drops nothing.
+void DBImplSecondary::DeleteResolvedRecoveredTransactions() {
+  mutex_.AssertHeld();
+  if (recovered_transactions_.empty()) {
+    return;
+  }
+  const uint64_t min_log_number_to_keep = versions_->min_log_number_to_keep();
+  size_t deleted = 0;
+  for (RecoveredTransactionMap::iterator it = recovered_transactions_.begin();
+       it != recovered_transactions_.end();) {
+    assert(!it->second->batches_.empty());
+    bool all_batches_below_watermark = true;
+    for (const auto& batch_info : it->second->batches_) {
+      if (batch_info.second.log_number_ >= min_log_number_to_keep) {
+        all_batches_below_watermark = false;
+        break;
+      }
+    }
+    if (all_batches_below_watermark) {
+      it = DeleteRecoveredTransaction(it);
+      ++deleted;
+    } else {
+      ++it;
+    }
+  }
+  if (deleted > 0) {
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                    "Dropped %" ROCKSDB_PRIszt
+                    " recovered transaction(s) prepared before WAL %" PRIu64,
+                    deleted, min_log_number_to_keep);
+  }
+}
+
+void DBImplSecondary::MultiGetWithMetadata(
+    const ReadOptions& options, const size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  // The only secondary-specific policy here is rejecting newer-version
+  // tracking for explicit snapshots: catch-up can advance a secondary's view.
+  // The remaining code initializes requested metadata and forwards to the
+  // existing MultiGet implementation.
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+    if (options.snapshot != nullptr) {
+      const Status s = Status::NotSupported(
+          "MultiGetWithMetadata is not supported in secondary DB mode");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  DBImpl::MultiGet(options, num_keys, mutable_column_families, keys, values,
+                   timestamps != nullptr ? timestamps->data() : nullptr,
+                   statuses, sorted_input);
 }
 
 Iterator* DBImplSecondary::NewIterator(const ReadOptions& _read_options,
@@ -400,8 +622,9 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* read_callback, bool expose_blob_index, bool allow_refresh) {
   assert(nullptr != cfh);
-  assert(snapshot == kMaxSequenceNumber);
-  snapshot = versions_->LastSequence();
+  if (snapshot == kMaxSequenceNumber) {
+    snapshot = versions_->LastSequence();
+  }
   assert(snapshot != kMaxSequenceNumber);
   return NewArenaWrappedDbIterator(env_, read_options, cfh, super_version,
                                    snapshot, read_callback, this,
@@ -458,30 +681,38 @@ Status DBImplSecondary::NewIterators(
     // TODO (yanqin) support snapshot.
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
-    SequenceNumber read_seq(kMaxSequenceNumber);
-    autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
-    const bool check_read_ts =
-        read_options.timestamp && read_options.timestamp->size() > 0;
-    for (auto cf : column_families) {
-      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
-      auto cfd = cfh->cfd();
-      SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-      cfh_to_sv.emplace_back(cfh, sv);
-      if (check_read_ts) {
+    autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>
+        cf_sv_pairs;
+    SequenceNumber consistent_seqnum;
+    {
+      InstrumentedMutexLock lock_guard(&mutex_);
+      consistent_seqnum = versions_->LastSequence();
+      for (auto* cf : column_families) {
+        auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+        cf_sv_pairs.emplace_back(cfh, cfh->cfd()->GetSuperVersion()->Ref());
+      }
+    }
+
+    if (read_options.timestamp && !read_options.timestamp->empty()) {
+      for (const auto& cf_sv_pair : cf_sv_pairs) {
         const Status s =
-            FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+            FailIfReadCollapsedHistory(cf_sv_pair.cfd, cf_sv_pair.super_version,
+                                       *(read_options.timestamp));
         if (!s.ok()) {
-          for (auto prev_entry : cfh_to_sv) {
-            CleanupSuperVersion(std::get<1>(prev_entry));
+          for (const auto& cleanup_pair : cf_sv_pairs) {
+            CleanupSuperVersion(cleanup_pair.super_version);
           }
           return s;
         }
       }
     }
-    assert(cfh_to_sv.size() == column_families.size());
-    for (auto [cfh, sv] : cfh_to_sv) {
-      iterators->push_back(
-          NewIteratorImpl(read_options, cfh, sv, read_seq, read_callback));
+
+    assert(cf_sv_pairs.size() == column_families.size());
+    for (const auto& cf_sv_pair : cf_sv_pairs) {
+      iterators->push_back(NewIteratorImpl(read_options, cf_sv_pair.cfh,
+                                           cf_sv_pair.super_version,
+                                           consistent_seqnum, read_callback));
+      TEST_SYNC_POINT("DBImplSecondary::NewIterators:AfterCreateIterator");
     }
   }
   return Status::OK();
@@ -496,10 +727,12 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   {
     InstrumentedMutexLock lock_guard(&mutex_);
     assert(manifest_reader_.get() != nullptr);
-    s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
-            ->ReadAndApply(&mutex_, &manifest_reader_,
-                           manifest_reader_status_.get(), &cfds_changed,
-                           /*files_to_delete=*/nullptr);
+    auto* reactive_versions =
+        static_cast_with_check<ReactiveVersionSet>(versions_.get());
+    s = reactive_versions->ReadAndApply(&mutex_, &manifest_reader_,
+                                        manifest_reader_status_.get(),
+                                        &cfds_changed,
+                                        /*files_to_delete=*/nullptr);
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));
@@ -517,8 +750,10 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 
     // list wal_dir to discover new WALs and apply new changes to the secondary
     // instance
+    bool replayed_every_wal_found = false;
     if (s.ok()) {
       s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+      replayed_every_wal_found = s.ok();
       if (s.IsPathNotFound()) {
         ROCKS_LOG_INFO(
             immutable_db_options_.info_log,
@@ -528,12 +763,64 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
       }
     }
     if (s.ok()) {
-      for (auto cfd : cfds_changed) {
-        cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+      // Iterate over every column family rather than only `cfds_changed`: a
+      // stale memtable left behind because an earlier round failed after
+      // ReadAndApply() had already advanced the log number must still be
+      // dropped, and that column family may have no new MANIFEST record in this
+      // round. Column families dropped in this round are skipped, unlike with
+      // `cfds_changed`, which can still name a column family that a later
+      // record in the same round made VersionEditHandler::DestroyCfAndCleanup()
+      // drop. Column families that neither changed nor have anything to collect
+      // are skipped below, so this installs no extra super versions.
+      for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped()) {
+          // Nothing more can ever be replayed into a dropped column family, so
+          // drop its entry too: it had no removal path before. Ids are never
+          // reused, so a leftover entry could only waste space, and one is
+          // still left behind by a column family destroyed before this loop
+          // next runs.
+          cf_id_to_current_log_.erase(cfd->GetID());
+          cf_id_to_retention_warning_.erase(cfd->GetID());
+          continue;
+        }
+        if (!cfd->initialized()) {
+          // There is no memtable to reconcile yet, and any entry the column
+          // family already has still names the WAL a later round must gate on.
+          continue;
+        }
+        // Drop memtables against the log number of the Version most recently
+        // installed, never `cfd->GetLogNumber()`: that advances as soon as the
+        // primary's flush record is read, even when the flushed files cannot be
+        // opened or an incomplete atomic group parks the new Version. Until
+        // such a Version is installed the memtable can hold the only readable
+        // copy of what was flushed, so dropping it against that number would
+        // turn a stale read into a vanished key.
+        const uint64_t installed_log_number =
+            reactive_versions->GetInstalledVersionLogNumber(cfd->GetID());
+        const bool sealed = MaybeSealFullyFlushedActiveMemtable(
+            cfd, installed_log_number, &job_context);
+        // A round that failed after RecoverLogFiles() had sealed on a WAL
+        // switch can also leave a collectible immutable memtable behind, so
+        // check for one instead of relying on this round having sealed.
+        const bool needs_super_version =
+            sealed ||
+            cfd->imm()->HasOldMemTablesToRemove(installed_log_number) ||
+            cfds_changed.count(cfd) > 0;
+        if (!needs_super_version) {
+          continue;
+        }
+        cfd->imm()->RemoveOldMemTables(installed_log_number,
                                        &job_context.memtables_to_free);
+        MaybeWarnAboutRetainedMemtables(cfd, installed_log_number);
         auto& sv_context = job_context.superversion_contexts.back();
         cfd->InstallSuperVersion(&sv_context, &mutex_);
         sv_context.NewSuperVersion();
+      }
+      if (replayed_every_wal_found) {
+        // Secondary catch-up does not run the primary paths that prune the
+        // completed tracker prefix. Replay and pre-replay cleanup add
+        // completions; an outstanding prepare stops the scan.
+        (void)logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
       }
     }
   }
@@ -581,7 +868,7 @@ Status DB::OpenAsSecondary(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   return DBImplSecondary::OpenAsSecondaryImpl(
       db_options, dbname, secondary_path, column_families, handles, dbptr,
-      /*recover_wal=*/true);
+      /*recover_wal=*/true, /*trust_manifest_recovery=*/false);
 }
 
 Status DBImplSecondary::OpenAsSecondaryImpl(
@@ -589,7 +876,7 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
-    bool recover_wal) {
+    bool recover_wal, bool trust_manifest_recovery) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -630,6 +917,8 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
       impl->file_options_, impl->table_cache_.get(),
       impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_,
       impl->db_id_, impl->db_session_id_));
+  static_cast_with_check<ReactiveVersionSet>(impl->versions_.get())
+      ->SetTrustManifestRecovery(trust_manifest_recovery);
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
@@ -943,27 +1232,48 @@ Status DBImplSecondary::CleanupPhysicalCompactionOutputFiles(
 }
 
 Status DBImplSecondary::InitializeCompactionWorkspace(
-    bool allow_resumption, std::unique_ptr<FSDirectory>* output_dir,
+    bool allow_resumption, bool resumption_requested,
+    std::unique_ptr<FSDirectory>* output_dir,
     std::unique_ptr<log::Writer>* compaction_progress_writer) {
   // Create output directory if it doest exist yet
   Status s = CreateAndNewDirectory(fs_.get(), secondary_path_, output_dir);
-  if (!s.ok() || !allow_resumption) {
-    return s;
-  }
-
-  s = PrepareCompactionProgressState();
-
   if (!s.ok()) {
     return s;
   }
 
-  s = FinalizeCompactionProgressWriter(compaction_progress_writer);
-
-  if (!s.ok()) {
-    return s;
+  if (allow_resumption) {
+    s = PrepareCompactionProgressState();
+    if (!s.ok()) {
+      return s;
+    }
+    return FinalizeCompactionProgressWriter(compaction_progress_writer);
   }
 
-  return Status::OK();
+  if (resumption_requested) {
+    // Resumption was requested by the caller but has been disabled internally
+    // (see CompactWithoutInstallation: incompatible with output hash
+    // verification). The caller therefore did not empty output_directory (it
+    // expects the resumption path to own that state), so honor the
+    // OpenAndCompactOptions::allow_resumption=true fallback contract by
+    // cleaning any leftover progress and output files here, starting the fresh
+    // compaction from a clean directory. Without this, output files left by a
+    // previously interrupted attempt collide with the file numbers the fresh
+    // compaction reuses.
+    CompactionProgressFilesScan scan_result;
+    s = ScanCompactionProgressFiles(&scan_result);
+    if (!s.ok()) {
+      return s;
+    }
+    s = CleanupOldAndTemporaryCompactionProgressFiles(
+        /*preserve_latest=*/false, scan_result);
+    if (!s.ok()) {
+      return s;
+    }
+    s = HandleInvalidOrNoCompactionProgress(
+        /*compaction_progress_file_path=*/std::nullopt, scan_result);
+  }
+
+  return s;
 }
 
 // PrepareCompactionProgressState() manages compaction progress files and output
@@ -1191,8 +1501,9 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   mutex_.Unlock();
 
-  s = InitializeCompactionWorkspace(allow_resumption, &output_dir,
-                                    &compaction_progress_writer);
+  s = InitializeCompactionWorkspace(
+      allow_resumption, /*resumption_requested=*/options.allow_resumption,
+      &output_dir, &compaction_progress_writer);
 
   mutex_.Lock();
 
@@ -1238,6 +1549,22 @@ Status DBImplSecondary::CompactWithoutInstallation(
   job_context.InitSnapshotContext(/*checker=*/nullptr,
                                   /*managed_snapshot=*/nullptr,
                                   kMaxSequenceNumber, std::move(snapshots));
+
+  // Ensure FileMetaData stats (num_entries, num_range_deletions) are
+  // initialized for all input files. These stats are not persisted in the
+  // MANIFEST and are loaded lazily from table properties. The Compaction
+  // constructor's FilterInputsForCompactionIterator() relies on
+  // FileIsStandAloneRangeTombstone() which needs these fields to be populated.
+  // Without this, the remote worker may not filter the same files as the
+  // primary host, leading to input record count verification failures.
+  {
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
+    for (const auto& level_files : input_files) {
+      for (FileMetaData* file_meta : level_files.files) {
+        version->MaybeInitializeFileMetaData(read_options, file_meta);
+      }
+    }
+  }
 
   // TODO - consider serializing the entire Compaction object and using it as
   // input instead of recreating it in the remote worker
@@ -1364,6 +1691,10 @@ Status DB::OpenAndCompact(
   db_options.compaction_service = nullptr;
   db_options.info_log = override_options.info_log;
 
+  const std::string output_path = RemoteCompactionJobDir(
+      name, db_options.use_session_tmp_dir_for_remote_compaction,
+      output_directory);
+
   // 4. Filter CFs that are needed for OpenAndCompact()
   // We do not need to open all column families for the remote compaction.
   // Only open default CF + target CF. If target CF == default CF, we will open
@@ -1404,12 +1735,46 @@ Status DB::OpenAndCompact(
 
   // 5. Open db As Secondary (skip WAL recovery -- remote compaction only
   //    needs LSM state from MANIFEST, not memtable data from WAL replay)
+  //
+  // A non-zero min_manifest_file_number means the primary provided a MANIFEST
+  // floor (DBOptions::remote_compaction_manifest_floor was on when it scheduled
+  // the job). Its presence couples on both (a) "trust the MANIFEST" recovery
+  // and (b) the floor check below. Absence -> the worker uses the original
+  // point-in-time recovery with no floor check (kill switch off, or an older
+  // primary).
+  const bool floor_provided = compaction_input.min_manifest_file_number != 0;
   std::unique_ptr<DB> db;
   std::vector<ColumnFamilyHandle*> handles;
   const uint64_t db_open_start_micros = db_options.env->NowMicros();
-  s = DBImplSecondary::OpenAsSecondaryImpl(db_options, name, output_directory,
-                                           column_families, &handles, &db,
-                                           /*recover_wal=*/false);
+  // This opens the *live* primary's directory read-only, and the primary keeps
+  // rotating its MANIFEST underneath us: each rotation writes a new MANIFEST
+  // and renames a freshly written CURRENT over the old one. POSIX keeps an
+  // already-opened CURRENT/MANIFEST readable after such a replacement, but
+  // filesystems without read-after-unlink semantics (remote or object stores)
+  // report the replaced object as gone instead (Status::PathNotFound /
+  // NotFound, or Status::TryAgain from
+  // ReactiveVersionSet::MaybeSwitchManifest for the MANIFEST equivalent). That
+  // is a transient race, not a broken DB: the next attempt reads the
+  // replacement. Retry a bounded number of times so a concurrent rotation does
+  // not fail the compaction -- a CompactionService that does not fall back to a
+  // local compaction turns such a failure into a primary background error.
+  for (uint32_t retry_count = 0;; ++retry_count) {
+    s = DBImplSecondary::OpenAsSecondaryImpl(
+        db_options, name, output_path, column_families, &handles, &db,
+        /*recover_wal=*/false,
+        /*trust_manifest_recovery=*/floor_provided);
+    if (s.ok() || !(s.IsTryAgain() || s.IsPathNotFound() || s.IsNotFound()) ||
+        retry_count == options.max_secondary_open_retries) {
+      break;
+    }
+    ROCKS_LOG_WARN(db_options.info_log,
+                   "OpenAndCompact: secondary open of %s failed with %s "
+                   "(retry %" PRIu32 " of %" PRIu32
+                   "); the primary may have replaced "
+                   "CURRENT/MANIFEST concurrently, retrying",
+                   name.c_str(), s.ToString().c_str(), retry_count + 1,
+                   options.max_secondary_open_retries);
+  }
   RecordTimeToHistogram(db_options.statistics.get(),
                         OPEN_AND_COMPACT_DB_OPEN_MICROS,
                         db_options.env->NowMicros() - db_open_start_micros);
@@ -1420,6 +1785,57 @@ Status DB::OpenAndCompact(
 
   TEST_SYNC_POINT_CALLBACK(
       "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db.get());
+
+  // 5b. Manifest floor check. Refuse to reconstruct the compaction against an
+  // older MANIFEST view than the primary scheduled from (e.g. an
+  // eventually-consistent filesystem returning a stale CURRENT, or a truncated
+  // MANIFEST): an older LSM shape could wrongly drop keys that should be kept.
+  // Accept-equal-or-later is safe by monotonicity while the inputs stay locked;
+  // only an older view is unsafe. On rejection, return Status::Incomplete so
+  // the CompactionService implementation can fall back to a local compaction
+  // (kUseLocal) rather than install a possibly-incorrect result.
+  if (floor_provided) {
+    VersionSet* recovered_versions =
+        static_cast_with_check<DBImplSecondary>(db.get())->GetVersionSet();
+    const uint64_t recovered_number =
+        recovered_versions->manifest_file_number();
+    // Compare the maximal valid prefix of the recovered MANIFEST (not the
+    // reader's read-to-EOF high-water mark, which can include tolerated tail
+    // garbage: a corrupt/torn trailing record or a partial atomic group at
+    // EOF). This way a tolerated corrupt tail is fine as long as the
+    // actually-installed valid prefix reaches the floor. Both sides are byte
+    // sizes of the same append-only, uniquely-numbered MANIFEST, so equal
+    // number + recovered_valid_size >= min means the worker installed a
+    // same-or-newer view; anything short (older/truncated/torn/partial) is
+    // below the floor and rejected.
+    const uint64_t recovered_valid_size =
+        recovered_versions->manifest_recovery_maximal_valid_size();
+    bool below_floor =
+        recovered_number < compaction_input.min_manifest_file_number ||
+        (recovered_number == compaction_input.min_manifest_file_number &&
+         recovered_valid_size < compaction_input.min_manifest_file_size);
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImplSecondary::OpenAndCompact::ManifestFloorCheck", &below_floor);
+    if (below_floor) {
+      ROCKS_LOG_WARN(
+          db_options.info_log,
+          "Remote compaction recovered an older MANIFEST view (file number "
+          "%" PRIu64 " valid size %" PRIu64
+          ") than the primary scheduled from "
+          "(min file number %" PRIu64 " size %" PRIu64
+          "); declining so the job can fall back to local compaction.",
+          recovered_number, recovered_valid_size,
+          compaction_input.min_manifest_file_number,
+          compaction_input.min_manifest_file_size);
+      for (auto& handle : handles) {
+        delete handle;
+      }
+      db.reset();
+      return Status::Incomplete(
+          "Remote compaction worker recovered an older MANIFEST view than the "
+          "primary scheduled from");
+    }
+  }
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;
@@ -1432,7 +1848,7 @@ Status DB::OpenAndCompact(
   assert(cfh);
 
   // 7. Run the compaction without installation.
-  // Output will be stored in the directory specified by output_directory
+  // Output will be stored under the DB-owned staging directory.
   CompactionServiceResult compaction_result;
   DBImplSecondary* db_secondary =
       static_cast_with_check<DBImplSecondary>(db.get());

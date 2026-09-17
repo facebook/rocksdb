@@ -290,12 +290,22 @@ class DBImpl : public DB
                                   const Slice& key, PinnableSlice* value,
                                   std::string* timestamp);
 
+  using DB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& _read_options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override;
+
   using DB::GetEntity;
-  Status GetEntity(const ReadOptions& options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableWideColumns* columns) override;
-  Status GetEntity(const ReadOptions& options, const Slice& key,
-                   PinnableAttributeGroups* result) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetEntity,
+                                  const ReadOptions& _read_options,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key,
+                                  PinnableWideColumns* columns);
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(Status, GetEntity,
+                                  const ReadOptions& _read_options,
+                                  const Slice& key,
+                                  PinnableAttributeGroups* result);
 
   Status GetEntityLazy(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
@@ -331,6 +341,15 @@ class DBImpl : public DB
                                   const Slice* keys, PinnableSlice* values,
                                   std::string* timestamps, Status* statuses,
                                   const bool sorted_input = false);
+
+  using DB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& _read_options,
+                            const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false) override;
 
   void MultiGetWithCallback(
       const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
@@ -765,6 +784,7 @@ class DBImpl : public DB
     PinnableSlice* value = nullptr;
     PinnableWideColumns* columns = nullptr;
     std::string* timestamp = nullptr;
+    bool* newer_version_present = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
     bool* is_blob_index = nullptr;
@@ -804,6 +824,11 @@ class DBImpl : public DB
   DECLARE_SYNC_AND_ASYNC(Status, GetImpl, const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          PinnableSlice* value, std::string* timestamp);
+
+  Status GetImpl(const ReadOptions& read_options,
+                 ColumnFamilyHandle* column_family, const Slice& key,
+                 PinnableSlice* value, std::string* timestamp,
+                 bool* newer_version_present);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
@@ -1156,10 +1181,12 @@ class DBImpl : public DB
     }
   };
 
+  using RecoveredTransactionMap =
+      std::unordered_map<std::string, RecoveredTransaction*>;
+
   bool allow_2pc() const { return immutable_db_options_.allow_2pc; }
 
-  std::unordered_map<std::string, RecoveredTransaction*>
-  recovered_transactions() {
+  RecoveredTransactionMap recovered_transactions() {
     return recovered_transactions_;
   }
 
@@ -1190,16 +1217,24 @@ class DBImpl : public DB
     logs_with_prep_tracker_.MarkLogAsContainingPrepSection(log);
   }
 
-  void DeleteRecoveredTransaction(const std::string& name) {
-    auto it = recovered_transactions_.find(name);
+  // Deletes the recovered transaction `it` points to and returns the iterator
+  // following it, like std::unordered_map::erase().
+  RecoveredTransactionMap::iterator DeleteRecoveredTransaction(
+      RecoveredTransactionMap::iterator it) {
     assert(it != recovered_transactions_.end());
     auto* trx = it->second;
-    recovered_transactions_.erase(it);
+    RecoveredTransactionMap::iterator next = recovered_transactions_.erase(it);
     for (const auto& info : trx->batches_) {
       logs_with_prep_tracker_.MarkLogAsHavingPrepSectionFlushed(
           info.second.log_number_);
     }
     delete trx;
+    return next;
+  }
+
+  void DeleteRecoveredTransaction(const std::string& name) {
+    RecoveredTransactionMap::iterator it = recovered_transactions_.find(name);
+    DeleteRecoveredTransaction(it);
   }
 
   void DeleteAllRecoveredTransactions() {
@@ -1317,6 +1352,8 @@ class DBImpl : public DB
 
   // Get the background error status
   Status TEST_GetBGError();
+
+  void TEST_SetBGError(const IOStatus& error, BackgroundErrorReason reason);
 
   bool TEST_IsRecoveryInProgress();
 
@@ -1441,6 +1478,20 @@ class DBImpl : public DB
   // REQUIRES: DB mutex held or during open
   void EnsureSeqnoToTimeMapping(const MinAndMaxPreserveSeconds& preserve_secs);
 
+  // Computes the seqno->time preserve-window lower bound from
+  // seqno_to_time_mapping_ and stores it on cfd's current version, so
+  // bottommost file marking does not mark files whose largest seqno cannot be
+  // zeroed yet (which would loop). No-op for column families without
+  // preserve/preclude enabled. Returns true if the stored value changed, so
+  // callers can recompute bottommost marking when the boundary moves.
+  // Note: right after opening an existing DB, seqno_to_time_mapping_ may not be
+  // fully reconstructed, so this bound can be imprecise until the first
+  // periodic RecordSeqnoToTimeMapping. That is safe: CompactionJob folds this
+  // same bound into kBottommostFiles compactions, so any marked file still
+  // makes progress (never loops), and the periodic task self-corrects the
+  // bound. REQUIRES: DB mutex held
+  bool MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd);
+
   // Only called during open
   void PrepopulateSeqnoToTimeMapping(
       const MinAndMaxPreserveSeconds& preserve_secs);
@@ -1525,8 +1576,7 @@ class DBImpl : public DB
   FileSystemPtr fs_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
-  std::unordered_map<std::string, RecoveredTransaction*>
-      recovered_transactions_;
+  RecoveredTransactionMap recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
   BlockCacheTracer block_cache_tracer_;
@@ -1625,6 +1675,15 @@ class DBImpl : public DB
       }
       uint32_t i = map_[cfd->GetID()];
       edit_lists_[i].emplace_back(new VersionEdit(edit));
+    }
+
+    bool HasVersionEdits() const {
+      for (const auto& edit_list : edit_lists_) {
+        if (!edit_list.empty()) {
+          return true;
+        }
+      }
+      return false;
     }
 
     std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
@@ -1996,7 +2055,7 @@ class DBImpl : public DB
   // LogAndApplyForRecovery should be called only once during recovery and it
   // should be called when RocksDB writes to a first new MANIFEST since this
   // recovery.
-  Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
+  Status LogAndApplyForRecovery(RecoveryContext& recovery_ctx);
 
   // Schedule background work to open and validate SST files asynchronously.
   // Called when open_files_async is enabled.
@@ -2774,7 +2833,11 @@ class DBImpl : public DB
     // equal to this per-column-family specified value, this flush request is
     // considered to have completed its work of flushing this column family.
     // After completing the work for all column families in this request, this
-    // flush is considered complete.
+    // flush is considered complete. EnqueuePendingFlush() acquires one
+    // reference for each CFD when it successfully queues this request.
+    // PopFirstFromFlushQueue() transfers responsibility for those references
+    // to its caller, which must release each one with UnrefAndTryDelete() after
+    // processing or discarding the request.
     std::unordered_map<ColumnFamilyData*, uint64_t>
         cfd_to_max_mem_id_to_persist;
 
@@ -2827,6 +2890,9 @@ class DBImpl : public DB
                                 Env::Priority thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
+  // Recursively removes all children of the DB session temporary directory.
+  // Best effort: errors are logged, not returned. REQUIRES: mutex_ not held.
+  void CleanupSessionTmpDir();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
@@ -3092,7 +3158,9 @@ class DBImpl : public DB
                          ColumnFamilyHandle** column_families,
                          const Slice* keys, PinnableSlice* values,
                          PinnableWideColumns* columns, std::string* timestamps,
-                         Status* statuses, bool sorted_input);
+                         Status* statuses,
+                         std::vector<uint8_t>* newer_version_present,
+                         bool sorted_input);
 
   // A structure to hold the information required to process MultiGet of keys
   // belonging to one column family. For a multi column family MultiGet, there
@@ -3776,9 +3844,47 @@ class GetWithTimestampReadCallback : public ReadCallback {
  public:
   explicit GetWithTimestampReadCallback(SequenceNumber seq)
       : ReadCallback(seq) {}
+  // A null result is used by MultiGet, whose per-key results live in
+  // KeyContext/GetContext.
+  void EnableNewerVersionTracking(SequenceNumber read_snapshot_seq,
+                                  SequenceNumber upper_bound_seq,
+                                  bool* single_key_result) {
+    metadata_read_bounds_.emplace(
+        MetadataReadBounds{read_snapshot_seq, upper_bound_seq});
+    newer_version_present_ = single_key_result;
+  }
+  const MetadataReadBounds* GetMetadataReadBounds() const override {
+    return metadata_read_bounds_.has_value() ? &*metadata_read_bounds_
+                                             : nullptr;
+  }
+  bool NeedToTrackNewerVersions(
+      const bool* per_key_result = nullptr) const override {
+    const bool* result =
+        per_key_result != nullptr ? per_key_result : newer_version_present_;
+    return metadata_read_bounds_.has_value() && result != nullptr && !*result;
+  }
   bool IsVisibleFullCheck(SequenceNumber seq) override {
     return seq <= max_visible_seq_;
   }
+  bool IsNewerVisibleForMetadataRead(SequenceNumber seq) override {
+    const MetadataReadBounds* bounds = GetMetadataReadBounds();
+    return bounds != nullptr && bounds->read_snapshot_seq < seq &&
+           seq <= bounds->newer_version_upper_bound_seq;
+  }
+  void MaybeRecordNewerVersion(SequenceNumber seq, ValueType type,
+                               bool* per_key_result = nullptr) override {
+    bool* result =
+        per_key_result != nullptr ? per_key_result : newer_version_present_;
+    if (result != nullptr && !*result &&
+        (IsValueType(type) || type == kTypeRangeDeletion) &&
+        IsNewerVisibleForMetadataRead(seq)) {
+      *result = true;
+    }
+  }
+
+ private:
+  std::optional<MetadataReadBounds> metadata_read_bounds_;
+  bool* newer_version_present_ = nullptr;
 };
 
 Options SanitizeOptions(const std::string& db, const Options& src,

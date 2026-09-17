@@ -17,18 +17,17 @@
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-    const bool use_value_delta_encoding,
+    const bool use_value_delta_encoding, uint32_t format_version,
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size, size_t ts_sz,
     const bool persist_user_defined_timestamps,
-    bool decouple_from_index_partitions)
+    bool decouple_from_index_partitions, bool use_common_prefix)
     : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       p_index_builder_(p_index_builder),
@@ -40,14 +39,18 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, false /* is_user_key */,
-          /*use_separated_kv_storage=*/false),
+          /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+          /*uniform_cv_threshold=*/-1.0, use_common_prefix),
       index_on_filter_block_builder_without_seq_(
           index_block_restart_interval, true /*use_delta_encoding*/,
           use_value_delta_encoding,
           BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
           0.75 /* data_block_hash_table_util_ratio */, ts_sz,
           persist_user_defined_timestamps, true /* is_user_key */,
-          /*use_separated_kv_storage=*/false) {
+          /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+          /*uniform_cv_threshold=*/-1.0, use_common_prefix),
+      use_value_delta_encoding_(use_value_delta_encoding),
+      value_delta_escape_(FormatVersionUsesValueDeltaEscape(format_version)) {
   // Compute keys_per_partition_
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
@@ -285,19 +288,24 @@ Status PartitionedFilterBlockBuilder::Finish(
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
-    PutVarsignedint64(
-        &handle_delta_encoding,
-        last_partition_block_handle.size() - last_encoded_handle_.size());
+    // NOTE: must go through IndexValue::EncodeTo, whose encoding depends on
+    // format_version; readers decode this block with IndexValue::DecodeFrom.
+    // Nothing to delta against for the first entry, whose value BlockBuilder
+    // writes in full anyway.
+    if (use_value_delta_encoding_ && !last_encoded_handle_.IsNull()) {
+      IndexValue(last_partition_block_handle, Slice())
+          .EncodeTo(&handle_delta_encoding, /*have_first_key=*/false,
+                    &last_encoded_handle_, value_delta_escape_);
+    }
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
 
     // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
-                                       &handle_delta_encoding_slice);
+                                       handle_delta_encoding_slice);
     if (!p_index_builder_->separator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(e.ikey), handle_encoding,
-          &handle_delta_encoding_slice);
+          ExtractUserKey(e.ikey), handle_encoding, handle_delta_encoding_slice);
     }
 
     filters_.pop_front();
@@ -419,31 +427,43 @@ void PartitionedFilterBlockReader::PrefixesMayMatch(
            &FullFilterBlockReader::PrefixesMayMatch);
 }
 
-BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
+void PartitionedFilterBlockReader::NewFilterPartitionIndexIterator(
     const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
-    const Slice& entry) const {
-  IndexBlockIter iter;
+    IndexBlockIter* iter) const {
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
       comparator->user_comparator(),
       table()->get_rep()->get_global_seqno(BlockType::kFilterPartitionIndex),
-      &iter, kNullStats, true /* total_order_seek */,
-      false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full(), false /* block_contents_pinned */,
-      user_defined_timestamps_persisted());
-  iter.Seek(entry);
-  if (UNLIKELY(!iter.Valid())) {
+      iter, kNullStats, true /* total_order_seek */, false /* have_first_key */,
+      index_key_includes_seq(), index_value_is_full(),
+      false /* block_contents_pinned */, user_defined_timestamps_persisted(),
+      nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+      index_value_delta_escape());
+}
+
+BlockHandle PartitionedFilterBlockReader::SeekFilterPartitionHandle(
+    IndexBlockIter* iter, const Slice& entry) const {
+  iter->Seek(entry);
+  if (UNLIKELY(!iter->Valid())) {
     // entry is larger than all the keys. However its prefix might still be
     // present in the last partition. If this is called by PrefixMayMatch this
     // is necessary for correct behavior. Otherwise it is unnecessary but safe.
     // Assuming this is an unlikely case for full key search, the performance
     // overhead should be negligible.
-    iter.SeekToLast();
+    iter->SeekToLast();
   }
-  assert(iter.Valid());
-  BlockHandle fltr_blk_handle = iter.value().handle;
+  assert(iter->Valid());
+  BlockHandle fltr_blk_handle = iter->value().handle;
   return fltr_blk_handle;
+}
+
+BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
+    const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
+    const Slice& entry) const {
+  IndexBlockIter iter;
+  NewFilterPartitionIndexIterator(filter_block, &iter);
+  return SeekFilterPartitionHandle(&iter, entry);
 }
 
 Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
@@ -464,6 +484,11 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
       return Status::OK();
     }
   }
+
+  // The top-level partition index is timed by ReadFilterBlock(). Filter
+  // partitions bypass that helper, so account for their cache or SST reads
+  // here.
+  PERF_TIMER_GUARD(read_filter_block_nanos);
 
   const Status s = table()->RetrieveBlock(
       prefetch_buffer, read_options, fltr_blk_handle,
@@ -526,6 +551,9 @@ void PartitionedFilterBlockReader::MayMatch(
     return;  // Any/all may match
   }
 
+  IndexBlockIter filter_index_iter;
+  NewFilterPartitionIndexIterator(filter_block, &filter_index_iter);
+
   auto start_iter_same_handle = range->begin();
   BlockHandle prev_filter_handle = BlockHandle::NullBlockHandle();
 
@@ -533,9 +561,8 @@ void PartitionedFilterBlockReader::MayMatch(
   // share block cache lookup and use full filter multiget on the partition
   // filter.
   for (auto iter = start_iter_same_handle; iter != range->end(); ++iter) {
-    // TODO: re-use one top-level index iterator
     BlockHandle this_filter_handle =
-        GetFilterPartitionHandle(filter_block, iter->ikey);
+        SeekFilterPartitionHandle(&filter_index_iter, iter->ikey);
     if (!prev_filter_handle.IsNull() &&
         this_filter_handle != prev_filter_handle) {
       MultiGetRange subrange(*range, start_iter_same_handle, iter);
@@ -624,7 +651,9 @@ Status PartitionedFilterBlockReader::CacheDependencies(
       rep->get_global_seqno(BlockType::kFilterPartitionIndex), &biter,
       kNullStats, true /* total_order_seek */, false /* have_first_key */,
       index_key_includes_seq(), index_value_is_full(),
-      false /* block_contents_pinned */, user_defined_timestamps_persisted());
+      false /* block_contents_pinned */, user_defined_timestamps_persisted(),
+      nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+      index_value_delta_escape());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -713,7 +742,8 @@ void PartitionedFilterBlockReader::EraseFromCacheBeforeDestruction(
           &biter, kNullStats, true /* total_order_seek */,
           false /* have_first_key */, index_key_includes_seq(),
           index_value_is_full(), false /* block_contents_pinned */,
-          user_defined_timestamps_persisted());
+          user_defined_timestamps_persisted(), nullptr /* prefix_index */,
+          BlockBasedTableOptions::kBinary, index_value_delta_escape());
 
       UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
       for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();
@@ -750,6 +780,14 @@ bool PartitionedFilterBlockReader::index_value_is_full() const {
   assert(table()->get_rep());
 
   return table()->get_rep()->index_value_is_full;
+}
+
+bool PartitionedFilterBlockReader::index_value_delta_escape() const {
+  assert(table());
+  assert(table()->get_rep());
+
+  return FormatVersionUsesValueDeltaEscape(
+      table()->get_rep()->footer.format_version());
 }
 
 bool PartitionedFilterBlockReader::user_defined_timestamps_persisted() const {

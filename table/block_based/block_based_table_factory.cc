@@ -204,6 +204,16 @@ static std::unordered_map<std::string,
          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash}};
 
 static std::unordered_map<std::string,
+                          BlockBasedTableOptions::OptimizeKeyCommonPrefix>
+    block_base_table_optimize_key_common_prefix_string_map = {
+        {"kDisabled",
+         BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled},
+        {"kIfFastSeek",
+         BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek},
+        {"kEnabled",
+         BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled}};
+
+static std::unordered_map<std::string,
                           BlockBasedTableOptions::IndexShorteningMode>
     block_base_table_index_shortening_mode_string_map = {
         {"kNoShortening",
@@ -213,6 +223,16 @@ static std::unordered_map<std::string,
         {"kShortenSeparatorsAndSuccessor",
          BlockBasedTableOptions::IndexShorteningMode::
              kShortenSeparatorsAndSuccessor}};
+
+static const std::unordered_map<std::string, BlockBasedTableOptions::IndexMode>
+    block_base_table_index_mode_string_map = {  // NOLINT(cert-err58-cpp)
+        {"kStandardOnly", BlockBasedTableOptions::IndexMode::kStandardOnly},
+        {"kStandardDefault",
+         BlockBasedTableOptions::IndexMode::kStandardDefault},
+        {"kCustomDefault", BlockBasedTableOptions::IndexMode::kCustomDefault},
+        {"kCustomOnly", BlockBasedTableOptions::IndexMode::kCustomOnly},
+        {"kStandardRequired",
+         BlockBasedTableOptions::IndexMode::kStandardRequired}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     metadata_cache_options_type_info = {
@@ -284,10 +304,18 @@ static struct BlockBasedTableTypeInfo {
          OptionTypeInfo::Enum<BlockBasedTableOptions::DataBlockIndexType>(
              offsetof(struct BlockBasedTableOptions, data_block_index_type),
              &block_base_table_data_block_index_type_string_map)},
+        {"optimize_key_common_prefix",
+         OptionTypeInfo::Enum<BlockBasedTableOptions::OptimizeKeyCommonPrefix>(
+             offsetof(struct BlockBasedTableOptions,
+                      optimize_key_common_prefix),
+             &block_base_table_optimize_key_common_prefix_string_map)},
         {"index_shortening",
          OptionTypeInfo::Enum<BlockBasedTableOptions::IndexShorteningMode>(
              offsetof(struct BlockBasedTableOptions, index_shortening),
              &block_base_table_index_shortening_mode_string_map)},
+        {"index_mode", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexMode>(
+                           offsetof(struct BlockBasedTableOptions, index_mode),
+                           &block_base_table_index_mode_string_map)},
         {"data_block_hash_table_util_ratio",
          {offsetof(struct BlockBasedTableOptions,
                    data_block_hash_table_util_ratio),
@@ -904,6 +932,9 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  data_block_index_type: %d\n",
            table_options_.data_block_index_type);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  optimize_key_common_prefix: %d\n",
+           static_cast<int>(table_options_.optimize_key_common_prefix));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_shortening: %d\n",
            static_cast<int>(table_options_.index_shortening));

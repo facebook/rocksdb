@@ -174,6 +174,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/FlushReason.java
   src/main/java/org/rocksdb/GetStatus.java
+  src/main/java/org/rocksdb/GetWithMetadataResult.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
   src/main/java/org/rocksdb/HistogramData.java
@@ -211,6 +212,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OperationType.java
   src/main/java/org/rocksdb/OptimisticTransactionDB.java
   src/main/java/org/rocksdb/OptimisticTransactionOptions.java
+  src/main/java/org/rocksdb/OptimizeKeyCommonPrefix.java
   src/main/java/org/rocksdb/OptionString.java
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java

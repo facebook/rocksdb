@@ -5,15 +5,15 @@
 
 package org.rocksdb.util;
 
-import org.rocksdb.*;
+import static org.rocksdb.util.ByteUtil.memcmp;
 
 import java.nio.ByteBuffer;
-
-import static org.rocksdb.util.ByteUtil.memcmp;
+import org.rocksdb.AbstractComparator;
+import org.rocksdb.ComparatorOptions;
 
 /**
  * This is a Java Native implementation of the C++
- * equivalent BytewiseComparatorImpl using {@link Slice}
+ * equivalent BytewiseComparatorImpl using {@link org.rocksdb.Slice}
  *
  * The performance of Comparators implemented in Java is always
  * less than their C++ counterparts due to the bridging overhead,
