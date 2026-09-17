@@ -224,6 +224,24 @@ class ExternalSSTFileBasicTest
   bool random_rwfile_supported_;
 };
 
+TEST_F(ExternalSSTFileBasicTest, ReopenWithoutFinishIsRejected) {
+  Options options = CurrentOptions();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  ASSERT_OK(sst_file_writer.Open(sst_files_dir_ + "reopen1.sst"));
+  ASSERT_OK(sst_file_writer.Put(Key(0), "val"));
+
+  // Re-opening would drop a TableBuilder that has had neither Finish() nor
+  // Abandon() called on it.
+  ASSERT_TRUE(
+      sst_file_writer.Open(sst_files_dir_ + "reopen2.sst").IsInvalidArgument());
+
+  // The first file is still the open one and can still be finished.
+  ExternalSstFileInfo file_info;
+  ASSERT_OK(sst_file_writer.Finish(&file_info));
+  ASSERT_EQ(file_info.num_entries, 1);
+}
+
 TEST_F(ExternalSSTFileBasicTest, Basic) {
   Options options = CurrentOptions();
 

@@ -351,6 +351,9 @@ SstFileWriter::~SstFileWriter() {
 
 Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   Rep* r = rep_.get();
+  if (r->builder) {
+    return Status::InvalidArgument("File is already opened");
+  }
   Status s;
   std::unique_ptr<FSWritableFile> sst_file;
   FileOptions cur_file_opts(r->env_options);
