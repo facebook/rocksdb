@@ -313,10 +313,14 @@ TEST(DataBlockHashIndex, RestartIndexExceedMax) {
 TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
   Options options = Options();
 
-  BlockBuilder builder(1 /* block_restart_interval */,
-                       true /* use_delta_encoding */,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
+  BlockBuilder builder(
+      1 /* block_restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinaryAndHash,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   // #restarts <= 253. HashIndex is valid
   for (int i = 0; i <= 253; i++) {
@@ -366,10 +370,14 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
   std::string ukey(10, 'k');
   InternalKey ikey(ukey, 0, kTypeValue);
 
-  BlockBuilder builder(1 /* block_restart_interval */,
-                       false /* use_delta_encoding */,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
+  BlockBuilder builder(
+      1 /* block_restart_interval */, false /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinaryAndHash,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   {
     // insert a large value. The block size plus HashIndex is 65536.
@@ -420,10 +428,14 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
 TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Options options = Options();
 
-  BlockBuilder builder(16 /* block_restart_interval */,
-                       true /* use_delta_encoding */,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
+  BlockBuilder builder(
+      16 /* block_restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinaryAndHash,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   std::string ukey("gopher");
   std::string value("gold");
@@ -495,10 +507,14 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
 
-  BlockBuilder builder(16 /* block_restart_interval */,
-                       true /* use_delta_encoding */,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinaryAndHash);
+  BlockBuilder builder(
+      16 /* block_restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinaryAndHash,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
   int num_records = 500;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);

@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "db/blob/blob_constants.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -63,36 +64,25 @@ class VersionBlobFetcherBase : public BlobFetcher {
                    PinnableSlice* blob_value,
                    uint64_t* bytes_read) const override;
 
-  // Fetches a byte sub-range [range_offset, range_offset + range_length) of an
-  // *uncompressed*, separate-file blob's value into *blob_value, reading only
-  // those bytes on a cache miss (see Version::GetBlobRange /
-  // BlobSource::GetBlobRange). Only valid when SupportsRangeRead() is true (a
-  // Version to read through and no direct-write fallback); callers check that
-  // first and take the whole-value FetchBlob path otherwise. Not routed through
-  // the same-file (embedded) decorator -- same-file range reads are a later
-  // phase.
+  // Fetches the value of a separate-file blob reference into *blob_value,
+  // applying `verify_policy` (see BlobVerifyPolicy). range_length ==
+  // kWholeBlobLength reads the whole value (delegating to FetchBlob, which also
+  // handles the direct-write fallback, and forcing whole-record checksum
+  // verification for kVerifyIfPresent even when ReadOptions::verify_checksums
+  // is off). Any other length reads only the sub-range [range_offset,
+  // range_offset + range_length) directly from the blob file, reading just
+  // those bytes on a cache miss -- no record-header/key read, no whole-record
+  // checksum, no cache fill (see Version::GetBlobRange /
+  // BlobSource::GetBlobRange). A strict sub-range is only valid when
+  // SupportsRangeRead() is true and verify_policy != kVerifyIfPresent
+  // (verifying a strict sub-range would have to amplify the read to the whole
+  // record); callers check that first and take the whole-value path otherwise.
+  // Not routed through the same-file (embedded) decorator -- same-file
+  // references are resolved by the caller through a SameFileBlobReader.
   Status FetchBlobRange(const Slice& user_key, const BlobIndex& blob_index,
                         uint64_t range_offset, size_t range_length,
+                        BlobVerifyPolicy verify_policy,
                         PinnableSlice* blob_value, uint64_t* bytes_read) const;
-
-  // Fetches the whole blob with checksum verification forced on, regardless of
-  // this fetcher's ReadOptions::verify_checksums. Used to honor a lazy read's
-  // force_verify when verify_checksums is off: the caller wants the record's
-  // checksum checked even though the global option would skip it. When
-  // verify_checksums is already on this is just FetchBlob.
-  //
-  // TODO(lazy-blob-resolution-cleanup): fold FetchBlobRange /
-  // FetchBlobForceVerify (and the whole-vs-range GetBlob twins throughout the
-  // blob stack) into one parameterized primitive taking a BlobReadRequest -- a
-  // range descriptor ({offset, len}; whole == [0, npos)) plus a 3-valued verify
-  // policy (must-verify-if-present / verify-if-no-amplification / ignore). That
-  // retires this method and the range/whole method pairs. See the lazy blob
-  // resolution plan (deferred for feature velocity).
-  Status FetchBlobForceVerify(const Slice& user_key,
-                              const BlobIndex& blob_index,
-                              FilePrefetchBuffer* prefetch_buffer,
-                              PinnableSlice* blob_value,
-                              uint64_t* bytes_read) const;
 
   // True if this fetcher has enough context to resolve a (non-inlined,
   // non-same-file) blob reference: either a Version to read through, or the

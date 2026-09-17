@@ -1,1 +1,0 @@
-Added the experimental `CoroDB` capability, exposed by `DB::GetCoroDB()`, with lazy native coroutine variants of `Get` and `MultiGet`. The existing `DB::GetAsync()` and `DB::MultiGetAsync()` APIs dispatch through it.

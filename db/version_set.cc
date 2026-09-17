@@ -71,6 +71,8 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/coro_utils.h"
+#include "util/fastrange.h"
+#include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -2660,7 +2662,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
   }
 
   if (status.ok() && *overlap == false &&
-      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key)) {
+      range_del_agg.IsRangeOverlapped(smallest_user_key, largest_user_key,
+                                      /*end_exclusive=*/false)) {
     *overlap = true;
   }
   return status;
@@ -2673,7 +2676,8 @@ VersionStorageInfo::VersionStorageInfo(
     bool _force_consistency_checks,
     EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
     uint32_t bottommost_file_compaction_delay,
-    OffpeakTimeOption offpeak_time_option)
+    OffpeakTimeOption offpeak_time_option,
+    PeriodicCompactionPhaseParams periodic_compaction_phase_params)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2706,7 +2710,8 @@ VersionStorageInfo::VersionStorageInfo(
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks),
       epoch_number_requirement_(epoch_number_requirement),
-      offpeak_time_option_(std::move(offpeak_time_option)) {
+      offpeak_time_option_(std::move(offpeak_time_option)),
+      periodic_compaction_phase_params_(periodic_compaction_phase_params) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -2718,6 +2723,7 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_deletions_ = ref_vstorage->current_num_deletions_;
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
+    preserve_time_min_seqno_ = ref_vstorage->preserve_time_min_seqno_;
     compact_cursor_ = ref_vstorage->compact_cursor_;
     compact_cursor_.resize(num_levels_);
   }
@@ -2752,7 +2758,10 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           cfd_ == nullptr ? nullptr : cfd_->ioptions().clock,
           cfd_ == nullptr ? 0
                           : mutable_cf_options.bottommost_file_compaction_delay,
-          vset->offpeak_time_option()),
+          vset->offpeak_time_option(),
+          cfd_ == nullptr
+              ? PeriodicCompactionPhaseParams{}
+              : vset->GetPeriodicCompactionPhaseParams(cfd_->GetID())),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -3822,18 +3831,22 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     return;
   }
 
-  const uint64_t allowed_time_limit =
-      current_time - periodic_compaction_seconds;
-
-  // Find the adjust_allowed_time_limit such that it includes files that are
-  // going to expire by the time next daily offpeak starts.
+  // Existing offpeak behavior pulls a file's deadline earlier by the time until
+  // the next daily offpeak window (so a whole TTL's worth can be marked at the
+  // start of offpeak).
   const OffpeakTimeInfo offpeak_time_info =
       offpeak_time_option_.GetOffpeakTimeInfo(current_time);
-  const uint64_t adjusted_allowed_time_limit =
-      allowed_time_limit +
-      (offpeak_time_info.is_now_offpeak
-           ? offpeak_time_info.seconds_till_next_offpeak_start
-           : 0);
+  const uint64_t offpeak_pull =
+      offpeak_time_info.is_now_offpeak
+          ? offpeak_time_info.seconds_till_next_offpeak_start
+          : 0;
+
+  // Preferred-phase scheduling (see
+  // DBOptions::periodic_compaction_phase_recovery_percent). When
+  // recovery_percent == 0 this is disabled and marking matches the classic
+  // "file age >= periodic_compaction_seconds" behavior (adjusted for offpeak).
+  const PeriodicCompactionPhaseParams& phase_params =
+      periodic_compaction_phase_params_;
 
   for (int level = 0; level <= last_level; level++) {
     for (auto f : files_[level]) {
@@ -3860,8 +3873,13 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
             continue;
           }
         }
-        if (file_modification_time > 0 &&
-            file_modification_time < adjusted_allowed_time_limit) {
+        if (file_modification_time == 0) {
+          continue;
+        }
+
+        const uint64_t trigger_time = PeriodicCompactionPhaser::TriggerTime(
+            file_modification_time, periodic_compaction_seconds, phase_params);
+        if (current_time + offpeak_pull > trigger_time) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }
@@ -4416,11 +4434,27 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
         current_time - static_cast<int64_t>(bottommost_file_compaction_delay_);
   }
 
-  // For UDT, we need to check if the file's max timestamp is below
-  // full_history_ts_low. If not, the compaction won't be able to collapse the
-  // timestamp to clean up the tombstone , so marking the file would be futile
-  // and could cause an infinite compaction loop.
-  const bool has_udt = ucmp && ucmp->timestamp_size() > 0;
+  // A bottommost file should only be marked for compaction when that compaction
+  // could actually zero out its largest sequence number; otherwise the rewrite
+  // makes no progress and the file is re-marked forever (infinite compaction
+  // loop). The zeroability conditions -- the seqno->time "preserve" window and
+  // the UDT history cutoff -- are shared with CompactionIterator::PrepareOutput
+  // through BottommostSeqnoCanBeZeroed() so the two decisions cannot drift.
+  // Snapshot visibility is checked separately (largest_seqno <
+  // oldest_snapshot_seqnum_) since that gate legitimately differs between the
+  // two sites.
+  const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+  const bool full_history_ts_low_set = !full_history_ts_low.empty();
+  // Max seqno a bottommost compaction could zero given the preserve window.
+  // CompactionJob computes preserve_seqno_after_ the same way but then further
+  // caps it with min(., earliest_snapshot_). We intentionally omit that cap
+  // here: the snapshot-visibility gate above (largest_seqno <
+  // oldest_snapshot_seqnum_) already guarantees a marked file's largest seqno
+  // is below the earliest snapshot, so the cap can never make compaction unable
+  // to zero a file we marked. Omitting it can at most leave unmarked a file a
+  // compaction could still zero -- a missed optimization, not a loop.
+  const SequenceNumber preserve_seqno_after =
+      std::max(preserve_time_min_seqno_, SequenceNumber{1}) - 1;
 
   for (auto& level_and_file : bottommost_files_) {
     if (!level_and_file.second->being_compacted &&
@@ -4428,25 +4462,27 @@ void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction(
       // largest_seqno might be nonzero due to containing the final key in an
       // earlier compaction, whose seqnum we didn't zero out.
       if (level_and_file.second->fd.largest_seqno < oldest_snapshot_seqnum_) {
-        if (has_udt) {
+        // Compute the file's timestamp collapsibility (only meaningful under
+        // UDT with full_history_ts_low set). A file whose max timestamp is
+        // below full_history_ts_low can have its timestamp history collapsed
+        // and its seqno zeroed. An unknown (empty) max timestamp means the file
+        // predates timestamp metadata (e.g. written by an older version); mark
+        // it once so a bounded compaction backfills FileMetaData::max_timestamp
+        // and reclaims obsolete versions/tombstones. When full_history_ts_low
+        // is unset, the guard below (full_history_ts_low_set == false) keeps
+        // such a file unmarked, since compaction could not collapse it and the
+        // rewrite would loop.
+        bool ts_below_full_history_ts_low = false;
+        if (ts_sz > 0 && full_history_ts_low_set) {
           const std::string& max_ts = level_and_file.second->max_timestamp;
-          // If max_timestamp is empty, the file could come from very old
-          // version which does not have timestamp. In that case, we should pick
-          // the file for compaction. After compaction, the file will have
-          // max_timestamp set propertly.
-          if (!max_ts.empty()) {
-            // If full_history_ts_low is empty, it means it was never set, which
-            // means its value is 0. Therefore, it would be always smaller than
-            // max_timestamp
-            if (full_history_ts_low.empty()) {
-              continue;
-            }
-            // If max timestamp >= full_history_ts_low, skip this file
-            if (ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) >=
-                0) {
-              continue;
-            }
-          }
+          ts_below_full_history_ts_low =
+              max_ts.empty() ||
+              ucmp->CompareTimestamp(Slice(max_ts), full_history_ts_low) < 0;
+        }
+        if (!BottommostSeqnoCanBeZeroed(
+                level_and_file.second->fd.largest_seqno, preserve_seqno_after,
+                ts_sz, full_history_ts_low_set, ts_below_full_history_ts_low)) {
+          continue;
         }
 
         if (!needs_delay) {
@@ -5375,7 +5411,10 @@ VersionSet::VersionSet(
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
+      manifest_recovery_last_valid_record_end_(0),
       manifest_last_valid_record_end_(0),
+      manifest_last_valid_record_end_file_number_(0),
+      force_new_manifest_on_open_(false),
       last_compacted_manifest_file_size_(0),
       file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer),
@@ -5585,7 +5624,10 @@ void VersionSet::Reset() {
   current_version_number_ = 0;
   manifest_writers_.clear();
   manifest_file_size_ = 0;
+  manifest_recovery_last_valid_record_end_ = 0;
   manifest_last_valid_record_end_ = 0;
+  manifest_last_valid_record_end_file_number_ = 0;
+  force_new_manifest_on_open_ = false;
   last_compacted_manifest_file_size_ = 0;
   TuneMaxManifestFileSize();
   obsolete_files_.clear();
@@ -5610,7 +5652,65 @@ void VersionSet::UpdatedMutableDbOptions(
   manifest_preallocation_size_ = updated_options.manifest_preallocation_size;
   verify_manifest_content_on_close_ =
       updated_options.verify_manifest_content_on_close;
+
+  if (periodic_compaction_phaser_.SetConfig(
+          updated_options.periodic_compaction_phase_recovery_percent)) {
+    // (Re)anchor phasing so that switching it on (at open or via SetDBOptions)
+    // spreads the initial periodic-compaction catch-up burst over time rather
+    // than triggering it all at once.
+    int64_t now = 0;
+    if (clock_ != nullptr && clock_->GetCurrentTime(&now).ok()) {
+      periodic_compaction_phaser_.Reanchor(static_cast<uint64_t>(now));
+    }
+    if (mu != nullptr) {
+      // Live SetDBOptions change (not construction): push the refreshed phase
+      // params into each column family's current Version so the change takes
+      // effect on the next periodic re-evaluation (which recomputes scores on
+      // the current Version) rather than only when the next Version is built.
+      // Safe because periodic_compaction_phase_params_ is read only under the
+      // DB mutex, which is held here.
+      for (auto* cfd : *column_family_set_) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
+        Version* v = cfd->current();
+        if (v != nullptr) {
+          v->storage_info_.periodic_compaction_phase_params_ =
+              GetPeriodicCompactionPhaseParams(cfd->GetID());
+        }
+      }
+    }
+  }
+
   TuneMaxManifestFileSize();
+}
+
+PeriodicCompactionPhaseParams VersionSet::GetPeriodicCompactionPhaseParams(
+    uint32_t cf_id) const {
+  return periodic_compaction_phaser_.ParamsForCf(cf_id);
+}
+
+void VersionSet::ReanchorCompactionPhase() {
+  // Caller holds the DB mutex. Move the phasing anchor to now and refresh each
+  // CF's current Version's cached params, mirroring the refresh done for
+  // seed/recovery changes in UpdatedMutableDbOptions(). Used when a CF's
+  // periodic_compaction_seconds changes, so a turn-down's newly past-due cohort
+  // is spread rather than fired at once. Re-anchoring is DB-level and benign to
+  // CFs whose interval did not change (their not-past-due files keep phasing).
+  int64_t now = 0;
+  if (clock_ != nullptr && clock_->GetCurrentTime(&now).ok()) {
+    periodic_compaction_phaser_.Reanchor(static_cast<uint64_t>(now));
+  }
+  for (auto* cfd : *column_family_set_) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    Version* v = cfd->current();
+    if (v != nullptr) {
+      v->storage_info_.periodic_compaction_phase_params_ =
+          GetPeriodicCompactionPhaseParams(cfd->GetID());
+    }
+  }
 }
 
 void VersionSet::TuneMaxManifestFileSize() {
@@ -6198,6 +6298,8 @@ Status VersionSet::ProcessManifestWrites(
       descriptor_last_sequence_ = max_last_sequence;
       manifest_file_number_ = pending_manifest_file_number_;
       manifest_file_size_ = new_manifest_file_size;
+      manifest_last_valid_record_end_ = new_manifest_file_size;
+      manifest_last_valid_record_end_file_number_ = manifest_file_number_;
       prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
     }
   } else {
@@ -6490,9 +6592,24 @@ std::unique_ptr<log::Writer> VersionSet::CreateManifestWriter(
       /*track_and_verify_wals=*/false, block_offset);
 }
 
+Status VersionSet::GetManifestAppendBoundary(uint64_t* manifest_size) const {
+  assert(manifest_size != nullptr);
+  if (manifest_last_valid_record_end_file_number_ != manifest_file_number_) {
+    return Status::TryAgain(
+        "Current MANIFEST changed while determining its append boundary");
+  }
+  if (manifest_last_valid_record_end_ == 0 ||
+      manifest_last_valid_record_end_ > manifest_file_size_) {
+    return Status::Corruption("Invalid MANIFEST append boundary");
+  }
+  *manifest_size = manifest_last_valid_record_end_;
+  return Status::OK();
+}
+
 Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   assert(db_options_->reuse_manifest_on_open);
-  assert(manifest_last_valid_record_end_ > 0);
+  assert(manifest_recovery_last_valid_record_end_ > 0);
+  assert(manifest_last_valid_record_end_file_number_ == manifest_file_number_);
 
   // Disabled under best_efforts_recovery: that mode rebuilds the
   // MANIFEST + CURRENT from scratch via the side-effect of
@@ -6502,6 +6619,10 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
     return Status::OK();
   }
 
+  auto force_new_manifest_on_open = [&]() {
+    force_new_manifest_on_open_ = true;
+  };
+
   FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
 
   // Bail if the on-disk size diverges from what Recover's Reader
@@ -6510,12 +6631,14 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   uint64_t physical_size = 0;
   IOStatus stat_s = fs_->GetFileSize(manifest_path, IOOptions(), &physical_size,
                                      /*dbg=*/nullptr);
-  if (!stat_s.ok() || physical_size != manifest_last_valid_record_end_) {
+  if (!stat_s.ok() ||
+      physical_size != manifest_recovery_last_valid_record_end_) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: physical size %" PRIu64
                    " != last valid record end %" PRIu64
-                   " (tail corruption?); falling back to fresh MANIFEST",
-                   physical_size, manifest_last_valid_record_end_);
+                   " (tail corruption?); creating fresh MANIFEST during open",
+                   physical_size, manifest_recovery_last_valid_record_end_);
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6525,7 +6648,8 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
   if (opt_file_opts.use_direct_writes) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: direct writes enabled; "
-                   "falling back to fresh MANIFEST");
+                   "creating fresh MANIFEST during open");
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6536,17 +6660,19 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "Failed to reopen MANIFEST for append: %s",
                    io_s.ToString().c_str());
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
   const uint64_t reopened_size =
       manifest_file->GetFileSize(opt_file_opts.io_options, /*dbg=*/nullptr);
-  if (reopened_size != manifest_last_valid_record_end_) {
+  if (reopened_size != manifest_recovery_last_valid_record_end_) {
     ROCKS_LOG_WARN(db_options_->info_log,
                    "reuse_manifest_on_open: reopened handle size %" PRIu64
                    " != last valid record end %" PRIu64
-                   "; falling back to fresh MANIFEST",
-                   reopened_size, manifest_last_valid_record_end_);
+                   "; creating fresh MANIFEST during open",
+                   reopened_size, manifest_recovery_last_valid_record_end_);
+    force_new_manifest_on_open();
     return Status::OK();
   }
 
@@ -6554,10 +6680,10 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
       std::move(manifest_file), manifest_path, opt_file_opts,
       manifest_preallocation_size_, reopened_size);
 
-  ROCKS_LOG_INFO(db_options_->info_log,
-                 "Reusing existing MANIFEST file: %s (valid data size: %" PRIu64
-                 ")",
-                 manifest_path.c_str(), manifest_last_valid_record_end_);
+  ROCKS_LOG_INFO(
+      db_options_->info_log,
+      "Reusing existing MANIFEST file: %s (valid data size: %" PRIu64 ")",
+      manifest_path.c_str(), manifest_recovery_last_valid_record_end_);
   TEST_SYNC_POINT("VersionSet::ReopenManifestForAppend:Reopened");
   return Status::OK();
 }
@@ -6727,6 +6853,7 @@ Status VersionSet::Recover(
   uint64_t current_manifest_file_size = 0;
   uint64_t log_number = 0;
   {
+    force_new_manifest_on_open_ = false;
     VersionSet::LogReporter reporter;
     Status log_read_status;
     reporter.status = &log_read_status;
@@ -6779,7 +6906,7 @@ Status VersionSet::Recover(
   }
 
   if (s.ok() && !read_only && db_options_->reuse_manifest_on_open &&
-      manifest_last_valid_record_end_ > 0) {
+      manifest_recovery_last_valid_record_end_ > 0) {
     s = ReopenManifestForAppend(manifest_path);
   }
 
@@ -6919,7 +7046,7 @@ Status VersionSet::TryRecoverFromOneManifest(
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
       read_options, /*allow_incomplete_valid_version=*/true,
-      EpochNumberRequirement::kMightMissing);
+      /*trust_manifest_recovery=*/false, EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -8142,9 +8269,10 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(new ManifestTailer(
-      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
-      read_options_, EpochNumberRequirement::kMightMissing));
+  manifest_tailer_.reset(
+      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
+                         io_tracer_, read_options_, trust_manifest_recovery_,
+                         EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
@@ -8182,6 +8310,12 @@ Status ReactiveVersionSet::ReadAndApply(
   }
 
   return s;
+}
+
+uint64_t ReactiveVersionSet::GetInstalledVersionLogNumber(
+    uint32_t cf_id) const {
+  assert(manifest_tailer_ != nullptr);
+  return manifest_tailer_->GetInstalledVersionLogNumber(cf_id);
 }
 
 Status ReactiveVersionSet::MaybeSwitchManifest(

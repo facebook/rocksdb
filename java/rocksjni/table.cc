@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJIIIJZZZJZZIIZZJJBBJI)J
+ * Signature: (ZZZZBBDBZJJJIIIJZZZJZZIIZDZZJJBBBJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv*, jclass, jboolean jcache_index_and_filter_blocks,
@@ -66,8 +66,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean jenable_index_compression, jboolean jblock_align,
     jlong jsuper_block_alignment_size,
     jlong jsuper_block_alignment_space_overhead_ratio, jbyte jindex_shortening,
-    jbyte jindex_search_type, jlong jblock_cache_size,
-    jint jblock_cache_num_shard_bits) {
+    jbyte jindex_search_type, jbyte joptimize_key_common_prefix,
+    jlong jblock_cache_size, jint jblock_cache_num_shard_bits) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
   options.cache_index_and_filter_blocks =
       static_cast<bool>(jcache_index_and_filter_blocks);
@@ -152,6 +152,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.index_block_search_type =
       ROCKSDB_NAMESPACE::IndexSearchTypeJni::toCppIndexSearchType(
           jindex_search_type);
+  options.optimize_key_common_prefix =
+      ROCKSDB_NAMESPACE::OptimizeKeyCommonPrefixJni::
+          toCppOptimizeKeyCommonPrefix(joptimize_key_common_prefix);
 
   return GET_CPLUSPLUS_POINTER(
       ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(options));

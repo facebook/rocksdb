@@ -4671,9 +4671,15 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
     // ---- Build real RocksDB index block ----
     // Use restart_interval=1 (the default for index blocks).
     const int kRestartInterval = 1;
-    BlockBuilder index_builder(kRestartInterval,
-                               /*use_delta_encoding=*/true,
-                               /*use_value_delta_encoding=*/false);
+    BlockBuilder index_builder(
+        kRestartInterval,
+        /*use_delta_encoding=*/true,
+        /*use_value_delta_encoding=*/false,
+        BlockBasedTableOptions::kDataBlockBinarySearch,
+        /*data_block_hash_table_util_ratio=*/0.75, /*ts_sz=*/0,
+        /*persist_user_defined_timestamps=*/true, /*is_user_key=*/false,
+        /*use_separated_kv_storage=*/false, /*statistics=*/nullptr,
+        /*uniform_cv_threshold=*/-1.0, /*use_common_prefix=*/false);
 
     // Convert user keys to InternalKeys and add to the index block.
     std::vector<std::string> internal_keys;
@@ -4760,7 +4766,10 @@ TEST_F(TrieSeekBenchmark, TrieVsRealIndexBlockIter) {
         BytewiseComparator(), kDisableGlobalSequenceNumber,
         /*iter=*/nullptr, /*stats=*/nullptr,
         /*total_order_seek=*/true, /*have_first_key=*/false,
-        /*key_includes_seq=*/true, /*value_is_full=*/true));
+        /*key_includes_seq=*/true, /*value_is_full=*/true,
+        /*block_contents_pinned=*/false,
+        /*user_defined_timestamps_persisted=*/true, /*prefix_index=*/nullptr,
+        BlockBasedTableOptions::kBinary, /*value_delta_escape=*/false));
 
     volatile uint64_t ibi_checksum = 0;
     auto t2 = std::chrono::high_resolution_clock::now();

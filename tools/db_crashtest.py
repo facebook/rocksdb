@@ -32,6 +32,11 @@ _IGNORED_SIGTERM_STDERR_RE = re.compile(
     r"returned terminal error: -9\."
     r"|(?:Poll|AbortIO): io_uring_wait_cqe failed: -(?:4|11))$"
 )
+_IGNORED_IO_URING_INIT_STDERR_RE = re.compile(
+    r"^[IE]\d{4} \d{2}:\d{2}:\d{2}\.\d+ +\d+ "
+    r"IoUringBackend\.cpp:\d+\] "
+    r"io_uring_queue_init_params\([^)]*\) failed .*$"
+)
 _NO_SPACE_SUBSTRINGS = (
     "no space left on device",
     "out of disk space",
@@ -44,7 +49,11 @@ _TSAN_SUPPRESSIONS_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "tsan_suppressions.txt")
 )
 DEFAULT_LIVENESS_TIMEOUT_SEC = 3600
+DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC = 300
+REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER = 2
 _FAULT_INJECTION_LOG_DIR_NAME = "fault_injection_logs"
+_REMOTE_DB_URI_FLAGS = ("--env_uri", "--fs_uri")
+_MIN_WRITE_BUFFER_SIZE = 64 * 1024
 
 
 def get_random_seed(override):
@@ -73,6 +82,62 @@ def stress_cmd_env():
     return env
 
 
+def apply_cache_and_write_buffer_size_multiplier(params):
+    """Scale selected per-iteration memory sizes while preserving randomization."""
+    multiplier = params.pop("cache_and_write_buffer_size_multiplier", None)
+    if multiplier is None:
+        return
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError(
+            "cache_and_write_buffer_size_multiplier must be finite and greater than zero"
+        )
+
+    for name, minimum in (
+        ("cache_size", 1),
+        ("write_buffer_size", _MIN_WRITE_BUFFER_SIZE),
+    ):
+        value = params.get(name)
+        if value is not None and value > 0:
+            params[name] = max(int(value * multiplier), minimum)
+
+
+def normalize_remote_db_args(args):
+    """Normalize supported remote URI flags to --flag=value form."""
+    normalized_args = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if (
+            arg in _REMOTE_DB_URI_FLAGS
+            and index + 1 < len(args)
+            and args[index + 1]
+            and not args[index + 1].startswith("-")
+        ):
+            normalized_args.append(arg + "=" + args[index + 1])
+            index += 2
+            continue
+        normalized_args.append(arg)
+        index += 1
+    return normalized_args
+
+
+def parse_remote_db_uri_arg(arg):
+    flag, separator, value = arg.partition("=")
+    if flag not in _REMOTE_DB_URI_FLAGS or not separator:
+        return None
+    return flag, value
+
+
+def remote_db_enabled(args):
+    effective_values = {}
+    for arg in args:
+        parsed_arg = parse_remote_db_uri_arg(arg)
+        if parsed_arg is not None:
+            flag, value = parsed_arg
+            effective_values[flag] = value
+    return any(effective_values.values())
+
+
 def early_argument_parsing_before_main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -93,16 +158,14 @@ def early_argument_parsing_before_main():
 
     global remain_args
     args, remain_args = parser.parse_known_args()
+    remain_args = normalize_remote_db_args(remain_args)
     init_random_seed = get_random_seed(args.initial_random_seed_override)
     global per_iteration_random_seed_override
     per_iteration_random_seed_override = args.per_iteration_random_seed_override
     global is_remote_db
-    # Set is_remote_db if remain_args has a non-empty --env_uri= or --fs_uri= argument
-    for arg in remain_args:
-        parts = arg.split("=", 1)
-        if parts[0] in ["--env_uri", "--fs_uri"] and len(parts) > 1 and parts[1]:
-            is_remote_db = True
-            break
+    # Remote URI arguments are normalized above so all later consumers see
+    # the same representation.
+    is_remote_db = remote_db_enabled(remain_args)
 
     print(f"Start with random seed {init_random_seed}")
     random.seed(init_random_seed)
@@ -216,7 +279,11 @@ default_params = {
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "sync_wal_one_in": 0,
-    "tolerate_non_injected_io_errors_for_remote_dbs": 0,
+    # Remote backends can surface transient infrastructure IO errors that are
+    # not RocksDB bugs, so default to tolerating them whenever a remote
+    # --env_uri / --fs_uri is in use. A caller can still pass 0 explicitly, and
+    # finalize_and_sanitize() force-disables it for local DBs.
+    "tolerate_non_injected_io_errors_for_remote_dbs": lambda: 1 if is_remote_db else 0,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_apis_one_in": lambda: random.choice([10000, 1000000]),
     "checkpoint_atomic_flush": lambda: random.choice([0, 1]),
@@ -232,6 +299,7 @@ default_params = {
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
     "ingest_external_file_prepare_commit_one_in": lambda: random.choice([0, 1, 2]),
     "ingest_external_file_use_file_info_one_in": lambda: random.choice([0, 1, 2]),
+    "ingest_external_file_atomic_replace_one_in": lambda: random.choice([0, 5, 10]),
     "ingest_external_file_with_embedded_blobs": lambda: random.choice([0, 1]),
     "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
@@ -321,7 +389,8 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
     "writepercent": 35,
-    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 8, 8]),
+    "optimize_key_common_prefix": lambda: random.choice([0, 1, 2]),
     "separate_key_value_in_data_block": lambda: random.choice([0, 1, 1]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
@@ -335,6 +404,9 @@ default_params = {
     "read_triggered_compaction_threshold": lambda: random.choice([0.0, 0.001, 0.01]),
     "daily_offpeak_time_utc": lambda: random.choice(
         ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
+    ),
+    "periodic_compaction_phase_recovery_percent": lambda: random.choice(
+        [0, 25, 33, 50, 100]
     ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
@@ -524,8 +596,7 @@ default_params = {
     "track_and_verify_wals": lambda: random.choice([0]),
     "remote_compaction_worker_threads": lambda: random.choice([0, 8]),
     "allow_resumption_one_in": lambda: random.choice([0, 1, 2, 20]),
-    # TODO(jaykorean): Change to lambda: random.choice([0, 1]) after addressing all remote compaction failures
-    "remote_compaction_failure_fall_back_to_local": 1,
+    "remote_compaction_failure_fall_back_to_local": lambda: random.choice([0, 1]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -699,11 +770,33 @@ liveness_default_params = {
     "duration": DEFAULT_LIVENESS_TIMEOUT_SEC,
     "enable_thread_tracking": 1,
     "liveness_check_interval_sec": 1,
-    "liveness_no_progress_timeout_sec": 300,
+    "liveness_no_progress_timeout_sec": DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC,
     "ops_per_thread": 100000000,
     "progress_reports": 1,
 }
 liveness_default_params.update(liveness_fault_injection_params)
+
+
+def liveness_default_timeout_sec():
+    multiplier = REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER if is_remote_db else 1
+    return DEFAULT_LIVENESS_TIMEOUT_SEC * multiplier
+
+
+def apply_liveness_remote_defaults(params, args):
+    if not is_remote_db:
+        return
+
+    # Keep the wrapper duration in the same ratio as the no-progress timeout so
+    # the longer remote DB timeout still has enough run time to exercise
+    # liveness.
+    if getattr(args, "duration", None) is None:
+        params["duration"] = liveness_default_timeout_sec()
+    if getattr(args, "liveness_no_progress_timeout_sec", None) is None:
+        params["liveness_no_progress_timeout_sec"] = (
+            DEFAULT_LIVENESS_NO_PROGRESS_TIMEOUT_SEC
+            * REMOTE_DB_LIVENESS_TIMEOUT_MULTIPLIER
+        )
+
 
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
@@ -993,6 +1086,7 @@ multiops_txn_params = {
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
+    apply_cache_and_write_buffer_size_multiplier(dest_params)
     if is_release_mode():
         dest_params["read_fault_one_in"] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
@@ -1033,10 +1127,10 @@ def finalize_and_sanitize(src_params):
 
     # Blob direct write requires concurrent read visibility of files still open
     # for writing (BlobFileReader calls GetFileSize() on active partition files).
-    # Remote file systems such as Warm Storage do not guarantee that writes from
-    # a WritableFile are visible to a separate RandomAccessFile until the writer
-    # is closed, causing "Malformed blob file" corruption.  Disable BDW when a
-    # remote --env_uri / --fs_uri is in use.
+    # Some remote file systems do not guarantee that writes from a WritableFile
+    # are visible to a separate RandomAccessFile until the writer is closed,
+    # causing "Malformed blob file" corruption. Disable BDW when a remote
+    # --env_uri / --fs_uri is in use.
     if is_remote_db:
         dest_params["enable_blob_direct_write"] = 0
 
@@ -1577,6 +1671,19 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+    if (
+        dest_params.get("ingest_external_file_one_in") == 0
+        or (
+            dest_params.get("ingest_external_file_width") is not None
+            and dest_params["ingest_external_file_width"] < 2
+        )
+        or dest_params.get("compaction_style", 0) != 1
+        or dest_params.get("user_timestamp_size", 0) > 0
+        or dest_params.get("use_multiscan") == 1
+    ):
+        dest_params["ingest_external_file_atomic_replace_one_in"] = 0
+    elif dest_params.get("ingest_external_file_atomic_replace_one_in", 0) > 0:
+        dest_params["acquire_snapshot_one_in"] = 0
     # Embedded blobs in ingested files require ingestion to be enabled and
     # block-based table format_version >= 7.
     if (
@@ -1603,9 +1710,6 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("user_timestamp_size", 0)
     ):
         dest_params["ingest_wbwi_one_in"] = 0
-    # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
-    if dest_params.get("test_secondary") == 1:
-        dest_params["continuous_verification_interval"] = 0
     # Opening a read-only DB on the primary's directory needs a plain read-write
     # primary; it is not wired up for transactions, BlobDB, or TTL DBs.
     if (
@@ -1630,6 +1734,7 @@ def finalize_and_sanitize(src_params):
         # existing key range, which will cause a reseek that's currently not
         # supported by multiscan
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
+        dest_params["ingest_external_file_atomic_replace_one_in"] = 0
         # LevelIterator multiscan currently relies on num_entries and num_range_deletions,
         # which are not updated if skip_stats_update_on_db_open is true
         dest_params["skip_stats_update_on_db_open"] = 0
@@ -1728,14 +1833,13 @@ def gen_cmd_params(args):
         # Default to leveled compaction
         # TODO: Fix "Unsafe to store Seq later" with tiered+leveled and
         # enable that combination rather than falling back to universal.
-        # TODO: There is also an alleged bug with leveled compaction
-        # infinite looping but that likely would not fail the crash test.
         params["compaction_style"] = 0 if not args.test_tiered_storage else 1
 
     for k, v in vars(args).items():
         if v is not None:
             params[k] = v
     if args.test_type == "liveness":
+        apply_liveness_remote_defaults(params, args)
         params.update(liveness_fault_injection_params)
     return params
 
@@ -2102,7 +2206,12 @@ def print_output_and_exit_on_error(
     sys.exit(2)
 
 
-def print_run_output_and_exit_on_error(args, finalized_params, stdout, stderr):
+def print_run_output_and_exit_on_error(
+    args, finalized_params, stdout, stderr, hit_timeout=False
+):
+    stdout, stderr = sanitize_known_stderr(
+        stdout, stderr, hit_timeout, finalized_params
+    )
     print_output_and_exit_on_error(
         stdout,
         stderr,
@@ -2111,17 +2220,27 @@ def print_run_output_and_exit_on_error(args, finalized_params, stdout, stderr):
     )
 
 
-def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
+def sanitize_known_stderr(stdout, stderr, hit_timeout, finalized_params):
     # Blackbox crash tests intentionally terminate db_stress with SIGTERM.
-    # Filter this known post-SIGTERM io_uring stderr so it does not mask other
-    # stderr or fail the timeout path spuriously.
-    if not hit_timeout or _SIGTERM_STDOUT_MARKER not in stdout or len(stderr) == 0:
+    ignore_sigterm_stderr = hit_timeout and _SIGTERM_STDOUT_MARKER in stdout
+    # RocksDB falls back to synchronous reads if Folly cannot initialize io_uring.
+    ignore_io_uring_init_stderr = finalized_params.get("use_async_db_api") == 1
+    if len(stderr) == 0 or not (
+        ignore_sigterm_stderr or ignore_io_uring_init_stderr
+    ):
         return stdout, stderr
 
     kept_lines = []
     ignored_lines = []
     for line in stderr.splitlines(keepends=True):
-        if _IGNORED_SIGTERM_STDERR_RE.fullmatch(line.rstrip("\n")):
+        stripped_line = line.rstrip("\n")
+        if (
+            ignore_sigterm_stderr
+            and _IGNORED_SIGTERM_STDERR_RE.fullmatch(stripped_line)
+        ) or (
+            ignore_io_uring_init_stderr
+            and _IGNORED_IO_URING_INIT_STDERR_RE.fullmatch(stripped_line)
+        ):
             ignored_lines.append(line)
         else:
             kept_lines.append(line)
@@ -2131,7 +2250,7 @@ def strip_expected_sigterm_stderr(stdout, stderr, hit_timeout):
 
     if stdout and not stdout.endswith("\n"):
         stdout += "\n"
-    stdout += "Ignored expected post-SIGTERM stderr while handling timeout:\n"
+    stdout += "Ignored known stderr:\n"
     stdout += "".join(ignored_lines)
 
     stderr = "".join(kept_lines)
@@ -2152,8 +2271,7 @@ def cleanup_after_success(db_arg, num_dbs=1):
     ]
     # Pass through relevant arguments for remote DB access
     for arg in remain_args:
-        parts = arg.split("=", 1)
-        if parts[0] in ["--env_uri", "--fs_uri"]:
+        if parse_remote_db_uri_arg(arg) is not None:
             cleanup_cmd_parts.append(arg)
     print("Running DB cleanup command - %s\n" % " ".join(cleanup_cmd_parts))
     ret = subprocess.call(cleanup_cmd_parts, env=stress_cmd_env())
@@ -2202,7 +2320,7 @@ def print_fault_injection_log(pid):
 def liveness_timeout(cmd_params):
     duration = cmd_params.get("duration", 0)
     if duration is None or duration <= 0:
-        return DEFAULT_LIVENESS_TIMEOUT_SEC
+        return liveness_default_timeout_sec()
     return duration
 
 
@@ -2213,6 +2331,8 @@ def liveness_main(args, unknown_args):
 
     if not cmd_params.get("db"):
         cmd_params["db"] = db_parent_dir
+    if is_remote_db and not cmd_params.get("expected_values_dir"):
+        cmd_params["expected_values_dir"] = get_ev_parent_dir()
 
     apply_random_seed_per_iteration()
     wrapper_timeout = liveness_timeout(cmd_params)
@@ -2236,8 +2356,9 @@ def liveness_main(args, unknown_args):
     )
 
     print_fault_injection_log(pid)
-    outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
-    print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+    print_run_output_and_exit_on_error(
+        args, finalized_params, outs, errs, hit_timeout
+    )
 
     if hit_timeout:
         if retcode == -9:
@@ -2285,18 +2406,20 @@ def blackbox_crash_main(args, unknown_args):
         hit_timeout, retcode, outs, errs, pid = execute_cmd(cmd, cmd_params["interval"])
 
         print_fault_injection_log(pid)
-        outs, errs = strip_expected_sigterm_stderr(outs, errs, hit_timeout)
-
         # Reset destroy_db_initially after each run (it may have been set by
         # command line for first run only)
         cmd_params["destroy_db_initially"] = 0
 
         if not hit_timeout:
             print("Exit Before Killing")
-            print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+            print_run_output_and_exit_on_error(
+                args, finalized_params, outs, errs, hit_timeout
+            )
             sys.exit(2)
 
-        print_run_output_and_exit_on_error(args, finalized_params, outs, errs)
+        print_run_output_and_exit_on_error(
+            args, finalized_params, outs, errs, hit_timeout
+        )
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -2527,6 +2650,11 @@ def main():
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")  # ignore old option for now
     parser.add_argument("--print_stderr_separately", action="store_true", default=False)
+    parser.add_argument(
+        "--cache_and_write_buffer_size_multiplier",
+        type=float,
+        help="Scale each iteration's cache_size and write_buffer_size",
+    )
 
     all_params = dict(
         list(default_params.items())
@@ -2554,6 +2682,11 @@ def main():
     # unknown_args are passed directly to db_stress
 
     args, unknown_args = parser.parse_known_args(remain_args)
+    multiplier = args.cache_and_write_buffer_size_multiplier
+    if multiplier is not None and (not math.isfinite(multiplier) or multiplier <= 0):
+        parser.error(
+            "--cache_and_write_buffer_size_multiplier must be finite and greater than zero"
+        )
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is not None and not is_remote_db:
         isdir = False

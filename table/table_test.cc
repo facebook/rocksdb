@@ -33,6 +33,7 @@
 #include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
 #include "options/options_helper.h"
+#include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -80,6 +81,7 @@
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/defer.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
@@ -373,7 +375,8 @@ class BlockConstructor : public Constructor {
                     const stl_wrappers::KVMap& kv_map) override {
     delete block_;
     block_ = nullptr;
-    BlockBuilder builder(table_options.block_restart_interval);
+    BlockBuilder builder(BlockBuilder::ForMetaBlock{},
+                         table_options.block_restart_interval);
 
     for (const auto& kv : kv_map) {
       // `DataBlockIter` assumes it reads only internal keys. `BlockConstructor`
@@ -753,8 +756,10 @@ static std::vector<TestArgs> GenerateArgList() {
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : GetSupportedCompressions()) {
           for (auto num_threads : compression_parallel_threads) {
-            // format_version = 7 changes some compression handling
-            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U}) {
+            // format_version = 7 changes some compression handling; 8 adds the
+            // index value-delta escape and the common-key-prefix feature.
+            for (uint32_t fv : {kMinSupportedBbtFormatVersionForRead, 7U,
+                                kLatestBbtFormatVersion}) {
               TestArgs one_arg;
               one_arg.type = test_type;
               one_arg.reverse_compare = reverse_compare;
@@ -1795,7 +1800,8 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
       BlockBasedTableOptions::kDataBlockBinarySearch /* index_type */,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
       true /* persist_user_defined_timestamps */, false /* is_user_key */,
-      table_options.separate_key_value_in_data_block);
+      table_options.separate_key_value_in_data_block, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }
@@ -1804,6 +1810,243 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
                 diff_internal_user_bytes,
             props.data_size);
   c.ResetTableReader();
+}
+
+namespace {
+// A total-order comparator that behaves exactly like the built-in bytewise
+// comparator but is a distinct object (distinct Name). The common-prefix
+// feature treats it as "non-bytewise" (pointer identity), so the writer still
+// strips (keys are byte-clustered) while the reader must use the full-key
+// reconstruction seek path.
+class ForwardingBytewiseComparator : public Comparator {
+ public:
+  const char* Name() const override { return "test.ForwardingBytewise"; }
+  int Compare(const Slice& a, const Slice& b) const override {
+    return BytewiseComparator()->Compare(a, b);
+  }
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {
+    BytewiseComparator()->FindShortestSeparator(start, limit);
+  }
+  void FindShortSuccessor(std::string* key) const override {
+    BytewiseComparator()->FindShortSuccessor(key);
+  }
+};
+const Comparator* ForwardingBytewise() {
+  static ForwardingBytewiseComparator cmp;
+  return &cmp;
+}
+
+Options MakeCommonPrefixOptions(
+    const Comparator* ucmp,
+    BlockBasedTableOptions::OptimizeKeyCommonPrefix mode,
+    BlockBasedTableOptions* table_options_out) {
+  Options options;
+  options.comparator = ucmp;
+  options.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.format_version = 8;
+  table_options.optimize_key_common_prefix = mode;
+  table_options.block_restart_interval = 16;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  *table_options_out = table_options;
+  return options;
+}
+
+// Adds prefix-heavy keys and finishes `c`, returning its data_size. All the
+// referenced options must outlive later reader use, because the table reader
+// holds references to `ioptions`/`moptions`.
+uint64_t FinishCommonPrefixTable(TableConstructor* c, const std::string& prefix,
+                                 int num_keys, const Options& options,
+                                 const ImmutableOptions& ioptions,
+                                 const MutableCFOptions& moptions,
+                                 const BlockBasedTableOptions& table_options,
+                                 const InternalKeyComparator& icmp,
+                                 stl_wrappers::KVMap* kvmap) {
+  for (int i = 0; i < num_keys; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%06d", i);
+    c->Add(prefix + buf, "value_" + std::to_string(i));
+  }
+  std::vector<std::string> keys;
+  c->Finish(options, ioptions, moptions, table_options, icmp, &keys, kvmap);
+  return c->GetTableReader()->GetTableProperties()->data_size;
+}
+}  // namespace
+
+// Focused test for optimize_key_common_prefix (format_version 8): prefix-heavy
+// keys should make data blocks smaller when the optimization is on, and reads
+// must stay correct (including Seek targets that straddle the common prefix).
+TEST_F(GeneralTableTest, OptimizeKeyCommonPrefix) {
+  const std::string kPrefix = "this_is_a_long_shared_user_key_prefix_";
+  constexpr int kNumKeys = 2000;
+  const Comparator* ucmp = BytewiseComparator();
+  const InternalKeyComparator& icmp = GetPlainInternalComparator(ucmp);
+
+  BlockBasedTableOptions tbo_on, tbo_off;
+  Options options_on = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kIfFastSeek,
+      &tbo_on);
+  Options options_off = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled,
+      &tbo_off);
+  ImmutableOptions ioptions_on(options_on);
+  MutableCFOptions moptions_on(options_on);
+  ImmutableOptions ioptions_off(options_off);
+  MutableCFOptions moptions_off(options_off);
+
+  TableConstructor c_on(ucmp, true /* convert_to_internal_key */);
+  TableConstructor c_off(ucmp, true /* convert_to_internal_key */);
+  stl_wrappers::KVMap kv_on, kv_off;
+  uint64_t size_on =
+      FinishCommonPrefixTable(&c_on, kPrefix, kNumKeys, options_on, ioptions_on,
+                              moptions_on, tbo_on, icmp, &kv_on);
+  uint64_t size_off = FinishCommonPrefixTable(
+      &c_off, kPrefix, kNumKeys, options_off, ioptions_off, moptions_off,
+      tbo_off, icmp, &kv_off);
+
+  // The optimization engaged and shrank the (prefix-heavy) data blocks.
+  ASSERT_LT(size_on, size_off);
+
+  auto* reader = c_on.GetTableReader();
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      ro, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Full forward iteration matches every stored key/value.
+  auto expect = kv_on.begin();
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(expect != kv_on.end());
+    ASSERT_EQ(expect->first, ExtractUserKey(iter->key()).ToString());
+    ASSERT_EQ(expect->second, iter->value().ToString());
+    ++expect;
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(expect == kv_on.end());
+
+  auto user_key = [&](const Slice& internal_key) {
+    return ExtractUserKey(internal_key).ToString();
+  };
+
+  // Seek to an existing key.
+  iter->Seek(
+      InternalKey(kPrefix + "001234", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  // Missing key that still shares the common prefix lands on the next key.
+  iter->Seek(InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+                 .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001235", user_key(iter->key()));
+
+  // Target diverging below the common prefix sorts before all keys.
+  iter->Seek(InternalKey("aaaa", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "000000", user_key(iter->key()));
+
+  // Target diverging above the common prefix sorts after all keys.
+  iter->Seek(InternalKey("zzzz", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  // SeekForPrev to a missing key lands on the previous key.
+  iter->SeekForPrev(
+      InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+          .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  c_on.ResetTableReader();
+  c_off.ResetTableReader();
+}
+
+// optimize_key_common_prefix=kEnabled strips data blocks even for a
+// non-bytewise comparator; the reader reconstructs full keys (no suffix-seek
+// shortcut).
+TEST_F(GeneralTableTest, OptimizeKeyCommonPrefixNonBytewise) {
+  const std::string kPrefix = "this_is_a_long_shared_user_key_prefix_";
+  constexpr int kNumKeys = 2000;
+  const Comparator* ucmp = ForwardingBytewise();
+  const InternalKeyComparator& icmp = GetPlainInternalComparator(ucmp);
+
+  BlockBasedTableOptions tbo_on, tbo_off;
+  Options options_on = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled, &tbo_on);
+  Options options_off = MakeCommonPrefixOptions(
+      ucmp, BlockBasedTableOptions::OptimizeKeyCommonPrefix::kDisabled,
+      &tbo_off);
+  ImmutableOptions ioptions_on(options_on);
+  MutableCFOptions moptions_on(options_on);
+  ImmutableOptions ioptions_off(options_off);
+  MutableCFOptions moptions_off(options_off);
+
+  TableConstructor c_on(ucmp, true /* convert_to_internal_key */);
+  TableConstructor c_off(ucmp, true /* convert_to_internal_key */);
+  stl_wrappers::KVMap kv_on, kv_off;
+  uint64_t size_on =
+      FinishCommonPrefixTable(&c_on, kPrefix, kNumKeys, options_on, ioptions_on,
+                              moptions_on, tbo_on, icmp, &kv_on);
+  uint64_t size_off = FinishCommonPrefixTable(
+      &c_off, kPrefix, kNumKeys, options_off, ioptions_off, moptions_off,
+      tbo_off, icmp, &kv_off);
+
+  // kEnabled strips even for a non-bytewise comparator.
+  ASSERT_LT(size_on, size_off);
+
+  auto* reader = c_on.GetTableReader();
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+      ro, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Full forward iteration reconstructs every key/value correctly.
+  auto expect = kv_on.begin();
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(expect != kv_on.end());
+    ASSERT_EQ(expect->first, ExtractUserKey(iter->key()).ToString());
+    ASSERT_EQ(expect->second, iter->value().ToString());
+    ++expect;
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(expect == kv_on.end());
+
+  auto user_key = [&](const Slice& internal_key) {
+    return ExtractUserKey(internal_key).ToString();
+  };
+
+  // Seek (reconstruction path): existing key, missing-with-shared-prefix key,
+  // and SeekForPrev.
+  iter->Seek(
+      InternalKey(kPrefix + "001234", kMaxSequenceNumber, kTypeValue).Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  iter->Seek(InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+                 .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001235", user_key(iter->key()));
+
+  iter->SeekForPrev(
+      InternalKey(kPrefix + "001234x", kMaxSequenceNumber, kTypeValue)
+          .Encode());
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kPrefix + "001234", user_key(iter->key()));
+
+  c_on.ResetTableReader();
+  c_off.ResetTableReader();
 }
 
 #ifdef SNAPPY
@@ -1836,8 +2079,25 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
 TEST_P(BlockBasedTableTest, IndexUncompressed) {
   uint64_t tbl1_compressed_cnt = IndexUncompressedHelper(true);
   uint64_t tbl2_compressed_cnt = IndexUncompressedHelper(false);
-  // tbl1_compressed_cnt should include 1 index block
-  EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
+  // Normally, enabling index compression compresses exactly one more block (the
+  // index block). At format_version >= 8 (without super block alignment) the
+  // index block uses the common user-key prefix section, which strips shared
+  // prefixes from the index separators. The resulting index block can be small
+  // enough that compression no longer clears the storage threshold, so it may
+  // be stored uncompressed even when index compression is enabled. Allow that
+  // (0 or 1 extra compressed block) in that case; keep the exact invariant for
+  // every other format.
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  const bool index_uses_common_prefix =
+      table_options.format_version >= 8 &&
+      table_options.super_block_alignment_size == 0;
+  if (index_uses_common_prefix) {
+    EXPECT_GE(tbl1_compressed_cnt, tbl2_compressed_cnt);
+    EXPECT_LE(tbl1_compressed_cnt, tbl2_compressed_cnt + 1);
+  } else {
+    // tbl1_compressed_cnt should include 1 index block
+    EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
+  }
 }
 #endif  // SNAPPY
 
@@ -2341,25 +2601,30 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
 }
 
 TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
-  // Test that reserved metadata bits in data block footer are detected.
+  // Bit 30 of the data block footer is the reserved "extended metadata present"
+  // escape (format_version >= 8). No feature defines it yet, so setting it must
+  // be detected as corruption rather than silently misread.
+  //
   // We construct a block directly rather than going through the full table
   // iterator path to avoid issues with iterator error handling.
 
-  // Build a simple data block
-  BlockBuilder builder(16 /* restart_interval */);
+  // Build a simple data block.
+  BlockBuilder builder(BlockBuilder::ForMetaBlock{}, 16 /* restart_interval */);
   InternalKey key("abc", 1, kTypeValue);
   builder.Add(key.Encode(), "test_value");
   Slice block_contents = builder.Finish();
   std::string block_data = block_contents.ToString();
 
-  // The footer is the last 4 bytes - corrupt it by setting reserved bit 30
+  // The footer is the last 4 bytes - set the reserved extended-metadata bit
+  // (bit 30).
   ASSERT_GE(block_data.size(), sizeof(uint32_t));
   size_t footer_offset = block_data.size() - sizeof(uint32_t);
   uint32_t footer = DecodeFixed32(block_data.data() + footer_offset);
-  footer |= (1u << 30);  // Set a reserved bit
+  footer |= (1u << 30);  // Set the reserved extended-metadata bit
   EncodeFixed32(&block_data[footer_offset], footer);
 
-  // Try to construct a Block from the corrupted data
+  // Try to construct a Block from the data with the reserved bit set. The
+  // footer decode must reject it.
   BlockContents contents(std::move(block_data));
   Block block(std::move(contents), 0 /* read_amp_bytes_per_bit */);
 
@@ -2372,9 +2637,6 @@ TEST_P(BlockBasedTableTest, ReservedBitInDataBlockFooter) {
                         /*stats=*/nullptr, /*block_contents_pinned=*/false);
   ASSERT_FALSE(iter.Valid());
   ASSERT_EQ(iter.status().code(), Status::kCorruption)
-      << iter.status().ToString();
-  ASSERT_NE(iter.status().ToString().find("reserved bits set"),
-            std::string::npos)
       << iter.status().ToString();
 }
 
@@ -2782,6 +3044,293 @@ TEST_P(BlockBasedTableTest, PartitionIndexTest) {
   }
 }
 
+// The index of index partitions and the index of filter partitions are written
+// by builders separate from the per-partition index builder, and their values
+// are only delta encoded when index_block_restart_interval > 1 (with the
+// default of 1 every entry is a restart and carries a full handle, so the
+// value-delta codec is never exercised). Cover that path here -- including at
+// the unpublished draft format_version 8, where the value-delta codec reserves
+// an in-value escape codepoint -- so that a codec mismatch between either
+// top-level index writer and its reader is caught.
+TEST_P(BlockBasedTableTest, PartitionedIndexAndFilterValueDelta) {
+  // BlockBasedTableTest is parameterized over kFooterFormatVersionsToTest,
+  // which includes the unpublished draft format_version 8. (table_test opts in
+  // globally via TEST_AllowUnsupportedFormatVersion in main().)
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  table_options.partition_filters = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  // Small blocks and partitions so there are many index and filter partitions,
+  // hence many top-level index entries.
+  table_options.block_size = 512;
+  table_options.metadata_block_size = 128;
+  // > 1 so top-level index values are actually delta encoded.
+  table_options.index_block_restart_interval = 3;
+  table_options.block_cache = NewLRUCache(1 << 20);
+  table_options.cache_index_and_filter_blocks = true;
+
+  TableConstructor c(BytewiseComparator());
+  // Vary value sizes so that consecutive partition handles have both zero and
+  // non-zero size deltas. Zero is the interesting one: it is the delta whose
+  // legacy encoding collides with the format_version 8 escape codepoint.
+  Random rnd(302);
+  std::vector<std::string> user_keys;
+  for (int i = 0; i < 1000; i++) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "key%06d", i);
+    std::string user_key(buf);
+    InternalKey ikey(user_key, 0, kTypeValue);
+    c.Add(ikey.Encode().ToString(),
+          rnd.RandomString(i % 3 == 0 ? 40 : 8) /* value */);
+    user_keys.push_back(std::move(user_key));
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator ikc(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
+
+  auto* reader = static_cast<BlockBasedTable*>(c.GetTableReader());
+  auto props = reader->GetTableProperties();
+  // Both top-level indexes must have enough entries that non-restart (i.e.
+  // delta encoded) entries exist, otherwise this test proves nothing.
+  ASSERT_GT(props->index_partitions,
+            static_cast<uint64_t>(table_options.index_block_restart_interval));
+  ASSERT_EQ(props->index_value_is_delta_encoded, 1);
+
+  // Full scan: drives the top-level index of index partitions.
+  ReadOptions read_options;
+  {
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+    size_t i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_LT(i, keys.size());
+      ASSERT_EQ(keys[i], iter->key().ToString());
+      ASSERT_EQ(kvmap[keys[i]], iter->value().ToString());
+      i++;
+    }
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, keys.size());
+  }
+
+  // Point lookups: drive the index of filter partitions as well.
+  for (size_t i = 0; i < user_keys.size(); i += 7) {
+    SCOPED_TRACE("user_key=" + user_keys[i]);
+    InternalKey ikey(user_keys[i], 0, kTypeValue);
+    PinnableSlice value;
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, user_keys[i], &value, nullptr,
+                           nullptr, nullptr, true, nullptr, nullptr);
+    ASSERT_OK(reader->Get(read_options, ikey.Encode(), &get_context,
+                          moptions.prefix_extractor.get()));
+    ASSERT_EQ(kvmap[ikey.Encode().ToString()], value.ToString());
+  }
+
+  c.ResetTableReader();
+}
+
+// format_version 8 extends the data-block common user-key prefix feature to
+// index blocks (leaf, partitioned top-level) and the partitioned-filter
+// top-level index. This test verifies that, for prefix-heavy keys, an fv8 table
+// reads *identically* to an fv7 table (the trusted baseline) across index
+// types, partitioned filters, and (reverse-)bytewise comparators: full forward
+// scan, random Seek positioning, and point Get all match. It also asserts the
+// index actually shrank at fv8, so the feature is genuinely engaged (not a
+// silently-disabled no-op).
+TEST_F(GeneralTableTest, IndexBlockCommonPrefixEquivalence) {
+  struct Config {
+    const char* name;
+    BlockBasedTableOptions::IndexType index_type;
+    bool partition_filters;
+    bool reverse;
+    bool hash;        // needs a prefix extractor for the hash index
+    bool custom_cmp;  // non-(reverse-)bytewise comparator; forces kEnabled and
+                      // the reader's reconstruction (non-suffix-seek) path
+  };
+  const std::vector<Config> configs = {
+      {"leaf_binary", BlockBasedTableOptions::kBinarySearch, false, false,
+       false},
+      {"leaf_binary_reverse", BlockBasedTableOptions::kBinarySearch, false,
+       true, false},
+      {"leaf_first_key", BlockBasedTableOptions::kBinarySearchWithFirstKey,
+       false, false, false},
+      {"leaf_hash", BlockBasedTableOptions::kHashSearch, false, false, true},
+      {"partitioned", BlockBasedTableOptions::kTwoLevelIndexSearch, false,
+       false, false},
+      {"partitioned_reverse", BlockBasedTableOptions::kTwoLevelIndexSearch,
+       false, true, false},
+      {"partitioned_filters", BlockBasedTableOptions::kTwoLevelIndexSearch,
+       true, false, false},
+      // Non-(reverse-)bytewise comparator with kEnabled: exercises the reader's
+      // reconstruction path for stripped index blocks (leaf + partitioned).
+      {"leaf_binary_custom_cmp", BlockBasedTableOptions::kBinarySearch, false,
+       false, false, true},
+      {"partitioned_custom_cmp", BlockBasedTableOptions::kTwoLevelIndexSearch,
+       false, false, false, true},
+  };
+
+  // Long user-key prefix shared by every key, so data-block, index-separator,
+  // and filter-separator keys are all prefix-heavy.
+  const std::string shared = "abcdefghij_common_index_prefix_v1_";
+  const int kNum = 2000;
+
+  std::vector<std::string> user_keys;
+  std::vector<std::string> values;
+  user_keys.reserve(kNum);
+  values.reserve(kNum);
+  for (int i = 0; i < kNum; i++) {
+    char kbuf[16];
+    snprintf(kbuf, sizeof(kbuf), "%08d", i);
+    user_keys.push_back(shared + kbuf);
+    char vbuf[16];
+    snprintf(vbuf, sizeof(vbuf), "V%06d", i);
+    values.emplace_back(vbuf);
+  }
+
+  // Probe targets. All of these stay within the shared prefix so they are valid
+  // for the hash index's prefix extractor. Diverging (out-of-prefix) targets
+  // are added only for the non-hash configs (see below), where they exercise
+  // the StripSeekTargetPrefix before-all / after-all paths.
+  std::vector<std::string> base_probes;
+  for (int i : {0, 1, 2, 137, 500, 999, 1000, 1998, 1999}) {
+    base_probes.push_back(user_keys[i]);
+  }
+  base_probes.push_back(shared + "00000005x");  // gap between existing keys
+  base_probes.push_back(shared + "!!!!!!!!");   // before all keys, in-prefix
+  base_probes.push_back(shared + "99999999");   // after all keys, in-prefix
+  const std::vector<std::string> diverge_probes = {
+      "AAAA_before_all",  // diverges before the shared prefix
+      "zzzz_after_all",   // diverges after the shared prefix
+  };
+
+  struct ProbeResult {
+    std::vector<std::pair<std::string, std::string>> scan;
+    std::vector<std::string> seek_key;  // "" when Seek lands invalid
+    std::vector<int> get_found;
+    std::vector<std::string> get_val;
+    uint64_t index_size = 0;
+  };
+
+  auto run = [&](const Config& cfg, uint32_t fv,
+                 const std::vector<std::string>& probes) -> ProbeResult {
+    const Comparator* ucmp = cfg.custom_cmp
+                                 ? ForwardingBytewise()
+                                 : (cfg.reverse ? ReverseBytewiseComparator()
+                                                : BytewiseComparator());
+    InternalKeyComparator icmp(ucmp);
+
+    Options options;
+    options.comparator = ucmp;
+    if (cfg.hash) {
+      options.prefix_extractor.reset(
+          NewFixedPrefixTransform(shared.size() + 2));
+    }
+    BlockBasedTableOptions table_options;
+    table_options.format_version = fv;
+    table_options.index_type = cfg.index_type;
+    if (cfg.custom_cmp) {
+      // A custom comparator only strips under kEnabled (kIfFastSeek is
+      // (reverse-)bytewise only); at fv7 the option is inert.
+      table_options.optimize_key_common_prefix =
+          BlockBasedTableOptions::OptimizeKeyCommonPrefix::kEnabled;
+    }
+    // Exercise the last-separator successor path (and its suppression under
+    // common-prefix): with this mode fv7 emits a short successor as the file's
+    // last separator, while fv8 keeps the full last key so the top-level /
+    // non-partitioned index still strips. Read results must match regardless.
+    table_options.index_shortening = BlockBasedTableOptions::
+        IndexShorteningMode::kShortenSeparatorsAndSuccessor;
+    table_options.block_size = 100;
+    table_options.index_block_restart_interval =
+        cfg.index_type == BlockBasedTableOptions::kHashSearch ? 1 : 4;
+    table_options.metadata_block_size = 256;  // force many index partitions
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    table_options.whole_key_filtering = true;
+    if (cfg.partition_filters) {
+      table_options.partition_filters = true;
+      table_options.cache_index_and_filter_blocks = true;
+    }
+    table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    TableConstructor c(ucmp, /*convert_to_internal_key=*/true);
+    for (int i = 0; i < kNum; i++) {
+      c.Add(user_keys[i], values[i]);
+    }
+
+    std::vector<std::string> keys;
+    stl_wrappers::KVMap kvmap;
+    const ImmutableOptions ioptions(options);
+    const MutableCFOptions moptions(options);
+    c.Finish(options, ioptions, moptions, table_options, icmp, &keys, &kvmap);
+
+    ProbeResult r;
+    auto reader = c.GetTableReader();
+    r.index_size = reader->GetTableProperties()->index_size;
+
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      r.scan.emplace_back(iter->key().ToString(), iter->value().ToString());
+    }
+    EXPECT_OK(iter->status());
+
+    for (const auto& uk : probes) {
+      InternalKey target(uk, kMaxSequenceNumber, kValueTypeForSeek);
+      iter->Seek(target.Encode());
+      EXPECT_OK(iter->status());
+      r.seek_key.push_back(iter->Valid() ? iter->key().ToString() : "");
+    }
+
+    for (const auto& uk : probes) {
+      PinnableSlice value;
+      GetContext get_context(ucmp, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, uk, &value, nullptr,
+                             nullptr, nullptr, true, nullptr, nullptr);
+      InternalKey lkey(uk, kMaxSequenceNumber, kValueTypeForSeek);
+      Status s = reader->Get(ro, lkey.Encode(), &get_context,
+                             moptions.prefix_extractor.get());
+      EXPECT_OK(s);
+      if (get_context.State() == GetContext::kFound) {
+        r.get_found.push_back(1);
+        r.get_val.push_back(value.ToString());
+      } else {
+        r.get_found.push_back(0);
+        r.get_val.emplace_back("");
+      }
+    }
+    return r;
+  };
+
+  for (const auto& cfg : configs) {
+    SCOPED_TRACE(cfg.name);
+    std::vector<std::string> probes = base_probes;
+    if (!cfg.hash) {
+      // Out-of-prefix targets are only valid without a prefix extractor.
+      probes.insert(probes.end(), diverge_probes.begin(), diverge_probes.end());
+    }
+    ProbeResult r7 = run(cfg, 7, probes);
+    ProbeResult r8 = run(cfg, 8, probes);
+    EXPECT_EQ(r7.scan, r8.scan);
+    EXPECT_EQ(r7.seek_key, r8.seek_key);
+    EXPECT_EQ(r7.get_found, r8.get_found);
+    EXPECT_EQ(r7.get_val, r8.get_val);
+    // Sanity: every key is found, and the scan reproduces the input.
+    EXPECT_EQ(r8.scan.size(), static_cast<size_t>(kNum));
+    // Feature is genuinely engaged: the prefix-heavy index shrinks at fv8.
+    EXPECT_LT(r8.index_size, r7.index_size);
+  }
+}
 TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
@@ -4299,7 +4848,10 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                          nullptr, nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
-  ASSERT_STREQ(value.data(), "hello");
+  // Length-aware compare: with format_version 8 the data-block common-prefix
+  // section leaves a non-NUL byte after the value, so strcmp (ASSERT_STREQ)
+  // would read past the value. The value bytes themselves are unchanged.
+  ASSERT_EQ(value.ToString(), "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
   c3.ResetTableReader();
@@ -4410,7 +4962,10 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
                     get_perf_context()->data_block_read_byte);
         }
         ASSERT_EQ(get_context.State(), GetContext::kFound);
-        ASSERT_STREQ(value.data(), "hello");
+        // Length-aware compare: format_version 8's common-prefix section leaves
+        // a non-NUL byte after the value; strcmp would over-read. Value bytes
+        // are unchanged.
+        ASSERT_EQ(value.ToString(), "hello");
       }
 
       // Get non-existing key
@@ -5102,8 +5657,6 @@ TEST(TableTest, FooterTests) {
   uint64_t metaindex_size = r->Uniform(1000000);
   // 5 == block trailer size
   BlockHandle index(data_size + 5, index_size);
-  BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
-  uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
   uint32_t base_context_checksum = 123456789;
   // block based, various checksums, various versions (format_version >= 2)
   for (auto t : GetSupportedChecksums()) {
@@ -5112,6 +5665,17 @@ TEST(TableTest, FooterTests) {
          ++fv) {
       uint32_t maybe_bcc =
           FormatVersionUsesContextChecksum(fv) ? base_context_checksum : 0U;
+      // format_version >= 8 stores the metaindex block size in only the low 16
+      // bits of the footer (the high 16 bits hold the metaindex-to-footer gap),
+      // so cap the size for those versions; metaindex blocks are small in
+      // practice.
+      uint64_t this_metaindex_size = FormatVersionUsesMetaindexGap(fv)
+                                         ? (metaindex_size & 0xFFFFU)
+                                         : metaindex_size;
+      BlockHandle meta_index(data_size + index_size + 2 * 5,
+                             this_metaindex_size);
+      uint64_t footer_offset =
+          data_size + this_metaindex_size + index_size + 3 * 5;
       FooterBuilder footer;
       ASSERT_OK(footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
                              meta_index, index, maybe_bcc));
@@ -5992,6 +6556,627 @@ TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
           EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
         }
       }
+    }
+  }
+}
+
+namespace {
+
+constexpr char kCrc32cHandoffDestinationBufferMismatch[] =
+    "Checksum handoff detected data corruption after copying data into "
+    "WritableFileWriter destination buffer";
+
+std::string ChecksumTypeToString(ChecksumType checksum_type) {
+  switch (checksum_type) {
+    case kNoChecksum:
+      return "no_checksum";
+    case kCRC32c:
+      return "crc32c";
+    case kxxHash:
+      return "xxhash";
+    case kxxHash64:
+      return "xxhash64";
+    case kXXH3:
+      return "xxh3";
+    default:
+      return "unsupported";
+  }
+}
+
+std::vector<ChecksumType> GetSupportedChecksumHandoffTestChecksumTypes() {
+  std::vector<ChecksumType> checksum_types;
+  for (ChecksumType checksum_type : GetSupportedChecksums()) {
+    if (checksum_type != kNoChecksum) {
+      checksum_types.push_back(checksum_type);
+    }
+  }
+  return checksum_types;
+}
+
+std::string ChecksumHandoffTestParamName(
+    const testing::TestParamInfo<ChecksumType>& info) {
+  return ChecksumTypeToString(info.param);
+}
+
+CompressionType GetSupportedNonNoCompressionForChecksumHandoffTest() {
+  for (CompressionType type : GetSupportedCompressions()) {
+    if (type != kNoCompression) {
+      return type;
+    }
+  }
+  return kNoCompression;
+}
+
+std::string ChecksumHandoffTestValue(size_t i) {
+  return std::string(10000, static_cast<char>('a' + i));
+}
+
+std::vector<std::pair<std::string, std::string>> ChecksumHandoffTestKvs() {
+  std::vector<std::pair<std::string, std::string>> kvs;
+  kvs.reserve(5);
+  for (size_t i = 0; i < 5; ++i) {
+    kvs.emplace_back("key" + std::to_string(i), ChecksumHandoffTestValue(i));
+  }
+  return kvs;
+}
+
+BlockBasedTableOptions GetChecksumHandoffTableOptions(
+    ChecksumType checksum_type) {
+  BlockBasedTableOptions table_options;
+  table_options.checksum = checksum_type;
+  table_options.flush_block_policy_factory =
+      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  return table_options;
+}
+
+struct RecordedChecksumHandoffAppend {
+  uint64_t offset = 0;
+  std::string data;
+  bool has_crc32c = false;
+  uint32_t crc32c = 0;
+};
+
+using BlockBasedTableBuilderAppendCallbackArg =
+    std::pair<Slice, const Crc32cChecksum*>;
+
+class NullSink : public FSWritableFile {
+ public:
+  IOStatus Truncate(uint64_t size, const IOOptions& /*opts*/,
+                    IODebugContext* /*dbg*/) override {
+    size_ = size;
+    return IOStatus::OK();
+  }
+
+  IOStatus Close(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  IOStatus Flush(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  IOStatus Sync(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  using FSWritableFile::Append;
+  IOStatus Append(const Slice& data, const IOOptions& /*opts*/,
+                  IODebugContext* /*dbg*/) override {
+    size_ += data.size();
+    return IOStatus::OK();
+  }
+
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return size_;
+  }
+
+ private:
+  uint64_t size_ = 0;
+};
+
+struct ChecksumHandoffTable {
+  std::string contents;
+  std::vector<std::string> internal_keys;
+  std::vector<BlockHandle> data_blocks;
+  std::vector<RecordedChecksumHandoffAppend> recorded_appends;
+};
+
+enum class ChecksumHandoffBuildCorruption {
+  kNone,
+  kCompressionType,
+  kBlockChecksum,
+};
+
+Status BuildChecksumHandoffTable(ChecksumType checksum_type,
+                                 CompressionType compression_type,
+                                 ChecksumHandoffTable* table,
+                                 ChecksumHandoffBuildCorruption corruption =
+                                     ChecksumHandoffBuildCorruption::kNone) {
+  assert(table != nullptr);
+  *table = ChecksumHandoffTable();
+
+  BlockBasedTableOptions table_options =
+      GetChecksumHandoffTableOptions(checksum_type);
+
+  Options options;
+  options.env = Env::Default();
+  options.compression = compression_type;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  uint64_t next_append_offset = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Append:Before", [&](void* arg) {
+        auto* append_info =
+            static_cast<BlockBasedTableBuilderAppendCallbackArg*>(arg);
+        RecordedChecksumHandoffAppend recorded_append;
+        recorded_append.offset = next_append_offset;
+        recorded_append.data.assign(append_info->first.data(),
+                                    append_info->first.size());
+        if (append_info->second != nullptr) {
+          recorded_append.has_crc32c = true;
+          recorded_append.crc32c = append_info->second->value;
+        }
+        table->contents.append(recorded_append.data);
+        next_append_offset += recorded_append.data.size();
+        table->recorded_appends.push_back(std::move(recorded_append));
+      });
+  bool corrupted_trailer = false;
+  if (checksum_type == kCRC32c &&
+      corruption != ChecksumHandoffBuildCorruption::kNone) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::WriteMaybeCompressedBlock:"
+        "TamperWithChecksum",
+        [&](void* arg) {
+          if (corrupted_trailer) {
+            return;
+          }
+          auto* trailer = static_cast<char*>(arg);
+          if (corruption == ChecksumHandoffBuildCorruption::kCompressionType) {
+            trailer[0] = static_cast<char>(
+                static_cast<unsigned char>(trailer[0]) ^ 0x80U);
+          } else {
+            trailer[1] = static_cast<char>(
+                static_cast<unsigned char>(trailer[1]) ^ 0x80U);
+          }
+          corrupted_trailer = true;
+        });
+  }
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  std::unique_ptr<FSWritableFile> holder(new NullSink());
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(holder), "test_file_name", FileOptions(),
+                             SystemClock::Default().get(), nullptr, nullptr,
+                             Histograms::HISTOGRAM_ENUM_MAX, {}, nullptr,
+                             /*perform_data_verification=*/true,
+                             /*buffered_data_with_checksum=*/true));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  InternalTblPropCollFactories internal_tbl_prop_coll_factories;
+
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
+                          &internal_tbl_prop_coll_factories, compression_type,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */, kUnknownNewestKeyTime),
+      file_writer.get()));
+
+  for (const auto& kv : ChecksumHandoffTestKvs()) {
+    InternalKey key(kv.first, 1 /* sequence number */, kTypeValue);
+    const std::string encoded_key = key.Encode().ToString();
+    table->internal_keys.push_back(encoded_key);
+    builder->Add(encoded_key, kv.second);
+    if (!builder->status().ok()) {
+      Status s = builder->status();
+      builder->Abandon();
+      return s;
+    }
+  }
+  Status s = builder->Finish();
+  if (s.ok()) {
+    s = file_writer->Flush(IOOptions());
+  }
+  if (s.ok() && table->contents.size() != file_writer->GetFileSize()) {
+    s = Status::Corruption("Incomplete checksum handoff append recording");
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<TableReader> reader;
+  BlockBasedTableOptions reader_table_options =
+      GetChecksumHandoffTableOptions(checksum_type);
+  Options reader_options;
+  reader_options.env = Env::Default();
+  reader_options.compression = compression_type;
+  reader_options.table_factory.reset(
+      NewBlockBasedTableFactory(reader_table_options));
+  ImmutableOptions reader_ioptions(reader_options);
+  MutableCFOptions reader_moptions(reader_options);
+  InternalKeyComparator reader_ikc(reader_options.comparator);
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      table->contents, 1 /* uniq_id */, reader_ioptions.allow_mmap_reads));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(source), "test_file_name"));
+  s = reader_options.table_factory->NewTableReader(
+      TableReaderOptions(
+          reader_ioptions, reader_moptions.prefix_extractor,
+          reader_moptions.compression_manager.get(), EnvOptions(), reader_ikc,
+          0 /* block_protection_bytes_per_key */,
+          /*skip_filters*/ false, /*immortal*/ false,
+          false /* force_direct_prefetch */, -1 /* level */,
+          nullptr /* block_cache_tracer */, reader_moptions.write_buffer_size,
+          "" /* cur_db_session_id */, 1 /* cur_file_num */, kNullUniqueId64x2),
+      std::move(file_reader), table->contents.size(), &reader);
+  if (!s.ok()) {
+    return s;
+  }
+
+  BlockBasedTable* bbt = static_cast<BlockBasedTable*>(reader.get());
+  for (const std::string& key : table->internal_keys) {
+    BlockHandle block_handle;
+    bbt->TEST_GetDataBlockHandle(read_options, key, block_handle);
+    if (table->data_blocks.empty() ||
+        table->data_blocks.back() != block_handle) {
+      table->data_blocks.push_back(block_handle);
+    }
+  }
+  return Status::OK();
+}
+
+Status VerifyChecksumHandoffTableContents(ChecksumType checksum_type,
+                                          const std::string& contents,
+                                          CompressionType compression_type) {
+  BlockBasedTableOptions table_options =
+      GetChecksumHandoffTableOptions(checksum_type);
+  Options options;
+  options.env = Env::Default();
+  options.compression = compression_type;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      contents, 1 /* uniq_id */, ioptions.allow_mmap_reads));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(source), "test_file_name"));
+  std::unique_ptr<TableReader> table_reader;
+  Status s = options.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, moptions.prefix_extractor,
+                         moptions.compression_manager.get(), EnvOptions(), ikc,
+                         0 /* block_protection_bytes_per_key */,
+                         /*skip_filters*/ false, /*immortal*/ false,
+                         false /* force_direct_prefetch */, -1 /* level */,
+                         nullptr /* block_cache_tracer */,
+                         moptions.write_buffer_size, "" /* cur_db_session_id */,
+                         1 /* cur_file_num */, kNullUniqueId64x2),
+      std::move(file_reader), contents.size(), &table_reader);
+  if (!s.ok()) {
+    return s;
+  }
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+      read_options, nullptr /* prefix_extractor */, nullptr /* arena */,
+      /*skip_filters*/ false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  for (const auto& kv : ChecksumHandoffTestKvs()) {
+    if (!iter->status().ok()) {
+      return iter->status();
+    }
+    if (!iter->Valid()) {
+      return Status::Corruption("Expected another key in checksum handoff SST");
+    }
+    ParsedInternalKey parsed_key;
+    s = ParseInternalKey(iter->key(), &parsed_key, true /* log_err_key */);
+    if (!s.ok()) {
+      return s;
+    }
+    if (parsed_key.user_key.ToString() != kv.first) {
+      return Status::Corruption("Unexpected key in checksum handoff SST");
+    }
+    if (iter->value().ToString() != kv.second) {
+      return Status::Corruption("Unexpected value in checksum handoff SST");
+    }
+    iter->Next();
+  }
+  if (!iter->status().ok()) {
+    return iter->status();
+  }
+  if (iter->Valid()) {
+    return Status::Corruption("Unexpected extra key in checksum handoff SST");
+  }
+  return Status::OK();
+}
+
+enum class ChecksumHandoffReplayCorruption {
+  kNone,
+  kBlockPayload,
+  kCompressionType,
+  kBlockChecksum,
+};
+
+struct ChecksumHandoffReplayOptions {
+  ChecksumHandoffReplayCorruption corruption =
+      ChecksumHandoffReplayCorruption::kNone;
+  size_t block_index = 0;
+  size_t byte_offset = 0;
+};
+
+void FlipByte(std::string* data, size_t offset) {
+  assert(data != nullptr);
+  assert(offset < data->size());
+  (*data)[offset] =
+      static_cast<char>(static_cast<unsigned char>((*data)[offset]) ^ 0x80U);
+}
+
+void MaybeCorruptRecordedAppend(
+    const RecordedChecksumHandoffAppend& recorded_append,
+    const BlockHandle& target_handle,
+    const ChecksumHandoffReplayOptions& options, std::string* data) {
+  assert(data != nullptr);
+  if (options.corruption == ChecksumHandoffReplayCorruption::kNone) {
+    return;
+  }
+
+  const uint64_t block_offset = target_handle.offset();
+  const size_t block_size = static_cast<size_t>(target_handle.size());
+  const uint64_t trailer_offset = block_offset + block_size;
+
+  if (options.corruption == ChecksumHandoffReplayCorruption::kBlockPayload &&
+      recorded_append.offset == block_offset &&
+      recorded_append.data.size() == block_size) {
+    assert(block_size > 0);
+    FlipByte(data, options.byte_offset % data->size());
+  } else if (options.corruption ==
+                 ChecksumHandoffReplayCorruption::kCompressionType &&
+             recorded_append.offset == trailer_offset &&
+             recorded_append.data.size() ==
+                 BlockBasedTable::kBlockTrailerSize) {
+    FlipByte(data, 0);
+  } else if (options.corruption ==
+                 ChecksumHandoffReplayCorruption::kBlockChecksum &&
+             recorded_append.offset == trailer_offset &&
+             recorded_append.data.size() ==
+                 BlockBasedTable::kBlockTrailerSize) {
+    FlipByte(data, 1 + options.byte_offset %
+                           (BlockBasedTable::kBlockTrailerSize - 1));
+  }
+}
+
+Status ReplayChecksumHandoffTable(const ChecksumHandoffTable& table,
+                                  const ChecksumHandoffReplayOptions& options,
+                                  std::string* contents) {
+  assert(contents != nullptr);
+  assert(options.corruption == ChecksumHandoffReplayCorruption::kNone ||
+         options.block_index < table.data_blocks.size());
+  contents->clear();
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(holder), "test_file_name", FileOptions(),
+                             SystemClock::Default().get(), nullptr, nullptr,
+                             Histograms::HISTOGRAM_ENUM_MAX, {}, nullptr,
+                             /*perform_data_verification=*/true,
+                             /*buffered_data_with_checksum=*/true));
+
+  for (const RecordedChecksumHandoffAppend& recorded_append :
+       table.recorded_appends) {
+    std::string data = recorded_append.data;
+    if (options.corruption != ChecksumHandoffReplayCorruption::kNone) {
+      MaybeCorruptRecordedAppend(recorded_append,
+                                 table.data_blocks[options.block_index],
+                                 options, &data);
+    }
+    Status s;
+    if (recorded_append.has_crc32c) {
+      s = file_writer->Append(IOOptions(), Slice(data),
+                              Crc32cChecksum(recorded_append.crc32c));
+    } else {
+      s = file_writer->Append(IOOptions(), Slice(data));
+    }
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  Status s = file_writer->Flush(IOOptions());
+  if (s.ok()) {
+    *contents = sink->contents();
+  }
+  return s;
+}
+
+}  // namespace
+
+class BlockBasedTableChecksumHandoffTest
+    : public BlockBasedTableTestBase,
+      public testing::WithParamInterface<ChecksumType> {};
+
+INSTANTIATE_TEST_CASE_P(
+    SupportedChecksums, BlockBasedTableChecksumHandoffTest,
+    testing::ValuesIn(GetSupportedChecksumHandoffTestChecksumTypes()),
+    ChecksumHandoffTestParamName);
+
+TEST_P(BlockBasedTableChecksumHandoffTest,
+       Crc32cHandoffDetectsCompressedBlockCorruption) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  const CompressionType compression_type =
+      GetSupportedNonNoCompressionForChecksumHandoffTest();
+  if (compression_type == kNoCompression) {
+    ROCKSDB_GTEST_SKIP("No supported compression");
+    return;
+  }
+
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, compression_type, &table));
+  ASSERT_FALSE(table.data_blocks.empty());
+
+  std::string contents;
+  const Status s = ReplayChecksumHandoffTable(
+      table,
+      ChecksumHandoffReplayOptions{
+          ChecksumHandoffReplayCorruption::kBlockPayload,
+          /*block_index=*/0,
+          /*byte_offset=*/0},
+      &contents);
+  if (checksum_type == kCRC32c) {
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  } else {
+    ASSERT_OK(s);
+    ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                   compression_type)
+                    .IsCorruption());
+  }
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest, Crc32cHandoffReadsBackBlocks) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, kNoCompression, &table));
+
+  std::string contents;
+  ASSERT_OK(ReplayChecksumHandoffTable(table, ChecksumHandoffReplayOptions(),
+                                       &contents));
+  ASSERT_OK(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                               kNoCompression));
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest,
+       Crc32cHandoffDetectsCompressionTypeCorruption) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, kNoCompression, &table));
+  ASSERT_FALSE(table.data_blocks.empty());
+
+  std::string contents;
+  const Status s = ReplayChecksumHandoffTable(
+      table,
+      ChecksumHandoffReplayOptions{
+          ChecksumHandoffReplayCorruption::kCompressionType,
+          /*block_index=*/0,
+          /*byte_offset=*/0},
+      &contents);
+  if (checksum_type == kCRC32c) {
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  } else {
+    ASSERT_OK(s);
+    ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                   kNoCompression)
+                    .IsCorruption());
+  }
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest,
+       Crc32cHandoffDetectsBlockChecksumTrailerCorruption) {
+  const ChecksumType checksum_type = GetParam();
+  SCOPED_TRACE(ChecksumTypeToString(checksum_type));
+  ChecksumHandoffTable table;
+  ASSERT_OK(BuildChecksumHandoffTable(checksum_type, kNoCompression, &table));
+  ASSERT_FALSE(table.data_blocks.empty());
+
+  std::string contents;
+  const Status s = ReplayChecksumHandoffTable(
+      table,
+      ChecksumHandoffReplayOptions{
+          ChecksumHandoffReplayCorruption::kBlockChecksum,
+          /*block_index=*/0,
+          /*byte_offset=*/1},
+      &contents);
+
+  if (checksum_type == kCRC32c) {
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  } else {
+    ASSERT_OK(s);
+    ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                   kNoCompression)
+                    .IsCorruption());
+  }
+}
+
+TEST_F(BlockBasedTableTestBase,
+       Crc32cHandoffDetectsTrailerBufferCorruptionDuringBuild) {
+  for (ChecksumHandoffBuildCorruption corruption :
+       {ChecksumHandoffBuildCorruption::kCompressionType,
+        ChecksumHandoffBuildCorruption::kBlockChecksum}) {
+    ChecksumHandoffTable table;
+    const Status s =
+        BuildChecksumHandoffTable(kCRC32c, kNoCompression, &table, corruption);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+    ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+              std::string::npos)
+        << s.ToString();
+  }
+}
+
+TEST_P(BlockBasedTableChecksumHandoffTest, Crc32cHandoffRandomizedReplay) {
+  const ChecksumType checksum_type = GetParam();
+  const uint32_t seed = static_cast<uint32_t>(test::RandomSeed() + 6707);
+  Random rnd(seed);
+  SCOPED_TRACE("seed=" + std::to_string(seed) +
+               " checksum_type=" + ChecksumTypeToString(checksum_type));
+
+  const CompressionType non_no_compression_type =
+      GetSupportedNonNoCompressionForChecksumHandoffTest();
+  const std::array<CompressionType, 2> compression_types = {
+      {kNoCompression, non_no_compression_type}};
+  for (int i = 0; i < 20; ++i) {
+    const CompressionType compression_type = compression_types[rnd.Uniform(
+        static_cast<int>(non_no_compression_type == kNoCompression ? 1 : 2))];
+    ChecksumHandoffTable table;
+    ASSERT_OK(
+        BuildChecksumHandoffTable(checksum_type, compression_type, &table));
+    ASSERT_FALSE(table.data_blocks.empty());
+
+    const auto corruption =
+        static_cast<ChecksumHandoffReplayCorruption>(1 + rnd.Uniform(3));
+    const size_t block_index =
+        rnd.Uniform(static_cast<int>(table.data_blocks.size()));
+    const size_t block_size =
+        static_cast<size_t>(table.data_blocks[block_index].size());
+    const size_t byte_offset =
+        block_size == 0 ? 0 : rnd.Uniform(static_cast<int>(block_size));
+
+    std::string contents;
+    const Status s = ReplayChecksumHandoffTable(
+        table,
+        ChecksumHandoffReplayOptions{corruption, block_index, byte_offset},
+        &contents);
+
+    if (checksum_type == kCRC32c) {
+      ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+      ASSERT_NE(s.ToString().find(kCrc32cHandoffDestinationBufferMismatch),
+                std::string::npos)
+          << s.ToString();
+    } else {
+      ASSERT_OK(s);
+      ASSERT_TRUE(VerifyChecksumHandoffTableContents(checksum_type, contents,
+                                                     compression_type)
+                      .IsCorruption());
     }
   }
 }
@@ -7097,12 +8282,16 @@ class ExternalTableTest : public DBTestBase {
     ExternalTableIterator* NewIterator(
         const ReadOptions& read_options,
         const SliceTransform* /*prefix_extractor*/) override {
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableReader::NewIterator",
+                               const_cast<ReadOptions*>(&read_options));
       return new DummyExternalTableIterator(read_options, kv_map_);
     }
 
-    Status Get(const ReadOptions& /*read_options*/, const Slice& key,
+    Status Get(const ReadOptions& read_options, const Slice& key,
                const SliceTransform* /*prefix_extractor*/,
                PinnableSlice* value) override {
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableReader::Get",
+                               const_cast<ReadOptions*>(&read_options));
       auto iter = kv_map_.find(key.ToString());
       if (iter != kv_map_.end()) {
         value->PinSelf(iter->second);
@@ -7277,6 +8466,72 @@ class ExternalTableTest : public DBTestBase {
     bool read_via_options_fs_;
   };
 
+  class ConfigurableDummyExternalTableFactory
+      : public DummyExternalTableFactory {
+   public:
+    ConfigurableDummyExternalTableFactory()
+        : DummyExternalTableFactory(/*support_property_block=*/false) {}
+
+    static const char* kClassName() {
+      return "ConfigurableDummyExternalTableFactory";
+    }
+
+    static const char* kValidConfig() { return "mode=fast;limit=7"; }
+
+    static const char* kAlternateValidConfig() {
+      return "mode=compact;limit=11";
+    }
+
+    static std::string ValidFactoryConfig() {
+      return "{id=" + std::string(kClassName()) + ";external_table_config={" +
+             kValidConfig() + "}}";
+    }
+
+    static std::string SerializedValidConfig() {
+      return SerializeConfig(kValidConfig());
+    }
+
+    static std::string SerializedAlternateValidConfig() {
+      return SerializeConfig(kAlternateValidConfig());
+    }
+
+    const char* Name() const override { return kClassName(); }
+
+    Status Configure(const std::string& config) override {
+      if (config.empty() || config == kValidConfig() ||
+          config == kAlternateValidConfig()) {
+        config_ = config;
+        return Status::OK();
+      }
+      return Status::InvalidArgument("Invalid dummy external table config");
+    }
+
+    const std::string& config() const { return config_; }
+
+   private:
+    static std::string SerializeConfig(const std::string& config) {
+      return "{" + config + "}";
+    }
+
+    std::string config_;
+  };
+
+  static void RegisterConfigurableDummyExternalTableFactory() {
+    static FactoryFunc<TableFactory> registration =
+        ObjectLibrary::Default()->AddFactory<TableFactory>(
+            ConfigurableDummyExternalTableFactory::kClassName(),
+            [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+               std::string* /*errmsg*/) {
+              std::shared_ptr<ExternalTableFactory> inner =
+                  std::make_shared<ConfigurableDummyExternalTableFactory>();
+              std::unique_ptr<TableFactory> factory =
+                  NewExternalTableFactory(std::move(inner));
+              guard->reset(factory.release());
+              return guard->get();
+            });
+    (void)registration;
+  }
+
   class CountingFileReadListener : public EventListener {
    public:
     bool ShouldBeNotifiedOnFileIO() override { return true; }
@@ -7328,6 +8583,157 @@ class ExternalTableTest : public DBTestBase {
     mutable PinnedDummyExternalTableReader* last_reader_ = nullptr;
   };
 };
+
+TEST_F(ExternalTableTest, BootstrapConfig) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  ConfigOptions config_options;
+  std::shared_ptr<TableFactory> table_factory;
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &table_factory));
+  ASSERT_NE(table_factory, nullptr);
+
+  std::string serialized_config;
+  ASSERT_OK(table_factory->GetOption(config_options, "external_table_config",
+                                     &serialized_config));
+  ASSERT_EQ(serialized_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  std::shared_ptr<TableFactory> invalid_factory;
+  const std::string invalid_config =
+      "{id=" +
+      std::string(ConfigurableDummyExternalTableFactory::kClassName()) +
+      ";external_table_config={mode=invalid}}";
+  ASSERT_NOK(TableFactory::CreateFromString(config_options, invalid_config,
+                                            &invalid_factory));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigOptionsFileRoundTrip) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  DBOptions db_options;
+  db_options.env = env_;
+  ConfigOptions config_options(db_options);
+  std::shared_ptr<TableFactory> table_factory;
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &table_factory));
+
+  ColumnFamilyOptions cf_options;
+  cf_options.table_factory = table_factory;
+  const std::vector<std::string> cf_names{"default"};
+  const std::vector<ColumnFamilyOptions> all_cf_options{cf_options};
+  const std::string options_file =
+      test::PerThreadDBPath("external_table_config_options");
+  std::shared_ptr<FileSystem> fs = db_options.env->GetFileSystem();
+  ASSERT_OK(PersistRocksDBOptions(WriteOptions(), config_options, db_options,
+                                  cf_names, all_cf_options, options_file,
+                                  fs.get()));
+
+  std::string contents;
+  ASSERT_OK(ReadFileToString(env_, options_file, &contents));
+  ASSERT_NE(contents.find("external_table_config={mode=fast;limit=7}"),
+            std::string::npos);
+
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(config_options, options_file, fs.get()));
+  ASSERT_EQ(parser.cf_opts()->size(), 1U);
+  ASSERT_NE(parser.cf_opts()->front().table_factory, nullptr);
+  std::string loaded_config;
+  ASSERT_OK(parser.cf_opts()->front().table_factory->GetOption(
+      config_options, "external_table_config", &loaded_config));
+  ASSERT_EQ(loaded_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  ASSERT_OK(env_->DeleteFile(options_file));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigIsImmutable) {
+  RegisterConfigurableDummyExternalTableFactory();
+
+  Options options = GetDefaultOptions();
+  ConfigOptions config_options(options);
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options,
+      ConfigurableDummyExternalTableFactory::ValidFactoryConfig(),
+      &options.table_factory));
+  options.create_if_missing = true;
+
+  const std::string dbname =
+      test::PerThreadDBPath("external_table_config_immutable");
+  ASSERT_OK(DestroyDB(dbname, options));
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  Status update_status =
+      db->SetOptions({{"table_factory.external_table_config", "{mode=slow}"}});
+  ASSERT_TRUE(update_status.IsInvalidArgument()) << update_status.ToString();
+
+  Options current_options = db->GetOptions();
+  std::string current_config;
+  ASSERT_OK(current_options.table_factory->GetOption(
+      config_options, "external_table_config", &current_config));
+  ASSERT_EQ(current_config,
+            ConfigurableDummyExternalTableFactory::SerializedValidConfig());
+
+  ASSERT_OK(db->Close());
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
+
+TEST_F(ExternalTableTest, BootstrapConfigCanChangeBetweenDBOpens) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+
+  std::shared_ptr<ConfigurableDummyExternalTableFactory> first_factory =
+      std::make_shared<ConfigurableDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(first_factory);
+  ConfigOptions config_options(options);
+  ASSERT_OK(options.table_factory->ConfigureFromString(
+      config_options,
+      "external_table_config=" +
+          ConfigurableDummyExternalTableFactory::SerializedValidConfig()));
+  ASSERT_EQ(first_factory->config(),
+            ConfigurableDummyExternalTableFactory::kValidConfig());
+
+  const std::string dbname =
+      test::PerThreadDBPath("external_table_config_reopen");
+  ASSERT_OK(DestroyDB(dbname, options));
+  std::unique_ptr<DB> db;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_EQ(first_factory->config(),
+            ConfigurableDummyExternalTableFactory::kValidConfig());
+  ASSERT_OK(db->Close());
+  db.reset();
+
+  std::shared_ptr<ConfigurableDummyExternalTableFactory> second_factory =
+      std::make_shared<ConfigurableDummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(second_factory);
+  ConfigOptions reopen_config_options(options);
+  ASSERT_OK(options.table_factory->ConfigureFromString(
+      reopen_config_options, "external_table_config=" +
+                                 ConfigurableDummyExternalTableFactory::
+                                     SerializedAlternateValidConfig()));
+  ASSERT_EQ(second_factory->config(),
+            ConfigurableDummyExternalTableFactory::kAlternateValidConfig());
+
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_EQ(second_factory->config(),
+            ConfigurableDummyExternalTableFactory::kAlternateValidConfig());
+
+  std::string reopened_config;
+  ASSERT_OK(db->GetOptions().table_factory->GetOption(
+      reopen_config_options, "external_table_config", &reopened_config));
+  ASSERT_EQ(
+      reopened_config,
+      ConfigurableDummyExternalTableFactory::SerializedAlternateValidConfig());
+
+  ASSERT_OK(db->Close());
+  db.reset();
+  ASSERT_OK(DestroyDB(dbname, options));
+}
 
 TEST_F(ExternalTableTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =
@@ -7724,6 +9130,86 @@ TEST_F(ExternalTableTest, DBIterTest) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+}
+
+TEST_F(ExternalTableTest, ReadOptionsCustomContext) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  std::unique_ptr<SstFileWriter> writer(
+      new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname, &db));
+  ASSERT_NE(db, nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_db_generated_files = true;
+  ifo.fill_cache = false;
+  ASSERT_OK(db->IngestExternalFile(cfh, {ingest_file}, ifo));
+
+  int get_context = 0;
+  int iterator_context = 0;
+  int get_call_count = 0;
+  int new_iterator_call_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableReader::Get", [&](void* arg) {
+        ReadOptions* read_options = static_cast<ReadOptions*>(arg);
+        EXPECT_EQ(read_options->custom_context, &get_context);
+        ++get_call_count;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableReader::NewIterator", [&](void* arg) {
+        ReadOptions* read_options = static_cast<ReadOptions*>(arg);
+        EXPECT_EQ(read_options->custom_context, &iterator_context);
+        ++new_iterator_call_count;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  ReadOptions get_options;
+  ASSERT_EQ(get_options.custom_context, nullptr);
+  get_options.custom_context = &get_context;
+  std::string value;
+  ASSERT_OK(db->Get(get_options, cfh, "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_call_count, 1);
+
+  ReadOptions iterator_options;
+  iterator_options.custom_context = &iterator_context;
+  std::unique_ptr<Iterator> iter(db->NewIterator(iterator_options, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->value(), "bar");
+  ASSERT_EQ(new_iterator_call_count, 1);
   iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));

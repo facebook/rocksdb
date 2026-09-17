@@ -7,6 +7,7 @@
 
 #include "db/blob/blob_fetcher.h"
 #include "db/db_impl/db_impl.h"
+#include "db/db_impl/db_impl_metadata.h"
 #include "db/version_set.h"
 #include "logging/logging.h"
 #include "table/get_context.h"
@@ -32,6 +33,46 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
   return static_cast<size_t>(
       std::lower_bound(files_.files, files_.files + right, key, cmp) -
       files_.files);
+}
+
+Status CompactedDBImpl::GetWithMetadata(const ReadOptions& options,
+                                        ColumnFamilyHandle* column_family,
+                                        const Slice& key, PinnableSlice* value,
+                                        OutputMetadata* output_metadata) {
+  std::string* timestamp = GetOutputTimestamp(output_metadata);
+  bool* newer_version_present = GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  return Get(options, column_family, key, value, timestamp);
+}
+
+void CompactedDBImpl::MultiGetWithMetadata(
+    const ReadOptions& options, size_t num_keys,
+    ColumnFamilyHandle* const* column_families, const Slice* keys,
+    PinnableSlice* values, Status* statuses,
+    MultiGetOutputMetadata* output_metadata, const bool sorted_input) {
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  MultiGet(options, num_keys, mutable_column_families, keys, values,
+           timestamps != nullptr ? timestamps->data() : nullptr, statuses,
+           sorted_input);
 }
 
 Status CompactedDBImpl::Init(const Options& options) {

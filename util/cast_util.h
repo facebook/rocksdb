@@ -70,7 +70,7 @@ inline To lossless_cast(From x) {
     using ToDeref = typename std::remove_pointer_t<To>;
     static_assert(std::is_integral_v<FromDeref> || std::is_enum_v<FromDeref>,
                   "Only works on integral types");
-    static_assert(std::is_integral_v<ToDeref> || std::is_enum_v<To>,
+    static_assert(std::is_integral_v<ToDeref> || std::is_enum_v<ToDeref>,
                   "Only works on integral types");
     static_assert(sizeof(ToDeref) == sizeof(FromDeref), "Must be lossless");
     return reinterpret_cast<To>(x);

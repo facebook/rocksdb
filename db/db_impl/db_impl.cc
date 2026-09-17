@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+
+#include "db/db_impl/db_impl_metadata.h"
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -347,6 +349,22 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
   const ReadOptions read_options(io_activity);
   const WriteOptions write_options(io_activity);
 
+  assert(static_cast<size_t>(unscheduled_flushes_) <= flush_queue_.size());
+  // Recovery rebuilds flush requests for every column family with pending
+  // immutable data after scheduled workers exit, so every existing request is
+  // redundant and safe to remove. A worker can exit on the background error
+  // without popping a request, leaving it out of unscheduled_flushes_.
+  while (!flush_queue_.empty()) {
+    FlushRequest flush_req = PopFirstFromFlushQueue();
+    for (const auto& item : flush_req.cfd_to_max_mem_id_to_persist) {
+      ColumnFamilyData* cfd = item.first;
+      assert(cfd);
+      cfd->UnrefAndTryDelete();
+    }
+  }
+  unscheduled_flushes_ = 0;
+
+  TEST_SYNC_POINT("DBImpl::ResumeImpl:BeforeWaitForBackgroundWork");
   WaitForBackgroundWork();
 
   TEST_SYNC_POINT("DBImpl::ResumeImpl:Start");
@@ -474,9 +492,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
     s = Status::ShutdownInProgress();
   }
   if (s.ok() && context.flush_after_recovery) {
-    // Since we drop all non-recovery flush requests during recovery,
-    // and new memtable may fill up during recovery,
-    // schedule one more round of flush.
+    // Normal flush requests are discarded during recovery, and a new memtable
+    // may fill while recovery releases the DB mutex. Schedule a catch-up flush.
     Status status = RetryFlushesForErrorRecovery(
         FlushReason::kCatchUpAfterErrorRecovery, false /* wait */);
     if (!status.ok()) {
@@ -1662,6 +1679,21 @@ Status DBImpl::SetOptions(
     VersionEdit dummy_edit;
     dummy_edit.MarkNoManifestWriteDummy();
     TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
+    // If any CF is changing periodic_compaction_seconds, (re)anchor phasing to
+    // now BEFORE the new Version is built below, so the new Version's scoring
+    // spreads a turn-down's newly past-due cohort over the phase grid (within
+    // ~N/4 of now) instead of firing it all at once (a herd). Anchoring is
+    // DB-level and benign to CFs that are not changing their interval.
+    bool changing_periodic_compaction_seconds = false;
+    for (const auto& cfd_opts : column_family_datas) {
+      if (cfd_opts.second->count("periodic_compaction_seconds") > 0) {
+        changing_periodic_compaction_seconds = true;
+        break;
+      }
+    }
+    if (changing_periodic_compaction_seconds) {
+      versions_->ReanchorCompactionPhase();
+    }
     for (const auto& cfd_opts : column_family_datas) {
       auto* cfd = cfd_opts.first;
       const auto* options_map_ptr = cfd_opts.second;
@@ -2526,6 +2558,56 @@ void DBImpl::BackgroundCallPurge() {
   mutex_.Unlock();
 }
 
+void DBImpl::CleanupSessionTmpDir() {
+  if (!immutable_db_options_.use_session_tmp_dir_for_remote_compaction) {
+    return;
+  }
+
+  // Deletion is not routed through SstFileManager: these files were produced by
+  // a dead incarnation and were never in its accounting, and SFM's
+  // slow-deletion path renames a file to `<name>.trash` in place, which would
+  // leave the directory non-empty and therefore unremovable until a later open.
+  const std::string output_dir = SessionTmpDir(dbname_);
+  size_t num_removed = 0;
+
+  std::vector<std::string> children;
+  // Default IOOptions on purpose: setting IOOptions::do_not_recurse makes the
+  // Posix implementation drop directory entries from the listing altogether,
+  // and directory entries are precisely what this scan needs.
+  Status s = env_->GetChildren(output_dir, &children);
+  if (!s.ok()) {
+    if (!s.IsNotFound()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to list session temporary directory %s: %s",
+                     output_dir.c_str(), s.ToString().c_str());
+    }
+    return;
+  }
+
+  for (const std::string& child : children) {
+    if (child == "." || child == "..") {
+      continue;
+    }
+    std::string child_path = output_dir;
+    child_path.append("/").append(child);
+    s = DestroyDir(env_, child_path);
+    if (s.ok()) {
+      ++num_removed;
+    } else {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to delete stale session temporary "
+                     "directory %s/%s: %s",
+                     output_dir.c_str(), child.c_str(), s.ToString().c_str());
+    }
+  }
+
+  if (num_removed > 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Deleted %zu stale session temporary director%s",
+                   num_removed, num_removed == 1 ? "y" : "ies");
+  }
+}
+
 // A `SuperVersionHandle` holds a non-null `SuperVersion*` pointing at a
 // `SuperVersion` referenced once for this object. It also contains the state
 // needed to clean up the `SuperVersion` reference from outside of `DBImpl`
@@ -2706,34 +2788,90 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
   return persist_stats_cf_handle_;
 }
 
-Status DBImpl::GetEntity(const ReadOptions& _read_options,
-                         ColumnFamilyHandle* column_family, const Slice& key,
-                         PinnableWideColumns* columns) {
-  if (!column_family) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntity without a column family handle");
+namespace {
+
+void CopyNewerVersionPresent(
+    const autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
+    std::vector<uint8_t>* output) {
+  if (output == nullptr) {
+    return;
   }
-  if (!columns) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntity without a PinnableWideColumns object");
+  for (size_t i = 0; i < key_context.size(); ++i) {
+    (*output)[i] = key_context[i].newer_version_present;
   }
+}
+
+}  // namespace
+
+Status DB::GetWithMetadata(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value,
+                           OutputMetadata* output_metadata) {
+  std::string* timestamp = GetOutputTimestamp(output_metadata);
+  bool* newer_version_present = GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  if (newer_version_present == nullptr || options.snapshot == nullptr) {
+    return Get(options, column_family, key, value, timestamp);
+  }
+  return Status::NotSupported(
+      "GetWithMetadata is not implemented by this DB subclass");
+}
+
+Status DBImpl::GetWithMetadata(const ReadOptions& _read_options,
+                               ColumnFamilyHandle* column_family,
+                               const Slice& key, PinnableSlice* value,
+                               OutputMetadata* output_metadata) {
+  std::string* timestamp = GetOutputTimestamp(output_metadata);
+  bool* newer_version_present = GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    *newer_version_present = false;
+  }
+  if (value == nullptr) {
+    return Status::InvalidArgument(
+        "Cannot call GetWithMetadata with a null value");
+  }
+  value->Reset();
+
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGetEntity) {
+      _read_options.io_activity != Env::IOActivity::kGet) {
     return Status::InvalidArgument(
-        "Can only call GetEntity with `ReadOptions::io_activity` set to "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
   }
+
   ReadOptions read_options(_read_options);
   if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGetEntity;
+    read_options.io_activity = Env::IOActivity::kGet;
   }
-  columns->Reset();
+  if (newer_version_present != nullptr && read_options.snapshot != nullptr &&
+      read_options.read_tier == kPersistedTier) {
+    return Status::NotSupported(
+        "Newer-version metadata is not supported with kPersistedTier");
+  }
 
+  return GetImpl(
+      read_options, column_family, key, value, timestamp,
+      read_options.snapshot != nullptr ? newer_version_present : nullptr);
+}
+
+Status DBImpl::GetImpl(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, std::string* timestamp,
+                       bool* newer_version_present) {
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
-  get_impl_options.columns = columns;
+  get_impl_options.value = value;
+  get_impl_options.timestamp = timestamp;
+  get_impl_options.newer_version_present = newer_version_present;
 
-  return GetImpl(read_options, key, get_impl_options);
+  Status s = GetImpl(read_options, key, get_impl_options);
+  return s;
 }
 
 Status DBImpl::GetEntityLazyImpl(const ReadOptions& read_options,
@@ -2891,73 +3029,6 @@ void DBImpl::MultiGetEntityLazy(const ReadOptions& _read_options,
   if (own_snapshot) {
     ReleaseSnapshot(snapshot);
   }
-}
-
-Status DBImpl::GetEntity(const ReadOptions& _read_options, const Slice& key,
-                         PinnableAttributeGroups* result) {
-  if (!result) {
-    return Status::InvalidArgument(
-        "Cannot call GetEntity without PinnableAttributeGroups object");
-  }
-  Status s;
-  const size_t num_column_families = result->size();
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
-      _read_options.io_activity != Env::IOActivity::kGetEntity) {
-    s = Status::InvalidArgument(
-        "Can only call GetEntity with `ReadOptions::io_activity` set to "
-        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGetEntity`");
-    for (size_t i = 0; i < num_column_families; ++i) {
-      (*result)[i].SetStatus(s);
-    }
-    return s;
-  }
-  // return early if no CF was passed in
-  if (num_column_families == 0) {
-    return s;
-  }
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kGetEntity;
-  }
-  std::vector<Slice> keys;
-  std::vector<ColumnFamilyHandle*> column_families;
-  for (size_t i = 0; i < num_column_families; ++i) {
-    // If any of the CFH is null, break early since the entire query will fail
-    if (!(*result)[i].column_family()) {
-      s = Status::InvalidArgument(
-          "DB failed to query because one or more group(s) have null column "
-          "family handle");
-      (*result)[i].SetStatus(
-          Status::InvalidArgument("Column family handle cannot be null"));
-      break;
-    }
-    // Adding the same key slice for different CFs
-    keys.emplace_back(key);
-    column_families.emplace_back((*result)[i].column_family());
-  }
-  if (!s.ok()) {
-    for (size_t i = 0; i < num_column_families; ++i) {
-      if ((*result)[i].status().ok()) {
-        (*result)[i].SetStatus(
-            Status::Incomplete("DB not queried due to invalid argument(s) in "
-                               "one or more of the attribute groups"));
-      }
-    }
-    return s;
-  }
-  std::vector<PinnableWideColumns> columns(num_column_families);
-  std::vector<Status> statuses(num_column_families);
-  MultiGetCommon(
-      read_options, num_column_families, column_families.data(), keys.data(),
-      /* values */ nullptr, columns.data(),
-      /* timestamps */ nullptr, statuses.data(), /* sorted_input */ false);
-  // Set results
-  for (size_t i = 0; i < num_column_families; ++i) {
-    (*result)[i].Reset();
-    (*result)[i].SetStatus(statuses[i]);
-    (*result)[i].SetColumns(std::move(columns[i]));
-  }
-  return s;
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
@@ -3565,6 +3636,66 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
   return s;
 }
 
+void DBImpl::MultiGetWithMetadata(const ReadOptions& _read_options,
+                                  const size_t num_keys,
+                                  ColumnFamilyHandle* const* column_families,
+                                  const Slice* keys, PinnableSlice* values,
+                                  Status* statuses,
+                                  MultiGetOutputMetadata* output_metadata,
+                                  const bool sorted_input) {
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  std::string* timestamp_data =
+      timestamps != nullptr ? timestamps->data() : nullptr;
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kMultiGet) {
+    Status s = Status::InvalidArgument(
+        "Can only call MultiGet with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kMultiGet`");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kMultiGet;
+  }
+  const bool newer_version_present_requested =
+      newer_version_present != nullptr && read_options.snapshot != nullptr;
+  if (newer_version_present_requested &&
+      read_options.read_tier == kPersistedTier) {
+    Status s = Status::NotSupported(
+        "Newer-version metadata is not supported with kPersistedTier");
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = s;
+      }
+    }
+    return;
+  }
+  autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+      stack_column_families;
+  std::vector<ColumnFamilyHandle*> heap_column_families;
+  ColumnFamilyHandle** mutable_column_families = MakeMutableCfHandles(
+      column_families, num_keys, &stack_column_families, &heap_column_families);
+  MultiGetCommon(
+      read_options, num_keys, mutable_column_families, keys, values,
+      /* columns */ nullptr, timestamp_data, statuses,
+      newer_version_present_requested ? newer_version_present : nullptr,
+      sorted_input);
+}
+
 namespace {
 // Order keys by CF ID, followed by key contents
 struct CompareKeyContext {
@@ -3607,6 +3738,64 @@ void DBImpl::PrepareMultiGetKeys(
 
   std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
             CompareKeyContext());
+}
+
+void DB::MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                              ColumnFamilyHandle* const* column_families,
+                              const Slice* keys, PinnableSlice* values,
+                              Status* statuses,
+                              MultiGetOutputMetadata* output_metadata,
+                              const bool sorted_input) {
+  std::vector<std::string>* timestamps = GetOutputTimestamps(output_metadata);
+  if (timestamps != nullptr) {
+    timestamps->resize(num_keys);
+  }
+  std::vector<uint8_t>* newer_version_present =
+      GetOutputNewerVersionPresent(output_metadata);
+  if (newer_version_present != nullptr) {
+    newer_version_present->assign(num_keys, false);
+  }
+  std::string* timestamp_data =
+      timestamps != nullptr ? timestamps->data() : nullptr;
+  if (newer_version_present == nullptr || options.snapshot == nullptr) {
+    autovector<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        stack_column_families;
+    std::vector<ColumnFamilyHandle*> heap_column_families;
+    ColumnFamilyHandle** mutable_column_families =
+        MakeMutableCfHandles(column_families, num_keys, &stack_column_families,
+                             &heap_column_families);
+    MultiGet(options, num_keys, mutable_column_families, keys, values,
+             timestamp_data, statuses, sorted_input);
+    return;
+  }
+  const Status s = Status::NotSupported(
+      "MultiGetWithMetadata is not implemented by this DB subclass");
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      statuses[i] = s;
+    }
+  }
+}
+
+void DB::MultiGetWithMetadata(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const size_t num_keys, const Slice* keys,
+                              PinnableSlice* values, Status* statuses,
+                              MultiGetOutputMetadata* output_metadata,
+                              const bool sorted_input) {
+  // Use std::array, if possible, to avoid memory allocation overhead
+  if (num_keys > MultiGetContext::MAX_BATCH_SIZE) {
+    std::vector<ColumnFamilyHandle*> column_families(num_keys, column_family);
+    MultiGetWithMetadata(options, num_keys, column_families.data(), keys,
+                         values, statuses, output_metadata, sorted_input);
+  } else {
+    std::array<ColumnFamilyHandle*, MultiGetContext::MAX_BATCH_SIZE>
+        column_families{};
+    std::fill(column_families.begin(), column_families.begin() + num_keys,
+              column_family);
+    MultiGetWithMetadata(options, num_keys, column_families.data(), keys,
+                         values, statuses, output_metadata, sorted_input);
+  }
 }
 
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
@@ -3790,7 +3979,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
 
   MultiGetCommon(read_options, num_keys, column_families, keys,
                  /* values */ nullptr, results, /* timestamps */ nullptr,
-                 statuses, sorted_input);
+                 statuses, /* newer_version_present */ nullptr, sorted_input);
 }
 
 void DBImpl::MultiGetEntity(const ReadOptions& _read_options,
@@ -3905,6 +4094,7 @@ void DBImpl::MultiGetEntity(const ReadOptions& _read_options, size_t num_keys,
                  all_keys.data(),
                  /* values */ nullptr, columns.data(),
                  /* timestamps */ nullptr, statuses.data(),
+                 /* newer_version_present */ nullptr,
                  /* sorted_input */ false);
 
   // Set results
@@ -5833,6 +6023,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (!del.ok() && result.ok()) {
           result = del;
         }
+      } else if (soptions.use_session_tmp_dir_for_remote_compaction &&
+                 fname == kSessionTmpDirName) {
+        // The session temporary directory is owned by the DB, but
+        // ParseFileName rejects directories and the non-recursive
+        // DeleteDir(dbname) below would otherwise fail to remove the DB.
+        // Ignore failures: leftovers here must not fail DestroyDB.
+        DestroyDir(env, SessionTmpDir(dbname)).PermitUncheckedError();
       }
     }
     paths_to_delete.insert(dbname);
@@ -6538,12 +6735,23 @@ Status DBImpl::PrepareFileIngestion(
     }
   }
 
+  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
+  ingestion_jobs.reserve(num_cfs);
+  for (const auto& arg : args) {
+    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
+    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
+                                mutable_db_options_, file_options_, &snapshots_,
+                                arg.options, &directories_, &event_logger_,
+                                io_tracer_);
+  }
+
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
   std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
-  for (const auto& arg : args) {
-    total += arg.external_files.size();
+  for (size_t i = 0; i != num_cfs; ++i) {
+    total += ingestion_jobs[i].NumFilesToPrepare(args[i].external_files.size(),
+                                                 args[i].atomic_replace_range);
   }
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
@@ -6555,20 +6763,11 @@ Status DBImpl::PrepareFileIngestion(
     return status;
   }
 
-  std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
-  ingestion_jobs.reserve(num_cfs);
-  for (const auto& arg : args) {
-    auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                mutable_db_options_, file_options_, &snapshots_,
-                                arg.options, &directories_, &event_logger_,
-                                io_tracer_);
-  }
-
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    start_file_number += args[i - 1].external_files.size();
+    start_file_number += ingestion_jobs[i - 1].NumFilesToPrepare(
+        args[i - 1].external_files.size(), args[i - 1].atomic_replace_range);
     SuperVersion* super_version =
         ingestion_jobs[i].GetColumnFamilyData()->GetReferencedSuperVersion(
             this);
@@ -7688,6 +7887,7 @@ void DBImpl::RecordSeqnoToTimeMapping() {
     new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
 
     // Update in SV of all applicable CFs
+    bool enqueued_any = false;
     for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
@@ -7697,13 +7897,57 @@ void DBImpl::RecordSeqnoToTimeMapping() {
         sv_context.NewSuperVersion();
         cfd->InstallSuperVersion(&sv_context, &mutex_,
                                  new_seqno_to_time_mapping);
+        // Recording a new sample can move the preserve-window boundary, aging a
+        // bottommost file out of it. When that happens, recompute bottommost
+        // marking and enqueue now: on a quiet DB nothing else would create a
+        // new Version to pick up the change, so the compaction would otherwise
+        // be delayed until unrelated activity.
+        if (MaybeUpdatePreserveTimeMinSeqno(cfd) && !cfd->AllowIngestBehind()) {
+          VersionStorageInfo* vstorage = cfd->current()->storage_info();
+          vstorage->ComputeBottommostFilesMarkedForCompaction(
+              /*allow_ingest_behind=*/false, cfd->ioptions().user_comparator,
+              cfd->GetFullHistoryTsLow());
+          if (!vstorage->BottommostFilesMarkedForCompaction().empty()) {
+            EnqueuePendingCompaction(cfd);
+            enqueued_any = true;
+          }
+        }
       }
+    }
+    if (enqueued_any) {
+      MaybeScheduleFlushOrCompaction();
     }
     bg_cv_.SignalAll();
   }
 
   // clean up & report outside db mutex
   sv_context.Clean();
+}
+
+bool DBImpl::MaybeUpdatePreserveTimeMinSeqno(ColumnFamilyData* cfd) {
+  mutex_.AssertHeld();
+  VersionStorageInfo* vstorage = cfd->current()->storage_info();
+  const SequenceNumber prev = vstorage->GetPreserveTimeMinSeqno();
+  const MutableCFOptions& mopts = cfd->GetLatestMutableCFOptions();
+  MinAndMaxPreserveSeconds preserve_info{mopts};
+  if (!preserve_info.IsEnabled()) {
+    // Preserve/preclude disabled: no restriction on bottommost seqno zeroing.
+    vstorage->SetPreserveTimeMinSeqno(kMaxSequenceNumber);
+    return prev != kMaxSequenceNumber;
+  }
+  int64_t current_time = 0;
+  if (!immutable_db_options_.clock->GetCurrentTime(&current_time).ok()) {
+    // Leave the previous value in place; being stale is safe (a hot key's
+    // largest seqno stays above any past boundary and remains unmarked).
+    return false;
+  }
+  SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber;
+  seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
+      static_cast<uint64_t>(current_time), mopts.preserve_internal_time_seconds,
+      mopts.preclude_last_level_data_seconds, &preserve_time_min_seqno,
+      /*preclude_last_level_min_seqno=*/nullptr);
+  vstorage->SetPreserveTimeMinSeqno(preserve_time_min_seqno);
+  return prev != preserve_time_min_seqno;
 }
 
 void DBImpl::TriggerPeriodicCompaction() {
@@ -7748,7 +7992,7 @@ void DBImpl::TriggerPeriodicCompaction() {
 
 namespace {
 
-void ResetThreadLocalStatsForAsyncCallback() {
+void ResetThreadLocalStatsForAsyncRead() {
 #ifndef NPERF_CONTEXT
   get_perf_context()->Reset();
 #endif
@@ -7757,54 +8001,42 @@ void ResetThreadLocalStatsForAsyncCallback() {
 #endif
 }
 
-const PerfContext* CurrentPerfContextForAsyncCallback(bool stats_enabled) {
-  if (!stats_enabled) {
-    return nullptr;
-  }
-#ifdef NPERF_CONTEXT
-  return nullptr;
-#else
-  return get_perf_context();
-#endif
-}
-
-const IOStatsContext* CurrentIOStatsContextForAsyncCallback(
-    bool stats_enabled) {
-  if (!stats_enabled) {
-    return nullptr;
-  }
-#ifdef NIOSTATS_CONTEXT
-  return nullptr;
-#else
-  return get_iostats_context();
-#endif
-}
-
-#if USE_COROUTINES
-void InstallCoroutineStatsConfigToTLS(
-    const CoroutineStatsConfig& stats_config) {
+bool ThreadLocalStatsEnabledForAsyncRead() {
 #ifndef NPERF_CONTEXT
-  if (stats_config.per_level_perf_context_enabled) {
-    get_perf_context()->EnablePerLevelPerfContext();
-  } else {
-    get_perf_context()->per_level_perf_context_enabled = false;
+  if (GetPerfLevel() != PerfLevel::kDisable) {
+    return true;
   }
 #endif
 #ifndef NIOSTATS_CONTEXT
-  get_iostats_context()->disable_iostats = stats_config.iostats_disabled;
-#endif
-  SetPerfLevel(stats_config.perf_level);
-}
-
-std::optional<CoroutineStatsConfig> CaptureCoroutineStatsConfigForCallback(
-    bool stats_enabled) {
-  if (!stats_enabled || !IsCoroutineStatsEnabled()) {
-    return std::nullopt;
+  if (!get_iostats_context()->disable_iostats) {
+    return true;
   }
-  return CaptureCoroutineStatsConfig();
+#endif
+  return false;
 }
 
-#endif  // USE_COROUTINES
+void DisableThreadLocalStatsForAsyncRead() {
+#ifndef NIOSTATS_CONTEXT
+  get_iostats_context()->disable_iostats = true;
+#endif
+  SetPerfLevel(PerfLevel::kDisable);
+}
+
+class AsyncReadStatsScope {
+ public:
+  AsyncReadStatsScope() {
+    if (ThreadLocalStatsEnabledForAsyncRead()) {
+      ResetThreadLocalStatsForAsyncRead();
+    }
+  }
+
+  ~AsyncReadStatsScope() { DisableThreadLocalStatsForAsyncRead(); }
+
+  AsyncReadStatsScope(const AsyncReadStatsScope&) = delete;
+  AsyncReadStatsScope& operator=(const AsyncReadStatsScope&) = delete;
+  AsyncReadStatsScope(AsyncReadStatsScope&&) = delete;
+  AsyncReadStatsScope& operator=(AsyncReadStatsScope&&) = delete;
+};
 
 }  // namespace
 
@@ -7812,7 +8044,6 @@ void DB::GetAsync(const ReadOptions& options, ColumnFamilyHandle* column_family,
                   const Slice& key, PinnableSlice* value,
                   std::string* timestamp, Status& status,
                   AsyncCallback& callback) {
-  const bool stats_enabled = callback.EnableStats();
 #if USE_COROUTINES
   CoroDB* coro_db = GetCoroDB();
   if (coro_db != nullptr) {
@@ -7820,79 +8051,24 @@ void DB::GetAsync(const ReadOptions& options, ColumnFamilyHandle* column_family,
     if (read_executor != nullptr) {
       auto* read_event_base = read_executor->getEventBase();
       assert(read_event_base != nullptr);
-      auto stats_config = CaptureCoroutineStatsConfigForCallback(stats_enabled);
-      auto task =
-          [](std::optional<CoroutineStatsConfig> task_stats_config,
-             CoroDB* task_db, ReadOptions task_options,
-             ColumnFamilyHandle* task_column_family, Slice task_key,
-             PinnableSlice* task_value, std::string* task_timestamp,
-             Status& task_status,
-             AsyncCallback& task_callback) mutable -> folly::coro::Task<void> {
-        if (task_stats_config.has_value()) {
-          InstallCoroutineStatsConfigToTLS(*task_stats_config);
+      auto stats_config = CaptureAndDisableCoroutineStatsConfig();
+      auto task = [](CoroutineStatsConfig task_stats_config, CoroDB* task_db,
+                     ReadOptions task_options,
+                     ColumnFamilyHandle* task_column_family, Slice task_key,
+                     PinnableSlice* task_value, std::string* task_timestamp,
+                     Status& task_status, Env* task_env,
+                     AsyncCallback& task_callback) -> folly::coro::Task<void> {
+        {
+          CoroutineStatsContextScope stats_scope(std::move(task_stats_config),
+                                                 task_env);
+          task_status = co_await folly::coro::co_nothrow(
+              task_db->GetCoroutine(task_options, task_column_family, task_key,
+                                    task_value, task_timestamp));
         }
-        task_status = co_await folly::coro::co_nothrow(
-            task_db->GetCoroutine(task_options, task_column_family, task_key,
-                                  task_value, task_timestamp));
 
-        const bool task_stats_enabled = task_stats_config.has_value();
-        task_callback.OnComplete(
-            CurrentPerfContextForAsyncCallback(task_stats_enabled),
-            CurrentIOStatsContextForAsyncCallback(task_stats_enabled));
+        task_callback.OnComplete();
       }(std::move(stats_config), coro_db, options, column_family, key, value,
-                                                   timestamp, status, callback);
-      folly::coro::co_withExecutor(
-          folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
-          .start();
-      return;
-    }
-  }
-#endif  // USE_COROUTINES
-
-  if (stats_enabled) {
-    // Match coroutine reads: callback stats describe only this request.
-    ResetThreadLocalStatsForAsyncCallback();
-  }
-  status = Get(options, column_family, key, value, timestamp);
-  callback.OnComplete(CurrentPerfContextForAsyncCallback(stats_enabled),
-                      CurrentIOStatsContextForAsyncCallback(stats_enabled));
-}
-
-void DB::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
-                       ColumnFamilyHandle** column_families, const Slice* keys,
-                       PinnableSlice* values, std::string* timestamps,
-                       Status* statuses, const bool sorted_input,
-                       AsyncCallback& callback) {
-  const bool stats_enabled = callback.EnableStats();
-#if USE_COROUTINES
-  CoroDB* coro_db = GetCoroDB();
-  if (coro_db != nullptr) {
-    auto* read_executor = GetFileSystem()->GetReadExecutor();
-    if (read_executor != nullptr) {
-      auto* read_event_base = read_executor->getEventBase();
-      assert(read_event_base != nullptr);
-      auto stats_config = CaptureCoroutineStatsConfigForCallback(stats_enabled);
-      auto task =
-          [](std::optional<CoroutineStatsConfig> task_stats_config,
-             CoroDB* task_db, ReadOptions task_options, size_t task_num_keys,
-             ColumnFamilyHandle** task_column_families, const Slice* task_keys,
-             PinnableSlice* task_values, std::string* task_timestamps,
-             Status* task_statuses, bool task_sorted_input,
-             AsyncCallback& task_callback) mutable -> folly::coro::Task<void> {
-        if (task_stats_config.has_value()) {
-          InstallCoroutineStatsConfigToTLS(*task_stats_config);
-        }
-        co_await folly::coro::co_nothrow(task_db->MultiGetCoroutine(
-            task_options, task_num_keys, task_column_families, task_keys,
-            task_values, task_timestamps, task_statuses, task_sorted_input));
-
-        const bool task_stats_enabled = task_stats_config.has_value();
-        task_callback.OnComplete(
-            CurrentPerfContextForAsyncCallback(task_stats_enabled),
-            CurrentIOStatsContextForAsyncCallback(task_stats_enabled));
-      }(std::move(stats_config), coro_db, options, num_keys, column_families,
-                                                   keys, values, timestamps,
-                                                   statuses, sorted_input,
+                                                   timestamp, status, GetEnv(),
                                                    callback);
       folly::coro::co_withExecutor(
           folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
@@ -7902,14 +8078,59 @@ void DB::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
   }
 #endif  // USE_COROUTINES
 
-  if (stats_enabled) {
-    // Match coroutine reads: callback stats describe only this request.
-    ResetThreadLocalStatsForAsyncCallback();
+  {
+    AsyncReadStatsScope stats_scope;
+    status = Get(options, column_family, key, value, timestamp);
   }
-  MultiGet(options, num_keys, column_families, keys, values, timestamps,
-           statuses, sorted_input);
-  callback.OnComplete(CurrentPerfContextForAsyncCallback(stats_enabled),
-                      CurrentIOStatsContextForAsyncCallback(stats_enabled));
+  callback.OnComplete();
+}
+
+void DB::MultiGetAsync(const ReadOptions& options, const size_t num_keys,
+                       ColumnFamilyHandle** column_families, const Slice* keys,
+                       PinnableSlice* values, std::string* timestamps,
+                       Status* statuses, const bool sorted_input,
+                       AsyncCallback& callback) {
+#if USE_COROUTINES
+  CoroDB* coro_db = GetCoroDB();
+  if (coro_db != nullptr) {
+    auto* read_executor = GetFileSystem()->GetReadExecutor();
+    if (read_executor != nullptr) {
+      auto* read_event_base = read_executor->getEventBase();
+      assert(read_event_base != nullptr);
+      auto stats_config = CaptureAndDisableCoroutineStatsConfig();
+      auto task =
+          [](CoroutineStatsConfig task_stats_config, CoroDB* task_db,
+             ReadOptions task_options, size_t task_num_keys,
+             ColumnFamilyHandle** task_column_families, const Slice* task_keys,
+             PinnableSlice* task_values, std::string* task_timestamps,
+             Status* task_statuses, bool task_sorted_input, Env* task_env,
+             AsyncCallback& task_callback) -> folly::coro::Task<void> {
+        {
+          CoroutineStatsContextScope stats_scope(std::move(task_stats_config),
+                                                 task_env);
+          co_await folly::coro::co_nothrow(task_db->MultiGetCoroutine(
+              task_options, task_num_keys, task_column_families, task_keys,
+              task_values, task_timestamps, task_statuses, task_sorted_input));
+        }
+
+        task_callback.OnComplete();
+      }(std::move(stats_config), coro_db, options, num_keys, column_families,
+                                           keys, values, timestamps, statuses,
+                                           sorted_input, GetEnv(), callback);
+      folly::coro::co_withExecutor(
+          folly::Executor::getKeepAliveToken(read_event_base), std::move(task))
+          .start();
+      return;
+    }
+  }
+#endif  // USE_COROUTINES
+
+  {
+    AsyncReadStatsScope stats_scope;
+    MultiGet(options, num_keys, column_families, keys, values, timestamps,
+             statuses, sorted_input);
+  }
+  callback.OnComplete();
 }
 
 void DBImpl::TrackOrUntrackFiles(

@@ -415,7 +415,14 @@ Status DBImpl::GetLiveFilesStorageInfoImpl(
 
   // Capture some final info before releasing mutex
   const uint64_t manifest_number = versions_->manifest_file_number();
-  const uint64_t manifest_size = versions_->manifest_file_size();
+  uint64_t manifest_size = versions_->manifest_file_size();
+  if (cf_subset && !excluded_cf_ids->empty()) {
+    Status manifest_s = versions_->GetManifestAppendBoundary(&manifest_size);
+    if (!manifest_s.ok()) {
+      mutex_.Unlock();
+      return manifest_s;
+    }
+  }
   const uint64_t options_number = versions_->options_file_number();
   const uint64_t options_size = versions_->options_file_size_;
   const uint64_t min_log_num = MinLogNumberToKeep();

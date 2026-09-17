@@ -262,6 +262,30 @@ std::string TempCompactionProgressFileName(const std::string& dbname,
   return dbname + "/" + buffer;
 }
 
+std::string SessionTmpDir(const std::string& dbname) {
+  std::string result = dbname;
+  result.append("/").append(kSessionTmpDirName);
+  return result;
+}
+
+std::string RemoteCompactionJobDir(const std::string& dbname,
+                                   bool use_output_root_dir,
+                                   const std::string& job_dir_name) {
+  if (!use_output_root_dir) {
+    std::string db_prefix = dbname;
+    if (db_prefix.empty() || db_prefix.back() != '/') {
+      db_prefix.append("/");
+    }
+    if (job_dir_name.compare(0, db_prefix.size(), db_prefix) == 0) {
+      return job_dir_name;
+    }
+    return db_prefix.append(job_dir_name);
+  }
+  std::string result = SessionTmpDir(dbname);
+  result.append("/").append(job_dir_name);
+  return result;
+}
+
 std::string MetaDatabaseName(const std::string& dbname, uint64_t number) {
   char buf[100];
   snprintf(buf, sizeof(buf), "/METADB-%llu",
@@ -287,6 +311,11 @@ std::string IdentityFileName(const std::string& dbname) {
 //    dbname/COMPACTION_PROGRESS-[timestamp]
 //    dbname/COMPACTION_PROGRESS-[timestamp].dbtmp
 //    Disregards / at the beginning
+//
+// The DB directory may also contain the session temporary directory (see
+// SessionTmpDir) and dbname/archive/.
+// ParseFileName deliberately rejects directories so the obsolete-file scan
+// does not treat them as deletion candidates.
 bool ParseFileName(const std::string& fname, uint64_t* number, FileType* type,
                    WalFileType* log_type) {
   return ParseFileName(fname, number, "", type, log_type);

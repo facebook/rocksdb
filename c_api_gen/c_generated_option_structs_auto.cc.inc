@@ -816,6 +816,26 @@ const char* rocksdb_options_get_db_host_id(rocksdb_options_t* opt,
   return opt->rep.db_host_id.data();
 }
 
+void rocksdb_options_set_remote_compaction_manifest_floor(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.remote_compaction_manifest_floor = v;
+}
+
+unsigned char rocksdb_options_get_remote_compaction_manifest_floor(
+    rocksdb_options_t* opt) {
+  return opt->rep.remote_compaction_manifest_floor;
+}
+
+void rocksdb_options_set_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_session_tmp_dir_for_remote_compaction = v;
+}
+
+unsigned char rocksdb_options_get_use_session_tmp_dir_for_remote_compaction(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_session_tmp_dir_for_remote_compaction;
+}
+
 void rocksdb_options_set_lowest_used_cache_tier(rocksdb_options_t* opt, int v) {
   opt->rep.lowest_used_cache_tier =
       static_cast<decltype(opt->rep.lowest_used_cache_tier)>(v);
@@ -854,6 +874,16 @@ void rocksdb_options_set_max_compaction_trigger_wakeup_seconds(
 uint64_t rocksdb_options_get_max_compaction_trigger_wakeup_seconds(
     rocksdb_options_t* opt) {
   return opt->rep.max_compaction_trigger_wakeup_seconds;
+}
+
+void rocksdb_options_set_periodic_compaction_phase_recovery_percent(
+    rocksdb_options_t* opt, int v) {
+  opt->rep.periodic_compaction_phase_recovery_percent = v;
+}
+
+int rocksdb_options_get_periodic_compaction_phase_recovery_percent(
+    rocksdb_options_t* opt) {
+  return opt->rep.periodic_compaction_phase_recovery_percent;
 }
 
 void rocksdb_options_set_follower_refresh_catchup_period_ms(
@@ -2117,6 +2147,16 @@ int rocksdb_ingestexternalfileoptions_get_file_opening_threads(
 
 /* OpenAndCompactOptions */
 
+void rocksdb_open_and_compact_options_set_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt, uint32_t v) {
+  opt->rep.max_secondary_open_retries = v;
+}
+
+uint32_t rocksdb_open_and_compact_options_get_max_secondary_open_retries(
+    rocksdb_open_and_compact_options_t* opt) {
+  return opt->rep.max_secondary_open_retries;
+}
+
 unsigned char rocksdb_open_and_compact_options_get_allow_resumption(
     rocksdb_open_and_compact_options_t* opt) {
   return opt->rep.allow_resumption;
@@ -2512,6 +2552,17 @@ void rocksdb_block_based_options_set_uniform_cv_threshold(
 double rocksdb_block_based_options_get_uniform_cv_threshold(
     rocksdb_block_based_table_options_t* opt) {
   return opt->rep.uniform_cv_threshold;
+}
+
+void rocksdb_block_based_options_set_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt, int v) {
+  opt->rep.optimize_key_common_prefix =
+      static_cast<decltype(opt->rep.optimize_key_common_prefix)>(v);
+}
+
+int rocksdb_block_based_options_get_optimize_key_common_prefix(
+    rocksdb_block_based_table_options_t* opt) {
+  return static_cast<int>(opt->rep.optimize_key_common_prefix);
 }
 
 void rocksdb_block_based_options_set_enable_index_compression(

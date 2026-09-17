@@ -245,7 +245,7 @@ class ShardedCache : public ShardedCacheBase {
     std::unique_ptr<size_t[]> states(new size_t[num_shards]{});
 
     size_t aepl = opts.average_entries_per_lock;
-    aepl = std::min(aepl, size_t{1});
+    aepl = std::max(aepl, size_t{1});
 
     bool remaining_work;
     do {

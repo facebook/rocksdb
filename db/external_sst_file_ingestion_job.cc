@@ -18,6 +18,7 @@
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "monitoring/statistics_impl.h"
+#include "options/options_helper.h"
 #include "table/merging_iterator.h"
 #include "table/prepared_file_info.h"
 #include "table/sst_file_writer_collectors.h"
@@ -27,6 +28,129 @@
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+bool ExternalSstFileIngestionJob::SupportsAtomicReplaceRangeTombstone() const {
+  return cfd_->is_delete_range_supported() &&
+         cfd_->ioptions().compaction_style == kCompactionStyleUniversal &&
+         ingestion_options_.allow_global_seqno &&
+         !ingestion_options_.allow_db_generated_files &&
+         !ingestion_options_.snapshot_consistency &&
+         ucmp_->timestamp_size() == 0;
+}
+
+bool ExternalSstFileIngestionJob::CanUseAtomicReplaceRangeTombstone(
+    const std::optional<RangeOpt>& atomic_replace_range) const {
+  return atomic_replace_range.has_value() &&
+         atomic_replace_range->start.has_value() &&
+         atomic_replace_range->limit.has_value() &&
+         SupportsAtomicReplaceRangeTombstone() &&
+         !ingestion_options_.fail_if_not_bottommost_level;
+}
+
+bool ExternalSstFileIngestionJob::HasPartialOverlap(
+    const VersionStorageInfo* vstorage) const {
+  assert(vstorage != nullptr);
+  assert(atomic_replace_range_.has_value());
+  assert(!atomic_replace_range_->unset());
+  for (int level = 0; level < cfd_->NumberLevels(); ++level) {
+    for (const auto* file : vstorage->LevelFiles(level)) {
+      if (file_range_checker_.Overlaps(*atomic_replace_range_, file->smallest,
+                                       file->largest) &&
+          !file_range_checker_.Contains(*atomic_replace_range_, file->smallest,
+                                        file->largest)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+size_t ExternalSstFileIngestionJob::NumFilesToPrepare(
+    size_t num_external_files,
+    const std::optional<RangeOpt>& atomic_replace_range) const {
+  return num_external_files +
+         static_cast<size_t>(
+             CanUseAtomicReplaceRangeTombstone(atomic_replace_range));
+}
+
+Status ExternalSstFileIngestionJob::PrepareAtomicReplaceRangeTombstone(
+    const Slice& start, const Slice& limit, uint64_t file_number,
+    SuperVersion* super_version) {
+  assert(cfd_->is_delete_range_supported());
+  assert(cfd_->ioptions().compaction_style == kCompactionStyleUniversal);
+  assert(ingestion_options_.allow_global_seqno);
+  assert(!ingestion_options_.allow_db_generated_files);
+  assert(!ingestion_options_.fail_if_not_bottommost_level);
+  assert(!ingestion_options_.snapshot_consistency);
+  assert(ucmp_->timestamp_size() == 0);
+
+  const uint32_t path_id = 0;
+  const std::string file_path =
+      TableFileName(cfd_->ioptions().cf_paths, file_number, path_id);
+  ExternalSstFileInfo external_file_info;
+  Status status;
+  {
+    Options options(
+        BuildDBOptions(db_options_, mutable_db_options_),
+        BuildColumnFamilyOptions(cfd_->initial_cf_options(),
+                                 super_version->mutable_cf_options));
+    SstFileWriter writer(env_options_, options, ucmp_);
+    status = writer.Open(
+        file_path, super_version->mutable_cf_options.default_write_temperature);
+    if (status.ok()) {
+      status = writer.DeleteRange(start, limit);
+    }
+    if (status.ok()) {
+      status = writer.Finish(&external_file_info);
+    }
+  }
+  if (!status.ok()) {
+    fs_->DeleteFile(file_path, IOOptions(), nullptr).PermitUncheckedError();
+    return status;
+  }
+
+  IngestedFileInfo tombstone;
+  tombstone.file_temperature =
+      super_version->mutable_cf_options.default_write_temperature;
+  tombstone.prefetch_lmax_index_and_filter_blocks =
+      ingestion_options_.prefetch_lmax_index_and_filter_blocks;
+  const PreparedFileInfo* prepared_file_info =
+      ingestion_options_.write_global_seqno
+          ? nullptr
+          : external_file_info.prepared_file_info.get();
+  status = GetIngestedFileInfo(file_path, file_number, prepared_file_info,
+                               &tombstone, super_version);
+  if (!status.ok()) {
+    fs_->DeleteFile(file_path, IOOptions(), nullptr).PermitUncheckedError();
+    return status;
+  }
+
+  tombstone.internal_file_path = file_path;
+  tombstone.copy_file = true;
+  tombstone.generated_for_ingestion = true;
+  tombstone.file_checksum = external_file_info.file_checksum;
+  tombstone.file_checksum_func_name =
+      external_file_info.file_checksum_func_name;
+  atomic_replace_range_tombstone_.emplace(std::move(tombstone));
+  return Status::OK();
+}
+
+void ExternalSstFileIngestionJob::ActivateAtomicReplaceRangeTombstone() {
+  assert(atomic_replace_range_tombstone_.has_value());
+  // Prepare rejects an empty external file list and verifies every input file
+  // is contained in the replacement range. The covering tombstone must
+  // therefore overlap at least one input file.
+  assert(!files_to_ingest_.empty());
+  file_batches_to_ingest_.clear();
+  files_to_ingest_.emplace_back(std::move(*atomic_replace_range_tombstone_));
+  std::rotate(files_to_ingest_.begin(), files_to_ingest_.end() - 1,
+              files_to_ingest_.end());
+  atomic_replace_range_tombstone_.reset();
+  atomic_replace_range_tombstone_active_ = true;
+  files_overlap_ = ComputeFilesOverlap(files_to_ingest_);
+  assert(files_overlap_);
+  DivideInputFilesIntoBatches();
+}
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
@@ -92,6 +216,11 @@ Status ExternalSstFileIngestionJob::Prepare(
     atomic_replace_range_.emplace();
 
     if (atomic_replace_range->start && atomic_replace_range->limit) {
+      if (ucmp_->CompareWithoutTimestamp(*atomic_replace_range->start,
+                                         *atomic_replace_range->limit) >= 0) {
+        return Status::InvalidArgument(
+            "Atomic replace range limit must be greater than start");
+      }
       // User keys to internal keys (with timestamps)
       const size_t ts_sz = ucmp_->timestamp_size();
       std::string start_with_ts, limit_with_ts;
@@ -102,8 +231,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       assert(limit.has_value());
       atomic_replace_range_->smallest_internal_key.Set(
           *start, kMaxSequenceNumber, kValueTypeForSeek);
-      atomic_replace_range_->largest_internal_key.Set(
-          *limit, kMaxSequenceNumber, kValueTypeForSeek);
+      atomic_replace_range_->largest_internal_key =
+          RangeTombstone(*start, *limit, kMaxSequenceNumber).SerializeEndKey();
       // Check files to ingest against replace range
       for (size_t i = 0; i < num_files; i++) {
         if (!file_range_checker_.Contains(*atomic_replace_range_,
@@ -230,6 +359,20 @@ Status ExternalSstFileIngestionJob::Prepare(
     f.file_checksum = kUnknownFileChecksum;
     f.file_checksum_func_name = kUnknownFileChecksumFuncName;
     ingestion_path_ids.insert(f.fd.GetPathId());
+  }
+
+  if (status.ok() && CanUseAtomicReplaceRangeTombstone(atomic_replace_range) &&
+      HasPartialOverlap(sv->current->storage_info())) {
+    assert(atomic_replace_range->start.has_value());
+    assert(atomic_replace_range->limit.has_value());
+    status = PrepareAtomicReplaceRangeTombstone(*atomic_replace_range->start,
+                                                *atomic_replace_range->limit,
+                                                next_file_number, sv);
+    if (status.ok()) {
+      assert(atomic_replace_range_tombstone_.has_value());
+      ingestion_path_ids.insert(
+          atomic_replace_range_tombstone_->fd.GetPathId());
+    }
   }
 
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
@@ -493,9 +636,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
       assert(!atomic_replace_range_->smallest_internal_key.unset());
       assert(!atomic_replace_range_->largest_internal_key.unset());
       // NOTE: we already checked in Prepare() that the atomic_replace_range
-      // covers all the files_to_ingest
-      // FIXME: need to make upper bound key exclusive (not easy here because
-      // the existing internal APIs deal in inclusive upper bound user keys)
+      // covers all the files_to_ingest.
       ranges.emplace_back(
           atomic_replace_range_->smallest_internal_key.user_key(),
           atomic_replace_range_->largest_internal_key.user_key());
@@ -507,7 +648,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
       }
     }
     status = cfd_->RangesOverlapWithMemtables(
-        ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
+        ranges, super_version, db_options_.allow_data_in_errors, flush_needed,
+        atomic_replace_range_.has_value() && !atomic_replace_range_->unset());
     if (!status.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Failed to check ranges overlap with memtables: %s",
@@ -586,10 +728,12 @@ Status ExternalSstFileIngestionJob::Run() {
     } else {
       assert(!atomic_replace_range_->smallest_internal_key.unset());
       assert(!atomic_replace_range_->largest_internal_key.unset());
+      bool has_partial_overlap = false;
       for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
         if (cfd_->RangeOverlapWithCompaction(
                 atomic_replace_range_->smallest_internal_key.user_key(),
-                atomic_replace_range_->largest_internal_key.user_key(), lvl)) {
+                atomic_replace_range_->largest_internal_key.user_key(), lvl,
+                /*range_limit_exclusive=*/true)) {
           return Status::InvalidArgument(
               "Atomic replace range overlaps with pending compaction");
         }
@@ -601,20 +745,36 @@ Status ExternalSstFileIngestionJob::Run() {
               // Set up to delete file to be replaced
               edit_.DeleteFile(lvl, file->fd.GetNumber());
             } else {
-              // TODO: generate and ingest a tombstone file also
-              return Status::InvalidArgument(
-                  "Atomic replace range partially overlaps with existing file");
+              has_partial_overlap = true;
             }
           }
         }
+      }
+      if (has_partial_overlap) {
+        if (ingestion_options_.fail_if_not_bottommost_level &&
+            SupportsAtomicReplaceRangeTombstone()) {
+          return Status::TryAgain(
+              "Atomic replace range partially overlaps with an existing file, "
+              "so replacement files cannot all be ingested to Lmax");
+        }
+        if (!atomic_replace_range_tombstone_.has_value()) {
+          if (SupportsAtomicReplaceRangeTombstone()) {
+            return Status::TryAgain(
+                "Atomic replace range acquired a partial overlap after "
+                "preparation; retry ingestion");
+          }
+          return Status::InvalidArgument(
+              "Atomic replace range partially overlaps with existing file");
+        }
+        ActivateAtomicReplaceRangeTombstone();
       }
     }
   }
 
   // Find levels to ingest into
   std::optional<int> prev_batch_uppermost_level;
-  // batches at the front of file_batches_to_ingest_ contains older updates and
-  // are placed in smaller levels.
+  // Batches at the front contain older updates and are placed deeper in the
+  // LSM tree than later overlapping batches.
   for (auto& batch : file_batches_to_ingest_) {
     int batch_uppermost_level = 0;
     status = AssignLevelsForOneBatch(batch, super_version, force_global_seqno,
@@ -927,9 +1087,27 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     // remove all the files we copied
     DeleteInternalFiles();
     files_overlap_ = false;
-  } else if (status.ok() && ingestion_options_.move_files) {
+  } else {
+    if (atomic_replace_range_tombstone_.has_value()) {
+      Status s =
+          fs_->DeleteFile(atomic_replace_range_tombstone_->internal_file_path,
+                          io_opts, nullptr);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "Failed to remove unused atomic replace range tombstone %s: %s",
+            atomic_replace_range_tombstone_->internal_file_path.c_str(),
+            s.ToString().c_str());
+      }
+      atomic_replace_range_tombstone_.reset();
+    }
+  }
+  if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
+      if (f.generated_for_ingestion) {
+        continue;
+      }
       Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
@@ -955,6 +1133,19 @@ void ExternalSstFileIngestionJob::DeleteInternalFiles() {
                      f.internal_file_path.c_str(), s.ToString().c_str());
     }
   }
+  if (atomic_replace_range_tombstone_.has_value() &&
+      !atomic_replace_range_tombstone_->internal_file_path.empty()) {
+    Status s = fs_->DeleteFile(
+        atomic_replace_range_tombstone_->internal_file_path, io_opts, nullptr);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "AddFile() clean up for generated tombstone file %s failed : %s",
+          atomic_replace_range_tombstone_->internal_file_path.c_str(),
+          s.ToString().c_str());
+    }
+    atomic_replace_range_tombstone_.reset();
+  }
 }
 
 Status ExternalSstFileIngestionJob::ResetTableReader(
@@ -965,6 +1156,7 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
   std::unique_ptr<FSRandomAccessFile> sst_file;
   FileOptions fo{env_options_};
   fo.temperature = file_to_ingest->file_temperature;
+  fo.file_checksum_func_name = kNoFileChecksumFuncName;
   Status status =
       fs_->NewRandomAccessFile(external_file, fo, &sst_file, nullptr);
   if (!status.ok()) {
@@ -1511,17 +1703,23 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       ingestion_options_.allow_db_generated_files
           ? cfd_->NumberLevels()
           : assigned_level_exclusive_end;
+  const bool is_generated_range_tombstone =
+      atomic_replace_range_tombstone_active_ &&
+      file_to_ingest->generated_for_ingestion;
   for (int lvl = 0; lvl < overlap_checking_exclusive_end; lvl++) {
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
     if (lvl < assigned_level_exclusive_end &&
-        atomic_replace_range_.has_value()) {
+        atomic_replace_range_.has_value() &&
+        !atomic_replace_range_tombstone_active_) {
       target_level = lvl;
       continue;
     }
     if (cfd_->RangeOverlapWithCompaction(file_to_ingest->start_ukey,
-                                         file_to_ingest->limit_ukey, lvl)) {
+                                         file_to_ingest->limit_ukey, lvl,
+                                         /*range_limit_exclusive=*/
+                                         is_generated_range_tombstone)) {
       // We must use L0 or any level higher than `lvl` to be able to overwrite
       // the compaction output keys that we overlap with in this level, We also
       // need to assign this file a seqno to overwrite the compaction output

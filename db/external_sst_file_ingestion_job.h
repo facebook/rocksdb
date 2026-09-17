@@ -82,12 +82,12 @@ class ExternalFileRangeChecker {
                              range2_largest) <= 0;
   }
 
-  bool Contains(const KeyRangeInfo& range1, const KeyRangeInfo& range2) {
+  bool Contains(const KeyRangeInfo& range1, const KeyRangeInfo& range2) const {
     return Contains(range1, range2.smallest_internal_key,
                     range2.largest_internal_key);
   }
   bool Contains(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
-                const InternalKey& range2_largest) {
+                const InternalKey& range2_largest) const {
     bool any_unset =
         range1.unset() || range2_smallest.unset() || range2_largest.unset();
     if (any_unset) {
@@ -183,6 +183,11 @@ struct IngestedFileInfo : public KeyRangeInfo {
 
   // Whether Lmax commit-time table opening should prefetch index/filter blocks.
   bool prefetch_lmax_index_and_filter_blocks = true;
+
+  // Whether RocksDB generated this file as part of the ingestion job. Such a
+  // file is already in the DB directory and must not be unlinked as a caller
+  // input when move_files is enabled.
+  bool generated_for_ingestion = false;
 
   SequenceNumber largest_seqno = kMaxSequenceNumber;
   SequenceNumber smallest_seqno = kMaxSequenceNumber;
@@ -311,6 +316,10 @@ class ExternalSstFileIngestionJob {
     return ingestion_options_.file_opening_threads;
   }
 
+  size_t NumFilesToPrepare(
+      size_t num_external_files,
+      const std::optional<RangeOpt>& atomic_replace_range) const;
+
   // Merge another already-Prepare()d job for the SAME column family into this
   // one so both sets of files are committed by a single Run(). The other job's
   // files are appended after this job's, so for any overlapping keys the other
@@ -320,6 +329,20 @@ class ExternalSstFileIngestionJob {
   Status MergeForSameColumnFamily(ExternalSstFileIngestionJob* other);
 
  private:
+  bool SupportsAtomicReplaceRangeTombstone() const;
+
+  bool CanUseAtomicReplaceRangeTombstone(
+      const std::optional<RangeOpt>& atomic_replace_range) const;
+
+  bool HasPartialOverlap(const VersionStorageInfo* vstorage) const;
+
+  Status PrepareAtomicReplaceRangeTombstone(const Slice& start,
+                                            const Slice& limit,
+                                            uint64_t file_number,
+                                            SuperVersion* super_version);
+
+  void ActivateAtomicReplaceRangeTombstone();
+
   Status ResetTableReader(const std::string& external_file,
                           uint64_t new_file_number,
                           bool user_defined_timestamps_persisted,
@@ -451,6 +474,8 @@ class ExternalSstFileIngestionJob {
   std::vector<FileBatchInfo> file_batches_to_ingest_;
   const IngestExternalFileOptions ingestion_options_;
   std::optional<KeyRangeInfo> atomic_replace_range_;
+  std::optional<IngestedFileInfo> atomic_replace_range_tombstone_;
+  bool atomic_replace_range_tombstone_active_{false};
   Directories* directories_;
   EventLogger* event_logger_;
   VersionEdit edit_;

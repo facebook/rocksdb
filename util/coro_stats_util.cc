@@ -7,7 +7,6 @@
 #include "util/coro_stats_util.h"
 
 #if defined(USE_COROUTINES)
-
 #include <cassert>
 #include <cstdint>
 #include <memory>
@@ -28,63 +27,94 @@ struct CoroutineStatsRequestDataTraits {
 const folly::RequestToken CoroutineStatsRequestDataTraits::kToken(
     "rocksdb_coroutine_stats_context");
 
-class CoroutineStatsRequestData;
+class EnabledCoroutineStatsRequestData;
 
 #ifndef NDEBUG
-CoroutineStatsRequestData* GetCoroutineStatsData();
+EnabledCoroutineStatsRequestData* GetCoroutineStatsData();
 #endif
 
 #ifndef NPERF_CONTEXT
 struct CoroutineStatsThreadLocalState {
-  CoroutineStatsRequestData* data = nullptr;
+  EnabledCoroutineStatsRequestData* data = nullptr;
   uint64_t get_cpu_nanos_start = 0;
 };
 
 thread_local CoroutineStatsThreadLocalState coroutine_stats_thread_local_state;
 #endif
 
-class CoroutineStatsRequestData : public folly::RequestData {
- public:
-  explicit CoroutineStatsRequestData(CoroutineStatsConfig stats_config,
-                                     Env* env)
-      : env_(env), perf_level_(stats_config.perf_level) {
-    (void)env_;
-    assert(env_ != nullptr);
-#ifndef NDEBUG
-    owner_thread_id_ = env_->GetThreadID();
+void InstallCoroutineStatsConfigToTLS(
+    const CoroutineStatsConfig& stats_config) {
+#ifndef NPERF_CONTEXT
+  if (stats_config.per_level_perf_context_enabled) {
+    get_perf_context()->EnablePerLevelPerfContext();
+  } else {
+    get_perf_context()->per_level_perf_context_enabled = false;
+  }
 #endif
+#ifndef NIOSTATS_CONTEXT
+  get_iostats_context()->disable_iostats = stats_config.iostats_disabled;
+#endif
+  SetPerfLevel(stats_config.perf_level);
+}
+
+void DisableCoroutineStatsInTLS() {
+#ifndef NIOSTATS_CONTEXT
+  get_iostats_context()->disable_iostats = true;
+#endif
+  // PerfLevel gates per-level updates, so keep published per-level stats
+  // readable until the next request installs its configuration.
+  SetPerfLevel(PerfLevel::kDisable);
+}
+
+// Owns the counters collected by one request, moving them to and from TLS
+// whenever the coroutine suspends or resumes.
+class EnabledCoroutineStatsRequestData final : public folly::RequestData {
+ public:
+  explicit EnabledCoroutineStatsRequestData(CoroutineStatsConfig stats_config,
+                                            Env* env)
+      : stats_config_(std::move(stats_config)), env_(env) {
+    assert(env_ != nullptr);
+    owner_thread_id_ = env_->GetThreadID();
     assert(CapturedPerfLevel() > PerfLevel::kUninitialized);
     assert(CapturedPerfLevel() < PerfLevel::kOutOfBounds);
 #ifndef NPERF_CONTEXT
-    if (stats_config.per_level_perf_context_enabled) {
+    if (stats_config_.per_level_perf_context_enabled) {
       perf_context_.EnablePerLevelPerfContext();
     }
 #endif
 #ifndef NIOSTATS_CONTEXT
     iostats_context_.Reset();
-    iostats_context_.disable_iostats = stats_config.iostats_disabled;
+    iostats_context_.disable_iostats = stats_config_.iostats_disabled;
 #endif
   }
 
   bool hasCallback() override { return true; }
 
+  // RequestContext may be restored on downstream workers, but these stats are
+  // owned by the thread that created this object.
   void onSet() override {
-    AssertSameThread();
-    SetPerfLevel(CapturedPerfLevel());
+    if (!IsOwnerThread()) {
+      return;
+    }
     LoadThreadLocalStats();
+    InstallCoroutineStatsConfigToTLS(stats_config_);
     StartGetCpuTimer();
   }
 
   void onUnset() override {
+    if (!IsOwnerThread()) {
+      return;
+    }
     StopGetCpuTimer();
     SaveThreadLocalStats();
+    DisableCoroutineStatsInTLS();
   }
 
   bool PerfLevelAtLeast(PerfLevel perf_level) const {
     return CapturedPerfLevel() >= perf_level;
   }
 
-  PerfLevel CapturedPerfLevel() const { return perf_level_; }
+  PerfLevel CapturedPerfLevel() const { return stats_config_.perf_level; }
 
   void StopGetCpuTimer() {
 #ifndef NPERF_CONTEXT
@@ -120,13 +150,7 @@ class CoroutineStatsRequestData : public folly::RequestData {
 #endif
   }
 
-  // Folly event bases resume requests on the thread where they suspended.
-  void AssertSameThread() {
-#ifndef NDEBUG
-    const uint64_t current_thread_id = env_->GetThreadID();
-    assert(owner_thread_id_ == current_thread_id);
-#endif
-  }
+  bool IsOwnerThread() const { return env_->GetThreadID() == owner_thread_id_; }
 
   void StartGetCpuTimer() {
 #ifndef NPERF_CONTEXT
@@ -139,26 +163,24 @@ class CoroutineStatsRequestData : public folly::RequestData {
 #endif
   }
 
+  CoroutineStatsConfig stats_config_;
   Env* const env_;
-  PerfLevel perf_level_;
 #ifndef NPERF_CONTEXT
   PerfContext perf_context_;
 #endif
 #ifndef NIOSTATS_CONTEXT
   IOStatsContext iostats_context_;
 #endif
-#ifndef NDEBUG
   uint64_t owner_thread_id_ = 0;
-#endif
 };
 
 #ifndef NDEBUG
-CoroutineStatsRequestData* GetCoroutineStatsData() {
+EnabledCoroutineStatsRequestData* GetCoroutineStatsData() {
   auto* context = folly::RequestContext::try_get();
   if (context == nullptr) {
     return nullptr;
   }
-  return static_cast<CoroutineStatsRequestData*>(
+  return static_cast<EnabledCoroutineStatsRequestData*>(
       context->getThreadCachedContextData<CoroutineStatsRequestDataTraits>());
 }
 #endif
@@ -178,14 +200,21 @@ CoroutineStatsConfig CaptureCoroutineStatsConfig() {
   return stats_config;
 }
 
-bool IsCoroutineStatsEnabled() {
+CoroutineStatsConfig CaptureAndDisableCoroutineStatsConfig() {
+  CoroutineStatsConfig stats_config = CaptureCoroutineStatsConfig();
+  DisableCoroutineStatsInTLS();
+  return stats_config;
+}
+
+bool IsCoroutineStatsEnabled(const CoroutineStatsConfig& stats_config) {
+  (void)stats_config;
 #ifndef NPERF_CONTEXT
-  if (GetPerfLevel() != PerfLevel::kDisable) {
+  if (stats_config.perf_level != PerfLevel::kDisable) {
     return true;
   }
 #endif
 #ifndef NIOSTATS_CONTEXT
-  if (!get_iostats_context()->disable_iostats) {
+  if (!stats_config.iostats_disabled) {
     return true;
   }
 #endif
@@ -195,15 +224,27 @@ bool IsCoroutineStatsEnabled() {
 CoroutineStatsContextScope::CoroutineStatsContextScope(
     CoroutineStatsConfig stats_config, Env* env) {
   assert(GetCoroutineStatsData() == nullptr);  // NO nesting allowed
-  auto data =
-      std::make_unique<CoroutineStatsRequestData>(std::move(stats_config), env);
+  if (!IsCoroutineStatsEnabled(stats_config)) {
+    DisableCoroutineStatsInTLS();
+    return;
+  }
+
+  auto data = std::make_unique<EnabledCoroutineStatsRequestData>(
+      std::move(stats_config), env);
   request_data_ = data.get();
   guard_ = std::make_unique<folly::ShallowCopyRequestContextScopeGuard>(
       CoroutineStatsRequestDataTraits::kToken, std::move(data));
 }
 
 CoroutineStatsContextScope::~CoroutineStatsContextScope() {
-  auto* request_data = static_cast<CoroutineStatsRequestData*>(request_data_);
+  if (guard_ == nullptr) {
+    assert(GetCoroutineStatsData() == nullptr);
+    DisableCoroutineStatsInTLS();
+    return;
+  }
+
+  auto* request_data =
+      static_cast<EnabledCoroutineStatsRequestData*>(request_data_);
   assert(GetCoroutineStatsData() == request_data);
   request_data->StopGetCpuTimer();
 #ifndef NPERF_CONTEXT
@@ -219,6 +260,7 @@ CoroutineStatsContextScope::~CoroutineStatsContextScope() {
 #ifndef NIOSTATS_CONTEXT
   *get_iostats_context() = std::move(request_iostats_context);
 #endif
+  DisableCoroutineStatsInTLS();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

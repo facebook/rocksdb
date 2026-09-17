@@ -415,6 +415,9 @@ DEFINE_SYNC_AND_ASYNC(void, Version::MultiGet)
         &iter->max_covering_tombstone_seq, clock_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
         &iter->is_blob_index, tracing_mget_id, &blob_fetcher);
+    if (callback != nullptr && callback->GetMetadataReadBounds() != nullptr) {
+      get_ctx.back().SetNewerVersionResult(&iter->newer_version_present);
+    }
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any

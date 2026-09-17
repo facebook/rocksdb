@@ -163,8 +163,7 @@ class SerialFileMover : public CheckpointFileMover {
 
 // Enqueues link/copy work on the CopyEngine pool; Finish() awaits it and does
 // the link->copy fallback for FileSystems that cannot hard-link (which costs an
-// extra round-trip per file; the intended warm-storage targets support
-// linking).
+// extra round-trip per file; the intended remote file systems support linking).
 class ParallelFileMover : public CheckpointFileMover {
  public:
   ParallelFileMover(CopyEngine* engine, Env* env, bool use_link, bool use_fsync,
