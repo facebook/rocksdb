@@ -442,20 +442,43 @@ void PartitionedFilterBlockReader::NewFilterPartitionIndexIterator(
       index_value_delta_escape());
 }
 
-BlockHandle PartitionedFilterBlockReader::SeekFilterPartitionHandle(
-    IndexBlockIter* iter, const Slice& entry) const {
-  iter->Seek(entry);
-  if (UNLIKELY(!iter->Valid())) {
-    // entry is larger than all the keys. However its prefix might still be
-    // present in the last partition. If this is called by PrefixMayMatch this
-    // is necessary for correct behavior. Otherwise it is unnecessary but safe.
-    // Assuming this is an unlikely case for full key search, the performance
-    // overhead should be negligible.
+BlockHandle PartitionedFilterBlockReader::FilterPartitionHandleAtIter(
+    IndexBlockIter* iter) const {
+  if (!iter->Valid()) {
+    // Iterator ran past the last separator. A key that sorts after all
+    // separators may still have its prefix in the last partition, which
+    // PrefixMayMatch relies on; harmless for full-key lookups.
     iter->SeekToLast();
   }
   assert(iter->Valid());
-  BlockHandle fltr_blk_handle = iter->value().handle;
-  return fltr_blk_handle;
+  return iter->value().handle;
+}
+
+BlockHandle PartitionedFilterBlockReader::SeekFilterPartitionHandle(
+    IndexBlockIter* iter, const Slice& entry) const {
+  iter->Seek(entry);
+  return FilterPartitionHandleAtIter(iter);
+}
+
+BlockHandle PartitionedFilterBlockReader::AdvanceFilterPartitionHandle(
+    IndexBlockIter* iter, const Slice& entry) const {
+  // Compare against the same key Seek() uses so the stop condition matches its
+  // tie-breaking: the user key when the index stores user keys, else the full
+  // internal key.
+  const Slice seek_key =
+      index_key_includes_seq() ? entry : ExtractUserKey(entry);
+  // Bound the linear advance so a spread-out batch falls back to a binary Seek
+  // instead of scanning across many partitions.
+  constexpr int kMaxForwardSteps = 16;
+  int steps = 0;
+  while (iter->Valid() && iter->CompareCurrentKey(seek_key) < 0) {
+    if (++steps > kMaxForwardSteps) {
+      iter->Seek(entry);
+      break;
+    }
+    iter->Next();
+  }
+  return FilterPartitionHandleAtIter(iter);
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
@@ -553,6 +576,8 @@ void PartitionedFilterBlockReader::MayMatch(
 
   IndexBlockIter filter_index_iter;
   NewFilterPartitionIndexIterator(filter_block, &filter_index_iter);
+  // Position at the first key; the loop below only forward-advances from here.
+  filter_index_iter.Seek(range->begin()->ikey);
 
   auto start_iter_same_handle = range->begin();
   BlockHandle prev_filter_handle = BlockHandle::NullBlockHandle();
@@ -562,7 +587,7 @@ void PartitionedFilterBlockReader::MayMatch(
   // filter.
   for (auto iter = start_iter_same_handle; iter != range->end(); ++iter) {
     BlockHandle this_filter_handle =
-        SeekFilterPartitionHandle(&filter_index_iter, iter->ikey);
+        AdvanceFilterPartitionHandle(&filter_index_iter, iter->ikey);
     if (!prev_filter_handle.IsNull() &&
         this_filter_handle != prev_filter_handle) {
       MultiGetRange subrange(*range, start_iter_same_handle, iter);

@@ -1030,6 +1030,10 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
   }
 
+  // Public so callers can compare the current key using this iterator's own
+  // comparator, matching Seek()'s tie-breaking (incl. global seqno).
+  using BlockIter<IndexValue>::CompareCurrentKey;
+
  protected:
   friend Block;
   // IndexBlockIter follows a different contract for prefix iterator

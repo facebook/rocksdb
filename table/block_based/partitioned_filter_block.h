@@ -191,8 +191,19 @@ class PartitionedFilterBlockReader
   void NewFilterPartitionIndexIterator(
       const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
       IndexBlockIter* iter) const;
+  // Returns the filter-partition handle at `iter`'s current position, clamping
+  // a past-the-end iterator to the last partition.
+  BlockHandle FilterPartitionHandleAtIter(IndexBlockIter* iter) const;
   BlockHandle SeekFilterPartitionHandle(IndexBlockIter* iter,
                                         const Slice& entry) const;
+  // Like `SeekFilterPartitionHandle`, but forward-advances `iter` to the filter
+  // partition covering `entry`, falling back to a binary Seek if the covering
+  // partition is more than a small constant number of steps away.
+  // REQUIRES: `entry` >= the entry passed on the previous call for this `iter`
+  // (keys are visited in sorted order), and `iter` is already positioned
+  // (e.g. via Seek) for the first key in the range.
+  BlockHandle AdvanceFilterPartitionHandle(IndexBlockIter* iter,
+                                           const Slice& entry) const;
   Status GetFilterPartitionBlock(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
