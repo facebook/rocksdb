@@ -68,9 +68,10 @@ enum RecordType : uint8_t {
   kRecyclableWALIndexMiddleType = 20,
   kRecyclableWALIndexLastType = 21,
 
-  // Declares that a closed range of wal_index values was allocated but will
-  // never carry a data record, so a later reader can tell a deliberately
-  // skipped index from one whose record was lost. Consumes no wal_index.
+  // Declares that a closed range of wal_index values is not part of the live
+  // WAL history and must not be treated as a missing record. A producer may
+  // use it for indices that never carried data or for records it deliberately
+  // discarded. Consumes no wal_index.
   //
   // Unlike the marker these are not positionally constrained: a cover is
   // written after the append it stands in for failed, so it can appear

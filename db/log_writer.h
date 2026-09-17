@@ -146,10 +146,10 @@ class Writer {
   // marker does not consume a wal_index. No-op when WAL index is disabled.
   IOStatus MaybeAddWALIndexMarkerRecord(const WriteOptions& write_options);
 
-  // Records that the closed range [lo, hi] of wal_index values was allocated
-  // but will never carry a data record, so a reader can tell it apart from a
-  // record that was written and then lost. Consumes no wal_index and does not
-  // advance the writer's high-water mark. No-op when WAL index is disabled.
+  // Records that the closed range [lo, hi] of wal_index values is not part of
+  // the live WAL history and must not be treated as missing. Consumes no
+  // wal_index and does not advance the writer's high-water mark. No-op when
+  // WAL index is disabled.
   IOStatus AddWALIndexVoidRecord(const WriteOptions& write_options, uint64_t lo,
                                  uint64_t hi);
 
