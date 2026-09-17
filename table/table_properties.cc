@@ -21,6 +21,10 @@ namespace ROCKSDB_NAMESPACE {
 
 const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
     std::numeric_limits<int32_t>::max();
+// Out-of-line definitions for these in-class-initialized constants, needed
+// because they are ODR-used (e.g. bound to a const reference).
+const int TablePropertiesCollectorFactory::Context::kUnknownLevelAtCreation;
+const int TablePropertiesCollectorFactory::Context::kUnknownNumLevels;
 
 namespace {
 void AppendProperty(std::string& props, const std::string& key,
@@ -72,7 +76,83 @@ std::string CompressionTypeDisplayName(
   }
   return CompressionTypeToString(compression_type);
 }
+
+// lsm_info_at_creation bit layout (see LsmInfoAtCreation / TableProperties::
+// lsm_info_at_creation). LSB first; low bits are kept stable so the encoding
+// can be extended by defining currently-reserved higher bits, and readers
+// ignore bits they do not recognize.
+//   bits [0..7]  level_at_creation natural value (0..254) when applicable;
+//                0xff means "applicable but level unknown" (e.g. DB repairer)
+//   bits [8..9]  0 = unknown, 1 = applicable & not bottommost,
+//                2 = applicable & bottommost, 3 = not applicable
+//   bits [10..]  reserved for future informational fields
+constexpr int kLsmLevelBits = 8;
+constexpr uint64_t kLsmLevelMask = (uint64_t{1} << kLsmLevelBits) - 1;
+// Sentinel level value (0xff) meaning "applicable but level unknown".
+constexpr uint64_t kLsmLevelUnknown = kLsmLevelMask;
+constexpr int kLsmStateShift = kLsmLevelBits;
+constexpr uint64_t kLsmStateMask = uint64_t{3} << kLsmStateShift;
+// Values for the 2-bit state field (bits [8..9]).
+constexpr uint64_t kLsmStateUnknown = 0;
+constexpr uint64_t kLsmStateNotBottommost = 1;
+constexpr uint64_t kLsmStateBottommost = 2;
+constexpr uint64_t kLsmStateNotApplicable = 3;
 }  // namespace
+
+LsmInfoAtCreation LsmInfoAtCreation::Applicable(int level_at_creation,
+                                                bool is_bottommost) {
+  LsmInfoAtCreation info;
+  info.applicability = Applicability::kApplicable;
+  info.level_at_creation = level_at_creation;
+  info.is_bottommost = is_bottommost;
+  return info;
+}
+
+LsmInfoAtCreation LsmInfoAtCreation::NotApplicable() {
+  LsmInfoAtCreation info;
+  info.applicability = Applicability::kNotApplicable;
+  return info;
+}
+
+uint64_t LsmInfoAtCreation::Encode() const {
+  switch (applicability) {
+    case Applicability::kUnknown:
+      return kLsmStateUnknown << kLsmStateShift;
+    case Applicability::kNotApplicable:
+      return kLsmStateNotApplicable << kLsmStateShift;
+    case Applicability::kApplicable: {
+      // Store the level as its natural value; kLsmLevelUnknown (0xff) encodes
+      // an unknown or out-of-range level.
+      uint64_t level_field =
+          (level_at_creation >= 0 &&
+           static_cast<uint64_t>(level_at_creation) < kLsmLevelUnknown)
+              ? static_cast<uint64_t>(level_at_creation)
+              : kLsmLevelUnknown;
+      uint64_t state =
+          is_bottommost ? kLsmStateBottommost : kLsmStateNotBottommost;
+      return level_field | (state << kLsmStateShift);
+    }
+  }
+  return 0;
+}
+
+LsmInfoAtCreation LsmInfoAtCreation::DecodeFrom(uint64_t encoded) {
+  uint64_t state = (encoded & kLsmStateMask) >> kLsmStateShift;
+  switch (state) {
+    case kLsmStateNotBottommost:
+    case kLsmStateBottommost: {
+      uint64_t level_field = encoded & kLsmLevelMask;
+      int level = level_field == kLsmLevelUnknown
+                      ? kUnknownLevel
+                      : static_cast<int>(level_field);
+      return Applicable(level, state == kLsmStateBottommost);
+    }
+    case kLsmStateNotApplicable:
+      return NotApplicable();
+    default:
+      return LsmInfoAtCreation{};
+  }
+}
 
 std::string TableProperties::ToString(const std::string& prop_delim,
                                       const std::string& kv_delim) const {
@@ -191,6 +271,35 @@ std::string TableProperties::ToString(const std::string& prop_delim,
 
   AppendProperty(result, "file creation time", file_creation_time, prop_delim,
                  kv_delim);
+
+  {
+    LsmInfoAtCreation lsm_info =
+        LsmInfoAtCreation::DecodeFrom(lsm_info_at_creation);
+    std::string level_str;
+    std::string bottommost_str;
+    switch (lsm_info.applicability) {
+      case LsmInfoAtCreation::Applicability::kUnknown:
+        level_str = "unknown";
+        bottommost_str = "unknown";
+        break;
+      case LsmInfoAtCreation::Applicability::kNotApplicable:
+        level_str = "N/A";
+        bottommost_str = "N/A";
+        break;
+      case LsmInfoAtCreation::Applicability::kApplicable:
+        level_str =
+            lsm_info.level_at_creation == LsmInfoAtCreation::kUnknownLevel
+                ? std::string("unknown")
+                : std::to_string(lsm_info.level_at_creation);
+        bottommost_str =
+            lsm_info.is_bottommost ? std::string("true") : std::string("false");
+        break;
+    }
+    AppendProperty(result, "level at creation", level_str, prop_delim,
+                   kv_delim);
+    AppendProperty(result, "bottommost at creation", bottommost_str, prop_delim,
+                   kv_delim);
+  }
 
   AppendProperty(result, "slow compression estimated data size",
                  slow_compression_estimated_data_size, prop_delim, kv_delim);
@@ -393,6 +502,10 @@ const std::string TablePropertiesNames::kIndexBlockRestartInterval =
     "rocksdb.index.block.restart.interval";
 const std::string TablePropertiesNames::kSeparateKeyValueInDataBlock =
     "rocksdb.separate.key.value.in.data.block";
+const std::string TablePropertiesNames::kUncompressedDataSize =
+    "rocksdb.uncompressed.data.size";
+const std::string TablePropertiesNames::kLsmInfoAtCreation =
+    "rocksdb.lsm.info.at.creation";
 
 static std::unordered_map<std::string, OptionTypeInfo>
     table_properties_type_info = {
@@ -543,6 +656,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"separate_key_value_in_data_block",
          {offsetof(struct TableProperties, separate_key_value_in_data_block),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"lsm_info_at_creation",
+         {offsetof(struct TableProperties, lsm_info_at_creation),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"db_id",

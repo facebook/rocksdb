@@ -85,6 +85,8 @@ struct TablePropertiesNames {
   static const std::string kDataBlockRestartInterval;
   static const std::string kIndexBlockRestartInterval;
   static const std::string kSeparateKeyValueInDataBlock;
+  static const std::string kUncompressedDataSize;
+  static const std::string kLsmInfoAtCreation;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -220,6 +222,48 @@ class TablePropertiesCollectorFactory : public Customizable {
   virtual std::string ToString() const { return Name(); }
 };
 
+// Decoded form of TableProperties::lsm_info_at_creation. Encapsulates the
+// packed uint64 encoding and its three overall states, so TableProperties
+// itself can stay a bare data struct. Round-trips losslessly through
+// Encode() / DecodeFrom().
+struct LsmInfoAtCreation {
+  // Sentinel for an unknown level (same value as
+  // TablePropertiesCollectorFactory::Context::kUnknownLevelAtCreation).
+  static constexpr int kUnknownLevel = -1;
+
+  // Overall applicability of the LSM-at-creation info:
+  //  - kUnknown: nothing recorded (e.g. a file written by an older RocksDB).
+  //  - kApplicable: created at a known LSM position (flush / compaction /
+  //    recovery); level_at_creation and is_bottommost are meaningful.
+  //  - kNotApplicable: the file has no LSM position (e.g. SstFileWriter /
+  //    external files, or other misc uses).
+  enum class Applicability : uint8_t { kUnknown, kApplicable, kNotApplicable };
+  Applicability applicability = Applicability::kUnknown;
+
+  // Meaningful only when applicability == kApplicable. kUnknownLevel (-1) when
+  // the level itself is unknown (e.g. files created by the DB repairer).
+  int level_at_creation = kUnknownLevel;
+
+  // Meaningful only when applicability == kApplicable.
+  bool is_bottommost = false;
+
+  static LsmInfoAtCreation Applicable(int level_at_creation,
+                                      bool is_bottommost);
+  static LsmInfoAtCreation NotApplicable();
+
+  // Serialize to / deserialize from the packed
+  // TableProperties::lsm_info_at_creation representation. DecodeFrom ignores
+  // unrecognized (reserved) bits so the encoding can be extended in the future.
+  uint64_t Encode() const;
+  static LsmInfoAtCreation DecodeFrom(uint64_t encoded);
+
+  bool operator==(const LsmInfoAtCreation& other) const {
+    return applicability == other.applicability &&
+           level_at_creation == other.level_at_creation &&
+           is_bottommost == other.is_bottommost;
+  }
+};
+
 // TableProperties contains a bunch of read-only properties of its associated
 // table.
 struct TableProperties {
@@ -351,6 +395,16 @@ struct TableProperties {
   // debugging/validation purposes. Consider removing this if we ever decide to
   // mix separation strategies for a sst.
   uint64_t separate_key_value_in_data_block = 0;
+
+  // Packed, informational LSM metadata about how/where this file was created
+  // (level and bottommost), for debugging and analysis (e.g. tiering,
+  // write-amp). Decode/encode with LsmInfoAtCreation, e.g.
+  // LsmInfoAtCreation::DecodeFrom(lsm_info_at_creation). A value of 0 means
+  // "unknown" (nothing recorded, e.g. older files); it is only written to the
+  // properties block when not "unknown". Distinguishes "unknown" from "not
+  // applicable" (files with no LSM position, e.g. SstFileWriter). See
+  // LsmInfoAtCreation.
+  uint64_t lsm_info_at_creation = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

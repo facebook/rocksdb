@@ -212,6 +212,11 @@ uint64_t rocksdb_table_properties_separate_key_value_in_data_block(
   return props->rep.separate_key_value_in_data_block;
 }
 
+uint64_t rocksdb_table_properties_lsm_info_at_creation(
+    const rocksdb_table_properties_t* props) {
+  return props->rep.lsm_info_at_creation;
+}
+
 const char* rocksdb_table_properties_db_id(
     const rocksdb_table_properties_t* props, size_t* size) {
   *size = props->rep.db_id.size();

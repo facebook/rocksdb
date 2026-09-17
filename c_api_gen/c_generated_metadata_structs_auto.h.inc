@@ -151,6 +151,10 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_table_properties_separate_key_value_in_data_block(
     const rocksdb_table_properties_t* props);
 
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_table_properties_lsm_info_at_creation(
+    const rocksdb_table_properties_t* props);
+
 extern ROCKSDB_LIBRARY_API const char* rocksdb_table_properties_db_id(
     const rocksdb_table_properties_t* props, size_t* size);
 
