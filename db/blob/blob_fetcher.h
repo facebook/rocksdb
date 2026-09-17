@@ -101,6 +101,12 @@ class VersionBlobFetcherBase : public BlobFetcher {
     return version_ != nullptr && !allow_write_path_fallback_;
   }
 
+  // The Version this fetcher reads separate-file blob references through (may
+  // be null for a direct-write-fallback-only fetcher). Used by the cross-key
+  // lazy coalescing path to group and dispatch reads via
+  // Version::MultiGetBlobLazy.
+  const Version* version() const { return version_; }
+
  protected:
   VersionBlobFetcherBase(const Version* version, BlobFileCache* blob_file_cache,
                          bool allow_write_path_fallback)

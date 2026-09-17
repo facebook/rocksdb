@@ -223,6 +223,84 @@ Status ReadPathBlobResolver::ResolveColumnRange(size_t column_index,
   return Status::OK();
 }
 
+ReadPathBlobResolver::LazyColumnReadClassification
+ReadPathBlobResolver::ClassifyColumnRange(size_t column_index,
+                                          uint64_t range_offset,
+                                          size_t range_length,
+                                          bool force_verify) const {
+  LazyColumnReadClassification c;
+
+  if (columns_ == nullptr || column_index >= columns_->size()) {
+    return c;  // kServeIndividually (ResolveColumnRange -> InvalidArgument)
+  }
+  const BlobIndex* blob_index_ptr =
+      blob_resolver_util::FindBlobColumn(blob_columns_, column_index);
+  if (blob_index_ptr == nullptr) {
+    return c;  // inline column
+  }
+  if (blob_resolver_util::FindInCache(resolved_cache_, column_index) !=
+      nullptr) {
+    return c;  // already resolved -> slice from cache
+  }
+  const BlobIndex& blob_index = *blob_index_ptr;
+  if (blob_index.IsInlined()) {
+    return c;  // TTL-inlined -> ResolveColumnRange caches inlined + slices
+  }
+  const BlobVerifyPolicy policy = DeriveVerifyPolicy(
+      blob_fetcher_.read_options().verify_checksums, force_verify);
+  if (policy == BlobVerifyPolicy::kVerifyIfPresent) {
+    // Force-verify: served individually to avoid a mixed-verify coalesced read.
+    return c;
+  }
+
+  const bool same_file = blob_index.IsSameFile();
+  // A read is coalesceable only if it is servable the same way
+  // ResolveColumnRange would serve it without falling back to a whole
+  // individual read: same-file needs the SST reader; separate-file needs a
+  // Version-backed range-capable fetcher (SupportsRangeRead() also excludes
+  // direct-write fallback mode, whose reads are not manifest-visible and cannot
+  // go through Version::MultiGetBlobLazy).
+  const bool servable = same_file ? (same_file_reader_ != nullptr)
+                                  : blob_fetcher_.SupportsRangeRead();
+  if (!servable) {
+    return c;  // kServeIndividually
+  }
+
+  if (blob_index.compression() == kNoCompression) {
+    const uint64_t value_size = blob_index.size();
+    const bool strict_subrange = range_offset > 0 || range_length < value_size;
+    if (strict_subrange) {
+      if (range_offset >= value_size || range_length == 0) {
+        // Empty range -> ResolveColumnRange returns empty with no I/O.
+        return c;  // kServeIndividually
+      }
+      const size_t avail = static_cast<size_t>(value_size - range_offset);
+      c.blob_index = &blob_index;
+      c.range_offset = range_offset;
+      c.range_length = range_length > avail ? avail : range_length;
+      c.plan = same_file ? LazyColumnReadPlan::kFetchRangeSameFile
+                         : LazyColumnReadPlan::kFetchRangeSeparateFile;
+      return c;
+    }
+  }
+
+  // Whole fetch (whole-column read, or a compressed reference resolved whole).
+  c.blob_index = &blob_index;
+  c.plan = same_file ? LazyColumnReadPlan::kFetchWholeSameFile
+                     : LazyColumnReadPlan::kFetchWholeSeparateFile;
+  return c;
+}
+
+void ReadPathBlobResolver::AdoptResolvedWholeColumn(size_t column_index,
+                                                    PinnableSlice&& value) {
+  if (blob_resolver_util::FindInCache(resolved_cache_, column_index) !=
+      nullptr) {
+    return;  // already resolved; keep the existing entry (idempotent)
+  }
+  resolved_cache_.emplace_back(
+      column_index, std::make_unique<PinnableSlice>(std::move(value)));
+}
+
 Status ReadPathBlobResolver::ResolveColumns(
     const std::vector<size_t>& column_indices,
     std::vector<Slice>* resolved_values) {

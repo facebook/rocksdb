@@ -2846,6 +2846,107 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
       blob_index.compression(), range_offset, range_length, value, bytes_read);
 }
 
+void Version::MultiGetBlobLazy(const ReadOptions& read_options,
+                               autovector<LazyBlobReadRequest>& reqs) const {
+  assert(blob_source_);
+
+  // Turn the flat list of separate-file blob references into per-blob-file
+  // batches that BlobSource can each resolve with a single coalesced MultiRead.
+  // Whole-value and sub-range requests use different BlobSource entry points,
+  // so they are grouped independently:
+  //   whole_reqs -- batches of whole-value reads (BlobReadRequest)
+  //   range_reqs -- batches of sub-range reads (BlobRangeReadRequest)
+  // Each batch holds at most MultiGetContext::MAX_BATCH_SIZE requests (see the
+  // loop below), so one file may contribute several batches. whole_idx /
+  // range_idx map a file number to the index, within whole_reqs / range_reqs,
+  // of that file's current (most recently started, still fillable) batch.
+  autovector<BlobFileReadRequests> whole_reqs;
+  autovector<BlobFileRangeReadRequests> range_reqs;
+  std::unordered_map<uint64_t, size_t> whole_idx;
+  std::unordered_map<uint64_t, size_t> range_idx;
+
+  for (auto& req : reqs) {
+    assert(req.user_key);
+    assert(req.blob_index);
+    assert(req.result);
+    assert(req.status);
+    const BlobIndex& blob_index = *req.blob_index;
+
+    if (blob_index.HasTTL() || blob_index.IsInlined()) {
+      *req.status = Status::Corruption("Unexpected TTL/inlined blob index");
+      continue;
+    }
+
+    const uint64_t file_number = blob_index.file_number();
+    auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
+    if (!blob_file_meta) {
+      // INTEGRITY CHECK -- see Version::GetBlob. A same-file/embedded reference
+      // (file_number 0) must be resolved via SameFileBlobReader, not here.
+      *req.status = Status::Corruption("Invalid blob file number");
+      continue;
+    }
+    const uint64_t file_size = blob_file_meta->GetBlobFileSize();
+
+    if (req.range_length == kWholeBlobLength) {
+      // Append to this file's current batch, or start a new batch when the file
+      // has none yet or its current batch is full. Capping each batch at
+      // MAX_BATCH_SIZE is required, not just an optimization:
+      // BlobFileReader::MultiGetBlob[Range] asserts a batch is at most
+      // MAX_BATCH_SIZE, and BlobSource tracks a batch's cache hits in a 64-bit
+      // mask -- while MultiGetEntityLazy does not otherwise bound how many keys
+      // can reference a single blob file.
+      size_t idx;
+      auto it = whole_idx.find(file_number);
+      if (it != whole_idx.end() && std::get<2>(whole_reqs[it->second]).size() <
+                                       MultiGetContext::MAX_BATCH_SIZE) {
+        idx = it->second;  // this file's current batch still has room
+      } else {
+        idx = whole_reqs.size();  // no batch yet for this file, or it is full
+        whole_idx[file_number] = idx;
+        whole_reqs.emplace_back(file_number, file_size,
+                                autovector<BlobReadRequest>());
+      }
+      std::get<2>(whole_reqs[idx])
+          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                        blob_index.compression(), req.result, req.status);
+    } else {
+      // A strict sub-range of a compressed blob cannot be decompressed in
+      // isolation; the caller resolves such columns whole and slices instead.
+      if (blob_index.compression() != kNoCompression) {
+        *req.status = Status::Corruption("Cannot range-read a compressed blob");
+        continue;
+      }
+      // Same per-file batching and MAX_BATCH_SIZE cap as the whole-value path
+      // above.
+      size_t idx;
+      auto it = range_idx.find(file_number);
+      if (it != range_idx.end() && std::get<2>(range_reqs[it->second]).size() <
+                                       MultiGetContext::MAX_BATCH_SIZE) {
+        idx = it->second;  // this file's current batch still has room
+      } else {
+        idx = range_reqs.size();  // no batch yet for this file, or it is full
+        range_idx[file_number] = idx;
+        range_reqs.emplace_back(file_number, file_size,
+                                autovector<BlobRangeReadRequest>());
+      }
+      std::get<2>(range_reqs[idx])
+          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                        req.range_offset, req.range_length, req.result,
+                        req.status);
+    }
+  }
+
+  // Resolve every batch; BlobSource issues one coalesced MultiRead per batch.
+  if (!whole_reqs.empty()) {
+    blob_source_->MultiGetBlob(read_options, whole_reqs,
+                               /*bytes_read=*/nullptr);
+  }
+  if (!range_reqs.empty()) {
+    blob_source_->MultiGetBlobRange(read_options, range_reqs,
+                                    /*bytes_read=*/nullptr);
+  }
+}
+
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {

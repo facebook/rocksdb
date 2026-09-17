@@ -28,6 +28,30 @@ class Slice;
 class RandomAccessFileReader;
 enum ChecksumType : char;
 
+// One whole-record request for BlobSource::MultiGetSimpleGen2Blob (the batched
+// counterpart of GetSimpleGen2Blob). The per-file context (base cache key,
+// file, checksum context) is passed once to the batch call; these are the
+// per-record inputs and outputs.
+struct SimpleGen2BlobReadRequest {
+  uint64_t record_offset = 0;
+  uint64_t payload_size = 0;
+  CompressionType expected_compression = kNoCompression;
+  PinnableSlice* result = nullptr;
+  Status* status = nullptr;
+};
+
+// One sub-range request for BlobSource::MultiGetSimpleGen2BlobRange (the
+// batched counterpart of GetSimpleGen2BlobRange).
+struct SimpleGen2BlobRangeReadRequest {
+  uint64_t record_offset = 0;
+  uint64_t payload_size = 0;
+  uint64_t range_offset = 0;
+  size_t range_length = 0;
+  CompressionType expected_compression = kNoCompression;
+  PinnableSlice* result = nullptr;
+  Status* status = nullptr;
+};
+
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
 // Depending on user settings, it always fetch blobs from multi-tier cache and
@@ -146,6 +170,33 @@ class BlobSource {
                                 uint64_t range_offset, size_t range_length,
                                 PinnableSlice* value, uint64_t* bytes_read);
 
+  // Batched counterpart of GetSimpleGen2Blob: resolves `num_records` whole
+  // embedded (SimpleGen2Blob) records from one file, coalescing all cache-miss
+  // reads into a single MultiRead. The per-file context (base cache key, file,
+  // checksum type, base context checksum) is shared by all records; per-record
+  // inputs/outputs are in `reqs`. Each record independently probes the blob
+  // cache and, on a miss, is read + verified from the file; whole records are
+  // cache-filled (when configured and fill_cache) exactly as GetSimpleGen2Blob.
+  // Per-record outcome is written to *reqs[i].status.
+  void MultiGetSimpleGen2Blob(const ReadOptions& read_options,
+                              const OffsetableCacheKey& base_cache_key,
+                              RandomAccessFileReader* file,
+                              ChecksumType checksum_type,
+                              uint32_t base_context_checksum,
+                              size_t num_records,
+                              SimpleGen2BlobReadRequest* reqs);
+
+  // Batched counterpart of GetSimpleGen2BlobRange: resolves `num_records`
+  // uncompressed embedded sub-ranges from one file, coalescing cache-miss reads
+  // into a single MultiRead. Like GetSimpleGen2BlobRange, each record probes
+  // the whole-payload cache (slicing on a hit) and a partial read is never
+  // inserted into the cache. Per-record outcome is in *reqs[i].status.
+  void MultiGetSimpleGen2BlobRange(const ReadOptions& read_options,
+                                   const OffsetableCacheKey& base_cache_key,
+                                   RandomAccessFileReader* file,
+                                   size_t num_records,
+                                   SimpleGen2BlobRangeReadRequest* reqs);
+
   // Read multiple blobs from the underlying cache or blob file(s).
   //
   // If successful, returns ok and sets "result" in the elements of "blob_reqs"
@@ -184,6 +235,24 @@ class BlobSource {
                                uint64_t file_number, uint64_t file_size,
                                autovector<BlobReadRequest>& blob_reqs,
                                uint64_t* bytes_read);
+
+  // Byte-range (partial) multi-read counterpart of MultiGetBlob: for each
+  // request reads only its sub-range of an *uncompressed* blob value, from the
+  // blob cache (whole-value hit, sliced) or coalesced disk reads (one MultiRead
+  // per file). Like GetBlobRange, a partial read never fills the blob cache.
+  // Groups requests by file and dispatches each file via
+  // MultiGetBlobRangeFromOneFile. Per-request outcome is in
+  // *blob_reqs[..].status.
+  void MultiGetBlobRange(const ReadOptions& read_options,
+                         autovector<BlobFileRangeReadRequests>& blob_reqs,
+                         uint64_t* bytes_read);
+
+  // Byte-range (partial) multi-read counterpart of MultiGetBlobFromOneFile for
+  // a single blob file. See MultiGetBlobRange.
+  void MultiGetBlobRangeFromOneFile(const ReadOptions& read_options,
+                                    uint64_t file_number, uint64_t file_size,
+                                    autovector<BlobRangeReadRequest>& blob_reqs,
+                                    uint64_t* bytes_read);
 
   inline Status GetBlobFileReader(
       const ReadOptions& read_options, uint64_t blob_file_number,

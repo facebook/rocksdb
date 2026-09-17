@@ -88,6 +88,21 @@ class BlobFileReader {
           blob_reqs,
       uint64_t* bytes_read) const;
 
+  // Byte-range (partial) multi-read counterpart of MultiGetBlob: for each
+  // request reads only its sub-range [offset + range_offset, +range_length) of
+  // an *uncompressed* blob value, coalescing all requests into a single
+  // MultiRead. Unlike MultiGetBlob it reads no record header/key, verifies no
+  // whole-record checksum (a strict sub-range cannot cover it), and never
+  // decompresses -- so it is only valid when this reader's blob file is
+  // uncompressed (checked). Each result owns a copy of its requested bytes.
+  // Requests must be sorted ascending by effective read offset (offset +
+  // range_offset) by the caller.
+  void MultiGetBlobRange(
+      const ReadOptions& read_options,
+      autovector<std::pair<BlobRangeReadRequest*,
+                           std::unique_ptr<BlobContents>>>& blob_reqs,
+      uint64_t* bytes_read) const;
+
   CompressionType GetCompressionType() const { return compression_type_; }
 
   uint64_t GetFileSize() const { return file_size_; }

@@ -1,0 +1,1 @@
+`DB::MultiGetEntityLazy()` now reads all keys of a batch under a single shared per-column-family SuperVersion pin, and a single `LazyWideColumnsBatch::MultiResolve()` coalesces the resulting blob reads across keys: one read per blob file (and one per SST for embedded blobs), for whole-column and byte-range reads alike, instead of reading each key's blobs separately.

@@ -1033,6 +1033,28 @@ class Version {
                       size_t range_length, PinnableSlice* value,
                       uint64_t* bytes_read) const;
 
+  // A single separate-file blob reference to resolve via MultiGetBlobLazy:
+  // whole value (range_length == kWholeBlobLength) or a byte sub-range.
+  struct LazyBlobReadRequest {
+    const Slice* user_key = nullptr;
+    const BlobIndex* blob_index = nullptr;
+    uint64_t range_offset = 0;
+    size_t range_length = 0;  // kWholeBlobLength => whole value
+    PinnableSlice* result = nullptr;
+    Status* status = nullptr;
+  };
+
+  // Resolves a batch of separate-file blob references for the lazy (cross-key
+  // coalescing) read path, grouping by blob file so each file's reads are
+  // coalesced into one MultiRead. Whole-value requests (range_length ==
+  // kWholeBlobLength) go through BlobSource::MultiGetBlob (blob-cache fill +
+  // checksum per read_options); sub-range requests go through
+  // BlobSource::MultiGetBlobRange (uncompressed, no checksum, no cache fill).
+  // Per-request outcome is written to *reqs[i].status; a TTL/inlined index or
+  // an unknown blob file number yields Corruption on that request.
+  void MultiGetBlobLazy(const ReadOptions& read_options,
+                        autovector<LazyBlobReadRequest>& reqs) const;
+
   struct BlobReadContext {
     BlobReadContext(const BlobIndex& blob_idx, KeyContext* key_ctx)
         : blob_index(blob_idx), key_context(key_ctx) {}

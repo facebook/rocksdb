@@ -79,8 +79,11 @@ struct LazyColumnReadRequest {
   // Output: on OK status, a zero-copy view of the requested bytes.
   PinnableSlice* result = nullptr;
 
-  // Output: per-request status. InvalidArgument for a null `column` or one that
-  // does not belong to the target result; Incomplete for a cache miss when the
+  // Output: per-request status. Required -- must not be null; passing null
+  // makes MultiResolve (and the ResolveColumn/ResolveColumnRange sugar) fail
+  // the whole call with InvalidArgument, since there is nowhere to report this
+  // read's outcome. InvalidArgument for a null `column` or one that does not
+  // belong to the target result; Incomplete for a cache miss when the
   // originating GetEntityLazy()/MultiGetEntityLazy() call used
   // ReadTier::kBlockCacheTier; otherwise the I/O status of the (possibly
   // partial) read.
@@ -220,7 +223,8 @@ class LazyWideColumns {
   // no further I/O.
   //
   // Returns an overall Status (OK if every read was dispatched; per-read
-  // outcomes are in each request's `status`).
+  // outcomes are in each request's `status`). Returns InvalidArgument, without
+  // dispatching, if any read has a null `status`.
   Status MultiResolve(size_t num_reads, LazyColumnReadRequest* reads);
 
   // Sugar over the pointer+count form for a std::vector of reads.
@@ -312,7 +316,8 @@ class LazyWideColumnsBatch {
   // `column` names its target entity (which must belong to this batch); a
   // foreign or null column yields InvalidArgument on that read. Per-read
   // outcomes are reported in each request's `status`; the returned Status is OK
-  // if the batch was dispatched.
+  // if the batch was dispatched, or InvalidArgument (without dispatching) if
+  // any read has a null `status`.
   Status MultiResolve(size_t num_reads, LazyColumnReadRequest* reads);
 
   // Sugar over the pointer+count form for a std::vector of reads.

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 #include "rocksdb/cleanable.h"
 #include "rocksdb/lazy_wide_columns.h"
@@ -46,10 +47,28 @@ class LazyWideColumnsHelper {
                          const SameFileBlobReader* same_file_reader,
                          Cleanable&& pin);
 
+  // Batched-read counterpart of Finalize: sets up the entity's on-demand
+  // resolver bound to `version` WITHOUT taking a per-entity SuperVersion pin --
+  // the enclosing LazyWideColumnsBatch owns one shared pin per column family
+  // (see BatchCfPin). Otherwise identical to Finalize.
+  static Status FinalizeInBatch(LazyWideColumns* result, const Slice& user_key,
+                                const Version* version,
+                                const ReadOptions& read_options,
+                                BlobFileCache* blob_file_cache,
+                                bool allow_write_path_fallback,
+                                const SameFileBlobReader* same_file_reader);
+
   // Prepares `batch` to hold `num_entities` empty per-key results (creating the
   // batch's representation). Use (*batch)[i] to access each for filling, then
   // call FinalizeBatch() once all entities are populated.
   static void InitBatch(LazyWideColumnsBatch* batch, size_t num_entities);
+
+  // Returns the Cleanable in `batch` that owns the shared SuperVersion pin for
+  // column family `cf_id` (creating the entry). The batched read transfers a
+  // SuperVersion reference into it (DBImpl::TransferSuperVersionPin) so the
+  // batch keeps that CF's Version -- and the entities' deferred blob reads --
+  // valid for the batch's lifetime.
+  static Cleanable* BatchCfPin(LazyWideColumnsBatch* batch, uint32_t cf_id);
 
   // Links every populated entity of `batch` back to the batch, so a batch read
   // can validate that a column belongs to this batch. Call after all entities
