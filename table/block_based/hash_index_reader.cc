@@ -136,7 +136,8 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats,
       total_order_seek, index_has_first_key(), index_key_includes_seq(),
       index_value_is_full(), false /* block_contents_pinned */,
-      user_defined_timestamps_persisted(), prefix_index_.get());
+      user_defined_timestamps_persisted(), prefix_index_.get(),
+      BlockBasedTableOptions::kBinary, index_value_delta_escape());
 
   assert(it != nullptr);
   index_block.TransferTo(it);

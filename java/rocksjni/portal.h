@@ -7224,6 +7224,52 @@ class IndexSearchTypeJni {
   }
 };
 
+// The portal class for org.rocksdb.OptimizeKeyCommonPrefix
+class OptimizeKeyCommonPrefixJni {
+ public:
+  // Returns the equivalent org.rocksdb.OptimizeKeyCommonPrefix for the provided
+  // C++ ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix enum
+  static jbyte toJavaOptimizeKeyCommonPrefix(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix&
+          optimize_key_common_prefix) {
+    switch (optimize_key_common_prefix) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix::
+          kDisabled:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix::
+          kIfFastSeek:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix::
+          kEnabled:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++
+  // ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix enum for
+  // the provided Java org.rocksdb.OptimizeKeyCommonPrefix
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::OptimizeKeyCommonPrefix
+  toCppOptimizeKeyCommonPrefix(jbyte joptimize_key_common_prefix) {
+    switch (joptimize_key_common_prefix) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+            OptimizeKeyCommonPrefix::kDisabled;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+            OptimizeKeyCommonPrefix::kIfFastSeek;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+            OptimizeKeyCommonPrefix::kEnabled;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+            OptimizeKeyCommonPrefix::kIfFastSeek;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.ChecksumType
 class ChecksumTypeJni {
  public:
@@ -9408,7 +9454,7 @@ class BlockBasedTableOptionsJni
     }
 
     jmethodID method_id_init = env->GetMethodID(
-        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZDZZJJBBBJD)V");
+        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZDZZJJBBBBJD)V");
     if (method_id_init == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -9462,6 +9508,8 @@ class BlockBasedTableOptionsJni
             table_factory_options->index_shortening),
         IndexSearchTypeJni::toJavaIndexSearchType(
             table_factory_options->index_block_search_type),
+        OptimizeKeyCommonPrefixJni::toJavaOptimizeKeyCommonPrefix(
+            table_factory_options->optimize_key_common_prefix),
         FilterPolicyJni::toJavaIndexType(filter_policy_type),
         filter_policy_handle, filter_policy_config_value);
     if (env->ExceptionCheck()) {

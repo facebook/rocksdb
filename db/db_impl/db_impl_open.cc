@@ -1034,7 +1034,7 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
-Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
+Status DBImpl::LogAndApplyForRecovery(RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
   // descriptor_log_ is normally null after Recover, but when
   // reuse_manifest_on_open is set VersionSet::Recover may have already
@@ -1044,9 +1044,21 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
 
+  if (versions_->force_new_manifest_on_open_ &&
+      !recovery_ctx.HasVersionEdits()) {
+    VersionEdit edit;
+    ColumnFamilyData* default_cfd =
+        versions_->GetColumnFamilySet()->GetDefault();
+    assert(default_cfd);
+    recovery_ctx.UpdateVersionEdits(default_cfd, edit);
+  }
+
   Status s = versions_->LogAndApply(recovery_ctx.cfds_, read_options,
                                     write_options, recovery_ctx.edit_lists_,
                                     &mutex_, directories_.GetDbDir());
+  if (s.ok()) {
+    versions_->force_new_manifest_on_open_ = false;
+  }
   return s;
 }
 
@@ -2699,6 +2711,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     s = impl->CreateArchivalDirectory();
   }
+  if (s.ok() &&
+      impl->immutable_db_options_.use_session_tmp_dir_for_remote_compaction) {
+    // Create the session-scoped temporary directory before a CompactionService
+    // can create any per-job directory under it.
+    s = impl->env_->CreateDirIfMissing(SessionTmpDir(dbname));
+  }
   if (!s.ok()) {
     return s;
   }
@@ -2911,6 +2929,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // WAL write failures and resultant forced flushes
     sfm->ReserveDiskBuffer(max_write_buffer_size,
                            impl->immutable_db_options_.db_paths[0].path);
+  }
+
+  if (s.ok() &&
+      impl->immutable_db_options_.use_session_tmp_dir_for_remote_compaction) {
+    // Finish deleting data from the previous DB session before this open can
+    // schedule a new compaction in the directory.
+    impl->CleanupSessionTmpDir();
   }
 
   if (s.ok()) {

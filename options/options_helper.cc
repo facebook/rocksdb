@@ -203,6 +203,10 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   options.max_compaction_trigger_wakeup_seconds =
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
+  options.remote_compaction_manifest_floor =
+      mutable_db_options.remote_compaction_manifest_floor;
+  options.periodic_compaction_phase_recovery_percent =
+      mutable_db_options.periodic_compaction_phase_recovery_percent;
   options.follower_refresh_catchup_period_ms =
       immutable_db_options.follower_refresh_catchup_period_ms;
   options.follower_catchup_retry_count =
@@ -213,6 +217,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.metadata_write_temperature;
   options.wal_write_temperature = immutable_db_options.wal_write_temperature;
   options.compaction_service = immutable_db_options.compaction_service;
+  options.use_session_tmp_dir_for_remote_compaction =
+      immutable_db_options.use_session_tmp_dir_for_remote_compaction;
   options.calculate_sst_write_lifetime_hint_set =
       immutable_db_options.calculate_sst_write_lifetime_hint_set;
 }

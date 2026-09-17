@@ -4,12 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Arrays;
+import java.util.List;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class SnapshotTest {
 
@@ -43,6 +45,18 @@ public class SnapshotTest {
               "key".getBytes()))).isEqualTo("value");
           // add new key/value pair
           db.put("newkey".getBytes(), "newvalue".getBytes());
+          final GetWithMetadataResult createdAfterSnapshot =
+              db.getWithMetadata(readOptions, "newkey".getBytes());
+          assertThat(createdAfterSnapshot.value).isNull();
+          assertThat(createdAfterSnapshot.newerVersionPresent).isTrue();
+
+          final List<GetWithMetadataResult> metadataResults = db.multiGetWithMetadata(
+              readOptions, Arrays.asList("key".getBytes(), "newkey".getBytes()));
+          assertThat(new String(metadataResults.get(0).value)).isEqualTo("value");
+          assertThat(metadataResults.get(0).newerVersionPresent).isFalse();
+          assertThat(metadataResults.get(1).value).isNull();
+          assertThat(metadataResults.get(1).newerVersionPresent).isTrue();
+
           // using no snapshot the latest db entries
           // will be taken into account
           assertThat(new String(db.get("newkey".getBytes()))).

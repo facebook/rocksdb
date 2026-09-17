@@ -16,6 +16,7 @@
 #include "table/block_based/block_builder.h"
 #include "table/block_based/data_block_footer.h"
 #include "test_util/testutil.h"
+#include "util/aligned_buffer.h"
 #include "util/auto_tune_compressor.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -928,6 +929,74 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
     ASSERT_EQ(s.code(), Status::kCorruption);
     ASSERT_NE(st, nullptr);
     ASSERT_EQ(std::string(st), "Seeded failure");
+  }
+}
+
+TEST_F(DBCompressionTest, VerifyCompressionChecksFinalCompressedBlockContents) {
+  CompressionType compression_type = kNoCompression;
+  for (CompressionType supported : GetSupportedCompressions()) {
+    if (supported != kNoCompression) {
+      compression_type = supported;
+      break;
+    }
+  }
+  if (compression_type == kNoCompression) {
+    return;
+  }
+
+  struct SyncPointCleanup {
+    ~SyncPointCleanup() {
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+    }
+  } sync_point_cleanup;
+
+  for (uint32_t parallel_threads : {1, 4}) {
+    SCOPED_TRACE("parallel_threads=" + std::to_string(parallel_threads));
+
+    Options options = CurrentOptions();
+    options.compression = compression_type;
+    options.compression_opts.max_compressed_bytes_per_kb = 1024;
+    options.compression_opts.parallel_threads = parallel_threads;
+
+    BlockBasedTableOptions table_options;
+    table_options.block_size = 512;
+    table_options.verify_compression = true;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    DestroyAndReopen(options);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    std::atomic<int> tamper_count{0};
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::CompressAndVerifyBlock:"
+        "TamperWithCompressedDataBeforeVerify",
+        [&](void* arg) {
+          auto* output = static_cast<GrowableBuffer*>(arg);
+          ASSERT_FALSE(output->empty());
+          output->data()[output->size() - 1]++;
+          tamper_count++;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(405);
+    constexpr int kValUnitSize = 16;
+    constexpr int kValSize = 256;
+    for (int i = 0; i < 5; i++) {
+      std::string value_unit = rnd.RandomString(kValUnitSize);
+      std::string value;
+      for (int j = 0; j < kValSize; j += kValUnitSize) {
+        value += value_unit;
+      }
+      ASSERT_OK(Put(Key(i), value));
+    }
+
+    Status s = Flush();
+
+    ASSERT_GT(tamper_count.load(), 0);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
   }
 }
 
@@ -2656,6 +2725,104 @@ TEST_F(DBCompressionTest, CompressionManagerOverridesParallelThreads) {
   ASSERT_EQ(observed_threads, 4U);
 
   // Verify data is readable (parallel compression produced correct output)
+  for (int i = 0; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value.size(), 100);
+  }
+}
+
+TEST_F(DBCompressionTest, CompressorOverridesCompressionOptions) {
+  // A Compressor can steer the subset of CompressionOptions that the builder
+  // (rather than the Compressor) is responsible for applying by overriding
+  // MaybeOverrideCompressionOptions(). Here it forces parallel_threads and we
+  // verify parallel compression activates with that thread count via the
+  // builder's sync point. This exercises the new hook directly, not the
+  // deprecated GetRecommendedParallelThreads() bridge.
+  if (!ZSTD_Supported()) {
+    ROCKSDB_GTEST_SKIP("ZSTD not supported");
+    return;
+  }
+
+  // Wraps a compressor and forces parallel_threads via the new hook.
+  class ForceParallelCompressor : public CompressorWrapper {
+   public:
+    ForceParallelCompressor(std::unique_ptr<Compressor> wrapped,
+                            uint32_t forced_threads)
+        : CompressorWrapper(std::move(wrapped)),
+          forced_threads_(forced_threads) {}
+
+    const char* Name() const override { return "ForceParallelCompressor"; }
+
+    void MaybeOverrideCompressionOptions(
+        CompressionOptions* to_modify) const override {
+      to_modify->parallel_threads = forced_threads_;
+    }
+
+    std::unique_ptr<Compressor> Clone() const override {
+      return std::make_unique<ForceParallelCompressor>(wrapped_->Clone(),
+                                                       forced_threads_);
+    }
+
+   private:
+    uint32_t forced_threads_;
+  };
+
+  // Returns the wrapping compressor for SSTs.
+  class ForceParallelManager : public CompressionManagerWrapper {
+   public:
+    ForceParallelManager(std::shared_ptr<CompressionManager> wrapped,
+                         uint32_t forced_threads)
+        : CompressionManagerWrapper(std::move(wrapped)),
+          forced_threads_(forced_threads) {}
+
+    const char* Name() const override { return "ForceParallelManager"; }
+
+    std::unique_ptr<Compressor> GetCompressorForSST(
+        const FilterBuildingContext& context, const CompressionOptions& opts,
+        CompressionType preferred) override {
+      auto inner = wrapped_->GetCompressorForSST(context, opts, preferred);
+      if (inner == nullptr) {
+        return nullptr;
+      }
+      return std::make_unique<ForceParallelCompressor>(std::move(inner),
+                                                       forced_threads_);
+    }
+
+   private:
+    uint32_t forced_threads_;
+  };
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  // Configure single-threaded; the compressor's override raises it to 4.
+  options.compression_opts.parallel_threads = 1;
+
+  auto mgr = std::make_shared<ForceParallelManager>(
+      GetBuiltinV2CompressionManager(), 4);
+  options.compression_manager = mgr;
+
+  uint32_t observed_threads = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::MaybeStartParallelCompression:Started",
+      [&](void* arg) { observed_threads = *static_cast<uint32_t*>(arg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Parallel compression activated with the compressor-overridden thread count.
+  ASSERT_EQ(observed_threads, 4U);
+
+  // Data is readable (parallel compression produced correct output).
   for (int i = 0; i < 100; i++) {
     std::string value;
     ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));

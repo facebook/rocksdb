@@ -250,22 +250,17 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
                                         size_t range_length,
                                         PinnableSlice* value) const;
 
-  // SameFileBlobReader: resolve a same-file blob reference for GetContext's
-  // zero-copy wide-column resolution on the Get()/MultiGet() path. Routes
+  // SameFileBlobReader: resolve a same-file blob reference (whole value or a
+  // sub-range) for GetContext's zero-copy wide-column resolution on the
+  // Get()/MultiGet() path and for the lazy read path. A whole-value read routes
   // through the blob cache (ResolveEmbeddedBlobCached) when a BlobSource is
-  // wired, else a direct pinned read (ResolveEmbeddedBlobPinned).
+  // wired, else a direct pinned read (ResolveEmbeddedBlobPinned); a sub-range
+  // read routes through ResolveEmbeddedBlobRangeCached (requires a BlobSource).
+  // See BlobVerifyPolicy / kWholeBlobLength for the range + verify semantics.
   Status GetSameFileBlob(const ReadOptions& read_options,
-                         const BlobIndex& blob_index,
+                         const BlobIndex& blob_index, uint64_t range_offset,
+                         size_t range_length, BlobVerifyPolicy verify_policy,
                          PinnableSlice* value) const override;
-
-  // SameFileBlobReader: byte-range counterpart of GetSameFileBlob, used by the
-  // lazy read path for partial (sub-range) reads of an uncompressed embedded
-  // blob. Routes through ResolveEmbeddedBlobRangeCached (requires a
-  // BlobSource).
-  Status GetSameFileBlobRange(const ReadOptions& read_options,
-                              const BlobIndex& blob_index,
-                              uint64_t range_offset, size_t range_length,
-                              PinnableSlice* value) const override;
 
   // If `value` is a same-file BlobIndex, materializes the referenced payload
   // and updates `resolved_internal_key` to the corresponding value type. Leaves
@@ -319,8 +314,7 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
 
   // Validates a same-file `blob_index` and returns the payload and full record
   // (payload + trailer) sizes. Shared by the ResolveEmbeddedBlob* variants.
-  Status ValidateEmbeddedBlobIndex(const ReadOptions& read_options,
-                                   const BlobIndex& blob_index,
+  Status ValidateEmbeddedBlobIndex(const BlobIndex& blob_index,
                                    size_t* payload_size,
                                    size_t* record_size) const;
 

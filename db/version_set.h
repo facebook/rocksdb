@@ -41,6 +41,7 @@
 #include "db/error_handler.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
+#include "db/periodic_compaction_phaser.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "db/table_cache.h"
@@ -127,15 +128,15 @@ enum EpochNumberRequirement {
 // compaction, blob files, etc.
 class VersionStorageInfo {
  public:
-  VersionStorageInfo(const InternalKeyComparator* internal_comparator,
-                     const Comparator* user_comparator, int num_levels,
-                     CompactionStyle compaction_style,
-                     VersionStorageInfo* src_vstorage,
-                     bool _force_consistency_checks,
-                     EpochNumberRequirement epoch_number_requirement,
-                     SystemClock* clock,
-                     uint32_t bottommost_file_compaction_delay,
-                     OffpeakTimeOption offpeak_time_option);
+  VersionStorageInfo(
+      const InternalKeyComparator* internal_comparator,
+      const Comparator* user_comparator, int num_levels,
+      CompactionStyle compaction_style, VersionStorageInfo* src_vstorage,
+      bool _force_consistency_checks,
+      EpochNumberRequirement epoch_number_requirement, SystemClock* clock,
+      uint32_t bottommost_file_compaction_delay,
+      OffpeakTimeOption offpeak_time_option,
+      PeriodicCompactionPhaseParams periodic_compaction_phase_params);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -263,6 +264,28 @@ class VersionStorageInfo {
   void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum,
                             bool allow_ingest_behind, const Comparator* ucmp,
                             const std::string& full_history_ts_low);
+
+  // Sets the seqno->time preserve-window lower bound used when deciding whether
+  // a bottommost file can be marked for compaction (see
+  // preserve_time_min_seqno_ and BottommostSeqnoCanBeZeroed).
+  // kMaxSequenceNumber disables the constraint. Fed from DBImpl, which owns the
+  // seqno->time mapping. REQUIRES: DB mutex held
+  void SetPreserveTimeMinSeqno(SequenceNumber preserve_time_min_seqno) {
+    preserve_time_min_seqno_ = preserve_time_min_seqno;
+  }
+
+  // The seqno->time preserve-window lower bound set by SetPreserveTimeMinSeqno.
+  // For a bottommost-file (kBottommostFiles) compaction, CompactionJob folds
+  // this into its own preserve_seqno_after_ computation so that the compaction
+  // zeroes out at least the sequence numbers the marker
+  // (ComputeBottommostFilesMarkedForCompaction) deemed zeroable, even when the
+  // selected file's persisted seqno->time mapping is sparse or empty (e.g. a
+  // file written before preserve/preclude was enabled). Otherwise the two would
+  // disagree and a marked file could never make progress (infinite compaction
+  // loop). kMaxSequenceNumber means the constraint is inactive.
+  SequenceNumber GetPreserveTimeMinSeqno() const {
+    return preserve_time_min_seqno_;
+  }
 
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
@@ -782,6 +805,17 @@ class VersionStorageInfo {
   // created that references it.
   SequenceNumber oldest_snapshot_seqnum_ = 0;
 
+  // The smallest sequence number whose write time is still within the
+  // seqno->time "preserve" window (preserve_internal_time_seconds /
+  // preclude_last_level_data_seconds). Bottommost keys at or above this seqno
+  // cannot have their sequence numbers zeroed out yet, so files whose largest
+  // seqno is at or above it must not be marked for bottommost compaction (that
+  // would be futile and loop). kMaxSequenceNumber means preserve is inactive.
+  // Fed from DBImpl (which owns the seqno->time mapping) via
+  // SetPreserveTimeMinSeqno; carried across versions like
+  // oldest_snapshot_seqnum_.
+  SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
+
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by ComputeCompactionScore.
@@ -830,6 +864,8 @@ class VersionStorageInfo {
   EpochNumberRequirement epoch_number_requirement_;
 
   OffpeakTimeOption offpeak_time_option_;
+
+  PeriodicCompactionPhaseParams periodic_compaction_phase_params_;
 
   friend class Version;
   friend class VersionSet;
@@ -1123,6 +1159,9 @@ class Version {
   friend class VersionSet;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  // Needs MaybeInitializeFileMetaData() to initialize input file stats before
+  // constructing a Compaction on the remote worker.
+  friend class DBImplSecondary;
 
   const InternalKeyComparator* internal_comparator() const {
     return storage_info_.internal_comparator_;
@@ -1607,6 +1646,32 @@ class VersionSet {
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
 
+  // Size of the maximal valid prefix recovered from the MANIFEST -- the largest
+  // leading range that is entirely valid. It excludes a corrupt/torn tail
+  // record or a partial atomic group at EOF, and is meant to include valid
+  // trailing framing/padding once a MANIFEST format has it.
+  //
+  // Intended for a lower-bound test -- "did recovery reach at least some point
+  // in the manifest?" (e.g. the DB::OpenAndCompact floor vs. a
+  // manifest_file_size captured on the primary). It is maximal, so a
+  // fully-recovered prefix never tests short; it excludes garbage, so a corrupt
+  // tail never tests long. It is not a safe append/truncate offset; use
+  // GetManifestAppendBoundary() for that.
+  //
+  // Immediately after recovery, this ==
+  // manifest_recovery_last_valid_record_end_ == a clean manifest_file_size_;
+  // a future padded/footered format may make manifest_last_valid_record_end_
+  // <= manifest_file_size_ <= this (changing only this accessor's body, not
+  // callers).
+  uint64_t manifest_recovery_maximal_valid_size() const {
+    return manifest_recovery_last_valid_record_end_;
+  }
+
+  // Returns the valid prefix length at which records can be appended to a
+  // copy of the current MANIFEST.
+  // REQUIRES: DB mutex held, or the DB is not yet visible to other threads.
+  Status GetManifestAppendBoundary(uint64_t* manifest_size) const;
+
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
@@ -1650,6 +1715,20 @@ class VersionSet {
   void ChangeOffpeakTimeOption(const std::string& daily_offpeak_time_utc) {
     offpeak_time_option_.SetFromOffpeakTimeString(daily_offpeak_time_utc);
   }
+
+  // Thin forwarder to periodic_compaction_phaser_.ParamsForCf(cf_id): the
+  // per-CF phasing params (DB base phase from the DB ID, golden-ratio CF
+  // spread, anchor, and recovery percent). Returns disabled params when phasing
+  // is off.
+  PeriodicCompactionPhaseParams GetPeriodicCompactionPhaseParams(
+      uint32_t cf_id) const;
+
+  // (Re)anchor periodic-compaction phasing to now and refresh the cached phase
+  // params on every column family's current Version. Called when a CF's
+  // periodic_compaction_seconds changes via SetOptions, so a turn-down's newly
+  // past-due cohort is spread (over the phase grid within ~N/4 of now) instead
+  // of firing all at once. Caller must hold the DB mutex.
+  void ReanchorCompactionPhase();
 
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
@@ -1801,6 +1880,9 @@ class VersionSet {
   SystemClock* const clock_;
   const std::string dbname_;
   std::string db_id_;
+  // Periodic-compaction phasing. Declared right after db_id_ because it holds a
+  // live reference to it (the DB base phase is hashed from the DB ID).
+  PeriodicCompactionPhaser periodic_compaction_phaser_{db_id_};
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any WAL number smaller than this should be ignored during recovery,
@@ -1845,16 +1927,34 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
-  // File offset at the end of the last successfully completed logical
-  // record during MANIFEST recovery. Unlike manifest_file_size_ (the
-  // reader's I/O high-water mark, which includes any tolerated tail
-  // garbage), this value points to the byte after the last valid record.
-  // Used by ReopenManifestForAppend to detect intra-block tail
-  // corruption that doesn't extend the physical file size.
+  // File offset at the end of the last successfully completed logical unit
+  // during MANIFEST recovery. For atomic groups, this advances only after the
+  // whole group is buffered and applied. Unlike manifest_file_size_ (the
+  // reader's I/O high-water mark, which includes any tolerated tail garbage),
+  // this value points to the byte after the last valid record. Set only by
+  // recovery -- NOT live-updated on the write path (hence the recovery_
+  // prefix); ProcessManifestWrites keeps manifest_file_size_ current instead.
+  // Used by ReopenManifestForAppend to detect intra-block tail corruption that
+  // doesn't extend the physical file size, as well as partial atomic groups at
+  // EOF.
   // manifest_file_size_ is kept separate because it is used for
   // rotation decisions (ProcessManifestWrites), close-time verification
   // (Close), and backup metadata.
+  uint64_t manifest_recovery_last_valid_record_end_;
+
+  // Safe append boundary for a copy of the current MANIFEST. Initialized from
+  // the recovery boundary and advanced after every successful MANIFEST write.
+  // Unlike manifest_file_size_, it excludes any tolerated tail garbage.
   uint64_t manifest_last_valid_record_end_;
+
+  // MANIFEST file number associated with manifest_last_valid_record_end_.
+  uint64_t manifest_last_valid_record_end_file_number_;
+
+  // True when reuse_manifest_on_open was requested but the recovered MANIFEST
+  // could not be safely reopened for append. DB open must install a fresh
+  // MANIFEST before returning so normal writable operation never appends to
+  // the old tail.
+  bool force_new_manifest_on_open_;
 
   // Size of the populated manifest file last time it was re-written from
   // scratch.
@@ -1949,6 +2049,27 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
+
+  // Must be called before Recover(). When set, Recover() trusts the MANIFEST
+  // and reconstructs the version from FileMetaData without stat-ing/opening SST
+  // or blob files. Only used by the DB::OpenAndCompact remote-compaction path.
+  void SetTrustManifestRecovery(bool v) { trust_manifest_recovery_ = v; }
+
+  // Returns the column family's log number as of the Version currently
+  // installed for it, i.e. the log number that the MANIFEST records that
+  // Version was built from had put in effect. Data written to WALs older than
+  // the returned number has been flushed by the primary into files the
+  // installed Version references, so it is readable without those WALs.
+  //
+  // This is not the same as ColumnFamilyData::GetLogNumber(), which advances as
+  // soon as a flush record is read from the MANIFEST even when no Version
+  // reflecting that record could be installed.
+  //
+  // Returns 0 if no Version has been installed for `cf_id`.
+  //
+  // REQUIRES: db mutex
+  uint64_t GetInstalledVersionLogNumber(uint32_t cf_id) const;
+
 #ifndef NDEBUG
   uint64_t TEST_read_edits_in_atomic_group() const;
 #endif  //! NDEBUG
@@ -1967,6 +2088,11 @@ class ReactiveVersionSet : public VersionSet {
 
  private:
   std::unique_ptr<ManifestTailer> manifest_tailer_;
+  // When true, MANIFEST recovery trusts the manifest and does not stat/open SST
+  // or blob files (see
+  // VersionEditHandlerPointInTime::trust_manifest_recovery_). Set only for the
+  // DB::OpenAndCompact remote-compaction path.
+  bool trust_manifest_recovery_ = false;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options_;
   using VersionSet::LogAndApply;

@@ -395,6 +395,24 @@ void CompactionJob::Prepare(
       std::min(preclude_last_level_min_seqno, preserve_time_min_seqno);
 #endif
 
+  // For a bottommost-file compaction, which exists only because the marker
+  // (VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction) decided the
+  // file's largest sequence number could be zeroed, honor that same
+  // version-carried preserve boundary here. The marker reads DBImpl's live,
+  // DB-wide seqno->time mapping, whereas the value computed above is derived
+  // only from the selected file's persisted mapping, which can be sparse or
+  // empty (e.g. a file written before preserve/preclude was enabled). Taking
+  // the max ensures this compaction can zero at least the sequence numbers the
+  // marker considered zeroable, so a marked file makes progress instead of
+  // being re-marked forever (infinite compaction loop). Other compaction
+  // reasons keep the per-input-file boundary so their seqno-zeroing behavior is
+  // unchanged. When preserve/preclude is inactive the version value is
+  // kMaxSequenceNumber, making this a no-op.
+  if (c->compaction_reason() == CompactionReason::kBottommostFiles) {
+    preserve_time_min_seqno = std::max(preserve_time_min_seqno,
+                                       storage_info->GetPreserveTimeMinSeqno());
+  }
+
   // Preserve sequence numbers for preserved write times and snapshots, though
   // the specific sequence number of the earliest snapshot can be zeroed.
   preserve_seqno_after_ =
@@ -423,6 +441,17 @@ void CompactionJob::Prepare(
                                    c->GetKeepInLastLevelThroughSeqno());
 
   options_file_number_ = versions_->options_file_number();
+
+  // For remote compaction hardening: capture the current MANIFEST position as a
+  // floor for the worker's recovery. manifest_file_size() is a physical byte
+  // offset that VersionSet::ProcessManifestWrites records under the DB mutex
+  // only after the whole version-edit batch is written and sync'd, so it is a
+  // durable, complete-batch offset -- never mid-record or mid-atomic-group --
+  // at or past the compaction's (already committed) input version.
+  if (mutable_db_options_copy_.remote_compaction_manifest_floor) {
+    min_manifest_file_number_ = versions_->manifest_file_number();
+    min_manifest_file_size_ = versions_->manifest_file_size();
+  }
 }
 
 void CompactionJob::MaybeAssignCompactionProgressAndWriter(
@@ -2605,7 +2634,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
       db_options_.stats, Histograms::SST_WRITE_MICROS, listeners,
       db_options_.file_checksum_gen_factory.get(),
-      tmp_set.Contains(FileType::kTableFile), false));
+      tmp_set.Contains(FileType::kTableFile),
+      tmp_set.Contains(FileType::kTableFile)));
 
   // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
   const ReadOptions read_options(Env::IOActivity::kCompaction);

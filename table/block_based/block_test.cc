@@ -123,7 +123,9 @@ TEST_P(BlockTest, SimpleTest) {
       static_cast<int>(getRestartInterval()), keyUseDeltaEncoding(),
       false /* use_value_delta_encoding */, index_type,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
-      false /* is_user_key */, useSeparatedKVStorage());
+      false /* is_user_key */, useSeparatedKVStorage(),
+      nullptr /* statistics */, -1.0 /* uniform_cv_threshold */,
+      false /* use_common_prefix */);
   int num_records = 20;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */,
@@ -191,7 +193,8 @@ BlockContents GetBlockContents(
       static_cast<int>(restart_interval), key_use_delta_encoding,
       false /* use_value_delta_encoding */, dblock_index_type,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, should_persist_udt,
-      false /* is_user_key */, use_separated_kv_storage));
+      false /* is_user_key */, use_separated_kv_storage, /*statistics=*/nullptr,
+      /*uniform_cv_threshold=*/-1.0, /*use_common_prefix=*/false));
 
   // Add only half of the keys
   for (size_t i = 0; i < keys.size(); ++i) {
@@ -462,7 +465,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(16);
+  BlockBuilder builder(BlockBuilder::ForMetaBlock{}, 16);
   int num_records = 10000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1 /* step */);
@@ -608,7 +611,96 @@ void AddIndexBlockEntry(BlockBuilder& builder, const Slice& key,
     entry.EncodeTo(&delta_encoded_entry, include_first_key, prev);
   }
   const Slice delta_slice(delta_encoded_entry);
-  builder.Add(key, encoded_entry, &delta_slice);
+  builder.Add(key, encoded_entry, delta_slice);
+}
+
+// Directly exercises the format_version >= 8 index value-delta escape codec
+// (IndexValue::EncodeTo/DecodeFrom), independent of block/table machinery.
+// See table/format.h FormatVersionUsesValueDeltaEscape.
+TEST(IndexValueDeltaEscapeTest, EncodeDecodeRoundTrip) {
+  constexpr uint64_t kTrailer = BlockBasedTable::kBlockTrailerSize;
+  // Previous block handle. Size is large enough that prev.size() + delta stays
+  // positive for all deltas below.
+  const BlockHandle prev(1000, 4 * 1024 * 1024);
+  const uint64_t contiguous_offset = prev.offset() + prev.size() + kTrailer;
+
+  // Size deltas relative to prev.size(), including 0 (whose legacy encoding is
+  // a bare 0x00 -- the byte fv8 reuses as the escape), negatives, and large
+  // ones.
+  const int64_t deltas[] = {0,    1,     -1,     5,       -5,        255,
+                            -255, 12345, -12345, 1 << 20, -(1 << 20)};
+  for (int64_t d : deltas) {
+    SCOPED_TRACE("delta=" + std::to_string(d));
+    const uint64_t new_size =
+        static_cast<uint64_t>(static_cast<int64_t>(prev.size()) + d);
+    const BlockHandle contig(contiguous_offset, new_size);
+    const IndexValue iv(contig, Slice());
+
+    // format_version <= 7 (escape disabled): bytes must be byte-identical to
+    // the legacy PutVarsignedint64(size delta), and must round-trip.
+    std::string fv7;
+    iv.EncodeTo(&fv7, /*have_first_key=*/false, &prev,
+                /*use_value_delta_escape=*/false);
+    std::string expected_fv7;
+    PutVarsignedint64(&expected_fv7, d);
+    EXPECT_EQ(expected_fv7, fv7);
+    {
+      Slice in(fv7);
+      IndexValue dec;
+      ASSERT_OK(dec.DecodeFrom(&in, false, &prev, false));
+      EXPECT_EQ(contig.offset(), dec.handle.offset());
+      EXPECT_EQ(contig.size(), dec.handle.size());
+      EXPECT_EQ(0u, in.size());
+    }
+
+    // format_version >= 8 (escape enabled): a genuine (contiguous) delta is
+    // remapped so it never collides with the single-byte 0x00 escape, and it
+    // round-trips.
+    std::string fv8;
+    iv.EncodeTo(&fv8, false, &prev, /*use_value_delta_escape=*/true);
+    EXPECT_FALSE(fv8.size() == 1 && fv8[0] == '\0')
+        << "a real delta must not encode to the reserved escape byte";
+    {
+      Slice in(fv8);
+      IndexValue dec;
+      ASSERT_OK(dec.DecodeFrom(&in, false, &prev, true));
+      EXPECT_EQ(contig.offset(), dec.handle.offset());
+      EXPECT_EQ(contig.size(), dec.handle.size());
+      EXPECT_EQ(0u, in.size());
+    }
+  }
+
+  // format_version >= 8 escape: a NON-contiguous handle is encoded as the 0x00
+  // escape followed by a full BlockHandle, and decodes back to the exact
+  // (offset, size) -- ignoring prev's implied contiguous offset.
+  {
+    const BlockHandle noncontig(contiguous_offset + 777 /* gap */, 4096);
+    const IndexValue iv(noncontig, Slice());
+    std::string fv8;
+    iv.EncodeTo(&fv8, false, &prev, /*use_value_delta_escape=*/true);
+    ASSERT_GE(fv8.size(), 1u);
+    EXPECT_EQ('\0', fv8[0]);  // escape sentinel
+    Slice in(fv8);
+    IndexValue dec;
+    ASSERT_OK(dec.DecodeFrom(&in, false, &prev, true));
+    EXPECT_EQ(noncontig.offset(), dec.handle.offset());
+    EXPECT_EQ(noncontig.size(), dec.handle.size());
+    EXPECT_EQ(0u, in.size());
+  }
+
+  // A genuine legacy (fv7) 0x00 (delta 0) still decodes as delta 0 under fv7.
+  {
+    std::string bytes;
+    PutVarsignedint64(&bytes, 0);
+    ASSERT_EQ(1u, bytes.size());
+    ASSERT_EQ('\0', bytes[0]);
+    Slice in(bytes);
+    IndexValue dec;
+    ASSERT_OK(dec.DecodeFrom(&in, false, &prev,
+                             /*use_value_delta_escape=*/false));
+    EXPECT_EQ(contiguous_offset, dec.handle.offset());
+    EXPECT_EQ(prev.size(), dec.handle.size());  // delta 0 -> unchanged size
+  }
 }
 
 enum class KeyDistribution { kUniform, kNonUniform };
@@ -730,7 +822,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, ts_sz, shouldPersistUDT(),
       !keyIncludesSeq(), useSeparatedKVStorage(), nullptr /* statistics */,
-      0.2 /* uniform_cv_threshold */);
+      0.2 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   int num_records = numRecords();
 
@@ -773,7 +865,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), keyIncludesSeq(),
       !useValueDeltaEncoding(), false /* block_contents_pinned */,
-      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType());
+      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType(),
+      false /* value_delta_escape */);
   iter->SeekToFirst();
   for (int index = 0; index < num_records; ++index) {
     ASSERT_TRUE(iter->Valid());
@@ -812,7 +905,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
       options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), keyIncludesSeq(),
       !useValueDeltaEncoding(), false /* block_contents_pinned */,
-      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType());
+      shouldPersistUDT(), nullptr /* prefix_index */, indexSearchType(),
+      false /* value_delta_escape */);
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -892,7 +986,9 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary) {
       1 /* restart_interval */, true /* use_delta_encoding */,
       kUseValueDeltaEncoding, BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
-      false /* persist_udt */, true /* is_user_key */);
+      false /* persist_udt */, true /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   for (int i = 0; i < kNumKeys; i++) {
     BlockHandle* prev = i > 0 ? &handles[i - 1] : nullptr;
@@ -920,7 +1016,8 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary) {
           false /* block_contents_pinned */,
           true /* user_defined_timestamps_persisted */,
           nullptr /* prefix_index */,
-          BlockBasedTableOptions::BlockSearchType::kInterpolation));
+          BlockBasedTableOptions::BlockSearchType::kInterpolation,
+          false /* value_delta_escape */));
 
   // Case 1: target prefix < shared prefix
   iter->Seek(make_target("AAAAAA"));
@@ -976,7 +1073,9 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary2) {
       1 /* restart_interval */, true /* use_delta_encoding */,
       kUseValueDeltaEncoding, BlockBasedTableOptions::kDataBlockBinarySearch,
       0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
-      false /* persist_udt */, false /* is_user_key */);
+      false /* persist_udt */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
 
   for (int i = 0; i < kNumKeys; i++) {
     BlockHandle* prev = i > 0 ? &handles[i - 1] : nullptr;
@@ -1004,7 +1103,8 @@ TEST(IndexBlockTest, InterpolationSearchPrefixBoundary2) {
           false /* block_contents_pinned */,
           true /* user_defined_timestamps_persisted */,
           nullptr /* prefix_index */,
-          BlockBasedTableOptions::BlockSearchType::kInterpolation));
+          BlockBasedTableOptions::BlockSearchType::kInterpolation,
+          false /* value_delta_escape */));
 
   // Seek to each existing sequence number
   for (int i = 0; i < kNumKeys; i++) {
@@ -1135,7 +1235,11 @@ TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
   BlockBuilder builder(
       16 /* block_restart_interval */, true /* use_delta_encoding */,
       false /* use_value_delta_encoding */,
-      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch);
+      BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
+      0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+      true /* persist_user_defined_timestamps */, false /* is_user_key */,
+      false /* use_separated_kv_storage */, nullptr /* statistics */,
+      -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
   Slice raw_block = builder.Finish();
   BlockContents contents;
   contents.data = raw_block;
@@ -1143,10 +1247,15 @@ TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
   std::unique_ptr<Block_kData> data_block;
   Options options = Options();
   uint8_t protection_bytes_per_key = 8;
-  BlockCreateContext create_context{
-      kTableOptions(),          nullptr,
-      nullptr /* statistics */, kDecompressor(),
-      protection_bytes_per_key, options.comparator};
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    protection_bytes_per_key,
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
   create_context.Create(&data_block, std::move(contents));
   std::unique_ptr<DataBlockIter> biter{data_block->NewDataIterator(
       options.comparator, kDisableGlobalSequenceNumber)};
@@ -1180,9 +1289,15 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
   // when the block is itself already corrupted.
   Options options = Options();
   uint8_t protection_bytes_per_key = 8;
-  BlockCreateContext create_context{
-      kTableOptions(), nullptr /* ioptions */,   nullptr /* statistics */,
-      kDecompressor(), protection_bytes_per_key, options.comparator};
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr /* ioptions */,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    protection_bytes_per_key,
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
 
   {
     std::string invalid_content = "1";
@@ -1204,7 +1319,9 @@ TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
     create_context.Create(&index_block, std::move(contents));
     std::unique_ptr<IndexBlockIter> iter{index_block->NewIndexIterator(
         options.comparator, kDisableGlobalSequenceNumber, nullptr, nullptr,
-        true, false, true, true)};
+        true, false, true, true, /*block_contents_pinned=*/false,
+        /*user_defined_timestamps_persisted=*/true, /*prefix_index=*/nullptr,
+        BlockBasedTableOptions::kBinary, /*value_delta_escape=*/false)};
     ASSERT_TRUE(iter->status().IsCorruption());
   }
   {
@@ -1234,7 +1351,10 @@ TEST_F(BlockPerKVChecksumTest, CorruptHashIndexNumBucketsNoOverRead) {
                                     nullptr /* statistics */,
                                     kDecompressor(),
                                     0 /* protection_bytes_per_key */,
-                                    options.comparator};
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
 
   // Body bytes followed by a 2-byte NUM_BUCKETS field, then the encoded footer
   // (values_section_offset + packed). Layout mirrors what DecodeFrom expects.
@@ -1271,6 +1391,36 @@ TEST_F(BlockPerKVChecksumTest, CorruptHashIndexNumBucketsNoOverRead) {
   ASSERT_TRUE(iter->status().IsCorruption());
 }
 
+// A data block footer with the reserved "extended metadata" bit (bit 30) set
+// must be rejected as corruption. No writer sets it yet; format_version 8
+// reserves it so a future extension can be added in the one shared decoder.
+TEST(DataBlockFooterTest, ExtendedMetadataBitRejected) {
+  DataBlockFooter footer;
+  footer.num_restarts = 3;
+  footer.index_type = BlockBasedTableOptions::kDataBlockBinarySearch;
+  std::string encoded;
+  footer.EncodeTo(&encoded);
+  ASSERT_EQ(sizeof(uint32_t), encoded.size());
+
+  // Sanity: the unmodified footer decodes fine.
+  {
+    Slice in(encoded);
+    DataBlockFooter decoded;
+    ASSERT_OK(decoded.DecodeFrom(&in));
+    EXPECT_EQ(3u, decoded.num_restarts);
+  }
+
+  // Set bit 30 in the packed footer word and confirm it is rejected.
+  uint32_t packed = DecodeFixed32(encoded.data());
+  packed |= (uint32_t{1} << 30);
+  std::string corrupt;
+  PutFixed32(&corrupt, packed);
+  Slice in(corrupt);
+  DataBlockFooter decoded;
+  Status s = decoded.DecodeFrom(&in);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+}
+
 TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
   // Tests that ApproximateMemoryUsage() includes memory used by block kv
   // checksum.
@@ -1281,7 +1431,8 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
                     24 /* padding_size */);
   std::unique_ptr<BlockBuilder> builder;
   auto generate_block_content = [&]() {
-    builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+    builder = std::make_unique<BlockBuilder>(BlockBuilder::ForMetaBlock{},
+                                             16 /* restart_interval */);
     for (int i = 0; i < kNumRecords; ++i) {
       builder->Add(keys[i], values[i]);
     }
@@ -1300,14 +1451,18 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
       kDecompressor(),
       protection_bytes_per_key,
       options.comparator,
-      true /* index_value_is_full */};
+      true /* index_value_is_full */,
+      /*index_has_first_key=*/false,
+      /*index_value_delta_escape=*/false};
   BlockCreateContext create_context{kTableOptions(),
                                     nullptr /* ioptions */,
                                     nullptr /* statistics */,
                                     kDecompressor(),
                                     0,
                                     options.comparator,
-                                    true /* index_value_is_full */};
+                                    true /* index_value_is_full */,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
 
   {
     std::unique_ptr<Block_kData> data_block;
@@ -1340,7 +1495,8 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
     GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
                                kNumRecords);
     auto generate_index_content = [&]() {
-      builder = std::make_unique<BlockBuilder>(16 /* restart_interval */);
+      builder = std::make_unique<BlockBuilder>(BlockBuilder::ForMetaBlock{},
+                                               16 /* restart_interval */);
       BlockHandle last_encoded_handle;
       for (int i = 0; i < kNumRecords; ++i) {
         IndexValue entry(block_handles[i], first_keys[i]);
@@ -1349,7 +1505,7 @@ TEST_F(BlockPerKVChecksumTest, ApproximateMemory) {
         entry.EncodeTo(&encoded_entry, false, nullptr);
         last_encoded_handle = entry.handle;
         const Slice delta_encoded_entry_slice(delta_encoded_entry);
-        builder->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+        builder->Add(separators[i], encoded_entry, delta_encoded_entry_slice);
       }
       Slice raw_block = builder->Finish();
       BlockContents contents;
@@ -1395,13 +1551,23 @@ class DataBlockKVChecksumTest
   std::unique_ptr<Block_kData> GenerateDataBlock(
       std::vector<std::string>& keys, std::vector<std::string>& values,
       int num_record) {
-    BlockCreateContext create_context{
-        kTableOptions(), nullptr /* statistics */, nullptr /* ioptions */,
-        kDecompressor(), GetChecksumLen(),         Options().comparator};
+    BlockCreateContext create_context{kTableOptions(),
+                                      nullptr /* statistics */,
+                                      nullptr /* ioptions */,
+                                      kDecompressor(),
+                                      GetChecksumLen(),
+                                      Options().comparator,
+                                      /*index_value_is_full=*/false,
+                                      /*index_has_first_key=*/false,
+                                      /*index_value_delta_escape=*/false};
     builder_ = std::make_unique<BlockBuilder>(
         static_cast<int>(GetRestartInterval()),
         GetUseDeltaEncoding() /* use_delta_encoding */,
-        false /* use_value_delta_encoding */, GetDataBlockIndexType());
+        false /* use_value_delta_encoding */, GetDataBlockIndexType(),
+        0.75 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+        true /* persist_user_defined_timestamps */, false /* is_user_key */,
+        false /* use_separated_kv_storage */, nullptr /* statistics */,
+        -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
     for (int i = 0; i < num_record; i++) {
       builder_->Add(keys[i], values[i]);
     }
@@ -1527,11 +1693,16 @@ class IndexBlockKVChecksumTest
         protection_bytes_per_key,
         options.comparator,
         !UseValueDeltaEncoding() /* value_is_full */,
-        IncludeFirstKey()};
+        IncludeFirstKey(),
+        /*index_value_delta_escape=*/false};
     builder_ = std::make_unique<BlockBuilder>(
         static_cast<int>(GetRestartInterval()), true /* use_delta_encoding */,
         UseValueDeltaEncoding() /* use_value_delta_encoding */,
-        GetDataBlockIndexType());
+        GetDataBlockIndexType(), 0.75 /* data_block_hash_table_util_ratio */,
+        0 /* ts_sz */, true /* persist_user_defined_timestamps */,
+        false /* is_user_key */, false /* use_separated_kv_storage */,
+        nullptr /* statistics */, -1.0 /* uniform_cv_threshold */,
+        false /* use_common_prefix */);
     BlockHandle last_encoded_handle;
     for (int i = 0; i < num_record; i++) {
       IndexValue entry(block_handles[i], first_keys[i]);
@@ -1545,7 +1716,7 @@ class IndexBlockKVChecksumTest
 
       last_encoded_handle = entry.handle;
       const Slice delta_encoded_entry_slice(delta_encoded_entry);
-      builder_->Add(separators[i], encoded_entry, &delta_encoded_entry_slice);
+      builder_->Add(separators[i], encoded_entry, delta_encoded_entry_slice);
     }
     // read serialized contents of the block
     Slice raw_block = builder_->Finish();
@@ -1610,7 +1781,8 @@ TEST_P(IndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
           !UseValueDeltaEncoding() /* value_is_full */,
           true /* block_contents_pinned*/,
           true /* user_defined_timestamps_persisted */,
-          nullptr /* prefix_index */)};
+          nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+          false /* value_delta_escape */)};
       biter->SeekToFirst();
       const char* checksum_ptr = index_block->TEST_GetKVChecksum();
       // Check checksum of correct length is generated
@@ -1660,11 +1832,17 @@ class MetaIndexBlockKVChecksumTest
       int num_record) {
     Options options = Options();
     uint8_t protection_bytes_per_key = GetChecksumLen();
-    BlockCreateContext create_context{
-        kTableOptions(), nullptr /* ioptions */,   nullptr /* statistics */,
-        kDecompressor(), protection_bytes_per_key, options.comparator};
-    builder_ =
-        std::make_unique<BlockBuilder>(static_cast<int>(GetRestartInterval()));
+    BlockCreateContext create_context{kTableOptions(),
+                                      nullptr /* ioptions */,
+                                      nullptr /* statistics */,
+                                      kDecompressor(),
+                                      protection_bytes_per_key,
+                                      options.comparator,
+                                      /*index_value_is_full=*/false,
+                                      /*index_has_first_key=*/false,
+                                      /*index_value_delta_escape=*/false};
+    builder_ = std::make_unique<BlockBuilder>(
+        BlockBuilder::ForMetaBlock{}, static_cast<int>(GetRestartInterval()));
     // add a bunch of records to a block
     for (int i = 0; i < num_record; i++) {
       builder_->Add(keys[i], values[i]);
@@ -1691,9 +1869,15 @@ INSTANTIATE_TEST_CASE_P(P, MetaIndexBlockKVChecksumTest,
 TEST_P(MetaIndexBlockKVChecksumTest, ChecksumConstructionAndVerification) {
   Options options = Options();
   uint8_t protection_bytes_per_key = GetChecksumLen();
-  BlockCreateContext create_context{
-      kTableOptions(), nullptr /* ioptions */,   nullptr /* statistics */,
-      kDecompressor(), protection_bytes_per_key, options.comparator};
+  BlockCreateContext create_context{kTableOptions(),
+                                    nullptr /* ioptions */,
+                                    nullptr /* statistics */,
+                                    kDecompressor(),
+                                    protection_bytes_per_key,
+                                    options.comparator,
+                                    /*index_value_is_full=*/false,
+                                    /*index_has_first_key=*/false,
+                                    /*index_value_delta_escape=*/false};
   std::vector<int> num_restart_intervals = {1, 16};
   for (const auto num_restart_interval : num_restart_intervals) {
     const int kNumRecords = num_restart_interval * GetRestartInterval();
@@ -1851,7 +2035,8 @@ class IndexBlockKVChecksumCorruptionTest : public IndexBlockKVChecksumTest {
         !UseValueDeltaEncoding() /* value_is_full */,
         true /* block_contents_pinned */,
         true /* user_defined_timestamps_persisted */,
-        nullptr /* prefix_index */)};
+        nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+        false /* value_delta_escape */)};
     SyncPoint::GetInstance()->EnableProcessing();
     return biter;
   }
@@ -2021,18 +2206,19 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
   }
 }
 
-class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
+class BlockEntryCorruptionTest : public testing::TestWithParam<bool> {
  public:
   bool useSeparatedKVStorage() const { return GetParam(); }
 
   std::string BuildBlock() {
-    BlockBuilder builder(1 /* restart_interval */,
-                         true /* use_delta_encoding */,
-                         false /* use_value_delta_encoding */,
-                         BlockBasedTableOptions::kDataBlockBinarySearch,
-                         0 /* data_block_hash_table_util_ratio */,
-                         0 /* ts_sz */, false /* persist_udt */,
-                         true /* is_user_key */, useSeparatedKVStorage());
+    BlockBuilder builder(
+        1 /* restart_interval */, true /* use_delta_encoding */,
+        false /* use_value_delta_encoding */,
+        BlockBasedTableOptions::kDataBlockBinarySearch,
+        0 /* data_block_hash_table_util_ratio */, 0 /* ts_sz */,
+        false /* persist_udt */, true /* is_user_key */,
+        useSeparatedKVStorage(), nullptr /* statistics */,
+        -1.0 /* uniform_cv_threshold */, false /* use_common_prefix */);
     builder.Add("key001", "val01");
     builder.Add("key002", "val02");
     builder.Add("key003", "val03");
@@ -2043,13 +2229,24 @@ class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
 
   // Get the restart offset for a given restart index from the raw block data.
   uint32_t GetRestartOffset(const std::string& block_data, int restart_idx) {
+    size_t restarts_start = GetRestartsStart(block_data);
+    return DecodeFixed32(block_data.data() + restarts_start +
+                         restart_idx * sizeof(uint32_t));
+  }
+
+  void SetRestartOffset(std::string* block_data, int restart_idx,
+                        uint32_t restart_offset) {
+    size_t restarts_start = GetRestartsStart(*block_data);
+    EncodeFixed32(
+        &(*block_data)[restarts_start + restart_idx * sizeof(uint32_t)],
+        restart_offset);
+  }
+
+  size_t GetRestartsStart(const std::string& block_data) {
     size_t footer_size = useSeparatedKVStorage() ? 8 : 4;
     uint32_t packed = DecodeFixed32(block_data.data() + block_data.size() - 4);
     uint32_t num_restarts = packed & DataBlockFooter::kMaxNumRestarts;
-    size_t restarts_start =
-        block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
-    return DecodeFixed32(block_data.data() + restarts_start +
-                         restart_idx * sizeof(uint32_t));
+    return block_data.size() - footer_size - num_restarts * sizeof(uint32_t);
   }
 
   uint32_t GetKeyEnd(const std::string& block_data) {
@@ -2074,12 +2271,12 @@ class MetaBlockEntryCorruptionTest : public testing::TestWithParam<bool> {
   }
 };
 
-INSTANTIATE_TEST_CASE_P(P, MetaBlockEntryCorruptionTest, ::testing::Bool(),
+INSTANTIATE_TEST_CASE_P(P, BlockEntryCorruptionTest, ::testing::Bool(),
                         [](const testing::TestParamInfo<bool>& args) {
                           return args.param ? "SeparatedKV" : "InlineKV";
                         });
 
-TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
+TEST_P(BlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
   std::string block_data = BuildBlock();
   uint32_t key_end = GetKeyEnd(block_data);
 
@@ -2099,7 +2296,7 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedKeyLengthPastKeyEnd) {
   ASSERT_TRUE(iter->status().IsCorruption());
 }
 
-TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
+TEST_P(BlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
   std::string block_data = BuildBlock();
   uint32_t value_end = GetValueEnd(block_data);
 
@@ -2119,13 +2316,119 @@ TEST_P(MetaBlockEntryCorruptionTest, CorruptedValueLengthPastValueEnd) {
   ASSERT_TRUE(iter->status().IsCorruption());
 }
 
+TEST_P(BlockEntryCorruptionTest, DataIteratorRejectsEntryPastSectionEnd) {
+  for (int length_byte_offset : {1, 2}) {
+    SCOPED_TRACE("length_byte_offset=" + std::to_string(length_byte_offset));
+    std::string block_data = BuildBlock();
+    uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+    uint32_t invalid_length = length_byte_offset == 1 ? GetKeyEnd(block_data)
+                                                      : GetValueEnd(block_data);
+    ASSERT_LT(invalid_length, 128);
+    block_data[first_entry_offset + length_byte_offset] =
+        static_cast<char>(invalid_length);
+
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+    std::unique_ptr<DataBlockIter> iter(block.NewDataIterator(
+        BytewiseComparator(), kDisableGlobalSequenceNumber, nullptr, nullptr,
+        true /* block_contents_pinned */,
+        true /* user_defined_timestamps_persisted */));
+
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_P(BlockEntryCorruptionTest, SeekRejectsRestartKeyPastKeysEnd) {
+  std::string block_data = BuildBlock();
+  uint32_t key_end = GetKeyEnd(block_data);
+  uint32_t second_entry_offset = GetRestartOffset(block_data, 1);
+  ASSERT_LT(key_end, 128);
+  block_data[second_entry_offset + 1] = static_cast<char>(key_end);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+  iter->Seek("key999");
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(BlockEntryCorruptionTest, RejectsValueOffsetPastValuesEnd) {
+  if (!useSeparatedKVStorage()) {
+    return;
+  }
+
+  std::string block_data = BuildBlock();
+  uint32_t first_entry_offset = GetRestartOffset(block_data, 0);
+  uint32_t values_size = GetValueEnd(block_data) - GetKeyEnd(block_data);
+  ASSERT_LT(values_size, 128);
+  block_data[first_entry_offset + 3] = static_cast<char>(values_size);
+
+  BlockContents contents;
+  contents.data = Slice(block_data);
+  Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+  std::unique_ptr<DataBlockIter> iter(
+      block.NewDataIterator(BytewiseComparator(), kDisableGlobalSequenceNumber,
+                            nullptr, nullptr, true /* block_contents_pinned */,
+                            true /* user_defined_timestamps_persisted */));
+
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+}
+
+TEST_P(BlockEntryCorruptionTest, InvalidRestartOffsets) {
+  for (bool past_keys_end : {false, true}) {
+    SCOPED_TRACE("past_keys_end=" + std::to_string(past_keys_end));
+    std::string block_data = BuildBlock();
+    uint32_t invalid_offset =
+        past_keys_end ? GetKeyEnd(block_data) : GetRestartOffset(block_data, 0);
+    SetRestartOffset(&block_data, 1, invalid_offset);
+
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+    ASSERT_EQ(block.size(), 0);
+    std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST(BlockEntryCorruptionStandaloneTest, TruncatedEntryHeader) {
+  for (size_t entry_size : {1U, 2U}) {
+    SCOPED_TRACE("entry_size=" + std::to_string(entry_size));
+    std::string block_data(entry_size, '\0');
+    PutFixed32(&block_data, 0);
+    DataBlockFooter(BlockBasedTableOptions::kDataBlockBinarySearch,
+                    1 /* num_restarts */)
+        .EncodeTo(&block_data);
+
+    BlockContents contents;
+    contents.data = Slice(block_data);
+    Block block(std::move(contents), 0, nullptr, 1 /* restart_interval */);
+    std::unique_ptr<MetaBlockIter> iter(block.NewMetaIterator());
+
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
 TEST_F(BlockTest, SeparatedKVInvalidValuesSectionOffset) {
-  BlockBuilder builder(16 /* restart_interval */, true /* use_delta_encoding */,
-                       false /* use_value_delta_encoding */,
-                       BlockBasedTableOptions::kDataBlockBinaryAndHash,
-                       0.75 /* hash_ratio */, 0 /* ts_sz */,
-                       true /* persist_user_defined_timestamps */,
-                       false /* is_user_key */, true /* separate_key_value */);
+  BlockBuilder builder(
+      16 /* restart_interval */, true /* use_delta_encoding */,
+      false /* use_value_delta_encoding */,
+      BlockBasedTableOptions::kDataBlockBinaryAndHash, 0.75 /* hash_ratio */,
+      0 /* ts_sz */, true /* persist_user_defined_timestamps */,
+      false /* is_user_key */, true /* separate_key_value */,
+      nullptr /* statistics */, -1.0 /* uniform_cv_threshold */,
+      false /* use_common_prefix */);
 
   for (int i = 0; i < 5; i++) {
     std::string key = "key" + std::to_string(i);

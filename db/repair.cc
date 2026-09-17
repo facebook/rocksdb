@@ -701,7 +701,8 @@ class Repairer {
           nullptr /* src_vstorage */, cfd->ioptions().force_consistency_checks,
           EpochNumberRequirement::kMightMissing, cfd->ioptions().clock,
           /*bottommost_file_compaction_delay=*/0,
-          cfd->current()->version_set()->offpeak_time_option());
+          cfd->current()->version_set()->offpeak_time_option(),
+          PeriodicCompactionPhaseParams{});
       Status s;
       VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {

@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <string>
 
 #include "rocksdb/advanced_iterator.h"
@@ -66,6 +68,12 @@ class UserDefinedIndexBuilder {
     // Tag (packed sequence number and type) of first_key_in_next_block (valid
     // only when first_key_in_next_block != nullptr).
     uint64_t first_key_tag = 0;
+    // True when block alignment padding put this data block at a
+    // non-sequential offset, so its handle must not be delta encoded
+    // against the previous one. Only meaningful for AddIndexEntry; the
+    // parallel path learns the offset later and receives the same flag as
+    // an explicit FinishAddEntry parameter.
+    bool skip_delta_encoding = false;
   };
 
   virtual ~UserDefinedIndexBuilder() = default;
@@ -116,20 +124,61 @@ class UserDefinedIndexBuilder {
   // snapshots are active). UDI builders that use OnKeyAdded() should be
   // prepared for this.
   //
-  // Thread safety: For a given builder instance, OnKeyAdded() and
-  // AddIndexEntry() are always called from a single thread. Builders do
-  // not need internal synchronization.
+  // Thread safety: Builders that use AddIndexEntry() are called from one
+  // thread. Builders that opt into parallel AddEntry receive OnKeyAdded() and
+  // PrepareAddEntry() on the emit thread and ordered FinishAddEntry() calls on
+  // the background writer thread. Emit-thread calls may overlap
+  // FinishAddEntry(), so implementations must synchronize shared state or keep
+  // the state touched by those callbacks disjoint. Finish() is called only
+  // after all FinishAddEntry() calls complete.
   virtual void OnKeyAdded(const Slice& /*key*/, ValueType /*type*/,
                           const Slice& /*value*/) {}
 
-  // Finish building the index.
-  // Returns a Status and the serialized index contents.
+  // Finish building the complete index into one self-contained byte buffer.
   // The memory backing the contents should not be freed until this builder
   // object is destructed.
   virtual Status Finish(Slice* index_contents) = 0;
 
-  // Returns an estimate of the current serialized index size in bytes.
+  // Returns an estimate of the current serialized index size in bytes: an
+  // upper bound on what Finish() will produce. The table builder adds this to
+  // the estimated SST tail size, and compaction asserts that the final tail
+  // does not exceed the last estimate, so implementations must not
+  // under-report.
   virtual uint64_t EstimatedSize() const = 0;
+
+  // Optional two-phase protocol for builders that can participate in parallel
+  // compression. Builders that do not opt in keep the existing synchronous
+  // AddIndexEntry() path. Builders that return true from
+  // SupportsParallelAddEntry() must provide non-null prepared entries from
+  // CreatePreparedAddEntry(), fill them in PrepareAddEntry(), and commit the
+  // corresponding index entry in FinishAddEntry().
+  //
+  // A prepared entry can be abandoned without a matching FinishAddEntry()
+  // when the SST build fails partway through, so implementations must not
+  // rely on that pairing to release resources.
+  struct PreparedAddEntry {
+    virtual ~PreparedAddEntry() = default;
+  };
+
+  virtual bool SupportsParallelAddEntry() const { return false; }
+
+  virtual std::unique_ptr<PreparedAddEntry> CreatePreparedAddEntry() {
+    return nullptr;
+  }
+
+  // Phase 1, on the emit thread. The key Slices reference table builder
+  // buffers that are overwritten before the matching FinishAddEntry() runs,
+  // so anything needed later must be copied into the prepared entry.
+  virtual void PrepareAddEntry(const Slice& /*last_key_in_current_block*/,
+                               const Slice* /*first_key_in_next_block*/,
+                               const IndexEntryContext& /*context*/,
+                               PreparedAddEntry* /*out*/) {}
+
+  // Phase 2, on the background writer thread, in commit order.
+  virtual void FinishAddEntry(const BlockHandle& /*block_handle*/,
+                              PreparedAddEntry* /*entry*/,
+                              std::string* /*separator_scratch*/,
+                              bool /*skip_delta_encoding*/) {}
 };
 
 // The interface for iterating the user defined index. This will be
