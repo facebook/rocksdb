@@ -1273,6 +1273,21 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
+  // Returns iterators from a consistent database state across multiple
+  // column families, using the corresponding ReadOptions for each column
+  // family. The two input vectors must have the same size. All snapshots must
+  // be null or point to the same Snapshot, and all tailing settings must be
+  // the same. Other ReadOptions fields may differ between column families.
+  // Iterators are heap allocated and need to be deleted before the db is
+  // destroyed.
+  virtual Status NewIterators(
+      const std::vector<ReadOptions>& /*read_options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/,
+      std::vector<Iterator*>* /*iterators*/) {
+    return Status::NotSupported(
+        "Per-column-family ReadOptions are not supported by this DB");
+  }
+
   // Return a cross-column-family iterator from a consistent database state.
   //
   // If a key exists in more than one column family, value() will be determined

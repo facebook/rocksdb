@@ -48,6 +48,15 @@ void ProcessMultiGetResults(size_t num_keys, PinnableSlice* values,
   }
 }
 
+Status WrapTtlIterators(Status status, std::vector<Iterator*>* iterators) {
+  if (status.ok()) {
+    for (Iterator*& iterator : *iterators) {
+      iterator = new TtlIterator(iterator);
+    }
+  }
+  return status;
+}
+
 }  // namespace
 
 static std::unordered_map<std::string, OptionTypeInfo> ttl_merge_op_type_info =
@@ -691,6 +700,22 @@ Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   return new TtlIterator(db_->NewIterator(read_options, column_family));
+}
+
+Status DBWithTTLImpl::NewIterators(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<Iterator*>* iterators) {
+  return WrapTtlIterators(
+      db_->NewIterators(read_options, column_families, iterators), iterators);
+}
+
+Status DBWithTTLImpl::NewIterators(
+    const std::vector<ReadOptions>& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<Iterator*>* iterators) {
+  return WrapTtlIterators(
+      db_->NewIterators(read_options, column_families, iterators), iterators);
 }
 
 void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {

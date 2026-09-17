@@ -107,65 +107,111 @@ Status DBImplReadOnly::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
-  if (read_options.timestamp) {
-    for (auto* cf : column_families) {
-      assert(cf);
-      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
-      if (!s.ok()) {
-        return s;
-      }
-    }
-  } else {
-    for (auto* cf : column_families) {
-      assert(cf);
-      const Status s = FailIfCfHasTs(cf);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-  }
+  return NewIterators(
+      std::vector<ReadOptions>(column_families.size(), read_options),
+      column_families, iterators);
+}
 
-  ReadCallback* read_callback = nullptr;  // No read callback provided.
+Status DBImplReadOnly::NewIterators(
+    const std::vector<ReadOptions>& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<Iterator*>* iterators) {
+  if (read_options.size() != column_families.size()) {
+    return Status::InvalidArgument(
+        "read_options and column_families must have the same size");
+  }
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
+
+  if (column_families.empty()) {
+    iterators->clear();
+    return Status::OK();
+  }
+
+  const Snapshot* const snapshot = read_options.front().snapshot;
+  const bool tailing = read_options.front().tailing;
+  std::vector<ReadOptions> normalized_read_options;
+  normalized_read_options.reserve(read_options.size());
+  for (size_t i = 0; i < read_options.size(); ++i) {
+    const ReadOptions& options = read_options[i];
+    if (options.io_activity != Env::IOActivity::kUnknown &&
+        options.io_activity != Env::IOActivity::kDBIterator) {
+      return Status::InvalidArgument(
+          "Can only call NewIterators with `ReadOptions::io_activity` is "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
+    }
+    if (options.read_tier == kPersistedTier) {
+      return Status::NotSupported(
+          "ReadTier::kPersistedData is not yet supported in iterators.");
+    }
+    if (options.snapshot != snapshot) {
+      return Status::InvalidArgument(
+          "All ReadOptions must use the same snapshot");
+    }
+    if (options.tailing != tailing) {
+      return Status::InvalidArgument(
+          "All ReadOptions must use the same tailing setting");
+    }
+
+    auto* cf = column_families[i];
+    assert(cf);
+    Status s;
+    if (options.timestamp) {
+      s = FailIfTsMismatchCf(cf, *(options.timestamp));
+    } else {
+      s = FailIfCfHasTs(cf);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+
+    normalized_read_options.emplace_back(options);
+    if (normalized_read_options.back().io_activity ==
+        Env::IOActivity::kUnknown) {
+      normalized_read_options.back().io_activity = Env::IOActivity::kDBIterator;
+    }
+  }
+
   iterators->clear();
   iterators->reserve(column_families.size());
-  SequenceNumber latest_snapshot = versions_->LastSequence();
+
   SequenceNumber read_seq =
-      read_options.snapshot != nullptr
-          ? static_cast<const SnapshotImpl*>(read_options.snapshot)->number_
-          : latest_snapshot;
-
+      snapshot != nullptr ? static_cast<const SnapshotImpl*>(snapshot)->number_
+                          : versions_->LastSequence();
   autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
+  for (auto* cf : column_families) {
+    auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+    cfh_to_sv.emplace_back(cfh, cfh->cfd()->GetSuperVersion()->Ref());
+  }
 
-  const bool check_read_ts =
-      read_options.timestamp && read_options.timestamp->size() > 0;
-  for (auto cfh : column_families) {
-    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
-    auto* sv = cfd->GetSuperVersion()->Ref();
-    cfh_to_sv.emplace_back(static_cast_with_check<ColumnFamilyHandleImpl>(cfh),
-                           sv);
-    if (check_read_ts) {
+  const auto unref_super_versions = [&]() {
+    for (const auto& entry : cfh_to_sv) {
+      std::get<1>(entry)->Unref();
+    }
+  };
+  for (size_t i = 0; i < cfh_to_sv.size(); ++i) {
+    const ReadOptions& options = normalized_read_options[i];
+    if (options.timestamp && !options.timestamp->empty()) {
+      auto* cfd = std::get<0>(cfh_to_sv[i])->cfd();
+      auto* sv = std::get<1>(cfh_to_sv[i]);
       const Status s =
-          FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
+          FailIfReadCollapsedHistory(cfd, sv, *(options.timestamp));
       if (!s.ok()) {
-        for (auto prev_entry : cfh_to_sv) {
-          std::get<1>(prev_entry)->Unref();
-        }
+        unref_super_versions();
         return s;
       }
     }
   }
-  assert(cfh_to_sv.size() == column_families.size());
-  for (auto [cfh, sv] : cfh_to_sv) {
-    auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, cfh, sv, read_seq, read_callback, this,
-        /*expose_blob_index=*/false, /*allow_refresh=*/false,
-        /*allow_mark_memtable_for_flush=*/false);
-    iterators->push_back(db_iter);
-  }
 
+  for (size_t i = 0; i < cfh_to_sv.size(); ++i) {
+    auto* cfh = std::get<0>(cfh_to_sv[i]);
+    auto* sv = std::get<1>(cfh_to_sv[i]);
+    iterators->push_back(NewArenaWrappedDbIterator(
+        env_, normalized_read_options[i], cfh, sv, read_seq,
+        nullptr /* read_callback */, this, /* expose_blob_index */ false,
+        /* allow_refresh */ false, /* allow_mark_memtable_for_flush */ false));
+  }
   return Status::OK();
 }
 

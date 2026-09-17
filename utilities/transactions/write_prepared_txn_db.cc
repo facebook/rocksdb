@@ -366,47 +366,121 @@ Status WritePreparedTxnDB::NewIterators(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
-  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+  if (column_families.empty() &&
+      _read_options.io_activity != Env::IOActivity::kUnknown &&
       _read_options.io_activity != Env::IOActivity::kDBIterator) {
     return Status::InvalidArgument(
         "Can only call NewIterator with `ReadOptions::io_activity` is "
         "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
   }
+  return NewIterators(
+      std::vector<ReadOptions>(column_families.size(), _read_options),
+      column_families, iterators);
+}
 
-  ReadOptions read_options(_read_options);
-  if (read_options.io_activity == Env::IOActivity::kUnknown) {
-    read_options.io_activity = Env::IOActivity::kDBIterator;
+Status WritePreparedTxnDB::NewIterators(
+    const std::vector<ReadOptions>& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<Iterator*>* iterators) {
+  if (read_options.size() != column_families.size()) {
+    return Status::InvalidArgument(
+        "read_options and column_families must have the same size");
   }
-  constexpr bool expose_blob_index = false;
-  constexpr bool allow_refresh = false;
-  std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
-  SequenceNumber snapshot_seq = kMaxSequenceNumber;
-  SequenceNumber min_uncommitted = 0;
-  if (read_options.snapshot != nullptr) {
-    snapshot_seq = read_options.snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
-            ->min_uncommitted_;
-  } else {
-    auto* snapshot = GetSnapshot();
-    // We take a snapshot to make sure that the related data in the commit map
-    // are not deleted.
-    snapshot_seq = snapshot->GetSequenceNumber();
-    own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
+  if (iterators == nullptr) {
+    return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
+
+  if (column_families.empty()) {
+    iterators->clear();
+    return Status::OK();
+  }
+
+  const Snapshot* const snapshot = read_options.front().snapshot;
+  const bool tailing = read_options.front().tailing;
+  std::vector<ReadOptions> normalized_read_options;
+  normalized_read_options.reserve(read_options.size());
+  for (const ReadOptions& options : read_options) {
+    if (options.io_activity != Env::IOActivity::kUnknown &&
+        options.io_activity != Env::IOActivity::kDBIterator) {
+      return Status::InvalidArgument(
+          "Can only call NewIterators with `ReadOptions::io_activity` is "
+          "`Env::IOActivity::kUnknown` or `Env::IOActivity::kDBIterator`");
+    }
+    if (options.read_tier == kPersistedTier) {
+      return Status::NotSupported(
+          "ReadTier::kPersistedData is not yet supported in iterators.");
+    }
+    if (options.snapshot != snapshot) {
+      return Status::InvalidArgument(
+          "All ReadOptions must use the same snapshot");
+    }
+    if (options.tailing != tailing) {
+      return Status::InvalidArgument(
+          "All ReadOptions must use the same tailing setting");
+    }
+
+    normalized_read_options.emplace_back(options);
+    if (normalized_read_options.back().io_activity ==
+        Env::IOActivity::kUnknown) {
+      normalized_read_options.back().io_activity = Env::IOActivity::kDBIterator;
+    }
+  }
+
+  if (tailing) {
+    return Status::NotSupported(
+        "tailing iterator not supported in write-prepared mode");
+  }
+
   iterators->clear();
   iterators->reserve(column_families.size());
+
+  std::shared_ptr<ManagedSnapshot> own_snapshot;
+  SequenceNumber snapshot_seq;
+  SequenceNumber min_uncommitted;
+  if (snapshot != nullptr) {
+    snapshot_seq = snapshot->GetSequenceNumber();
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
+  } else {
+    const Snapshot* managed_snapshot = GetSnapshot();
+    snapshot_seq = managed_snapshot->GetSequenceNumber();
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl>(managed_snapshot)
+            ->min_uncommitted_;
+    own_snapshot =
+        std::make_shared<ManagedSnapshot>(db_impl_, managed_snapshot);
+  }
+  assert(snapshot_seq != kMaxSequenceNumber);
+
+  autovector<SuperVersion*> super_versions;
   for (auto* column_family : column_families) {
     auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-    auto* cfd = cfh->cfd();
+    super_versions.emplace_back(
+        cfh->cfd()->GetReferencedSuperVersion(db_impl_));
+  }
+  const auto cleanup_super_versions = [&]() {
+    for (auto* super_version : super_versions) {
+      db_impl_->CleanupSuperVersion(super_version);
+    }
+  };
+  for (size_t i = 0; i < column_families.size(); ++i) {
+    const Status s = db_impl_->FailIfTableFilterWithRangeConversion(
+        normalized_read_options[i], super_versions[i]->mutable_cf_options);
+    if (!s.ok()) {
+      cleanup_super_versions();
+      return s;
+    }
+  }
+
+  for (size_t i = 0; i < column_families.size(); ++i) {
+    auto* cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_families[i]);
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
-    SuperVersion* super_version = cfd->GetReferencedSuperVersion(db_impl_);
-    auto* db_iter = db_impl_->NewIteratorImpl(read_options, cfh, super_version,
-                                              snapshot_seq, &state->callback,
-                                              expose_blob_index, allow_refresh);
+    auto* db_iter = db_impl_->NewIteratorImpl(
+        normalized_read_options[i], cfh, super_versions[i], snapshot_seq,
+        &state->callback, /* expose_blob_index */ false,
+        /* allow_refresh */ false);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
     iterators->push_back(db_iter);
   }

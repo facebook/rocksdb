@@ -330,6 +330,12 @@ class StackableDB : public DB {
     return db_->NewIterators(options, column_families, iterators);
   }
 
+  Status NewIterators(const std::vector<ReadOptions>& read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override {
+    return db_->NewIterators(read_options, column_families, iterators);
+  }
+
   using DB::NewCoalescingIterator;
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,

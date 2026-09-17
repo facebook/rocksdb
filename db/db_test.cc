@@ -3600,6 +3600,11 @@ class ModelDB : public DB {
                       std::vector<Iterator*>* /*iterators*/) override {
     return Status::NotSupported("Not supported yet");
   }
+  Status NewIterators(const std::vector<ReadOptions>& /*options*/,
+                      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
+                      std::vector<Iterator*>* /*iterators*/) override {
+    return Status::NotSupported("Not supported yet");
+  }
 
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& /*options*/,

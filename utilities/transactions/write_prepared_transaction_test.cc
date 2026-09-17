@@ -572,6 +572,42 @@ TEST_P(WritePreparedTransactionTest, SnapshotNewerVersionMetadataNotSupported) {
   db->ReleaseSnapshot(snapshot);
 }
 
+TEST_P(WritePreparedTransactionTest,
+       NewIteratorsRejectsTableFilterWithRangeConversion) {
+  options.min_tombstones_for_range_conversion = 2;
+  ASSERT_OK(ReOpenNoDelete());
+
+  std::function<bool(const TableProperties&)> table_filter =
+      [](const TableProperties&) { return true; };
+  ReadOptions read_options;
+  read_options.table_filter = &table_filter;
+  const std::vector<ReadOptions> per_cf_read_options = {read_options};
+  const std::vector<ColumnFamilyHandle*> column_families = {
+      db->DefaultColumnFamily()};
+  std::vector<Iterator*> iterators;
+  const Status s =
+      db->NewIterators(per_cf_read_options, column_families, &iterators);
+  ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+  ASSERT_TRUE(iterators.empty());
+}
+
+TEST_P(WritePreparedTransactionTest, NewIteratorsRejectsTailing) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+  const std::vector<ColumnFamilyHandle*> column_families = {
+      db->DefaultColumnFamily()};
+  std::vector<Iterator*> iterators;
+
+  Status s = db->NewIterators(read_options, column_families, &iterators);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_TRUE(iterators.empty());
+
+  s = db->NewIterators(std::vector<ReadOptions>{read_options}, column_families,
+                       &iterators);
+  ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  ASSERT_TRUE(iterators.empty());
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,

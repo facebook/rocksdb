@@ -103,6 +103,14 @@ class DBWithTTLImpl : public DBWithTTLImplBase {
   Iterator* NewIterator(const ReadOptions& _read_options,
                         ColumnFamilyHandle* column_family) override;
 
+  using StackableDB::NewIterators;
+  Status NewIterators(const ReadOptions& read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
+  Status NewIterators(const std::vector<ReadOptions>& read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
+
   DB* GetBaseDB() override { return db_; }
 
   static bool IsStale(const Slice& value, int32_t ttl, SystemClock* clock);

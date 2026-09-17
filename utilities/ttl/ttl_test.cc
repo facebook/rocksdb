@@ -731,6 +731,45 @@ TEST_F(TtlTest, MultiGetTest) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, NewIteratorsStripTimestamps) {
+  OpenTtl();
+  ColumnFamilyHandle* second_cf;
+  ASSERT_OK(
+      db_ttl_->CreateColumnFamilyWithTtl(options_, "second", &second_cf, 0));
+
+  const std::vector<ColumnFamilyHandle*> column_families = {
+      db_ttl_->DefaultColumnFamily(), second_cf};
+  const std::vector<std::string> values = {"default-value", "second-value"};
+  for (size_t i = 0; i < column_families.size(); ++i) {
+    ASSERT_OK(
+        db_ttl_->Put(WriteOptions(), column_families[i], "key", values[i]));
+  }
+
+  const auto verify_iterators = [&](Status status,
+                                    std::vector<Iterator*>* iterators) {
+    ASSERT_OK(status);
+    ASSERT_EQ(iterators->size(), column_families.size());
+    for (size_t i = 0; i < iterators->size(); ++i) {
+      std::unique_ptr<Iterator> iterator((*iterators)[i]);
+      iterator->SeekToFirst();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ(iterator->value().ToString(), values[i]);
+      ASSERT_OK(iterator->status());
+    }
+  };
+
+  std::vector<Iterator*> iterators;
+  verify_iterators(
+      db_ttl_->NewIterators(ReadOptions(), column_families, &iterators),
+      &iterators);
+  verify_iterators(
+      db_ttl_->NewIterators(std::vector<ReadOptions>(column_families.size()),
+                            column_families, &iterators),
+      &iterators);
+
+  delete second_cf;
+}
+
 TEST_F(TtlTest, TtlFiftenYears) {
   MakeKVMap(kSampleSize_);
   // 15 year will lead int32_t overflow from now
