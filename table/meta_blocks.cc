@@ -86,6 +86,8 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kRawKeySize, props.raw_key_size);
   Add(TablePropertiesNames::kRawValueSize, props.raw_value_size);
   Add(TablePropertiesNames::kDataSize, props.data_size);
+  Add(TablePropertiesNames::kUncompressedDataSize,
+      props.uncompressed_data_size);
   Add(TablePropertiesNames::kIndexSize, props.index_size);
   if (props.index_partitions != 0) {
     Add(TablePropertiesNames::kIndexPartitions, props.index_partitions);
@@ -195,6 +197,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
     Add(TablePropertiesNames::kSeparateKeyValueInDataBlock,
         props.separate_key_value_in_data_block);
   }
+  if (props.lsm_info_at_creation != 0) {
+    Add(TablePropertiesNames::kLsmInfoAtCreation, props.lsm_info_at_creation);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -295,6 +300,10 @@ Status ParsePropertiesBlock(
       {TablePropertiesNames::kOriginalFileNumber,
        &new_table_properties->orig_file_number},
       {TablePropertiesNames::kDataSize, &new_table_properties->data_size},
+      {TablePropertiesNames::kUncompressedDataSize,
+       &new_table_properties->uncompressed_data_size},
+      {TablePropertiesNames::kLsmInfoAtCreation,
+       &new_table_properties->lsm_info_at_creation},
       {TablePropertiesNames::kIndexSize, &new_table_properties->index_size},
       {TablePropertiesNames::kIndexPartitions,
        &new_table_properties->index_partitions},

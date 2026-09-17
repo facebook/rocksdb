@@ -303,6 +303,7 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "is_user_key=0;key_largest_seqno=18446744073709551615;key_smallest_seqno="
       "18;data_block_restart_interval=16;index_block_restart_interval=1;"
       "separate_key_value_in_data_block=0;num_uniform_blocks=0;"
+      "lsm_info_at_creation=513;"
       "udi_is_primary_index=0;",
       new_tp));
 

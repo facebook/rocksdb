@@ -17,6 +17,8 @@
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/db.h"
+#include "rocksdb/sst_file_reader.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
@@ -849,6 +851,156 @@ TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
     ASSERT_EQ(table_props->key_largest_seqno, table_props->key_smallest_seqno);
     ASSERT_EQ(table_props->key_largest_seqno, 0U);
   }
+}
+
+TEST_F(DBTablePropertiesTest, LsmInfoAtCreationPacking) {
+  using Applicability = LsmInfoAtCreation::Applicability;
+  auto round_trip = [](const LsmInfoAtCreation& info) {
+    return LsmInfoAtCreation::DecodeFrom(info.EncodeTo());
+  };
+
+  // Default is "unknown", which encodes to 0 and is distinct from every other
+  // state.
+  LsmInfoAtCreation unknown;
+  EXPECT_EQ(unknown.applicability, Applicability::kUnknown);
+  EXPECT_EQ(unknown.EncodeTo(), 0U);
+  EXPECT_EQ(round_trip(unknown), unknown);
+
+  // "not applicable" is non-zero (so it persists) and distinct from "unknown".
+  LsmInfoAtCreation na = LsmInfoAtCreation::NotApplicable();
+  EXPECT_EQ(na.applicability, Applicability::kNotApplicable);
+  EXPECT_NE(na.EncodeTo(), 0U);
+  EXPECT_NE(na.EncodeTo(), unknown.EncodeTo());
+  EXPECT_EQ(round_trip(na), na);
+
+  // "applicable" round-trips natural level values and bottommost. Level 0 / not
+  // bottommost is still non-zero and thus distinct from "unknown"/"N/A".
+  for (int level : {0, 1, 5, 63, 200}) {
+    for (bool bottommost : {false, true}) {
+      LsmInfoAtCreation info = LsmInfoAtCreation::Applicable(level, bottommost);
+      EXPECT_NE(info.EncodeTo(), 0U);
+      LsmInfoAtCreation decoded = round_trip(info);
+      EXPECT_EQ(decoded.applicability, Applicability::kApplicable);
+      EXPECT_EQ(decoded.level_at_creation, level);
+      EXPECT_EQ(decoded.is_bottommost, bottommost);
+      EXPECT_EQ(decoded, info);
+    }
+  }
+
+  // Applicable but with an unknown level (e.g. the DB repairer): still
+  // applicable, bottommost preserved, level decodes back to kUnknownLevel.
+  LsmInfoAtCreation unknown_level = LsmInfoAtCreation::Applicable(
+      LsmInfoAtCreation::kUnknownLevel, /*is_bottommost=*/true);
+  LsmInfoAtCreation decoded = round_trip(unknown_level);
+  EXPECT_EQ(decoded.applicability, Applicability::kApplicable);
+  EXPECT_EQ(decoded.level_at_creation, LsmInfoAtCreation::kUnknownLevel);
+  EXPECT_TRUE(decoded.is_bottommost);
+}
+
+TEST_F(DBTablePropertiesTest, UncompressedDataSizeAndLsmInfoPersisted) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key1", "value1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db_->Put(WriteOptions(), "key3", "value3"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Freshly flushed L0 file. uncompressed_data_size is now persisted (it used
+  // to always read back as 0), and LSM-at-creation info is populated.
+  {
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_EQ(1U, props.size());
+    auto table_props = props.begin()->second;
+
+    EXPECT_GT(table_props->uncompressed_data_size, 0U);
+    LsmInfoAtCreation info =
+        LsmInfoAtCreation::DecodeFrom(table_props->lsm_info_at_creation);
+    EXPECT_EQ(info.applicability,
+              LsmInfoAtCreation::Applicability::kApplicable);
+    EXPECT_EQ(info.level_at_creation, 0);
+    EXPECT_FALSE(info.is_bottommost);
+  }
+
+  // After forcing a bottommost compaction, the (re)created file records
+  // is_bottommost = true and a deeper creation level.
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_EQ(1U, props.size());
+    auto table_props = props.begin()->second;
+
+    EXPECT_GT(table_props->uncompressed_data_size, 0U);
+    LsmInfoAtCreation info =
+        LsmInfoAtCreation::DecodeFrom(table_props->lsm_info_at_creation);
+    EXPECT_EQ(info.applicability,
+              LsmInfoAtCreation::Applicability::kApplicable);
+    EXPECT_TRUE(info.is_bottommost);
+    EXPECT_GT(info.level_at_creation, 0);
+  }
+}
+
+TEST_F(DBTablePropertiesTest, LsmInfoNotApplicableForSstFileWriter) {
+  // A file written by SstFileWriter has no LSM position, so its
+  // lsm_info_at_creation records "not applicable" (distinct from "unknown").
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  std::string file = dbname_ + "/for_ingestion.sst";
+  {
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(file));
+    ASSERT_OK(writer.Put("a", "1"));
+    ASSERT_OK(writer.Put("b", "2"));
+    ASSERT_OK(writer.Finish());
+  }
+
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(file));
+  ASSERT_OK(reader.VerifyChecksum());
+  std::shared_ptr<const TableProperties> table_props =
+      reader.GetTableProperties();
+  ASSERT_NE(table_props, nullptr);
+
+  LsmInfoAtCreation info =
+      LsmInfoAtCreation::DecodeFrom(table_props->lsm_info_at_creation);
+  EXPECT_EQ(info.applicability,
+            LsmInfoAtCreation::Applicability::kNotApplicable);
+  EXPECT_EQ(info.level_at_creation, LsmInfoAtCreation::kUnknownLevel);
+  EXPECT_FALSE(info.is_bottommost);
+  // uncompressed_data_size is persisted for SstFileWriter files too.
+  EXPECT_GT(table_props->uncompressed_data_size, 0U);
+}
+
+TEST_F(DBTablePropertiesTest, CompressionManagerFullDetailsPersisted) {
+  // With an explicit CompressionManager, compression_options records the
+  // manager's full details via ToString() (id plus any configured options),
+  // not just GetId(). This manager has no options, so ToString() is its id.
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.compression_manager =
+      std::make_shared<ParseCompressionDisplayNameManager>();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "k", "v"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_EQ(1U, props.size());
+  auto table_props = props.begin()->second;
+
+  EXPECT_NE(
+      table_props->compression_options.find(
+          "_compression_manager=" +
+          std::string(ParseCompressionDisplayNameManager::kCompatibilityName)),
+      std::string::npos)
+      << table_props->compression_options;
 }
 
 TEST_F(DBTablePropertiesTest, ParseCompressionNameForDisplay) {

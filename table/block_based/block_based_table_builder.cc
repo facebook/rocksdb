@@ -39,6 +39,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
@@ -1486,9 +1487,18 @@ struct BlockBasedTableBuilder::Rep {
         filter_context.is_bottommost = tbo.is_bottommost;
         filter_context.is_remote_compaction = tbo.is_remote_compaction;
         assert(filter_context.level_at_creation < filter_context.num_levels);
+        // Record informational LSM-at-creation context.
+        props.lsm_info_at_creation =
+            LsmInfoAtCreation::Applicable(tbo.level_at_creation,
+                                          tbo.is_bottommost)
+                .EncodeTo();
         break;
       case TableFileCreationReason::kSstFileWriter:
       case TableFileCreationReason::kMisc:
+        // These files have no LSM position; record that explicitly so it is
+        // distinguishable from "unknown" (older files with no property).
+        props.lsm_info_at_creation =
+            LsmInfoAtCreation::NotApplicable().EncodeTo();
         break;
     }
 
@@ -1608,8 +1618,14 @@ struct BlockBasedTableBuilder::Rep {
         std::to_string(static_cast<int>(tbo.compression_type)));
     props.compression_options.append("; ");
     if (uses_explicit_compression_manager) {
+      // Persist the manager's full details (its id plus any configured
+      // options), not just GetId(). Informational only. ToString() yields the
+      // bare id when there are no options, or a brace-wrapped
+      // "{id=...;opt=...}" when there are, so the nested ";"/"=" never collide
+      // with the surrounding compression_options pseudo-option string.
+      ConfigOptions cfg;
       props.compression_options.append("_compression_manager=");
-      props.compression_options.append(compression_manager->GetId());
+      props.compression_options.append(compression_manager->ToString(cfg));
       props.compression_options.append("; ");
     }
 

@@ -6545,16 +6545,21 @@ TEST_P(BlockBasedTableTest, CompressionRatioThreshold) {
         c.Finish(options, ioptions, moptions, table_options,
                  GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
-        size_t table_file_size = c.TEST_GetSink()->contents().size();
-        size_t approx_sst_overhead = 1000;
+        // Verify the compression *decision* via the persisted data-block
+        // sizes rather than the total file size, so this check is resilient to
+        // unrelated changes in per-file overhead (e.g. added table properties)
+        // and to algorithm-specific size variance.
+        const auto& props = *c.GetTableReader()->GetTableProperties();
         if (compressible_to < threshold / 1024.0) {
-          // Should be compressed (substantial variance depending on algorithm)
-          EXPECT_NEAR2(len * compressible_to + approx_sst_overhead,
-                       table_file_size, len / 8);
+          // Blocks should be stored compressed: on-disk data is smaller than
+          // the uncompressed block payload.
+          EXPECT_LT(props.data_size, props.uncompressed_data_size);
         } else {
-          // Should not be compressed
-          EXPECT_NEAR2(len + approx_sst_overhead, table_file_size, len / 10);
+          // Blocks should be stored uncompressed: on-disk data is the
+          // uncompressed payload plus per-block trailers, never smaller.
+          EXPECT_GE(props.data_size, props.uncompressed_data_size);
         }
+        c.ResetTableReader();
       }
     }
   }
