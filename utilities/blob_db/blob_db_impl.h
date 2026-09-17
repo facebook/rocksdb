@@ -118,6 +118,12 @@ class BlobDBImpl : public BlobDB {
       std::vector<Iterator*>* /*iterators*/) override {
     return Status::NotSupported("Not implemented");
   }
+  Status NewIterators(
+      const std::vector<ReadOptions>& /*read_options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/,
+      std::vector<Iterator*>* /*iterators*/) override {
+    return Status::NotSupported("Not implemented");
+  }
 
   using BlobDB::MultiGet;
   void MultiGet(const ReadOptions& _read_options, size_t num_keys,

@@ -2348,6 +2348,69 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   ASSERT_OK(iter3->status());
 }
 
+TEST_F(DBSecondaryTest, NewIteratorsPerColumnFamilyOptionsConsistentView) {
+  const std::string kCFName = "cf_1";
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({kCFName}, options);
+
+  ASSERT_OK(Put(0, "key", "old_default"));
+  ASSERT_OK(Put(1, "key", "old_cf_1"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({kCFName}, secondary_options);
+
+  ASSERT_OK(Put(0, "key", "new_default"));
+  ASSERT_OK(Put(1, "key", "new_cf_1"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+
+  bool caught_up = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::NewIterators:AfterCreateIterator", [&](void* /*arg*/) {
+        if (!caught_up) {
+          ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+          caught_up = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<ReadOptions> read_options(2);
+  read_options[0].total_order_seek = false;
+  read_options[1].total_order_seek = true;
+  std::vector<Iterator*> iterators;
+  ASSERT_OK(db_secondary_->NewIterators(read_options, handles_secondary_,
+                                        &iterators));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(caught_up);
+  ASSERT_EQ(2U, iterators.size());
+  const std::vector<std::string> expected_values = {"old_default", "old_cf_1"};
+  for (size_t i = 0; i < iterators.size(); ++i) {
+    iterators[i]->Seek("key");
+    ASSERT_OK(iterators[i]->status());
+    ASSERT_TRUE(iterators[i]->Valid());
+    ASSERT_EQ(expected_values[i], iterators[i]->value());
+    delete iterators[i];
+  }
+
+  iterators.clear();
+  ASSERT_OK(db_secondary_->NewIterators(read_options, handles_secondary_,
+                                        &iterators));
+  const std::vector<std::string> new_values = {"new_default", "new_cf_1"};
+  for (size_t i = 0; i < iterators.size(); ++i) {
+    iterators[i]->Seek("key");
+    ASSERT_OK(iterators[i]->status());
+    ASSERT_TRUE(iterators[i]->Valid());
+    ASSERT_EQ(new_values[i], iterators[i]->value());
+    delete iterators[i];
+  }
+}
+
 TEST_F(DBSecondaryTest, StartFromInconsistent) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);

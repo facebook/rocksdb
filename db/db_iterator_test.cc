@@ -4308,6 +4308,109 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
   }
 }
 
+TEST_F(DBIteratorTest, NewIteratorsWithPerColumnFamilyReadOptions) {
+  Options options = GetDefaultOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  ASSERT_OK(Put(0, "b1", "default_value"));
+  ASSERT_OK(Put(1, "b1", "cf_1_value"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  ReadOptions prefix_read_options;
+  prefix_read_options.total_order_seek = false;
+  ReadOptions total_order_read_options;
+  total_order_read_options.total_order_seek = true;
+  std::vector<ReadOptions> read_options = {prefix_read_options,
+                                           total_order_read_options};
+  std::vector<Iterator*> iterators;
+  ASSERT_OK(db_->NewIterators(read_options, handles_, &iterators));
+  ASSERT_EQ(2U, iterators.size());
+
+  iterators[0]->Seek("a9");
+  ASSERT_FALSE(iterators[0]->Valid());
+  ASSERT_OK(iterators[0]->status());
+  iterators[1]->Seek("a9");
+  ASSERT_TRUE(iterators[1]->Valid());
+  ASSERT_EQ("b1", iterators[1]->key());
+  ASSERT_OK(iterators[1]->status());
+
+  for (auto* iterator : iterators) {
+    delete iterator;
+  }
+}
+
+TEST_F(DBIteratorTest, NewIteratorsPerColumnFamilyOptionsValidation) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1"}, options);
+
+  std::vector<Iterator*> iterators;
+  ASSERT_TRUE(
+      db_->NewIterators(std::vector<ReadOptions>(1), handles_, &iterators)
+          .IsInvalidArgument());
+
+  std::vector<ReadOptions> read_options(2);
+  read_options[1].tailing = true;
+  ASSERT_TRUE(db_->NewIterators(read_options, handles_, &iterators)
+                  .IsInvalidArgument());
+
+  read_options[1].tailing = false;
+  const Snapshot* first_snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(0, "key", "value"));
+  const Snapshot* second_snapshot = db_->GetSnapshot();
+  read_options[0].snapshot = second_snapshot;
+  read_options[1].snapshot = second_snapshot;
+  ASSERT_OK(db_->NewIterators(read_options, handles_, &iterators));
+  for (auto* iterator : iterators) {
+    delete iterator;
+  }
+
+  read_options[0].snapshot = first_snapshot;
+  read_options[1].snapshot = second_snapshot;
+  ASSERT_TRUE(db_->NewIterators(read_options, handles_, &iterators)
+                  .IsInvalidArgument());
+  db_->ReleaseSnapshot(first_snapshot);
+  db_->ReleaseSnapshot(second_snapshot);
+}
+
+TEST_F(DBIteratorTest,
+       ReadOnlyNewIteratorsAllowsTableFilterWithRangeConversion) {
+  Options options = CurrentOptions();
+  options.min_tombstones_for_range_conversion = 2;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(ReadOnlyReopen(options));
+
+  std::function<bool(const TableProperties&)> table_filter =
+      [](const TableProperties&) { return true; };
+  ReadOptions read_options;
+  read_options.table_filter = &table_filter;
+  const std::vector<ReadOptions> per_cf_read_options = {read_options};
+  const std::vector<ColumnFamilyHandle*> column_families = {
+      db_->DefaultColumnFamily()};
+  for (bool use_per_cf_read_options : {false, true}) {
+    std::vector<Iterator*> iterators;
+    const Status s =
+        use_per_cf_read_options
+            ? db_->NewIterators(per_cf_read_options, column_families,
+                                &iterators)
+            : db_->NewIterators(read_options, column_families, &iterators);
+    ASSERT_OK(s);
+    ASSERT_EQ(1U, iterators.size());
+    iterators[0]->SeekToFirst();
+    ASSERT_OK(iterators[0]->status());
+    ASSERT_TRUE(iterators[0]->Valid());
+    ASSERT_EQ("key", iterators[0]->key());
+    delete iterators[0];
+  }
+}
+
 TEST_P(DBIteratorTest, MemtableOpsScanFlushTriggerWithSeek) {
   // Tests that option memtable_op_scan_flush_trigger works when the limit
   // is reached during a Seek() operation.

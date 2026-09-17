@@ -135,6 +135,9 @@ class DBImplSecondary : public DBImpl {
   Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
+  Status NewIterators(const std::vector<ReadOptions>& read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
 
   using DBImpl::Put;
   Status Put(const WriteOptions& /*options*/,
@@ -321,6 +324,11 @@ class DBImplSecondary : public DBImpl {
 
  private:
   friend class DB;
+
+  Status NewIteratorsImpl(
+      const std::vector<ReadOptions>& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<Iterator*>* iterators);
 
   // No copying allowed
   DBImplSecondary(const DBImplSecondary&);

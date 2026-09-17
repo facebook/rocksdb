@@ -141,6 +141,9 @@ class WritePreparedTxnDB : public WritePreparedTxnDBBase {
   Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
+  Status NewIterators(const std::vector<ReadOptions>& read_options,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      std::vector<Iterator*>* iterators) override;
 
   using DB::NewCoalescingIterator;
   std::unique_ptr<Iterator> NewCoalescingIterator(
