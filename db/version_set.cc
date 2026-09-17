@@ -6288,9 +6288,10 @@ Status VersionSet::ProcessManifestWrites(
       if (new_descriptor_log) {
         ROCKS_LOG_INFO(db_options_->info_log,
                        "Created manifest %" PRIu64
-                       ", compacted+appended from %" PRIu64 " to %" PRIu64 "\n",
+                       ", compacted+appended from %" PRIu64 " to %" PRIu64
+                       ", db_session_id=%s\n",
                        pending_manifest_file_number_, prev_manifest_file_size,
-                       new_manifest_file_size);
+                       new_manifest_file_size, db_session_id_.c_str());
       }
     }
 
