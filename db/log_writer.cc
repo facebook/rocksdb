@@ -129,12 +129,17 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
     // is a symptom worth catching in debug rather than grounds for failing a
     // production write.
     assert(seqno >= last_seqno_recorded_);
-    // TODO(justingao): the index is consumed by DBImpl before this append. If
-    // the append or compression path below fails, the index is burned: it was
-    // allocated but never reached disk, and nothing distinguishes that from a
-    // record that was lost. Resolve before any completeness check lands, by
-    // allocating after a successful append or by emitting an explicit
-    // placeholder for the burned index.
+    // The index is consumed by DBImpl before this append, so the append below
+    // can still fail after it was handed out. The invariant gap detection has
+    // to be written against, in full -- all three clauses matter:
+    //
+    //   Every allocated wal_index is on a data record, or under a void record
+    //   covering it, or above every index whose write was acknowledged.
+    //
+    // The third clause is the terminal case: when neither the record nor its
+    // cover can be written, the write path fails and nothing above the burned
+    // index is ever acknowledged, so a gap check that stops at the highest
+    // acknowledged index never reaches it.
     if (compress_) {
       indexed_payload.reserve(kWALIndexSize + slice.size());
       PutFixed64(&indexed_payload, wal_index);
@@ -298,6 +303,51 @@ IOStatus Writer::MaybeAddWALIndexMarkerRecord(
       recycle_log_files_ ? kRecyclableWALIndexMarkerType : kWALIndexMarkerType;
   s = EmitPhysicalRecord(write_options, type, Slice(), empty_payload.data(),
                          empty_payload.size());
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!manual_flush_) {
+    IOOptions io_opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, io_opts);
+    if (s.ok()) {
+      s = dest_->Flush(io_opts);
+    }
+  }
+  return s;
+}
+
+IOStatus Writer::AddWALIndexVoidRecord(const WriteOptions& write_options,
+                                       uint64_t lo, uint64_t hi) {
+  if (!WALIndexEnabled()) {
+    return IOStatus::OK();
+  }
+  assert(lo != 0);
+  assert(lo <= hi);
+
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string payload;
+  payload.reserve(kWALIndexVoidPayloadSize);
+  PutFixed64(&payload, lo);
+  PutFixed64(&payload, hi);
+
+  s = MaybeSwitchToNewBlock(write_options, payload);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Deliberately does not touch last_wal_index_recorded_. A cover is written
+  // after the append it stands in for failed, so [lo, hi] is behind the high
+  // water mark by construction and the strictly-increasing check that guards
+  // data records would reject it.
+  RecordType type =
+      recycle_log_files_ ? kRecyclableWALIndexVoidType : kWALIndexVoidType;
+  s = EmitPhysicalRecord(write_options, type, Slice(), payload.data(),
+                         payload.size());
   if (!s.ok()) {
     return s;
   }

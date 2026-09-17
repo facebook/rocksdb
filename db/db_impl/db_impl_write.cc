@@ -1379,6 +1379,15 @@ Status DBImpl::WriteImpl(
                                wal_context.need_wal_sync,
                                wal_context.need_wal_dir_sync, last_sequence + 1,
                                wal_index, *wal_context.wal_file_number_size);
+        if (!io_s.ok()) {
+          // The index was consumed but its record never landed. Cover it
+          // before the error escapes, so the hole is declared rather than
+          // looking like data that was written and lost. Keep the append
+          // error: it is what the caller has to see.
+          const IOStatus cover_io_s =
+              CoverBurnedWALIndex(write_options, wal_context.writer, wal_index);
+          cover_io_s.PermitUncheckedError();
+        }
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
@@ -1706,6 +1715,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     IOStatus io_s;
     io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
 
+    // Nothing between the allocation above and the append below can set
+    // w.status, so an allocated index always reaches the append and its cover.
+    assert(wal_index == 0 || w.status.ok());
     if (w.status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
       stats->AddDBStats(InternalStats::kIntStatsWriteDoneBySelf, 1);
@@ -1722,6 +1734,12 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                              wal_context.need_wal_sync,
                              wal_context.need_wal_dir_sync, current_sequence,
                              wal_index, wal_file_number_size);
+      if (!io_s.ok()) {
+        // As in WriteImpl: declare the burned index before the error escapes.
+        const IOStatus cover_io_s =
+            CoverBurnedWALIndex(write_options, wal_context.writer, wal_index);
+        cover_io_s.PermitUncheckedError();
+      }
       w.status = io_s;
     }
 
@@ -2027,6 +2045,9 @@ Status DBImpl::WriteImplWALOnly(
     uint64_t wal_index = 0;
     IOStatus io_s = AllocateSequenceAndWALIndex(seq_inc, /*write_wal=*/false,
                                                 &last_sequence, &wal_index);
+    // write_wal=false, so no index is consumed and there is nothing that could
+    // burn -- no cover is needed on this path.
+    assert(wal_index == 0);
     status = io_s;
     if (!io_s.ok()) {
       write_thread->ExitAsBatchGroupLeader(write_group, status);
@@ -2341,6 +2362,45 @@ IOStatus DBImpl::AllocateSequenceAndWALIndex(
   return IOStatus::OK();
 }
 
+IOStatus DBImpl::CoverBurnedWALIndex(const WriteOptions& write_options,
+                                     log::Writer* log_writer,
+                                     uint64_t wal_index) {
+  if (wal_index == 0) {
+    // disableWAL writes and the sequence-only path never take an index.
+    return IOStatus::OK();
+  }
+  assert(log::WALIndexEnabled(immutable_db_options_.partition_wal_usage));
+  assert(log_writer != nullptr);
+
+  IOStatus io_s =
+      log_writer->AddWALIndexVoidRecord(write_options, wal_index, wal_index);
+  if (!io_s.ok()) {
+    // No retry loop, no blocking, no swallowing. The index stays uncovered, so
+    // nothing above it may be acknowledged.
+    //
+    // What enforces that is the *append* failure that brought us here, not
+    // this one: every call site reaches the cover only with a non-OK append
+    // status, and it is that status the caller propagates and turns into a
+    // background error, putting the DB in read-only mode. This status is
+    // deliberately dropped by all three callers. A future path that covers an
+    // index after a *successful* append would inherit none of that protection
+    // and must establish its own.
+    //
+    // At kWALIndexSingleFile there is a second, independent guard: the IO
+    // error that usually fails the cover has already poisoned the
+    // WritableFileWriter, so every later append fails through
+    // MaybeHandleSeenFileWriterError. Log whether that one applied.
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "Failed to cover burned WAL index %" PRIu64
+        "; it is allocated but absent from the WAL (writer already failed: "
+        "%d): %s",
+        wal_index, static_cast<int>(log_writer->file()->seen_error()),
+        io_s.ToString().c_str());
+  }
+  return io_s;
+}
+
 // When two_write_queues_ is disabled, this function is called from the only
 // write thread. Otherwise this must be called holding wal_write_mutex_.
 IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
@@ -2562,6 +2622,16 @@ IOStatus DBImpl::ConcurrentWriteGroupToWAL(
       write_group.leader->rate_limiter_priority;
   io_s = WriteToWAL(*merged_batch, write_options, log_writer, wal_used,
                     &log_size, wal_file_number_size, sequence, wal_index);
+  if (!io_s.ok()) {
+    // Not reachable today: this path needs two_write_queues or
+    // unordered_write, and Open() rejects the first alongside WAL indexing.
+    // Covered anyway rather than asserted, so enabling either combination
+    // later cannot silently reintroduce an uncovered hole. Still under
+    // wal_write_mutex_, which is where WAL appends on this path belong.
+    const IOStatus cover_io_s =
+        CoverBurnedWALIndex(write_options, log_writer, wal_index);
+    cover_io_s.PermitUncheckedError();
+  }
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
