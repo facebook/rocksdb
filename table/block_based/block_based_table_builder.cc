@@ -1491,14 +1491,14 @@ struct BlockBasedTableBuilder::Rep {
         props.lsm_info_at_creation =
             LsmInfoAtCreation::Applicable(tbo.level_at_creation,
                                           tbo.is_bottommost)
-                .EncodeTo();
+                .Encode();
         break;
       case TableFileCreationReason::kSstFileWriter:
       case TableFileCreationReason::kMisc:
         // These files have no LSM position; record that explicitly so it is
         // distinguishable from "unknown" (older files with no property).
         props.lsm_info_at_creation =
-            LsmInfoAtCreation::NotApplicable().EncodeTo();
+            LsmInfoAtCreation::NotApplicable().Encode();
         break;
     }
 

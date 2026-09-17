@@ -225,7 +225,7 @@ class TablePropertiesCollectorFactory : public Customizable {
 // Decoded form of TableProperties::lsm_info_at_creation. Encapsulates the
 // packed uint64 encoding and its three overall states, so TableProperties
 // itself can stay a bare data struct. Round-trips losslessly through
-// EncodeTo() / DecodeFrom().
+// Encode() / DecodeFrom().
 struct LsmInfoAtCreation {
   // Sentinel for an unknown level (same value as
   // TablePropertiesCollectorFactory::Context::kUnknownLevelAtCreation).
@@ -254,7 +254,7 @@ struct LsmInfoAtCreation {
   // Serialize to / deserialize from the packed
   // TableProperties::lsm_info_at_creation representation. DecodeFrom ignores
   // unrecognized (reserved) bits so the encoding can be extended in the future.
-  uint64_t EncodeTo() const;
+  uint64_t Encode() const;
   static LsmInfoAtCreation DecodeFrom(uint64_t encoded);
 
   bool operator==(const LsmInfoAtCreation& other) const {

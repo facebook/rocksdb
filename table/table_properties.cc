@@ -114,10 +114,10 @@ LsmInfoAtCreation LsmInfoAtCreation::NotApplicable() {
   return info;
 }
 
-uint64_t LsmInfoAtCreation::EncodeTo() const {
+uint64_t LsmInfoAtCreation::Encode() const {
   switch (applicability) {
     case Applicability::kUnknown:
-      return 0;
+      return kLsmStateUnknown << kLsmStateShift;
     case Applicability::kNotApplicable:
       return kLsmStateNotApplicable << kLsmStateShift;
     case Applicability::kApplicable: {

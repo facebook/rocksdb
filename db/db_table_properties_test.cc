@@ -856,21 +856,21 @@ TEST_F(DBTablePropertiesTest, KeyLargestSmallestSeqno) {
 TEST_F(DBTablePropertiesTest, LsmInfoAtCreationPacking) {
   using Applicability = LsmInfoAtCreation::Applicability;
   auto round_trip = [](const LsmInfoAtCreation& info) {
-    return LsmInfoAtCreation::DecodeFrom(info.EncodeTo());
+    return LsmInfoAtCreation::DecodeFrom(info.Encode());
   };
 
   // Default is "unknown", which encodes to 0 and is distinct from every other
   // state.
   LsmInfoAtCreation unknown;
   EXPECT_EQ(unknown.applicability, Applicability::kUnknown);
-  EXPECT_EQ(unknown.EncodeTo(), 0U);
+  EXPECT_EQ(unknown.Encode(), 0U);
   EXPECT_EQ(round_trip(unknown), unknown);
 
   // "not applicable" is non-zero (so it persists) and distinct from "unknown".
   LsmInfoAtCreation na = LsmInfoAtCreation::NotApplicable();
   EXPECT_EQ(na.applicability, Applicability::kNotApplicable);
-  EXPECT_NE(na.EncodeTo(), 0U);
-  EXPECT_NE(na.EncodeTo(), unknown.EncodeTo());
+  EXPECT_NE(na.Encode(), 0U);
+  EXPECT_NE(na.Encode(), unknown.Encode());
   EXPECT_EQ(round_trip(na), na);
 
   // "applicable" round-trips natural level values and bottommost. Level 0 / not
@@ -878,7 +878,7 @@ TEST_F(DBTablePropertiesTest, LsmInfoAtCreationPacking) {
   for (int level : {0, 1, 5, 63, 200}) {
     for (bool bottommost : {false, true}) {
       LsmInfoAtCreation info = LsmInfoAtCreation::Applicable(level, bottommost);
-      EXPECT_NE(info.EncodeTo(), 0U);
+      EXPECT_NE(info.Encode(), 0U);
       LsmInfoAtCreation decoded = round_trip(info);
       EXPECT_EQ(decoded.applicability, Applicability::kApplicable);
       EXPECT_EQ(decoded.level_at_creation, level);
