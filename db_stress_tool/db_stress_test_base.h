@@ -11,10 +11,15 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <cstddef>
+#include <string>
+#include <vector>
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "utilities/fault_injection_fs.h"
@@ -25,8 +30,37 @@ class Transaction;
 class TransactionDB;
 class OptimisticTransactionDB;
 class DbStressFSWrapper;
+class Iterator;
 struct TransactionDBOptions;
 using experimental::SstQueryFilterConfigsManager;
+
+std::string FormatDiagnosticSlice(const Slice& value);
+std::string SanitizeDiagnosticValue(const std::string& value);
+std::string FormatReadOptionsForDiagnostics(const ReadOptions& ro);
+
+class ScanWitnessLog {
+ public:
+  ScanWitnessLog(ThreadState* thread, const char* scan_type);
+
+  bool Enabled() const;
+
+  void Add(const std::string& event);
+
+  void AddIteratorState(const char* action, const char* label,
+                        const Iterator& iter, bool include_value);
+
+  void AddIteratorState(const char* action, size_t label, const Iterator& iter,
+                        bool include_value);
+
+  void Flush(const char* reason) const;
+
+ private:
+  ThreadState* thread_;
+  const char* scan_type_;
+  std::vector<std::string> entries_;
+  size_t next_entry_;
+  bool wrapped_;
+};
 
 class StressTest {
  public:
@@ -465,10 +499,11 @@ class StressTest {
   // upper or lower bounds, or prefix extractor.
   // Will flag failure if the verification fails.
   // diverged = true if the two iterator is already diverged.
-  // True if verification passed, false if not.
+  // Returns true only when this call reports a verification failure. A false
+  // return with diverged = true means verification was intentionally skipped.
   // op_logs is the information to print when validation fails.
   template <typename IterType, typename VerifyFuncType>
-  void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
+  bool VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
                       LastIterateOp op, const Slice& seek_key,
                       const std::vector<int>& rand_column_families,

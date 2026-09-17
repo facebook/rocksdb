@@ -17,6 +17,7 @@
 #include <cinttypes>
 #include <deque>
 #include <optional>
+#include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1821,6 +1822,8 @@ class NonBatchedOpsStressTest : public StressTest {
     const std::string key = Key(rand_keys[0]);
     const Slice prefix(key.data(), FLAGS_prefix_size);
 
+    ScanWitnessLog witness(thread, "prefix_scan");
+
     std::string upper_bound;
     Slice ub_slice;
     std::function<bool(const TableProperties&)> table_filter;
@@ -1864,15 +1867,37 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
 
+    if (witness.Enabled()) {
+      std::ostringstream start_oss;
+      start_oss << "action=start cf=" << rand_column_families[0] << " key={"
+                << FormatDiagnosticSlice(Slice(key)) << "}"
+                << " prefix={" << FormatDiagnosticSlice(prefix) << "}"
+                << " next_prefix={"
+                << (upper_bound.empty()
+                        ? "none"
+                        : FormatDiagnosticSlice(Slice(upper_bound)))
+                << "} read_options={"
+                << FormatReadOptionsForDiagnostics(ro_copy) << "}";
+      witness.Add(start_oss.str());
+    }
+
     uint64_t count = 0;
     Status s;
 
-    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+    iter->Seek(prefix);
+    witness.AddIteratorState("Seek", "prefix_scan", *iter,
+                             !ro_copy.allow_unprepared_value);
+    while (iter->Valid()) {
       // If upper or prefix bounds is specified, only keys of the target
       // prefix should show up. Otherwise, we need to manual exit the loop when
       // we see the first key that is not in the target prefix show up.
       if (ro_copy.iterate_upper_bound != nullptr ||
           ro_copy.prefix_same_as_start) {
+        if (!iter->key().starts_with(prefix)) {
+          witness.Add("failure=key_outside_prefix key={" +
+                      FormatDiagnosticSlice(iter->key()) + "}");
+          witness.Flush("prefix_scan_key_outside_prefix");
+        }
         assert(iter->key().starts_with(prefix));
       } else if (!iter->key().starts_with(prefix)) {
         break;
@@ -1886,26 +1911,54 @@ class NonBatchedOpsStressTest : public StressTest {
         const ValueType value_type = ExtractValueType(iter->key());
         if (value_type != kTypeValue && value_type != kTypeBlobIndex &&
             value_type != kTypeWideColumnEntity) {
+          iter->Next();
+          witness.AddIteratorState("Next", "prefix_scan", *iter,
+                                   !ro_copy.allow_unprepared_value);
           continue;
         }
       }
 
       if (ro_copy.allow_unprepared_value) {
+        witness.AddIteratorState("PrepareValueBefore", "prefix_scan", *iter,
+                                 false);
         if (!iter->PrepareValue()) {
           s = iter->status();
+          witness.AddIteratorState("PrepareValueFailed", "prefix_scan", *iter,
+                                   false);
           break;
         }
+        witness.AddIteratorState("PrepareValue", "prefix_scan", *iter, true);
       }
 
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         s = Status::Corruption("Value and columns inconsistent",
                                DebugString(iter->value(), iter->columns()));
+        witness.Add("failure=wide_columns_inconsistent key={" +
+                    FormatDiagnosticSlice(iter->key()) +
+                    "} value_size=" + std::to_string(iter->value().size()) +
+                    " status=" + SanitizeDiagnosticValue(s.ToString()));
         break;
       }
+      iter->Next();
+      witness.AddIteratorState("Next", "prefix_scan", *iter,
+                               !ro_copy.allow_unprepared_value);
     }
 
     if (ro_copy.iter_start_ts == nullptr) {
-      assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+      if (witness.Enabled()) {
+        const uint64_t expected_count =
+            GetPrefixKeyCount(prefix.ToString(), upper_bound);
+        if (count > expected_count) {
+          std::ostringstream failure_oss;
+          failure_oss << "failure=prefix_count_exceeded count=" << count
+                      << " expected_count=" << expected_count;
+          witness.Add(failure_oss.str());
+          witness.Flush("prefix_scan_count_exceeded");
+        }
+        assert(count <= expected_count);
+      } else {
+        assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+      }
     }
 
     if (s.ok()) {
@@ -1921,6 +1974,8 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kMetadataRead));
       if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           s.ok()) {
+        witness.Add("failure=expected_injected_read_error_but_status_ok");
+        witness.Flush("prefix_scan_missing_injected_error");
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
@@ -1945,6 +2000,9 @@ class NonBatchedOpsStressTest : public StressTest {
                   ? ro_copy.iterate_upper_bound->ToString(true).c_str()
                   : "nullptr",
               ro_copy.prefix_same_as_start ? "true" : "false");
+      witness.Add("failure=prefix_scan_status status=" +
+                  SanitizeDiagnosticValue(s.ToString()));
+      witness.Flush("prefix_scan_status");
       thread->shared->SetVerificationFailure();
     }
 
