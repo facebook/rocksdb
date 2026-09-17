@@ -91,6 +91,16 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.addCleanup(cleanup_expected_values_dir)
 
+    def register_diagnostics_dir_cleanup(self, db_crashtest):
+        def cleanup_diagnostics_dir():
+            if db_crashtest.diagnostics_dir_global:
+                shutil.rmtree(
+                    db_crashtest.diagnostics_dir_global,
+                    ignore_errors=True,
+                )
+
+        self.addCleanup(cleanup_diagnostics_dir)
+
     def load_fault_injection_log_parser(self):
         return load_fault_injection_log_parser_module()
 
@@ -151,6 +161,213 @@ class DBCrashTestTest(unittest.TestCase):
         self.assertIn("--use_async_db_api=1", command)
         self.assertFalse(
             any(arg.startswith("--use_coro_db_api=") for arg in command)
+        )
+
+    def test_stress_diagnostics_directory_creation_failure_is_non_fatal(self):
+        db_crashtest = self.load_db_crashtest()
+        diagnostics_path = os.path.join(
+            self.test_tmpdir, "rocksdb_crashtest_diagnostics"
+        )
+        with open(diagnostics_path, "w", encoding="utf-8"):
+            pass
+        params = {
+            "stress_diagnostics_breadcrumbs": 1,
+            "stress_diagnostics_dir": "",
+        }
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            db_crashtest.set_default_stress_diagnostics_dir(params)
+
+        self.assertEqual("", params["stress_diagnostics_dir"])
+        self.assertIsNone(db_crashtest.diagnostics_dir_global)
+        self.assertIn(
+            "Failed to create stress diagnostics directory", output.getvalue()
+        )
+
+    def test_stress_diagnostics_cleanup_failure_is_non_fatal(self):
+        db_crashtest = self.load_db_crashtest()
+        db_crashtest.get_diagnostics_dir()
+        output = io.StringIO()
+
+        with mock.patch.object(
+            db_crashtest.os,
+            "rmdir",
+            side_effect=OSError("injected cleanup failure"),
+        ):
+            with redirect_stdout(output):
+                db_crashtest.cleanup_stress_diagnostics_dir()
+
+        self.assertIsNone(db_crashtest.diagnostics_dir_global)
+        self.assertIn(
+            "Failed to clean up stress diagnostics directory", output.getvalue()
+        )
+
+    def test_stress_diagnostics_cleanup_preserves_unrelated_files(self):
+        db_crashtest = self.load_db_crashtest()
+        diagnostics_dir = db_crashtest.get_diagnostics_dir()
+        unrelated_path = os.path.join(diagnostics_dir, "keep-me.txt")
+        whitespace_path = os.path.join(
+            diagnostics_dir, "keep me.pid_1.thread_0.breadcrumbs.txt"
+        )
+        unicode_path = os.path.join(
+            diagnostics_dir, "keep_me_\N{SNOWMAN}.pid_1.thread_0.breadcrumbs.txt"
+        )
+        diagnostic_path = os.path.join(
+            diagnostics_dir, "db.pid_1.thread_0.breadcrumbs.txt"
+        )
+        witness_path = os.path.join(
+            diagnostics_dir,
+            "db.pid_1.thread_0.prefix_scan_batched.witness.txt",
+        )
+        witness_temp_path = witness_path + ".tmp"
+        for path in (unrelated_path, whitespace_path, unicode_path):
+            with open(path, "w", encoding="utf-8"):
+                pass
+        for path in (diagnostic_path, witness_path, witness_temp_path):
+            with open(path, "w", encoding="utf-8"):
+                pass
+
+        db_crashtest.cleanup_stress_diagnostics_dir()
+
+        self.assertTrue(os.path.exists(unrelated_path))
+        self.assertTrue(os.path.exists(whitespace_path))
+        self.assertTrue(os.path.exists(unicode_path))
+        self.assertFalse(os.path.exists(diagnostic_path))
+        self.assertFalse(os.path.exists(witness_path))
+        self.assertFalse(os.path.exists(witness_temp_path))
+        self.assertIsNone(db_crashtest.diagnostics_dir_global)
+
+    def test_stress_diagnostics_rejects_symlinked_auto_directory(self):
+        db_crashtest = self.load_db_crashtest()
+        diagnostics_path = os.path.join(
+            self.test_tmpdir, "rocksdb_crashtest_diagnostics"
+        )
+        target_dir = os.path.join(self.test_tmpdir, "unrelated")
+        os.mkdir(target_dir)
+        target_file = os.path.join(
+            target_dir, "db.pid_1.thread_0.breadcrumbs.txt"
+        )
+        with open(target_file, "w", encoding="utf-8"):
+            pass
+        os.symlink(target_dir, diagnostics_path)
+        params = {
+            "stress_diagnostics_breadcrumbs": 1,
+            "stress_diagnostics_dir": "",
+        }
+
+        db_crashtest.set_default_stress_diagnostics_dir(params)
+        db_crashtest.prune_stress_diagnostics_dir(current_pid=1)
+        db_crashtest.cleanup_stress_diagnostics_dir()
+
+        self.assertEqual("", params["stress_diagnostics_dir"])
+        self.assertTrue(os.path.exists(target_file))
+        self.assertIsNone(db_crashtest.diagnostics_dir_global)
+
+    def test_stress_diagnostics_pruning_keeps_recent_processes(self):
+        db_crashtest = self.load_db_crashtest()
+        diagnostics_dir = db_crashtest.get_diagnostics_dir()
+        self.register_diagnostics_dir_cleanup(db_crashtest)
+        unrelated_path = os.path.join(diagnostics_dir, "keep-me.txt")
+        misleading_path = os.path.join(diagnostics_dir, "notes.pid_1.txt")
+        with open(unrelated_path, "w", encoding="utf-8"):
+            pass
+        with open(misleading_path, "w", encoding="utf-8"):
+            pass
+
+        for pid in range(10):
+            path = os.path.join(
+                diagnostics_dir, f"db.pid_{pid}.thread_0.breadcrumbs.txt"
+            )
+            with open(path, "w", encoding="utf-8"):
+                pass
+            os.utime(path, ns=(pid + 1, pid + 1))
+
+        db_crashtest.prune_stress_diagnostics_dir(current_pid=9)
+
+        self.assertTrue(os.path.exists(unrelated_path))
+        self.assertTrue(os.path.exists(misleading_path))
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    diagnostics_dir, "db.pid_0.thread_0.breadcrumbs.txt"
+                )
+            )
+        )
+        self.assertFalse(
+            os.path.exists(
+                os.path.join(
+                    diagnostics_dir, "db.pid_1.thread_0.breadcrumbs.txt"
+                )
+            )
+        )
+        for pid in range(2, 10):
+            self.assertTrue(
+                os.path.exists(
+                    os.path.join(
+                        diagnostics_dir, f"db.pid_{pid}.thread_0.breadcrumbs.txt"
+                    )
+                )
+            )
+
+    def test_stress_diagnostics_pruning_ignores_explicit_directory(self):
+        db_crashtest = self.load_db_crashtest()
+        explicit_dir = os.path.join(self.test_tmpdir, "explicit_diagnostics")
+        os.mkdir(explicit_dir)
+        path = os.path.join(explicit_dir, "db.pid_1.thread_0.breadcrumbs.txt")
+        with open(path, "w", encoding="utf-8"):
+            pass
+
+        db_crashtest.prune_stress_diagnostics_dir(current_pid=1)
+
+        self.assertTrue(os.path.exists(path))
+
+    def test_stress_diagnostics_defaults_to_local_artifact_dir(self):
+        db_crashtest = self.load_db_crashtest()
+        self.register_diagnostics_dir_cleanup(db_crashtest)
+        params = db_crashtest.gen_cmd_params(self.build_mode_args("blackbox"))
+        params["db"] = self.test_tmpdir
+
+        db_crashtest.set_default_stress_diagnostics_dir(params)
+        command, finalized = db_crashtest.gen_cmd(params, [])
+
+        self.assertEqual(1, finalized["stress_diagnostics_breadcrumbs"])
+        self.assertEqual(
+            os.path.join(self.test_tmpdir, "rocksdb_crashtest_diagnostics"),
+            finalized["stress_diagnostics_dir"],
+        )
+        self.assertTrue(os.path.isdir(finalized["stress_diagnostics_dir"]))
+        self.assertIn("--stress_diagnostics_breadcrumbs=1", command)
+        self.assertIn(
+            "--stress_diagnostics_dir=" + finalized["stress_diagnostics_dir"],
+            command,
+        )
+
+    def test_stress_diagnostics_disabled_does_not_allocate_dir(self):
+        db_crashtest = self.load_db_crashtest()
+        params = {
+            "stress_diagnostics_breadcrumbs": 0,
+            "stress_diagnostics_dir": "",
+        }
+
+        db_crashtest.set_default_stress_diagnostics_dir(params)
+
+        self.assertEqual("", params["stress_diagnostics_dir"])
+        self.assertIsNone(db_crashtest.diagnostics_dir_global)
+
+    def test_stress_diagnostics_paths_include_artifact_dir(self):
+        db_crashtest = self.load_db_crashtest()
+        diagnostics_dir = os.path.join(self.test_tmpdir, "diagnostics")
+
+        self.assertEqual(
+            ["/db", "/expected", diagnostics_dir],
+            db_crashtest.diagnostic_paths(
+                {
+                    "db": "/db",
+                    "expected_values_dir": "/expected",
+                    "stress_diagnostics_dir": diagnostics_dir,
+                }
+            ),
         )
 
     def test_cache_and_write_buffer_size_multiplier_preserves_randomization(self):
@@ -748,6 +965,7 @@ class DBCrashTestTest(unittest.TestCase):
         os.environ[_TEST_DIR_ENV_VAR] = "/dev_test/rocksdb_crash_test/job123"
         db_crashtest.is_remote_db = True
         self.register_expected_values_dir_cleanup(db_crashtest)
+        self.register_diagnostics_dir_cleanup(db_crashtest)
         execute_calls = []
 
         def fake_execute_cmd(
