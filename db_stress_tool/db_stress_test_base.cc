@@ -9,12 +9,15 @@
 //
 
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
+#include <initializer_list>
 #include <iomanip>
 #include <ios>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <thread>
 #include <unordered_set>
 
@@ -78,6 +81,7 @@ class ScopedThreadOperation {
     if (tracking_) {
       thread_->CompletedOpForDiagnostics(type_);
     }
+    thread_->RecordOperationEnd(type_);
     switch (finish_action_) {
       case FinishAction::kPop:
         break;
@@ -96,6 +100,67 @@ class ScopedThreadOperation {
   FinishAction finish_action_;
   bool tracking_;
 };
+
+template <typename Integer>
+void AppendOperationContextInteger(Integer value, std::string* output) {
+  char buffer[32];
+  const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+  assert(result.ec == std::errc());
+  output->append(buffer, result.ptr);
+}
+
+template <typename ColumnFamilies, typename Keys>
+void FormatOperationContext(const ColumnFamilies& column_families,
+                            const Keys& keys, std::string* output) {
+  output->clear();
+  output->append("cfs=[");
+  bool first = true;
+  for (int column_family : column_families) {
+    if (!first) {
+      output->push_back(',');
+    }
+    first = false;
+    AppendOperationContextInteger(column_family, output);
+  }
+  output->append("] keys=[");
+  first = true;
+  for (int64_t key : keys) {
+    if (!first) {
+      output->push_back(',');
+    }
+    first = false;
+    AppendOperationContextInteger(key, output);
+  }
+  output->push_back(']');
+}
+
+template <typename ColumnFamilies, typename Keys>
+void MaybeRecordOperationContextImpl(ThreadState* thread,
+                                     StressOperationType type,
+                                     const ColumnFamilies& column_families,
+                                     const Keys& keys) {
+  if (!thread->OperationBreadcrumbsEnabled()) {
+    return;
+  }
+  std::string* details = thread->PrepareOperationEvent();
+  if (details == nullptr) {
+    return;
+  }
+  FormatOperationContext(column_families, keys, details);
+  thread->CommitOperationEvent(type);
+}
+
+void MaybeRecordOperationContext(ThreadState* thread, StressOperationType type,
+                                 const std::vector<int>& column_families,
+                                 const std::vector<int64_t>& keys) {
+  MaybeRecordOperationContextImpl(thread, type, column_families, keys);
+}
+
+void MaybeRecordOperationContext(ThreadState* thread, StressOperationType type,
+                                 std::initializer_list<int> column_families,
+                                 std::initializer_list<int64_t> keys) {
+  MaybeRecordOperationContextImpl(thread, type, column_families, keys);
+}
 
 class StressReadScopedBlockBufferProvider
     : public ReadScopedBlockBufferProvider {
@@ -2359,6 +2424,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_compact_files_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kCompactFiles);
+        MaybeRecordOperationContext(thread, StressOperationType::kCompactFiles,
+                                    {rand_column_family}, {});
         TestCompactFiles(thread, column_family);
       }
 
@@ -2368,6 +2435,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_compact_range_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kCompactRange);
+        MaybeRecordOperationContext(thread, StressOperationType::kCompactRange,
+                                    {rand_column_family}, {rand_key});
         TestCompactRange(thread, rand_key, key, column_family);
         if (thread->shared->HasVerificationFailedYet()) {
           break;
@@ -2383,6 +2452,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kFlush);
+        MaybeRecordOperationContext(thread, StressOperationType::kFlush,
+                                    rand_column_families, {});
         TestFlush(thread, rand_column_families);
       }
 
@@ -2501,11 +2572,16 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_ingest_external_file_one_in)) {
         ScopedThreadOperation op(thread,
                                  StressOperationType::kIngestExternalFile);
+        MaybeRecordOperationContext(thread,
+                                    StressOperationType::kIngestExternalFile,
+                                    rand_column_families, rand_keys);
         TestIngestExternalFile(thread, rand_column_families, rand_keys);
       }
 
       if (thread->rand.OneInOpt(FLAGS_backup_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kBackup);
+        MaybeRecordOperationContext(thread, StressOperationType::kBackup,
+                                    rand_column_families, rand_keys);
         // Beyond a certain DB size threshold, this test becomes heavier than
         // it's worth.
         uint64_t total_size = 0;
@@ -2533,18 +2609,25 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kCheckpoint);
+        MaybeRecordOperationContext(thread, StressOperationType::kCheckpoint,
+                                    rand_column_families, rand_keys);
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
         ProcessStatus(shared, "Checkpoint", s);
       }
 
       if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kApproximateSize);
+        MaybeRecordOperationContext(thread,
+                                    StressOperationType::kApproximateSize,
+                                    rand_column_families, rand_keys);
         Status s =
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
         ProcessStatus(shared, "ApproximateSize", s);
       }
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kSnapshot);
+        MaybeRecordOperationContext(thread, StressOperationType::kSnapshot,
+                                    {rand_column_family}, {rand_key});
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
       }
 
@@ -2565,6 +2648,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_key_may_exist_one_in)) {
         ScopedThreadOperation op(thread, StressOperationType::kKeyMayExist);
+        MaybeRecordOperationContext(thread, StressOperationType::kKeyMayExist,
+                                    rand_column_families, rand_keys);
         TestKeyMayExist(thread, read_opts, rand_column_families, rand_keys);
       }
       // Historical expected-state restore replays exactly
@@ -2592,12 +2677,16 @@ void StressTest::OperateDb(ThreadState* thread) {
           assert(i + batch_size <= ops_per_open);
 
           rand_keys = GenerateNKeys(thread, static_cast<int>(batch_size), i);
+          MaybeRecordOperationContext(thread, StressOperationType::kRead,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_MULTIGETENTITY);
           TestMultiGetEntity(thread, read_opts, rand_column_families,
                              rand_keys);
           i += batch_size - 1;
         } else if (FLAGS_use_get_entity) {
+          MaybeRecordOperationContext(thread, StressOperationType::kRead,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_GETENTITY);
           TestGetEntity(thread, read_opts, rand_column_families, rand_keys);
@@ -2611,11 +2700,15 @@ void StressTest::OperateDb(ThreadState* thread) {
           // If its the last iteration, ensure that multiget_batch_size is 1
           multiget_batch_size = std::max(multiget_batch_size, 1);
           rand_keys = GenerateNKeys(thread, multiget_batch_size, i);
+          MaybeRecordOperationContext(thread, StressOperationType::kRead,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_MULTIGET);
           TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
           i += multiget_batch_size - 1;
         } else {
+          MaybeRecordOperationContext(thread, StressOperationType::kRead,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_GET);
           TestGet(thread, read_opts, rand_column_families, rand_keys);
@@ -2627,6 +2720,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         ScopedThreadOperation op(
             thread, StressOperationType::kPrefixScan,
             ScopedThreadOperation::FinishAction::kFinishSingleOp);
+        MaybeRecordOperationContext(thread, StressOperationType::kPrefixScan,
+                                    rand_column_families, rand_keys);
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
@@ -2638,6 +2733,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         ScopedThreadOperation op(
             thread, StressOperationType::kWrite,
             ScopedThreadOperation::FinishAction::kFinishSingleOp);
+        MaybeRecordOperationContext(thread, StressOperationType::kWrite,
+                                    rand_column_families, rand_keys);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2652,6 +2749,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         ScopedThreadOperation op(
             thread, StressOperationType::kDelete,
             ScopedThreadOperation::FinishAction::kFinishSingleOp);
+        MaybeRecordOperationContext(thread, StressOperationType::kDelete,
+                                    rand_column_families, rand_keys);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2665,6 +2764,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         ScopedThreadOperation op(
             thread, StressOperationType::kDeleteRange,
             ScopedThreadOperation::FinishAction::kFinishSingleOp);
+        MaybeRecordOperationContext(thread, StressOperationType::kDeleteRange,
+                                    rand_column_families, rand_keys);
         if (disable_fault_injection_during_user_write) {
           db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
         }
@@ -2686,6 +2787,8 @@ void StressTest::OperateDb(ThreadState* thread) {
           // and an upper bound
           rand_keys = GenerateNKeys(thread, num_seeks * 2, i);
           i += num_seeks - 1;
+          MaybeRecordOperationContext(thread, StressOperationType::kIterate,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
@@ -2697,6 +2800,8 @@ void StressTest::OperateDb(ThreadState* thread) {
                    thread->rand.OneInOpt(
                        FLAGS_verify_iterator_with_expected_state_one_in)) {
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+          MaybeRecordOperationContext(thread, StressOperationType::kIterate,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
@@ -2710,6 +2815,8 @@ void StressTest::OperateDb(ThreadState* thread) {
                        static_cast<uint64_t>(1))));
           rand_keys = GenerateNKeys(thread, num_seeks, i);
           i += num_seeks - 1;
+          MaybeRecordOperationContext(thread, StressOperationType::kIterate,
+                                      rand_column_families, rand_keys);
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
@@ -2729,6 +2836,8 @@ void StressTest::OperateDb(ThreadState* thread) {
         ScopedThreadOperation op(
             thread, StressOperationType::kCustom,
             ScopedThreadOperation::FinishAction::kFinishSingleOp);
+        MaybeRecordOperationContext(thread, StressOperationType::kCustom,
+                                    rand_column_families, rand_keys);
         TestCustomOperations(thread, rand_column_families);
       }
     }
