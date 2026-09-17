@@ -9,9 +9,11 @@
 
 #if defined(USE_COROUTINES)
 #include <atomic>
+#include <memory>
 
 #include "folly/coro/Baton.h"
 #include "folly/coro/Coroutine.h"
+#include "folly/io/async/Request.h"
 #endif
 
 #if defined(WITHOUT_COROUTINES) || \
@@ -26,8 +28,6 @@ inline folly::coro::Task<void> SubmitMultiReadAsync(
   if (num_fs_reqs == 0) {
     co_return;
   }
-  folly::Executor* executor = co_await folly::coro::co_current_executor;
-  assert(executor != nullptr);
   folly::coro::Baton baton;
   std::atomic<size_t> pending{num_fs_reqs};
 #ifndef NDEBUG
@@ -39,9 +39,14 @@ inline folly::coro::Task<void> SubmitMultiReadAsync(
   for (size_t i = 0; i < num_fs_reqs; ++i) {
     if (!file->SubmitReadAsync(
             fs_reqs[i], opts,
-            [executor, &baton, &pending](FSReadRequest& /*req*/) {
+            [&baton, &pending](FSReadRequest& /*req*/) {
               if (pending.fetch_sub(1) == 1) {
-                executor->add([&baton] { baton.post(); });
+                // If ViaIfAsync is already waiting, post from null so its
+                // executor callback does not also capture the read's stats as
+                // the outer context restored after continuation completes.
+                folly::RequestContextScopeGuard null_context{
+                    std::shared_ptr<folly::RequestContext>{}};
+                baton.post();
               }
             },
             dbg)) {

@@ -153,8 +153,17 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    max_compaction_trigger_wakeup_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"periodic_compaction_phase_recovery_percent",
+         {offsetof(struct MutableDBOptions,
+                   periodic_compaction_phase_recovery_percent),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"fast_sst_open",
          {offsetof(struct MutableDBOptions, fast_sst_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"remote_compaction_manifest_floor",
+         {offsetof(struct MutableDBOptions, remote_compaction_manifest_floor),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
@@ -617,6 +626,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          OptionTypeInfo::Enum<CacheTier>(
              offsetof(struct ImmutableDBOptions, lowest_used_cache_tier),
              &cache_tier_string_map, OptionTypeFlags::kNone)},
+        {"use_session_tmp_dir_for_remote_compaction",
+         {offsetof(struct ImmutableDBOptions,
+                   use_session_tmp_dir_for_remote_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"enforce_single_del_contracts",
          {offsetof(struct ImmutableDBOptions, enforce_single_del_contracts),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -845,6 +859,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       checksum_handoff_file_types(options.checksum_handoff_file_types),
       lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service),
+      use_session_tmp_dir_for_remote_compaction(
+          options.use_session_tmp_dir_for_remote_compaction),
       enforce_single_del_contracts(options.enforce_single_del_contracts),
       follower_refresh_catchup_period_ms(
           options.follower_refresh_catchup_period_ms),
@@ -1040,6 +1056,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_data_in_errors);
   ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
                    db_host_id.c_str());
+  ROCKS_LOG_HEADER(
+      log, "            Options.use_session_tmp_dir_for_remote_compaction: %s",
+      use_session_tmp_dir_for_remote_compaction ? "true" : "false");
   ROCKS_LOG_HEADER(log, "            Options.enforce_single_del_contracts: %s",
                    enforce_single_del_contracts ? "true" : "false");
   ROCKS_LOG_HEADER(log, "            Options.metadata_write_temperature: %s",
@@ -1111,9 +1130,13 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
           options.verify_manifest_content_on_close),
       optimize_manifest_for_recovery(options.optimize_manifest_for_recovery),
       fast_sst_open(options.fast_sst_open),
+      remote_compaction_manifest_floor(
+          options.remote_compaction_manifest_floor),
       daily_offpeak_time_utc(options.daily_offpeak_time_utc),
       max_compaction_trigger_wakeup_seconds(
-          options.max_compaction_trigger_wakeup_seconds) {}
+          options.max_compaction_trigger_wakeup_seconds),
+      periodic_compaction_phase_recovery_percent(
+          options.periodic_compaction_phase_recovery_percent) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -1175,8 +1198,13 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "Options.max_compaction_trigger_wakeup_seconds: %" PRIu64,
                    max_compaction_trigger_wakeup_seconds);
+  ROCKS_LOG_HEADER(log,
+                   "Options.periodic_compaction_phase_recovery_percent: %d",
+                   periodic_compaction_phase_recovery_percent);
   ROCKS_LOG_HEADER(log, "                         Options.fast_sst_open: %d",
                    fast_sst_open);
+  ROCKS_LOG_HEADER(log, "      Options.remote_compaction_manifest_floor: %d",
+                   remote_compaction_manifest_floor);
 }
 
 Status GetMutableDBOptionsFromStrings(

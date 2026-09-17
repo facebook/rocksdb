@@ -1138,6 +1138,9 @@ class FSRandomAccessFile {
   // Returns true when the asynchronous path is used and false when the request
   // is completed using the synchronous Read fallback.
   //
+  // All arguments and any memory they reference remain valid until cb is
+  // invoked.
+  //
   // Default implementation is to read the data synchronously and invoke the
   // callback before returning.
   virtual bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,

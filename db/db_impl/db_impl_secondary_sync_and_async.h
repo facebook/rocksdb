@@ -19,6 +19,14 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImplSecondary::GetImpl)
          get_impl_options.merge_operands != nullptr);
   assert(get_impl_options.column_family);
 
+  if (get_impl_options.newer_version_present != nullptr) {
+    if (read_options.snapshot != nullptr) {
+      CO_RETURN Status::NotSupported(
+          "GetWithMetadata is not supported in secondary DB mode");
+    }
+    get_impl_options.newer_version_present = nullptr;
+  }
+
   Status s;
 
   if (read_options.timestamp) {

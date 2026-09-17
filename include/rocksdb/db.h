@@ -13,6 +13,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -74,6 +75,84 @@ struct ColumnFamilyDescriptor {
   ColumnFamilyDescriptor(const std::string& _name,
                          const ColumnFamilyOptions& _options)
       : name(_name), options(_options) {}
+};
+
+struct OutputMetadata {
+  // For each field, std::nullopt means the metadata was not requested.
+
+  // If engaged, receives the key timestamp.
+  std::optional<std::string> timestamp;
+
+  OutputMetadata& WantTimestamp(bool want = true) {
+    if (want) {
+      timestamp.emplace();
+    } else {
+      timestamp.reset();
+    }
+    return *this;
+  }
+
+  // If engaged, set to true when an explicit-snapshot read observes a later
+  // write for the same key than the snapshot can return. May be true when the
+  // read returns NotFound because the key was created after the snapshot.
+  //
+  // A "later write" is any committed (visible) point operation of type Put,
+  // Delete, Merge, SingleDelete, BlobIndex, DeletionWithTimestamp,
+  // WideColumnEntity, or ValuePreferredSeqno, as well as a covering range
+  // tombstone (DeleteRange) with sequence number greater than the snapshot.
+  // For ordinary DB reads, a committed write that completes before this read
+  // begins is guaranteed to be reported. A write that races with this read may
+  // or may not be reported. A true result always identifies a committed write
+  // in the sequence-number interval after the snapshot and through the read's
+  // sampled upper bound.
+  //
+  // Caveats:
+  //   * Transaction reads that require a custom visibility callback are not
+  //     supported.
+  //   * `ReadOptions::ignore_range_deletions` does not affect metadata
+  //     tracking: newer covering range tombstones are still reported.
+  //   * Has no effect when `read_options.snapshot` is null; the field is
+  //     always left as false in that case.
+  std::optional<bool> newer_version_present;
+
+  OutputMetadata& WantNewerVersionPresent(bool want = true) {
+    if (want) {
+      newer_version_present.emplace(false);
+    } else {
+      newer_version_present.reset();
+    }
+    return *this;
+  }
+};
+
+struct MultiGetOutputMetadata {
+  // For each field, std::nullopt means the metadata was not requested.
+
+  // If engaged, resized to num_keys and filled with key timestamps.
+  std::optional<std::vector<std::string>> timestamps;
+
+  MultiGetOutputMetadata& WantTimestamps(bool want = true) {
+    if (want) {
+      timestamps.emplace();
+    } else {
+      timestamps.reset();
+    }
+    return *this;
+  }
+
+  // If engaged, resized to num_keys and filled with newer-version metadata.
+  // See OutputMetadata::newer_version_present.
+  // Each entry is 0 for false and 1 for true.
+  std::optional<std::vector<uint8_t>> newer_version_present;
+
+  MultiGetOutputMetadata& WantNewerVersionPresent(bool want = true) {
+    if (want) {
+      newer_version_present.emplace();
+    } else {
+      newer_version_present.reset();
+    }
+    return *this;
+  }
 };
 
 class ColumnFamilyHandle {
@@ -328,18 +407,26 @@ class DB {
 
   // Opens a database and runs compaction without modifying the original DB.
   //
-  // This read-only operation outputs compaction results to `output_directory`
-  // instead of installing them back to the source database. Designed primarily
-  // for use with `CompactionService` to process remote compaction jobs.
+  // This read-only operation outputs compaction results to a directory under
+  // the source database instead of installing them. When
+  // `DBOptions::use_session_tmp_dir_for_remote_compaction` is true,
+  // `output_directory` must be a single directory name and the path is
+  // `<name>/session_tmp/<output_directory>`. Otherwise, the path is
+  // `<name>/<output_directory>`. For compatibility, an already DB-rooted
+  // `output_directory` is also accepted when the option is false.
+  // Designed primarily for use with `CompactionService` to process remote
+  // compaction jobs.
   //
   // Parameters:
   // - `options`: Additional controls
+  //   * `max_secondary_open_retries` bounds retries for transient failures
+  //     caused by concurrent CURRENT or MANIFEST replacement.
   //   * When `allow_resumption = false`: The `output_directory` MUST be empty
   //     before calling this function. Any existing files (including resume
   //     state or output files from previous runs) in the directory may
   //     cause correctness errors as the compaction will start from scratch.
   // - `name`: Source database path
-  // - `output_directory`: Where compaction output files are written
+  // - `output_directory`: Client-selected output directory name
   // - `input`: Serialized compaction input information
   // - `output`: Serialized compaction result
   // - `override_options`: Configuration overrides for the operation
@@ -657,6 +744,28 @@ class DB {
     return s;
   }
 
+  inline Status GetWithMetadata(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family,
+                                const Slice& key, std::string* value,
+                                OutputMetadata* output_metadata) {
+    if (output_metadata != nullptr &&
+        output_metadata->newer_version_present.has_value()) {
+      *output_metadata->newer_version_present = false;
+    }
+    if (value == nullptr) {
+      return Status::InvalidArgument(
+          "Cannot call GetWithMetadata with a null value");
+    }
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = GetWithMetadata(options, column_family, key, &pinnable_val,
+                             output_metadata);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+
   // No timestamp, and value is returned in a PinnableSlice
   // NOTE: virtual final => disallow override (was previously allowed)
   virtual Status Get(const ReadOptions& options,
@@ -694,6 +803,12 @@ class DB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value, std::string* timestamp) final {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
+  }
+
+  Status GetWithMetadata(const ReadOptions& options, const Slice& key,
+                         std::string* value, OutputMetadata* output_metadata) {
+    return GetWithMetadata(options, DefaultColumnFamily(), key, value,
+                           output_metadata);
   }
 
   // If the column family specified by "column_family" contains an entry for
@@ -834,6 +949,42 @@ class DB {
     return statuses;
   }
 
+  std::vector<Status> MultiGetWithMetadata(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      MultiGetOutputMetadata* output_metadata) {
+    size_t num_keys = keys.size();
+    values->resize(num_keys);
+    if (column_families.size() != num_keys) {
+      if (output_metadata != nullptr) {
+        if (output_metadata->timestamps.has_value()) {
+          output_metadata->timestamps->resize(num_keys);
+        }
+        if (output_metadata->newer_version_present.has_value()) {
+          output_metadata->newer_version_present->assign(num_keys, false);
+        }
+      }
+      return std::vector<Status>(
+          num_keys,
+          Status::InvalidArgument("Number of column families does not match "
+                                  "number of keys"));
+    }
+
+    std::vector<Status> statuses(num_keys);
+    std::vector<PinnableSlice> pin_values(num_keys);
+
+    MultiGetWithMetadata(options, num_keys, column_families.data(), keys.data(),
+                         pin_values.data(), statuses.data(), output_metadata,
+                         /*sorted_input=*/false);
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
+      }
+    }
+    return statuses;
+  }
+
   // No timestamps are returned
   // NOTE: virtual final => disallow override (was previously allowed)
   virtual std::vector<Status> MultiGet(
@@ -854,6 +1005,17 @@ class DB {
         options,
         std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
         keys, values);
+  }
+
+  std::vector<Status> MultiGetWithMetadata(
+      const ReadOptions& options, const std::vector<Slice>& keys,
+      std::vector<std::string>* values,
+      MultiGetOutputMetadata* output_metadata) {
+    values->resize(keys.size());
+    return MultiGetWithMetadata(
+        options,
+        std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
+        keys, values, output_metadata);
   }
 
   // MultiGet for default column family
@@ -910,6 +1072,15 @@ class DB {
                         PinnableSlice* values, std::string* timestamps,
                         Status* statuses,
                         const bool sorted_input = false) final;
+
+  // MultiGet for single column family with optional output metadata vectors.
+  // Non-null vectors in output_metadata are resized to num_keys entries.
+  void MultiGetWithMetadata(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family,
+                            const size_t num_keys, const Slice* keys,
+                            PinnableSlice* values, Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false);
 
   // MultiGet for single column family, no timestamps returned
   // NOTE: virtual final => disallow override (was previously allowed)
@@ -1184,30 +1355,36 @@ class DB {
   // `DBOptions::read_io_executor_threads` before opening the DB to configure
   // executor parallelism for their workload.
   //
+  // Only selected data-block file reads can be issued asynchronously. Other
+  // work in the read path, including waiting for DB or cache locks, opening
+  // files, reading table metadata or blobs, waiting for caches, and invoking
+  // event listeners or other user callbacks, may block the thread running the
+  // request.
+  //
   // Callers must keep the DB, callback, inputs, and output buffers alive until
   // the callback returns. The callback may run inline before the async method
   // returns, or later from the implementation's completion path. Callbacks must
   // not invoke another async read.
   //
   // STATS:
-  // Callbacks can opt into perf and io metrics by overriding `EnableStats`.
-  // When provided, the returned contexts contain metrics for this request
-  // only. Most metrics should generally be available. Some scoped CPU metrics
-  // may be missing (e.g. `block_read_cpu_time`). Each returned context only has
-  // stats for a single operation, unlike the sync version which can re-use the
-  // same context for multiple operations. DO NOT use get_perf_context() or
-  // get_iostats_context() for statistics as you would for sync versions.
+  // When enabled through the calling thread's stats configuration,
+  // get_perf_context() and get_iostats_context() contain metrics for this
+  // request only while OnComplete() runs. Copy any needed metrics before the
+  // callback returns. Some scoped CPU metrics may be missing (e.g.
+  // `block_read_cpu_time`).
   //
-  // Also enabling perf for async reads is generally more expensive because each
-  // request needs a separate stats context, rather than relying on the
-  // traditional TLS stats. Stats configuration (e.g. perf level) can be set
-  // before calling async read, and the config is saved by the coroutine.
+  // Enabling stats for async reads is generally more expensive because each
+  // request needs a separate stats context. Stats configuration (e.g. perf
+  // level) is read when the async call begins.
+  //
+  // Callers must set the desired configuration for each async read instead of
+  // relying on TLS state left by an earlier async read. Disable both perf and
+  // IO stats before a call when no stats are needed. Async reads reset the
+  // calling thread's configuration to disabled.
   class AsyncCallback {
    public:
     virtual ~AsyncCallback() = default;
-    virtual bool EnableStats() const { return false; }
-    virtual void OnComplete(const PerfContext* callback_perf_context,
-                            const IOStatsContext* callback_iostats_context) = 0;
+    virtual void OnComplete() = 0;
   };
 
   virtual void GetAsync(const ReadOptions& options,
@@ -1230,17 +1407,14 @@ class DB {
 
       PinnableSlice* value() { return &pinnable_value_; }
 
-      bool EnableStats() const override { return callback_.EnableStats(); }
-
-      void OnComplete(const PerfContext* callback_perf_context,
-                      const IOStatsContext* callback_iostats_context) override {
+      void OnComplete() override {
         std::unique_ptr<CallbackWrapper> self(this);
         if (status_.ok() && pinnable_value_.IsPinned()) {
           value_->assign(pinnable_value_.data(), pinnable_value_.size());
         }
         AsyncCallback& callback = callback_;
         self.reset();
-        callback.OnComplete(callback_perf_context, callback_iostats_context);
+        callback.OnComplete();
       }
 
      private:
@@ -2612,6 +2786,13 @@ class DB {
   // secondary instance does not delete the corresponding column family
   // handles, the data of the column family is still accessible to the
   // secondary.
+  // If the primary has flushed data that this instance cannot read, because the
+  // flushed file is missing or unreadable for example, the memtables holding
+  // that data are kept rather than dropped, so that reads do not lose it. That
+  // memory, which is charged to `write_buffer_manager` when one is configured,
+  // is reclaimed only once those files become readable or this instance is
+  // reopened; `rocksdb.num-immutable-mem-table` reports how many memtables are
+  // being held.
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
@@ -2619,6 +2800,30 @@ class DB {
   // Returns the non-owning native coroutine interface, or nullptr when this DB
   // does not support it. The returned pointer must not outlive this DB.
   virtual CoroDB* GetCoroDB() { return nullptr; }
+
+  // EXPERIMENTAL, subject to change.
+  // Returns the same value as Get() and populates requested output metadata.
+  // Newer-version tracking is supported for explicit-snapshot reads on the
+  // primary DB implementation. Newer-version tracking is not supported with
+  // kPersistedTier or by transaction reads that require a custom visibility
+  // callback. Read-only and compacted DBs return false because their in-process
+  // views are static. Secondary DBs and subclasses that do not implement
+  // tracking return NotSupported for explicit-snapshot tracking requests.
+  virtual Status GetWithMetadata(const ReadOptions& options,
+                                 ColumnFamilyHandle* column_family,
+                                 const Slice& key, PinnableSlice* value,
+                                 OutputMetadata* output_metadata);
+
+  // EXPERIMENTAL, subject to change.
+  // MultiGet equivalent of GetWithMetadata(). For each requested metadata
+  // field, the corresponding output vector is resized to num_keys entries.
+  virtual void MultiGetWithMetadata(const ReadOptions& options,
+                                    const size_t num_keys,
+                                    ColumnFamilyHandle* const* column_families,
+                                    const Slice* keys, PinnableSlice* values,
+                                    Status* statuses,
+                                    MultiGetOutputMetadata* output_metadata,
+                                    const bool sorted_input = false);
 };
 
 struct WriteStallStatsMapKeys {

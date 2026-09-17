@@ -397,7 +397,8 @@ class Compaction {
   // Both smallest_key and largest_key include timestamps if user-defined
   // timestamp is enabled.
   bool OverlapProximalLevelOutputRange(const Slice& smallest_key,
-                                       const Slice& largest_key) const;
+                                       const Slice& largest_key,
+                                       bool range_limit_exclusive) const;
 
   // For testing purposes, check that a key is within proximal level
   // output range for per_key_placement feature, which is safe to place the key

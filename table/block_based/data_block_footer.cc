@@ -15,6 +15,14 @@ namespace ROCKSDB_NAMESPACE {
 
 // Hash index bit (bit 31)
 constexpr uint32_t kHashIndexBit = 1u << 31;
+// Extended metadata bit (bit 30): reserved "open up more metadata" escape.
+// When set, an additional (currently unspecified) metadata section is present.
+// No feature defines it yet, so it must be 0; a set bit is treated as an
+// unsupported/corrupt block. Reserving it in format_version 8 lets a future
+// extension add block metadata by setting this bit and writing its section,
+// handled in this one shared decoder -- without another format_version bump or
+// re-plumbing format_version into every block parser.
+constexpr uint32_t kExtendedMetadataBit = 1u << 30;
 // Uniform keys bit (bit 29) - indicates keys are uniformly distributed
 constexpr uint32_t kUniformKeysBit = 1u << 29;
 // Separated KV storage bit (bit 28)
@@ -72,6 +80,13 @@ Status DataBlockFooter::DecodeFrom(Slice* input) {
     packed &= ~kUniformKeysBit;
   } else {
     is_uniform = false;
+  }
+
+  // Reserved "extended metadata" escape (bit 30): no feature defines it yet, so
+  // a set bit means the block was written by a newer format we don't support.
+  if (packed & kExtendedMetadataBit) {
+    return Status::Corruption(
+        "Unsupported extended block metadata (reserved bit set)");
   }
 
   // Check for reserved/unrecognized feature bits (anything beyond

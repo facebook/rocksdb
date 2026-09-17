@@ -1192,6 +1192,7 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
   const uint64_t prev_next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = prev_next_file_number;
   bool on_disk_file_advanced_counter = false;
+  bool manifest_relevant_file_advanced_counter = false;
   Status s;
   for (const auto& path : CollectAllDBPaths()) {
     std::vector<std::string> files;
@@ -1213,6 +1214,9 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
       // NewFileNumber() would collide with it.
       if (number >= prev_next_file_number) {
         on_disk_file_advanced_counter = true;
+        if (type != kOptionsFile && type != kTempFile) {
+          manifest_relevant_file_advanced_counter = true;
+        }
       }
       largest_file_number = std::max(largest_file_number, number);
       if ((type == kTableFile || type == kBlobFile)) {
@@ -1234,7 +1238,8 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
       mutable_db_options_.optimize_manifest_for_recovery &&
       !immutable_db_options_.best_efforts_recovery;
 
-  if (!optimize_manifest_for_recovery || on_disk_file_advanced_counter) {
+  if (!optimize_manifest_for_recovery ||
+      manifest_relevant_file_advanced_counter) {
     if (largest_file_number >= prev_next_file_number) {
       versions_->next_file_number_.store(largest_file_number + 1);
     }
@@ -1247,6 +1252,9 @@ Status DBImpl::MaybeUpdateNextFileNumber(RecoveryContext* recovery_ctx) {
     assert(default_cfd);
     recovery_ctx->UpdateVersionEdits(default_cfd, edit);
   } else {
+    if (on_disk_file_advanced_counter) {
+      versions_->next_file_number_.store(largest_file_number + 1);
+    }
     TEST_SYNC_POINT("DBImpl::Recovery:SkippedNoopEdit:NextFileNumber");
   }
   return s;

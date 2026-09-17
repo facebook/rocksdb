@@ -75,7 +75,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full(), false /* block_contents_pinned */,
-            user_defined_timestamps_persisted()));
+            user_defined_timestamps_persisted(), nullptr /* prefix_index */,
+            BlockBasedTableOptions::kBinary, index_value_delta_escape()));
   } else {
     ReadOptions ro{read_options};
     // FIXME? Possible regression seen in prefetch_test if this field is
@@ -90,7 +91,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full(), false /* block_contents_pinned */,
-            user_defined_timestamps_persisted()));
+            user_defined_timestamps_persisted(), nullptr /* prefix_index */,
+            BlockBasedTableOptions::kBinary, index_value_delta_escape()));
 
     it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
@@ -137,7 +139,9 @@ Status PartitionIndexReader::CacheDependencies(
       internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full(),
-      false /* block_contents_pinned */, user_defined_timestamps_persisted());
+      false /* block_contents_pinned */, user_defined_timestamps_persisted(),
+      nullptr /* prefix_index */, BlockBasedTableOptions::kBinary,
+      index_value_delta_escape());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
@@ -245,7 +249,8 @@ void PartitionIndexReader::EraseFromCacheBeforeDestruction(
           kNullStats, true /* total_order_seek */, index_has_first_key(),
           index_key_includes_seq(), index_value_is_full(),
           false /* block_contents_pinned */,
-          user_defined_timestamps_persisted());
+          user_defined_timestamps_persisted(), nullptr /* prefix_index */,
+          BlockBasedTableOptions::kBinary, index_value_delta_escape());
 
       UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
       for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();

@@ -220,13 +220,23 @@ class Block {
   // closed).
   MetaBlockIter* NewMetaIterator(bool block_contents_pinned = false);
 
+  // Returns an IndexBlockIter for iterating over a block containing index
+  // entries (the index itself, an index partition, a top-level index of index
+  // partitions, or the index of filter partitions).
+  //
+  // No parameter here is defaulted on purpose: `value_delta_escape` in
+  // particular must match how the block was written (see
+  // BlockBasedTable::Rep::index_value_delta_escape), and a silent default
+  // would mis-decode fv8 index values rather than fail to compile.
+  //
   // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
   //
-  // key_includes_seq, default true, means that the keys are in internal key
-  // format.
-  // value_is_full, default true, means that no delta encoding is
-  // applied to values.
+  // key_includes_seq means that the keys are in internal key format.
+  // value_is_full means that no delta encoding is applied to values.
+  // value_delta_escape selects the format_version >= 8 value-delta codec,
+  // which reserves an in-value escape codepoint (see IndexValue::DecodeFrom).
+  // It is only consulted when values are delta encoded.
   //
   // If `prefix_index` is not nullptr this block will do hash lookup for the key
   // prefix. If total_order_seek is true, prefix_index_ is ignored.
@@ -245,11 +255,10 @@ class Block {
       const Comparator* raw_ucmp, SequenceNumber global_seqno,
       IndexBlockIter* iter, Statistics* stats, bool total_order_seek,
       bool have_first_key, bool key_includes_seq, bool value_is_full,
-      bool block_contents_pinned = false,
-      bool user_defined_timestamps_persisted = true,
-      BlockPrefixIndex* prefix_index = nullptr,
-      BlockBasedTableOptions::BlockSearchType index_block_search_type =
-          BlockBasedTableOptions::kBinary);
+      bool block_contents_pinned, bool user_defined_timestamps_persisted,
+      BlockPrefixIndex* prefix_index,
+      BlockBasedTableOptions::BlockSearchType index_block_search_type,
+      bool value_delta_escape);
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
@@ -271,7 +280,8 @@ class Block {
   void InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
                                           const Comparator* raw_ucmp,
                                           bool value_is_full,
-                                          bool index_has_first_key);
+                                          bool index_has_first_key,
+                                          bool value_delta_escape);
 
   // Initializes per key-value checksum protection.
   // After this method is called, each MetaBlockIter returned
@@ -298,13 +308,18 @@ class Block {
   //   otherwise 0. Used by GetCorruptionStatus() to re-decode footer.
   uint32_t restart_offset_;
   uint32_t num_restarts_;
-  bool is_uniform_{false};
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   char* kv_checksum_{nullptr};
   uint32_t checksum_size_{0};
   // Used by block iterators to calculate current key index within a block
   uint32_t block_restart_interval_{0};
+  // Byte length of the common user-key prefix stored once at the start of the
+  // block (always at offset 0), or 0 when the block does not use the
+  // format_version >= 8 common-prefix feature. The prefix Slice is materialized
+  // on demand as Slice(data(), common_prefix_size_).
+  uint32_t common_prefix_size_{0};
   uint8_t protection_bytes_per_key_{0};
+  bool is_uniform_{false};
   DataBlockHashIndex data_block_hash_index_;
 
   // Pointer to values section, nullptr if not using separated KV
@@ -497,6 +512,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // and to determine if we're at a restart point for separated KV storage)
   int32_t cur_entry_idx_;
   uint32_t block_restart_interval_;
+  // Byte length of the block's common user-key prefix (stored once at offset
+  // 0), 0 if unused. See has_common_prefix()/common_prefix(). Only set for
+  // DataBlockIter.
+  uint32_t common_prefix_size_ = 0;
   uint8_t protection_bytes_per_key_;
 
   bool key_pinned_;
@@ -504,6 +523,14 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // as long as the cleanup functions are transferred to another class,
   // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
+
+  // Common user-key prefix feature (format_version >= 8): the common prefix
+  // (common_prefix_size_ bytes) is stored once at the block start (offset 0).
+  // Restart-point keys are stored with it removed; ParseNextKey prepends it on
+  // a restart point (shared == 0). Set for both DataBlockIter and
+  // IndexBlockIter (leaf index and partitioned index/filter top-level).
+  bool has_common_prefix() const { return common_prefix_size_ != 0; }
+  Slice common_prefix() const { return Slice(data_, common_prefix_size_); }
 
   virtual void SeekToFirstImpl() = 0;
   virtual void SeekToLastImpl() = 0;
@@ -553,7 +580,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Sets raw_key_, value_ to the current parsed key and value.
   // Sets restart_index_ to point to the restart interval that contains
   // the current key.
-  template <typename DecodeEntryFunc, bool StrictCheck = false>
+  template <typename DecodeEntryFunc>
   inline bool ParseNextKey(bool* is_shared);
 
   // protection_bytes_per_key, kv_checksum, and block_restart_interval
@@ -756,6 +783,35 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // UpdateKey().
   void FindKeyAfterBinarySeek(const Slice& target, uint32_t index,
                               bool is_index_key_result);
+
+  // Common-prefix feature helpers (format_version >= 8), shared by
+  // DataBlockIter and IndexBlockIter. Restart-point keys are stored (and
+  // GetRestartKey returns them) already prefix-stripped, so binary search and
+  // the linear scan can compare shortened suffixes without materializing full
+  // keys.
+  //
+  // `target` is the seek key in this block's key space (a user key if
+  // raw_key_.IsUserKey(), otherwise an internal key). Returns true if its user
+  // key starts with the block's common prefix, storing the prefix-stripped
+  // target in *target_suffix. Returns false if the target diverges from the
+  // block prefix; *before_all is then set to whether the target sorts before
+  // all keys in the block (per the user comparator).
+  bool StripSeekTargetPrefix(const Slice& target, Slice* target_suffix,
+                             bool* before_all) const;
+  template <typename DecodeKeyFunc>
+  bool BinarySeekSuffix(const Slice& target_suffix, uint32_t* index,
+                        bool* skip_linear_scan);
+  void FindKeyAfterBinarySeekSuffix(const Slice& target_suffix, uint32_t index,
+                                    bool skip_linear_scan);
+  // Compares the current (full) key against `target_suffix`, skipping the
+  // common prefix bytes on the current key. REQUIRES: has_common_prefix().
+  int CompareCurrentKeySuffix(const Slice& target_suffix) const {
+    Slice full = raw_key_.GetKey();
+    assert(full.size() >= common_prefix_size_);
+    Slice suffix(full.data() + common_prefix_size_,
+                 full.size() - common_prefix_size_);
+    return CompareKey(suffix, target_suffix);
+  }
 };
 
 class DataBlockIter final : public BlockIter<Slice> {
@@ -770,7 +826,8 @@ class DataBlockIter final : public BlockIter<Slice> {
                   bool user_defined_timestamps_persisted,
                   DataBlockHashIndex* data_block_hash_index,
                   uint8_t protection_bytes_per_key, const char* kv_checksum,
-                  uint32_t block_restart_interval, const char* values_section) {
+                  uint32_t block_restart_interval, const char* values_section,
+                  const Slice& common_prefix) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned, user_defined_timestamps_persisted,
                    protection_bytes_per_key, kv_checksum,
@@ -779,6 +836,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
+    common_prefix_size_ = static_cast<uint32_t>(common_prefix.size());
   }
 
   Slice value() const override {
@@ -912,6 +970,9 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   // format.
   // value_is_full, default true, means that no delta encoding is
   // applied to values.
+  // value_delta_escape means the value-delta codec is the format_version >= 8
+  // variant that reserves an in-value escape codepoint (see
+  // IndexValue::DecodeFrom). Only relevant when values are delta encoded.
   void Initialize(
       const Comparator* raw_ucmp, const char* data, uint32_t restarts,
       uint32_t num_restarts, SequenceNumber global_seqno,
@@ -920,7 +981,8 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       bool user_defined_timestamps_persisted, uint8_t protection_bytes_per_key,
       const char* kv_checksum, uint32_t block_restart_interval,
       const char* values_section,
-      BlockBasedTableOptions::BlockSearchType index_block_search_type) {
+      BlockBasedTableOptions::BlockSearchType index_block_search_type,
+      bool value_delta_escape, const Slice& common_prefix) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned,
                    user_defined_timestamps_persisted, protection_bytes_per_key,
@@ -928,8 +990,10 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
+    value_delta_escape_ = value_delta_escape;
     have_first_key_ = have_first_key;
     index_search_type_ = index_block_search_type;
+    common_prefix_size_ = static_cast<uint32_t>(common_prefix.size());
     if (have_first_key_ && global_seqno != kDisableGlobalSequenceNumber) {
       global_seqno_state_.reset(new GlobalSeqnoState(global_seqno));
     } else {
@@ -995,6 +1059,9 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
  private:
   bool value_delta_encoded_;
+  // format_version >= 8 value-delta codec (reserves an in-value escape). Only
+  // consulted when value_delta_encoded_ and the entry is a non-restart entry.
+  bool value_delta_escape_;
   bool have_first_key_;  // value includes first_internal_key
   BlockPrefixIndex* prefix_index_;
   // Whether the value is delta encoded. In that case the value is assumed to be

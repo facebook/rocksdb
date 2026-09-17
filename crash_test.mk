@@ -25,6 +25,7 @@ CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD) --
 	crash_test_with_multiops_wup_txn \
 	crash_test_with_optimistic_txn \
 	crash_test_with_tiered_storage \
+	liveness_crash_test \
 	blackbox_crash_test blackbox_crash_test_with_atomic_flush \
 	blackbox_crash_test_with_wc_txn blackbox_crash_test_with_wp_txn \
 	blackbox_crash_test_with_wup_txn \
@@ -93,6 +94,9 @@ crash_test_with_multiops_wp_txn: $(DB_STRESS_CMD)
 
 crash_test_with_multiops_wup_txn: $(DB_STRESS_CMD)
 	$(CRASHTEST_MAKE) blackbox_crash_test_with_multiops_wup_txn
+
+liveness_crash_test: $(DB_STRESS_CMD)
+	$(CRASHTEST_PY) liveness $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --simple blackbox $(CRASH_TEST_EXT_ARGS)

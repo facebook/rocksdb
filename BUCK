@@ -96,6 +96,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/merge_operator.cc",
         "db/multi_scan.cc",
         "db/output_validator.cc",
+        "db/periodic_compaction_phaser.cc",
         "db/periodic_task_scheduler.cc",
         "db/range_del_aggregator.cc",
         "db/range_tombstone_fragmenter.cc",
@@ -205,6 +206,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/block_based/block_cache.cc",
         "table/block_based/block_prefetcher.cc",
         "table/block_based/block_prefix_index.cc",
+        "table/block_based/builtin_index_factory.cc",
         "table/block_based/data_block_footer.cc",
         "table/block_based/data_block_hash_index.cc",
         "table/block_based/filter_block_reader_common.cc",
@@ -4609,6 +4611,12 @@ cpp_unittest_wrapper(name="block_test",
 
 cpp_unittest_wrapper(name="bloom_test",
             srcs=["util/bloom_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="builtin_index_factory_test",
+            srcs=["table/block_based/builtin_index_factory_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

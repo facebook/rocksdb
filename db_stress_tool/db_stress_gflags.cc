@@ -684,6 +684,13 @@ DEFINE_int32(
         ROCKSDB_NAMESPACE::BlockBasedTableOptions().data_block_index_type),
     "Index type for data blocks (see `enum DataBlockIndexType` in table.h)");
 
+DEFINE_int32(optimize_key_common_prefix,
+             static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+                                      .optimize_key_common_prefix),
+             "When/whether data blocks store the common user-key prefix once "
+             "(see `enum OptimizeKeyCommonPrefix` in table.h): 0=kDisabled, "
+             "1=kIfFastSeek, 2=kEnabled. Requires format_version >= 8.");
+
 DEFINE_int32(index_block_search_type,
              static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions()
                                       .index_block_search_type),
@@ -918,6 +925,13 @@ DEFINE_int32(ingest_external_file_use_file_info_one_in, 0,
              "SstFileWriter::Finish) once every N ingestions on average, so "
              "ingestion skips re-opening and scanning the files.");
 
+DEFINE_int32(
+    ingest_external_file_atomic_replace_one_in, 0,
+    "If non-zero, file ingestion atomically replaces a range strictly inside "
+    "an existing SST once every N ingestion operations on average. Requires "
+    "universal compaction, ingest_external_file_width >= 2, no user-defined "
+    "timestamps, and no acquired snapshots.");
+
 DEFINE_bool(
     ingest_external_file_with_embedded_blobs, false,
     "If true, external files for ingestion are written with embedded "
@@ -1045,6 +1059,12 @@ DEFINE_int32(remote_compaction_worker_interval, 10,
 DEFINE_bool(remote_compaction_failure_fall_back_to_local, true,
             "If true, remote compaction failures will be ignored and "
             "compactions will fall back to local and retried");
+
+DEFINE_uint32(
+    openandcompact_max_secondary_open_retries,
+    ROCKSDB_NAMESPACE::OpenAndCompactOptions().max_secondary_open_retries,
+    "Maximum number of retries when OpenAndCompact opens the source DB as a "
+    "secondary");
 
 DEFINE_int32(allow_resumption_one_in, 0,
              "If non-zero, enable resumable compaction with 1/N probability "
@@ -1488,6 +1508,11 @@ DEFINE_uint64(
     max_compaction_trigger_wakeup_seconds,
     ROCKSDB_NAMESPACE::Options().max_compaction_trigger_wakeup_seconds,
     "Sets DB option max_compaction_trigger_wakeup_seconds.");
+
+DEFINE_int32(
+    periodic_compaction_phase_recovery_percent,
+    ROCKSDB_NAMESPACE::Options().periodic_compaction_phase_recovery_percent,
+    "Sets DB option periodic_compaction_phase_recovery_percent.");
 
 DEFINE_bool(verification_only, false,
             "If true, tests will only execute verification step");

@@ -83,9 +83,8 @@ struct BlockCreateContext : public Cache::CreateContext {
                      const ImmutableOptions* _ioptions, Statistics* _statistics,
                      Decompressor* _decompressor,
                      uint8_t _protection_bytes_per_key,
-                     const Comparator* _raw_ucmp,
-                     bool _index_value_is_full = false,
-                     bool _index_has_first_key = false,
+                     const Comparator* _raw_ucmp, bool _index_value_is_full,
+                     bool _index_has_first_key, bool _index_value_delta_escape,
                      uint32_t _data_block_restart_interval = 0,
                      uint32_t _index_block_restart_interval = 0)
       : table_options(_table_options),
@@ -96,6 +95,7 @@ struct BlockCreateContext : public Cache::CreateContext {
         protection_bytes_per_key(_protection_bytes_per_key),
         index_value_is_full(_index_value_is_full),
         index_has_first_key(_index_has_first_key),
+        index_value_delta_escape(_index_value_delta_escape),
         data_block_restart_interval(_data_block_restart_interval),
         index_block_restart_interval(_index_block_restart_interval) {}
 
@@ -108,6 +108,8 @@ struct BlockCreateContext : public Cache::CreateContext {
   uint8_t protection_bytes_per_key = 0;
   bool index_value_is_full;
   bool index_has_first_key;
+  // format_version >= 8 index value-delta escape codec (see IndexValue).
+  bool index_value_delta_escape = false;
   // Restart intervals from table properties (0 if not available)
   uint32_t data_block_restart_interval = 0;
   uint32_t index_block_restart_interval = 0;

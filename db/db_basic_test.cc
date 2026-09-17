@@ -11,6 +11,7 @@
 
 #include "db/db_test_util.h"
 #include "db/log_writer.h"
+#include "db/manifest_ops.h"
 #include "db/version_edit.h"
 #include "file/writable_file_writer.h"
 #include "options/options_helper.h"
@@ -20,10 +21,13 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/format.h"
 #include "test_util/sync_point.h"
+#include "util/defer.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/counted_fs.h"
@@ -34,6 +38,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
+
+OutputMetadata NewerVersionOutputMetadata() {
+  OutputMetadata output_metadata;
+  output_metadata.WantNewerVersionPresent();
+  return output_metadata;
+}
+
+MultiGetOutputMetadata NewerVersionMultiGetOutputMetadata() {
+  MultiGetOutputMetadata output_metadata;
+  output_metadata.WantNewerVersionPresent();
+  return output_metadata;
+}
+
 class MyFlushBlockPolicy : public FlushBlockPolicy {
  public:
   explicit MyFlushBlockPolicy(const int num_keys_in_block,
@@ -141,6 +158,7 @@ struct RecoveryOptimizationCounters {
     sp->ClearAllCallBacks();
   }
 };
+
 }  // namespace
 
 // optimize_manifest_for_recovery=true: a clean reopen of a flushed DB must
@@ -349,6 +367,82 @@ TEST_F(DBBasicTest,
   ASSERT_EQ(0, counters.next_file_number.load());
   ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
             synthetic_number);
+}
+
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryKeepsCurrentOptionsFileWithStaleOptions) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  options.avoid_unnecessary_blocking_io = false;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t next_before_close =
+      dbfull()->GetVersionSet()->current_next_file_number();
+  Close();
+
+  const uint64_t stale_options_number = next_before_close + 100;
+  ASSERT_OK(WriteStringToFile(
+      env_, "" /*data*/, dbname_ + "/" + OptionsFileName(stale_options_number),
+      /*should_sync=*/true));
+  ASSERT_OK(WriteStringToFile(
+      env_, "" /*data*/,
+      dbname_ + "/" + OptionsFileName(stale_options_number + 1),
+      /*should_sync=*/true));
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  const uint64_t current_options_number =
+      dbfull()->GetVersionSet()->options_file_number();
+  ASSERT_EQ(1, counters.next_file_number.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            stale_options_number + 1);
+  ASSERT_GT(current_options_number, 0u);
+  ASSERT_OK(env_->FileExists(OptionsFileName(dbname_, current_options_number)));
+
+  const std::string checkpoint_dir = dbname_ + "_checkpoint";
+  ASSERT_OK(DestroyDir(env_, checkpoint_dir));
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_.get(), &checkpoint));
+  std::unique_ptr<Checkpoint> checkpoint_guard(checkpoint);
+  ASSERT_OK(checkpoint_guard->CreateCheckpoint(checkpoint_dir));
+  ASSERT_OK(DestroyDir(env_, checkpoint_dir));
+  ASSERT_EQ("v", Get("k"));
+}
+
+TEST_F(DBBasicTest,
+       OptimizeManifestForRecoveryReservesTempOptionsFileNumbersInMemory) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+
+  const uint64_t next_before_close =
+      dbfull()->GetVersionSet()->current_next_file_number();
+  Close();
+
+  const uint64_t stale_temp_options_number = next_before_close + 100;
+  ASSERT_OK(
+      WriteStringToFile(env_, "" /*data*/,
+                        TempOptionsFileName(dbname_, stale_temp_options_number),
+                        /*should_sync=*/true));
+
+  RecoveryOptimizationCounters counters;
+  counters.Install();
+  Reopen(options);
+  counters.Uninstall();
+
+  ASSERT_EQ(1, counters.next_file_number.load());
+  ASSERT_GT(dbfull()->GetVersionSet()->current_next_file_number(),
+            stale_temp_options_number);
+  ASSERT_EQ("v", Get("k"));
 }
 
 // optimize_manifest_for_recovery=true: after a clean Put + Flush + Close, the
@@ -978,27 +1072,19 @@ TEST_F(DBBasicTest, WritableFileWriterInitialFileSizeAdoptsExistingSize) {
 TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
   options.reuse_manifest_on_open = true;
+  options.write_dbid_to_manifest = false;
   DestroyAndReopen(options);
   ASSERT_OK(Put("k", "v"));
   ASSERT_OK(Flush());
   Close();
 
-  // Find the MANIFEST file and append garbage to it.
   std::string manifest_path;
-  {
-    std::vector<std::string> files;
-    ASSERT_OK(env_->GetChildren(dbname_, &files));
-    for (const auto& f : files) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
-        manifest_path = dbname_ + "/" + f;
-        break;
-      }
-    }
-  }
-  ASSERT_FALSE(manifest_path.empty());
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path,
+                                   &manifest_file_number));
   {
     std::string contents;
     ASSERT_OK(ReadFileToString(env_, manifest_path, &contents));
@@ -1007,9 +1093,13 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   }
 
   std::atomic<int> reopened{0};
+  std::atomic<int> new_manifest{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ReopenManifestForAppend:Reopened",
       [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeNewManifest",
+      [&](void* /*arg*/) { new_manifest.fetch_add(1); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
@@ -1018,6 +1108,12 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ(1, new_manifest.load());
+  std::string manifest_path_after;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path, manifest_path_after);
   ASSERT_EQ("v", Get("k"));
 }
 
@@ -1030,27 +1126,19 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenSkipsOnTailCorruption) {
 TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.optimize_manifest_for_recovery = true;
   options.reuse_manifest_on_open = true;
+  options.write_dbid_to_manifest = false;
   DestroyAndReopen(options);
   ASSERT_OK(Put("k", "v"));
   ASSERT_OK(Flush());
   Close();
 
-  // Find the MANIFEST file.
   std::string manifest_path;
-  {
-    std::vector<std::string> files;
-    ASSERT_OK(env_->GetChildren(dbname_, &files));
-    for (const auto& f : files) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == kDescriptorFile) {
-        manifest_path = dbname_ + "/" + f;
-        break;
-      }
-    }
-  }
-  ASSERT_FALSE(manifest_path.empty());
+  uint64_t manifest_file_number = 0;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path,
+                                   &manifest_file_number));
 
   // Append an incomplete atomic group (2 records of a 3-member group) to the
   // MANIFEST. These are valid log records with correct CRCs but the atomic
@@ -1088,11 +1176,29 @@ TEST_F(DBBasicTest, ReuseManifestOnOpenIncompleteAtomicGroupAtTail) {
     // Deliberately NOT writing the third record (remaining_entries=0)
   }
 
-  // Reopen: recovery should succeed (incomplete trailing group is ignored).
-  // With the fix, ReopenManifestForAppend will NOT reuse the MANIFEST because
-  // manifest_last_valid_record_end_ < physical_size (the incomplete group
-  // records are excluded from the valid end).
+  std::atomic<int> reopened{0};
+  std::atomic<int> new_manifest{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ReopenManifestForAppend:Reopened",
+      [&](void* /*arg*/) { reopened.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeNewManifest",
+      [&](void* /*arg*/) { new_manifest.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Reopen: recovery should succeed, but ReopenManifestForAppend must not
+  // reuse a MANIFEST ending with an incomplete atomic group.
   Reopen(options);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(0, reopened.load());
+  ASSERT_EQ(1, new_manifest.load());
+  std::string manifest_path_after;
+  ASSERT_OK(GetCurrentManifestPath(dbname_, env_->GetFileSystem().get(),
+                                   /*is_retry=*/false, &manifest_path_after,
+                                   &manifest_file_number));
+  ASSERT_NE(manifest_path, manifest_path_after);
   ASSERT_EQ("v", Get("k"));
 
   // Write new data to create new MANIFEST records.
@@ -1228,6 +1334,24 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
+  std::string metadata_value;
+  ReadOptions metadata_read_options;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetWithMetadata(metadata_read_options, "foo", &metadata_value,
+                                 &output_metadata));
+  ASSERT_EQ("v3", metadata_value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+  std::vector<Slice> metadata_keys{Slice("foo")};
+  std::vector<std::string> metadata_values;
+  MultiGetOutputMetadata multiget_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  std::vector<Status> metadata_statuses =
+      db_->MultiGetWithMetadata(metadata_read_options, metadata_keys,
+                                &metadata_values, &multiget_output_metadata);
+  ASSERT_EQ(1, metadata_statuses.size());
+  ASSERT_OK(metadata_statuses[0]);
+  ASSERT_EQ("v3", metadata_values[0]);
+  ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
   verify_all_iters();
   ASSERT_EQ(db_->SyncWAL().code(), Status::Code::kNotSupported);
 
@@ -1408,6 +1532,35 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
   ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
+
+  std::string metadata_value;
+  ReadOptions metadata_read_options;
+  const Snapshot* metadata_snapshot = db_->GetSnapshot();
+  metadata_read_options.snapshot = metadata_snapshot;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetWithMetadata(metadata_read_options, "aaa", &metadata_value,
+                                 &output_metadata));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), metadata_value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+  std::vector<Slice> metadata_keys{Slice("aaa"), Slice("ccc")};
+  std::vector<std::string> metadata_values;
+  MultiGetOutputMetadata multiget_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  std::vector<Status> metadata_statuses =
+      db_->MultiGetWithMetadata(metadata_read_options, metadata_keys,
+                                &metadata_values, &multiget_output_metadata);
+  ASSERT_EQ(metadata_keys.size(), metadata_statuses.size());
+  ASSERT_OK(metadata_statuses[0]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), metadata_values[0]);
+  ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
+  ASSERT_TRUE(metadata_statuses[1].IsNotFound());
+  ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[1]);
+  db_->ReleaseSnapshot(metadata_snapshot);
+
+  ASSERT_TRUE(db_->GetWithMetadata(ReadOptions(), db_->DefaultColumnFamily(),
+                                   "aaa", static_cast<PinnableSlice*>(nullptr),
+                                   &output_metadata)
+                  .IsInvalidArgument());
 
   // TODO: validate that other write ops return NotImplemented
   // (CompactedDB is missing some overrides)
@@ -1594,6 +1747,430 @@ TEST_P(DBBasicGetWithParam, GetSnapshot) {
       db_->ReleaseSnapshot(s1);
     }
   } while (ChangeOptions());
+}
+
+TEST_F(DBBasicTest, GetNewerVersionPresent) {
+  // Snapshot reads report later point and range-delete writes without changing
+  // the snapshot-visible value.
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "v1"));
+  ASSERT_OK(Put(1, "merge_key", "base"));
+  ASSERT_OK(Put(1, "stable", "s1"));
+  ASSERT_OK(Put(1, "range_key", "r1"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ReadOptions snapshot_read;
+  snapshot_read.snapshot = snapshot;
+
+  std::string value;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("v1", value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+
+  ASSERT_OK(Put(1, "other", "v2"));
+  ASSERT_OK(Put(1, "created_after_put", "new"));
+  ASSERT_OK(Merge(1, "created_after_merge", "new"));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), handles_[1], "range_key", "range_key~"));
+  ASSERT_OK(Merge(1, "merge_key", "new"));
+  value.clear();
+  *output_metadata.newer_version_present = true;
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "stable", &value,
+                                 &output_metadata));
+  ASSERT_EQ("s1", value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+
+  value.clear();
+  *output_metadata.newer_version_present = true;
+  ASSERT_TRUE(db_->GetWithMetadata(snapshot_read, handles_[1],
+                                   "created_after_put", &value,
+                                   &output_metadata)
+                  .IsNotFound());
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  value.clear();
+  *output_metadata.newer_version_present = false;
+  ASSERT_TRUE(db_->GetWithMetadata(snapshot_read, handles_[1],
+                                   "created_after_merge", &value,
+                                   &output_metadata)
+                  .IsNotFound());
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  value.clear();
+  *output_metadata.newer_version_present = false;
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "range_key",
+                                 &value, &output_metadata));
+  ASSERT_EQ("r1", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  value.clear();
+  *output_metadata.newer_version_present = false;
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "merge_key",
+                                 &value, &output_metadata));
+  ASSERT_EQ("base", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  ASSERT_OK(Put(1, "key", "v2"));
+  value.clear();
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("v1", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  ASSERT_OK(Flush(1));
+  value.clear();
+  *output_metadata.newer_version_present = false;
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("v1", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  value.clear();
+  *output_metadata.newer_version_present = false;
+  ASSERT_OK(db_->GetWithMetadata(snapshot_read, handles_[1], "range_key",
+                                 &value, &output_metadata));
+  ASSERT_EQ("r1", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  ReadOptions latest_read;
+  value.clear();
+  *output_metadata.newer_version_present = true;
+  ASSERT_OK(db_->GetWithMetadata(latest_read, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("v2", value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, NewerVersionPresentRequestedByOutputMetadata) {
+  // Newer-version tracking is opt-in through OutputMetadata and
+  // MultiGetOutputMetadata.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "old"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(1, "key", "new"));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+
+  std::string value;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("old", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  std::vector<Slice> keys{"key"};
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<std::string> values;
+  MultiGetOutputMetadata multiget_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, cfs, keys, &values, &multiget_output_metadata);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_EQ(1, multiget_output_metadata.newer_version_present->size());
+  ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, NewerVersionPresentIgnoreRangeDeletions) {
+  // ignore_range_deletions affects the returned value, not newer-version
+  // metadata about covering range tombstones.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "range_key", "old"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), handles_[1], "range_key", "range_key~"));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  read_options.ignore_range_deletions = true;
+
+  std::string value;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "range_key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("old", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  std::vector<Slice> keys{"range_key"};
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<std::string> values;
+  MultiGetOutputMetadata multiget_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, cfs, keys, &values, &multiget_output_metadata);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+
+  ASSERT_OK(Flush(1));
+  value.clear();
+  *output_metadata.newer_version_present = false;
+  ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "range_key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("old", value);
+  ASSERT_TRUE(*output_metadata.newer_version_present);
+
+  values.clear();
+  multiget_output_metadata.newer_version_present->clear();
+  statuses = db_->MultiGetWithMetadata(read_options, cfs, keys, &values,
+                                       &multiget_output_metadata);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, NewerVersionPresentFromImmutableMemTable) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "point_key", "old_point"));
+  ASSERT_OK(Put(1, "range_key", "old_range"));
+  ManagedSnapshot snapshot(db_.get());
+
+  ASSERT_OK(Put(1, "point_key", "new_point"));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), handles_[1], "range_key", "range_key~"));
+
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
+  Status resume_status;
+  {
+    ASSERT_OK(db_->PauseBackgroundWork());
+    Defer resume_background(
+        [&] { resume_status = db_->ContinueBackgroundWork(); });
+    ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
+
+    ReadOptions read_options;
+    read_options.snapshot = snapshot.snapshot();
+
+    std::string value;
+    OutputMetadata output_metadata = NewerVersionOutputMetadata();
+    ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "point_key",
+                                   &value, &output_metadata));
+    ASSERT_EQ("old_point", value);
+    ASSERT_TRUE(*output_metadata.newer_version_present);
+
+    value.clear();
+    *output_metadata.newer_version_present = false;
+    ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "range_key",
+                                   &value, &output_metadata));
+    ASSERT_EQ("old_range", value);
+    ASSERT_TRUE(*output_metadata.newer_version_present);
+
+    std::vector<Slice> keys{"point_key", "range_key"};
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+    std::vector<std::string> values;
+    MultiGetOutputMetadata multiget_output_metadata =
+        NewerVersionMultiGetOutputMetadata();
+    const std::vector<Status> statuses = db_->MultiGetWithMetadata(
+        read_options, cfs, keys, &values, &multiget_output_metadata);
+    ASSERT_EQ(2, statuses.size());
+    ASSERT_OK(statuses[0]);
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(std::vector<std::string>({"old_point", "old_range"}), values);
+    ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+    ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[1]);
+  }
+  ASSERT_OK(resume_status);
+  ASSERT_OK(Flush(1));
+}
+
+TEST_F(DBBasicTest, NewerVersionPresentBypassesRowCacheWhileTracking) {
+  // Prime row-cache entries for the snapshot values, then verify metadata
+  // reads still inspect SST sequence numbers instead of replaying those
+  // entries.
+  option_config_ = kRowCache;
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "get_key", "old_get"));
+  ASSERT_OK(Put(1, "multiget_key", "old_multiget"));
+  ASSERT_OK(Flush(1));
+  ManagedSnapshot snapshot(db_.get());
+  ASSERT_OK(Put(1, "get_key", "new_get"));
+  ASSERT_OK(Put(1, "multiget_key", "new_multiget"));
+  ASSERT_OK(Flush(1));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot.snapshot();
+
+  std::string primed_value;
+  ASSERT_OK(db_->Get(read_options, handles_[1], "get_key", &primed_value));
+  ASSERT_EQ("old_get", primed_value);
+  std::vector<Slice> primed_keys{"multiget_key"};
+  std::vector<ColumnFamilyHandle*> primed_cfs(primed_keys.size(), handles_[1]);
+  std::vector<std::string> primed_values;
+  const std::vector<Status> primed_statuses =
+      db_->MultiGet(read_options, primed_cfs, primed_keys, &primed_values);
+  ASSERT_OK(primed_statuses[0]);
+  ASSERT_EQ("old_multiget", primed_values[0]);
+
+  for (int i = 0; i < 2; ++i) {
+    SCOPED_TRACE(i);
+    std::string value;
+    OutputMetadata output_metadata = NewerVersionOutputMetadata();
+    ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "get_key", &value,
+                                   &output_metadata));
+    ASSERT_EQ("old_get", value);
+    ASSERT_TRUE(*output_metadata.newer_version_present);
+  }
+
+  std::vector<Slice> keys{"multiget_key"};
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  for (int i = 0; i < 2; ++i) {
+    SCOPED_TRACE(i);
+    std::vector<std::string> values;
+    MultiGetOutputMetadata multiget_output_metadata =
+        NewerVersionMultiGetOutputMetadata();
+    std::vector<Status> statuses = db_->MultiGetWithMetadata(
+        read_options, cfs, keys, &values, &multiget_output_metadata);
+    ASSERT_EQ(1, statuses.size());
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ("old_multiget", values[0]);
+    ASSERT_TRUE((*multiget_output_metadata.newer_version_present)[0]);
+  }
+}
+
+TEST_F(DBBasicTest, NewerVersionPresentUsesRowCacheAfterObservation) {
+  option_config_ = kRowCache;
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "old"));
+  ASSERT_OK(Flush(1));
+  ManagedSnapshot snapshot(db_.get());
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot.snapshot();
+  std::vector<Slice> keys{"key"};
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<std::string> values;
+  std::vector<Status> statuses =
+      db_->MultiGet(read_options, cfs, keys, &values);
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+
+  ASSERT_OK(Put(1, "key", "new"));
+  const uint64_t row_cache_hits = TestGetTickerCount(options, ROW_CACHE_HIT);
+
+  values.clear();
+  MultiGetOutputMetadata output_metadata = NewerVersionMultiGetOutputMetadata();
+  statuses = db_->MultiGetWithMetadata(read_options, cfs, keys, &values,
+                                       &output_metadata);
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[0]);
+  ASSERT_EQ(row_cache_hits + 1, TestGetTickerCount(options, ROW_CACHE_HIT));
+}
+
+TEST_F(DBBasicTest, NewerVersionPresentPersistedTierNotSupported) {
+  // kPersistedTier is incompatible with snapshot newer-version tracking but not
+  // with untracked latest-version reads.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "old"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(1, "key", "new"));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  read_options.read_tier = kPersistedTier;
+
+  std::string value;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_TRUE(db_->GetWithMetadata(read_options, handles_[1], "key", &value,
+                                   &output_metadata)
+                  .IsNotSupported());
+
+  std::vector<Slice> keys{"key"};
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<std::string> values;
+  MultiGetOutputMetadata multiget_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, cfs, keys, &values, &multiget_output_metadata);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
+
+  read_options.snapshot = nullptr;
+  value.clear();
+  *output_metadata.newer_version_present = true;
+  ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("new", value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+
+  values.clear();
+  multiget_output_metadata.newer_version_present->clear();
+  statuses = db_->MultiGetWithMetadata(read_options, cfs, keys, &values,
+                                       &multiget_output_metadata);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("new", values[0]);
+  ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, ReadOnlyNewerVersionPresentReturnsFalse) {
+  // Read-only DBs do not widen snapshot reads, so requested metadata remains
+  // false.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "value"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(
+      TryReopenReadOnlyWithColumnFamilies({"default", "pikachu"}, options));
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+
+  std::string value;
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_OK(db_->GetWithMetadata(read_options, handles_[1], "key", &value,
+                                 &output_metadata));
+  ASSERT_EQ("value", value);
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+
+  std::vector<Slice> keys{"key"};
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<std::string> values;
+  MultiGetOutputMetadata multiget_output_metadata =
+      NewerVersionMultiGetOutputMetadata();
+  std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, cfs, keys, &values, &multiget_output_metadata);
+  ASSERT_EQ(1, statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("value", values[0]);
+  ASSERT_EQ(1, multiget_output_metadata.newer_version_present->size());
+  ASSERT_FALSE((*multiget_output_metadata.newer_version_present)[0]);
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBBasicTest, CheckLock) {
@@ -2188,6 +2765,151 @@ TEST_F(DBBasicTest, MultiGetSimple) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBBasicTest, MultiGetNewerVersionPresent) {
+  // A mixed MultiGet batch reports newer writes independently for each key in
+  // input order.
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "updated", "old"));
+  ASSERT_OK(Put(1, "unchanged", "same"));
+  ASSERT_OK(Put(1, "deleted", "old"));
+  ASSERT_OK(Put(1, "merged", "old"));
+  ASSERT_OK(Put(1, "range_deleted", "old"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ASSERT_OK(Put(1, "updated", "new"));
+  ASSERT_OK(Put(1, "created_after_put", "new"));
+  ASSERT_OK(Merge(1, "created_after_merge", "new"));
+  ASSERT_OK(Delete(1, "deleted"));
+  ASSERT_OK(Merge(1, "merged", "new"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), handles_[1], "range_deleted",
+                             "range_deleted~"));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::vector<Slice> keys({"updated", "unchanged", "deleted", "merged",
+                           "range_deleted", "created_after_put",
+                           "created_after_merge", "missing"});
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<std::string> values;
+  MultiGetOutputMetadata output_metadata = NewerVersionMultiGetOutputMetadata();
+
+  std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, cfs, keys, &values, &output_metadata);
+
+  ASSERT_EQ(keys.size(), statuses.size());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ("old", values[0]);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[0]);
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ("same", values[1]);
+  ASSERT_FALSE((*output_metadata.newer_version_present)[1]);
+
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ("old", values[2]);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[2]);
+
+  ASSERT_OK(statuses[3]);
+  ASSERT_EQ("old", values[3]);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[3]);
+
+  ASSERT_OK(statuses[4]);
+  ASSERT_EQ("old", values[4]);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[4]);
+
+  ASSERT_TRUE(statuses[5].IsNotFound());
+  ASSERT_TRUE((*output_metadata.newer_version_present)[5]);
+
+  ASSERT_TRUE(statuses[6].IsNotFound());
+  ASSERT_TRUE((*output_metadata.newer_version_present)[6]);
+
+  ASSERT_TRUE(statuses[7].IsNotFound());
+  ASSERT_FALSE((*output_metadata.newer_version_present)[7]);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, MultiGetNewerVersionPresentAcrossColumnFamilies) {
+  // Unsorted mixed-CF reads keep metadata aligned with input order after each
+  // CF is processed independently.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  ASSERT_OK(Put(1, "updated_one", "old_one"));
+  ASSERT_OK(Put(2, "updated_two", "old_two"));
+  ASSERT_OK(Put(2, "stable_two", "stable"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(1, "updated_one", "new_one"));
+  ASSERT_OK(Put(2, "updated_two", "new_two"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Flush(2));
+
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  std::vector<Slice> keys{"updated_two", "updated_one", "stable_two"};
+  std::vector<ColumnFamilyHandle*> column_families{handles_[2], handles_[1],
+                                                   handles_[2]};
+  std::vector<std::string> values;
+  MultiGetOutputMetadata output_metadata = NewerVersionMultiGetOutputMetadata();
+  const std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      read_options, column_families, keys, &values, &output_metadata);
+
+  for (const Status& status : statuses) {
+    ASSERT_OK(status);
+  }
+  ASSERT_EQ(std::vector<std::string>({"old_two", "old_one", "stable"}), values);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[0]);
+  ASSERT_TRUE((*output_metadata.newer_version_present)[1]);
+  ASSERT_FALSE((*output_metadata.newer_version_present)[2]);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBBasicTest, MultiGetWithMetadataColumnFamiliesKeysSizeMismatch) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  std::vector<Slice> keys({"k1", "k2"});
+  std::vector<ColumnFamilyHandle*> cfs({handles_[1]});
+  std::vector<std::string> values({"stale"});
+  MultiGetOutputMetadata output_metadata;
+  output_metadata.timestamps.emplace();
+  output_metadata.newer_version_present = std::vector<uint8_t>({1});
+
+  std::vector<Status> statuses = db_->MultiGetWithMetadata(
+      ReadOptions(), cfs, keys, &values, &output_metadata);
+
+  ASSERT_EQ(keys.size(), statuses.size());
+  ASSERT_EQ(keys.size(), values.size());
+  for (const Status& status : statuses) {
+    ASSERT_TRUE(status.IsInvalidArgument());
+  }
+  ASSERT_EQ(keys.size(), output_metadata.timestamps->size());
+  ASSERT_EQ(keys.size(), output_metadata.newer_version_present->size());
+  ASSERT_FALSE((*output_metadata.newer_version_present)[0]);
+  ASSERT_FALSE((*output_metadata.newer_version_present)[1]);
+}
+
+TEST_F(DBBasicTest, GetWithMetadataNullValueInvalidArgument) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  OutputMetadata output_metadata = NewerVersionOutputMetadata();
+  ASSERT_TRUE(db_->GetWithMetadata(ReadOptions(), handles_[1], "key",
+                                   static_cast<PinnableSlice*>(nullptr),
+                                   &output_metadata)
+                  .IsInvalidArgument());
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+
+  *output_metadata.newer_version_present = true;
+  ASSERT_TRUE(db_->GetWithMetadata(ReadOptions(), "key",
+                                   static_cast<std::string*>(nullptr),
+                                   &output_metadata)
+                  .IsInvalidArgument());
+  ASSERT_FALSE(*output_metadata.newer_version_present);
+}
+
 TEST_F(DBBasicTest, MultiGetEmpty) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -2227,6 +2949,9 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, DBBlockChecksumTest,
 TEST_P(DBBlockChecksumTest, BlockChecksumTest) {
   BlockBasedTableOptions table_options;
   table_options.format_version = GetParam();
+  // kFooterFormatVersionsToTest includes the unpublished draft format_version
+  // 8; writing it requires this opt-in.
+  SaveAndRestore<bool> allow_draft(&TEST_AllowUnsupportedFormatVersion(), true);
   Options options = CurrentOptions();
   const int kNumPerFile = 2;
 

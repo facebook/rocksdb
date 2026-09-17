@@ -455,7 +455,7 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
-extern const char* kHostnameForDbHostId;
+extern const char* const kHostnameForDbHostId;
 
 enum class CompactionServiceJobStatus : char {
   kSuccess,
@@ -547,7 +547,18 @@ class CompactionService : public Customizable {
     return response;
   }
 
-  // Wait for the scheduled compaction to finish from the remote worker
+  // Wait for the scheduled compaction to finish from the remote worker and
+  // return its status; `result` is the serialized CompactionServiceResult from
+  // the worker's DB::OpenAndCompact.
+  //
+  // DB::OpenAndCompact may return Status::Incomplete to *decline* a scheduled
+  // job rather than fail it -- currently when the MANIFEST floor check finds
+  // the worker recovered an older/stale view of the DB than the primary
+  // scheduled from (see DBOptions::remote_compaction_manifest_floor). Whether
+  // to map that to kUseLocal (fall back to a local compaction) or kFailure
+  // (surface it) is up to the integrator; both are valid. (Cancellation also
+  // surfaces as Status::Incomplete, distinguishable by SubCode
+  // kManualCompactionPaused.)
   virtual CompactionServiceJobStatus Wait(
       const std::string& /*scheduled_job_id*/, std::string* /*result*/) {
     return CompactionServiceJobStatus::kUseLocal;
@@ -562,6 +573,10 @@ class CompactionService : public Customizable {
 
   ~CompactionService() override = default;
 };
+
+// Canonical name for the DB session temporary directory, which can be used as
+// the remote compaction output root when enabled.
+inline constexpr char kSessionTmpDirName[] = "session_tmp";
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
@@ -780,9 +795,10 @@ struct DBOptions {
   // Default: 16
   int max_file_opening_threads = 16;
 
-  // Requested maximum number of threads in the shared read I/O executor. A DB
-  // open can increase the executor to this size but cannot reduce it. Used
-  // exclusively for asynchronous read requests (e.g. GetAsync, MultiGetAsync).
+  // Requested maximum number of threads in the shared read I/O executor.
+  // Opening a DB or SstFileReader can increase the executor to this size but
+  // cannot reduce it. Used exclusively for asynchronous read requests (e.g.
+  // GetAsync, MultiGetAsync).
   int read_io_executor_threads = 1;
 
   // If true, SST files are opened and validated asynchronously in the
@@ -1754,6 +1770,41 @@ struct DBOptions {
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
 
+  // Hardening for remote compaction (CompactionService / DB::OpenAndCompact).
+  // When true (default), the primary includes in each remote compaction request
+  // the MANIFEST position (file number and size) it scheduled the compaction
+  // from. The remote worker refuses to reconstruct the compaction against an
+  // older MANIFEST view than that -- e.g. an eventually-consistent filesystem
+  // returning a stale CURRENT, or a truncated MANIFEST -- and falls back to a
+  // local compaction rather than risk an incorrect result computed against the
+  // wrong (older) LSM shape.
+  //
+  // The presence of this position on the request also enables the worker's
+  // "trust the MANIFEST" recovery, which avoids failing a job over a
+  // transiently-unavailable file that is not one of the compaction's inputs.
+  //
+  // Setting this to false is a kill switch for disabling both behaviors (for
+  // subsequently scheduled compactions). Dynamically changeable through
+  // SetDBOptions() API. DEPRECATED because this kill switch should not be
+  // needed long term.
+  //
+  // Only affects a primary that schedules remote compactions; it has no effect
+  // when compaction_service is not configured.
+  bool remote_compaction_manifest_floor = true;
+
+  // When true, remote compaction uses the DB session temporary directory.
+  // An `output_directory` argument of `job_1` to `DB::OpenAndCompact()` is
+  // resolved to `<dbname>/session_tmp/job_1`. DB::Open() creates the directory
+  // and deletes contents left by the previous DB session before scheduling new
+  // compactions. Cleanup is best effort and never fails open.
+  //
+  // When false, output is written directly to `<dbname>/<output_directory>`
+  // and DB::Open() performs no remote compaction output cleanup, preserving
+  // the legacy behavior.
+  //
+  // Default: false
+  bool use_session_tmp_dir_for_remote_compaction = false;
+
   // It indicates, which lowest cache tier we want to
   // use for a certain DB. Currently we support volatile_tier and
   // non_volatile_tier. They are layered. By setting it to kVolatileTier, only
@@ -1819,6 +1870,61 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   uint64_t max_compaction_trigger_wakeup_seconds = 43200;
+
+  // EXPERIMENTAL
+  // Enables and tunes preferred-phase scheduling of periodic (time-based)
+  // compaction, which de-herds periodic_compaction_seconds compactions across a
+  // fleet of similarly-configured DBs (a recurring "thundering herd" is
+  // especially costly with remote compaction). Each (DB, column family) is
+  // given a stable-but-well-spread preferred phase within
+  // periodic_compaction_seconds and compactions are steered toward it. The
+  // phase is derived from the DB ID -- stable across re-open and physical
+  // cloning/migration (at least when write_dbid_to_manifest=true), but distinct
+  // across DBs -- and each column family is spread quasi-uniformly around the
+  // DB's base phase by a golden-ratio recurrence, so different CFs of one DB
+  // get well-separated phases. No user tuning of the phase itself is needed.
+  //
+  // This value is the percent (0-100) of the gap between a file's unphased
+  // trigger time and its preferred-phase time that is closed on each
+  // periodic-compaction trigger, always by triggering *earlier* -- never later
+  // than periodic_compaction_seconds, which remains a soft upper bound on data
+  // age. Because each compaction re-stamps the file, the phase error then
+  // decays geometrically toward the preferred phase over successive cycles.
+  //
+  // "Never later" holds in steady state. It can be exceeded only for files
+  // already past due when phasing (re)anchors -- which it does on DB open, on
+  // enabling phasing, and on any change to periodic_compaction_seconds. The
+  // cases that matter are reopening a DB whose files aged out while it was
+  // down (e.g. DC power-outage recovery) and turning the interval *down*
+  // (which retroactively makes older files past due). Rather than compact that
+  // whole cohort at once (a herd), phasing spreads it over the first quarter
+  // of the interval after the anchor, on a stable per-(DB, CF) grid --
+  // expedited but herd-avoiding -- so such a file may be rewritten up to a
+  // quarter-interval past its (revised) deadline. To enforce the age limit
+  // immediately at such a transition, trigger a manual compaction.
+  //
+  // 0 disables phasing entirely (exact legacy behavior; this is the kill
+  // switch). 100 snaps to the preferred phase in a single cycle, which can
+  // recompact some files well before their normal interval and is generally not
+  // recommended. Values are clamped to [0, 100].
+  //
+  // Lower values converge more slowly but incur less extra compaction work,
+  // especially under write-driven or bursty workloads that keep re-randomizing
+  // a file's phase (where a high recovery rate wastefully "chases" the moving
+  // phase). ~33 is a good balance of spreading speed vs. extra work: almost
+  // always widely spread after a few periods while almost always below 5%
+  // extra compaction work overall, trending toward 0% in the long term for
+  // most workloads.
+  //
+  // This feature might become obsolete if a future feature is able to have
+  // compaction pressure, whether local or remote, feed back into compaction
+  // scheduling.
+  //
+  // Recommended setting: 33
+  // Default: feature disabled
+  //
+  // Dynamically changeable through SetDBOptions() API.
+  int periodic_compaction_phase_recovery_percent = 0;
 
   // EXPERIMENTAL
 
@@ -2138,10 +2244,10 @@ struct ReadOptions {
   // NOTE: for all pointer members of ReadOptions (e.g. snapshot, timestamp,
   // iterate_lower_bound, iterate_upper_bound, table_filter, ...), when the
   // pointer is non-nullptr the caller retains ownership of the pointed-to
-  // object and is responsible for keeping it alive and unchanged for as long as
-  // the read operation using these options is in progress (which, for an
-  // iterator, is the lifetime of the iterator). This keeps ReadOptions cheap to
-  // copy (internal to RocksDB).
+  // object and, unless documented otherwise, is responsible for keeping it
+  // alive and unchanged for as long as the read operation using these options
+  // is in progress (which, for an iterator, is the lifetime of the iterator).
+  // This keeps ReadOptions cheap to copy (internal to RocksDB).
 
   // *** BEGIN options relevant to point lookups as well as scans ***
 
@@ -2249,6 +2355,16 @@ struct ReadOptions {
   // parallel if the keys in the MultiGet batch are in different levels. It
   // comes at the expense of slightly higher CPU overhead.
   bool optimize_multiget_for_io = true;
+
+  // EXPERIMENTAL
+  //
+  // An opaque, non-owning context passed to all table implementations for this
+  // read. RocksDB does not interpret, manage, or synchronize access to this
+  // context. It is intended to let external table implementations consume
+  // application-defined read options. The caller is responsible for keeping the
+  // context alive for the duration of the read operation (or iterator lifetime)
+  // and for any required synchronization.
+  void* custom_context = nullptr;
 
   // *** END options relevant to point lookups (as well as scans) ***
   // *** BEGIN options only relevant to iterators or scans ***
@@ -2445,6 +2561,22 @@ struct ReadOptions {
   //
   // Default: false
   bool auto_refresh_iterator_with_snapshot = false;
+
+  // EXPERIMENTAL
+  //
+  // Names which block-based-table index a read should use. This is a
+  // preparatory API for replacing direct table_index_factory selection in a
+  // follow-up change. Until that wiring lands, table_index_factory keeps its
+  // existing behavior and read_index is not consulted by table reading.
+  enum class ReadIndex : uint8_t {
+    // Use the column family's default index routing.
+    kDefault = 0,
+    // Use the standard block-based-table index.
+    kBuiltin = 1,
+    // Prefer the configured custom index when present.
+    kPreferCustom = 2,
+  };
+  ReadIndex read_index = ReadIndex::kDefault;
 
   // EXPERIMENTAL
   //
@@ -3042,16 +3174,17 @@ struct IngestExternalFileArg {
   //   to this range (not just the file ranges).
   // * Not compatible with ingest_behind=true.
   // * When options.snapshot_consistency = false, the range is cleared
-  // similarly to DeleteFilesInRange, but fails if any files overlap the range
-  // only partially.
-  //   * It is recommended to use fail_if_not_bottommost_level=true to ensure
-  //     data in the key range is ingested to a single compacted level (the
-  //     last level). (fail_if_not_bottommost_level=false allows overlap between
-  //     the ingested files.)
+  // similarly to DeleteFilesInRange. With universal compaction and a table
+  // factory that supports range deletion, a partial overlap is handled by
+  // retaining the overlapping file and adding a range tombstone below the
+  // ingested data. This requires allow_global_seqno=true,
+  // allow_db_generated_files=false, and no user-defined timestamps. Other
+  // configurations fail on partial overlap.
+  //   * fail_if_not_bottommost_level=true rejects partial overlap because the
+  //     retained file requires the tombstone and replacement files to be
+  //     placed on higher levels.
   // * options.snapshot_consistency = true is not yet supported.
-  // BUG: the upper bound of the range may be interpreted as inclusive or
-  // exclusive, so it is best not to depend on one or the other until it is
-  // sorted out.
+  // * The range is half-open: start is inclusive and limit is exclusive.
   std::optional<RangeOpt> atomic_replace_range;
 
   // Optimizes for prepare performance, see `PreparedFileInfo` for details.
@@ -3178,6 +3311,13 @@ struct CompactionServiceOptionsOverride {
 struct OpenAndCompactOptions {
   // Allows cancellation of an in-progress compaction.
   std::atomic<bool>* canceled = nullptr;
+
+  // Maximum number of times to retry opening the source DB as a secondary
+  // after the initial attempt fails because CURRENT or MANIFEST was replaced
+  // concurrently. A value of zero disables retries.
+  //
+  // Default: 2
+  uint32_t max_secondary_open_retries = 2;
 
   // EXPERIMENTAL
   //

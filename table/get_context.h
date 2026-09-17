@@ -202,6 +202,30 @@ class GetContext {
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
 
+  // Do we need to track point versions skipped by the read visibility
+  // callback?
+  bool NeedToTrackNewerVersions() const {
+    const bool* per_key_result =
+        has_newer_version_result_ ? newer_version_present_ : nullptr;
+    return callback_ != nullptr &&
+           callback_->NeedToTrackNewerVersions(per_key_result);
+  }
+
+  void SetNewerVersionResult(bool* newer_version_present) {
+    assert(!has_newer_version_result_);
+    assert(lazy_columns_same_file_reader_ == nullptr);
+    newer_version_present_ = newer_version_present;
+    has_newer_version_result_ = true;
+  }
+
+  const MetadataReadBounds* metadata_read_bounds() const {
+    return callback_ != nullptr ? callback_->GetMetadataReadBounds() : nullptr;
+  }
+
+  ReadCallback* read_callback() const { return callback_; }
+
+  void RecordNewerVersionIfNeeded(SequenceNumber seq, ValueType type);
+
   bool sample() const { return sample_; }
 
   bool CheckCallback(SequenceNumber seq) {
@@ -286,6 +310,7 @@ class GetContext {
   // called as part of DB GetMergeOperands API. When it's false merge operators
   // are never merged.
   bool do_merge_;
+  bool has_newer_version_result_ = false;
   bool* is_blob_index_;
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
@@ -296,7 +321,12 @@ class GetContext {
   // SameFileBlobReader for the SST that held it (if any) is stored here so the
   // caller can resolve same-file/embedded references on demand later. Only the
   // SST read path (Version::Get) sets this; memtable hits are unaffected.
-  const SameFileBlobReader** lazy_columns_same_file_reader_;
+  // Lazy-column and metadata reads are mutually exclusive. Reuse the pointer
+  // slot so ordinary reads do not pay an object-size cost for metadata output.
+  union {
+    const SameFileBlobReader** lazy_columns_same_file_reader_;
+    bool* newer_version_present_;
+  };
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

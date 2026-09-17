@@ -111,6 +111,14 @@ class StackableDB : public DB {
   }
 
   using DB::GetAsync;
+  using DB::GetWithMetadata;
+  Status GetWithMetadata(const ReadOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         PinnableSlice* value,
+                         OutputMetadata* output_metadata) override {
+    return db_->GetWithMetadata(options, column_family, key, value,
+                                output_metadata);
+  }
 
   using DB::GetEntity;
 
@@ -153,6 +161,16 @@ class StackableDB : public DB {
   }
 
   using DB::MultiGetAsync;
+  using DB::MultiGetWithMetadata;
+  void MultiGetWithMetadata(const ReadOptions& options, const size_t num_keys,
+                            ColumnFamilyHandle* const* column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            Status* statuses,
+                            MultiGetOutputMetadata* output_metadata,
+                            const bool sorted_input = false) override {
+    db_->MultiGetWithMetadata(options, num_keys, column_families, keys, values,
+                              statuses, output_metadata, sorted_input);
+  }
 
   using DB::MultiGetEntity;
 
