@@ -9,7 +9,6 @@
 #include "table/block_based/block_based_table_reader.h"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -547,86 +546,6 @@ bool IsFeatureSupported(const TableProperties& table_properties,
     }
   }
   return true;
-}
-
-// Caller has to ensure seqno is not nullptr.
-// Set *seqno to the global sequence number for reading this file.
-Status GetGlobalSequenceNumber(const TableProperties& table_properties,
-                               SequenceNumber largest_seqno,
-                               SequenceNumber* seqno) {
-  const auto& props = table_properties.user_collected_properties;
-  const auto version_pos = props.find(ExternalSstFilePropertyNames::kVersion);
-  const auto seqno_pos = props.find(ExternalSstFilePropertyNames::kGlobalSeqno);
-
-  *seqno = kDisableGlobalSequenceNumber;
-  if (version_pos == props.end()) {
-    if (seqno_pos != props.end()) {
-      std::array<char, 200> msg_buf;
-      // This is not an external sst file, global_seqno is not supported.
-      snprintf(
-          msg_buf.data(), msg_buf.max_size(),
-          "A non-external sst file have global seqno property with value %s",
-          seqno_pos->second.c_str());
-      return Status::Corruption(msg_buf.data());
-    }
-    return Status::OK();
-  }
-
-  uint32_t version = DecodeFixed32(version_pos->second.c_str());
-  if (version != 2) {
-    std::array<char, 200> msg_buf;
-    if (version != 1) {
-      snprintf(msg_buf.data(), msg_buf.max_size(),
-               "An external sst file has corrupted version %u.", version);
-      return Status::Corruption(msg_buf.data());
-    }
-    if (seqno_pos != props.end()) {
-      // This is a v1 external sst file, global_seqno is not supported.
-      snprintf(msg_buf.data(), msg_buf.max_size(),
-               "An external sst file with version %u has global seqno "
-               "property with value %s",
-               version, seqno_pos->second.c_str());
-      return Status::Corruption(msg_buf.data());
-    }
-    return Status::OK();
-  }
-
-  // Since we have a plan to deprecate global_seqno, we do not return failure
-  // if seqno_pos == props.end(). We rely on version_pos to detect whether the
-  // SST is external.
-  SequenceNumber global_seqno(0);
-  if (seqno_pos != props.end()) {
-    global_seqno = DecodeFixed64(seqno_pos->second.c_str());
-  }
-  // SstTableReader open table reader with kMaxSequenceNumber as largest_seqno
-  // to denote it is unknown.
-  if (largest_seqno < kMaxSequenceNumber) {
-    if (global_seqno == 0) {
-      global_seqno = largest_seqno;
-    }
-    if (global_seqno != largest_seqno) {
-      std::array<char, 200> msg_buf;
-      snprintf(
-          msg_buf.data(), msg_buf.max_size(),
-          "An external sst file with version %u have global seqno property "
-          "with value %s, while largest seqno in the file is %llu",
-          version, seqno_pos->second.c_str(),
-          static_cast<unsigned long long>(largest_seqno));
-      return Status::Corruption(msg_buf.data());
-    }
-  }
-  *seqno = global_seqno;
-
-  if (global_seqno > kMaxSequenceNumber) {
-    std::array<char, 200> msg_buf;
-    snprintf(msg_buf.data(), msg_buf.max_size(),
-             "An external sst file with version %u have global seqno property "
-             "with value %llu, which is greater than kMaxSequenceNumber",
-             version, static_cast<unsigned long long>(global_seqno));
-    return Status::Corruption(msg_buf.data());
-  }
-
-  return Status::OK();
 }
 
 Status GetDecompressor(const std::string& compression_name,
