@@ -15,8 +15,9 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> ma_wrapper_type_info = {
-    {"target", OptionTypeInfo::AsCustomSharedPtr<MemoryAllocator>(
-                   0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+    {Customizable::kTargetPropName(),
+     OptionTypeInfo::AsCustomSharedPtr<MemoryAllocator>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
 };
 
 static int RegisterBuiltinAllocators(ObjectLibrary& library,
