@@ -377,6 +377,10 @@ class DBCrashTestTest(unittest.TestCase):
             db_crashtest.default_params,
             {
                 "cache_size": lambda: next(cache_sizes),
+                # Keep the block/readahead/cache override off (see
+                # finalize_and_sanitize) so it does not replace cache_size.
+                "prefix_size": -1,
+                "test_batches_snapshots": 0,
                 "write_buffer_size": 32 * 1024 * 1024,
                 "cache_and_write_buffer_size_multiplier": 0.5,
             },
@@ -722,6 +726,47 @@ class DBCrashTestTest(unittest.TestCase):
 
         self.assertEqual(10, finalized["clear_column_family_one_in"])
         self.assertEqual(0, finalized["tolerate_non_injected_io_errors_for_remote_dbs"])
+
+    def test_finalize_shrinks_blocks_readahead_and_cache_together(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "auto_readahead_size": 1,
+                "prefix_size": 7,
+                "use_multiscan": 0,
+            },
+        )
+
+        with mock.patch.object(
+            db_crashtest.random, "choice", side_effect=lambda seq: seq[-1]
+        ):
+            finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(1024, finalized["block_size"])
+        self.assertEqual(4096, finalized["readahead_size"])
+        self.assertEqual(65536, finalized["cache_size"])
+        self.assertEqual(0, finalized["use_write_buffer_manager"])
+
+    def test_finalize_keeps_default_sizes_without_prefix_extractor(self):
+        db_crashtest = self.load_db_crashtest()
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "auto_readahead_size": 1,
+                "prefix_size": -1,
+                "test_batches_snapshots": 0,
+            },
+        )
+
+        with mock.patch.object(
+            db_crashtest.random, "choice", side_effect=lambda seq: seq[-1]
+        ):
+            finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(
+            db_crashtest.default_params["block_size"], finalized["block_size"]
+        )
 
     def test_finalize_defaults_tolerate_non_injected_io_errors_for_remote_db(self):
         db_crashtest = self.load_db_crashtest()

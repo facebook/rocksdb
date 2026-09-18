@@ -1908,6 +1908,21 @@ def finalize_and_sanitize(src_params):
         dest_params["clear_column_family_one_in"] = 0
         dest_params["test_multi_ops_txns"] = 0
 
+    # Occasionally shrink block, readahead and cache together so the
+    # SeekToFirst()-after-Seek() iterator coverage can trim readahead across a
+    # block boundary. Runs last so the tiered-cache split above sees the
+    # original cache_size; clears use_write_buffer_manager so cache_size is the
+    # block cache size.
+    if (
+        dest_params["prefix_size"] > 0
+        and dest_params["auto_readahead_size"] == 1
+        and random.choice([0, 0, 0, 1]) == 1
+    ):
+        dest_params["block_size"] = 1024
+        dest_params["readahead_size"] = 4096
+        dest_params["cache_size"] = 65536
+        dest_params["use_write_buffer_manager"] = 0
+
     return dest_params
 
 

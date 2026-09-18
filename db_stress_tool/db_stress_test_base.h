@@ -467,16 +467,19 @@ class StressTest {
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
   // op_logs is the information to print when validation fails.
+  // verify_key is the seek target, or for SeekToFirst() under
+  // prefix_same_as_start the first key returned. Its prefix bounds the scan.
   template <typename IterType, typename VerifyFuncType>
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
-                      LastIterateOp op, const Slice& seek_key,
+                      LastIterateOp op, const Slice& verify_key,
                       const std::vector<int>& rand_column_families,
                       const std::string& op_logs, VerifyFuncType verifyFunc,
                       bool* diverged);
 
   void DumpIteratorDivergenceDiagnostics(
-      ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro, const Slice& seek_key,
+      ColumnFamilyHandle* cmp_cfh, const ReadOptions& ro,
+      const Slice& verify_key,
       const std::vector<int>& rand_column_families) const;
 
   virtual Status TestBackupRestore(ThreadState* thread,
