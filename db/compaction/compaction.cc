@@ -17,6 +17,7 @@
 #include "logging/logging.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/sst_partitioner.h"
+#include "rocksdb/stream_aggregation.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
@@ -568,6 +569,10 @@ bool Compaction::IsTrivialMove() const {
     return false;
   }
 
+  if (ShouldUseStreamAggregation()) {
+    return false;
+  }
+
   if (is_manual_compaction_ &&
       (immutable_options_.compaction_filter != nullptr ||
        immutable_options_.compaction_filter_factory != nullptr)) {
@@ -896,6 +901,26 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
       context);
 }
 
+std::unique_ptr<StreamAggregation> Compaction::CreateStreamAggregation() const {
+  if (!ShouldUseStreamAggregation()) {
+    return nullptr;
+  }
+
+  StreamAggregationFactory::Context context;
+  context.is_full_compaction = is_full_compaction_;
+  context.is_manual_compaction = is_manual_compaction_;
+  context.is_bottommost_level = bottommost_level_;
+  context.input_start_level = start_level_;
+  context.output_level = output_level_;
+  context.column_family_id = cfd_->GetID();
+  return immutable_options_.stream_aggregation_factory->Create(context);
+}
+
+bool Compaction::ShouldUseStreamAggregation() const {
+  return HasStreamAggregation() && is_full_compaction_ &&
+         !SupportsPerKeyPlacement() && !enable_blob_garbage_collection();
+}
+
 std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
   if (!immutable_options_.sst_partitioner_factory) {
     return nullptr;
@@ -916,6 +941,10 @@ bool Compaction::IsOutputLevelEmpty() const {
 
 bool Compaction::ShouldFormSubcompactions() const {
   if (cfd_ == nullptr) {
+    return false;
+  }
+
+  if (ShouldUseStreamAggregation()) {
     return false;
   }
 

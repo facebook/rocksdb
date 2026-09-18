@@ -1125,6 +1125,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       merge_operator(cf_options.merge_operator),
       compaction_filter(cf_options.compaction_filter),
       compaction_filter_factory(cf_options.compaction_filter_factory),
+      stream_aggregation_factory(cf_options.stream_aggregation_factory),
       min_write_buffer_number_to_merge(
           cf_options.min_write_buffer_number_to_merge),
       max_write_buffer_size_to_maintain(

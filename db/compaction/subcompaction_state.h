@@ -69,6 +69,9 @@ class SubcompactionState {
   // compaction job stats for this sub-compaction
   CompactionJobStats compaction_job_stats;
 
+  // Statistics produced after logical CompactionIterator processing.
+  CompactionIterationStats stream_aggregation_stats;
+
   // sub-compaction job id, which is used to identify different sub-compaction
   // within the same compaction job.
   const uint32_t sub_job_id;
@@ -234,8 +237,10 @@ class SubcompactionState {
     return subcompaction_progress_;
   }
 
-  // Add compaction_iterator key/value to the `Current` output group.
-  Status AddToOutput(const CompactionIterator& iter, bool use_proximal_output,
+  // Add a record to the `Current` output group.
+  Status AddToOutput(const CompactionOutputRecord& record,
+                     const CompactionIterator& source_iter,
+                     bool use_proximal_output,
                      const CompactionFileOpenFunc& open_file_func,
                      const CompactionFileCloseFunc& close_file_func,
                      const ParsedInternalKey& prev_iter_output_internal_key);
