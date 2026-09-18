@@ -65,6 +65,61 @@ int ValidateNumDbsFlags() {
   return 0;
 }
 
+int ValidateFileScopedWalWriteFaultFlags() {
+  if (!FLAGS_file_scope_wal_write_faults) {
+    return 0;
+  }
+  if (FLAGS_write_fault_one_in <= 0) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults requires --write_fault_one_in > 0");
+  }
+  if (FLAGS_exclude_wal_from_write_fault_injection) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults requires "
+        "--exclude_wal_from_write_fault_injection=false");
+  }
+  if (FLAGS_inject_error_severity != 1) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults requires "
+        "--inject_error_severity=1");
+  }
+  if (FLAGS_test_batches_snapshots) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults does not support "
+        "--test_batches_snapshots");
+  }
+  if (FLAGS_reopen > 0) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults does not support --reopen > 0");
+  }
+  if (!FLAGS_options_file.empty()) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults does not support --options_file");
+  }
+  if (FLAGS_sync_fault_injection || FLAGS_read_fault_one_in > 0 ||
+      FLAGS_metadata_read_fault_one_in > 0 ||
+      FLAGS_metadata_write_fault_one_in > 0 ||
+      FLAGS_open_read_fault_one_in > 0 || FLAGS_open_write_fault_one_in > 0 ||
+      FLAGS_open_metadata_read_fault_one_in > 0 ||
+      FLAGS_open_metadata_write_fault_one_in > 0 ||
+      FLAGS_secondary_cache_fault_one_in > 0) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults requires all non-WAL fault injection "
+        "to be disabled");
+  }
+  if (FLAGS_disable_wal || FLAGS_manual_wal_flush_one_in > 0 || FLAGS_use_txn ||
+      FLAGS_two_write_queues || FLAGS_enable_pipelined_write ||
+      FLAGS_unordered_write || FLAGS_recycle_log_file_num != 0 ||
+      FLAGS_WAL_ttl_seconds != 0 || FLAGS_WAL_size_limit_MB != 0 ||
+      FLAGS_track_and_verify_wals || FLAGS_enable_blob_direct_write) {
+    return ReturnValidationError(
+        "--file_scope_wal_write_faults does not support disabled or manual "
+        "WALs, transactions, two write queues, pipelined or unordered "
+        "writes, WAL recycling, retention or tracking, or blob direct write");
+  }
+  return 0;
+}
+
 int DestroyAllDbs() {
   bool all_ok = true;
   const int num_dbs = FLAGS_num_dbs;
@@ -176,6 +231,12 @@ int db_stress_tool(int argc, char** argv) {
 
   {
     int rc = ValidateNumDbsFlags();
+    if (rc != 0) {
+      return rc;
+    }
+  }
+  {
+    int rc = ValidateFileScopedWalWriteFaultFlags();
     if (rc != 0) {
       return rc;
     }
