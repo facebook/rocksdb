@@ -58,7 +58,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 #include <stdint.h>
 #include <sys/time.h>
 #include <time.h>
-#if defined(__powerpc__)
+#if !defined(OS_AIX) && defined(__powerpc__)
 #include <sys/platform/ppc.h>
 #endif
 
@@ -131,6 +131,8 @@ static inline tokutime_t toku_time_now(void) {
   uint64_t result;
   __asm __volatile__("mrs %[rt], cntvct_el0" : [rt] "=r"(result));
   return result;
+#elif defined(OS_AIX)
+  return __builtin_ppc_get_timebase();
 #elif defined(__powerpc__)
   return __ppc_get_timebase();
 #elif defined(__s390x__)
