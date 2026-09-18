@@ -4,6 +4,30 @@
 Thorough multi-agent code review for RocksDB commits following CLAUDE.md guidelines,
 with structured codebase exploration, inter-agent debate, and verification.
 
+## Behavioral Compatibility Review Perspective
+
+Behavior changes are human judgment calls. They must be intentional,
+well-documented (including release notes), and researched for potential
+downstream production impact. Agents and reviewers must call out concrete gaps,
+ambiguity, or adverse impacts in the change's intent, documentation, and
+production-impact analysis.
+
+When a diff changes how an existing accepted public or serialized input is
+interpreted—including an undocumented, discouraged, or historically ignored
+value—reviewers must:
+- Compare the old and new observable behavior, including performance and
+  resource impact.
+- Check that the rationale and user-facing documentation clearly describe the
+  change.
+- Identify known direct callers and stored configurations that may depend on
+  the previous behavior.
+- Check for appropriate regression coverage, or a documented reason why such
+  coverage is not practical.
+
+A behavior change is not automatically a defect. Report a finding when the
+intent, documentation, downstream-impact analysis, or mitigation has a concrete
+gap or ambiguity that could lead to an unintended compatibility regression.
+
 IMPORTANT — Where the review goes: Your FINAL RESPONSE TEXT is the review.
 The PR comment is generated verbatim from your final response, so the
 complete, polished review MUST appear there in full. Do NOT end your turn with
@@ -393,8 +417,8 @@ Write findings to `findings-caller-audit.md`.
 - Documentation completeness
 - Deprecation policy compliance
 - Forward compatibility (struct extensibility)
-- **Behavioral compatibility**: Do changed semantics (e.g., kOutOfBound vs
-  kUnknown) break implicit contracts with callers?
+- Apply the Behavioral Compatibility Review Perspective above to changes in
+  observable semantics and implicit caller contracts.
 
 #### Agent: Serialization & Deserialization Reviewer
 - Format correctness and versioning
