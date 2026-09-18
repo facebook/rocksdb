@@ -142,6 +142,42 @@ CuckooTableReader::CuckooTableReader(
   }
   cuckoo_block_size_ =
       *reinterpret_cast<const uint32_t*>(cuckoo_block_size->second.data());
+
+  // Cuckoo SST meta blocks are written with kNoChecksum, so these values
+  // must be validated against the actual file size before use.
+  if (bucket_length_ == 0) {
+    status_ = Status::Corruption("Invalid table geometry: zero bucket length");
+    return;
+  }
+  if (cuckoo_block_size_ == 0) {
+    status_ =
+        Status::Corruption("Invalid table geometry: zero cuckoo block size");
+    return;
+  }
+  if (table_size_ == 0) {
+    status_ =
+        Status::Corruption("Invalid table geometry: zero hash table size");
+    return;
+  }
+  if (table_size_ > std::numeric_limits<uint64_t>::max() -
+                        (static_cast<uint64_t>(cuckoo_block_size_) - 1)) {
+    status_ =
+        Status::Corruption("Invalid table geometry: bucket count overflow");
+    return;
+  }
+  uint64_t num_buckets =
+      table_size_ + static_cast<uint64_t>(cuckoo_block_size_) - 1;
+  if (num_buckets > std::numeric_limits<uint64_t>::max() / bucket_length_) {
+    status_ = Status::Corruption("Invalid table geometry: table size overflow");
+    return;
+  }
+  uint64_t required_bytes = num_buckets * bucket_length_;
+  if (required_bytes > file_size) {
+    status_ = Status::Corruption(
+        "Invalid table geometry: hash table size inconsistent with file size");
+    return;
+  }
+
   cuckoo_block_bytes_minus_one_ = cuckoo_block_size_ * bucket_length_ - 1;
   // TODO: rate limit reads of whole cuckoo tables.
   status_ = file_->Read(IOOptions(), 0, static_cast<size_t>(file_size),
