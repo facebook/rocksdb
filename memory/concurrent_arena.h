@@ -16,17 +16,10 @@
 #include "memory/arena.h"
 #include "port/lang.h"
 #include "port/likely.h"
+#include "port/port.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
-
-// Only generate field unused warning for padding array, or build under
-// GCC 4.8.1 will fail.
-#ifdef __clang__
-#define ROCKSDB_FIELD_UNUSED __attribute__((__unused__))
-#else
-#define ROCKSDB_FIELD_UNUSED
-#endif  // __clang__
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -39,7 +32,7 @@ class Logger;
 // only if ConcurrentArena actually notices concurrent use, and they
 // adjust their size so that there is no fragmentation waste when the
 // shard blocks are allocated from the underlying main arena.
-class ConcurrentArena : public Allocator {
+class alignas(CACHE_LINE_SIZE) ConcurrentArena : public Allocator {
  public:
   // block_size and huge_page_size are the same as for Arena (and are
   // in fact just passed to the constructor of arena_.  The core-local
@@ -89,8 +82,7 @@ class ConcurrentArena : public Allocator {
   size_t BlockSize() const override { return arena_.BlockSize(); }
 
  private:
-  struct Shard {
-    char padding[40] ROCKSDB_FIELD_UNUSED;
+  struct alignas(CACHE_LINE_SIZE) Shard {
     mutable SpinMutex mutex;
     char* free_begin_;
     std::atomic<size_t> allocated_and_unused_;
@@ -99,8 +91,6 @@ class ConcurrentArena : public Allocator {
   };
 
   static thread_local size_t tls_cpuid;
-
-  char padding0[56] ROCKSDB_FIELD_UNUSED;
 
   size_t shard_block_size_;
 
@@ -111,8 +101,6 @@ class ConcurrentArena : public Allocator {
   std::atomic<size_t> arena_allocated_and_unused_;
   std::atomic<size_t> memory_allocated_bytes_;
   std::atomic<size_t> irregular_block_num_;
-
-  char padding1[56] ROCKSDB_FIELD_UNUSED;
 
   Shard* Repick();
 
