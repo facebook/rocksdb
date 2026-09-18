@@ -237,7 +237,7 @@ Status GetContext::PushWideColumnEntityDefaultOperand(
   return status;
 }
 
-void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/,
+void GetContext::SaveValue(const Slice& value, SequenceNumber seq,
                            Cleanable* value_pinner) {
   assert(state_ == kNotFound);
   assert(ucmp_->timestamp_size() == 0);
@@ -247,6 +247,12 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/,
   appendToReplayLog(kTypeValue, value, Slice());
 
   state_ = kFound;
+  if (seq_ != nullptr && *seq_ == kMaxSequenceNumber) {
+    *seq_ = seq;
+  }
+  if (is_blob_index_ != nullptr) {
+    *is_blob_index_ = false;
+  }
   if (LIKELY(pinnable_val_ != nullptr)) {
     if (LIKELY(value_pinner != nullptr)) {
       pinnable_val_->PinSlice(value, value_pinner);

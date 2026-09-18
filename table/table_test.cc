@@ -8084,6 +8084,7 @@ class ExternalTableTest : public DBTestBase {
         *file_offset = sizeof(uint32_t);
       } else {
         *size = 0;
+        return Status::NotSupported();
       }
       return Status::OK();
     }
@@ -8320,10 +8321,15 @@ class ExternalTableTest : public DBTestBase {
 
     Status GetPropertiesBlock(std::unique_ptr<char[]>* block, uint64_t* size,
                               uint64_t* file_offset) override {
-      if (!support_property_block_) {
-        return Status::NotSupported();
+      Status status;
+      if (support_property_block_) {
+        status = file_.GetPropertiesBlock(block, size, file_offset);
+      } else {
+        status = Status::NotSupported();
       }
-      return file_.GetPropertiesBlock(block, size, file_offset);
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableReader::GetPropertiesBlock",
+                               &status);
+      return status;
     }
 
     std::shared_ptr<const TableProperties> GetTableProperties() const override {
@@ -8790,6 +8796,131 @@ TEST_F(ExternalTableTest, BasicTest) {
   ASSERT_EQ(statuses[1], Status::NotFound());
 }
 
+TEST_F(ExternalTableTest, BasicModeGlobalSeqnoAcrossLevels) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+
+  Options options = GetDefaultOptions();
+  options.disable_auto_compactions = true;
+  options.table_factory =
+      NewExternalTableFactory(std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true));
+  Reopen(options);
+
+  const std::string old_file = dbname_ + "/external_old.immutable";
+  SstFileWriter writer(EnvOptions(options), options);
+  ASSERT_OK(writer.Open(old_file));
+  ASSERT_OK(writer.Put("a", "old-a"));
+  ASSERT_OK(writer.Put("c", "old-c"));
+  ASSERT_OK(writer.Finish());
+
+  IngestExternalFileOptions ingest_options;
+  ingest_options.allow_global_seqno = true;
+  ingest_options.write_global_seqno = false;
+  ASSERT_OK(db_->IngestExternalFile({old_file}, ingest_options));
+  ASSERT_EQ(NumTableFilesAtLevel(6), 1);
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  const std::string new_file = dbname_ + "/external_new.immutable";
+  ASSERT_OK(writer.Open(new_file));
+  ASSERT_OK(writer.Put("a", "new-a"));
+  ASSERT_OK(writer.Put("b", "new-b"));
+  ASSERT_OK(writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile({new_file}, ingest_options));
+  ASSERT_EQ(NumTableFilesAtLevel(5), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(6), 1);
+
+  auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(
+      dbfull()->DefaultColumnFamily());
+  SuperVersion* super_version = cfhi->cfd()->GetSuperVersion();
+  SequenceNumber latest_sequence = kMaxSequenceNumber;
+  bool found_record = false;
+  bool is_blob_index = false;
+  ASSERT_OK(dbfull()->GetLatestSequenceForKey(
+      super_version, "a", /*cache_only=*/false, /*lower_bound_seq=*/0,
+      &latest_sequence, /*timestamp=*/nullptr, &found_record, &is_blob_index));
+  ASSERT_TRUE(found_record);
+  ASSERT_EQ(latest_sequence, dbfull()->GetLatestSequenceNumber());
+  ASSERT_FALSE(is_blob_index);
+
+  latest_sequence = kMaxSequenceNumber;
+  found_record = false;
+  ASSERT_OK(dbfull()->GetLatestSequenceForKey(
+      super_version, "c", /*cache_only=*/false, /*lower_bound_seq=*/0,
+      &latest_sequence, /*timestamp=*/nullptr, &found_record, &is_blob_index));
+  ASSERT_TRUE(found_record);
+  ASSERT_EQ(latest_sequence, 0);
+  ASSERT_FALSE(is_blob_index);
+
+  ASSERT_EQ(Get("a"), "new-a");
+  ASSERT_EQ(Get("b"), "new-b");
+  ASSERT_EQ(Get("c"), "old-c");
+
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+  std::string value;
+  ASSERT_OK(db_->Get(snapshot_read_options, "a", &value));
+  ASSERT_EQ(value, "old-a");
+  ASSERT_TRUE(db_->Get(snapshot_read_options, "b", &value).IsNotFound());
+
+  std::array<Slice, 3> keys = {Slice("a"), Slice("b"), Slice("c")};
+  std::array<PinnableSlice, 3> values;
+  std::array<Status, 3> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[0], "new-a");
+  ASSERT_EQ(values[1], "new-b");
+  ASSERT_EQ(values[2], "old-c");
+
+  db_->MultiGet(snapshot_read_options, db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[0], "old-a");
+  ASSERT_EQ(values[2], "old-c");
+
+  std::vector<std::pair<std::string, std::string>> actual;
+  std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+    actual.emplace_back(iterator->key().ToString(),
+                        iterator->value().ToString());
+  }
+  ASSERT_OK(iterator->status());
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {"a", "new-a"}, {"b", "new-b"}, {"c", "old-c"}};
+  ASSERT_EQ(actual, expected);
+
+  actual.clear();
+  iterator.reset(db_->NewIterator(snapshot_read_options));
+  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+    actual.emplace_back(iterator->key().ToString(),
+                        iterator->value().ToString());
+  }
+  ASSERT_OK(iterator->status());
+  const std::vector<std::pair<std::string, std::string>> snapshot_expected = {
+      {"a", "old-a"}, {"c", "old-c"}};
+  ASSERT_EQ(actual, snapshot_expected);
+
+  iterator.reset();
+  Status compaction_status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(compaction_status.IsNotSupported())
+      << compaction_status.ToString();
+  db_->ReleaseSnapshot(snapshot);
+  Close();
+  Reopen(options);
+  ASSERT_EQ(Get("a"), "new-a");
+  ASSERT_EQ(Get("b"), "new-b");
+  ASSERT_EQ(Get("c"), "old-c");
+}
+
 TEST_F(ExternalTableTest, SstReaderTest) {
   if (encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
@@ -8858,6 +8989,38 @@ TEST_F(ExternalTableTest, SstReaderTest) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(ExternalTableTest, PropertiesBlockErrorPropagates) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+
+  Options options = GetDefaultOptions();
+  std::string file_path = test::PerThreadDBPath("external_table_error");
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(file_path));
+  ASSERT_OK(writer.Put("key", "value"));
+  ASSERT_OK(writer.Finish());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableReader::GetPropertiesBlock", [](void* arg) {
+        *static_cast<Status*>(arg) = Status::IOError("injected error");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  SstFileReader reader(options);
+  Status status = reader.Open(file_path);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
 }
 
 TEST_F(ExternalTableTest, ReaderFileReadsUpdateStatistics) {
@@ -9415,6 +9578,7 @@ TEST_F(ExternalTableTest, IngestionTest) {
   IngestExternalFileOptions ifo;
   ifo.allow_db_generated_files = false;
   ifo.fill_cache = false;
+  ifo.write_global_seqno = true;
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_OK(s);
 
@@ -9465,9 +9629,8 @@ TEST_F(ExternalTableTest, IngestionTest) {
   ASSERT_OK(iter->status());
   iter.reset();
 
-  // Create an overlapping file to ingest without atomic_replace_range option.
-  // This should fail as we don't support ingesting an external file with
-  // non-zero assigned sequence number.
+  // Create an overlapping file to ingest without atomic_replace_range. The
+  // assigned global sequence number makes its values the newest.
   ingest_file += "3";
   writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(writer->Open(ingest_file));
@@ -9478,7 +9641,35 @@ TEST_F(ExternalTableTest, IngestionTest) {
 
   s = db->IngestExternalFiles(
       {{cfh, {ingest_file}, ifo, {}, {}, Temperature::kUnknown, {}}});
-  ASSERT_EQ(s, Status::NotSupported());
+  ASSERT_OK(s);
+
+  std::string value;
+  ASSERT_OK(db->Get(ReadOptions(), cfh, "foo", &value));
+  ASSERT_EQ(value, "newval");
+
+  std::array<Slice, 2> keys = {Slice("foo"), Slice("foo2")};
+  std::array<PinnableSlice, 2> values;
+  std::array<Status, 2> statuses;
+  db->MultiGet(ReadOptions(), cfh, keys.size(), keys.data(), values.data(),
+               statuses.data());
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[0], "newval");
+  ASSERT_EQ(values[1], "newval2");
+
+  iter.reset(db->NewIterator({}, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "newval");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->key(), "foo2");
+  ASSERT_EQ(iter->value(), "newval2");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());

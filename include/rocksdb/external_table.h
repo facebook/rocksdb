@@ -24,16 +24,11 @@ class ExternalTableFactory;
 // This file defines an interface for plugging in an external table
 // into RocksDB. The external table reader will be used instead of the
 // BlockBasedTable to load and query sst files.
-// The external table files can be created using an SstFileWriter. Eventually
-// external tables will be allowed to be ingested into a RocksDB instance
-// using the IngestExternalFIle() API.
-//
-// Initial support is for writing and querying the files using an
-// SstFileWriter and SstFileReader. We will add support for ingestion of an
-// external table into a limited RocksDB instance that only supports ingestion
-// and not live writes in the near future. It'll be followed by support for
-// replacing the column family by ingesting a new set of files. In all cases,
-// the external table files will only be allowed in the bottommost level.
+// Readers and builders receive user keys. Every entry is a Put with sequence
+// number zero. When used in a DB, external tables support ingestion-only
+// workloads, including overlapping files in multiple levels through file-wide
+// global sequence numbers. They do not support live writes or compaction
+// output.
 //
 // The external table can support one or both of the following layouts -
 // 1. Total order seek - All the keys in the files are in sorted order, and a
@@ -117,19 +112,29 @@ class ExternalTableReader {
                      const SliceTransform* prefix_extractor,
                      PinnableSlice* value) = 0;
 
-  // Point lookup the given vector of keys and return the values, as well
-  // as status of each individual lookup in statuses.
+  // Point lookup the given vector of user keys and return one value and status
+  // per key.
   virtual void MultiGet(const ReadOptions& read_options,
                         const std::vector<Slice>& keys,
                         const SliceTransform* prefix_extractor,
-                        std::vector<PinnableSlice>* values,
-                        std::vector<Status>* statuses) = 0;
+                        std::vector<PinnableSlice>* results,
+                        std::vector<Status>* statuses) {
+    results->resize(keys.size());
+    statuses->resize(keys.size());
+    for (size_t i = 0; i < keys.size(); ++i) {
+      (*statuses)[i] =
+          Get(read_options, keys[i], prefix_extractor, &(*results)[i]);
+    }
+  }
 
-  // Allocate and return the contents of the properties block. If the builder
-  // supports PutPropertiesBlock(), then this must be supported. The
-  // properties block should be written to the table file as is (no
-  // compression or mutation of any kind), and its offset in the file
-  // should be returned in file_offset.
+  // Allocate and return the contents of the properties block. The properties
+  // block should be written to the table file as is (no compression or
+  // mutation of any kind). Implementations may return NotSupported and provide
+  // the complete properties, including user-collected properties, through
+  // GetTableProperties() instead. If the deprecated
+  // IngestExternalFileOptions::write_global_seqno option is used, file_offset
+  // must be the properties block's offset in the table file. Otherwise it is
+  // unused.
   virtual Status GetPropertiesBlock(std::unique_ptr<char[]>* /*property_block*/,
                                     uint64_t* /*size*/,
                                     uint64_t* /*file_offset*/) {

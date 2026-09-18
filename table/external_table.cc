@@ -5,16 +5,19 @@
 
 #include "rocksdb/external_table.h"
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <unordered_map>
 
 #include "db/dbformat.h"
 #include "logging/logging.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
+#include "rocksdb/utilities/types_util.h"
 #include "table/block_based/block.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -267,8 +270,13 @@ class ExternalTableMetricsFileSystem : public FileSystemWrapper {
 
 class ExternalTableIteratorAdapter : public InternalIterator {
  public:
-  explicit ExternalTableIteratorAdapter(ExternalTableIterator* iterator)
-      : iterator_(iterator), valid_(false) {}
+  ExternalTableIteratorAdapter(ExternalTableIterator* iterator,
+                               const InternalKeyComparator& internal_comparator,
+                               SequenceNumber global_seqno)
+      : iterator_(iterator),
+        internal_comparator_(internal_comparator),
+        global_seqno_(global_seqno),
+        valid_(false) {}
 
   // No copying allowed
   ExternalTableIteratorAdapter(const ExternalTableIteratorAdapter&) = delete;
@@ -283,7 +291,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
     status_ = Status::OK();
     if (iterator_) {
       iterator_->SeekToFirst();
-      UpdateKey(OptSlice());
+      UpdateKey();
     }
   }
 
@@ -291,30 +299,42 @@ class ExternalTableIteratorAdapter : public InternalIterator {
     status_ = Status::OK();
     if (iterator_) {
       iterator_->SeekToLast();
-      UpdateKey(OptSlice());
+      UpdateKey();
     }
   }
 
   void Seek(const Slice& target) override {
     status_ = Status::OK();
+    valid_ = false;
     if (iterator_) {
-      ParsedInternalKey pkey;
-      status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
+      ParsedEntryInfo lookup_key;
+      status_ = ParseEntry(target, internal_comparator_.user_comparator(),
+                           &lookup_key);
       if (status_.ok()) {
-        iterator_->Seek(pkey.user_key);
-        UpdateKey(OptSlice());
+        iterator_->Seek(lookup_key.user_key);
+        UpdateKey();
+        while (valid_ && internal_comparator_.Compare(key(), target) < 0) {
+          iterator_->Next();
+          UpdateKey();
+        }
       }
     }
   }
 
   void SeekForPrev(const Slice& target) override {
     status_ = Status::OK();
+    valid_ = false;
     if (iterator_) {
-      ParsedInternalKey pkey;
-      status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
+      ParsedEntryInfo lookup_key;
+      status_ = ParseEntry(target, internal_comparator_.user_comparator(),
+                           &lookup_key);
       if (status_.ok()) {
-        iterator_->SeekForPrev(pkey.user_key);
-        UpdateKey(OptSlice());
+        iterator_->SeekForPrev(lookup_key.user_key);
+        UpdateKey();
+        while (valid_ && internal_comparator_.Compare(key(), target) > 0) {
+          iterator_->Prev();
+          UpdateKey();
+        }
       }
     }
   }
@@ -322,7 +342,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
   void Next() override {
     if (iterator_) {
       iterator_->Next();
-      UpdateKey(OptSlice());
+      UpdateKey();
     }
   }
 
@@ -333,7 +353,11 @@ class ExternalTableIteratorAdapter : public InternalIterator {
       result->bound_check_result = result_.bound_check_result;
       if (valid_) {
         UpdateKey(result_.key);
-        result->key = key();
+        if (valid_) {
+          result->key = key();
+        }
+      } else {
+        status_ = iterator_->status();
       }
     } else {
       valid_ = false;
@@ -344,6 +368,10 @@ class ExternalTableIteratorAdapter : public InternalIterator {
   bool PrepareValue() override {
     if (iterator_ && !result_.value_prepared) {
       valid_ = iterator_->PrepareValue();
+      status_ = iterator_->status();
+      if (!status_.ok()) {
+        valid_ = false;
+      }
       result_.value_prepared = true;
     }
     return valid_;
@@ -359,7 +387,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
   void Prev() override {
     if (iterator_) {
       iterator_->Prev();
-      UpdateKey(OptSlice());
+      UpdateKey();
     }
   }
 
@@ -389,29 +417,82 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
  private:
   std::unique_ptr<ExternalTableIterator> iterator_;
+  const InternalKeyComparator& internal_comparator_;
+  const SequenceNumber global_seqno_;
   IterKey key_;
   bool valid_;
   Status status_;
   IterateResult result_;
 
-  void UpdateKey(OptSlice res) {
+  void UpdateKey(OptSlice res = OptSlice()) {
     if (iterator_) {
       valid_ = iterator_->Valid();
       status_ = iterator_->status();
       if (valid_ && status_.ok()) {
-        key_.SetInternalKey(res.has_value() ? res.value() : iterator_->key(),
-                            /*s=*/0, ValueType::kTypeValue);
+        key_.SetInternalKey(
+            res.has_value() ? res.value() : iterator_->key(),
+            global_seqno_ == kDisableGlobalSequenceNumber ? 0 : global_seqno_,
+            kTypeValue);
+      } else if (!status_.ok()) {
+        valid_ = false;
       }
     }
   }
 };
 
+// Prefer a RocksDB properties block, but allow the external implementation to
+// provide TableProperties directly.
+Status LoadExternalTableProperties(
+    const ImmutableOptions& ioptions, ExternalTableReader* reader,
+    std::shared_ptr<const TableProperties>* table_properties) {
+  std::unique_ptr<char[]> property_block;
+  uint64_t property_block_size = 0;
+  uint64_t property_block_offset = 0;
+  Status status = reader->GetPropertiesBlock(
+      &property_block, &property_block_size, &property_block_offset);
+  std::shared_ptr<TableProperties> loaded_properties;
+  if (status.ok()) {
+    auto parsed_properties = std::make_unique<TableProperties>();
+    BlockContents block_contents(std::move(property_block),
+                                 property_block_size);
+    Block block(std::move(block_contents));
+    status = ParsePropertiesBlock(ioptions, property_block_offset, block,
+                                  parsed_properties);
+    if (!status.ok()) {
+      return status;
+    }
+    loaded_properties = std::move(parsed_properties);
+  } else {
+    // Propagate any other non is not supported errors
+    if (!status.IsNotSupported()) {
+      return status;
+    }
+    loaded_properties =
+        std::make_shared<TableProperties>(*reader->GetTableProperties());
+    loaded_properties->key_largest_seqno = 0;
+    loaded_properties->key_smallest_seqno = 0;
+  }
+
+  if (loaded_properties->num_range_deletions != 0) {
+    return Status::NotSupported(
+        "External tables do not support range deletions");
+  }
+
+  *table_properties = std::move(loaded_properties);
+  return Status::OK();
+}
+
 class ExternalTableReaderAdapter : public TableReader {
  public:
-  explicit ExternalTableReaderAdapter(
-      const ImmutableOptions& ioptions,
-      std::unique_ptr<ExternalTableReader>&& reader)
-      : ioptions_(ioptions), reader_(std::move(reader)) {}
+  ExternalTableReaderAdapter(
+      const InternalKeyComparator& internal_comparator,
+      std::unique_ptr<ExternalTableReader>&& reader,
+      std::shared_ptr<const TableProperties> table_properties,
+      SequenceNumber global_seqno)
+      : internal_comparator_(internal_comparator),
+        reader_(std::move(reader)),
+        table_properties_(std::move(table_properties)),
+        global_seqno_(global_seqno) {}
 
   ~ExternalTableReaderAdapter() override {}
 
@@ -427,10 +508,12 @@ class ExternalTableReaderAdapter : public TableReader {
       bool /* allow_unprepared_value */ = false) override {
     auto iterator = reader_->NewIterator(read_options, prefix_extractor);
     if (arena == nullptr) {
-      return new ExternalTableIteratorAdapter(iterator);
+      return new ExternalTableIteratorAdapter(iterator, internal_comparator_,
+                                              global_seqno_);
     } else {
       auto* mem = arena->AllocateAligned(sizeof(ExternalTableIteratorAdapter));
-      return new (mem) ExternalTableIteratorAdapter(iterator);
+      return new (mem) ExternalTableIteratorAdapter(
+          iterator, internal_comparator_, global_seqno_);
     }
   }
 
@@ -447,36 +530,7 @@ class ExternalTableReaderAdapter : public TableReader {
   void SetupForCompaction() override {}
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override {
-    std::shared_ptr<TableProperties> props;
-    std::unique_ptr<char[]> property_block;
-    uint64_t property_block_size = 0;
-    uint64_t property_block_offset = 0;
-    Status s;
-    // Get the raw properties block from the external table reader. We don't
-    // support writing the global sequence number, but we still get and return
-    // the correct global seqno offset in the file to prevent accidental
-    // corruption.
-    s = reader_->GetPropertiesBlock(&property_block, &property_block_size,
-                                    &property_block_offset);
-    if (s.ok()) {
-      std::unique_ptr<TableProperties> table_properties =
-          std::make_unique<TableProperties>();
-      BlockContents block_contents(std::move(property_block),
-                                   property_block_size);
-      Block block(std::move(block_contents));
-      s = ParsePropertiesBlock(ioptions_, property_block_offset, block,
-                               table_properties);
-      if (s.ok()) {
-        props.reset(table_properties.release());
-      }
-    } else {
-      // Fallback to getting a minimal table properties structure from the
-      // external table reader
-      props = std::make_shared<TableProperties>(*reader_->GetTableProperties());
-      props->key_largest_seqno = 0;
-      props->key_smallest_seqno = 0;
-    }
-    return props;
+    return table_properties_;
   }
 
   size_t ApproximateMemoryUsage() const override { return 0; }
@@ -484,25 +538,97 @@ class ExternalTableReaderAdapter : public TableReader {
   Status Get(const ReadOptions& read_options, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool /*skip_filters*/ = false) override {
-    ParsedInternalKey parsed_key;
-    Status s = ParseInternalKey(key, &parsed_key, /*log_err_key=*/false);
-    if (!s.ok()) {
-      return s;
+    ParsedEntryInfo lookup_key;
+    Status status =
+        ParseEntry(key, internal_comparator_.user_comparator(), &lookup_key);
+    if (!status.ok()) {
+      return status;
+    }
+    if (global_seqno_ != kDisableGlobalSequenceNumber &&
+        global_seqno_ > lookup_key.sequence) {
+      return Status::OK();
     }
 
     PinnableSlice value;
-    s = reader_->Get(read_options, parsed_key.user_key, prefix_extractor,
-                     &value);
-    if (!s.ok()) {
-      if (s.IsNotFound()) {
-        return Status::OK();
-      }
-      return s;
+    status = reader_->Get(read_options, lookup_key.user_key, prefix_extractor,
+                          &value);
+    if (status.IsNotFound()) {
+      return Status::OK();
+    }
+    if (!status.ok()) {
+      return status;
     }
 
-    get_context->SaveValue(value, /*seq=*/0,
+    if (global_seqno_ == kDisableGlobalSequenceNumber || global_seqno_ == 0) {
+      get_context->SaveValue(value, /*seq=*/0,
+                             value.IsPinned() ? &value : nullptr);
+      return Status::OK();
+    }
+    const ParsedInternalKey parsed_key(lookup_key.user_key, global_seqno_,
+                                       kTypeValue);
+    bool matched = false;
+    Status read_status;
+    get_context->SaveValue(parsed_key, value, &matched, &read_status,
                            value.IsPinned() ? &value : nullptr);
-    return s;
+    return read_status;
+  }
+
+  void MultiGet(const ReadOptions& read_options,
+                const MultiGetContext::Range* mget_range,
+                const SliceTransform* prefix_extractor,
+                bool /*skip_filters*/ = false) override {
+    const size_t num_keys = mget_range->KeysLeft();
+    std::vector<Slice> lookup_keys;
+    lookup_keys.reserve(num_keys);
+    std::array<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> key_contexts{};
+
+    size_t index = 0;
+    for (auto iter = mget_range->begin(); iter != mget_range->end(); ++iter) {
+      ParsedEntryInfo lookup_key;
+      Status status = ParseEntry(
+          iter->ikey, internal_comparator_.user_comparator(), &lookup_key);
+      if (!status.ok()) {
+        *iter->s = status;
+        continue;
+      }
+      if (global_seqno_ != kDisableGlobalSequenceNumber &&
+          global_seqno_ > lookup_key.sequence) {
+        *iter->s = Status::OK();
+        continue;
+      }
+      lookup_keys.push_back(lookup_key.user_key);
+      key_contexts[index] = &*iter;
+      ++index;
+    }
+    if (lookup_keys.empty()) {
+      return;
+    }
+
+    std::vector<PinnableSlice> values(lookup_keys.size());
+    std::vector<Status> statuses(lookup_keys.size());
+    reader_->MultiGet(read_options, lookup_keys, prefix_extractor, &values,
+                      &statuses);
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      if (statuses[i].IsNotFound()) {
+        *key_contexts[i]->s = Status::OK();
+      } else if (!statuses[i].ok()) {
+        *key_contexts[i]->s = statuses[i];
+      } else if (global_seqno_ == kDisableGlobalSequenceNumber ||
+                 global_seqno_ == 0) {
+        key_contexts[i]->get_context->SaveValue(
+            values[i], /*seq=*/0, values[i].IsPinned() ? &values[i] : nullptr);
+        *key_contexts[i]->s = Status::OK();
+      } else {
+        const ParsedInternalKey parsed_key(lookup_keys[i], global_seqno_,
+                                           kTypeValue);
+        bool matched = false;
+        Status read_status;
+        key_contexts[i]->get_context->SaveValue(
+            parsed_key, values[i], &matched, &read_status,
+            values[i].IsPinned() ? &values[i] : nullptr);
+        *key_contexts[i]->s = std::move(read_status);
+      }
+    }
   }
 
   Status VerifyChecksum(const ReadOptions& /*ro*/, TableReaderCaller /*caller*/,
@@ -511,8 +637,10 @@ class ExternalTableReaderAdapter : public TableReader {
   }
 
  private:
-  const ImmutableOptions& ioptions_;
+  const InternalKeyComparator& internal_comparator_;
   std::unique_ptr<ExternalTableReader> reader_;
+  std::shared_ptr<const TableProperties> table_properties_;
+  const SequenceNumber global_seqno_;
 };
 
 class ExternalTableBuilderAdapter : public TableBuilder {
@@ -562,22 +690,38 @@ class ExternalTableBuilderAdapter : public TableBuilder {
   }
 
   void Add(const Slice& key, const Slice& value) override {
-    ParsedInternalKey pkey;
-    status_ = ParseInternalKey(key, &pkey, /*log_err_key=*/false);
-    if (status_.ok()) {
-      if (pkey.type != ValueType::kTypeValue) {
-        status_ = Status::NotSupported(
-            "Value type " + std::to_string(pkey.type) + "not supported");
-      } else {
-        builder_->Add(pkey.user_key, value);
-        properties_.num_entries++;
-        properties_.raw_key_size += key.size();
-        properties_.raw_value_size += value.size();
-        NotifyCollectTableCollectorsOnAdd(key, value, /*file_size=*/0,
-                                          table_properties_collectors_,
-                                          ioptions_.logger);
-      }
+    if (!status_.ok()) {
+      return;
     }
+
+    ParsedEntryInfo entry;
+    status_ = ParseEntry(key, ioptions_.user_comparator, &entry);
+    if (!status_.ok()) {
+      return;
+    }
+    if (!entry.timestamp.empty()) {
+      status_ = Status::NotSupported(
+          "External table does not support user-defined timestamps");
+      return;
+    }
+    if (entry.sequence != 0 || entry.type != kEntryPut) {
+      status_ = Status::NotSupported(
+          "External table factory only supports sequence-zero Put entries");
+      return;
+    }
+
+    builder_->Add(entry.user_key, value);
+    status_ = builder_->status();
+    if (!status_.ok()) {
+      return;
+    }
+
+    properties_.num_entries++;
+    properties_.raw_key_size += key.size();
+    properties_.raw_value_size += value.size();
+    NotifyCollectTableCollectorsOnAdd(key, value, /*file_size=*/0,
+                                      table_properties_collectors_,
+                                      ioptions_.logger);
   }
 
   Status status() const override {
@@ -690,12 +834,6 @@ class ExternalTableFactoryAdapter : public TableFactory {
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /* file_size */,
       std::unique_ptr<TableReader>* table_reader,
       bool /* prefetch_index_and_filter_in_cache */) const override {
-    // SstFileReader specifies largest_seqno as kMaxSequenceNumber to denote
-    // that its unknown
-    if (topts.largest_seqno > 0 && topts.largest_seqno != kMaxSequenceNumber) {
-      return Status::NotSupported(
-          "Ingesting file with sequence number larger than 0");
-    }
     if (topts.ioptions.user_comparator != nullptr &&
         topts.ioptions.user_comparator->timestamp_size() != 0) {
       return Status::NotSupported(
@@ -704,6 +842,8 @@ class ExternalTableFactoryAdapter : public TableFactory {
     std::unique_ptr<ExternalTableReader> reader;
     FileOptions fopts(topts.env_options);
     fopts.io_options.io_activity = ro.io_activity;
+    // External readers reopen the file without MANIFEST checksum metadata.
+    fopts.file_checksum_func_name = kNoFileChecksumFuncName;
     std::shared_ptr<FileSystem> fs = topts.ioptions.fs;
     if (topts.ioptions.stats != nullptr || !topts.ioptions.listeners.empty()) {
       fs = std::make_shared<ExternalTableMetricsFileSystem>(
@@ -717,8 +857,26 @@ class ExternalTableFactoryAdapter : public TableFactory {
     if (!status.ok()) {
       return status;
     }
-    table_reader->reset(
-        new ExternalTableReaderAdapter(topts.ioptions, std::move(reader)));
+
+    std::shared_ptr<const TableProperties> table_properties;
+    status = LoadExternalTableProperties(topts.ioptions, reader.get(),
+                                         &table_properties);
+    if (!status.ok()) {
+      return status;
+    }
+
+    // TableCache passes the MANIFEST-backed sequence through
+    // TableReaderOptions. Resolve it once for readers and iterators.
+    SequenceNumber global_seqno;
+    status = GetGlobalSequenceNumber(*table_properties, topts.largest_seqno,
+                                     &global_seqno);
+    if (!status.ok()) {
+      return status;
+    }
+
+    table_reader->reset(new ExternalTableReaderAdapter(
+        topts.internal_comparator, std::move(reader),
+        std::move(table_properties), global_seqno));
     file.reset();
     return Status::OK();
   }

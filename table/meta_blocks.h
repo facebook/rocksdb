@@ -114,6 +114,13 @@ Status ParsePropertiesBlock(
     const ImmutableOptions& ioptions, uint64_t offset, Block& block,
     std::unique_ptr<TableProperties>& new_table_properties);
 
+// Sets global_seqno to the sequence number that should replace per-entry
+// sequence numbers while reading this file, or
+// kDisableGlobalSequenceNumber when entries retain their stored sequences.
+Status GetGlobalSequenceNumber(const TableProperties& table_properties,
+                               SequenceNumber largest_seqno,
+                               SequenceNumber* global_seqno);
+
 // Read table properties from a file using known BlockHandle.
 // @returns a status to indicate if the operation succeeded. On success,
 //          *table_properties will point to a heap-allocated TableProperties
