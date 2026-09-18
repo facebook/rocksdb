@@ -131,6 +131,31 @@ class Reader {
     return !first_record_read_ && compression_type_record_read_;
   }
 
+  // WAL index (LSN) accessors. See db/log_writer.h for the format.
+  //
+  // wal_index extracted from the most recently returned logical record. Zero
+  // if that record did not carry one, so this is per-record state: a file may
+  // hold both indexed and non-indexed records.
+  uint64_t GetLastReadWALIndex() const { return last_read_wal_index_; }
+
+  // Highest wal_index covered by any valid void record read so far, or zero
+  // if no void record has been read.
+  uint64_t GetMaxVoidWALIndexHi() const { return max_void_wal_index_hi_; }
+
+  // Returns whether a supersession record in this reader's WAL makes the
+  // identified record obsolete. Supersession is open-ended in wal_index but
+  // applies only to the WAL named by the record.
+  bool IsWALIndexSuperseded(uint64_t wal_number, uint64_t wal_index) const {
+    const auto it = first_superseded_wal_indices_.find(wal_number);
+    return it != first_superseded_wal_indices_.end() && wal_index >= it->second;
+  }
+
+  // First wal_index superseded in `wal_number`, or zero if none was declared.
+  uint64_t GetFirstSupersededWALIndex(uint64_t wal_number) const {
+    const auto it = first_superseded_wal_indices_.find(wal_number);
+    return it == first_superseded_wal_indices_.end() ? 0 : it->second;
+  }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
@@ -189,6 +214,15 @@ class Reader {
   // is only for WAL logs.
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
+  // WAL index (LSN) state. See db/log_writer.h.
+  // wal_index extracted from the most recent logical record.
+  uint64_t last_read_wal_index_ = 0;
+  // Highest `hi` of any valid void range read so far. Tracked separately
+  // because a void record deliberately leaves last_read_wal_index_ alone.
+  uint64_t max_void_wal_index_hi_ = 0;
+  // Lowest open-ended supersession boundary declared for each older WAL.
+  UnorderedMap<uint64_t, uint64_t> first_superseded_wal_indices_;
+
   // Extend record types with the following special values
   enum : uint8_t {
     kEof = kMaxRecordType + 1,
@@ -235,6 +269,22 @@ class Reader {
   void MaybeVerifyPredecessorWALInfo(
       WALRecoveryMode wal_recovery_mode, Slice fragment,
       const PredecessorWALInfo& recorded_predecessor_wal_info);
+
+  // If this record carries a WAL index, extract it into last_read_wal_index_,
+  // strip it from *record, and recompute *record_checksum over the stripped
+  // payload (when non-null). Reports a corruption if the record is too short
+  // to hold an index.
+  void MaybeStripAndVerifyWALIndex(bool record_has_wal_index, Slice* record,
+                                   uint64_t* record_checksum);
+
+  // Validates a void record and folds its upper bound into the separate void
+  // high-water mark. Shared by both logical-reader implementations.
+  void DecodeWALIndexVoidRecord(const Slice& fragment);
+
+  // Validates an open-ended supersession record and folds its lower bound into
+  // the bearer-scoped supersession state. Shared by both reader
+  // implementations.
+  void DecodeWALIndexSupersessionRecord(const Slice& fragment);
 };
 
 class FragmentBufferedReader : public Reader {
@@ -248,7 +298,8 @@ class FragmentBufferedReader : public Reader {
                std::numeric_limits<uint64_t>::max() /*min_wal_number_to_keep*/,
                PredecessorWALInfo() /*observed_predecessor_wal_info*/),
         fragments_(),
-        in_fragmented_record_(false) {}
+        in_fragmented_record_(false),
+        fragmented_record_has_wal_index_(false) {}
   ~FragmentBufferedReader() override {}
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
@@ -259,6 +310,7 @@ class FragmentBufferedReader : public Reader {
  private:
   std::string fragments_;
   bool in_fragmented_record_;
+  bool fragmented_record_has_wal_index_;
 
   bool TryReadFragment(Slice* result, size_t* drop_size,
                        uint8_t* fragment_type_or_err);
