@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -65,6 +66,25 @@ struct BufferInfo {
     buffer_.Clear();
     initial_end_offset_ = 0;
     async_req_len_ = 0;
+    ResetAsyncReadStatus();
+  }
+
+  void ResetAsyncReadStatus() {
+    if (async_read_error_ != nullptr) {
+      // Async read errors are intentionally discarded when the corresponding
+      // speculative request is cancelled or its buffer is no longer needed.
+      async_read_error_->PermitUncheckedError();
+      async_read_error_.reset();
+    }
+  }
+
+  IOStatus TakeAsyncReadStatus() {
+    if (async_read_error_ == nullptr) {
+      return IOStatus::OK();
+    }
+    IOStatus status = std::move(*async_read_error_);
+    async_read_error_.reset();
+    return status;
   }
 
   AlignedBuffer buffer_;
@@ -78,6 +98,11 @@ struct BufferInfo {
   // async_read_in_progress can be used as mutex. Callback can update the buffer
   // and its size but async_read_in_progress is only set by main thread.
   bool async_read_in_progress_ = false;
+
+  // Completion error populated by PrefetchAsyncCallback(). It is consumed
+  // after Poll() confirms the callback has finished. Successful reads do not
+  // allocate error state.
+  std::unique_ptr<IOStatus> async_read_error_;
 
   // io_handle is allocated and used by underlying file system in case of
   // asynchronous reads.
@@ -230,66 +255,7 @@ class FilePrefetchBuffer {
     }
   }
 
-  ~FilePrefetchBuffer() {
-    // Abort any pending async read request before destroying the class object.
-    if (fs_ != nullptr) {
-      std::vector<void*> handles;
-      for (auto& buf : bufs_) {
-        if (buf->async_read_in_progress_ && buf->io_handle_ != nullptr) {
-          handles.emplace_back(buf->io_handle_);
-        }
-      }
-      if (!handles.empty()) {
-        StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
-        Status s = fs_->AbortIO(handles);
-        assert(s.ok());
-      }
-
-      for (auto& buf : bufs_) {
-        if (buf->io_handle_ != nullptr) {
-          DestroyAndClearIOHandle(buf);
-          buf->ClearBuffer();
-        }
-        buf->async_read_in_progress_ = false;
-      }
-    }
-
-    // Prefetch buffer bytes discarded.
-    uint64_t bytes_discarded = 0;
-    // Iterated over buffers.
-    for (auto& buf : bufs_) {
-      if (buf->DoesBufferContainData()) {
-        // If last read was from this block and some bytes are still unconsumed.
-        if (prev_offset_ >= buf->offset_ &&
-            prev_offset_ + prev_len_ < buf->offset_ + buf->CurrentSize()) {
-          bytes_discarded +=
-              buf->CurrentSize() - (prev_offset_ + prev_len_ - buf->offset_);
-        }
-        // If last read was from previous blocks and this block is unconsumed.
-        else if (prev_offset_ < buf->offset_ &&
-                 prev_offset_ + prev_len_ <= buf->offset_) {
-          bytes_discarded += buf->CurrentSize();
-        }
-      }
-    }
-
-    RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
-
-    for (auto& buf : bufs_) {
-      delete buf;
-      buf = nullptr;
-    }
-
-    for (auto& buf : free_bufs_) {
-      delete buf;
-      buf = nullptr;
-    }
-
-    if (overlap_buf_ != nullptr) {
-      delete overlap_buf_;
-      overlap_buf_ = nullptr;
-    }
-  }
+  ~FilePrefetchBuffer();
 
   bool Enabled() const { return enable_; }
 
@@ -424,11 +390,13 @@ class FilePrefetchBuffer {
                             size_t roundup_len, bool refit_tail,
                             bool use_fs_buffer, uint64_t& aligned_useful_len);
 
-  void AbortOutdatedIO(uint64_t offset);
+  Status AbortOutdatedIO(uint64_t offset);
 
-  void AbortAllIOs();
+  Status AbortAllIOs();
 
-  void ClearOutdatedData(uint64_t offset, size_t len);
+  Status PollAllIOs();
+
+  Status ClearOutdatedData(uint64_t offset, size_t len);
 
   // It calls Poll API to check for any pending asynchronous request.
   Status PollIfNeeded(uint64_t offset, size_t len);
@@ -445,6 +413,9 @@ class FilePrefetchBuffer {
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
                    uint64_t start_offset);
+
+  Status CleanupAfterAsyncReadFailure(BufferInfo* buf,
+                                      Status async_read_status);
 
   // Copy the data from src to overlap_buf_.
   void CopyDataToOverlapBuffer(BufferInfo* src, uint64_t& offset,

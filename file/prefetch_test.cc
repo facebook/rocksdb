@@ -3266,6 +3266,8 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
 }
 #endif  // GFLAGS
 
+class ControlledAsyncFileSystem;
+
 class FilePrefetchBufferTest : public testing::Test {
  public:
   void SetUp() override {
@@ -3292,13 +3294,23 @@ class FilePrefetchBufferTest : public testing::Test {
 
   void Read(const std::string& fname, const FileOptions& opts,
             std::unique_ptr<RandomAccessFileReader>* reader) {
+    ReadWithFileSystem(fname, opts, fs(), reader);
+  }
+
+  void ReadWithFileSystem(const std::string& fname, const FileOptions& opts,
+                          FileSystem* file_system,
+                          std::unique_ptr<RandomAccessFileReader>* reader) {
     std::string fpath = Path(fname);
     std::unique_ptr<FSRandomAccessFile> f;
-    ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
+    ASSERT_OK(file_system->NewRandomAccessFile(fpath, opts, &f, nullptr));
     reader->reset(new RandomAccessFileReader(
         std::move(f), fpath, env_->GetSystemClock().get(),
         /*io_tracer=*/nullptr, stats_.get()));
   }
+
+  std::shared_ptr<ControlledAsyncFileSystem> CreateControlledAsyncReader(
+      const std::string& fname,
+      std::unique_ptr<RandomAccessFileReader>* reader);
 
   void AssertResult(const std::string& content,
                     const std::vector<FSReadRequest>& reqs) {
@@ -3320,6 +3332,488 @@ class FilePrefetchBufferTest : public testing::Test {
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
+
+struct PrefetchAsyncHandle {
+  FSRandomAccessFile* target = nullptr;
+  IOOptions opts;
+  uint64_t offset = 0;
+  size_t len = 0;
+  char* scratch = nullptr;
+  std::function<void(FSReadRequest&, void*)> callback;
+  void* callback_arg = nullptr;
+  bool completed = false;
+};
+
+class ControlledAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ControlledAsyncRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
+                                  ControlledAsyncFileSystem* fs)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override;
+
+ private:
+  ControlledAsyncFileSystem* fs_;
+};
+
+// Keeps asynchronous reads pending until Poll() or AbortIO() so cancellation
+// and completion failures can be tested without io_uring.
+class ControlledAsyncFileSystem : public FileSystemWrapper {
+ public:
+  explicit ControlledAsyncFileSystem(const std::shared_ptr<FileSystem>& target)
+      : FileSystemWrapper(target) {}
+
+  const char* Name() const override { return "ControlledAsyncFileSystem"; }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    if (s.ok()) {
+      result->reset(new ControlledAsyncRandomAccessFile(std::move(file), this));
+    }
+    return s;
+  }
+
+  IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    ++abort_calls_;
+    if (abort_failures_remaining_ > 0) {
+      --abort_failures_remaining_;
+      return IOStatus::IOError("Injected AbortIO failure");
+    }
+    for (void* io_handle : io_handles) {
+      Complete(static_cast<PrefetchAsyncHandle*>(io_handle),
+               /*aborted=*/true);
+    }
+    return IOStatus::OK();
+  }
+
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
+    ++poll_calls_;
+    if (poll_failures_remaining_ > 0) {
+      --poll_failures_remaining_;
+      return IOStatus::IOError("Injected Poll failure");
+    }
+    for (void* io_handle : io_handles) {
+      Complete(static_cast<PrefetchAsyncHandle*>(io_handle),
+               /*aborted=*/false);
+    }
+    return IOStatus::OK();
+  }
+
+  void Add(PrefetchAsyncHandle* handle) { pending_.push_back(handle); }
+
+  bool MaybeCompleteInline(
+      FSRandomAccessFile* target, FSReadRequest& req, const IOOptions& opts,
+      const std::function<void(FSReadRequest&, void*)>& callback,
+      void* callback_arg) {
+    if (!complete_reads_inline_) {
+      return false;
+    }
+    if (read_completion_failures_remaining_ > 0) {
+      --read_completion_failures_remaining_;
+      req.status = IOStatus::IOError("Injected async read completion failure");
+    } else {
+      req.status = target->Read(req.offset, req.len, opts, &req.result,
+                                req.scratch, nullptr);
+    }
+    ++completion_calls_;
+    callback(req, callback_arg);
+    return true;
+  }
+
+  void Delete(PrefetchAsyncHandle* handle) {
+    if (!handle->completed) {
+      deleted_before_completion_ = true;
+    }
+    auto it = std::find(pending_.begin(), pending_.end(), handle);
+    if (it != pending_.end()) {
+      pending_.erase(it);
+    }
+    ++delete_calls_;
+    delete handle;
+  }
+
+  void FailNextAbort() { ++abort_failures_remaining_; }
+  void FailNextPoll() { ++poll_failures_remaining_; }
+  void FailNextReadCompletion() { ++read_completion_failures_remaining_; }
+  void CompleteReadsInline() { complete_reads_inline_ = true; }
+
+  size_t pending_count() const { return pending_.size(); }
+  size_t abort_calls() const { return abort_calls_; }
+  size_t poll_calls() const { return poll_calls_; }
+  size_t delete_calls() const { return delete_calls_; }
+  size_t completion_calls() const { return completion_calls_; }
+  size_t aborted_completion_calls() const { return aborted_completion_calls_; }
+  bool deleted_before_completion() const { return deleted_before_completion_; }
+
+ private:
+  void Complete(PrefetchAsyncHandle* handle, bool aborted) {
+    if (handle->completed) {
+      return;
+    }
+    auto it = std::find(pending_.begin(), pending_.end(), handle);
+    if (it != pending_.end()) {
+      pending_.erase(it);
+    }
+
+    FSReadRequest req;
+    req.offset = handle->offset;
+    req.len = handle->len;
+    req.scratch = handle->scratch;
+    if (aborted) {
+      req.status = IOStatus::Aborted();
+      ++aborted_completion_calls_;
+    } else if (read_completion_failures_remaining_ > 0) {
+      --read_completion_failures_remaining_;
+      req.status = IOStatus::IOError("Injected async read completion failure");
+    } else {
+      req.status =
+          handle->target->Read(handle->offset, handle->len, handle->opts,
+                               &req.result, handle->scratch, nullptr);
+    }
+    handle->completed = true;
+    ++completion_calls_;
+    handle->callback(req, handle->callback_arg);
+  }
+
+  std::vector<PrefetchAsyncHandle*> pending_;
+  size_t abort_failures_remaining_ = 0;
+  size_t poll_failures_remaining_ = 0;
+  size_t read_completion_failures_remaining_ = 0;
+  size_t abort_calls_ = 0;
+  size_t poll_calls_ = 0;
+  size_t delete_calls_ = 0;
+  size_t completion_calls_ = 0;
+  size_t aborted_completion_calls_ = 0;
+  bool complete_reads_inline_ = false;
+  bool deleted_before_completion_ = false;
+};
+
+std::shared_ptr<ControlledAsyncFileSystem>
+FilePrefetchBufferTest::CreateControlledAsyncReader(
+    const std::string& fname, std::unique_ptr<RandomAccessFileReader>* reader) {
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      std::make_shared<ControlledAsyncFileSystem>(FileSystem::Default());
+  ReadWithFileSystem(fname, FileOptions(), fault_fs.get(), reader);
+  return fault_fs;
+}
+
+IOStatus ControlledAsyncRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  if (fs_->MaybeCompleteInline(target(), req, opts, cb, cb_arg)) {
+    return IOStatus::OK();
+  }
+
+  PrefetchAsyncHandle* handle = new PrefetchAsyncHandle();
+  handle->target = target();
+  handle->opts = opts;
+  handle->offset = req.offset;
+  handle->len = req.len;
+  handle->scratch = req.scratch;
+  handle->callback = std::move(cb);
+  handle->callback_arg = cb_arg;
+  *io_handle = handle;
+  *del_fn = [fs = fs_](void* arg) {
+    fs->Delete(static_cast<PrefetchAsyncHandle*>(arg));
+  };
+  fs_->Add(handle);
+  return IOStatus::OK();
+}
+
+TEST_F(FilePrefetchBufferTest, AbortAllIOFailureIsPropagated) {
+  const std::string fname = "abort-all-io-failure";
+  Write(fname, Random(0).RandomString(32768));
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  {
+    ReadaheadParams readahead_params;
+    readahead_params.initial_readahead_size = 8192;
+    readahead_params.max_readahead_size = 8192;
+    FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                           /*track_min_offset=*/false, fault_fs.get());
+
+    Slice result;
+    ASSERT_TRUE(fpb.PrefetchAsync(IOOptions(), reader.get(), 0, 4096, &result)
+                    .IsTryAgain());
+    ASSERT_EQ(fault_fs->pending_count(), 1);
+
+    fault_fs->FailNextAbort();
+    Status s =
+        fpb.PrefetchAsync(IOOptions(), reader.get(), 8192, 4096, &result);
+    ASSERT_TRUE(s.IsIOError());
+    ASSERT_NE(s.ToString().find("Injected AbortIO failure"), std::string::npos);
+    EXPECT_EQ(fault_fs->pending_count(), 1);
+    EXPECT_EQ(fault_fs->completion_calls(), 0);
+    EXPECT_EQ(fault_fs->delete_calls(), 0);
+    EXPECT_FALSE(fault_fs->deleted_before_completion());
+  }
+
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->aborted_completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+  EXPECT_FALSE(fault_fs->deleted_before_completion());
+}
+
+TEST_F(FilePrefetchBufferTest, AbortOutdatedIOFailureIsPropagated) {
+  const std::string fname = "abort-outdated-io-failure";
+  Write(fname, Random(0).RandomString(64 * 1024));
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  {
+    ReadaheadParams readahead_params;
+    readahead_params.initial_readahead_size = 8192;
+    readahead_params.max_readahead_size = 8192;
+    readahead_params.num_buffers = 2;
+    FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                           /*track_min_offset=*/false, fault_fs.get());
+
+    Slice result;
+    Status s;
+    ASSERT_TRUE(
+        fpb.TryReadFromCache(IOOptions(), reader.get(), 0, 4096, &result, &s));
+    ASSERT_OK(s);
+    ASSERT_EQ(fault_fs->pending_count(), 1);
+
+    fault_fs->FailNextAbort();
+    ASSERT_FALSE(fpb.TryReadFromCache(IOOptions(), reader.get(), 32768, 4096,
+                                      &result, &s));
+    ASSERT_TRUE(s.IsIOError());
+    ASSERT_NE(s.ToString().find("Injected AbortIO failure"), std::string::npos);
+    EXPECT_EQ(fault_fs->pending_count(), 1);
+    EXPECT_EQ(fault_fs->completion_calls(), 0);
+    EXPECT_EQ(fault_fs->delete_calls(), 0);
+    EXPECT_FALSE(fault_fs->deleted_before_completion());
+  }
+
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->aborted_completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+  EXPECT_FALSE(fault_fs->deleted_before_completion());
+}
+
+TEST_F(FilePrefetchBufferTest, PollFailureKeepsAsyncRequestAlive) {
+  const std::string fname = "poll-failure-keeps-request-alive";
+  Write(fname, Random(0).RandomString(32768));
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  {
+    ReadaheadParams readahead_params;
+    readahead_params.initial_readahead_size = 8192;
+    readahead_params.max_readahead_size = 8192;
+    FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                           /*track_min_offset=*/false, fault_fs.get());
+
+    Slice result;
+    ASSERT_TRUE(fpb.PrefetchAsync(IOOptions(), reader.get(), 0, 4096, &result)
+                    .IsTryAgain());
+    ASSERT_EQ(fault_fs->pending_count(), 1);
+
+    fault_fs->FailNextPoll();
+    Status s;
+    ASSERT_FALSE(
+        fpb.TryReadFromCache(IOOptions(), reader.get(), 0, 4096, &result, &s));
+    ASSERT_TRUE(s.IsIOError());
+    ASSERT_NE(s.ToString().find("Injected Poll failure"), std::string::npos);
+    EXPECT_EQ(fault_fs->pending_count(), 1);
+    EXPECT_EQ(fault_fs->completion_calls(), 0);
+    EXPECT_EQ(fault_fs->delete_calls(), 0);
+    EXPECT_FALSE(fault_fs->deleted_before_completion());
+  }
+
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->aborted_completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+  EXPECT_FALSE(fault_fs->deleted_before_completion());
+}
+
+TEST_F(FilePrefetchBufferTest, AsyncReadCompletionFailureIsPropagated) {
+  const std::string fname = "async-read-completion-failure";
+  const std::string content = Random(0).RandomString(32768);
+  Write(fname, content);
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                         /*track_min_offset=*/false, fault_fs.get());
+
+  fault_fs->FailNextReadCompletion();
+  Slice result;
+  ASSERT_TRUE(fpb.PrefetchAsync(IOOptions(), reader.get(), 0, 4096, &result)
+                  .IsTryAgain());
+  ASSERT_EQ(fault_fs->pending_count(), 1);
+
+  Status s;
+  ASSERT_FALSE(
+      fpb.TryReadFromCache(IOOptions(), reader.get(), 0, 4096, &result, &s));
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_NE(s.ToString().find("Injected async read completion failure"),
+            std::string::npos);
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+
+  s = Status::OK();
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), reader.get(), 0, 4096, &result, &s));
+  ASSERT_OK(s);
+  ASSERT_EQ(result, Slice(content.data(), 4096));
+}
+
+TEST_F(FilePrefetchBufferTest,
+       BackgroundAsyncReadCompletionFailureIsPropagated) {
+  const std::string fname = "background-async-read-completion-failure";
+  const std::string content = Random(0).RandomString(32768);
+  Write(fname, content);
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  readahead_params.num_buffers = 2;
+  FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                         /*track_min_offset=*/false, fault_fs.get());
+
+  fault_fs->FailNextReadCompletion();
+  Slice result;
+  Status s;
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), reader.get(), 0, 4096, &result, &s));
+  ASSERT_OK(s);
+  ASSERT_EQ(result, Slice(content.data(), 4096));
+  ASSERT_EQ(fault_fs->pending_count(), 1);
+
+  ASSERT_FALSE(
+      fpb.TryReadFromCache(IOOptions(), reader.get(), 8192, 4096, &result, &s));
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_NE(s.ToString().find("Injected async read completion failure"),
+            std::string::npos);
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+}
+
+TEST_F(FilePrefetchBufferTest, InlineAsyncReadCompletionFailureIsPropagated) {
+  const std::string fname = "inline-async-read-completion-failure";
+  Write(fname, Random(0).RandomString(32768));
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+  fault_fs->CompleteReadsInline();
+  fault_fs->FailNextReadCompletion();
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                         /*track_min_offset=*/false, fault_fs.get());
+
+  Slice result;
+  Status s = fpb.PrefetchAsync(IOOptions(), reader.get(), 0, 4096, &result);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_NE(s.ToString().find("Injected async read completion failure"),
+            std::string::npos);
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 0);
+}
+
+TEST_F(FilePrefetchBufferTest, LaterAsyncSubmissionFailureAbortsEarlierReads) {
+  const std::string fname = "later-async-submission-failure";
+  Write(fname, Random(0).RandomString(32768));
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  size_t read_async_calls = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadAsync:InjectStatus", [&](void* arg) {
+        ++read_async_calls;
+        if (read_async_calls == 2) {
+          *static_cast<IOStatus*>(arg) =
+              IOStatus::IOError("Injected async read submission failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  readahead_params.num_buffers = 2;
+  FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                         /*track_min_offset=*/false, fault_fs.get());
+
+  Slice result;
+  Status s = fpb.PrefetchAsync(IOOptions(), reader.get(), 0, 4096, &result);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_NE(s.ToString().find("Injected async read submission failure"),
+            std::string::npos);
+  EXPECT_EQ(read_async_calls, 2);
+  EXPECT_EQ(fault_fs->abort_calls(), 1);
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->aborted_completion_calls(), 1);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+  EXPECT_FALSE(fault_fs->deleted_before_completion());
+}
+
+TEST_F(FilePrefetchBufferTest, DestructorPollsAfterAbortIOFailure) {
+  const std::string fname = "destructor-polls-after-abort-failure";
+  const std::string content = Random(0).RandomString(32768);
+  Write(fname, content);
+
+  std::unique_ptr<RandomAccessFileReader> reader;
+  std::shared_ptr<ControlledAsyncFileSystem> fault_fs =
+      CreateControlledAsyncReader(fname, &reader);
+
+  {
+    ReadaheadParams readahead_params;
+    readahead_params.initial_readahead_size = 8192;
+    readahead_params.max_readahead_size = 8192;
+    FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
+                           /*track_min_offset=*/false, fault_fs.get());
+
+    Slice result;
+    ASSERT_TRUE(fpb.PrefetchAsync(IOOptions(), reader.get(), 0, 4096, &result)
+                    .IsTryAgain());
+    ASSERT_EQ(fault_fs->pending_count(), 1);
+    fault_fs->FailNextAbort();
+  }
+
+  EXPECT_EQ(fault_fs->abort_calls(), 1);
+  EXPECT_EQ(fault_fs->poll_calls(), 1);
+  EXPECT_EQ(fault_fs->pending_count(), 0);
+  EXPECT_EQ(fault_fs->completion_calls(), 1);
+  EXPECT_EQ(fault_fs->aborted_completion_calls(), 0);
+  EXPECT_EQ(fault_fs->delete_calls(), 1);
+  EXPECT_FALSE(fault_fs->deleted_before_completion());
+}
 
 TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
   std::string fname = "seek-with-block-cache-hit";
