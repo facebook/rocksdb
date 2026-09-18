@@ -24,6 +24,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/wal_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -166,6 +167,170 @@ class ObsoleteFilesTest : public DBTestBase {
 
   const std::string wal_dir_;
 };
+
+TEST_F(ObsoleteFilesTest, WalDeletionsPreserveLogsButDeleteSsts) {
+  for (bool separate_wal_dir : {false, true}) {
+    for (bool deferred : {false, true}) {
+      SCOPED_TRACE(separate_wal_dir);
+      SCOPED_TRACE(deferred);
+      Options options = CurrentOptions();
+      options.disable_auto_compactions = true;
+      options.wal_dir = separate_wal_dir ? wal_dir_ : dbname_;
+      options.avoid_unnecessary_blocking_io = deferred;
+      options.delete_obsolete_files_period_micros = 0;
+      Destroy(options);
+      Reopen(options);
+      ASSERT_OK(db_->DisableWalDeletions());
+      ASSERT_OK(db_->DisableWalDeletions());
+      ASSERT_OK(Put("key", "old"));
+      uint64_t wal_number = dbfull()->TEST_LogfileNumber();
+      std::string wal_path = LogFileName(options.wal_dir, wal_number);
+      ASSERT_OK(Flush());
+      std::vector<LiveFileMetaData> old_ssts;
+      db_->GetLiveFilesMetaData(&old_ssts);
+      ASSERT_EQ(1U, old_ssts.size());
+      ASSERT_OK(Put("key", "new"));
+      ASSERT_OK(Flush());
+      // CompactFiles defaults to disallowing trivial moves, so the input SST
+      // must become obsolete rather than merely moving to another level.
+      ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+                                  {old_ssts[0].relative_filename}, 1));
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+      // The all-files gate is never disabled here, so this only runs one more
+      // synchronous full FindObsoleteFiles() + purge. CompactFiles() has
+      // already reclaimed the input SST; the WAL-only gate keeps the log.
+      ASSERT_OK(db_->EnableFileDeletions());
+      ASSERT_OK(dbfull()->TEST_WaitForPurge());
+      ASSERT_OK(env_->FileExists(wal_path));
+      Status old_sst_status = env_->FileExists(old_ssts[0].directory + "/" +
+                                               old_ssts[0].relative_filename);
+      ASSERT_TRUE(old_sst_status.IsNotFound())
+          << old_sst_status.ToString() << " path=" << old_ssts[0].directory
+          << "/" << old_ssts[0].relative_filename
+          << " levels=" << FilesPerLevel();
+      ASSERT_EQ("new", Get("key"));
+      ASSERT_OK(db_->EnableWalDeletions());
+      ASSERT_OK(env_->FileExists(wal_path));
+      // Releasing the WAL-only gate must not bypass the all-files gate.
+      ASSERT_OK(db_->DisableFileDeletions());
+      ASSERT_OK(db_->EnableWalDeletions());
+      ASSERT_OK(env_->FileExists(wal_path));
+      ASSERT_OK(db_->EnableFileDeletions());
+      ASSERT_TRUE(env_->FileExists(wal_path).IsNotFound());
+      // Extra enables must not underflow, and the next disable must work.
+      ASSERT_OK(db_->EnableWalDeletions());
+      ASSERT_OK(db_->DisableWalDeletions());
+      ASSERT_OK(Put("key", "last"));
+      wal_path = LogFileName(options.wal_dir, dbfull()->TEST_LogfileNumber());
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->DisableFileDeletions());
+      ASSERT_OK(db_->EnableFileDeletions());
+      ASSERT_OK(env_->FileExists(wal_path));
+      ASSERT_OK(db_->EnableWalDeletions());
+      ASSERT_TRUE(env_->FileExists(wal_path).IsNotFound());
+    }
+  }
+}
+
+TEST_F(ObsoleteFilesTest, WalDeletionsWrappersAndReopen) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  {
+    StackableDB wrapper(std::shared_ptr<DB>(db_.get(), [](DB*) {}));
+    ASSERT_OK(wrapper.DisableWalDeletions());
+    ASSERT_OK(Put("key", "value"));
+    std::string wal = LogFileName(dbname_, dbfull()->TEST_LogfileNumber());
+    ASSERT_OK(Flush());
+    ASSERT_OK(env_->FileExists(wal));
+    ASSERT_OK(wrapper.EnableWalDeletions());
+    ASSERT_TRUE(env_->FileExists(wal).IsNotFound());
+  }
+  ASSERT_OK(db_->DisableWalDeletions());
+  ASSERT_OK(Put("key", "value2"));
+  std::string wal = LogFileName(dbname_, dbfull()->TEST_LogfileNumber());
+  ASSERT_OK(Flush());
+  ASSERT_OK(env_->FileExists(wal));
+  Reopen(options);
+  ASSERT_OK(db_->EnableFileDeletions());  // Full purge after reopening.
+  ASSERT_TRUE(env_->FileExists(wal).IsNotFound());
+  Close();
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_));
+  ASSERT_TRUE(db_->DisableWalDeletions().IsNotSupported());
+  ASSERT_TRUE(db_->EnableWalDeletions().IsNotSupported());
+}
+
+TEST_F(ObsoleteFilesTest, WalDeletionsPreventRecycling) {
+  Options options = CurrentOptions();
+  options.recycle_log_file_num = 2;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key", "before"));
+  std::string old_wal = LogFileName(dbname_, dbfull()->TEST_LogfileNumber());
+  ASSERT_OK(Flush());  // Populate the recycle pool before disabling.
+  ASSERT_OK(env_->FileExists(old_wal));
+  ASSERT_OK(db_->DisableWalDeletions());
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put("key", std::to_string(i)));
+    ASSERT_OK(Flush());
+    ASSERT_OK(env_->FileExists(old_wal));
+  }
+  // Recycling renames the pooled WAL onto a new log number instead of
+  // deleting it, so a missing file alone cannot distinguish the two outcomes.
+  // Watch the reuse path to prove the retained WAL is consumed by recycling
+  // once the gate is released.
+  bool reused_from_recycle_pool = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::CreateWAL:BeforeReuseWritableFile1",
+      [&](void*) { reused_from_recycle_pool = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db_->EnableWalDeletions());
+  ASSERT_OK(Put("key", "after"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(reused_from_recycle_pool);
+  ASSERT_TRUE(env_->FileExists(old_wal).IsNotFound());
+}
+
+TEST_F(ObsoleteFilesTest, WalDeletionsProtectArchivedLogs) {
+  for (bool use_ttl : {false, true}) {
+    SCOPED_TRACE(use_ttl);
+    Options options = CurrentOptions();
+    options.WAL_ttl_seconds = use_ttl ? 100 : 0;
+    options.WAL_size_limit_MB = use_ttl ? 0 : 1;
+    options.wal_dir = wal_dir_;
+    Destroy(options);
+    Reopen(options);
+    ASSERT_OK(Put("key", "value"));
+    uint64_t number = dbfull()->TEST_LogfileNumber();
+    ASSERT_OK(Flush());
+    std::string archived = ArchivedLogFileName(wal_dir_, number);
+    ASSERT_OK(env_->FileExists(archived));
+    ASSERT_OK(db_->DisableWalDeletions());
+    ASSERT_OK(db_->DisableWalDeletions());
+    if (!use_ttl) {
+      // Exceed the archive size limit without depending on compression or
+      // write-buffer sizes. This is an obsolete WAL, never read for recovery.
+      ASSERT_OK(
+          WriteStringToFile(env_, std::string(2 * 1024 * 1024, 'x'), archived));
+    }
+    env_->SetMockSleep();
+    env_->MockSleepForSeconds(1200);
+    ASSERT_OK(Put("key", "new"));
+    std::string live = LogFileName(wal_dir_, dbfull()->TEST_LogfileNumber());
+    ASSERT_OK(Flush());
+    ASSERT_OK(env_->FileExists(archived));
+    ASSERT_OK(env_->FileExists(live));  // No archival while disabled.
+    ASSERT_OK(db_->EnableWalDeletions());
+    ASSERT_OK(env_->FileExists(archived));
+    ASSERT_OK(db_->EnableWalDeletions());
+    ASSERT_TRUE(env_->FileExists(archived).IsNotFound());
+    ASSERT_TRUE(env_->FileExists(live).IsNotFound());
+    Close();
+    env_->MockSleepForSeconds(-1200);
+  }
+}
 
 TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
   ReopenDB();
