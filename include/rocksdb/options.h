@@ -447,6 +447,29 @@ enum class WALRecoveryMode : char {
   kSkipAnyCorruptedRecords = 0x03,
 };
 
+// EXPERIMENTAL. Controls whether WAL records carry a persisted ordering number
+// (wal_index / LSN), and how WAL files are laid out. Every value other than
+// `kNone` prefixes each WAL record with a wal_index, which changes the on-disk
+// WAL format: older RocksDB versions report corruption rather than reading
+// indexed WALs. The values differ only in how WALs are partitioned.
+//
+// To roll back, set this option to `kNone`, flush every column family so all
+// indexed WALs become obsolete, wait for those WAL files to be deleted, and
+// only then downgrade the RocksDB binary. An older binary that encounters a
+// surviving indexed WAL reports corruption rather than misreading it.
+enum class PartitionWALUsage : char {
+  // Disabled. The WAL keeps the vanilla on-disk format so that files stay
+  // readable by (and are bit-for-bit compatible with) older RocksDB versions.
+  kNone = 0x00,
+  // Every WAL record carries a wal_index. WAL layout is unchanged: one WAL at
+  // a time, as with `kNone`. This isolates the on-disk format change from any
+  // change in WAL routing, so the two can be rolled out separately.
+  kWALIndexSingleFile = 0x01,
+  // Every WAL record carries a wal_index, and WAL files are partitioned by
+  // column family. NOT YET IMPLEMENTED: `DB::Open` rejects this value.
+  kWALIndexPartitionByColumnFamily = 0x02,
+};
+
 struct DbPath {
   std::string path;
   uint64_t target_size;  // Target size of total files under the path, in byte.
@@ -1584,6 +1607,13 @@ struct DBOptions {
   // versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
   // the WAL is read.
   CompressionType wal_compression = kNoCompression;
+
+  // Controls whether each WAL record carries an extra monotonically increasing
+  // ordering number (wal_index / LSN) persisted on disk. `kNone` (default)
+  // keeps the vanilla WAL format for downgrade safety; any other value enables
+  // the ordering number and tags the WAL file with an identifying marker
+  // record. Leaves the per-key sequence number and SST format untouched.
+  PartitionWALUsage partition_wal_usage = PartitionWALUsage::kNone;
 
   // Set to true to re-instate an old behavior of keeping complete, synced WAL
   // files open for write until they are collected for deletion by a
