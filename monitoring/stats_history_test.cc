@@ -285,6 +285,59 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   // the correct stats snapshot
 }
 
+TEST_F(StatsHistoryTest, DynamicOffpeakModelPersistsAndRecovers) {
+  constexpr uint32_t kPeriodSec = DynamicOffpeakModel::kBucketSeconds;
+  Options options;
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.stats_persist_period_sec = kPeriodSec;
+  options.dynamic_offpeak_percentile = 25;
+  options.daily_offpeak_time_utc = "01:00-02:00";
+  options.env = mock_env_.get();
+  Reopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec - 1); });
+  for (uint32_t bucket = 0; bucket <= DynamicOffpeakModel::kBucketsPerDay;
+       ++bucket) {
+    ASSERT_OK(Put("key" + std::to_string(bucket), "value"));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+  }
+
+  std::map<std::string, std::string> property;
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ("dynamic_active", property["mode"]);
+  ASSERT_FALSE(property["learned_window_utc"].empty());
+  ASSERT_EQ("1", property["trained_days"]);
+  ASSERT_EQ("1", property["prediction_available"]);
+  ASSERT_EQ("1", property["latest_observation_available"]);
+  const std::string learned_window = property["learned_window_utc"];
+  ASSERT_EQ(
+      "01:00-02:00",
+      dbfull()->GetVersionSet()->offpeak_time_option().daily_offpeak_time_utc);
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "2048"}}));
+  property.clear();
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ(learned_window, property["learned_window_utc"]);
+  ASSERT_EQ(
+      "01:00-02:00",
+      dbfull()->GetVersionSet()->offpeak_time_option().daily_offpeak_time_utc);
+
+  Reopen(options);
+  property.clear();
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ("dynamic_active", property["mode"]);
+  ASSERT_EQ(learned_window, property["learned_window_utc"]);
+  ASSERT_EQ("1", property["prediction_available"]);
+  ASSERT_EQ("0", property["latest_observation_available"]);
+  ASSERT_EQ(
+      "01:00-02:00",
+      dbfull()->GetVersionSet()->offpeak_time_option().daily_offpeak_time_utc);
+  Close();
+}
+
 int countkeys(Iterator* iter) {
   int count = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {

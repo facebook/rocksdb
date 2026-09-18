@@ -159,6 +159,7 @@ struct MutableDBOptions {
   bool fast_sst_open;
   bool remote_compaction_manifest_floor;
   std::string daily_offpeak_time_utc;
+  uint32_t dynamic_offpeak_percentile;
   uint64_t max_compaction_trigger_wakeup_seconds;
   int periodic_compaction_phase_recovery_percent;
 };
