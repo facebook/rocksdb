@@ -573,7 +573,8 @@ class MemTableConstructor : public Constructor {
     ImmutableOptions ioptions(options_);
     memtable_ =
         new MemTable(internal_comparator_, ioptions, MutableCFOptions(options_),
-                     wb, kMaxSequenceNumber, 0 /* column_family_id */);
+                     wb, kMaxSequenceNumber, 0 /* column_family_id */,
+                     nullptr /* flush_initiator */);
     memtable_->Ref();
   }
   ~MemTableConstructor() override { delete memtable_->Unref(); }
@@ -586,7 +587,8 @@ class MemTableConstructor : public Constructor {
     ImmutableOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
                              MutableCFOptions(options_), write_buffer_manager_,
-                             kMaxSequenceNumber, 0 /* column_family_id */);
+                             kMaxSequenceNumber, 0 /* column_family_id */,
+                             nullptr /* flush_initiator */);
     memtable_->Ref();
     int seq = 1;
     for (const auto& kv : kv_map) {
@@ -5563,7 +5565,8 @@ class MemTableTest : public testing::Test {
     ImmutableOptions ioptions(options_);
     wb_ = new WriteBufferManager(options_.db_write_buffer_size);
     memtable_ = new MemTable(cmp, ioptions, MutableCFOptions(options_), wb_,
-                             kMaxSequenceNumber, 0 /* column_family_id */);
+                             kMaxSequenceNumber, 0 /* column_family_id */,
+                             nullptr /* flush_initiator */);
     memtable_->Ref();
   }
 
