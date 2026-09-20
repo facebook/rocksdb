@@ -313,6 +313,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/convenience/info_log_finder.cc",
         "utilities/copy_engine/copy_engine.cc",
         "utilities/counted_fs.cc",
+        "utilities/db_split_merge.cc",
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
@@ -475,6 +476,8 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
 
 
 cpp_binary_wrapper(name="ldb", srcs=["tools/ldb.cc"], deps=[":rocksdb_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
+
+cpp_binary_wrapper(name="db_split_merge", srcs=["tools/db_split_merge.cc"], deps=[":rocksdb_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
 cpp_binary_wrapper(name="db_stress", srcs=["db_stress_tool/db_stress.cc"], deps=[":rocksdb_stress_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
@@ -5031,6 +5034,12 @@ cpp_unittest_wrapper(name="db_readonly_with_timestamp_test",
 
 cpp_unittest_wrapper(name="db_secondary_test",
             srcs=["db/db_secondary_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_split_merge_test",
+            srcs=["utilities/db_split_merge_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
