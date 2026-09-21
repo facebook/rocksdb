@@ -160,6 +160,11 @@
           "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."
         },
         {
+          "field": "periodic_compaction_policy",
+          "policy": "manual",
+          "reason": "C++ callback interface requires an explicit C ownership, lifetime, and callback bridging design."
+        },
+        {
           "field": "memtable_insert_with_hint_prefix_extractor",
           "policy": "manual",
           "reason": "Uses callbacks, factories, vectors, or nested option structs that need explicit C bridging."

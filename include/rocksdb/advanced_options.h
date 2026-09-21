@@ -256,6 +256,37 @@ inline bool operator!(VerifyOutputFlags flag) {
   return flag == VerifyOutputFlags::kVerifyNone;
 }
 
+// Allows applications to make periodic compactions eligible before their
+// normal trigger time. The policy does not select files or schedule jobs;
+// RocksDB continues to apply its normal compaction picker, conflict checks,
+// and background-work limits.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe.
+class PeriodicCompactionPolicy {
+ public:
+  struct Context {
+    uint64_t current_time_seconds = 0;
+    uint64_t periodic_compaction_seconds = 0;
+  };
+
+  struct Decision {
+    // Files whose normal periodic-compaction trigger is within this many
+    // seconds become eligible now. RocksDB clamps this value to
+    // periodic_compaction_seconds. Zero preserves normal behavior.
+    uint64_t deadline_lookahead_seconds = 0;
+  };
+
+  virtual ~PeriodicCompactionPolicy() = default;
+
+  // May be called from internal DB threads and while RocksDB holds internal
+  // synchronization. Implementations must be thread-safe, non-blocking, and
+  // must not call back into the same DB.
+  virtual Decision GetDecision(const Context& context) const = 0;
+
+  virtual const char* Name() const = 0;
+};
+
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
   // The default and the minimum number is 2, so that when 1 write buffer
@@ -940,6 +971,21 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
+
+  // Optional policy for making periodic compactions eligible early in
+  // response to application-defined signals, such as learned traffic
+  // patterns, real-time load, or remote-compaction capacity. The policy is
+  // evaluated when RocksDB checks for periodic compaction, so
+  // DBOptions::max_compaction_trigger_wakeup_seconds bounds how quickly a
+  // signal change is observed on an otherwise idle DB.
+  //
+  // The policy object cannot be replaced through SetOptions(), but its
+  // thread-safe internal state may change at runtime. This option is
+  // configured programmatically and is not serialized to OPTIONS files.
+  //
+  // Default: nullptr (normal periodic-compaction timing)
+  std::shared_ptr<PeriodicCompactionPolicy> periodic_compaction_policy =
+      nullptr;
 
   // When set to a positive value, enables read-triggered compaction. An SST
   // file is marked for compaction when its estimated read frequency

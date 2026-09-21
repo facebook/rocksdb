@@ -285,6 +285,105 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   // the correct stats snapshot
 }
 
+TEST_F(StatsHistoryTest, DynamicOffpeakModelPersistsAndRecovers) {
+  constexpr uint32_t kPeriodSec = DynamicOffpeakModel::kBucketSeconds;
+  Options options;
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.stats_persist_period_sec = kPeriodSec;
+  options.dynamic_offpeak_window_percent = 25;
+  options.daily_offpeak_time_utc = "01:00-02:00";
+  options.env = mock_env_.get();
+  Reopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec - 1); });
+  for (uint32_t bucket = 0; bucket <= DynamicOffpeakModel::kBucketsPerDay;
+       ++bucket) {
+    ASSERT_OK(Put("key" + std::to_string(bucket), "value"));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+  }
+
+  std::map<std::string, std::string> property;
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ("dynamic_active", property["mode"]);
+  ASSERT_FALSE(property["learned_window_utc"].empty());
+  ASSERT_EQ("1", property["trained_days"]);
+  ASSERT_EQ("1", property["prediction_available"]);
+  ASSERT_EQ("1", property["latest_observation_available"]);
+  const std::string learned_window = property["learned_window_utc"];
+  ASSERT_EQ(
+      "01:00-02:00",
+      dbfull()->GetVersionSet()->offpeak_time_option().daily_offpeak_time_utc);
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "2048"}}));
+  property.clear();
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ(learned_window, property["learned_window_utc"]);
+  ASSERT_EQ(
+      "01:00-02:00",
+      dbfull()->GetVersionSet()->offpeak_time_option().daily_offpeak_time_utc);
+
+  Reopen(options);
+  property.clear();
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ("dynamic_active", property["mode"]);
+  ASSERT_EQ(learned_window, property["learned_window_utc"]);
+  ASSERT_EQ("1", property["prediction_available"]);
+  ASSERT_EQ("0", property["latest_observation_available"]);
+  ASSERT_EQ(
+      "01:00-02:00",
+      dbfull()->GetVersionSet()->offpeak_time_option().daily_offpeak_time_utc);
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"dynamic_offpeak_window_percent", "0"}}));
+  property.clear();
+  ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDynamicOffpeak, &property));
+  ASSERT_EQ("disabled", property["mode"]);
+  ASSERT_TRUE(property["learned_window_utc"].empty());
+  ASSERT_EQ("0", property["prediction_available"]);
+  Close();
+}
+
+TEST_F(StatsHistoryTest, PersistentStatsPreservesCounterResetDelta) {
+  constexpr uint32_t kPeriodSec = 5;
+  constexpr const char* kTickerName = "rocksdb.number.iter.skip";
+  Options options;
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.stats_persist_period_sec = kPeriodSec;
+  options.persist_stats_to_disk = true;
+  options.env = mock_env_.get();
+  Reopen(options);
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec - 1); });
+  options.statistics->setTickerCount(NUMBER_ITER_SKIP, 100);
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+  options.statistics->setTickerCount(NUMBER_ITER_SKIP, 10);
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
+
+  std::unique_ptr<StatsHistoryIterator> stats_iter;
+  ASSERT_OK(
+      db_->GetStatsHistory(0, mock_clock_->NowSeconds() + 1, &stats_iter));
+  const uint64_t expected_reset_delta =
+      std::numeric_limits<uint64_t>::max() - 89;
+  bool found_reset_delta = false;
+  for (; stats_iter->Valid(); stats_iter->Next()) {
+    const auto& stats = stats_iter->GetStatsMap();
+    auto reset_delta = stats.find(kTickerName);
+    if (reset_delta != stats.end() &&
+        reset_delta->second == expected_reset_delta) {
+      found_reset_delta = true;
+    }
+  }
+  ASSERT_TRUE(found_reset_delta);
+  Close();
+}
+
 int countkeys(Iterator* iter) {
   int count = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {

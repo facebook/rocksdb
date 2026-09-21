@@ -1230,6 +1230,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
   }
 
 #endif  // !NDEBUG
+  RestoreDynamicOffpeakModel();
   if (mutable_db_options_.stats_dump_period_sec > 0) {
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kDumpStats,
@@ -1366,10 +1367,17 @@ void DBImpl::PersistStats() {
   if (!statistics) {
     return;
   }
+  const bool persist_stats_to_disk =
+      immutable_db_options_.persist_stats_to_disk;
   size_t stats_history_size_limit = 0;
+  uint32_t dynamic_offpeak_window_percent = 0;
+  uint32_t stats_persist_period_sec = 0;
   {
     InstrumentedMutexLock l(&mutex_);
     stats_history_size_limit = mutable_db_options_.stats_history_buffer_size;
+    dynamic_offpeak_window_percent =
+        mutable_db_options_.dynamic_offpeak_window_percent;
+    stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
   }
 
   std::map<std::string, uint64_t> stats_map;
@@ -1379,30 +1387,93 @@ void DBImpl::PersistStats() {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "------- PERSISTING STATS -------");
 
-  if (immutable_db_options_.persist_stats_to_disk) {
+  constexpr std::array<const char*, 4> kForegroundByteStats = {
+      "rocksdb.bytes.written", "rocksdb.bytes.read",
+      "rocksdb.number.multiget.bytes.read", "rocksdb.db.iter.bytes.read"};
+  constexpr std::array<const char*, 6> kForegroundOperationStats = {
+      "rocksdb.number.keys.written",
+      "rocksdb.number.keys.read",
+      "rocksdb.number.multiget.keys.read",
+      "rocksdb.number.db.seek",
+      "rocksdb.number.db.next",
+      "rocksdb.number.db.prev"};
+  const bool dynamic_offpeak_enabled = dynamic_offpeak_window_percent > 0;
+  auto is_foreground_stat = [&](const std::string& name) {
+    return std::find(kForegroundByteStats.begin(), kForegroundByteStats.end(),
+                     name) != kForegroundByteStats.end() ||
+           std::find(kForegroundOperationStats.begin(),
+                     kForegroundOperationStats.end(),
+                     name) != kForegroundOperationStats.end();
+  };
+  std::map<std::string, uint64_t> stats_delta;
+  bool counters_reset = false;
+  if (stats_slice_initialized_) {
+    for (const auto& stat : stats_map) {
+      auto previous = stats_slice_.find(stat.first);
+      if (previous == stats_slice_.end()) {
+        continue;
+      }
+      if (dynamic_offpeak_enabled && stat.second < previous->second &&
+          is_foreground_stat(stat.first)) {
+        counters_reset = true;
+      }
+      stats_delta[stat.first] = stat.second - previous->second;
+    }
+  }
+
+  std::string dynamic_model_to_persist;
+  {
+    InstrumentedMutexLock l(&stats_history_mutex_);
+    const uint64_t elapsed_seconds =
+        now_seconds > stats_slice_time_ ? now_seconds - stats_slice_time_ : 0;
+    if (dynamic_offpeak_enabled && stats_slice_initialized_ &&
+        !counters_reset && elapsed_seconds > 0 &&
+        stats_persist_period_sec > 0 &&
+        elapsed_seconds <= 2 * stats_persist_period_sec) {
+      auto sum_stats = [&](const auto& names, bool* all_available) {
+        uint64_t total = 0;
+        for (const char* name : names) {
+          auto value = stats_delta.find(name);
+          if (value != stats_delta.end()) {
+            total += value->second;
+          } else {
+            *all_available = false;
+          }
+        }
+        return total;
+      };
+      bool all_available = true;
+      const uint64_t foreground_bytes =
+          sum_stats(kForegroundByteStats, &all_available);
+      const uint64_t foreground_operations =
+          sum_stats(kForegroundOperationStats, &all_available);
+      if (all_available &&
+          dynamic_offpeak_model_.AddSample(
+              stats_slice_time_, now_seconds, foreground_bytes,
+              foreground_operations, dynamic_offpeak_window_percent)) {
+        dynamic_model_to_persist = dynamic_offpeak_model_.Encode();
+      }
+    }
+  }
+
+  if (persist_stats_to_disk) {
     WriteBatch batch;
     Status s = Status::OK();
     if (stats_slice_initialized_) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Reading %" ROCKSDB_PRIszt " stats from statistics\n",
                      stats_slice_.size());
-      for (const auto& stat : stats_map) {
+      for (const auto& stat : stats_delta) {
         if (s.ok()) {
           char key[100];
           int length =
               EncodePersistentStatsKey(now_seconds, stat.first, 100, key);
-          // calculate the delta from last time
-          if (stats_slice_.find(stat.first) != stats_slice_.end()) {
-            uint64_t delta = stat.second - stats_slice_[stat.first];
-            s = batch.Put(persist_stats_cf_handle_,
-                          Slice(key, std::min(100, length)),
-                          std::to_string(delta));
-          }
+          s = batch.Put(persist_stats_cf_handle_,
+                        Slice(key, std::min(100, length)),
+                        std::to_string(stat.second));
         }
       }
     }
-    stats_slice_initialized_ = true;
-    std::swap(stats_slice_, stats_map);
     if (s.ok()) {
       // TODO: plumb Env::IOActivity, Env::IOPriority
       WriteOptions wo;
@@ -1419,30 +1490,19 @@ void DBImpl::PersistStats() {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Writing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
                      " to persistent stats CF succeeded",
-                     stats_slice_.size(), now_seconds);
+                     stats_map.size(), now_seconds);
     }
     // TODO(Zhongyi): add purging for persisted data
   } else {
     InstrumentedMutexLock l(&stats_history_mutex_);
-    // calculate the delta from last time
     if (stats_slice_initialized_) {
-      std::map<std::string, uint64_t> stats_delta;
-      for (const auto& stat : stats_map) {
-        if (stats_slice_.find(stat.first) != stats_slice_.end()) {
-          stats_delta[stat.first] = stat.second - stats_slice_[stat.first];
-        }
-      }
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Storing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
                      " to in-memory stats history",
                      stats_slice_.size(), now_seconds);
       stats_history_[now_seconds] = std::move(stats_delta);
     }
-    stats_slice_initialized_ = true;
-    std::swap(stats_slice_, stats_map);
-    TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
-    // delete older stats snapshots to control memory consumption
     size_t stats_history_size = EstimateInMemoryStatsHistorySize();
     bool purge_needed = stats_history_size > stats_history_size_limit;
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1457,9 +1517,63 @@ void DBImpl::PersistStats() {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[Post-GC] In-memory stats history size: %" ROCKSDB_PRIszt
                    " bytes, slice count: %" ROCKSDB_PRIszt,
-                   stats_history_size, stats_history_.size());
+                   EstimateInMemoryStatsHistorySize(), stats_history_.size());
+  }
+  stats_slice_initialized_ = true;
+  stats_slice_time_ = now_seconds;
+  std::swap(stats_slice_, stats_map);
+  TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
+
+  if (!dynamic_model_to_persist.empty()) {
+    Status s = PersistDynamicOffpeakModel(dynamic_model_to_persist);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "Persisting dynamic off-peak model failed -- %s",
+                      s.ToString().c_str());
+    }
   }
   TEST_SYNC_POINT("DBImpl::PersistStats:End");
+}
+
+Status DBImpl::PersistDynamicOffpeakModel(const std::string& encoded_model) {
+  InstrumentedMutexLock l(&mutex_);
+  VersionEdit edit;
+  edit.SetDynamicOffpeakModel(encoded_model);
+  const ReadOptions read_options;
+  const WriteOptions write_options;
+  Status s = versions_->LogAndApplyToDefaultColumnFamily(
+      read_options, write_options, &edit, &mutex_, directories_.GetDbDir());
+  if (!s.ok() && versions_->io_status().IsIOError()) {
+    error_handler_.SetBGError(versions_->io_status(),
+                              BackgroundErrorReason::kManifestWrite);
+  }
+  if (s.ok()) {
+    versions_->SetDynamicOffpeakModel(encoded_model);
+  }
+  return s;
+}
+
+void DBImpl::RestoreDynamicOffpeakModel() {
+  if (dynamic_offpeak_model_restored_) {
+    return;
+  }
+  std::string encoded_model;
+  uint32_t window_percent = 0;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    encoded_model = versions_->dynamic_offpeak_model();
+    window_percent = mutable_db_options_.dynamic_offpeak_window_percent;
+  }
+  if (!encoded_model.empty()) {
+    InstrumentedMutexLock l(&stats_history_mutex_);
+    Status s = dynamic_offpeak_model_.Decode(encoded_model, window_percent);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Ignoring invalid dynamic off-peak model -- %s",
+                     s.ToString().c_str());
+    }
+  }
+  dynamic_offpeak_model_restored_ = true;
 }
 
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,
@@ -1815,6 +1929,7 @@ Status DBImpl::SetDBOptions(
   Status persist_options_status = Status::OK();
   bool wal_size_option_changed = false;
   bool wal_other_option_changed = false;
+  bool dynamic_offpeak_config_changed = false;
   WriteContext write_context;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -1865,6 +1980,9 @@ Status DBImpl::SetDBOptions(
       const bool max_compactions_increased =
           new_bg_job_limits.max_compactions >
           current_bg_job_limits.max_compactions;
+      dynamic_offpeak_config_changed =
+          mutable_db_options_.dynamic_offpeak_window_percent !=
+          new_options.dynamic_offpeak_window_percent;
       const bool offpeak_time_changed =
           versions_->offpeak_time_option().daily_offpeak_time_utc !=
           new_db_options.daily_offpeak_time_utc;
@@ -1966,6 +2084,15 @@ Status DBImpl::SetDBOptions(
       // To get here, we must have had invalid options and will not attempt to
       // persist the options, which means the status is "OK/Uninitialized.
       persist_options_status.PermitUncheckedError();
+    }
+  }
+  // The comparison above must happen before mutable_db_options_ is replaced;
+  // the recomputation uses the already-validated new value after unlocking.
+  if (s.ok() && dynamic_offpeak_config_changed) {
+    {
+      InstrumentedMutexLock l(&stats_history_mutex_);
+      dynamic_offpeak_model_.RecomputeWindow(
+          new_options.dynamic_offpeak_window_percent);
     }
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions(), inputs:");
@@ -5384,8 +5511,86 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
 bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
                             const Slice& property,
                             std::map<std::string, std::string>* value) {
-  const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
+  if (property == DB::Properties::kDynamicOffpeak) {
+    const uint64_t now_seconds =
+        immutable_db_options_.clock->NowMicros() / kMicrosInSecond;
+    uint32_t window_percent = 0;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      window_percent = mutable_db_options_.dynamic_offpeak_window_percent;
+    }
+    bool trained = false;
+    bool fresh = false;
+    uint32_t trained_days = 0;
+    uint32_t coverage = 0;
+    uint64_t last_update = 0;
+    std::string learned_window;
+    DynamicOffpeakPrediction prediction;
+    DynamicOffpeakObservation observation;
+    {
+      InstrumentedMutexLock l(&stats_history_mutex_);
+      trained = dynamic_offpeak_model_.IsTrained();
+      fresh = dynamic_offpeak_model_.IsFresh(now_seconds);
+      trained_days = dynamic_offpeak_model_.TrainedDays();
+      coverage = dynamic_offpeak_model_.LastDayCoveragePercent();
+      last_update = dynamic_offpeak_model_.LastUpdateTime();
+      learned_window = dynamic_offpeak_model_.LearnedWindow();
+      prediction = dynamic_offpeak_model_.GetPrediction(now_seconds);
+      observation = dynamic_offpeak_model_.GetLatestObservation();
+    }
+    if (window_percent == 0 || !fresh) {
+      learned_window.clear();
+      prediction = {};
+    }
+    OffpeakTimeOption learned_time(learned_window);
+    const OffpeakTimeInfo learned_time_info =
+        learned_time.GetOffpeakTimeInfo(static_cast<int64_t>(now_seconds));
+    (*value)["mode"] =
+        window_percent == 0
+            ? "disabled"
+            : (!trained ? "dynamic_training"
+                        : (fresh ? "dynamic_active" : "dynamic_stale"));
+    (*value)["learned_window_utc"] = learned_window;
+    (*value)["is_now_in_learned_window"] =
+        learned_time_info.is_now_offpeak ? "1" : "0";
+    (*value)["seconds_until_learned_window_start"] =
+        std::to_string(learned_time_info.seconds_till_next_offpeak_start);
+    (*value)["prediction_available"] = prediction.available ? "1" : "0";
+    (*value)["prediction_bucket_start_utc_minutes"] =
+        std::to_string(prediction.bucket_start_utc_minutes);
+    (*value)["predicted_bytes_per_second"] =
+        std::to_string(prediction.bytes_per_second);
+    (*value)["predicted_operations_per_second"] =
+        std::to_string(prediction.operations_per_second);
+    (*value)["latest_observation_available"] =
+        observation.available ? "1" : "0";
+    (*value)["latest_observation_start_epoch_seconds"] =
+        std::to_string(observation.start_time);
+    (*value)["latest_observation_end_epoch_seconds"] =
+        std::to_string(observation.end_time);
+    (*value)["latest_observed_bytes_per_second"] =
+        std::to_string(observation.bytes_per_second);
+    (*value)["latest_observed_operations_per_second"] =
+        std::to_string(observation.operations_per_second);
+    (*value)["configured_window_percent"] = std::to_string(window_percent);
+    (*value)["trained_days"] = std::to_string(trained_days);
+    (*value)["last_day_coverage_percent"] = std::to_string(coverage);
+    (*value)["last_model_update_epoch_seconds"] = std::to_string(last_update);
+    (*value)["model_age_seconds"] =
+        std::to_string(last_update > 0 && now_seconds >= last_update
+                           ? now_seconds - last_update
+                           : 0);
+    (*value)["model_expires_epoch_seconds"] = std::to_string(
+        last_update > 0 ? last_update + DynamicOffpeakModel::kMaxModelAgeSeconds
+                        : 0);
+    (*value)["bucket_minutes"] =
+        std::to_string(DynamicOffpeakModel::kBucketMinutes);
+    (*value)["smoothing_minutes"] =
+        std::to_string(DynamicOffpeakModel::kSmoothingMinutes);
+    return true;
+  }
+  const DBPropertyInfo* property_info = GetPropertyInfo(property);
   auto cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   if (property_info == nullptr) {

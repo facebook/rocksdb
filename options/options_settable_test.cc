@@ -491,6 +491,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       "allow_data_in_errors=false;"
       "enforce_single_del_contracts=false;"
       "daily_offpeak_time_utc=08:30-19:00;"
+      "dynamic_offpeak_window_percent=20;"
       "max_compaction_trigger_wakeup_seconds=43200;"
       "periodic_compaction_phase_recovery_percent=25;"
       "follower_refresh_catchup_period_ms=123;"
@@ -552,6 +553,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offsetof(struct ColumnFamilyOptions, periodic_compaction_policy),
+       sizeof(std::shared_ptr<PeriodicCompactionPolicy>)},
       {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),

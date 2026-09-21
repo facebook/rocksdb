@@ -92,6 +92,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       disallow_memtable_writes(options.disallow_memtable_writes),
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
+      periodic_compaction_policy(options.periodic_compaction_policy),
       sample_for_compression(options.sample_for_compression),
       last_level_temperature(options.last_level_temperature),
       default_write_temperature(options.default_write_temperature),
@@ -165,6 +166,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, " Options.sst_partitioner_factory: %s",
       sst_partitioner_factory ? sst_partitioner_factory->Name() : "None");
+  ROCKS_LOG_HEADER(
+      log, " Options.periodic_compaction_policy: %s",
+      periodic_compaction_policy ? periodic_compaction_policy->Name() : "None");
   ROCKS_LOG_HEADER(log, "        Options.memtable_factory: %s",
                    memtable_factory->Name());
   ROCKS_LOG_HEADER(log, "           Options.table_factory: %s",
