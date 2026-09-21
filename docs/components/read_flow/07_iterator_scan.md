@@ -128,7 +128,7 @@ When `ReadOptions::prefix_same_as_start` is true:
 - On `Seek(key)`, the prefix of the seek key is saved in `prefix_` (via `prefix_extractor`)
 - On each `Next()`, if the current key's prefix differs from `prefix_`, `Valid()` returns false
 - Enables prefix bloom filter checks in SST file iterators via `CheckPrefixMayMatch()` in `BlockBasedTableIterator`
-- Also enables readahead trimming to avoid prefetching blocks outside the prefix boundary
+- Also enables readahead trimming to avoid prefetching blocks outside the prefix boundary, for iterators positioned with `Seek()`. A `SeekToFirst()` trims by prefix only when `iterate_lower_bound` is set, because `DBIter::SeekToFirst()` then delegates to `Seek(*iterate_lower_bound)`
 
 ### total_order_seek
 
