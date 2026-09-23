@@ -1,1 +1,0 @@
-Added checksum handoff support for SST file writes when `BlockBasedTableOptions::checksum` is `kCRC32c`, allowing block and trailer CRC32C checksums to be passed from the table builder to the file writer for buffered-data validation and filesystem in-flight write protection.

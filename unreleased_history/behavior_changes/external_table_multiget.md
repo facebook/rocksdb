@@ -1,1 +1,0 @@
-`ExternalTableReader::MultiGet()` is now used by RocksDB's `DB::MultiGet()` path. Previously, the external table adapter used `TableReader`'s fallback, which called `ExternalTableReader::Get()` separately for each key.

@@ -1,1 +1,0 @@
-Fixed stats-disabled coroutine and asynchronous reads inheriting enabled TLS statistics state when interleaved with stats-enabled reads on the same executor. Each read now uses its captured per-call configuration, while enabled request counters remain isolated across suspensions.
