@@ -1204,17 +1204,6 @@ class CfConsistencyStressTest : public StressTest {
     SharedState* shared = thread->shared;
     assert(shared);
 
-    if (secondary_db_) {
-      status = secondary_db_->TryCatchUpWithPrimary();
-      if (!status.ok()) {
-        fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
-                status.ToString().c_str());
-        shared->SetShouldStopTest();
-        assert(false);
-        return;
-      }
-    }
-
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
       assert(nullptr != checksum);
@@ -1238,46 +1227,78 @@ class CfConsistencyStressTest : public StressTest {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts(FLAGS_verify_checksum, true);
     ropts.total_order_seek = true;
-    if (nullptr == secondary_db_ || FLAGS_auto_refresh_iterator_with_snapshot) {
+    if (nullptr == secondary_db_) {
       ropts.snapshot = snapshot_guard.snapshot();
       ropts.auto_refresh_iterator_with_snapshot = true;
     }
-    uint32_t crc = 0;
-    {
-      // Compute crc for all key-values of default column family.
-      std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts));
-      status = checksum_column_family(it.get(), &crc);
-      if (!status.ok()) {
-        fprintf(stderr, "Computing checksum of default cf: %s\n",
-                status.ToString().c_str());
-        assert(false);
-      }
+
+    std::vector<Iterator*> raw_iterators;
+    Status catch_up_status;
+    if (secondary_db_) {
+      // The separate thread intentionally overlaps catch-up with
+      // NewIterators(). Fault injection is disabled separately because its
+      // state is thread-local.
+      port::Thread catch_up_thread([&]() {
+        if (db_fault_injection_fs_) {
+          db_fault_injection_fs_->DisableAllThreadLocalErrorInjection();
+        }
+        catch_up_status = secondary_db_->TryCatchUpWithPrimary();
+        if (db_fault_injection_fs_) {
+          db_fault_injection_fs_->EnableAllThreadLocalErrorInjection();
+        }
+      });
+      status = db_ptr->NewIterators(ropts, cfhs, &raw_iterators);
+      catch_up_thread.join();
+    } else {
+      status = db_ptr->NewIterators(ropts, cfhs, &raw_iterators);
     }
-    // Since we currently intentionally disallow reading from the secondary
-    // instance with snapshot, we cannot achieve cross-cf consistency if WAL is
-    // enabled because there is no guarantee that secondary instance replays
-    // the primary's WAL to a consistent point where all cfs have the same
-    // data.
-    if (status.ok() && FLAGS_disable_wal) {
-      uint32_t tmp_crc = 0;
-      for (ColumnFamilyHandle* cfh : cfhs) {
-        if (cfh == db_ptr->DefaultColumnFamily()) {
-          continue;
-        }
-        std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts, cfh));
-        status = checksum_column_family(it.get(), &tmp_crc);
-        if (!status.ok() || tmp_crc != crc) {
-          break;
-        }
-      }
+
+    std::vector<std::unique_ptr<Iterator>> iterators;
+    iterators.reserve(raw_iterators.size());
+    for (Iterator* iterator : raw_iterators) {
+      iterators.emplace_back(iterator);
+    }
+
+    if (secondary_db_ && !catch_up_status.ok()) {
+      fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
+              catch_up_status.ToString().c_str());
+      shared->SetShouldStopTest();
+      assert(false);
+      return;
+    }
+    if (!status.ok()) {
+      fprintf(stderr, "NewIterators: %s\n", status.ToString().c_str());
+      shared->SetShouldStopTest();
+      assert(false);
+      return;
+    }
+
+    // With WAL enabled, secondary MANIFEST recovery can expose flushed state
+    // beyond the point reached by WAL replay. NewIterators() keeps one
+    // published view but cannot make those column families logically
+    // consistent.
+    const size_t num_cfs_to_verify =
+        FLAGS_disable_wal ? iterators.size()
+                          : std::min<size_t>(1, iterators.size());
+    uint32_t expected_crc = 0;
+    for (size_t i = 0; i < num_cfs_to_verify; ++i) {
+      uint32_t crc = 0;
+      status = checksum_column_family(iterators[i].get(), &crc);
       if (!status.ok()) {
-        fprintf(stderr, "status: %s\n", status.ToString().c_str());
+        fprintf(stderr, "Computing checksum of cf %zu: %s\n", i,
+                status.ToString().c_str());
         shared->SetShouldStopTest();
         assert(false);
-      } else if (tmp_crc != crc) {
-        fprintf(stderr, "tmp_crc=%" PRIu32 " crc=%" PRIu32 "\n", tmp_crc, crc);
+        return;
+      }
+      if (i == 0) {
+        expected_crc = crc;
+      } else if (FLAGS_disable_wal && crc != expected_crc) {
+        fprintf(stderr, "cf %zu crc=%" PRIu32 " expected=%" PRIu32 "\n", i, crc,
+                expected_crc);
         shared->SetShouldStopTest();
         assert(false);
+        return;
       }
     }
   }

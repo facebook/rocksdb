@@ -23,6 +23,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/options_util.h"
+#include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/write_batch_util.h"
 
@@ -33,12 +34,222 @@ DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  std::string secondary_path)
     : DBImpl(db_options, dbname, false, true, true),
       secondary_path_(std::move(secondary_path)) {
+  secondary_read_view_reclaimer_.reset(new port::Thread(
+      &DBImplSecondary::ReclaimRetiredSecondaryReadViewsLoop, this));
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in secondary mode");
   LogFlush(immutable_db_options_.info_log);
 }
 
-DBImplSecondary::~DBImplSecondary() = default;
+DBImplSecondary::~DBImplSecondary() {
+  ResetSecondaryReadView();
+  StopSecondaryReadViewReclaimer();
+}
+
+// REQUIRES: mutex_ not held. CleanupSuperVersion() locks mutex_ to release a
+// SuperVersion's last reference, so dropping the last reference to a view while
+// mutex_ is held self-deadlocks on the non-reentrant mutex.
+DBImplSecondary::SecondaryReadView::~SecondaryReadView() {
+  for (const SuperVersions::value_type& entry : super_versions) {
+    db->CleanupSuperVersion(entry.second);
+  }
+}
+
+void DBImplSecondary::PublishSecondaryReadView() {
+  mutex_.AssertHeld();
+
+  if (secondary_read_view_closed_) {
+    // A catch-up that raced ResetSecondaryReadView() must not republish, or the
+    // new view would outlive the drain that close waits on.
+    return;
+  }
+
+  std::shared_ptr<SecondaryReadView> new_view =
+      std::make_shared<SecondaryReadView>(this, versions_->LastSequence());
+  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    SuperVersion* super_version = cfd->GetSuperVersion();
+    if (super_version == nullptr) {
+      continue;
+    }
+    new_view->super_versions.emplace(cfd->GetID(), super_version->Ref());
+  }
+
+  // Load the outgoing view before the store, and keep that reference until it
+  // reaches the retirement queue. The store drops the published reference, so
+  // without this local it could be the last one and ~SecondaryReadView() would
+  // run here, under mutex_. Retiring before the store would leave the view
+  // reachable by readers after it was queued for reclamation.
+  std::shared_ptr<const SecondaryReadView> previous_view =
+      AtomicSharedPtrLoad(&secondary_read_view_, std::memory_order_acquire);
+  AtomicSharedPtrStore(
+      &secondary_read_view_,
+      std::shared_ptr<const SecondaryReadView>(std::move(new_view)),
+      std::memory_order_release);
+  RetireSecondaryReadView(std::move(previous_view));
+}
+
+void DBImplSecondary::RetireSecondaryReadView(
+    std::shared_ptr<const SecondaryReadView> read_view) {
+  if (read_view == nullptr) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(retired_secondary_read_views_mutex_);
+    retired_secondary_read_views_.emplace_back(std::move(read_view));
+  }
+  retired_secondary_read_views_cv_.notify_all();
+}
+
+bool DBImplSecondary::HasReclaimableSecondaryReadView() const {
+  for (const auto& read_view : retired_secondary_read_views_) {
+    if (read_view.use_count() == 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool DBImplSecondary::AllSecondaryReadViewsReclaimed() const {
+  return retired_secondary_read_views_.empty() &&
+         secondary_read_view_reclaims_in_flight_ == 0;
+}
+
+bool DBImplSecondary::ReclaimRetiredSecondaryReadViews() {
+  // Keep moved views alive until after the retirement lock is released. Their
+  // destructors call CleanupSuperVersion(), which can lock mutex_.
+  std::vector<std::shared_ptr<const SecondaryReadView>> reclaimable_views;
+  size_t num_reclaiming;
+  {
+    std::lock_guard<std::mutex> lock(retired_secondary_read_views_mutex_);
+    for (auto iter = retired_secondary_read_views_.begin();
+         iter != retired_secondary_read_views_.end();) {
+      // The view is no longer published, so its reference count can only
+      // decrease. A count of one means the retirement queue is the sole owner.
+      if (iter->use_count() == 1) {
+        reclaimable_views.emplace_back(std::move(*iter));
+        iter = retired_secondary_read_views_.erase(iter);
+      } else {
+        ++iter;
+      }
+    }
+    num_reclaiming = reclaimable_views.size();
+    secondary_read_view_reclaims_in_flight_ += num_reclaiming;
+    if (num_reclaiming == 0) {
+      return AllSecondaryReadViewsReclaimed();
+    }
+  }
+
+  TEST_SYNC_POINT("DBImplSecondary::ReclaimRetiredReadViews:BeforeReclaim");
+  reclaimable_views.clear();
+  bool all_reclaimed;
+  {
+    std::lock_guard<std::mutex> lock(retired_secondary_read_views_mutex_);
+    assert(secondary_read_view_reclaims_in_flight_ >= num_reclaiming);
+    secondary_read_view_reclaims_in_flight_ -= num_reclaiming;
+    all_reclaimed = AllSecondaryReadViewsReclaimed();
+  }
+  retired_secondary_read_views_cv_.notify_all();
+  TEST_SYNC_POINT("DBImplSecondary::ReclaimRetiredReadViews:AfterReclaim");
+  return all_reclaimed;
+}
+
+void DBImplSecondary::ReclaimRetiredSecondaryReadViewsLoop() {
+  while (true) {
+    {
+      std::unique_lock<std::mutex> lock(retired_secondary_read_views_mutex_);
+      retired_secondary_read_views_cv_.wait(lock, [this]() {
+        if (secondary_read_view_reclaimer_stopping_ &&
+            AllSecondaryReadViewsReclaimed()) {
+          return true;
+        }
+        return HasReclaimableSecondaryReadView();
+      });
+      if (secondary_read_view_reclaimer_stopping_ &&
+          AllSecondaryReadViewsReclaimed()) {
+        return;
+      }
+    }
+    TEST_SYNC_POINT(
+        "DBImplSecondary::ReclaimRetiredReadViewsLoop:BeforeReclaim");
+    ReclaimRetiredSecondaryReadViews();
+  }
+}
+
+void DBImplSecondary::CleanupRetiredSecondaryReadViews() {
+  ReclaimRetiredSecondaryReadViews();
+}
+
+void DBImplSecondary::DrainRetiredSecondaryReadViews() {
+  while (!ReclaimRetiredSecondaryReadViews()) {
+    {
+      std::unique_lock<std::mutex> lock(retired_secondary_read_views_mutex_);
+      TEST_SYNC_POINT("DBImplSecondary::DrainRetiredReadViews:Wait");
+      retired_secondary_read_views_cv_.wait(lock, [this]() {
+        if (AllSecondaryReadViewsReclaimed()) {
+          return true;
+        }
+        return HasReclaimableSecondaryReadView();
+      });
+    }
+    TEST_SYNC_POINT("DBImplSecondary::DrainRetiredReadViews:AfterWait");
+  }
+}
+
+void DBImplSecondary::ReleaseSecondaryReadView(
+    std::shared_ptr<const SecondaryReadView>* read_view) {
+  read_view->reset();
+  {
+    // Synchronize the reference-count change with the wait predicate so its
+    // notification cannot be lost.
+    std::lock_guard<std::mutex> lock(retired_secondary_read_views_mutex_);
+    retired_secondary_read_views_cv_.notify_all();
+  }
+}
+
+void DBImplSecondary::StopSecondaryReadViewReclaimer() {
+  if (secondary_read_view_reclaimer_ == nullptr) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(retired_secondary_read_views_mutex_);
+    secondary_read_view_reclaimer_stopping_ = true;
+  }
+  retired_secondary_read_views_cv_.notify_all();
+  TEST_SYNC_POINT("DBImplSecondary::StopSecondaryReadViewReclaimer:BeforeJoin");
+  secondary_read_view_reclaimer_->join();
+  secondary_read_view_reclaimer_.reset();
+}
+
+void DBImplSecondary::ResetSecondaryReadView() {
+  std::shared_ptr<const SecondaryReadView> read_view;
+  {
+    // mutex_ makes this read-modify-write atomic against
+    // PublishSecondaryReadView(), which holds it too. Without that, a catch-up
+    // racing close can read the same outgoing view and retire it twice, leaving
+    // two queue entries that each see use_count() == 2 so the drain below never
+    // finishes.
+    InstrumentedMutexLock lock_guard(&mutex_);
+    secondary_read_view_closed_ = true;
+    read_view =
+        AtomicSharedPtrLoad(&secondary_read_view_, std::memory_order_acquire);
+    AtomicSharedPtrStore(&secondary_read_view_,
+                         std::shared_ptr<const SecondaryReadView>(),
+                         std::memory_order_release);
+  }
+  RetireSecondaryReadView(std::move(read_view));
+  DrainRetiredSecondaryReadViews();
+}
+
+Status DBImplSecondary::CloseImpl() {
+  // The view's SuperVersions pin their column families, so release them before
+  // DBImpl::CloseImpl() destroys the VersionSet.
+  ResetSecondaryReadView();
+  StopSecondaryReadViewReclaimer();
+  return DBImpl::CloseImpl();
+}
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
@@ -738,23 +949,44 @@ Status DBImplSecondary::NewIteratorsImpl(
   iterators->clear();
   iterators->reserve(column_families.size());
 
-  SequenceNumber read_seq;
+  std::shared_ptr<const SecondaryReadView> read_view =
+      AtomicSharedPtrLoad(&secondary_read_view_, std::memory_order_acquire);
+  if (read_view == nullptr) {
+    return Status::InvalidArgument("Secondary read view is not initialized");
+  }
+  TEST_SYNC_POINT("DBImplSecondary::NewIterators:AfterLoadReadView");
+
+  const SequenceNumber read_seq = read_view->sequence;
   autovector<ColumnFamilySuperVersionPair, MultiGetContext::MAX_BATCH_SIZE>
       cf_sv_pairs;
-  {
-    InstrumentedMutexLock lock_guard(&mutex_);
-    read_seq = versions_->LastSequence();
-    for (auto* cf : column_families) {
-      auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
-      cf_sv_pairs.emplace_back(cfh, cfh->cfd()->GetSuperVersion()->Ref());
-    }
-  }
-
   const auto cleanup_super_versions = [&]() {
     for (const auto& cf_sv_pair : cf_sv_pairs) {
       CleanupSuperVersion(cf_sv_pair.super_version);
     }
   };
+  for (ColumnFamilyHandle* cf : column_families) {
+    ColumnFamilyHandleImpl* cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+    const SecondaryReadView::SuperVersions::const_iterator sv_iter =
+        read_view->super_versions.find(cfh->GetID());
+    if (sv_iter == read_view->super_versions.end()) {
+      if (!cfh->cfd()->IsDropped()) {
+        cleanup_super_versions();
+        ReleaseSecondaryReadView(&read_view);
+        return Status::InvalidArgument(
+            "Column family is not part of the secondary read view");
+      }
+      // A retained handle remains readable after its column family is dropped.
+      // Its immutable final SuperVersion is intentionally not published, since
+      // doing so would keep the dropped column family alive indefinitely.
+      cf_sv_pairs.emplace_back(cfh,
+                               cfh->cfd()->GetReferencedSuperVersion(this));
+    } else {
+      cf_sv_pairs.emplace_back(cfh, sv_iter->second->Ref());
+    }
+  }
+  ReleaseSecondaryReadView(&read_view);
+  TEST_SYNC_POINT("DBImplSecondary::NewIterators:AfterReleaseReadView");
   for (size_t i = 0; i < cf_sv_pairs.size(); ++i) {
     const auto& cf_sv_pair = cf_sv_pairs[i];
     const ReadOptions& options = normalized_read_options[i];
@@ -771,7 +1003,8 @@ Status DBImplSecondary::NewIteratorsImpl(
     const auto& cf_sv_pair = cf_sv_pairs[i];
     iterators->push_back(NewIteratorImpl(
         normalized_read_options[i], cf_sv_pair.cfh, cf_sv_pair.super_version,
-        read_seq, nullptr /* read_callback */));
+        read_seq, nullptr /* read_callback */, false /* expose_blob_index */,
+        false /* allow_refresh */));
     TEST_SYNC_POINT("DBImplSecondary::NewIterators:AfterCreateIterator");
   }
   return Status::OK();
@@ -881,8 +1114,14 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
         // completions; an outstanding prepare stops the scan.
         (void)logs_with_prep_tracker_.FindMinLogContainingOutstandingPrep();
       }
+      TEST_SYNC_POINT(
+          "DBImplSecondary::TryCatchUpWithPrimary:BeforePublishReadView");
+      TEST_SYNC_POINT(
+          "DBImplSecondary::TryCatchUpWithPrimary:AllowPublishReadView");
+      PublishSecondaryReadView();
     }
   }
+  CleanupRetiredSecondaryReadViews();
   job_context.Clean();
 
   // Cleanup unused, obsolete files.
@@ -1015,9 +1254,11 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    impl->PublishSecondaryReadView();
     impl->MarkAsyncFileOpenNotNeeded();
   }
   impl->mutex_.Unlock();
+  impl->CleanupRetiredSecondaryReadViews();
   sv_context.Clean();
   job_context.Clean();
   if (s.ok()) {

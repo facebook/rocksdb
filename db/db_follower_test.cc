@@ -204,6 +204,19 @@ class DBFollowerTest : public DBTestBase {
     return result;
   }
 
+  void VerifyFollowerBatchValue(const std::string& key,
+                                const std::string& expected) {
+    std::vector<Iterator*> iterators;
+    ASSERT_OK(follower()->NewIterators(
+        ReadOptions(), {follower()->DefaultColumnFamily()}, &iterators));
+    ASSERT_EQ(1U, iterators.size());
+    std::unique_ptr<Iterator> iterator(iterators[0]);
+    iterator->Seek(key);
+    ASSERT_OK(iterator->status());
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ(expected, iterator->value());
+  }
+
   DB* follower() { return follower_.get(); }
   DBFollowerTestFS* follower_fs() {
     return static_cast<DBFollowerTestFS*>(follower_env_->GetFileSystem().get());
@@ -251,6 +264,32 @@ TEST_F(DBFollowerTest, Basic) {
   ASSERT_OK(follower()->Get(ReadOptions(), "k1", &val));
   ASSERT_EQ(val, "v1");
   CheckDirs();
+}
+
+TEST_F(DBFollowerTest, NewIteratorsRefreshesAfterCatchUp) {
+  ASSERT_OK(Put("key", "v1"));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImplFollower::TryCatchupWithLeader:Begin1", "Leader::Start"},
+      {"Leader::Done", "DBImplFollower::TryCatchupWithLeader:Begin2"},
+      {"DBImplFollower::TryCatchupWithLeader:End", "Follower::WaitForCatchup"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(OpenAsFollower());
+  VerifyFollowerBatchValue("key", "v1");
+
+  TEST_SYNC_POINT("Leader::Start");
+  ASSERT_OK(Put("key", "v2"));
+  ASSERT_OK(Flush());
+  TEST_SYNC_POINT("Leader::Done");
+  TEST_SYNC_POINT("Follower::WaitForCatchup");
+
+  VerifyFollowerBatchValue("key", "v2");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearTrace();
 }
 
 TEST_F(DBFollowerTest, Flush) {
