@@ -1923,6 +1923,13 @@ def finalize_and_sanitize(src_params):
         dest_params["cache_size"] = 65536
         dest_params["use_write_buffer_manager"] = 0
 
+    # `db_stress` rejects either verification knob when `skip_verifydb` is set.
+    # Must stay last: sanitization above can turn a verification knob back on
+    # after `skip_verifydb` was decided.
+    if dest_params.get("skip_verifydb", 0):
+        dest_params["continuous_verification_interval"] = 0
+        dest_params["verify_db_one_in"] = 0
+
     return dest_params
 
 

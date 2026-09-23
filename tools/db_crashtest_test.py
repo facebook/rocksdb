@@ -343,6 +343,24 @@ class DBCrashTestTest(unittest.TestCase):
             command,
         )
 
+    def test_skip_verifydb_disables_verification_knobs(self):
+        db_crashtest = self.load_db_crashtest()
+
+        unfinalized = db_crashtest.gen_cmd_params(
+            self.build_mode_args(
+                "blackbox",
+                cf_consistency=True,
+                test_best_efforts_recovery=True,
+            )
+        )
+        unfinalized["db"] = self.test_tmpdir
+        params = db_crashtest.finalize_and_sanitize(unfinalized)
+
+        # `db_stress` rejects either knob when `skip_verifydb` is set.
+        self.assertEqual(1, params["skip_verifydb"])
+        self.assertEqual(0, params["continuous_verification_interval"])
+        self.assertEqual(0, params["verify_db_one_in"])
+
     def test_stress_diagnostics_disabled_does_not_allocate_dir(self):
         db_crashtest = self.load_db_crashtest()
         params = {

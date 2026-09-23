@@ -1267,7 +1267,11 @@ class DB {
   }
   // Returns iterators from a consistent database state across multiple
   // column families. Iterators are heap allocated and need to be deleted
-  // before the db is destroyed
+  // before the db is destroyed. For a secondary DB, the iterators use one
+  // published read view without waiting for a concurrent catch-up and do not
+  // support Iterator::Refresh(). This does not strengthen secondary recovery's
+  // consistency guarantees; WAL replay can stop before all column families
+  // reach the same sequence.
   virtual Status NewIterators(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
@@ -1279,7 +1283,11 @@ class DB {
   // be null or point to the same Snapshot, and all tailing settings must be
   // the same. Other ReadOptions fields may differ between column families.
   // Iterators are heap allocated and need to be deleted before the db is
-  // destroyed.
+  // destroyed. For a secondary DB, the iterators use one published read view
+  // without waiting for a concurrent catch-up and do not support
+  // Iterator::Refresh(). This does not strengthen secondary recovery's
+  // consistency guarantees; WAL replay can stop before all column families
+  // reach the same sequence.
   virtual Status NewIterators(
       const std::vector<ReadOptions>& /*read_options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_families*/,

@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
 #include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
@@ -171,6 +175,19 @@ class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key, iter->key().ToString());
     ASSERT_EQ(expected, iter->value().ToString());
+  }
+
+  void VerifySecondaryBatchValue(ColumnFamilyHandle* cfh,
+                                 const std::string& key,
+                                 const std::string& expected) {
+    std::vector<Iterator*> iterators;
+    ASSERT_OK(db_secondary_->NewIterators(ReadOptions(), {cfh}, &iterators));
+    ASSERT_EQ(1U, iterators.size());
+    std::unique_ptr<Iterator> iterator(iterators[0]);
+    iterator->Seek(key);
+    ASSERT_OK(iterator->status());
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ(expected, iterator->value());
   }
 
   // Returns the path of the primary's newest table file for `cf_name`.
@@ -1215,8 +1232,11 @@ TEST_F(DBSecondaryCatchUpFaultTest, ReconcilesMemtableAfterFailedRound) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   fault_fs_->SetFilesystemActive(true);
 
+  VerifySecondaryBatchValue(db_secondary_->DefaultColumnFamily(), "foo", "v1");
+
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   VerifySecondaryValue("foo", "v2");
+  VerifySecondaryBatchValue(db_secondary_->DefaultColumnFamily(), "foo", "v2");
 }
 
 // A round whose WAL discovery reports a purged path replays nothing, yet
@@ -1775,26 +1795,25 @@ TEST_F(DBSecondaryTest, NewIteratorsConsistentViewDuringCatchUp) {
   ASSERT_OK(
       db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
 
-  bool caught_up = false;
   Status catch_up_status;
-  const auto catch_up = [&](void*) {
-    if (!caught_up) {
-      caught_up = true;
-      catch_up_status = db_secondary_->TryCatchUpWithPrimary();
-    }
-  };
-  SyncPoint::GetInstance()->SetCallBack("DBImpl::MultiCFSnapshot::AfterRefSV",
-                                        catch_up);
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImplSecondary::NewIterators:AfterCreateIterator", catch_up);
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImplSecondary::TryCatchUpWithPrimary:BeforePublishReadView",
+       "DBImplSecondary::NewIterators:AfterLoadReadView"},
+      {"DBImplSecondary::NewIterators:AfterLoadReadView",
+       "DBImplSecondary::TryCatchUpWithPrimary:AllowPublishReadView"},
+  });
   SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread catch_up_thread(
+      [&]() { catch_up_status = db_secondary_->TryCatchUpWithPrimary(); });
 
   std::vector<Iterator*> iterators;
   const Status new_iterators_status = db_secondary_->NewIterators(
       ReadOptions(), handles_secondary_, &iterators);
+  catch_up_thread.join();
 
   SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->ClearTrace();
 
   std::vector<std::unique_ptr<Iterator>> owned_iterators;
   owned_iterators.reserve(iterators.size());
@@ -1803,7 +1822,6 @@ TEST_F(DBSecondaryTest, NewIteratorsConsistentViewDuringCatchUp) {
   }
 
   ASSERT_OK(catch_up_status);
-  ASSERT_TRUE(caught_up);
   ASSERT_OK(new_iterators_status);
   ASSERT_EQ(2, owned_iterators.size());
   for (const auto& iterator : owned_iterators) {
@@ -1815,6 +1833,97 @@ TEST_F(DBSecondaryTest, NewIteratorsConsistentViewDuringCatchUp) {
 
   VerifySecondaryValue(handles_secondary_[0], "key", "new");
   VerifySecondaryValue(handles_secondary_[1], "key", "new");
+}
+
+TEST_F(DBSecondaryTest, RetiredReadViewIsNotReclaimedByReader) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  ASSERT_OK(Put(0, "key", "old"));
+  ASSERT_OK(Put(1, "key", "old"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, secondary_options);
+
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(db_->Put(write_options, handles_[1], "key", "new"));
+  ASSERT_OK(Flush(1));
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  bool reader_loaded = false;
+  bool allow_reader = false;
+  bool second_catch_up_locked = false;
+  bool reader_done = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::NewIterators:AfterLoadReadView", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        reader_loaded = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_reader; });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status reader_status;
+  std::vector<Iterator*> iterators;
+  port::Thread reader_thread([&]() {
+    reader_status = db_secondary_->NewIterators(
+        ReadOptions(), {handles_secondary_[0]}, &iterators);
+    std::lock_guard<std::mutex> lock(state_mutex);
+    reader_done = true;
+    state_cv.notify_all();
+  });
+
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return reader_loaded; });
+  }
+  const Status first_catch_up_status = db_secondary_->TryCatchUpWithPrimary();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::TryCatchUpWithPrimary:BeforePublishReadView",
+      [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        second_catch_up_locked = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return reader_done; });
+      });
+  Status second_catch_up_status;
+  port::Thread second_catch_up_thread([&]() {
+    second_catch_up_status = db_secondary_->TryCatchUpWithPrimary();
+  });
+
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return second_catch_up_locked; });
+    allow_reader = true;
+    state_cv.notify_all();
+  }
+
+  reader_thread.join();
+  second_catch_up_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::vector<std::unique_ptr<Iterator>> owned_iterators;
+  owned_iterators.reserve(iterators.size());
+  for (Iterator* iterator : iterators) {
+    owned_iterators.emplace_back(iterator);
+  }
+  ASSERT_OK(first_catch_up_status);
+  ASSERT_OK(second_catch_up_status);
+  ASSERT_OK(reader_status);
+  ASSERT_EQ(1U, owned_iterators.size());
+  owned_iterators[0]->Seek("key");
+  ASSERT_OK(owned_iterators[0]->status());
+  ASSERT_TRUE(owned_iterators[0]->Valid());
+  ASSERT_EQ("old", owned_iterators[0]->value());
 }
 
 TEST_F(DBSecondaryTest, RefreshIterator) {
@@ -2070,6 +2179,334 @@ TEST_F(DBSecondaryTest, PrimaryDropColumnFamily) {
   value.clear();
   ASSERT_OK(db_secondary_->Get(ropts, handles_secondary_[1], "foo", &value));
   ASSERT_EQ("foo_val_1", value);
+
+  std::vector<Iterator*> raw_iterators;
+  Status new_iterators_status = db_secondary_->NewIterators(
+      ropts, {handles_secondary_[1]}, &raw_iterators);
+  std::vector<std::unique_ptr<Iterator>> iterators;
+  for (Iterator* iterator : raw_iterators) {
+    iterators.emplace_back(iterator);
+  }
+  ASSERT_OK(new_iterators_status);
+  ASSERT_EQ(1U, iterators.size());
+  iterators[0]->SeekToFirst();
+  ASSERT_TRUE(iterators[0]->Valid());
+  ASSERT_EQ("foo", iterators[0]->key().ToString());
+  ASSERT_EQ("foo_val_1", iterators[0]->value().ToString());
+
+  // A later publication must keep skipping the dropped column family after
+  // releasing the previous view's SuperVersion.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  raw_iterators.clear();
+  new_iterators_status = db_secondary_->NewIterators(
+      ropts, {handles_secondary_[0], handles_secondary_[1]}, &raw_iterators);
+  iterators.clear();
+  for (Iterator* iterator : raw_iterators) {
+    iterators.emplace_back(iterator);
+  }
+  ASSERT_OK(new_iterators_status);
+  ASSERT_EQ(2U, iterators.size());
+  iterators[0]->SeekToFirst();
+  ASSERT_FALSE(iterators[0]->Valid());
+  ASSERT_OK(iterators[0]->status());
+  iterators[1]->SeekToFirst();
+  ASSERT_TRUE(iterators[1]->Valid());
+  ASSERT_EQ("foo", iterators[1]->key().ToString());
+  ASSERT_EQ("foo_val_1", iterators[1]->value().ToString());
+}
+
+TEST_F(DBSecondaryTest, ReclaimsRetiredReadViewAfterLastReader) {
+  Options options;
+  options.env = env_;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, options);
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  bool reader_loaded = false;
+  bool allow_reader = false;
+  bool view_reclaimed = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::NewIterators:AfterLoadReadView", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        reader_loaded = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_reader; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::ReclaimRetiredReadViews:AfterReclaim",
+      [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        view_reclaimed = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status reader_status;
+  std::vector<Iterator*> iterators;
+  port::Thread reader_thread([&]() {
+    reader_status = db_secondary_->NewIterators(ReadOptions(),
+                                                handles_secondary_, &iterators);
+  });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return reader_loaded; });
+  }
+
+  const Status catch_up_status = db_secondary_->TryCatchUpWithPrimary();
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    allow_reader = true;
+    state_cv.notify_all();
+    if (catch_up_status.ok()) {
+      state_cv.wait(lock, [&]() { return view_reclaimed; });
+    }
+  }
+
+  reader_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  std::vector<std::unique_ptr<Iterator>> owned_iterators;
+  for (Iterator* iterator : iterators) {
+    owned_iterators.emplace_back(iterator);
+  }
+  ASSERT_OK(catch_up_status);
+  ASSERT_OK(reader_status);
+  ASSERT_EQ(handles_secondary_.size(), owned_iterators.size());
+}
+
+TEST_F(DBSecondaryTest, CloseWaitsForInFlightReadViewReclamation) {
+  Options options;
+  options.env = env_;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, options);
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  std::thread::id reclaimer_thread_id;
+  bool reader_loaded = false;
+  bool allow_reader = false;
+  bool reclaimer_ready = false;
+  bool allow_reclaimer = false;
+  bool reclamation_in_flight = false;
+  bool allow_reclamation = false;
+  bool close_waiting = false;
+  bool close_reached_stop = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::NewIterators:AfterLoadReadView", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        reader_loaded = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_reader; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::ReclaimRetiredReadViewsLoop:BeforeReclaim",
+      [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        reclaimer_thread_id = std::this_thread::get_id();
+        reclaimer_ready = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_reclaimer; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::ReclaimRetiredReadViews:BeforeReclaim",
+      [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        if (std::this_thread::get_id() != reclaimer_thread_id) {
+          return;
+        }
+        reclamation_in_flight = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_reclamation; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::DrainRetiredReadViews:Wait", [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        close_waiting = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::StopSecondaryReadViewReclaimer:BeforeJoin",
+      [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        close_reached_stop = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status reader_status;
+  std::vector<Iterator*> iterators;
+  port::Thread reader_thread([&]() {
+    reader_status = db_secondary_->NewIterators(ReadOptions(),
+                                                handles_secondary_, &iterators);
+  });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return reader_loaded; });
+  }
+  const Status catch_up_status = db_secondary_->TryCatchUpWithPrimary();
+  {
+    std::lock_guard<std::mutex> lock(state_mutex);
+    allow_reader = true;
+    state_cv.notify_all();
+  }
+  reader_thread.join();
+
+  for (Iterator* iterator : iterators) {
+    delete iterator;
+  }
+  iterators.clear();
+  Status destroy_handles_status;
+  for (ColumnFamilyHandle* handle : handles_secondary_) {
+    const Status s = db_secondary_->DestroyColumnFamilyHandle(handle);
+    if (!s.ok() && destroy_handles_status.ok()) {
+      destroy_handles_status = s;
+    }
+  }
+  handles_secondary_.clear();
+
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return reclaimer_ready; });
+    allow_reclaimer = true;
+    state_cv.notify_all();
+    state_cv.wait(lock, [&]() { return reclamation_in_flight; });
+  }
+
+  Status close_status;
+  port::Thread close_thread([&]() { close_status = db_secondary_->Close(); });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return close_waiting || close_reached_stop; });
+    EXPECT_TRUE(close_waiting);
+    EXPECT_FALSE(close_reached_stop);
+    allow_reclamation = true;
+    state_cv.notify_all();
+  }
+  close_thread.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(catch_up_status);
+  ASSERT_OK(reader_status);
+  ASSERT_OK(destroy_handles_status);
+  ASSERT_OK(close_status);
+  db_secondary_.reset();
+}
+
+TEST_F(DBSecondaryTest, ExplicitCloseReleasesPublishedReadView) {
+  Options options;
+  options.env = env_;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, options);
+  ASSERT_OK(Put(0, "key", "value"));
+  ASSERT_OK(Put(1, "key", "value"));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/true));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  for (ColumnFamilyHandle* handle : handles_secondary_) {
+    ASSERT_OK(db_secondary_->DestroyColumnFamilyHandle(handle));
+  }
+  handles_secondary_.clear();
+  ASSERT_OK(db_secondary_->Close());
+  db_secondary_.reset();
+}
+
+TEST_F(DBSecondaryTest, ExplicitCloseWaitsForRetiredReadView) {
+  Options options;
+  options.env = env_;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  options.max_open_files = -1;
+  OpenSecondaryWithColumnFamilies({"cf1"}, options);
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  bool reader_loaded = false;
+  bool allow_reader = false;
+  bool close_waiting = false;
+  bool close_reclaiming = false;
+  bool allow_close = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::NewIterators:AfterLoadReadView", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        reader_loaded = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_reader; });
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::DrainRetiredReadViews:Wait", [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        close_waiting = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::DrainRetiredReadViews:AfterWait", [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        close_reclaiming = true;
+        state_cv.notify_all();
+        state_cv.wait(lock, [&]() { return allow_close; });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status reader_status;
+  std::vector<Iterator*> iterators;
+  port::Thread reader_thread([&]() {
+    reader_status = db_secondary_->NewIterators(ReadOptions(),
+                                                handles_secondary_, &iterators);
+  });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return reader_loaded; });
+  }
+
+  Status close_status;
+  port::Thread close_thread([&]() { close_status = db_secondary_->Close(); });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&]() { return close_waiting; });
+    allow_reader = true;
+    state_cv.notify_all();
+    state_cv.wait(lock, [&]() { return close_reclaiming; });
+  }
+
+  reader_thread.join();
+  const size_t num_iterators = iterators.size();
+  for (Iterator* iterator : iterators) {
+    delete iterator;
+  }
+  iterators.clear();
+  Status destroy_handles_status;
+  for (ColumnFamilyHandle* handle : handles_secondary_) {
+    const Status s = db_secondary_->DestroyColumnFamilyHandle(handle);
+    if (!s.ok() && destroy_handles_status.ok()) {
+      destroy_handles_status = s;
+    }
+  }
+  handles_secondary_.clear();
+  {
+    std::lock_guard<std::mutex> lock(state_mutex);
+    allow_close = true;
+    state_cv.notify_all();
+  }
+  close_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(reader_status);
+  ASSERT_EQ(2U, num_iterators);
+  ASSERT_OK(destroy_handles_status);
+  ASSERT_OK(close_status);
+  db_secondary_.reset();
 }
 
 TEST_F(DBSecondaryTest, SwitchManifest) {
@@ -2395,6 +2832,7 @@ TEST_F(DBSecondaryTest, NewIteratorsPerColumnFamilyOptionsConsistentView) {
     ASSERT_OK(iterators[i]->status());
     ASSERT_TRUE(iterators[i]->Valid());
     ASSERT_EQ(expected_values[i], iterators[i]->value());
+    ASSERT_TRUE(iterators[i]->Refresh().IsNotSupported());
     delete iterators[i];
   }
 
