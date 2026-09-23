@@ -64,6 +64,10 @@ class ReadTrackingRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
                                ReadTrackingFS* fs)
       : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
 
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
+
   IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                      const IOOptions& options, IODebugContext* dbg) override;
 
@@ -151,10 +155,115 @@ class ReadTrackingFS : public FileSystemWrapper {
     return count;
   }
 
+  // Simulates on-disk bit rot at `offset` by flipping a byte there once the
+  // underlying read has already reported success. Off by default so the table
+  // open inside CreateAndOpenSST still sees clean bytes.
+  void CorruptReadsAtOffset(uint64_t offset) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    corrupt_offset_ = offset;
+    corrupt_reads_ = true;
+  }
+
+  // Makes successful reads covering `offset` report a short result ending at
+  // that absolute file offset.
+  void TruncateReadsAtOffset(uint64_t offset) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    truncate_offset_ = offset;
+    truncate_reads_ = true;
+  }
+
+  void MaybeCorruptRead(uint64_t offset, Slice* result) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (result != nullptr) {
+      CorruptSpanLocked(offset, *result);
+    }
+  }
+
+  void MaybeCorruptReads(FSReadRequest* reqs, size_t num_reqs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (size_t i = 0; i < num_reqs; i++) {
+      if (reqs[i].status.ok()) {
+        CorruptSpanLocked(reqs[i].offset, reqs[i].result);
+      }
+    }
+  }
+
+  void MaybeTruncateRead(uint64_t offset, Slice* result) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (result != nullptr) {
+      TruncateSpanLocked(offset, result);
+    }
+  }
+
+  void MaybeTruncateReads(FSReadRequest* reqs, size_t num_reqs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (size_t i = 0; i < num_reqs; i++) {
+      if (reqs[i].status.ok()) {
+        TruncateSpanLocked(reqs[i].offset, &reqs[i].result);
+      }
+    }
+  }
+
+  // Lets a test confirm the injection actually fired rather than silently
+  // becoming a no-op if the read path stops matching.
+  size_t GetCorruptHits() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return corrupt_hits_;
+  }
+
+  size_t GetTruncateHits() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return truncate_hits_;
+  }
+
  private:
+  // Neighbouring blocks get coalesced into one request, so locate the target
+  // byte inside whichever span happens to cover it.
+  void CorruptSpanLocked(uint64_t offset, const Slice& data) {
+    if (!corrupt_reads_ || corrupt_offset_ < offset ||
+        corrupt_offset_ >= offset + data.size()) {
+      return;
+    }
+    const_cast<char*>(data.data())[corrupt_offset_ - offset] ^= 0xff;
+    ++corrupt_hits_;
+  }
+
+  void TruncateSpanLocked(uint64_t offset, Slice* data) {
+    if (!truncate_reads_ || truncate_offset_ < offset ||
+        truncate_offset_ >= offset + data->size()) {
+      return;
+    }
+    *data = Slice(data->data(), static_cast<size_t>(truncate_offset_ - offset));
+    ++truncate_hits_;
+  }
+
   mutable std::mutex mutex_;
   std::vector<ReadOp> read_ops_;
+  bool corrupt_reads_ = false;
+  uint64_t corrupt_offset_ = 0;
+  size_t corrupt_hits_ = 0;
+  bool truncate_reads_ = false;
+  uint64_t truncate_offset_ = 0;
+  size_t truncate_hits_ = 0;
 };
+
+// Deliberately does not record the operation the way MultiRead and ReadAsync
+// do. This override exists only so fault injection covers a re-read through the
+// plain Read API; `ReadOp` has no kRead type and every GetReadOps() consumer
+// filters on kMultiRead or kReadAsync, so nothing would observe the entry.
+// Recording would also put the tracking mutex on every read in a fixture shared
+// by the whole file. Add a kRead type here if a test ever needs to see them.
+IOStatus ReadTrackingRandomAccessFile::Read(uint64_t offset, size_t n,
+                                            const IOOptions& options,
+                                            Slice* result, char* scratch,
+                                            IODebugContext* dbg) const {
+  IOStatus s = target()->Read(offset, n, options, result, scratch, dbg);
+  if (s.ok()) {
+    fs_->MaybeCorruptRead(offset, result);
+    fs_->MaybeTruncateRead(offset, result);
+  }
+  return s;
+}
 
 IOStatus ReadTrackingRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                                  size_t num_reqs,
@@ -169,7 +278,12 @@ IOStatus ReadTrackingRandomAccessFile::MultiRead(FSReadRequest* reqs,
   fs_->RecordMultiRead(recorded_reqs);
 
   // Delegate to underlying file
-  return target()->MultiRead(reqs, num_reqs, options, dbg);
+  IOStatus s = target()->MultiRead(reqs, num_reqs, options, dbg);
+  if (s.ok()) {
+    fs_->MaybeCorruptReads(reqs, num_reqs);
+    fs_->MaybeTruncateReads(reqs, num_reqs);
+  }
+  return s;
 }
 
 IOStatus ReadTrackingRandomAccessFile::ReadAsync(
@@ -312,6 +426,10 @@ class ControlledAsyncFS : public ReadTrackingFS {
     req.status =
         handle->target->Read(handle->offset, handle->len, handle->opts,
                              &req.result, handle->scratch, nullptr /*dbg*/);
+    if (req.status.ok()) {
+      MaybeCorruptRead(handle->offset, &req.result);
+      MaybeTruncateRead(handle->offset, &req.result);
+    }
     handle->cb(req, handle->cb_arg);
   }
 
@@ -772,6 +890,151 @@ TEST_F(IODispatcherTest, BasicSSTRead) {
                          read_set->GetNumAsyncReads() +
                          read_set->GetNumCacheHits();
   ASSERT_EQ(total_reads, block_handles.size());
+}
+
+// A prefetched data block that suffers bit rot has to fail the read rather
+// than reach the caller as valid keys, and must stay out of the shared block
+// cache, where readers that never prefetched would pick it up on a hit.
+TEST_F(IODispatcherTest, CorruptPrefetchedBlockFailsChecksumVerification) {
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = false;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             false /* allow_mmap_reads */,
+                             nullptr /* env_override */, statistics));
+  ASSERT_FALSE(block_handles.empty());
+  block_handles.resize(1);
+
+  const uint64_t data_blocks_cached_before =
+      statistics->getTickerCount(BLOCK_CACHE_DATA_ADD);
+  tracking_fs_->CorruptReadsAtOffset(block_handles[0].offset());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+  // The sync and async dispatcher paths share the block-construction helper
+  // this exercises, so pinning the sync path keeps the test independent of
+  // io_uring availability.
+  ASSERT_TRUE(job->job_options.read_options.verify_checksums);
+
+  IODispatcherOptions dispatcher_options;
+  dispatcher_options.max_prefetch_memory_bytes = 1024 * 1024;
+  dispatcher_options.statistics = statistics.get();
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(dispatcher_options));
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  EXPECT_EQ(statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT), 1);
+  EXPECT_EQ(statistics->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED),
+            statistics->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED));
+
+  CachableEntry<Block> block;
+  const Status s = read_set->ReadIndex(0, &block);
+  ASSERT_GT(tracking_fs_->GetCorruptHits(), 0u);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+
+  // A rejected prefetch falls back to the ordinary block-fetch path, which
+  // re-reads and rejects the block again, so more than one mismatch is
+  // expected here.
+  EXPECT_GE(statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT), 2);
+  EXPECT_EQ(data_blocks_cached_before,
+            statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+}
+
+TEST_F(IODispatcherTest, TruncatedPrefetchedBlockFailsBeforeConstruction) {
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = false;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             false /* allow_mmap_reads */,
+                             nullptr /* env_override */, statistics));
+  ASSERT_FALSE(block_handles.empty());
+  block_handles.resize(1);
+
+  const uint64_t data_blocks_cached_before =
+      statistics->getTickerCount(BLOCK_CACHE_DATA_ADD);
+  tracking_fs_->TruncateReadsAtOffset(block_handles[0].offset() +
+                                      block_handles[0].size());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = false;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+
+  CachableEntry<Block> block;
+  const Status s = read_set->ReadIndex(0, &block);
+  ASSERT_GE(tracking_fs_->GetTruncateHits(), 2u);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  EXPECT_EQ(data_blocks_cached_before,
+            statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+}
+
+TEST_F(IODispatcherTest,
+       CorruptAsyncPrefetchKeepsValidSiblingAndRetriesFailedBlock) {
+  auto controlled_fs = std::make_shared<ControlledAsyncFS>(base_fs_);
+  controlled_fs->SetCompleteStrayFirst(false);
+  tracking_fs_ = controlled_fs;
+  std::unique_ptr<Env> controlled_env = NewCompositeEnv(controlled_fs);
+  std::shared_ptr<Statistics> statistics = CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(8 * 1024 * 1024);
+  table_options.block_size = 16 * 1024;
+  table_options.no_block_cache = false;
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  ASSERT_OK(CreateAndOpenSST(8, &table, &block_handles, &table_options,
+                             false /* use_direct_reads */, kNoCompression,
+                             false /* allow_mmap_reads */, controlled_env.get(),
+                             statistics));
+  ASSERT_GE(block_handles.size(), 2);
+  block_handles.resize(2);
+  controlled_fs->CorruptReadsAtOffset(block_handles[1].offset());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = block_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;
+  job->job_options.io_coalesce_threshold = 1024 * 1024;
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+  std::shared_ptr<ReadSet> read_set;
+  ASSERT_OK(dispatcher->SubmitJob(job, &read_set));
+  ASSERT_NE(read_set, nullptr);
+  ASSERT_EQ(controlled_fs->GetReadAsyncCount(), 1);
+
+  CachableEntry<Block> first_block;
+  ASSERT_OK(read_set->ReadIndex(0, &first_block));
+  ASSERT_NE(first_block.GetValue(), nullptr);
+
+  CachableEntry<Block> second_block;
+  ASSERT_OK(read_set->ReadIndex(1, &second_block));
+  ASSERT_NE(second_block.GetValue(), nullptr);
+  EXPECT_EQ(controlled_fs->GetCorruptHits(), 1u);
+  EXPECT_EQ(statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT), 1);
+  EXPECT_EQ(read_set->GetNumAsyncReads(), 2);
+  EXPECT_EQ(read_set->GetNumSyncReads(), 1);
 }
 
 // Verifies that setting a read-scoped provider makes IODispatcher data-block
