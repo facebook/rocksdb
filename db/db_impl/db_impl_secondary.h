@@ -5,14 +5,19 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
+#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -288,6 +293,8 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
+  Status CloseImpl() override;
+
   Status FlushForGetLiveFiles(bool /*force_atomic_flush*/) override {
     // No-op for read-only DB
     return Status::OK();
@@ -322,8 +329,49 @@ class DBImplSecondary : public DBImpl {
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
 
+  // Publishes a view of every initialized, non-dropped column family while
+  // mutex_ protects their SuperVersions. The previous view is retained for
+  // cleanup outside mutex_ and outside reader threads. No-op once the view has
+  // been torn down for close.
+  // REQUIRES: mutex_ held
+  void PublishSecondaryReadView();
+
+  // Reclaims retired views that have no readers. This must be called without
+  // mutex_ because releasing a view's final SuperVersion can lock it.
+  void CleanupRetiredSecondaryReadViews();
+
  private:
   friend class DB;
+
+  struct SecondaryReadView {
+    using SuperVersions = std::unordered_map<uint32_t, SuperVersion*>;
+
+    SecondaryReadView(DBImplSecondary* db_arg, SequenceNumber sequence_arg)
+        : db(db_arg), sequence(sequence_arg) {}
+    ~SecondaryReadView();
+    SecondaryReadView(const SecondaryReadView&) = delete;
+    SecondaryReadView& operator=(const SecondaryReadView&) = delete;
+    SecondaryReadView(SecondaryReadView&&) = delete;
+    SecondaryReadView& operator=(SecondaryReadView&&) = delete;
+
+    DBImplSecondary* db;
+    SequenceNumber sequence;
+    SuperVersions super_versions;
+  };
+
+  void RetireSecondaryReadView(
+      std::shared_ptr<const SecondaryReadView> read_view);
+  // REQUIRES: retired_secondary_read_views_mutex_ held
+  bool HasReclaimableSecondaryReadView() const;
+  // REQUIRES: retired_secondary_read_views_mutex_ held
+  bool AllSecondaryReadViewsReclaimed() const;
+  bool ReclaimRetiredSecondaryReadViews();
+  void ReclaimRetiredSecondaryReadViewsLoop();
+  void DrainRetiredSecondaryReadViews();
+  void StopSecondaryReadViewReclaimer();
+  void ReleaseSecondaryReadView(
+      std::shared_ptr<const SecondaryReadView>* read_view);
+  void ResetSecondaryReadView();
 
   Status NewIteratorsImpl(
       const std::vector<ReadOptions>& read_options,
@@ -518,6 +566,22 @@ class DBImplSecondary : public DBImpl {
   // reported by MaybeWarnAboutRetainedMemtables() for each column family.
   std::unordered_map<uint32_t, std::pair<uint64_t, int>>
       cf_id_to_retention_warning_;
+
+  // Mutated only under mutex_, so that load-then-store stays atomic between
+  // publication and teardown. Readers load it without mutex_, so every access
+  // must still go through AtomicSharedPtrLoad/Store.
+  std::shared_ptr<const SecondaryReadView> secondary_read_view_;
+  // Set by ResetSecondaryReadView() so a later catch-up cannot publish a view
+  // that would outlive the drain close waits on.
+  // Guarded by mutex_, which every mutation of secondary_read_view_ holds.
+  bool secondary_read_view_closed_ = false;
+  std::mutex retired_secondary_read_views_mutex_;
+  std::condition_variable retired_secondary_read_views_cv_;
+  std::vector<std::shared_ptr<const SecondaryReadView>>
+      retired_secondary_read_views_;
+  size_t secondary_read_view_reclaims_in_flight_ = 0;
+  bool secondary_read_view_reclaimer_stopping_ = false;
+  std::unique_ptr<port::Thread> secondary_read_view_reclaimer_;
 
   const std::string secondary_path_;
 

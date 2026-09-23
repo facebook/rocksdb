@@ -153,6 +153,7 @@ Status DBImplFollower::TryCatchUpWithLeader() {
         cfd->InstallSuperVersion(&sv_context, &mutex_);
         sv_context.NewSuperVersion();
       }
+      PublishSecondaryReadView();
     }
 
     for (auto& file : files_to_delete) {
@@ -164,6 +165,7 @@ Status DBImplFollower::TryCatchUpWithLeader() {
       }
     }
   }
+  CleanupRetiredSecondaryReadViews();
   job_context.Clean();
 
   // Cleanup unused, obsolete files.
@@ -322,9 +324,11 @@ Status DB::OpenAsFollower(
       sv_context.NewSuperVersion();
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
+    impl->PublishSecondaryReadView();
     impl->MarkAsyncFileOpenNotNeeded();
   }
   impl->mutex_.Unlock();
+  impl->CleanupRetiredSecondaryReadViews();
   sv_context.Clean();
   if (s.ok()) {
     dbptr->reset(impl);
