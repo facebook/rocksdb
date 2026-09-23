@@ -244,6 +244,11 @@ from an implementation detail instead of an explicit option.
 
 ## Important tips
 
+### Pull request and diff summaries
+* Before writing or updating an external RocksDB pull request summary or its
+  corresponding internal Phabricator diff summary, read and follow
+  `claude_md/pull_request_summary_guideline.md`.
+
 ### Build system
 * There are 3 build system. Make for git clones, BUCK (meta internal) for hg
   clones, and CMake for some special cases.
