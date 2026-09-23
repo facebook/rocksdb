@@ -1,1 +1,0 @@
-Fixed a bug where a `SeekToFirst()` on an iterator previously used for a `Seek()` could end the scan early and silently omit keys with `ReadOptions::async_io`, or otherwise run with readahead effectively disabled. Affects scans using `ReadOptions::prefix_same_as_start` together with `ReadOptions::auto_readahead_size` (enabled by default); memory-mapped reads are unaffected.
