@@ -6989,10 +6989,10 @@ Status ReplayChecksumHandoffTable(const ChecksumHandoffTable& table,
     }
     Status s;
     if (recorded_append.has_crc32c) {
-      s = file_writer->Append(IOOptions(), Slice(data),
+      s = file_writer->Append(Slice(data), IOOptions(),
                               Crc32cChecksum(recorded_append.crc32c));
     } else {
-      s = file_writer->Append(IOOptions(), Slice(data));
+      s = file_writer->Append(Slice(data), IOOptions());
     }
     if (!s.ok()) {
       return s;
@@ -8428,40 +8428,20 @@ class ExternalTableTest : public DBTestBase {
 
   class DummyExternalTableFactory : public ExternalTableFactory {
    public:
-    explicit DummyExternalTableFactory(bool support_property_block,
-                                       bool read_via_options_fs = false)
-        : support_property_block_(support_property_block),
-          read_via_options_fs_(read_via_options_fs) {}
+    explicit DummyExternalTableFactory(bool support_property_block)
+        : support_property_block_(support_property_block) {}
     const char* Name() const override { return "DummyExternalTableFactory"; }
 
     Status NewTableReader(
         const ReadOptions& /*read_options*/, const std::string& file_path,
         const ExternalTableOptions& topts,
+        std::unique_ptr<FSRandomAccessFile>&& file, uint64_t /*file_size*/,
         std::unique_ptr<ExternalTableReader>* table_reader) const override {
       // Sanity check some options
       EXPECT_EQ(topts.file_options.handoff_checksum_type,
                 ChecksumType::kCRC32c);
-      if (read_via_options_fs_) {
-        if (topts.fs == nullptr) {
-          return Status::InvalidArgument("Missing FileSystem");
-        }
-        std::unique_ptr<FSRandomAccessFile> file;
-        IOStatus io_s = topts.fs->NewRandomAccessFile(
-            file_path, topts.file_options, &file, nullptr);
-        if (!io_s.ok()) {
-          return io_s;
-        }
-        char scratch = '\0';
-        Slice result;
-        io_s = file->Read(0, 1, topts.file_options.io_options, &result,
-                          &scratch, nullptr);
-        if (!io_s.ok()) {
-          return io_s;
-        }
-        if (result.size() != 1) {
-          return Status::Corruption("Expected one byte from external table");
-        }
-      }
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableFactory::NewTableReader:File",
+                               file.get());
       table_reader->reset(
           new DummyExternalTableReader(file_path, support_property_block_));
       return Status::OK();
@@ -8476,7 +8456,6 @@ class ExternalTableTest : public DBTestBase {
 
    private:
     bool support_property_block_;
-    bool read_via_options_fs_;
   };
 
   class ConfigurableDummyExternalTableFactory
@@ -8574,6 +8553,7 @@ class ExternalTableTest : public DBTestBase {
     Status NewTableReader(
         const ReadOptions& /*read_options*/, const std::string& file_path,
         const ExternalTableOptions& /*topts*/,
+        std::unique_ptr<FSRandomAccessFile>&& /*file*/, uint64_t /*file_size*/,
         std::unique_ptr<ExternalTableReader>* table_reader) const override {
       auto* reader =
           new PinnedDummyExternalTableReader(file_path,
@@ -8768,12 +8748,13 @@ TEST_F(ExternalTableTest, BasicTest) {
   }
 
   std::unique_ptr<ExternalTableReader> reader;
+  std::unique_ptr<FSRandomAccessFile> file;
   std::shared_ptr<SliceTransform> prefix_extractor;
   ASSERT_OK(factory->NewTableReader(
       {}, file_path,
       ExternalTableOptions(prefix_extractor, /*comparator=*/nullptr,
                            /*fs=*/nullptr, FileOptions()),
-      &reader));
+      std::move(file), /*file_size=*/0, &reader));
 
   ReadOptions ro;
   std::unique_ptr<ExternalTableIterator> iter(reader->NewIterator(ro, nullptr));
@@ -9041,7 +9022,7 @@ TEST_F(ExternalTableTest, ReaderFileReadsUpdateStatistics) {
 
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>(
-          /*support_property_block=*/true, /*read_via_options_fs=*/true);
+          /*support_property_block=*/true);
   options.table_factory = NewExternalTableFactory(factory);
 
   std::unique_ptr<SstFileWriter> writer;
@@ -9060,8 +9041,24 @@ TEST_F(ExternalTableTest, ReaderFileReadsUpdateStatistics) {
   const auto listener_read_count_before = listener->read_count();
   const auto listener_read_bytes_before = listener->read_bytes();
 
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableFactory::NewTableReader:File", [&](void* arg) {
+        auto* file = static_cast<FSRandomAccessFile*>(arg);
+        ASSERT_NE(file, nullptr);
+        char scratch = '\0';
+        Slice result;
+        ASSERT_OK(file->Read(0, 1, IOOptions(), &result, &scratch,
+                             /*dbg=*/nullptr));
+        ASSERT_EQ(result.size(), 1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
-  ASSERT_OK(reader->Open(ingest_file));
+  Status status = reader->Open(ingest_file);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(status);
 
   EXPECT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
             read_count_before);

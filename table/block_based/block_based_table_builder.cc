@@ -2728,10 +2728,10 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
       Crc32cChecksum block_contents_checksum(block_contents_crc32c);
       NotifyFileAppendForTest(block_contents, &block_contents_checksum);
       io_s =
-          r->file->Append(io_options, block_contents, block_contents_checksum);
+          r->file->Append(block_contents, io_options, block_contents_checksum);
     } else {
       NotifyFileAppendForTest(block_contents, nullptr);
-      io_s = r->file->Append(io_options, block_contents);
+      io_s = r->file->Append(block_contents, io_options);
     }
     if (UNLIKELY(!io_s.ok())) {
       return io_s;
@@ -2764,10 +2764,10 @@ IOStatus BlockBasedTableBuilder::WriteMaybeCompressedBlockImpl(
     if (r->table_options.checksum == kCRC32c) {
       Crc32cChecksum trailer_checksum(trailer_crc32c);
       NotifyFileAppendForTest(trailer_to_write, &trailer_checksum);
-      io_s = r->file->Append(io_options, trailer_to_write, trailer_checksum);
+      io_s = r->file->Append(trailer_to_write, io_options, trailer_checksum);
     } else {
       NotifyFileAppendForTest(trailer_to_write, nullptr);
-      io_s = r->file->Append(io_options, trailer_to_write);
+      io_s = r->file->Append(trailer_to_write, io_options);
     }
     if UNLIKELY (!io_s.ok()) {
       return io_s;
@@ -3380,7 +3380,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   if (footer_gap > 0) {
     std::string gap_bytes(footer_gap, '\0');
     NotifyFileAppendForTest(Slice(gap_bytes), nullptr);
-    ios = r->file->Append(io_options, Slice(gap_bytes));
+    ios = r->file->Append(Slice(gap_bytes), io_options);
     if (!ios.ok()) {
       r->SetIOStatus(ios);
       return;
@@ -3398,7 +3398,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     return;
   }
   NotifyFileAppendForTest(footer.GetSlice(), nullptr);
-  ios = r->file->Append(io_options, footer.GetSlice());
+  ios = r->file->Append(footer.GetSlice(), io_options);
   if (ios.ok()) {
     r->pre_compression_size += footer.GetSlice().size();
     r->set_offset(r->get_offset() + footer.GetSlice().size());

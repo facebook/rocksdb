@@ -897,8 +897,8 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   }
 
   void Write(const Slice& data) {
-    ASSERT_OK(writer_->Append(IOOptions(), data));
-    ASSERT_OK(writer_->Sync(IOOptions(), true));
+    ASSERT_OK(writer_->Append(data, IOOptions()));
+    ASSERT_OK(writer_->Fsync(IOOptions()));
   }
 
   bool TryRead(std::string* result) {

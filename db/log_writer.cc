@@ -116,10 +116,9 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
           // Fill the trailer (literal below relies on kHeaderSize and
           // kRecyclableHeaderSize being <= 11)
           assert(header_size_ <= 11);
-          s = dest_->Append(opts,
-                            Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+          s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
                                   static_cast<size_t>(leftover)),
-                            0 /* crc32c_checksum */);
+                            opts);
           if (!s.ok()) {
             break;
           }
@@ -350,10 +349,10 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
   IOOptions opts;
   IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = dest_->Append(opts, Slice(buf, header_size), 0 /* crc32c_checksum */);
+    s = dest_->Append(Slice(buf, header_size), opts);
   }
   if (s.ok()) {
-    s = dest_->Append(opts, Slice(ptr, n), payload_crc);
+    s = dest_->Append(Slice(ptr, n), opts, Crc32cChecksum(payload_crc));
   }
   block_offset_ += header_size + n;
   return s;
@@ -387,7 +386,7 @@ IOStatus Writer::MaybeSwitchToNewBlock(const WriteOptions& write_options,
     }
 
     std::vector<char> trailer(leftover, '\x00');
-    s = dest_->Append(opts, Slice(trailer.data(), trailer.size()));
+    s = dest_->Append(Slice(trailer.data(), trailer.size()), opts);
     if (!s.ok()) {
       return s;
     }

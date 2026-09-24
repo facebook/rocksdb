@@ -1,0 +1,1 @@
+`ExternalTableFactory::NewTableReader()` now receives an already-opened `FSRandomAccessFile` and its file size instead of requiring implementations to reopen `file_path`. The supplied file preserves RocksDB's direct-I/O alignment handling, rate limiting, read statistics and listener notifications, prefetching, and synchronous, asynchronous, and batched reads.

@@ -172,7 +172,7 @@ void UniqueIdVerifier::Verify(const std::string& id) {
     return;
   }
   IOOptions opts;
-  IOStatus s = data_file_writer_->Append(opts, Slice(id));
+  IOStatus s = data_file_writer_->Append(Slice(id), opts);
   if (!s.ok()) {
     fprintf(stderr, "Error writing to unique id file: %s\n",
             s.ToString().c_str());

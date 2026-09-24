@@ -115,7 +115,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   for (int i = 0; i < 1000; i++) {
     int skew_limit = (i < 700) ? 10 : 15;
     uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
-    s = writer->Append(IOOptions(), Slice(large_buf.get(), num));
+    s = writer->Append(Slice(large_buf.get(), num), IOOptions());
     ASSERT_OK(s);
 
     // Flush in a chance of 1/10.
@@ -215,7 +215,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     for (int i = 0; i < 20; i++) {
       uint32_t num = r.Skewed(16) * 100 + r.Uniform(100);
       std::string random_string = r.RandomString(num);
-      ASSERT_OK(writer->Append(IOOptions(), Slice(random_string.c_str(), num)));
+      ASSERT_OK(writer->Append(Slice(random_string.c_str(), num), IOOptions()));
       target.append(random_string.c_str(), num);
 
       // In some attempts, flush in a chance of 1/10.
@@ -312,7 +312,7 @@ TEST_F(WritableFileWriterTest, AlignedBufferedWrites) {
     uint32_t num = 4096 + r.Uniform(8192);
     num = std::min<uint32_t>(num, left);
     std::string random_string = r.RandomString(num);
-    ASSERT_OK(writer->Append(IOOptions(), Slice(random_string.c_str(), num)));
+    ASSERT_OK(writer->Append(Slice(random_string.c_str(), num), IOOptions()));
     target.append(random_string.c_str(), num);
     left -= num;
   }
@@ -421,7 +421,7 @@ TEST_F(WritableFileWriterTest,
       static_cast<unsigned char>(data[kCorruptedByteOffset]) ^ 0x80U);
 
   const IOStatus s =
-      writer->Append(IOOptions(), Slice(data), Crc32cChecksum(crc32c_checksum));
+      writer->Append(Slice(data), IOOptions(), Crc32cChecksum(crc32c_checksum));
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
   ASSERT_NE(s.ToString().find(
                 "Checksum handoff detected logical append checksum mismatch "
@@ -467,17 +467,18 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksum) {
   std::string data = rnd.RandomString(1000);
   uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
   fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
-  ASSERT_OK(file_writer->Append(IOOptions(), Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions(),
+                                Crc32cChecksum(data_crc32c)));
   ASSERT_OK(file_writer->Flush(IOOptions()));
   Random size_r(47);
   for (int i = 0; i < 2000; i++) {
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
     data_crc32c = crc32c::Value(data.c_str(), data.size());
-    ASSERT_OK(
-        file_writer->Append(IOOptions(), Slice(data.c_str()), data_crc32c));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions(),
+                                  Crc32cChecksum(data_crc32c)));
 
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
-    ASSERT_OK(file_writer->Append(IOOptions(), Slice(data.c_str())));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions()));
     ASSERT_OK(file_writer->Flush(IOOptions()));
   }
   ASSERT_OK(file_writer->Close(IOOptions()));
@@ -511,17 +512,18 @@ TEST_F(DBWritableFileWriterTest, AppendVerifyNoChecksum) {
   uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
   fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
 
-  ASSERT_OK(file_writer->Append(IOOptions(), Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions(),
+                                Crc32cChecksum(data_crc32c)));
   ASSERT_OK(file_writer->Flush(IOOptions()));
   Random size_r(47);
   for (int i = 0; i < 1000; i++) {
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
     data_crc32c = crc32c::Value(data.c_str(), data.size());
-    ASSERT_OK(
-        file_writer->Append(IOOptions(), Slice(data.c_str()), data_crc32c));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions(),
+                                  Crc32cChecksum(data_crc32c)));
 
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
-    ASSERT_OK(file_writer->Append(IOOptions(), Slice(data.c_str())));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions()));
     ASSERT_OK(file_writer->Flush(IOOptions()));
   }
   ASSERT_OK(file_writer->Close(IOOptions()));
@@ -561,12 +563,12 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   for (int i = 0; i < 100; i++) {
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
     data_crc32c = crc32c::Value(data.c_str(), data.size());
-    ASSERT_OK(
-        file_writer->Append(IOOptions(), Slice(data.c_str()), data_crc32c));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions(),
+                                  Crc32cChecksum(data_crc32c)));
     bytes_written += static_cast<uint64_t>(data.size());
 
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
-    ASSERT_OK(file_writer->Append(IOOptions(), Slice(data.c_str())));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions()));
     ASSERT_OK(file_writer->Flush(IOOptions()));
     bytes_written += static_cast<uint64_t>(data.size());
   }
@@ -596,11 +598,11 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   for (int i = 0; i < 1000; i++) {
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
     data_crc32c = crc32c::Value(data.c_str(), data.size());
-    ASSERT_OK(
-        file_writer->Append(IOOptions(), Slice(data.c_str()), data_crc32c));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions(),
+                                  Crc32cChecksum(data_crc32c)));
 
     data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
-    ASSERT_OK(file_writer->Append(IOOptions(), Slice(data.c_str())));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), IOOptions()));
     ASSERT_OK(file_writer->Flush(IOOptions()));
   }
   ASSERT_OK(file_writer->Close(IOOptions()));
@@ -664,12 +666,12 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   std::unique_ptr<WritableFileWriter> writer(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
 
-  ASSERT_OK(writer->Append(IOOptions(), std::string(2 * kMb, 'a')));
+  ASSERT_OK(writer->Append(std::string(2 * kMb, 'a'), IOOptions()));
 
   // Next call to WritableFile::Append() should fail
   FakeWF* fwf = static_cast<FakeWF*>(writer->writable_file());
   fwf->SetIOError(true);
-  ASSERT_NOK(writer->Append(IOOptions(), std::string(2 * kMb, 'b')));
+  ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b'), IOOptions()));
 }
 
 class ReadaheadRandomAccessFileTest
@@ -697,7 +699,7 @@ class ReadaheadRandomAccessFileTest
         new test::StringSink(&control_contents_));
     std::unique_ptr<WritableFileWriter> write_holder(new WritableFileWriter(
         std::move(sink), "" /* don't care */, FileOptions()));
-    Status s = write_holder->Append(IOOptions(), Slice(str));
+    Status s = write_holder->Append(Slice(str), IOOptions());
     EXPECT_OK(s);
     s = write_holder->Flush(IOOptions());
     EXPECT_OK(s);
@@ -1089,7 +1091,7 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   FakeWF* fwf = static_cast<FakeWF*>(file_writer->writable_file());
 
   fwf->SetIOError(true);
-  ASSERT_NOK(file_writer->Append(IOOptions(), std::string(2 * kMb, 'a')));
+  ASSERT_NOK(file_writer->Append(std::string(2 * kMb, 'a'), IOOptions()));
   fwf->CheckCounters(1, 0);
   ASSERT_EQ(listener->NotifyErrorCount(), 1);
 
@@ -1102,7 +1104,7 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   /* No error generation */
   file_writer->reset_seen_error();
   fwf->SetIOError(false);
-  ASSERT_OK(file_writer->Append(IOOptions(), std::string(2 * kMb, 'b')));
+  ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b'), IOOptions()));
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
   fwf->CheckCounters(1, 1);
 }
@@ -1211,7 +1213,7 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
 };
 
 TEST_F(WritableFileWriterIOPriorityTest, Append) {
-  ASSERT_OK(writer_->Append(IOOptions(), Slice("abc")));
+  ASSERT_OK(writer_->Append(Slice("abc"), IOOptions()));
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, Pad) {
@@ -1227,13 +1229,17 @@ TEST_F(WritableFileWriterIOPriorityTest, Close) {
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, Sync) {
-  ASSERT_OK(writer_->Sync(IOOptions(), false));
-  ASSERT_OK(writer_->Sync(IOOptions(), true));
+  ASSERT_OK(writer_->Sync(IOOptions()));
+  ASSERT_OK(writer_->Fsync(IOOptions()));
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush) {
   ASSERT_OK(writer_->SyncWithoutFlush(IOOptions(), false));
   ASSERT_OK(writer_->SyncWithoutFlush(IOOptions(), true));
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, RangeSync) {
+  ASSERT_OK(writer_->RangeSync(0, 1, IOOptions()));
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, BasicOp) {
@@ -1248,7 +1254,7 @@ TEST_F(WritableFileWriterIOPriorityTest, BasicOp) {
   for (int i = 0; i < 1000; i++) {
     int skew_limit = (i < 700) ? 10 : 15;
     uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
-    s = writer->Append(IOOptions(), Slice(large_buf.get(), num));
+    s = writer->Append(Slice(large_buf.get(), num), IOOptions());
     ASSERT_OK(s);
 
     // Flush in a chance of 1/10.

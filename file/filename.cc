@@ -558,7 +558,8 @@ IOStatus SyncManifest(const ImmutableDBOptions* db_options,
   if (!s.ok()) {
     return s;
   }
-  return file->Sync(io_options, db_options->use_fsync);
+  return db_options->use_fsync ? file->Fsync(io_options)
+                               : file->Sync(io_options);
 }
 
 Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,

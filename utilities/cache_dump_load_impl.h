@@ -170,11 +170,11 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(metadata.size()));
     const IOOptions opts;
-    IOStatus io_s = file_writer_->Append(opts, Slice(prefix));
+    IOStatus io_s = file_writer_->Append(Slice(prefix), opts);
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = file_writer_->Append(opts, metadata);
+    io_s = file_writer_->Append(metadata, opts);
     return io_s;
   }
 
@@ -184,11 +184,11 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
     std::string prefix;
     PutFixed32(&prefix, static_cast<uint32_t>(data.size()));
     const IOOptions opts;
-    IOStatus io_s = file_writer_->Append(opts, Slice(prefix));
+    IOStatus io_s = file_writer_->Append(Slice(prefix), opts);
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = file_writer_->Append(opts, data);
+    io_s = file_writer_->Append(data, opts);
     return io_s;
   }
 
@@ -196,7 +196,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
   IOStatus Close() override {
     IOStatus io_s;
     if (file_writer_ != nullptr && !file_writer_->seen_error()) {
-      io_s = file_writer_->Sync(IOOptions(), false /* use_fsync */);
+      io_s = file_writer_->Sync(IOOptions());
     }
     file_writer_.reset();
     return io_s;

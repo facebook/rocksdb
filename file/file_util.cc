@@ -78,13 +78,14 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
           std::to_string(dest_writer->GetFileSize()));
     }
 
-    io_s = dest_writer->Append(writeIOOptions.value_or(opts), slice);
+    io_s = dest_writer->Append(slice, writeIOOptions.value_or(opts));
     if (!io_s.ok()) {
       return io_s;
     }
     size -= slice.size();
   }
-  return dest_writer->Sync(writeIOOptions.value_or(opts), use_fsync);
+  return use_fsync ? dest_writer->Fsync(writeIOOptions.value_or(opts))
+                   : dest_writer->Sync(writeIOOptions.value_or(opts));
 }
 
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
@@ -132,11 +133,11 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
   // TODO: pass in Histograms if the destination file is sst or blob
   dest_writer.reset(
       new WritableFileWriter(std::move(destfile), destination, soptions));
-  io_s = dest_writer->Append(opts, Slice(contents));
+  io_s = dest_writer->Append(Slice(contents), opts);
   if (!io_s.ok()) {
     return io_s;
   }
-  return dest_writer->Sync(opts, use_fsync);
+  return use_fsync ? dest_writer->Fsync(opts) : dest_writer->Sync(opts);
 }
 
 Status DeleteDBFile(const ImmutableDBOptions* db_options,

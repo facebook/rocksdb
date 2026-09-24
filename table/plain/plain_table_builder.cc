@@ -39,7 +39,7 @@ IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
                     uint64_t* offset, BlockHandle* block_handle) {
   block_handle->set_offset(*offset);
   block_handle->set_size(block_contents.size());
-  IOStatus io_s = file->Append(IOOptions(), block_contents);
+  IOStatus io_s = file->Append(block_contents, IOOptions());
 
   if (io_s.ok()) {
     *offset += block_contents.size();
@@ -188,12 +188,12 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
     assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
     meta_bytes_buf_size = end_ptr - meta_bytes_buf;
     io_status_ =
-        file_->Append(opts, Slice(meta_bytes_buf, meta_bytes_buf_size));
+        file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size), opts);
   }
 
   // Write value
   if (io_status_.ok()) {
-    io_status_ = file_->Append(opts, value);
+    io_status_ = file_->Append(value, opts);
     offset_ += value_size + meta_bytes_buf_size;
   }
 
@@ -316,7 +316,7 @@ Status PlainTableBuilder::Finish() {
     status_ = s;
     return status_;
   }
-  io_status_ = file_->Append(IOOptions(), footer.GetSlice());
+  io_status_ = file_->Append(footer.GetSlice(), IOOptions());
   if (io_status_.ok()) {
     offset_ += footer.GetSlice().size();
   }

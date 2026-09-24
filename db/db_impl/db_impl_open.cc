@@ -2791,8 +2791,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             s = WritableFileWriter::PrepareIOOptions(write_options, opts);
           }
           if (s.ok()) {
-            s = log_writer->file()->Sync(opts,
-                                         impl->immutable_db_options_.use_fsync);
+            s = impl->immutable_db_options_.use_fsync
+                    ? log_writer->file()->Fsync(opts)
+                    : log_writer->file()->Sync(opts);
           }
         }
       }
@@ -2979,8 +2980,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         IOOptions opts;
         s = WritableFileWriter::PrepareIOOptions(write_options, opts);
         if (s.ok()) {
-          s = log_writer->file()->Sync(opts,
-                                       impl->immutable_db_options_.use_fsync);
+          s = impl->immutable_db_options_.use_fsync
+                  ? log_writer->file()->Fsync(opts)
+                  : log_writer->file()->Sync(opts);
         }
       }
     }

@@ -61,7 +61,11 @@ Status SstFileReader::Open(const std::string& file_path) {
     s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   }
   if (s.ok()) {
-    file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
+    file_reader.reset(new RandomAccessFileReader(
+        std::move(file), file_path, r->ioptions.clock,
+        /*io_tracer=*/nullptr, r->ioptions.stats, Histograms::SST_READ_MICROS,
+        /*file_read_hist=*/nullptr, r->ioptions.rate_limiter.get(),
+        r->ioptions.listeners, fopts.temperature, /*is_last_level=*/false));
   }
   if (s.ok()) {
     TableReaderOptions t_opt(

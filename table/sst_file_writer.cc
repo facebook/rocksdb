@@ -418,8 +418,9 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   // TODO: it would be better to set oldest_key_time to be used for getting the
   //  approximate time of ingested keys.
   // TODO: plumb Env::IOActivity, Env::IOPriority
+  const ReadOptions read_options;
   TableBuilderOptions table_builder_options(
-      r->ioptions, r->mutable_cf_options, ReadOptions(), r->write_options,
+      r->ioptions, r->mutable_cf_options, read_options, r->write_options,
       r->internal_comparator, &internal_tbl_prop_coll_factories,
       compression_type, compression_opts, cf_id, r->column_family_name,
       unknown_level, kUnknownNewestKeyTime, false /* is_bottommost */,
@@ -540,7 +541,8 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     s = WritableFileWriter::PrepareIOOptions(r->write_options, opts);
   }
   if (s.ok()) {
-    s = r->file_writer->Sync(opts, r->ioptions.use_fsync);
+    s = r->ioptions.use_fsync ? r->file_writer->Fsync(opts)
+                              : r->file_writer->Sync(opts);
     r->InvalidatePageCache(true /* closing */).PermitUncheckedError();
     if (s.ok()) {
       s = r->file_writer->Close(opts);
