@@ -3181,6 +3181,69 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
   ASSERT_OK(db_->IngestExternalFile(handles_[2], {unknown_sst}, ifo));
 }
 
+TEST_F(ExternalSSTFileTest, FailedCopyRemovesCopiedFiles) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::string first_external_file;
+  std::string second_external_file;
+  ASSERT_OK(GenerateExternalFileOnly(options, {{"first-key", "first-value"}},
+                                     &first_external_file));
+  ASSERT_OK(GenerateExternalFileOnly(options, {{"second-key", "second-value"}},
+                                     &second_external_file));
+
+  size_t copy_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Prepare:CopyFile", [&](void* arg) {
+        if (++copy_count == 2) {
+          *static_cast<Status*>(arg) = Status::IOError("injected copy failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Status status = db_->IngestExternalFile(
+      {first_external_file, second_external_file}, IngestExternalFileOptions());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_EQ(copy_count, 2);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_TRUE(files.empty());
+}
+
+TEST_F(ExternalSSTFileTest, FailedLinkedFileSyncRemovesLinkedFiles) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::string first_external_file;
+  std::string second_external_file;
+  ASSERT_OK(GenerateExternalFileOnly(options, {{"first-key", "first-value"}},
+                                     &first_external_file));
+  ASSERT_OK(GenerateExternalFileOnly(options, {{"second-key", "second-value"}},
+                                     &second_external_file));
+
+  size_t sync_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::CheckSyncReturnCode", [&](void* arg) {
+        if (++sync_count == 2) {
+          *static_cast<Status*>(arg) =
+              Status::IOError("injected linked-file sync failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  IngestExternalFileOptions ingestion_options;
+  ingestion_options.link_files = true;
+  const Status status = db_->IngestExternalFile(
+      {first_external_file, second_external_file}, ingestion_options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(status.IsIOError()) << status.ToString();
+  ASSERT_EQ(sync_count, 2);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_TRUE(files.empty());
+}
+
 /*
  * Test and verify the functionality of ingestion_options.move_files and
  * ingestion_options.failed_move_fall_back_to_copy
