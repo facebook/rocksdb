@@ -253,6 +253,15 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "More than four DB paths are not supported yet. ");
   }
 
+  if (db_options.partition_wal_usage ==
+      PartitionWALUsage::kPartitionByColumnFamily) {
+    // Reject rather than silently behaving like kRecordOrderingSingleFile,
+    // which would leave the DB unpartitioned while the option says otherwise.
+    return Status::NotSupported(
+        "partition_wal_usage=kPartitionByColumnFamily is not implemented "
+        "yet. ");
+  }
+
   if (db_options.allow_mmap_reads && db_options.use_direct_reads) {
     // Protect against assert in PosixMMapReadableFile constructor
     return Status::NotSupported(
