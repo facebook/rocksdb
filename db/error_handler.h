@@ -23,12 +23,27 @@ class DBImpl;
 struct DBRecoverContext {
   FlushReason flush_reason;
   bool flush_after_recovery;
+  // A non-zero value is an inclusive upper bound on WAL file handles that
+  // recovery must not reuse. Recovery must not declare success until every
+  // column family has atomically advanced beyond it in the MANIFEST.
+  uint64_t failed_wal_number;
+  // Highest sequence assigned to the write group whose WAL outcome is
+  // indeterminate. Reserving it prevents a later acknowledged write from
+  // reusing a sequence that might exist in the abandoned WAL.
+  uint64_t failed_wal_sequence;
 
   DBRecoverContext()
       : flush_reason(FlushReason::kErrorRecovery),
-        flush_after_recovery(false) {}
+        flush_after_recovery(false),
+        failed_wal_number(0),
+        failed_wal_sequence(0) {}
   DBRecoverContext(FlushReason reason)
-      : flush_reason(reason), flush_after_recovery(false) {}
+      : flush_reason(reason),
+        flush_after_recovery(false),
+        failed_wal_number(0),
+        failed_wal_sequence(0) {}
+
+  bool IsWALWriteErrorRecovery() const { return failed_wal_number != 0; }
 };
 
 class ErrorHandler {
@@ -59,6 +74,8 @@ class ErrorHandler {
 
   void SetBGError(const Status& bg_err, BackgroundErrorReason reason,
                   bool wal_related = false);
+  void SetBGError(const Status& bg_err, BackgroundErrorReason reason,
+                  bool wal_related, DBRecoverContext context);
 
   Status GetBGError() const { return bg_error_; }
 
@@ -151,7 +168,12 @@ class ErrorHandler {
   // unsorted.
   autovector<uint64_t> files_to_quarantine_;
 
-  void HandleKnownErrors(const Status& bg_err, BackgroundErrorReason reason);
+  void HandleKnownErrors(const Status& bg_err, BackgroundErrorReason reason,
+                         const DBRecoverContext& context);
+  // REQUIRES: db_mutex_ held. When replacing the general recovery context,
+  // retain WAL facts accumulated from concurrent errors independently.
+  void UpdateRecoveryContext(const DBRecoverContext& context,
+                             bool replace_existing_context);
   Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
   void RecoverFromNoSpace();
   void StartRecoverFromRetryableBGIOError(const IOStatus& io_error);

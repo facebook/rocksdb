@@ -551,8 +551,19 @@ IOStatus WritableFileWriter::PrepareIOOptions(const WriteOptions& wo,
 }
 
 IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync) {
+  return Sync(opts, use_fsync, nullptr);
+}
+
+IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync,
+                                  bool* previously_seen_error) {
   if (seen_error()) {
+    if (previously_seen_error != nullptr) {
+      *previously_seen_error = true;
+    }
     return GetWriterHasPreviousErrorStatus();
+  }
+  if (previously_seen_error != nullptr) {
+    *previously_seen_error = false;
   }
 
   IOOptions io_options = FinalizeIOOptions(opts);
@@ -576,8 +587,20 @@ IOStatus WritableFileWriter::Sync(const IOOptions& opts, bool use_fsync) {
 
 IOStatus WritableFileWriter::SyncWithoutFlush(const IOOptions& opts,
                                               bool use_fsync) {
+  return SyncWithoutFlush(opts, use_fsync, nullptr);
+}
+
+IOStatus WritableFileWriter::SyncWithoutFlush(const IOOptions& opts,
+                                              bool use_fsync,
+                                              bool* previously_seen_error) {
   if (seen_error()) {
+    if (previously_seen_error != nullptr) {
+      *previously_seen_error = true;
+    }
     return GetWriterHasPreviousErrorStatus();
+  }
+  if (previously_seen_error != nullptr) {
+    *previously_seen_error = false;
   }
   IOOptions io_options = FinalizeIOOptions(opts);
   if (!writable_file_->IsSyncThreadSafe()) {
