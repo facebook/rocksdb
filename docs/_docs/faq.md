@@ -19,11 +19,11 @@ For the latest details, watch [Mark Callaghan’s and Igor Canadi’s talk at CM
 
 We benchmarked LevelDB and found that it was unsuitable for our server workloads. The [benchmark results](http://leveldb.googlecode.com/svn/trunk/doc/benchmark.html) look awesome at first sight, but we quickly realized that those results were for a database whose size was smaller than the size of RAM on the test machine – where the entire database could fit in the OS page cache. When we performed the same benchmarks on a database that was at least 5 times larger than main memory, the performance results were dismal.
 
-By contrast, we’ve published the [RocksDB benchmark results](https://github.com/facebook/rocksdb/wiki/Performance-Benchmarks) for server side workloads on Flash. We also measured the performance of LevelDB on these server-workload benchmarks and found that RocksDB solidly outperforms LevelDB for these IO bound workloads. We found that LevelDB’s single-threaded compaction process was insufficient to drive server workloads. We saw frequent write-stalls with LevelDB that caused 99-percentile latency to be tremendously large. We found that mmap-ing a file into the OS cache introduced performance bottlenecks for reads. We could not make LevelDB consume all the IOs offered by the underlying Flash storage.
+By contrast, we’ve published the [RocksDB benchmark results](https://github.com/facebook/rocksdb/wiki/Performance-Benchmarks) for server side workloads on Flash. We also measured the performance of LevelDB on these server-workload benchmarks and found that RocksDB solidly outperforms LevelDB for these IO bound workloads. We found that LevelDB’s single-threaded compaction process was insufficient to drive server workloads. We saw frequent write-stalls with LevelDB that caused 99-percentile latency to be tremendously large. We found that mapping a file into the OS cache introduced performance bottlenecks for reads. We could not make LevelDB consume all the IOs offered by the underlying Flash storage.
 
 ## What is RocksDB suitable for?
 
-RocksDB can be used by applications that need low latency database accesses. Possibilities include:
+RocksDB can be used by applications that need low-latency database accesses. Possibilities include:
 
 * A user-facing application that stores the viewing history and state of users of a website.
 * A spam detection application that needs fast access to big data sets.
@@ -33,7 +33,7 @@ RocksDB can be used by applications that need low latency database accesses. Pos
 
 ## How big is RocksDB adoption?
 
-RocksDB is an embedded storage engine that is used in a number of backend systems at Facebook. In the Facebook newsfeed’s backend, it replaced another internal storage engine called Centrifuge and is one of the many components used. ZippyDB, a distributed key value store service used by Facebook products relies RocksDB. Details on ZippyDB are in [Muthu Annamalai’s talk at Data@Scale in Seattle](https://youtu.be/DfiN7pG0D0k). Dragon, a distributed graph query engine part of the social graph infrastructure, is using RocksDB to store data. Parse has been running [MongoDB on RocksDB in production](http://blog.parse.com/announcements/mongodb-rocksdb-parse/) since early 2015.
+RocksDB is an embedded storage engine that is used in a number of backend systems at Facebook. In the Facebook newsfeed’s backend, it replaced another internal storage engine called Centrifuge and is one of the many components used. ZippyDB, a distributed key value store service used by Facebook products relies on RocksDB. Details on ZippyDB are in [Muthu Annamalai’s talk at Data@Scale in Seattle](https://youtu.be/DfiN7pG0D0k). Dragon, a distributed graph query engine part of the social graph infrastructure, is using RocksDB to store data. Parse has been running [MongoDB on RocksDB in production](http://blog.parse.com/announcements/mongodb-rocksdb-parse/) since early 2015.
 
 RocksDB is proving to be a useful component for a lot of other groups in the industry. For a list of projects currently using RocksDB, take a look at our USERS.md list on github.
 
