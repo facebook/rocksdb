@@ -229,11 +229,10 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
   Writer* writers = newest_writer->load(std::memory_order_relaxed);
   while (true) {
     assert(writers != w);
-    // If write stall in effect, and w->no_slowdown is not true,
-    // block here until stall is cleared. If its true, then return
-    // immediately
+    // If a write stall is in effect, fail fast when requested. Otherwise,
+    // block here until the stall is cleared.
     if (writers == &write_stall_dummy_) {
-      if (w->no_slowdown) {
+      if (w->no_slowdown || w->non_blocking_join) {
         w->status = Status::Incomplete("Write stall");
         SetState(w, STATE_COMPLETED);
         return false;
@@ -335,7 +334,10 @@ void WriteThread::BeginWriteStall() {
   Writer* w = write_stall_dummy_.link_older;
   Writer* prev = &write_stall_dummy_;
   while (w != nullptr && w->write_group == nullptr) {
-    if (w->no_slowdown) {
+    // The oldest writer already owns leadership. It must finish and hand off
+    // to the stall barrier; unlinking it would strand newer writers.
+    const bool is_leader = w->link_older == nullptr;
+    if (!is_leader && (w->no_slowdown || w->non_blocking_join)) {
       prev->link_older = w->link_older;
       w->status = Status::Incomplete("Write stall");
       SetState(w, STATE_COMPLETED);
@@ -903,6 +905,31 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
     WaitForMemTableWriters();
   }
   mu->Lock();
+}
+
+bool WriteThread::EnterUnbatchedNonBlocking(Writer* w, InstrumentedMutex* mu) {
+  assert(w != nullptr && w->batch == nullptr);
+  w->non_blocking_join = true;
+  mu->Unlock();
+  const bool linked_as_leader = LinkOne(w, &newest_writer_);
+  if (!linked_as_leader) {
+    TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
+    // A new stall may sweep this queued writer and mark it completed.
+    AwaitState(w, STATE_GROUP_LEADER | STATE_COMPLETED, &eu_ctx);
+  }
+  TEST_SYNC_POINT("WriteThread::EnterUnbatchedNonBlocking:BeforeLock");
+  mu->Lock();
+  w->non_blocking_join = false;
+  if (w->state.load(std::memory_order_acquire) == STATE_COMPLETED) {
+    assert(!w->status.ok());
+    return false;
+  }
+  if (enable_pipelined_write_) {
+    mu->Unlock();
+    WaitForMemTableWriters();
+    mu->Lock();
+  }
+  return true;
 }
 
 void WriteThread::ExitUnbatched(Writer* w) {

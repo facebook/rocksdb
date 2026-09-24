@@ -36,6 +36,7 @@
 
 #include "memory/allocator.h"
 #include "port/port.h"
+#include "rocksdb/slice.h"
 #include "util/atomic.h"
 #include "util/random.h"
 
