@@ -153,7 +153,8 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
   buf->async_req_len_ = req.len;
 
   Status s = reader->ReadAsync(req, opts, fp, buf, &(buf->io_handle_),
-                               &(buf->del_fn_), /*aligned_buf =*/nullptr);
+                               &(buf->del_fn_), /*aligned_buf=*/nullptr,
+                               /*dbg=*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
     if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {

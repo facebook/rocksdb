@@ -55,7 +55,7 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 // - Rate limiting compaction reads.
 // - Notifying any interested listeners on the completion of a read.
 // - Updating IO stats.
-class RandomAccessFileReader {
+class RandomAccessFileReader final : public FSRandomAccessFile {
  private:
   void NotifyOnFileReadFinish(
       uint64_t offset, size_t length,
@@ -168,6 +168,7 @@ class RandomAccessFileReader {
                          IODebugContext* dbg);
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
+  ~RandomAccessFileReader() override = default;
 
   // In non-direct IO mode,
   // 1. if using mmap, result is stored in a buffer other than scratch;
@@ -184,8 +185,13 @@ class RandomAccessFileReader {
       AlignedBufferAllocationContext* direct_io_buffer_context = nullptr,
       IODebugContext* dbg = nullptr);
 
-  // REQUIRES:
-  // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
+                char* scratch, IODebugContext* dbg) const override {
+    return Read(opts, offset, n, result, scratch,
+                /*direct_io_buffer_context=*/nullptr, dbg);
+  }
+
+  // REQUIRES: num_reqs > 0 and reqs do not overlap.
   // MultiRead uses direct_io_buffer_context to allocate the aligned buffer in
   // direct IO mode. The result Slices in reqs refer to
   // direct_io_buffer_context->buffer, so callers must keep it alive while those
@@ -197,16 +203,41 @@ class RandomAccessFileReader {
       size_t num_reqs, AlignedBufferAllocationContext* direct_io_buffer_context,
       IODebugContext* dbg = nullptr);
 
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& opts, IODebugContext* dbg) override {
+    return MultiRead(opts, reqs, num_reqs,
+                     /*direct_io_buffer_context=*/nullptr, dbg);
+  }
+
   IOStatus Prefetch(const IOOptions& opts, uint64_t offset, size_t n,
                     IODebugContext* dbg = nullptr) const {
     return file_->Prefetch(offset, n, opts, dbg);
   }
 
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& opts,
+                    IODebugContext* dbg) override {
+    return Prefetch(opts, offset, n, dbg);
+  }
+
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return file_->GetUniqueId(id, max_size);
+  }
+
+  void Hint(AccessPattern pattern) override { file_->Hint(pattern); }
+
   FSRandomAccessFile* file() { return file_.get(); }
 
   const std::string& file_name() const { return file_name_; }
 
-  bool use_direct_io() const { return file_->use_direct_io(); }
+  bool use_direct_io() const override { return file_->use_direct_io(); }
+
+  size_t GetRequiredBufferAlignment() const override {
+    return file_->GetRequiredBufferAlignment();
+  }
+
+  IOStatus InvalidateCache(size_t offset, size_t length) override {
+    return file_->InvalidateCache(offset, length);
+  }
 
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts,
                             IODebugContext* dbg = nullptr) const;
@@ -217,6 +248,26 @@ class RandomAccessFileReader {
       void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf,
       IODebugContext* dbg = nullptr,
       AlignedBufferAllocationContext* direct_io_buffer_context = nullptr);
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override {
+    return ReadAsync(req, opts, std::move(cb), cb_arg, io_handle, del_fn,
+                     /*aligned_buf=*/nullptr, dbg);
+  }
+
+  Temperature GetTemperature() const override {
+    return file_->GetTemperature();
+  }
+
+  IOStatus GetFileSize(uint64_t* result) override {
+    return file_->GetFileSize(result);
+  }
+
+  IOStatus GetFileOpenMetadata(std::string* metadata) override {
+    return file_->GetFileOpenMetadata(metadata);
+  }
 
   void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
 };

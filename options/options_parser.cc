@@ -85,64 +85,66 @@ Status PersistRocksDBOptions(const WriteOptions& write_options,
   IOOptions opts;
   s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = writable->Append(opts, option_file_header + "[" +
-                                   opt_section_titles[kOptionSectionVersion] +
-                                   "]\n"
-                                   "  rocksdb_version=" +
-                                   std::to_string(ROCKSDB_MAJOR) + "." +
-                                   std::to_string(ROCKSDB_MINOR) + "." +
-                                   std::to_string(ROCKSDB_PATCH) + "\n");
+    s = writable->Append(option_file_header + "[" +
+                             opt_section_titles[kOptionSectionVersion] +
+                             "]\n"
+                             "  rocksdb_version=" +
+                             std::to_string(ROCKSDB_MAJOR) + "." +
+                             std::to_string(ROCKSDB_MINOR) + "." +
+                             std::to_string(ROCKSDB_PATCH) + "\n",
+                         opts);
   }
   if (s.ok()) {
     s = writable->Append(
-        opts,
         "  options_file_version=" + std::to_string(ROCKSDB_OPTION_FILE_MAJOR) +
-            "." + std::to_string(ROCKSDB_OPTION_FILE_MINOR) + "\n");
+            "." + std::to_string(ROCKSDB_OPTION_FILE_MINOR) + "\n",
+        opts);
   }
   if (s.ok()) {
     s = writable->Append(
-        opts, "\n[" + opt_section_titles[kOptionSectionDBOptions] + "]\n  ");
+        "\n[" + opt_section_titles[kOptionSectionDBOptions] + "]\n  ", opts);
   }
 
   if (s.ok()) {
     s = GetStringFromDBOptions(config_options, db_opt, &options_file_content);
   }
   if (s.ok()) {
-    s = writable->Append(opts, options_file_content + "\n");
+    s = writable->Append(options_file_content + "\n", opts);
   }
 
   for (size_t i = 0; s.ok() && i < cf_opts.size(); ++i) {
     // CFOptions section
-    s = writable->Append(
-        opts, "\n[" + opt_section_titles[kOptionSectionCFOptions] + " \"" +
-                  EscapeOptionString(cf_names[i]) + "\"]\n  ");
+    s = writable->Append("\n[" + opt_section_titles[kOptionSectionCFOptions] +
+                             " \"" + EscapeOptionString(cf_names[i]) +
+                             "\"]\n  ",
+                         opts);
     if (s.ok()) {
       s = GetStringFromColumnFamilyOptions(config_options, cf_opts[i],
                                            &options_file_content);
     }
     if (s.ok()) {
-      s = writable->Append(opts, options_file_content + "\n");
+      s = writable->Append(options_file_content + "\n", opts);
     }
     // TableOptions section
     auto* tf = cf_opts[i].table_factory.get();
     if (tf != nullptr) {
       if (s.ok()) {
         s = writable->Append(
-            opts, "[" + opt_section_titles[kOptionSectionTableOptions] +
-                      tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
-                      "\"]\n  ");
+            "[" + opt_section_titles[kOptionSectionTableOptions] + tf->Name() +
+                " \"" + EscapeOptionString(cf_names[i]) + "\"]\n  ",
+            opts);
       }
       if (s.ok()) {
         options_file_content.clear();
         s = tf->GetOptionString(config_options, &options_file_content);
       }
       if (s.ok()) {
-        s = writable->Append(opts, options_file_content + "\n");
+        s = writable->Append(options_file_content + "\n", opts);
       }
     }
   }
   if (s.ok()) {
-    s = writable->Sync(opts, true /* use_fsync */);
+    s = writable->Fsync(opts);
   }
   if (s.ok()) {
     s = writable->Close(opts);

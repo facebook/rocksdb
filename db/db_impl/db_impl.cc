@@ -2155,7 +2155,8 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
         io_s = log->file()->SyncWithoutFlush(opts,
                                              immutable_db_options_.use_fsync);
       } else {
-        io_s = log->file()->Sync(opts, immutable_db_options_.use_fsync);
+        io_s = immutable_db_options_.use_fsync ? log->file()->Fsync(opts)
+                                               : log->file()->Sync(opts);
       }
       if (!io_s.ok()) {
         break;

@@ -40,7 +40,7 @@ Status BlobLogWriter::Sync(const WriteOptions& write_options) {
   IOOptions opts;
   Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = dest_->Sync(opts, use_fsync_);
+    s = use_fsync_ ? dest_->Fsync(opts) : dest_->Sync(opts);
   }
   if (s.ok()) {
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_SYNCED);
@@ -58,7 +58,7 @@ Status BlobLogWriter::WriteHeader(const WriteOptions& write_options,
   IOOptions opts;
   Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = dest_->Append(opts, Slice(str));
+    s = dest_->Append(Slice(str), opts);
   }
   if (s.ok()) {
     block_offset_ += str.size();
@@ -92,7 +92,7 @@ Status BlobLogWriter::AppendFooter(const WriteOptions& write_options,
     IOOptions opts;
     s = WritableFileWriter::PrepareIOOptions(write_options, opts);
     if (s.ok()) {
-      s = dest_->Append(opts, Slice(str));
+      s = dest_->Append(Slice(str), opts);
     }
     if (s.ok()) {
       block_offset_ += str.size();
@@ -181,13 +181,13 @@ Status BlobLogWriter::EmitPhysicalRecord(const WriteOptions& write_options,
   IOOptions opts;
   Status s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
-    s = dest_->Append(opts, Slice(headerbuf));
+    s = dest_->Append(Slice(headerbuf), opts);
   }
   if (s.ok()) {
-    s = dest_->Append(opts, key);
+    s = dest_->Append(key, opts);
   }
   if (s.ok()) {
-    s = dest_->Append(opts, val);
+    s = dest_->Append(val, opts);
   }
   if (do_flush_ && s.ok()) {
     s = dest_->Flush(opts);

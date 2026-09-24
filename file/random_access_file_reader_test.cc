@@ -523,6 +523,107 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOUsesExternalBuffer) {
   }
 }
 
+TEST_F(RandomAccessFileReaderTest, MultiReadDirectIOWithoutExternalBuffer) {
+  const std::string fname = "multi-read-direct-io-fs-interface";
+  Random rand(0);
+  const std::string content = rand.RandomString(3 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> reader;
+  Read(fname, opts, &reader);
+  ASSERT_TRUE(reader->use_direct_io());
+
+  const size_t page_size = reader->GetRequiredBufferAlignment();
+  std::string scratch0(page_size / 2, '\0');
+  std::string scratch1(page_size / 2, '\0');
+  std::vector<FSReadRequest> reqs(2);
+  reqs[0].offset = page_size / 4;
+  reqs[0].len = scratch0.size();
+  reqs[0].scratch = scratch0.data();
+  reqs[1].offset = 2 * page_size + page_size / 4;
+  reqs[1].len = scratch1.size();
+  reqs[1].scratch = scratch1.data();
+
+  FSRandomAccessFile* fs_reader = reader.get();
+  ASSERT_OK(fs_reader->MultiRead(reqs.data(), reqs.size(), IOOptions(),
+                                 /*dbg=*/nullptr));
+  AssertResult(content, reqs);
+  ASSERT_EQ(reqs[0].result.data(), reqs[0].scratch);
+  ASSERT_EQ(reqs[1].result.data(), reqs[1].scratch);
+}
+
+TEST_F(RandomAccessFileReaderTest,
+       MultiReadDirectIOSortsUnorderedUnalignedRequests) {
+  const std::string fname = "multi-read-direct-io-unordered-unaligned";
+  Random rand(0);
+  const std::string content = rand.RandomString(3 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> reader;
+  Read(fname, opts, &reader);
+  ASSERT_TRUE(reader->use_direct_io());
+
+  const size_t page_size = reader->GetRequiredBufferAlignment();
+  std::string high_scratch(page_size / 2, '\0');
+  std::string low_scratch(page_size / 2, '\0');
+  std::vector<FSReadRequest> reqs(2);
+  reqs[0].offset = 2 * page_size + page_size / 4;
+  reqs[0].len = high_scratch.size();
+  reqs[0].scratch = high_scratch.data();
+  reqs[1].offset = page_size / 4;
+  reqs[1].len = low_scratch.size();
+  reqs[1].scratch = low_scratch.data();
+
+  FSRandomAccessFile* fs_reader = reader.get();
+  ASSERT_OK(fs_reader->MultiRead(reqs.data(), reqs.size(), IOOptions(),
+                                 /*dbg=*/nullptr));
+  AssertResult(content, reqs);
+  ASSERT_EQ(reqs[0].result.data(), reqs[0].scratch);
+  ASSERT_EQ(reqs[1].result.data(), reqs[1].scratch);
+}
+
+TEST_F(RandomAccessFileReaderTest,
+       MultiReadDirectIOUsesUnorderedAlignedCallerBuffers) {
+  const std::string fname = "multi-read-direct-io-aligned-caller-buffers";
+  Random rand(0);
+  const std::string content = rand.RandomString(3 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> reader;
+  Read(fname, opts, &reader);
+  ASSERT_TRUE(reader->use_direct_io());
+
+  const size_t page_size = reader->GetRequiredBufferAlignment();
+
+  AlignedBuffer scratch0;
+  scratch0.Alignment(page_size);
+  scratch0.AllocateNewBuffer(page_size);
+  AlignedBuffer scratch1;
+  scratch1.Alignment(page_size);
+  scratch1.AllocateNewBuffer(page_size);
+
+  std::vector<FSReadRequest> reqs(2);
+  reqs[0].offset = 2 * page_size;
+  reqs[0].len = page_size;
+  reqs[0].scratch = scratch0.BufferStart();
+  reqs[1].offset = 0;
+  reqs[1].len = page_size;
+  reqs[1].scratch = scratch1.BufferStart();
+
+  FSRandomAccessFile* fs_reader = reader.get();
+  ASSERT_OK(fs_reader->MultiRead(reqs.data(), reqs.size(), IOOptions(),
+                                 /*dbg=*/nullptr));
+  AssertResult(content, reqs);
+  ASSERT_EQ(reqs[0].result.data(), reqs[0].scratch);
+  ASSERT_EQ(reqs[1].result.data(), reqs[1].scratch);
+}
+
 // Regression test for a direct-IO async-read buffer bug. When a caller submits
 // an already-aligned FSReadRequest with a null scratch and provides an
 // `aligned_buf` out-parameter for the reader to allocate the backing buffer

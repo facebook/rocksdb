@@ -19,6 +19,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/types_util.h"
 #include "rocksdb/wide_columns.h"
@@ -369,6 +370,45 @@ TEST_F(SstFileReaderTest, Basic) {
     keys.emplace_back(EncodeAsString(i));
   }
   CreateFileAndCheck(keys);
+}
+
+TEST_F(SstFileReaderTest, ReportsFileReads) {
+  class CountingFileReadListener : public EventListener {
+   public:
+    bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+    void OnFileReadFinish(const FileOperationInfo& info) override {
+      if (info.status.ok()) {
+        read_count_.fetch_add(1);
+        read_bytes_.fetch_add(info.length);
+      }
+    }
+
+    uint64_t read_count() const { return read_count_.load(); }
+    uint64_t read_bytes() const { return read_bytes_.load(); }
+
+   private:
+    std::atomic<uint64_t> read_count_{0};
+    std::atomic<uint64_t> read_bytes_{0};
+  };
+
+  CreateFile(sst_name_, {"a", "b", "c"});
+
+  options_.statistics = CreateDBStatistics();
+  options_.statistics->set_stats_level(StatsLevel::kAll);
+  auto listener = std::make_shared<CountingFileReadListener>();
+  options_.listeners.emplace_back(listener);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+
+  EXPECT_GT(options_.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
+  EXPECT_GT(options_.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
+  HistogramData sst_read_micros;
+  options_.statistics->histogramData(SST_READ_MICROS, &sst_read_micros);
+  EXPECT_GT(sst_read_micros.count, 0);
+  EXPECT_GT(listener->read_count(), 0);
+  EXPECT_GT(listener->read_bytes(), 0);
 }
 
 TEST_F(SstFileReaderTest, MultiGetExceedingMaxBatchSize) {

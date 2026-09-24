@@ -243,7 +243,7 @@ IOStatus CopyEngine::CopyOrCreateFile(
       checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
     }
 
-    io_s = dest_writer->Append(opts, data);
+    io_s = dest_writer->Append(data, opts);
 
     if (rate_limiter != nullptr) {
       if (!src.empty()) {
@@ -280,7 +280,7 @@ IOStatus CopyEngine::CopyOrCreateFile(
   }
 
   if (io_s.ok() && sync) {
-    io_s = dest_writer->Sync(opts, use_fsync);
+    io_s = use_fsync ? dest_writer->Fsync(opts) : dest_writer->Sync(opts);
   }
   if (io_s.ok()) {
     io_s = dest_writer->Close(opts);

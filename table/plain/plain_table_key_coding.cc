@@ -103,7 +103,7 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
       char* ptr = EncodeVarint32(key_size_buf, user_key_size);
       assert(ptr <= key_size_buf + sizeof(key_size_buf));
       auto len = ptr - key_size_buf;
-      IOStatus io_s = file->Append(opts, Slice(key_size_buf, len));
+      IOStatus io_s = file->Append(Slice(key_size_buf, len), opts);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -121,7 +121,7 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
       key_count_for_prefix_ = 1;
       pre_prefix_.SetUserKey(prefix);
       size_bytes_pos += EncodeSize(kFullKey, user_key_size, size_bytes);
-      IOStatus io_s = file->Append(opts, Slice(size_bytes, size_bytes_pos));
+      IOStatus io_s = file->Append(Slice(size_bytes, size_bytes_pos), opts);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -139,7 +139,7 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
           static_cast<uint32_t>(pre_prefix_.GetUserKey().size());
       size_bytes_pos += EncodeSize(kKeySuffix, user_key_size - prefix_len,
                                    size_bytes + size_bytes_pos);
-      IOStatus io_s = file->Append(opts, Slice(size_bytes, size_bytes_pos));
+      IOStatus io_s = file->Append(Slice(size_bytes, size_bytes_pos), opts);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -154,7 +154,7 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
   // in this buffer to safe one file append call, which takes 1 byte.
   if (parsed_key.sequence == 0 && parsed_key.type == kTypeValue) {
     IOStatus io_s =
-        file->Append(opts, Slice(key_to_write.data(), key_to_write.size() - 8));
+        file->Append(Slice(key_to_write.data(), key_to_write.size() - 8), opts);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -162,7 +162,7 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
     meta_bytes_buf[*meta_bytes_buf_size] = PlainTableFactory::kValueTypeSeqId0;
     *meta_bytes_buf_size += 1;
   } else {
-    IOStatus io_s = file->Append(opts, key_to_write);
+    IOStatus io_s = file->Append(key_to_write, opts);
     if (!io_s.ok()) {
       return io_s;
     }

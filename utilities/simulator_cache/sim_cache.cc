@@ -73,7 +73,7 @@ class CacheActivityLogger {
     oss << "LOOKUP - " << key.ToString(true) << std::endl;
 
     MutexLock l(&mutex_);
-    Status s = file_writer_->Append(IOOptions(), oss.str());
+    Status s = file_writer_->Append(oss.str(), IOOptions());
     if (!s.ok() && bg_status_.ok()) {
       bg_status_ = s;
     }
@@ -93,7 +93,7 @@ class CacheActivityLogger {
     // line format: "ADD - <KEY> - <KEY-SIZE>"
     oss << "ADD - " << key.ToString(true) << " - " << size << std::endl;
     MutexLock l(&mutex_);
-    Status s = file_writer_->Append(IOOptions(), oss.str());
+    Status s = file_writer_->Append(oss.str(), IOOptions());
     if (!s.ok() && bg_status_.ok()) {
       bg_status_ = s;
     }

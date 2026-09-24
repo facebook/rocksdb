@@ -2227,8 +2227,9 @@ Status DBImplSecondary::PersistInitialCompactionProgress(
     return s;
   }
 
-  s = compaction_progress_writer->file()->Sync(opts,
-                                               immutable_db_options_.use_fsync);
+  s = immutable_db_options_.use_fsync
+          ? compaction_progress_writer->file()->Fsync(opts)
+          : compaction_progress_writer->file()->Sync(opts);
 
   return s;
 }

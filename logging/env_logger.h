@@ -162,7 +162,7 @@ class EnvLogger : public Logger {
       {
         FileOpGuard guard(*this);
         // We will ignore any error returned by Append().
-        file_.Append(IOOptions(), Slice(base, p - base)).PermitUncheckedError();
+        file_.Append(Slice(base, p - base), IOOptions()).PermitUncheckedError();
         file_.reset_seen_error();
         flush_pending_ = true;
         const uint64_t now_micros = clock_->NowMicros();

@@ -452,7 +452,8 @@ Status BuildTable(
         WritableFileWriter::PrepareIOOptions(tboptions.write_options, opts);
     if (s.ok() && io_status->ok() && !empty) {
       StopWatch sw(ioptions.clock, ioptions.stats, TABLE_SYNC_MICROS);
-      *io_status = file_writer->Sync(opts, ioptions.use_fsync);
+      *io_status = ioptions.use_fsync ? file_writer->Fsync(opts)
+                                      : file_writer->Sync(opts);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");
     if (s.ok() && io_status->ok() && !empty) {

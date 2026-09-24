@@ -4,6 +4,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <cstring>
+
 #include "util/coro_utils.h"
 #include "util/defer.h"
 
@@ -242,7 +244,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
-                             scratch + pos, dbg);
+                             scratch != nullptr ? scratch + pos : nullptr, dbg);
         }
 #endif
         if (ShouldNotifyListeners()) {
@@ -292,19 +294,25 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
  AlignedBufferAllocationContext* direct_io_buffer_context, IODebugContext* dbg)
     const {
   assert(num_reqs > 0);
-  AlignedBuffer* direct_io_buffer = direct_io_buffer_context != nullptr
-                                        ? direct_io_buffer_context->buffer
-                                        : nullptr;
+  AlignedBuffer local_direct_io_buffer;
+  AlignedBuffer* direct_io_buffer =
+      use_direct_io() ? (direct_io_buffer_context != nullptr
+                             ? direct_io_buffer_context->buffer
+                             : &local_direct_io_buffer)
+                      : nullptr;
   const AlignedBuffer::Allocator* direct_io_allocator =
       direct_io_buffer_context != nullptr ? direct_io_buffer_context->allocator
                                           : nullptr;
-  assert(direct_io_buffer != nullptr);
+  assert(!use_direct_io() || direct_io_buffer != nullptr);
 
 #ifndef NDEBUG
-  for (size_t i = 0; i < num_reqs - 1; ++i) {
-    assert(read_reqs[i].offset <= read_reqs[i + 1].offset);
+  if (use_direct_io() && direct_io_buffer_context == nullptr) {
+    for (size_t i = 0; i < num_reqs; ++i) {
+      assert(read_reqs[i].len == 0 || read_reqs[i].scratch != nullptr);
+    }
   }
-#endif  // !NDEBUG
+#endif
+
   const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   // To be paranoid modify scratch a little bit, so in case underlying
@@ -330,14 +338,50 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
     FSReadRequest* fs_reqs = read_reqs;
     size_t num_fs_reqs = num_reqs;
     std::vector<FSReadRequest> aligned_reqs;
+    std::vector<size_t> read_req_order;
+    bool use_caller_direct_io_buffers = false;
+    bool read_reqs_are_sorted = true;
     if (use_direct_io()) {
+      const size_t alignment = file_->GetRequiredBufferAlignment();
+      use_caller_direct_io_buffers = direct_io_buffer_context == nullptr;
+      for (size_t i = 0; i < num_reqs; ++i) {
+        const FSReadRequest& req = read_reqs[i];
+        if (i > 0 && read_reqs[i - 1].offset > req.offset) {
+          read_reqs_are_sorted = false;
+        }
+        if (use_caller_direct_io_buffers &&
+            (!AlignedBuffer::isAligned(static_cast<size_t>(req.offset),
+                                       alignment) ||
+             !AlignedBuffer::isAligned(req.len, alignment) ||
+             (req.len > 0 &&
+              (req.scratch == nullptr ||
+               !AlignedBuffer::isAligned(req.scratch, alignment))))) {
+          use_caller_direct_io_buffers = false;
+        }
+      }
+    }
+    if (use_direct_io() && !use_caller_direct_io_buffers) {
+      if (!read_reqs_are_sorted) {
+        // Alignment merges each request only with aligned_reqs.back(), so
+        // process requests in increasing offset order.
+        read_req_order.resize(num_reqs);
+        for (size_t i = 0; i < num_reqs; ++i) {
+          read_req_order[i] = i;
+        }
+        std::sort(read_req_order.begin(), read_req_order.end(),
+                  [read_reqs](size_t lhs, size_t rhs) {
+                    return read_reqs[lhs].offset < read_reqs[rhs].offset;
+                  });
+      }
       // num_reqs is the max possible size,
       // this can reduce std::vector's internal resize operations.
       aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
       for (size_t i = 0; i < num_reqs; i++) {
-        FSReadRequest r = Align(read_reqs[i], alignment);
+        const size_t read_req_i =
+            read_req_order.empty() ? i : read_req_order[i];
+        FSReadRequest r = Align(read_reqs[read_req_i], alignment);
         if (i == 0) {
           // head
           aligned_reqs.push_back(std::move(r));
@@ -422,11 +466,13 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
-    if (use_direct_io() && io_s.ok()) {
+    if (use_direct_io() && !use_caller_direct_io_buffers && io_s.ok()) {
       // Populate results in the unaligned read requests.
       size_t aligned_i = 0;
       for (size_t i = 0; i < num_reqs; i++) {
-        auto& r = read_reqs[i];
+        const size_t read_req_i =
+            read_req_order.empty() ? i : read_req_order[i];
+        auto& r = read_reqs[read_req_i];
         if (static_cast<size_t>(r.offset) > End(aligned_reqs[aligned_i])) {
           aligned_i++;
         }
@@ -440,7 +486,15 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)
           } else {
             size_t len = std::min(
                 r.len, static_cast<size_t>(fs_r.result.size() - offset));
-            r.result = Slice(fs_r.scratch + offset, len);
+            const char* result_data = fs_r.scratch + offset;
+            if (direct_io_buffer_context == nullptr) {
+              if (len > 0) {
+                std::memcpy(r.scratch, result_data, len);
+              }
+              r.result = Slice(r.scratch, len);
+            } else {
+              r.result = Slice(result_data, len);
+            }
           }
         } else {
           r.result = Slice();

@@ -424,12 +424,12 @@ IOStatus WriteSimpleGen2BlobRecord(WritableFileWriter* file,
     return io_s;
   }
   if (!payload.empty()) {
-    io_s = file->Append(opts, payload);
+    io_s = file->Append(payload, opts);
     if (!io_s.ok()) {
       return io_s;
     }
   }
-  return file->Append(opts, Slice(trailer.data(), trailer.size()));
+  return file->Append(Slice(trailer.data(), trailer.size()), opts);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -184,11 +184,13 @@ class ExternalTableBuilder {
   // Add() fails for some reason.
   virtual Status status() const = 0;
 
-  // Flush and close the table file
+  // Finalize the table contents and release builder-owned resources. The file
+  // remains owned by RocksDB and must not be synced or closed.
   virtual Status Finish() = 0;
 
-  // Delete the partial file and release any allocated resources. Either this
-  // or Finish() will be called, but not both.
+  // Discard partial table state and release builder-owned resources. RocksDB
+  // owns and cleans up the file. Either this or Finish() will be called, but
+  // not both.
   virtual void Abandon() = 0;
 
   // Return the size of the table file. Will be called at the end, after
@@ -265,13 +267,18 @@ class ExternalTableFactory : public Customizable {
 
   const char* Name() const override { return "ExternalTableFactory"; }
 
+  // Ownership of file is transferred to the implementation, which must retain
+  // it for as long as the returned reader needs it. file_size is the size of
+  // that opened file.
   virtual Status NewTableReader(
       const ReadOptions& read_options, const std::string& file_path,
       const ExternalTableOptions& table_options,
+      std::unique_ptr<FSRandomAccessFile>&& file, uint64_t file_size,
       std::unique_ptr<ExternalTableReader>* table_reader) const = 0;
 
-  // The table builder should use the file pointer to append to the file.
-  // Do not sync or close the file after finishing. RocksDB will do that.
+  // file is non-owning and remains valid until Finish() or Abandon() returns.
+  // Do not retain it afterward, including during builder destruction. Do not
+  // sync or close it; RocksDB will do that.
   virtual ExternalTableBuilder* NewTableBuilder(
       const ExternalTableBuilderOptions& builder_options,
       const std::string& file_path, FSWritableFile* file) const = 0;

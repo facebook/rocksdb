@@ -3268,7 +3268,8 @@ Status CompactionJob::PersistSubcompactionProgress(
     s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   }
   if (s.ok()) {
-    s = compaction_progress_writer_->file()->Sync(opts, db_options_.use_fsync);
+    s = db_options_.use_fsync ? compaction_progress_writer_->file()->Fsync(opts)
+                              : compaction_progress_writer_->file()->Sync(opts);
   }
 
   if (!s.ok()) {
