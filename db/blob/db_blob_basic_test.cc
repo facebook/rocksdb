@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -19,15 +20,19 @@
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/replayer.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
+#include "util/defer.h"
+#include "util/file_checksum_helper.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -36,6 +41,49 @@ class DBBlobBasicTest : public DBTestBase {
  protected:
   DBBlobBasicTest()
       : DBTestBase("db_blob_basic_test", /* env_do_fsync */ false) {}
+};
+
+class BlobFileChecksumCapturingFS : public FileSystemWrapper {
+ public:
+  explicit BlobFileChecksumCapturingFS(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  static const char* kClassName() { return "BlobFileChecksumCapturingFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (fname.find(".blob") != std::string::npos) {
+      std::lock_guard<std::mutex> lock(mu_);
+      file_checksum_ = opts.file_checksum;
+      file_checksum_func_name_ = opts.file_checksum_func_name;
+      ++capture_count_;
+    }
+    return target()->NewRandomAccessFile(fname, opts, result, dbg);
+  }
+
+  std::string GetFileChecksum() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return file_checksum_;
+  }
+
+  std::string GetFileChecksumFuncName() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return file_checksum_func_name_;
+  }
+
+  int GetCaptureCount() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return capture_count_;
+  }
+
+ private:
+  std::mutex mu_;
+  std::string file_checksum_;
+  std::string file_checksum_func_name_;
+  int capture_count_ = 0;
 };
 
 TEST_F(DBBlobBasicTest, GetBlob) {
@@ -63,6 +111,41 @@ TEST_F(DBBlobBasicTest, GetBlob) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                   .IsIncomplete());
+}
+
+TEST_F(DBBlobBasicTest, BlobFileChecksumInFileOptions) {
+  auto capturing_fs =
+      std::make_shared<BlobFileChecksumCapturingFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+  ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Flush());
+
+  std::vector<ColumnFamilyMetaData> column_family_metadata;
+  db_->GetAllColumnFamilyMetaData(&column_family_metadata);
+  ASSERT_EQ(column_family_metadata.size(), 1);
+  ASSERT_EQ(column_family_metadata[0].blob_files.size(), 1);
+  const BlobMetaData& blob_metadata = column_family_metadata[0].blob_files[0];
+  ASSERT_FALSE(blob_metadata.checksum_value.empty());
+  ASSERT_EQ(blob_metadata.checksum_method, "FileChecksumCrc32c");
+
+  ASSERT_EQ(Get(key), blob_value);
+
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_EQ(capturing_fs->GetFileChecksum(), blob_metadata.checksum_value);
+  ASSERT_EQ(capturing_fs->GetFileChecksumFuncName(),
+            blob_metadata.checksum_method);
 }
 
 TEST_F(DBBlobBasicTest, BlobFileWritableFileMaxBufferSize) {

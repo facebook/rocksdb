@@ -80,8 +80,9 @@ class BlobSource {
   // sets "*bytes_read" to the size of on-disk (possibly compressed) blob
   // record.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 uint64_t file_number, uint64_t offset, uint64_t file_size,
-                 uint64_t value_size, CompressionType compression_type,
+                 const BlobFileOpenInfo& blob_file, uint64_t offset,
+                 uint64_t file_size, uint64_t value_size,
+                 CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
@@ -105,10 +106,11 @@ class BlobSource {
   // *bytes_read (when non-null) is the number of bytes read from the file; on a
   // hit it is 0.
   Status GetBlobRange(const ReadOptions& read_options, const Slice& user_key,
-                      uint64_t file_number, uint64_t offset, uint64_t file_size,
-                      uint64_t value_size, CompressionType compression_type,
-                      uint64_t range_offset, size_t range_length,
-                      PinnableSlice* value, uint64_t* bytes_read);
+                      const BlobFileOpenInfo& blob_file, uint64_t offset,
+                      uint64_t file_size, uint64_t value_size,
+                      CompressionType compression_type, uint64_t range_offset,
+                      size_t range_length, PinnableSlice* value,
+                      uint64_t* bytes_read);
 
   // Reads a SimpleGen2Blob payload (see db/blob/blob_gen2_format.h) through the
   // blob value cache and BLOB_DB_* statistics. This is the counterpart to
@@ -232,7 +234,8 @@ class BlobSource {
   //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
   //  records.
   void MultiGetBlobFromOneFile(const ReadOptions& read_options,
-                               uint64_t file_number, uint64_t file_size,
+                               const BlobFileOpenInfo& blob_file,
+                               uint64_t file_size,
                                autovector<BlobReadRequest>& blob_reqs,
                                uint64_t* bytes_read);
 
@@ -250,14 +253,15 @@ class BlobSource {
   // Byte-range (partial) multi-read counterpart of MultiGetBlobFromOneFile for
   // a single blob file. See MultiGetBlobRange.
   void MultiGetBlobRangeFromOneFile(const ReadOptions& read_options,
-                                    uint64_t file_number, uint64_t file_size,
+                                    const BlobFileOpenInfo& blob_file,
+                                    uint64_t file_size,
                                     autovector<BlobRangeReadRequest>& blob_reqs,
                                     uint64_t* bytes_read);
 
   inline Status GetBlobFileReader(
-      const ReadOptions& read_options, uint64_t blob_file_number,
+      const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
       CacheHandleGuard<BlobFileReader>* blob_file_reader) {
-    return blob_file_cache_->GetBlobFileReader(read_options, blob_file_number,
+    return blob_file_cache_->GetBlobFileReader(read_options, blob_file,
                                                blob_file_reader);
   }
 
