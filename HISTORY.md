@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 11.11.1 (09/24/2026)
+### Behavior Changes
+* `Iterator::Refresh()` now returns `NotSupported` on iterators from a secondary DB's `DB::NewIterators()` only, because those iterators are pinned to one cross-column-family read view. Iterators from `DB::NewIterator()` are unaffected; to advance a batch, call `DB::NewIterators()` again after `TryCatchUpWithPrimary()`.
+
+### Bug Fixes
+* Fixed secondary DB `NewIterators()` returning iterators from different database states or blocking for `TryCatchUpWithPrimary()` by serving the last completed catch-up view.
+
 ## 11.11.0 (09/21/2026)
 ### New Features
 * External tables now support DB-assigned global sequence numbers when `IngestExternalFileOptions::allow_global_seqno` is enabled, allowing overlapping external tables to be ingested across multiple levels when compactions are disabled. This includes the deprecated `write_global_seqno` path when the reader supplies the properties block's file offset.
