@@ -311,6 +311,36 @@ TEST_F(FaultInjectionTestFSTest, FaultInjectionExcludesInfoLogFiles) {
   }
 }
 
+TEST_F(FaultInjectionTestFSTest, FileScopedWalWriteErrors) {
+  auto fault_fs =
+      NewFaultFsExcludingInfoLogs(Env::Default(), FaultInjectionIOType::kWrite);
+
+  IOStatus status = fault_fs->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, IOOptions(), "Append", "/tmp/000001.log");
+  ASSERT_TRUE(status.IsIOError());
+  ASSERT_EQ(IOStatus::IOErrorScope::kIOErrorScopeFileSystem, status.GetScope());
+
+  fault_fs->SetInjectFileScopeOnWALWriteError(true);
+  status = fault_fs->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, IOOptions(), "Append", "/tmp/000002.log");
+  ASSERT_TRUE(status.IsIOError());
+  ASSERT_EQ(IOStatus::IOErrorScope::kIOErrorScopeFile, status.GetScope());
+
+  status = fault_fs->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, IOOptions(), "Append", "/tmp/000003.sst");
+  ASSERT_TRUE(status.IsIOError());
+  ASSERT_EQ(IOStatus::IOErrorScope::kIOErrorScopeFileSystem, status.GetScope());
+
+  fault_fs->SetInjectWriteFaultsOnlyOnWAL(true);
+  status = fault_fs->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, IOOptions(), "Append", "/tmp/000004.sst");
+  ASSERT_OK(status);
+  status = fault_fs->MaybeInjectThreadLocalError(
+      FaultInjectionIOType::kWrite, IOOptions(), "Append", "/tmp/000005.log");
+  ASSERT_TRUE(status.IsIOError());
+  ASSERT_EQ(IOStatus::IOErrorScope::kIOErrorScopeFile, status.GetScope());
+}
+
 TEST_F(FaultInjectionTestFSTest,
        InjectedMetadataCloseErrorDoesNotRetryInnerClose) {
   Env* env = Env::Default();

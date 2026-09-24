@@ -34,6 +34,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+WalManager::WalManager(const ImmutableDBOptions& db_options,
+                       const FileOptions& file_options,
+                       const std::shared_ptr<IOTracer>& io_tracer,
+                       const bool seq_per_batch)
+    : db_options_(db_options),
+      file_options_(file_options),
+      env_(db_options.env),
+      fs_(db_options.fs, io_tracer),
+      purge_wal_files_last_run_(0),
+      seq_per_batch_(seq_per_batch),
+      wal_dir_(db_options_.GetWalDir()),
+      wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
+      io_tracer_(io_tracer),
+      recovery_sequence_tracker_(
+          std::make_shared<WalRecoverySequenceTracker>()) {}
+
 Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   auto s = env_->DeleteFile(wal_dir_ + "/" + fname);
   if (s.ok()) {
@@ -113,6 +129,8 @@ Status WalManager::GetUpdatesSince(SequenceNumber seq,
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
 
+  const uint64_t recovery_sequence_generation =
+      recovery_sequence_tracker_->CurrentGeneration();
   std::unique_ptr<VectorWalPtr> wal_files(new VectorWalPtr);
   Status s = GetSortedWalFiles(*wal_files);
   if (!s.ok()) {
@@ -123,10 +141,17 @@ Status WalManager::GetUpdatesSince(SequenceNumber seq,
   if (!s.ok()) {
     return s;
   }
-  iter->reset(new WalIteratorImpl(wal_dir_, &db_options_, read_options,
-                                  file_options_, seq, std::move(wal_files),
-                                  version_set, seq_per_batch_, io_tracer_));
+  iter->reset(new WalIteratorImpl(
+      wal_dir_, &db_options_, read_options, file_options_, seq,
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_,
+      recovery_sequence_tracker_, recovery_sequence_generation));
   return (*iter)->status();
+}
+
+void WalManager::RecordIndeterminateWriteSequence(uint64_t wal_number,
+                                                  SequenceNumber start_sequence,
+                                                  SequenceNumber end_sequence) {
+  recovery_sequence_tracker_->Record(wal_number, start_sequence, end_sequence);
 }
 
 // 1. Go through all archived files and

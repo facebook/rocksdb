@@ -1201,6 +1201,7 @@ Status DBImpl::WriteImpl(
   IOStatus io_s;
   Status pre_release_cb_status;
   size_t seq_inc = 0;
+  uint64_t wal_write_number = 0;
   if (status.ok()) {
     if (deferred_put_entities != nullptr) {
       my_batch->Clear();
@@ -1362,6 +1363,7 @@ Status DBImpl::WriteImpl(
     if (!two_write_queues_) {
       if (status.ok() && !write_options.disableWAL) {
         assert(wal_context.wal_file_number_size);
+        wal_write_number = wal_context.wal_file_number_size->number;
         wal_context.prev_size = wal_context.writer->file()->GetFileSize();
         PERF_TIMER_GUARD(write_wal_time);
         io_s = WriteGroupToWAL(write_group, wal_context.writer, wal_used,
@@ -1486,7 +1488,9 @@ Status DBImpl::WriteImpl(
 
   if (!io_s.ok()) {
     // Check WriteToWAL status
-    WALIOStatusCheck(io_s);
+    TEST_SYNC_POINT_CALLBACK("DBImpl::WriteImpl:BeforeWALIOStatusCheck", &io_s);
+    WALIOStatusCheck(io_s, wal_write_number, last_sequence,
+                     last_sequence + 1 - seq_inc);
   }
   if (!w.CallbackFailed()) {
     if (!io_s.ok()) {
@@ -2069,7 +2073,10 @@ void DBImpl::WriteStatusCheck(const Status& status) {
   }
 }
 
-void DBImpl::WALIOStatusCheck(const IOStatus& io_status) {
+void DBImpl::WALIOStatusCheck(const IOStatus& io_status,
+                              uint64_t failed_wal_number,
+                              SequenceNumber failed_wal_sequence,
+                              SequenceNumber failed_wal_sequence_start) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
   if ((immutable_db_options_.paranoid_checks && !io_status.ok() &&
@@ -2077,12 +2084,46 @@ void DBImpl::WALIOStatusCheck(const IOStatus& io_status) {
       io_status.IsIOFenced()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback,
-                              /*wal_related=*/true);
+    if (io_status.IsIOError() && !io_status.IsIOFenced()) {
+      DBRecoverContext context;
+      context.failed_wal_sequence = failed_wal_sequence;
+      const uint64_t resolved_failed_wal_number =
+          failed_wal_number != 0 ? failed_wal_number : cur_wal_number_;
+      if (failed_wal_sequence_start != 0 &&
+          failed_wal_sequence_start <= failed_wal_sequence) {
+        // Successful in-process recovery deliberately omits this write from the
+        // database even if the physical WAL record is complete. Keep a
+        // process-lifetime fence so TransactionLogIterator does not expose it.
+        wal_manager_.RecordIndeterminateWriteSequence(
+            resolved_failed_wal_number, failed_wal_sequence_start,
+            failed_wal_sequence);
+      }
+      if (io_status.GetScope() == IOStatus::IOErrorScope::kIOErrorScopeFile) {
+        context.failed_wal_number = resolved_failed_wal_number;
+        ExtendWALRecoveryCutoff(context.failed_wal_number);
+      }
+      error_handler_.SetBGError(io_status,
+                                BackgroundErrorReason::kWriteCallback,
+                                /*wal_related=*/true, context);
+    } else {
+      error_handler_.SetBGError(io_status,
+                                BackgroundErrorReason::kWriteCallback,
+                                /*wal_related=*/true);
+    }
     mutex_.Unlock();
   } else {
     // Force writable file to be continue writable.
     logs_.back().writer->file()->reset_seen_error();
+  }
+}
+
+void DBImpl::ExtendWALRecoveryCutoff(uint64_t failed_wal_number) {
+  assert(failed_wal_number != 0);
+  uint64_t current = wal_recovery_cutoff_.load(std::memory_order_relaxed);
+  while (current < failed_wal_number &&
+         !wal_recovery_cutoff_.compare_exchange_weak(
+             current, failed_wal_number, std::memory_order_release,
+             std::memory_order_relaxed)) {
   }
 }
 
@@ -2287,10 +2328,13 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   }
   IOStatus io_s = log_writer->MaybeAddUserDefinedTimestampSizeRecord(
       write_options, versions_->GetColumnFamiliesTimestampSizeForRecord());
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::WriteToWAL:AfterMaybeAddUserDefinedTimestampSizeRecord", &io_s);
   if (!io_s.ok()) {
     return io_s;
   }
   io_s = log_writer->AddRecord(write_options, log_entry, sequence);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:AfterAddRecord", &io_s);
 
   if (UNLIKELY(needs_locking)) {
     wal_write_mutex_.Unlock();
@@ -3128,6 +3172,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   UnpublishedWAL prepared_wal;
   MemTable* new_mem = nullptr;
   IOStatus io_s;
+  bool current_wal_write_buffer_failed = false;
 
   // Recoverable state is persisted in WAL. After memtable switch, WAL might
   // be deleted, so we write the state to memtable to be persisted as well.
@@ -3142,7 +3187,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   if (two_write_queues_) {
     wal_write_mutex_.Lock();
   }
-  bool creating_new_log = !wal_empty_;
+  bool creating_new_log =
+      !wal_empty_ || (recovering_from_wal_write_error_ &&
+                      cur_wal_number_ <= recover_wal_through_number_);
   if (two_write_queues_) {
     wal_write_mutex_.Unlock();
   }
@@ -3273,13 +3320,28 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     InstrumentedMutexLock l(&wal_write_mutex_);
     assert(new_log != nullptr);
     if (!logs_.empty()) {
-      // Alway flush the buffer of the last log before switching to a new one
+      // Always flush the buffer of the last log before switching to a new one,
+      // except when recovery is replacing a file-scoped failed WAL. Its
+      // accepted contents are persisted by the atomic recovery flush.
       log::Writer* cur_log_writer = logs_.back().writer;
-      if (error_handler_.IsRecoveryInProgress()) {
+      const bool abandon_current_wal =
+          recovering_from_wal_write_error_ &&
+          cur_log_writer->get_log_number() <= recover_wal_through_number_;
+      if (abandon_current_wal) {
+        TEST_SYNC_POINT("DBImpl::SwitchMemtable:AbandonWAL");
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "[WAL recovery] [%s] Replacing failed WAL #%" PRIu64
+                       " with WAL #%" PRIu64,
+                       cfd->GetName().c_str(), cur_log_writer->get_log_number(),
+                       new_log_number);
+      } else if (error_handler_.IsRecoveryInProgress()) {
         // In recovery path, we force another try of writing WAL buffer.
         cur_log_writer->file()->reset_seen_error();
       }
-      io_s = cur_log_writer->WriteBuffer(write_options);
+      if (!abandon_current_wal) {
+        io_s = cur_log_writer->WriteBuffer(write_options);
+        current_wal_write_buffer_failed = !io_s.ok();
+      }
       if (s.ok()) {
         s = io_s;
       }
@@ -3306,11 +3368,29 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     delete new_mem;
     delete new_log;
     context->superversion_context.new_superversion.reset();
-    // We may have lost data from the WritableFileBuffer in-memory buffer for
-    // the current log, so treat it as a fatal error and set bg_error
+    // Only a WriteBuffer() failure belongs to the current WAL. CreateWAL() and
+    // StartWALFile() operate on an unpublished replacement, so a failure there
+    // must not quarantine an otherwise healthy current WAL.
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable,
-                                /*wal_related=*/true);
+      if (!current_wal_write_buffer_failed) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Failed to create or start replacement WAL #%" PRIu64
+                       "; current WAL #%" PRIu64 " remains active: %s",
+                       new_log_number, cur_wal_number_,
+                       io_s.ToString().c_str());
+      }
+      if (current_wal_write_buffer_failed && io_s.IsIOError() &&
+          !io_s.IsIOFenced() &&
+          io_s.GetScope() == IOStatus::IOErrorScope::kIOErrorScopeFile) {
+        DBRecoverContext recovery_context;
+        recovery_context.failed_wal_number = cur_wal_number_;
+        ExtendWALRecoveryCutoff(recovery_context.failed_wal_number);
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable,
+                                  /*wal_related=*/true, recovery_context);
+      } else {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable,
+                                  /*wal_related=*/true);
+      }
     } else {
       error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     }

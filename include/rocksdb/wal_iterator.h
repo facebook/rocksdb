@@ -115,6 +115,15 @@ struct BatchResult {
 // that uses either of them can still be followed up to the first such hole,
 // but cannot be followed continuously.
 //
+// A WAL append that returns IOError is indeterminate: its physical record may
+// be absent, incomplete, or complete. If RocksDB successfully recovers while
+// the DB remains open, the error-returned write is abandoned and its sequence
+// range is reserved. For the lifetime of that DB instance, this iterator stops
+// before the range rather than returning a physically complete record that is
+// not part of the recovered DB. If the DB closes before successful in-process
+// recovery, a complete record may instead be replayed on the next open and
+// appear normally here.
+//
 // The WAL is also not retained indefinitely. Set Options::WAL_ttl_seconds
 // and/or Options::WAL_size_limit_MB large enough to cover how far behind a
 // consumer may fall; otherwise WAL files are recycled or deleted aggressively
@@ -164,7 +173,9 @@ struct BatchResult {
 //     from the WAL. A new iterator may be able to continue from here.
 //   * Status::NotFound("Gap in sequence numbers") -- the batch just read is
 //     not contiguous with the previous one, i.e. a discontinuity in the WAL
-//     (see SOURCE OF DATA and GAPS).
+//     (see SOURCE OF DATA and GAPS). This status is also returned before a
+//     sequence range reserved by in-process recovery from an indeterminate WAL
+//     write.
 //   * Status::Corruption and I/O errors -- the WAL could not be read.
 //
 // These are hints, not a classification to branch on. The same underlying

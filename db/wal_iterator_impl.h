@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <map>
+#include <memory>
 #include <vector>
 
 #include "db/log_reader.h"
@@ -18,6 +20,31 @@
 #include "rocksdb/wal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// An indeterminate WAL append can leave a complete physical record that is not
+// part of the database after successful in-process recovery. Keep the end
+// sequence of each such write group for the lifetime of the open DB so both
+// existing and newly created WAL iterators stop before exposing that record.
+struct WalRecoverySequenceGap {
+  uint64_t wal_number;
+  SequenceNumber start_sequence;
+  SequenceNumber end_sequence;
+  uint64_t generation;
+};
+
+class WalRecoverySequenceTracker {
+ public:
+  void Record(uint64_t wal_number, SequenceNumber start_sequence,
+              SequenceNumber end_sequence);
+  bool FirstAtOrAfter(SequenceNumber sequence,
+                      WalRecoverySequenceGap* recovery_gap) const;
+  uint64_t CurrentGeneration() const;
+
+ private:
+  mutable port::Mutex mutex_;
+  std::map<SequenceNumber, WalRecoverySequenceGap> gaps_by_end_sequence_;
+  uint64_t generation_ = 0;
+};
 
 class WalFileImpl : public WalFile {
  public:
@@ -56,12 +83,14 @@ class WalFileImpl : public WalFile {
 
 class WalIteratorImpl : public WalIterator {
  public:
-  WalIteratorImpl(const std::string& dir, const ImmutableDBOptions* options,
-                  const WalIterator::ReadOptions& read_options,
-                  const EnvOptions& soptions, const SequenceNumber seqNum,
-                  std::unique_ptr<VectorWalPtr> files,
-                  VersionSet const* const versions, const bool seq_per_batch,
-                  const std::shared_ptr<IOTracer>& io_tracer);
+  WalIteratorImpl(
+      const std::string& dir, const ImmutableDBOptions* options,
+      const WalIterator::ReadOptions& read_options, const EnvOptions& soptions,
+      const SequenceNumber seqNum, std::unique_ptr<VectorWalPtr> files,
+      VersionSet const* const versions, const bool seq_per_batch,
+      const std::shared_ptr<IOTracer>& io_tracer,
+      std::shared_ptr<WalRecoverySequenceTracker> recovery_sequence_tracker,
+      uint64_t recovery_sequence_generation);
 
   bool Valid() override;
 
@@ -82,6 +111,8 @@ class WalIteratorImpl : public WalIterator {
   // TODO(icanadi) can this be just a callback?
   VersionSet const* const versions_;
   std::shared_ptr<IOTracer> io_tracer_;
+  std::shared_ptr<WalRecoverySequenceTracker> recovery_sequence_tracker_;
+  uint64_t recovery_sequence_generation_;
 
   // State variables
   bool started_;
@@ -125,6 +156,10 @@ class WalIteratorImpl : public WalIterator {
   bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expected_seq);
   // Update current batch if a continuous batch is found.
   void UpdateCurrentWriteBatch(const Slice& record);
+  // End the run before a batch that contains or crosses a sequence reserved
+  // after an indeterminate WAL write.
+  bool StopBeforeRecoveryGap(uint64_t wal_number,
+                             SequenceNumber batch_last_sequence);
   Status OpenLogReader(const WalFile* file);
 };
 
