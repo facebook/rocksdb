@@ -2371,6 +2371,24 @@ class DB {
   // threads call EnableFileDeletions()
   virtual Status EnableFileDeletions() = 0;
 
+  // Suspend automatic deletion, archival, and recycling of obsolete WAL files,
+  // including deletion of archived WALs. Writes, flushes, compactions, and
+  // deletion of other file types continue normally. Cleanup or recycling
+  // already in progress is not cancelled, as with DisableFileDeletions().
+  // Each successful call must be matched by EnableWalDeletions(). Calls are
+  // thread-safe and take effect at runtime; the counter is not persisted.
+  virtual Status DisableWalDeletions() {
+    return Status::NotSupported("DisableWalDeletions not implemented");
+  }
+
+  // Release one DisableWalDeletions() request. Automatic WAL cleanup resumes
+  // only when all WAL-specific and all DisableFileDeletions() requests have
+  // been released. Extra calls do not make the counter negative. Existing WAL
+  // retention options still apply when cleanup resumes. Thread-safe.
+  virtual Status EnableWalDeletions() {
+    return Status::NotSupported("EnableWalDeletions not implemented");
+  }
+
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
   // Status returned is Status::NotSupported()

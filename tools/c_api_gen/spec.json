@@ -665,6 +665,32 @@
         },
         {
           "kind": "status_method",
+          "name": "rocksdb_disable_wal_deletions",
+          "call_expr": "db->rep->DisableWalDeletions",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
+          "name": "rocksdb_enable_wal_deletions",
+          "call_expr": "db->rep->EnableWalDeletions",
+          "params": [
+            {
+              "kind": "scalar",
+              "c_type": "rocksdb_t*",
+              "name": "db"
+            }
+          ],
+          "method_args": []
+        },
+        {
+          "kind": "status_method",
           "name": "rocksdb_verify_checksum",
           "call_expr": "db->rep->VerifyChecksum",
           "params": [

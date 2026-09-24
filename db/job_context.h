@@ -245,6 +245,9 @@ struct JobContext {
   // Used for remote compaction. To prevent OPTIONS files from getting
   // purged by PurgeObsoleteFiles() of the primary host
   uint64_t min_options_file_number;
+  // Snapshot under DB mutex, like the all-files deletion gate. A purge that
+  // was collected before disabling WAL deletions is allowed to finish.
+  bool wal_deletions_disabled = false;
   uint64_t log_number = 0;
   uint64_t prev_log_number = 0;
 
