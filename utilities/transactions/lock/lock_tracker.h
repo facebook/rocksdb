@@ -104,7 +104,7 @@ class LockTracker {
 
   // This is a reverse operation of Merge.
   //
-  // E.g. for point lock, if a key exists in both current and the sepcified
+  // E.g. for point lock, if a key exists in both current and the specified
   // tracker, then subtract the information (such as read/write statistics) of
   // the key in the specified tracker from the current tracker.
   //
