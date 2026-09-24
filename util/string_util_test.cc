@@ -50,6 +50,13 @@ TEST(StringUtilTest, Trim) {
   EXPECT_EQ("", trim("\t"));
   EXPECT_EQ("", trim("\n"));
   EXPECT_EQ("", trim(" \t\n\r"));
+  // A trailing (or leading) UTF-8 multi-byte character whose lead byte has
+  // its high bit set (e.g. 0xC3 in the 2-byte encoding of 'u' with an acute
+  // accent) must not be misread as whitespace: on platforms where plain
+  // `char` is signed, passing such a byte straight to isspace() is undefined
+  // behavior and can misclassify or crash (see GH-7809).
+  EXPECT_EQ("B\xC3\xBA", trim("B\xC3\xBA"));
+  EXPECT_EQ("B\xC3\xBA", trim("  B\xC3\xBA  "));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
