@@ -3365,9 +3365,82 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                                         std::make_tuple(false, true),
                                         std::make_tuple(false, false)));
 
-// Uses anonymous mmap (lazy-zeroed) so the large data itself doesn't consume
-// physical memory -- only the SstFileWriter's internal copy does (~4GB peak
-// during the acceptance case).
+namespace {
+
+struct DiscardFileState {
+  uint64_t size = 0;
+  bool synced = false;
+  bool closed = false;
+};
+
+class CountingDiscardWritableFile : public FSWritableFile {
+ public:
+  explicit CountingDiscardWritableFile(
+      const std::shared_ptr<DiscardFileState>& state)
+      : state_(state) {}
+
+  using FSWritableFile::Append;
+  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+    state_->size += data.size();
+    return IOStatus::OK();
+  }
+
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    state_->closed = true;
+    return IOStatus::OK();
+  }
+
+  IOStatus Flush(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
+
+  IOStatus Sync(const IOOptions& /*options*/,
+                IODebugContext* /*dbg*/) override {
+    state_->synced = true;
+    return IOStatus::OK();
+  }
+
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return state_->size;
+  }
+
+ private:
+  std::shared_ptr<DiscardFileState> state_;
+};
+
+class CountingDiscardFileSystem : public FileSystemWrapper {
+ public:
+  explicit CountingDiscardFileSystem(const std::shared_ptr<FileSystem>& base)
+      : FileSystemWrapper(base) {}
+
+  const char* Name() const override { return "CountingDiscardFileSystem"; }
+
+  IOStatus NewWritableFile(const std::string& /*fname*/,
+                           const FileOptions& /*file_options*/,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* /*dbg*/) override {
+    last_file_state_ = std::make_shared<DiscardFileState>();
+    result->reset(new CountingDiscardWritableFile(last_file_state_));
+    return IOStatus::OK();
+  }
+
+  std::shared_ptr<DiscardFileState> GetLastFileState() const {
+    return last_file_state_;
+  }
+
+ private:
+  std::shared_ptr<DiscardFileState> last_file_state_;
+};
+
+}  // namespace
+
+// Uses anonymous mmap (lazy-zeroed) so the large input itself doesn't consume
+// physical memory. Table construction still needs substantial working memory,
+// so the test retains the big-memory guard.
 TEST_F(ExternalSSTFileBasicTest, LargeSizeSstFileWriter) {
   if (!test::HasBigMem()) {
     ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
@@ -3378,11 +3451,20 @@ TEST_F(ExternalSSTFileBasicTest, LargeSizeSstFileWriter) {
       size_t{std::numeric_limits<uint32_t>::max()} - 8;
   constexpr size_t kMaxValueSize = size_t{std::numeric_limits<uint32_t>::max()};
 
+  // Exercise the real table builder and SstFileWriter lifecycle without
+  // materializing their multi-gigabyte output in the shared test tmpfs. This
+  // test validates size boundaries, not the contents of the generated SST.
+  auto discard_fs =
+      std::make_shared<CountingDiscardFileSystem>(env_->GetFileSystem());
+  std::unique_ptr<Env> discard_env(new CompositeEnvWrapper(env_, discard_fs));
+
   // --- Large key ---
   {
     Options options = CurrentOptions();
+    options.env = discard_env.get();
     SstFileWriter sst_file_writer(EnvOptions(), options);
-    ASSERT_OK(sst_file_writer.Open(dbname_ + "/large_key.sst"));
+    const std::string file_path = dbname_ + "/large_key.sst";
+    ASSERT_OK(sst_file_writer.Open(file_path));
 
     MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxKeySize + 1);
     ASSERT_NE(nullptr, mm.Get());
@@ -3393,14 +3475,24 @@ TEST_F(ExternalSSTFileBasicTest, LargeSizeSstFileWriter) {
     // A key at the limit should be accepted
     ASSERT_OK(
         sst_file_writer.Put(Slice(mm.AsSlice().data(), kMaxKeySize), "val"));
-    ASSERT_OK(sst_file_writer.Finish());
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    const auto file_state = discard_fs->GetLastFileState();
+    ASSERT_NE(nullptr, file_state);
+    EXPECT_EQ(file_info.file_size, file_state->size);
+    EXPECT_TRUE(file_state->synced);
+    EXPECT_TRUE(file_state->closed);
+    EXPECT_TRUE(env_->FileExists(file_path).IsNotFound());
   }
 
   // --- Large value ---
   {
     Options options = CurrentOptions();
+    options.env = discard_env.get();
     SstFileWriter sst_file_writer(EnvOptions(), options);
-    ASSERT_OK(sst_file_writer.Open(dbname_ + "/large_value.sst"));
+    const std::string file_path = dbname_ + "/large_value.sst";
+    ASSERT_OK(sst_file_writer.Open(file_path));
 
     MemMapping mm = MemMapping::AllocateLazyZeroed(kMaxValueSize + 1);
     ASSERT_NE(nullptr, mm.Get());
@@ -3411,7 +3503,15 @@ TEST_F(ExternalSSTFileBasicTest, LargeSizeSstFileWriter) {
     // A value at the limit should be accepted
     ASSERT_OK(
         sst_file_writer.Put("key", Slice(mm.AsSlice().data(), kMaxValueSize)));
-    ASSERT_OK(sst_file_writer.Finish());
+    ExternalSstFileInfo file_info;
+    ASSERT_OK(sst_file_writer.Finish(&file_info));
+
+    const auto file_state = discard_fs->GetLastFileState();
+    ASSERT_NE(nullptr, file_state);
+    EXPECT_EQ(file_info.file_size, file_state->size);
+    EXPECT_TRUE(file_state->synced);
+    EXPECT_TRUE(file_state->closed);
+    EXPECT_TRUE(env_->FileExists(file_path).IsNotFound());
   }
 }
 
