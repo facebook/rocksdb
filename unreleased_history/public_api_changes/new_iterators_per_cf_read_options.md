@@ -1,1 +1,0 @@
-Added a `DB::NewIterators()` overload that accepts parallel vectors of `ReadOptions` and column family handles, allowing each returned iterator to use independent read settings while sharing a consistent database state. The vectors must have the same size, all snapshots must be null or identical, and all `tailing` settings must match.
