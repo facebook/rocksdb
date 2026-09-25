@@ -230,6 +230,37 @@ class TransactionTestBase : public ::testing::Test {
     return s;
   }
 
+  // Verifies that both Transaction::GetEntity and Transaction::MultiGetEntity
+  // read `expected_value` for `key` in the default column family.
+  void VerifyTxnGetEntity(Transaction* txn, const ReadOptions& read_options,
+                          const Slice& key, const std::string& expected_value) {
+    const WideColumns expected_columns{
+        {kDefaultWideColumnName, expected_value}};
+    ColumnFamilyHandle* const cfh = db->DefaultColumnFamily();
+
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(read_options, cfh, key, &columns));
+    ASSERT_EQ(columns.columns(), expected_columns);
+
+    PinnableWideColumns multi_get_columns;
+    Status s;
+    txn->MultiGetEntity(read_options, cfh, 1, &key, &multi_get_columns, &s);
+    ASSERT_OK(s);
+    ASSERT_EQ(multi_get_columns.columns(), expected_columns);
+  }
+
+  void VerifyTxnGetEntityForUpdate(Transaction* txn,
+                                   const ReadOptions& read_options,
+                                   const Slice& key,
+                                   const std::string& expected_value) {
+    const WideColumns expected_columns{
+        {kDefaultWideColumnName, expected_value}};
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntityForUpdate(read_options, db->DefaultColumnFamily(),
+                                      key, &columns));
+    ASSERT_EQ(columns.columns(), expected_columns);
+  }
+
   std::atomic<size_t> linked = {0};
   std::atomic<size_t> exp_seq = {0};
   std::atomic<size_t> commit_writes = {0};

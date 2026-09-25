@@ -1028,6 +1028,50 @@ Status WriteUnpreparedTxn::GetImpl(const ReadOptions& options,
   }
 }
 
+Status WriteUnpreparedTxn::GetEntityImpl(const ReadOptions& options,
+                                         ColumnFamilyHandle* column_family,
+                                         const Slice& key,
+                                         PinnableWideColumns* columns) {
+  SequenceNumber min_uncommitted, snap_seq;
+  const SnapshotBackup backed_by_snapshot =
+      wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
+                                          unprep_seqs_, backed_by_snapshot);
+  Status res = write_batch_.GetEntityFromBatchAndDB(db_, options, column_family,
+                                                    key, columns, &callback);
+  if (LIKELY(callback.valid() &&
+             wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    return res;
+  } else {
+    res.PermitUncheckedError();
+    wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
+    return Status::TryAgain();
+  }
+}
+
+void WriteUnpreparedTxn::MultiGetEntityImpl(const ReadOptions& options,
+                                            ColumnFamilyHandle* column_family,
+                                            size_t num_keys, const Slice* keys,
+                                            PinnableWideColumns* results,
+                                            Status* statuses,
+                                            bool sorted_input) {
+  SequenceNumber min_uncommitted, snap_seq;
+  const SnapshotBackup backed_by_snapshot =
+      wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
+                                          unprep_seqs_, backed_by_snapshot);
+  write_batch_.MultiGetEntityFromBatchAndDB(db_, options, column_family,
+                                            num_keys, keys, results, statuses,
+                                            sorted_input, &callback);
+  if (UNLIKELY(!callback.valid() ||
+               !wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
+    for (size_t i = 0; i < num_keys; i++) {
+      statuses[i] = Status::TryAgain();
+    }
+  }
+}
+
 namespace {
 static void CleanupWriteUnpreparedWBWIIterator(void* arg1, void* arg2) {
   auto txn = static_cast<WriteUnpreparedTxn*>(arg1);

@@ -122,6 +122,54 @@ Status WritePreparedTxn::GetImpl(const ReadOptions& options,
   return res;
 }
 
+Status WritePreparedTxn::GetEntityImpl(const ReadOptions& options,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& key,
+                                       PinnableWideColumns* columns) {
+  SequenceNumber min_uncommitted, snap_seq;
+  const SnapshotBackup backed_by_snapshot =
+      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
+  Status res = write_batch_.GetEntityFromBatchAndDB(db_, options, column_family,
+                                                    key, columns, &callback);
+  const bool callback_valid =
+      callback.valid();  // NOTE: validity of callback must always be checked
+                         // before it is destructed
+  if (res.ok()) {
+    if (!LIKELY(callback_valid &&
+                wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+                                          backed_by_snapshot))) {
+      wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
+      res = Status::TryAgain();
+    }
+  }
+
+  return res;
+}
+
+void WritePreparedTxn::MultiGetEntityImpl(const ReadOptions& options,
+                                          ColumnFamilyHandle* column_family,
+                                          size_t num_keys, const Slice* keys,
+                                          PinnableWideColumns* results,
+                                          Status* statuses, bool sorted_input) {
+  SequenceNumber min_uncommitted, snap_seq;
+  const SnapshotBackup backed_by_snapshot =
+      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
+  write_batch_.MultiGetEntityFromBatchAndDB(db_, options, column_family,
+                                            num_keys, keys, results, statuses,
+                                            sorted_input, &callback);
+  if (UNLIKELY(!callback.valid() ||
+               !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
+    for (size_t i = 0; i < num_keys; i++) {
+      statuses[i] = Status::TryAgain();
+    }
+  }
+}
+
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
   return GetIterator(options, wpt_db_->DefaultColumnFamily());
 }
