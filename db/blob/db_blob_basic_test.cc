@@ -1231,6 +1231,157 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {
   }
 }
 
+// Regression tests for the ReadOptions::value_size_soft_limit progress
+// guarantee: "It always makes progress: at least one key is read even if its
+// value alone exceeds the limit. Once the returned size exceeds the limit,
+// subsequent keys get status Aborted (so a caller can retry them, and cannot
+// loop forever on a single value that by itself exceeds the limit)."
+
+TEST_F(DBBlobBasicTest, MultiGetSoftLimitBlobSingleKeyProgress) {
+  // Case A: a single blob value whose size alone exceeds the limit must be
+  // returned (OK + full value); a caller retrying per the documented contract
+  // would otherwise loop forever.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 8;
+
+  Reopen(options);
+
+  const std::string key = "single_key";
+  const std::string value(100, 'a');
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, 1> keys{{key}};
+  std::array<PinnableSlice, 1> values;
+  std::array<Status, 1> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = value.size() - 1;
+
+  db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), 1, keys.data(),
+                values.data(), statuses.data(), /*sorted_input=*/true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], value);
+}
+
+TEST_F(DBBlobBasicTest, MultiGetSoftLimitBlobBatchCrossingKey) {
+  // Case B: in a batch of blob values all exceeding the limit, the crossing
+  // key (the first key) returns OK with its value; the subsequent keys get
+  // Status::Aborted.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 8;
+
+  Reopen(options);
+
+  constexpr size_t kNumOfKeys = 5;
+  std::array<std::string, kNumOfKeys> key_bufs;
+  std::array<std::string, kNumOfKeys> value_bufs;
+  std::array<Slice, kNumOfKeys> keys;
+  for (size_t i = 0; i < kNumOfKeys; ++i) {
+    key_bufs[i] = "key" + std::to_string(i);
+    value_bufs[i] = std::string(100, 'a' + static_cast<char>(i));
+    ASSERT_OK(Put(key_bufs[i], value_bufs[i]));
+    keys[i] = key_bufs[i];
+  }
+  ASSERT_OK(Flush());
+
+  std::array<PinnableSlice, kNumOfKeys> values;
+  std::array<Status, kNumOfKeys> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = 99;
+
+  db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), kNumOfKeys,
+                keys.data(), values.data(), statuses.data(),
+                /*sorted_input=*/true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], value_bufs[0]);
+  for (size_t i = 1; i < kNumOfKeys; ++i) {
+    ASSERT_TRUE(statuses[i].IsAborted());
+  }
+}
+
+TEST_F(DBBlobBasicTest, MultiGetSoftLimitExactBoundary) {
+  // Case C: a blob value exactly equal to the limit does not exceed it and
+  // must be returned.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 8;
+
+  Reopen(options);
+
+  const std::string key = "boundary_key";
+  const std::string value(100, 'b');
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, 1> keys{{key}};
+  std::array<PinnableSlice, 1> values;
+  std::array<Status, 1> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = value.size();
+
+  db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), 1, keys.data(),
+                values.data(), statuses.data(), /*sorted_input=*/true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], value);
+}
+
+TEST_F(DBBlobBasicTest, MultiGetSoftLimitNonBlobControl) {
+  // Case D: control group without blob files -- the plain-value path already
+  // honors the progress guarantee (first key returned even when it alone
+  // exceeds the limit).
+  Options options = GetDefaultOptions();
+  Reopen(options);
+
+  const std::string key = "plain_key";
+  const std::string value(100, 'c');
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, 1> keys{{key}};
+  std::array<PinnableSlice, 1> values;
+  std::array<Status, 1> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = value.size() - 1;
+
+  db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), 1, keys.data(),
+                values.data(), statuses.data(), /*sorted_input=*/true);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], value);
+}
+
+TEST_F(DBBlobBasicTest, MultiGetEntitySoftLimitBlobProgress) {
+  // Case E: MultiGetEntity shares the blob resolution path and must honor
+  // the same progress guarantee.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 8;
+
+  Reopen(options);
+
+  const std::string key = "entity_key";
+  const std::string value(100, 'd');
+  ASSERT_OK(Put(key, value));
+  ASSERT_OK(Flush());
+
+  std::array<Slice, 1> keys{{key}};
+  std::array<PinnableWideColumns, 1> results;
+  std::array<Status, 1> statuses;
+  ReadOptions read_opts;
+  read_opts.value_size_soft_limit = value.size() - 1;
+
+  db_->MultiGetEntity(read_opts, dbfull()->DefaultColumnFamily(), 1,
+                      keys.data(), results.data(), statuses.data(),
+                      /*sorted_input=*/true);
+
+  ASSERT_OK(statuses[0]);
+}
+
 TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
   constexpr uint64_t min_blob_size = 10;
 
