@@ -1226,8 +1226,13 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {
   db_->MultiGet(read_opts, dbfull()->DefaultColumnFamily(), kNumOfKeys,
                 keys.data(), values.data(), statuses.data(),
                 /*sorted_input=*/true);
-  for (const auto& s : statuses) {
-    ASSERT_TRUE(s.IsAborted());
+  // The first key is the crossing key: its value alone exceeds the limit,
+  // but the documented progress guarantee returns it. Subsequent keys get
+  // Status::Aborted.
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], value_bufs[0]);
+  for (size_t i = 1; i < kNumOfKeys; ++i) {
+    ASSERT_TRUE(statuses[i].IsAborted());
   }
 }
 

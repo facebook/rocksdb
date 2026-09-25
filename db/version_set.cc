@@ -3013,6 +3013,14 @@ void Version::MultiGetBlob(
       assert(key_context->s);
 
       if (key_context->s->ok()) {
+        // Progress guarantee for value_size_soft_limit (see
+        // include/rocksdb/options.h): the key whose value crosses the limit
+        // still returns with its value; only subsequent keys get Aborted.
+        // Mirror the plain-value path in Version::MultiGetFromSST, which
+        // marks the key done before checking the limit. Record whether the
+        // limit was already exceeded BEFORE accounting this key's size.
+        const bool already_over_limit =
+            range.GetValueSize() > read_options.value_size_soft_limit;
         if (key_context->value) {
           *key_context->value = std::move(blob.result);
           range.AddValueSize(key_context->value->size());
@@ -3026,7 +3034,7 @@ void Version::MultiGetBlob(
         // post-processing checks whether further blob resolution is needed.
         key_context->is_blob_index = false;
 
-        if (range.GetValueSize() > read_options.value_size_soft_limit) {
+        if (already_over_limit) {
           *key_context->s = Status::Aborted();
         }
       } else if (key_context->s->IsIncomplete()) {
