@@ -962,6 +962,7 @@ cf_consistency_params = {
     "disable_wal": lambda: random.randint(0, 1),
     "reopen": 0,
     "test_cf_consistency": 1,
+    "test_secondary": lambda: random.randint(0, 1),
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,

@@ -343,6 +343,17 @@ class DBCrashTestTest(unittest.TestCase):
             command,
         )
 
+    def test_cf_consistency_randomizes_secondary(self):
+        db_crashtest = self.load_db_crashtest()
+
+        params = db_crashtest.gen_cmd_params(
+            self.build_mode_args("blackbox", cf_consistency=True)
+        )
+
+        with mock.patch.object(db_crashtest.random, "randint", side_effect=[0, 1]):
+            self.assertEqual(0, params["test_secondary"]())
+            self.assertEqual(1, params["test_secondary"]())
+
     def test_skip_verifydb_disables_verification_knobs(self):
         db_crashtest = self.load_db_crashtest()
 
