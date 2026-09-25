@@ -2982,6 +2982,34 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   }
 }
 
+// Two handles naming the same column family make the selected-cfd list longer
+// than the per-CF memtable-id list, which is keyed by CF. The wait loop must
+// not read the id list past its own length.
+TEST_P(DBAtomicFlushTest, ManualAtomicFlushDuplicateColumnFamilyHandles) {
+  if (!GetParam()) {
+    // Only the atomic path reaches the shared wait list; without atomic_flush
+    // each handle is flushed independently.
+    return;
+  }
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  options.write_buffer_size = (static_cast<size_t>(64) << 20);
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.disableWAL = true;
+  ASSERT_OK(Put("key", "value", wopts));
+
+  FlushOptions flush_options;  // wait == true
+  ASSERT_OK(db_->Flush(
+      flush_options, {db_->DefaultColumnFamily(), db_->DefaultColumnFamily()}));
+
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily());
+  ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+  ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+}
+
 TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
   Options options = CurrentOptions();
   options.create_if_missing = true;

@@ -7474,13 +7474,27 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
   // DeleteRange the remaining overlapping keys
   bool empty_after_delete = false;
   if (status.ok()) {
-    Slice smallest_user_key, largest_user_key;
+    // GetSstFilesBoundaryKeys returns Slices into the current Version's
+    // FileMetaData. Copy them out while holding the mutex: the deletes below
+    // drop the mutex and each is a full write, during which a background
+    // compaction can install a new Version and free that metadata.
+    std::string smallest_buf;
+    std::string largest_buf;
     {
       // Lock db mutex
       InstrumentedMutexLock l(&mutex_);
-      cfd->current()->GetSstFilesBoundaryKeys(&smallest_user_key,
-                                              &largest_user_key);
+      Slice smallest_slice;
+      Slice largest_slice;
+      cfd->current()->GetSstFilesBoundaryKeys(&smallest_slice, &largest_slice);
+      smallest_buf.assign(smallest_slice.data(), smallest_slice.size());
+      largest_buf.assign(largest_slice.data(), largest_slice.size());
     }
+    Slice smallest_user_key(smallest_buf);
+    Slice largest_user_key(largest_buf);
+    // Opens the window in which the current Version (and the FileMetaData the
+    // boundary keys were read from) can be replaced and freed by a background
+    // job before the deletes below run.
+    TEST_SYNC_POINT("DBImpl::ClipColumnFamily:PostBoundaryKeys");
     // all the files has been deleted after DeleteFilesInRanges;
     if (smallest_user_key.empty() && largest_user_key.empty()) {
       empty_after_delete = true;

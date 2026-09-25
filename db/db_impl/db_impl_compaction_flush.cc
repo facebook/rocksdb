@@ -3029,10 +3029,33 @@ Status DBImpl::AtomicFlushMemTables(
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
+    // Walk cfds and look each one up, so the ids line up with cfds by
+    // construction. Iterating the map instead pairs ids with the wrong CF
+    // (its order is unrelated to cfds), and a CF that dropped out of the map
+    // (an idle CF de-selected during the switch loop, or a duplicate handle
+    // collapsed by the map) would make the two vectors different lengths.
     autovector<const uint64_t*> flush_memtable_ids;
-    for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
-      flush_memtable_ids.push_back(&(iter.second));
+    flush_memtable_ids.reserve(cfds.size());
+    for (auto* cfd : cfds) {
+      auto iter = flush_req.cfd_to_max_mem_id_to_persist.find(cfd);
+      flush_memtable_ids.push_back(
+          iter == flush_req.cfd_to_max_mem_id_to_persist.end()
+              ? nullptr
+              : &(iter->second));
     }
+#ifndef NDEBUG
+    // WaitForFlushMemTables pairs flush_memtable_ids[i] with cfds[i], so each
+    // entry must point at this cfd's own map id (or be null when absent). Fires
+    // if the ids are ever rebuilt in the request map's order.
+    assert(flush_memtable_ids.size() == cfds.size());
+    for (size_t i = 0; i < cfds.size(); ++i) {
+      auto iter = flush_req.cfd_to_max_mem_id_to_persist.find(cfds[i]);
+      assert(flush_memtable_ids[i] ==
+             (iter == flush_req.cfd_to_max_mem_id_to_persist.end()
+                  ? nullptr
+                  : &(iter->second)));
+    }
+#endif  // NDEBUG
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
@@ -3072,9 +3095,29 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
     flush_req.atomic_flush = true;
     GenerateFlushRequest(cfds, flush_reason, &flush_req);
     EnqueuePendingFlush(flush_req);
-    for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
-      flush_memtable_ids.push_back(iter.second);
+    // Keep flush_memtable_ids aligned with cfds by walking cfds, since the
+    // request map's order is unrelated to cfds. A CF not in the map waits on
+    // its whole imm list, matching the max-bound the non-atomic branch uses.
+    for (auto* cfd : cfds) {
+      auto iter = flush_req.cfd_to_max_mem_id_to_persist.find(cfd);
+      flush_memtable_ids.push_back(
+          iter == flush_req.cfd_to_max_mem_id_to_persist.end()
+              ? std::numeric_limits<uint64_t>::max()
+              : iter->second);
     }
+#ifndef NDEBUG
+    // WaitForFlushMemTables pairs flush_memtable_ids[i] with cfds[i], so each
+    // entry must be this cfd's own max id. Fires if the ids are ever rebuilt in
+    // the request map's order, which is unrelated to cfds order.
+    assert(flush_memtable_ids.size() == cfds.size());
+    for (size_t i = 0; i < cfds.size(); ++i) {
+      auto iter = flush_req.cfd_to_max_mem_id_to_persist.find(cfds[i]);
+      assert(flush_memtable_ids[i] ==
+             (iter == flush_req.cfd_to_max_mem_id_to_persist.end()
+                  ? std::numeric_limits<uint64_t>::max()
+                  : iter->second));
+    }
+#endif  // NDEBUG
   } else {
     for (auto cfd : cfds) {
       flush_memtable_ids.push_back(
