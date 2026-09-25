@@ -566,6 +566,8 @@ GetExternalTableFactoryAdapterOptionsTypeInfo() {
 
 class ExternalTableFactoryAdapter : public TableFactory {
  public:
+  static const char* kClassName() { return "ExternalTableFactoryAdapter"; }
+
   explicit ExternalTableFactoryAdapter(
       std::shared_ptr<ExternalTableFactory> inner)
       : inner_(std::move(inner)) {
@@ -574,6 +576,10 @@ class ExternalTableFactoryAdapter : public TableFactory {
   }
 
   const char* Name() const override { return inner_->Name(); }
+
+  bool IsInstanceOf(const std::string& name) const override {
+    return name == kClassName() || TableFactory::IsInstanceOf(name);
+  }
 
   Status PrepareOptions(const ConfigOptions& config_options) override {
     Status status = TableFactory::PrepareOptions(config_options);
@@ -599,9 +605,9 @@ class ExternalTableFactoryAdapter : public TableFactory {
     fopts.io_options.io_activity = ro.io_activity;
     // Files opened by external readers lack MANIFEST checksum metadata.
     fopts.file_checksum_func_name = kNoFileChecksumFuncName;
-    ExternalTableOptions ext_topts(topts.prefix_extractor,
-                                   topts.ioptions.user_comparator,
-                                   topts.ioptions.fs, fopts);
+    ExternalTableOptions ext_topts(
+        topts.prefix_extractor, topts.ioptions.user_comparator,
+        topts.ioptions.fs, fopts, topts.column_family_name);
     const std::string file_name = file->file_name();
     auto status = inner_->NewTableReader(ro, file_name, ext_topts,
                                          std::move(file), file_size, &reader);
@@ -648,6 +654,10 @@ class ExternalTableFactoryAdapter : public TableFactory {
 
   std::unique_ptr<TableFactory> Clone() const override { return nullptr; }
 
+  const Customizable* Inner() const override { return inner_.get(); }
+
+  std::shared_ptr<ExternalTableFactory> inner() const { return inner_; }
+
  private:
   std::shared_ptr<ExternalTableFactory> inner_;
   ExternalTableFactoryAdapterOptions options_;
@@ -660,6 +670,16 @@ std::unique_ptr<TableFactory> NewExternalTableFactory(
   std::unique_ptr<TableFactory> res;
   res = std::make_unique<ExternalTableFactoryAdapter>(std::move(inner_factory));
   return res;
+}
+
+std::shared_ptr<ExternalTableFactory> GetWrappedExternalTableFactory(
+    const TableFactory* table_factory) {
+  if (table_factory == nullptr) {
+    return nullptr;
+  }
+  const auto* adapter =
+      table_factory->CheckedCast<ExternalTableFactoryAdapter>();
+  return adapter == nullptr ? nullptr : adapter->inner();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
