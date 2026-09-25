@@ -42,6 +42,8 @@ DECLARE_uint64(liveness_no_progress_timeout_sec);
 DECLARE_string(stress_diagnostics_dir);
 DECLARE_bool(stress_diagnostics_breadcrumbs);
 DECLARE_uint64(stress_diagnostics_breadcrumb_entries);
+DECLARE_bool(stress_diagnostics_scan_witness);
+DECLARE_uint64(stress_diagnostics_scan_witness_entries);
 DECLARE_int32(range_deletion_width);
 DECLARE_bool(disable_wal);
 DECLARE_int32(manual_wal_flush_one_in);
