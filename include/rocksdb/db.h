@@ -233,6 +233,15 @@ struct GetMergeOperandsOptions {
 using TablePropertiesCollection =
     std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
+// Serializes opaque metadata returned through PreparedFileInfo.
+Status SerializePreparedFileInfo(const PreparedFileInfo& prepared_file_info,
+                                 std::string* output);
+
+// Restores opaque metadata serialized by SerializePreparedFileInfo().
+Status DeserializePreparedFileInfo(
+    const Slice& input,
+    std::shared_ptr<const PreparedFileInfo>* prepared_file_info);
+
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
 // any external synchronization.
