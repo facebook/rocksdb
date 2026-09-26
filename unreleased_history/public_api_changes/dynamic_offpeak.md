@@ -1,0 +1,1 @@
+Added `DBOptions::dynamic_offpeak_window_percent`, the `rocksdb.dynamic-offpeak` DB property and C/Java bindings for learned off-peak telemetry, plus `PeriodicCompactionPolicy` for application-defined early periodic-compaction eligibility.

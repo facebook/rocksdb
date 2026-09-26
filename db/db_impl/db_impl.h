@@ -54,6 +54,7 @@
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "options/offpeak_time_info.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/attribute_groups.h"
@@ -1483,6 +1484,9 @@ class DBImpl : public DB
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
+
+  Status PersistDynamicOffpeakModel(const std::string& encoded_model);
+  void RestoreDynamicOffpeakModel();
 
   // dump rocksdb.stats to LOG
   void DumpStats();
@@ -3546,7 +3550,13 @@ class DBImpl : public DB
 
   std::map<std::string, uint64_t> stats_slice_;
 
+  // The first PersistStats() call seeds the snapshot and timestamp. Model
+  // sampling starts with the next bounded interval.
   bool stats_slice_initialized_ = false;
+  uint64_t stats_slice_time_ = 0;
+  DynamicOffpeakModel dynamic_offpeak_model_;
+  // Accessed during scheduler startup before periodic tasks are registered.
+  bool dynamic_offpeak_model_restored_ = false;
 
   Directories directories_;
 

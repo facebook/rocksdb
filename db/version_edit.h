@@ -75,6 +75,7 @@ enum Tag : uint32_t {
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
   kLastCompactedManifestFileSize,
+  kDynamicOffpeakModel,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -1042,6 +1043,15 @@ class VersionEdit {
     return last_compacted_manifest_file_size_;
   }
 
+  void SetDynamicOffpeakModel(const std::string& model) {
+    has_dynamic_offpeak_model_ = true;
+    dynamic_offpeak_model_ = model;
+  }
+  bool HasDynamicOffpeakModel() const { return has_dynamic_offpeak_model_; }
+  const std::string& GetDynamicOffpeakModel() const {
+    return dynamic_offpeak_model_;
+  }
+
   // Recovery-time per-column-family edits only need to be written when they
   // advance the CF's log number or carry some other manifest state.
   bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
@@ -1140,6 +1150,9 @@ class VersionEdit {
 
   bool has_last_compacted_manifest_file_size_ = false;
   uint64_t last_compacted_manifest_file_size_ = 0;
+
+  bool has_dynamic_offpeak_model_ = false;
+  std::string dynamic_offpeak_model_;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them

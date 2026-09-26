@@ -3942,6 +3942,18 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
           ? offpeak_time_info.seconds_till_next_offpeak_start
           : 0;
 
+  uint64_t policy_pull = 0;
+  if (ioptions.periodic_compaction_policy != nullptr) {
+    PeriodicCompactionPolicy::Context context;
+    context.current_time_seconds = current_time;
+    context.periodic_compaction_seconds = periodic_compaction_seconds;
+    const PeriodicCompactionPolicy::Decision decision =
+        ioptions.periodic_compaction_policy->GetDecision(context);
+    policy_pull = std::min(decision.deadline_lookahead_seconds,
+                           periodic_compaction_seconds);
+  }
+  const uint64_t early_compaction_pull = std::max(offpeak_pull, policy_pull);
+
   // Preferred-phase scheduling (see
   // DBOptions::periodic_compaction_phase_recovery_percent). When
   // recovery_percent == 0 this is disabled and marking matches the classic
@@ -3980,7 +3992,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
         const uint64_t trigger_time = PeriodicCompactionPhaser::TriggerTime(
             file_modification_time, periodic_compaction_seconds, phase_params);
-        if (current_time + offpeak_pull > trigger_time) {
+        if (trigger_time < current_time ||
+            early_compaction_pull > trigger_time - current_time) {
           files_marked_for_periodic_compaction_.emplace_back(level, f);
         }
       }
@@ -7645,6 +7658,20 @@ Status VersionSet::WriteCurrentStateToManifest(
       if (!io_s.ok()) {
         return io_s;
       }
+    }
+  }
+
+  if (!dynamic_offpeak_model_.empty()) {
+    VersionEdit edit;
+    edit.SetDynamicOffpeakModel(dynamic_offpeak_model_);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(write_options, record);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
 

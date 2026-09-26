@@ -1752,6 +1752,13 @@ class VersionSet {
   // of firing all at once. Caller must hold the DB mutex.
   void ReanchorCompactionPhase();
 
+  const std::string& dynamic_offpeak_model() const {
+    return dynamic_offpeak_model_;
+  }
+  void SetDynamicOffpeakModel(const std::string& model) {
+    dynamic_offpeak_model_ = model;
+  }
+
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
@@ -2014,6 +2021,7 @@ class VersionSet {
 
   // Off-peak time option used for compaction scoring
   OffpeakTimeOption offpeak_time_option_;
+  std::string dynamic_offpeak_model_;
 
   // Pointer to the DB's ErrorHandler.
   ErrorHandler* const error_handler_;

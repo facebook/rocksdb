@@ -201,6 +201,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.optimize_manifest_for_recovery =
       mutable_db_options.optimize_manifest_for_recovery;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
+  options.dynamic_offpeak_window_percent =
+      mutable_db_options.dynamic_offpeak_window_percent;
   options.max_compaction_trigger_wakeup_seconds =
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
   options.remote_compaction_manifest_floor =
@@ -370,6 +372,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->cf_paths = ioptions.cf_paths;
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
+  cf_opts->periodic_compaction_policy = ioptions.periodic_compaction_policy;
   cf_opts->blob_cache = ioptions.blob_cache;
   cf_opts->enable_blob_direct_write = ioptions.enable_blob_direct_write;
   cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;

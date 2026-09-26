@@ -79,6 +79,8 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 
+  std::shared_ptr<PeriodicCompactionPolicy> periodic_compaction_policy;
+
   std::shared_ptr<Cache> blob_cache;
 
   // Immutable snapshot of
