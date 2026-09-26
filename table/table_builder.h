@@ -88,7 +88,8 @@ struct TableReaderOptions {
   // What level this table/file is on, -1 for "not set, don't know." Used
   // for level-specific statistics.
   int level;
-  // largest seqno in the table (or 0 means unknown???)
+  // Largest seqno in the table. kMaxSequenceNumber means unknown;
+  // kDisableGlobalSequenceNumber prevents file-wide seqno replacement.
   SequenceNumber largest_seqno;
   BlockCacheTracer* const block_cache_tracer;
   // Largest L0 file size whose meta-blocks may be pinned (can be zero when
