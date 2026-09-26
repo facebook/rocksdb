@@ -67,7 +67,8 @@ class TableCache {
              const FileOptions* storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_session_id, bool fast_sst_open = false);
+             const std::string& db_session_id, bool fast_sst_open = false,
+             std::string column_family_name = "");
   ~TableCache();
 
   // Sets the BlobSource used to route same-file ("embedded") blob reads of SSTs
@@ -364,6 +365,7 @@ class TableCache {
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;
   std::string db_session_id_;
+  std::string column_family_name_;
   // Owned by the same ColumnFamilyData; see SetBlobSource(). nullptr in non-DB
   // contexts (e.g. repair).
   BlobSource* blob_source_ = nullptr;

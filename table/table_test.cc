@@ -8603,6 +8603,19 @@ TEST_F(ExternalTableTest, BootstrapConfig) {
                                             &invalid_factory));
 }
 
+TEST_F(ExternalTableTest, GetWrappedExternalTableFactory) {
+  std::shared_ptr<ExternalTableFactory> inner =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  std::unique_ptr<TableFactory> table_factory = NewExternalTableFactory(inner);
+  std::unique_ptr<TableFactory> block_based_factory(
+      NewBlockBasedTableFactory());
+
+  ASSERT_EQ(GetWrappedExternalTableFactory(table_factory.get()), inner);
+  ASSERT_EQ(GetWrappedExternalTableFactory(block_based_factory.get()), nullptr);
+  ASSERT_EQ(GetWrappedExternalTableFactory(nullptr), nullptr);
+}
+
 TEST_F(ExternalTableTest, BootstrapConfigOptionsFileRoundTrip) {
   RegisterConfigurableDummyExternalTableFactory();
 
