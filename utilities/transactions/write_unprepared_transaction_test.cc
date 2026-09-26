@@ -552,6 +552,39 @@ TEST_P(WriteUnpreparedTransactionTest, NoSnapshotWrite) {
   delete txn;
 }
 
+// Entity reads must see the transaction's own writes after they have been
+// flushed to the DB as an unprepared batch, while other transactions must not.
+TEST_P(WriteUnpreparedTransactionTest, GetEntityReadYourOwnWrite) {
+  WriteOptions woptions;
+  ASSERT_OK(db->Put(woptions, "a", "base"));
+
+  TransactionOptions txn_options;
+  // The second Put writes the first one to the DB as an unprepared batch.
+  txn_options.write_batch_flush_threshold = 1;
+  std::unique_ptr<Transaction> writer(
+      db->BeginTransaction(woptions, txn_options));
+  ASSERT_NE(writer, nullptr);
+  writer->SetSnapshot();
+  ASSERT_OK(writer->Put("a", "own"));
+  ASSERT_OK(writer->Put("b", "own"));
+
+  std::unique_ptr<Transaction> reader(db->BeginTransaction(woptions));
+  ASSERT_NE(reader, nullptr);
+
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = writer->GetSnapshot();
+  EXPECT_NO_FATAL_FAILURE(
+      VerifyTxnGetEntity(writer.get(), snapshot_read_options, "a", "own"));
+  EXPECT_NO_FATAL_FAILURE(
+      VerifyTxnGetEntity(writer.get(), ReadOptions(), "a", "own"));
+  EXPECT_NO_FATAL_FAILURE(
+      VerifyTxnGetEntity(reader.get(), ReadOptions(), "a", "base"));
+  EXPECT_NO_FATAL_FAILURE(VerifyTxnGetEntityForUpdate(
+      writer.get(), snapshot_read_options, "a", "own"));
+
+  ASSERT_OK(writer->Rollback());
+}
+
 // Test whether write to a transaction while iterating is supported.
 TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
   WriteOptions woptions;
