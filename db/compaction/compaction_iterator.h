@@ -59,6 +59,7 @@ class CompactionBlobResolver : public WideColumnBlobResolver {
     }
     return *resolve_error_;
   }
+  uint64_t resolved_bytes() const;
 
   // Reset the resolver for a new entity. Clears resolved cache.
   void Reset(const Slice& user_key, const std::vector<WideColumn>* columns,
@@ -141,6 +142,11 @@ class SequenceIterWrapper : public InternalIterator {
 
 class CompactionIterator {
  public:
+  enum class ValuePreparation {
+    kApply,
+    kDefer,
+  };
+
   // A wrapper around Compaction. Has a much smaller interface, only what
   // CompactionIterator uses. Tests can override it.
   class CompactionProxy {
@@ -267,7 +273,8 @@ class CompactionIterator {
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
-      bool must_count_input_entries, const Compaction* compaction = nullptr,
+      bool must_count_input_entries, ValuePreparation value_preparation,
+      const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -289,7 +296,7 @@ class CompactionIterator {
       bool enforce_single_del_contracts,
       const std::atomic<bool>& manual_compaction_canceled,
       std::unique_ptr<CompactionProxy> compaction,
-      bool must_count_input_entries,
+      bool must_count_input_entries, ValuePreparation value_preparation,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -358,6 +365,8 @@ class CompactionIterator {
 
   // Do final preparations before presenting the output to the callee.
   void PrepareOutput();
+
+  void PrepareOutputSequenceNumber();
 
   // Passes the output value to the blob file builder (if any), and replaces it
   // with the corresponding blob reference if it has been actually written to a
@@ -506,6 +515,10 @@ class CompactionIterator {
   // is in `NextFromInput()` and `PrepareOutput()`.
   // If nullptr, NO GC will be performed and all history will be preserved.
   const std::string* const full_history_ts_low_;
+
+  // A StreamAggregation consumes logical records before physical
+  // output preparation.
+  const bool defer_value_preparation_;
 
   // State
   //

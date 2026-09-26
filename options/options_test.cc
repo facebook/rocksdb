@@ -22,6 +22,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/stream_aggregation.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -52,6 +53,18 @@ namespace ROCKSDB_NAMESPACE {
 static_assert(std::is_trivially_copyable_v<ReadOptions>);
 
 class OptionsTest : public testing::Test {};
+
+class OptionsTestStreamAggregationFactory : public StreamAggregationFactory {
+ public:
+  const char* Name() const override {
+    return "OptionsTestStreamAggregationFactory";
+  }
+
+  std::unique_ptr<StreamAggregation> Create(
+      const Context& /*context*/) const override {
+    return nullptr;
+  }
+};
 
 class UnregisteredTableFactory : public TableFactory {
  public:
@@ -1601,10 +1614,14 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   ColumnFamilyOptions base_opts, new_opts;
   DBOptions dummy;  // Needed to create ImmutableCFOptions
   test::RandomInitCFOptions(&base_opts, dummy, &rnd);
+  base_opts.stream_aggregation_factory =
+      std::make_shared<OptionsTestStreamAggregationFactory>();
   MutableCFOptions m_opts(base_opts);
   ImmutableCFOptions i_opts(base_opts);
   UpdateColumnFamilyOptions(i_opts, &new_opts);
   UpdateColumnFamilyOptions(m_opts, &new_opts);
+  ASSERT_EQ(new_opts.stream_aggregation_factory,
+            base_opts.stream_aggregation_factory);
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opts,
                                                   new_opts));
   delete new_opts.compaction_filter;
