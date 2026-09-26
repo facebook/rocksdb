@@ -236,6 +236,9 @@ def generate_buck(repo_path, deps_map):
     BUCK.add_binary(
         "ldb", ["tools/ldb.cc"], [":rocksdb_tools_lib"]
     )
+    BUCK.add_binary(
+        "db_split_merge", ["tools/db_split_merge.cc"], [":rocksdb_lib"]
+    )
     # db_stress binary
     BUCK.add_binary(
         "db_stress", ["db_stress_tool/db_stress.cc"], [":rocksdb_stress_lib"]
