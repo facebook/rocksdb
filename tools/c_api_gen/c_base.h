@@ -1208,6 +1208,34 @@ rocksdb_block_based_options_clear_user_defined_index_factory(
 extern ROCKSDB_LIBRARY_API const char*
 rocksdb_block_based_options_get_user_defined_index_factory_name(
     const rocksdb_block_based_table_options_t* options, size_t* name_len);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt, unsigned char v);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_block_based_options_get_use_udi_as_primary_index(
+    rocksdb_block_based_table_options_t* opt);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_fail_if_no_udi_on_open(
+    rocksdb_block_based_table_options_t* opt, unsigned char v);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_block_based_options_get_fail_if_no_udi_on_open(
+    rocksdb_block_based_table_options_t* opt);
+/* EXPERIMENTAL: selects which index tiers an SST is written with and which one
+ * reads use by default. Takes a rocksdb_block_based_table_index_mode_* value.
+ * An explicit index_mode wins over the deprecated
+ * use_udi_as_primary_index / fail_if_no_udi_on_open setters regardless of the
+ * order they are called in. */
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_index_mode(
+    rocksdb_block_based_table_options_t* opt, int v);
+extern ROCKSDB_LIBRARY_API int rocksdb_block_based_options_get_index_mode(
+    rocksdb_block_based_table_options_t* opt);
+enum {
+  rocksdb_block_based_table_index_mode_standard_only = 0,
+  rocksdb_block_based_table_index_mode_standard_default = 1,
+  rocksdb_block_based_table_index_mode_custom_default = 2,
+  rocksdb_block_based_table_index_mode_custom_only = 3,
+  rocksdb_block_based_table_index_mode_standard_required = 4,
+};
 enum {
   rocksdb_block_based_table_index_type_binary_search = 0,
   rocksdb_block_based_table_index_type_hash_search = 1,
@@ -2376,6 +2404,20 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_clear_table_index_factory(
 extern ROCKSDB_LIBRARY_API const char*
 rocksdb_readoptions_get_table_index_factory_name(const rocksdb_readoptions_t*,
                                                  size_t* name_len);
+/* EXPERIMENTAL: overrides, for this read only, which index the SST is read
+ * through. Takes a rocksdb_readoptions_read_index_* value.
+ * rocksdb_readoptions_set_table_index_factory_from_string() also sets this to
+ * prefer_custom as a side effect, so call this after it if you want a
+ * different selection. */
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_read_index(
+    rocksdb_readoptions_t*, int v);
+extern ROCKSDB_LIBRARY_API int rocksdb_readoptions_get_read_index(
+    const rocksdb_readoptions_t*);
+enum {
+  rocksdb_readoptions_read_index_default = 0,
+  rocksdb_readoptions_read_index_builtin = 1,
+  rocksdb_readoptions_read_index_prefer_custom = 2,
+};
 
 /* Write options */
 
