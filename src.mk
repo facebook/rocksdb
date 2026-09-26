@@ -427,11 +427,13 @@ STRESS_LIB_SOURCES =                                           \
   db_stress_tool/expected_value.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
   db_stress_tool/multi_ops_txns_stress.cc                      \
+  test_util/simple_external_table_factory.cc                   \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   db/db_with_timestamp_test_util.cc                             \
   test_util/mock_time_env.cc                                    \
+  test_util/simple_external_table_factory.cc                    \
   test_util/secondary_cache_test_util.cc                        \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \

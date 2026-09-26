@@ -2740,6 +2740,9 @@ class NonBatchedOpsStressTest : public StressTest {
     bool retryable_atomic_replace_error = false;
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
+      if (FLAGS_use_full_external_table) {
+        ingest_options.write_global_seqno = false;
+      }
       ingest_options.move_files = thread->rand.OneInOpt(2);
       ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
       ingest_options.verify_checksums_readahead_size =
