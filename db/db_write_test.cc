@@ -1075,6 +1075,185 @@ INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                                         DBTestBase::kConcurrentWALWrites,
                                         DBTestBase::kPipelinedWrite));
 
+// A non-blocking unbatched join must refuse an active write stall.
+TEST(WriteThreadTest, EnterUnbatchedNonBlockingRefusesDuringStall) {
+  Options options;
+  ImmutableDBOptions db_options(options);
+  WriteThread write_thread(db_options);
+  InstrumentedMutex mu;
+
+  // No stall: joining succeeds and must be paired with ExitUnbatched().
+  {
+    WriteThread::Writer w;
+    InstrumentedMutexLock l(&mu);
+    ASSERT_TRUE(write_thread.EnterUnbatchedNonBlocking(&w, &mu));
+    ASSERT_OK(w.status);
+    EXPECT_FALSE(w.no_slowdown);
+    EXPECT_FALSE(w.non_blocking_join);
+    write_thread.ExitUnbatched(&w);
+  }
+
+  // Stalled: refuses rather than parking on stall_cv_. Reaching the assertion
+  // at all is the point -- EnterUnbatched() would never have returned.
+  {
+    InstrumentedMutexLock l(&mu);
+    write_thread.BeginWriteStall();
+    ASSERT_NE(0, write_thread.GetBegunCountOfOutstandingStall());
+
+    WriteThread::Writer w;
+    ASSERT_FALSE(write_thread.EnterUnbatchedNonBlocking(&w, &mu));
+    ASSERT_TRUE(w.status.IsIncomplete());
+    EXPECT_FALSE(w.no_slowdown);
+    EXPECT_FALSE(w.non_blocking_join);
+
+    // Not linked, so ExitUnbatched() must not be called; ending the stall is
+    // enough to leave the queue clean.
+    write_thread.EndWriteStall();
+    ASSERT_EQ(0, write_thread.GetBegunCountOfOutstandingStall());
+  }
+
+  {
+    WriteThread::Writer w;
+    InstrumentedMutexLock l(&mu);
+    ASSERT_TRUE(write_thread.EnterUnbatchedNonBlocking(&w, &mu));
+    write_thread.ExitUnbatched(&w);
+  }
+}
+
+TEST(WriteThreadTest, EnterUnbatchedNonBlockingFinishesAfterLeadershipStall) {
+  Options options;
+  ImmutableDBOptions db_options(options);
+  WriteThread write_thread(db_options);
+  InstrumentedMutex mu;
+  InstrumentedMutex signal_mu;
+  InstrumentedCondVar signal_cv(&signal_mu);
+  bool before_lock = false;
+  bool release_joiner = false;
+  bool entered = true;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::EnterUnbatchedNonBlocking:BeforeLock", [&](void*) {
+        InstrumentedMutexLock l(&signal_mu);
+        before_lock = true;
+        signal_cv.SignalAll();
+        while (!release_joiner) {
+          signal_cv.Wait();
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_points([] {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  });
+
+  port::Thread joiner([&] {
+    WriteThread::Writer w;
+    InstrumentedMutexLock l(&mu);
+    entered = write_thread.EnterUnbatchedNonBlocking(&w, &mu);
+    if (entered) {
+      write_thread.ExitUnbatched(&w);
+    }
+  });
+
+  {
+    InstrumentedMutexLock l(&signal_mu);
+    while (!before_lock) {
+      signal_cv.Wait();
+    }
+  }
+  {
+    InstrumentedMutexLock l(&mu);
+    write_thread.BeginWriteStall();
+  }
+  {
+    InstrumentedMutexLock l(&signal_mu);
+    release_joiner = true;
+    signal_cv.SignalAll();
+  }
+
+  joiner.join();
+  EXPECT_TRUE(entered);
+  {
+    InstrumentedMutexLock l(&mu);
+    write_thread.EndWriteStall();
+  }
+}
+
+// A newly started stall must wake and remove a queued non-blocking join.
+TEST(WriteThreadTest, EnterUnbatchedNonBlockingSweptOutByLaterStall) {
+  Options options;
+  ImmutableDBOptions db_options(options);
+  WriteThread write_thread(db_options);
+  InstrumentedMutex mu;
+
+  // Occupy the write thread so the writer under test queues behind it rather
+  // than being linked as leader.
+  WriteThread::Writer leader;
+  mu.Lock();
+  write_thread.EnterUnbatched(&leader, &mu);
+  mu.Unlock();
+
+  InstrumentedMutex signal_mu;
+  InstrumentedCondVar signal_cv(&signal_mu);
+  bool queued = false;
+  bool finished = false;
+  bool entered = true;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::EnterUnbatched:Wait", [&](void*) {
+        InstrumentedMutexLock l(&signal_mu);
+        queued = true;
+        signal_cv.SignalAll();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread follower([&] {
+    WriteThread::Writer w;
+    InstrumentedMutexLock l(&mu);
+    entered = write_thread.EnterUnbatchedNonBlocking(&w, &mu);
+    if (entered) {
+      write_thread.ExitUnbatched(&w);
+    }
+    InstrumentedMutexLock sl(&signal_mu);
+    finished = true;
+    signal_cv.SignalAll();
+  });
+
+  {
+    InstrumentedMutexLock l(&signal_mu);
+    while (!queued) {
+      signal_cv.Wait();
+    }
+  }
+
+  mu.Lock();
+  write_thread.BeginWriteStall();
+  mu.Unlock();
+
+  bool timed_out = false;
+  {
+    InstrumentedMutexLock l(&signal_mu);
+    const uint64_t deadline = Env::Default()->NowMicros() + 30 * 1000 * 1000;
+    while (!finished) {
+      if (signal_cv.TimedWait(deadline)) {
+        timed_out = !finished;
+        break;
+      }
+    }
+  }
+  EXPECT_FALSE(timed_out) << "swept-out writer never woke: it is waiting for a "
+                             "leadership handoff that cannot arrive";
+  EXPECT_FALSE(entered) << "a swept-out writer must report failure, since it "
+                           "is no longer linked and must not be exited";
+
+  follower.join();
+  mu.Lock();
+  write_thread.EndWriteStall();
+  write_thread.ExitUnbatched(&leader);
+  mu.Unlock();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

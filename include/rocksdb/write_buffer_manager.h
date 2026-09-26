@@ -13,15 +13,27 @@
 #pragma once
 
 #include <atomic>
-#include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <list>
+#include <memory>
 #include <mutex>
 
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
+class FlushInitiator;
+
+// Selects which mutable memtable to flush when the WBM exceeds its limit.
+enum class WriteBufferFlushPolicy {
+  // Flush the oldest mutable memtable; this is the historical default.
+  kFlushOldest,
+  // Flush the largest mutable memtable in the current DB.
+  kFlushLargest,
+  // Flush the DB that would reclaim the most memory among all sharing this WBM.
+  kFlushLargestAcrossDBs,
+};
 
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
@@ -47,9 +59,20 @@ class WriteBufferManager final {
   // allow_stall: if set true, it will enable stalling of writes when
   // memory_usage() exceeds buffer_size. It will wait for flush to complete and
   // memory usage to drop down.
+  //
   explicit WriteBufferManager(size_t _buffer_size,
                               std::shared_ptr<Cache> cache = {},
                               bool allow_stall = false);
+
+  // flush_policy belongs to this shared manager, not serialized DBOptions.
+  WriteBufferManager(size_t _buffer_size, std::shared_ptr<Cache> cache,
+                     bool allow_stall, WriteBufferFlushPolicy flush_policy);
+
+  // Cross-DB flushes in a batch are submitted serially, so they occupy at most
+  // one LOW-priority background thread. Zero is treated as one.
+  WriteBufferManager(size_t _buffer_size, std::shared_ptr<Cache> cache,
+                     bool allow_stall, WriteBufferFlushPolicy flush_policy,
+                     size_t flush_batch_size);
   // No copying allowed
   WriteBufferManager(const WriteBufferManager&) = delete;
   WriteBufferManager& operator=(const WriteBufferManager&) = delete;
@@ -88,11 +111,36 @@ class WriteBufferManager final {
     mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
     // Check if stall is active and can be ended.
     MaybeEndWriteStall();
+    NotifyFlushInitiatorChanged();
   }
 
   void SetAllowStall(bool new_allow_stall) {
     allow_stall_.store(new_allow_stall, std::memory_order_relaxed);
     MaybeEndWriteStall();
+  }
+
+  // Returns the policy used for WBM-triggered flushes.
+  WriteBufferFlushPolicy flush_policy() const {
+    return flush_policy_.load(std::memory_order_relaxed);
+  }
+
+  void SetFlushPolicy(WriteBufferFlushPolicy new_flush_policy);
+
+  size_t flush_batch_size() const { return flush_batch_size_; }
+
+  bool ShouldTrackFlushInitiator() const {
+    return flush_policy() == WriteBufferFlushPolicy::kFlushLargestAcrossDBs;
+  }
+
+  // Bounds ranking error per active memtable while amortizing publication.
+  size_t GetFlushInitiatorReportBytes() const {
+    constexpr size_t kMinReportBytes = 16 * 1024;
+    constexpr size_t kMaxReportBytes = 4 * 1024 * 1024;
+    const size_t report_bytes = buffer_size() / 64;
+    if (report_bytes < kMinReportBytes) {
+      return kMinReportBytes;
+    }
+    return report_bytes > kMaxReportBytes ? kMaxReportBytes : report_bytes;
   }
 
   // Below functions should be called by RocksDB internally.
@@ -159,7 +207,36 @@ class WriteBufferManager final {
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
+  // Internal registry for DBs sharing this manager.
+  void RegisterFlushInitiator(FlushInitiator* initiator);
+  void DeregisterFlushInitiator(FlushInitiator* initiator);
+  void NotifyFlushInitiatorChanged();
+
+  // The background coordinator owns soft-limit flushes. At the hard limit,
+  // grants at most one writer a local flush in each work-cycle interval.
+  bool TryAcquireLocalFlush();
+
+  void NotifyFlushInitiatorFlushCompleted(bool made_progress);
+
+  void NotifyFlushInitiatorFlushCancelled();
+
+  // Rebuilds the cached candidate synchronously for deterministic tests.
+  void TEST_RefreshFlushInitiatorCandidate();
+
+  // Selects and invokes the cached candidate synchronously for tests.
+  bool TEST_ScheduleFlushOnLargestDB(FlushInitiator* self);
+
+  void TEST_WaitForFlushHandoff();
+
+  void TEST_WaitForFlushHandoffCompletion();
+
+  size_t TEST_GetFlushInitiatorRegistrySize() const;
+
+  bool TEST_HasFlushInitiatorSorter() const;
+
  private:
+  static constexpr uint64_t kFlushWorkCycleMicros = 20 * 1000;
+
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
   std::atomic<size_t> memory_used_;
@@ -176,8 +253,26 @@ class WriteBufferManager final {
   // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
   // while holding mu_, but it can be read without a lock.
   std::atomic<bool> stall_active_;
+  std::atomic<WriteBufferFlushPolicy> flush_policy_;
+  std::mutex flush_policy_mu_;
+
+  struct FlushInitiatorRegistry;
+  std::unique_ptr<FlushInitiatorRegistry> flush_initiator_registry_;
+
+  enum class FlushHandoffState : uint8_t {
+    kIdle,
+    kRemotePending,
+  };
+
+  std::atomic<FlushHandoffState> flush_handoff_state_{FlushHandoffState::kIdle};
+  std::atomic<uint64_t> local_flush_deadline_micros_{0};
+  const size_t flush_batch_size_;
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);
+  // Returns true when a successful work cycle has completed and the sorter
+  // should wait for the next pressure interval before starting another one.
+  bool ProcessFlushHandoffRequest();
+  void ResetFlushHandoff();
 };
 }  // namespace ROCKSDB_NAMESPACE
