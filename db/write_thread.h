@@ -129,6 +129,7 @@ class WriteThread {
     WriteBatch* trace_batch;
     bool sync;
     bool no_slowdown;
+    bool non_blocking_join;
     bool disable_wal;
     Env::IOPriority rate_limiter_priority;
     bool disable_memtable;
@@ -159,6 +160,7 @@ class WriteThread {
           trace_batch(nullptr),
           sync(false),
           no_slowdown(false),
+          non_blocking_join(false),
           disable_wal(false),
           rate_limiter_priority(Env::IOPriority::IO_TOTAL),
           disable_memtable(false),
@@ -189,6 +191,7 @@ class WriteThread {
           // members
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
+          non_blocking_join(false),
           disable_wal(write_options.disableWAL),
           rate_limiter_priority(write_options.rate_limiter_priority),
           disable_memtable(_disable_memtable),
@@ -383,6 +386,10 @@ class WriteThread {
   // InstrumentedMutex* mu:  The db mutex, to unlock while waiting
   // REQUIRES: db mutex held
   void EnterUnbatched(Writer* w, InstrumentedMutex* mu);
+
+  // Refuses an existing or newly started stall. Call ExitUnbatched() only when
+  // this returns true; false leaves `w` unlinked with Incomplete status.
+  bool EnterUnbatchedNonBlocking(Writer* w, InstrumentedMutex* mu);
 
   // Completes a Writer begun with EnterUnbatched, unblocking subsequent
   // writers.

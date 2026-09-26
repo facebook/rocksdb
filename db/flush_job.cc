@@ -502,9 +502,13 @@ Status FlushJob::MemPurge() {
       }
     }
 
+    // MemPurge output is installed directly into the immutable list, so it
+    // must not advertise memory that can be reclaimed by switching a mutable
+    // memtable.
     new_mem = new MemTable(cfd_->internal_comparator(), cfd_->ioptions(),
                            mutable_cf_options_, cfd_->write_buffer_mgr(),
-                           earliest_seqno, cfd_->GetID());
+                           earliest_seqno, cfd_->GetID(),
+                           nullptr /* flush_initiator */);
     assert(new_mem != nullptr);
 
     Env* env = db_options_.env;
