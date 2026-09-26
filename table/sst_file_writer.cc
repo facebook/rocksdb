@@ -5,6 +5,8 @@
 
 #include "rocksdb/sst_file_writer.h"
 
+#include <cstddef>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -13,16 +15,160 @@
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/embedded_blob_sst.h"
 #include "table/format.h"
 #include "table/prepared_file_info.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
+#include "util/coding.h"
+#include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+OptionTypeInfo InternalKeyOptionTypeInfo(int offset) {
+  OptionTypeInfo info(offset, OptionType::kUnknown);
+  info.SetParseFunc([](const ConfigOptions&, const std::string& name,
+                       const std::string& value, void* addr) {
+    std::string decoded;
+    if (!Slice(value).DecodeHex(&decoded)) {
+      return Status::InvalidArgument("Invalid encoded ", name);
+    }
+    auto* key = static_cast<InternalKey*>(addr);
+    key->DecodeFrom(decoded);
+    if (!key->Valid()) {
+      return Status::InvalidArgument("Invalid ", name);
+    }
+    return Status::OK();
+  });
+  info.SetSerializeFunc([](const ConfigOptions&, const std::string& name,
+                           const void* addr, std::string* value) {
+    const auto* key = static_cast<const InternalKey*>(addr);
+    if (!key->Valid()) {
+      return Status::InvalidArgument("Invalid ", name);
+    }
+    *value = key->Encode().ToString(true);
+    return Status::OK();
+  });
+  return info;
+}
+
+OptionTypeInfo TablePropertiesOptionTypeInfo(int offset) {
+  OptionTypeInfo info(offset, OptionType::kUnknown);
+  info.SetParseFunc([](const ConfigOptions& config_options,
+                       const std::string& name, const std::string& value,
+                       void* addr) {
+    std::string decoded;
+    if (!Slice(value).DecodeHex(&decoded)) {
+      return Status::InvalidArgument("Invalid encoded ", name);
+    }
+    return TableProperties::Parse(config_options, decoded,
+                                  static_cast<TableProperties*>(addr));
+  });
+  info.SetSerializeFunc([](const ConfigOptions& config_options,
+                           const std::string&, const void* addr,
+                           std::string* value) {
+    std::string serialized;
+    Status s = static_cast<const TableProperties*>(addr)->Serialize(
+        config_options, &serialized);
+    if (s.ok()) {
+      *value = Slice(serialized).ToString(true);
+    }
+    return s;
+  });
+  return info;
+}
+
+const std::unordered_map<std::string, OptionTypeInfo>
+    kPreparedFileInfoTypeInfo = {
+        {"file_size",
+         {offsetof(PreparedFileInfo, file_size), OptionType::kUInt64T}},
+        {"smallest_internal_key",
+         InternalKeyOptionTypeInfo(offsetof(PreparedFileInfo, smallest))},
+        {"largest_internal_key",
+         InternalKeyOptionTypeInfo(offsetof(PreparedFileInfo, largest))},
+        {"table_properties", TablePropertiesOptionTypeInfo(
+                                 offsetof(PreparedFileInfo, table_properties))},
+};
+
+}  // namespace
+
+Status SerializePreparedFileInfo(const PreparedFileInfo& prepared_file_info,
+                                 std::string* output) {
+  if (output == nullptr) {
+    return Status::InvalidArgument("Null PreparedFileInfo output");
+  }
+
+  ConfigOptions config_options;
+  config_options.invoke_prepare_options = false;
+  std::string serialized;
+  Status s =
+      OptionTypeInfo::SerializeType(config_options, kPreparedFileInfoTypeInfo,
+                                    &prepared_file_info, &serialized);
+  if (!s.ok()) {
+    return s;
+  }
+
+  *output = std::move(serialized);
+  PutFixed32(output,
+             crc32c::Mask(crc32c::Value(output->data(), output->size())));
+  return Status::OK();
+}
+
+Status DeserializePreparedFileInfo(
+    const Slice& input,
+    std::shared_ptr<const PreparedFileInfo>* prepared_file_info) {
+  if (prepared_file_info == nullptr) {
+    return Status::InvalidArgument("Null PreparedFileInfo output");
+  }
+  prepared_file_info->reset();
+
+  if (input.size() < sizeof(uint32_t)) {
+    return Status::Corruption("PreparedFileInfo is too short");
+  }
+  Slice encoded(input.data(), input.size() - sizeof(uint32_t));
+  const uint32_t stored_checksum =
+      DecodeFixed32(input.data() + input.size() - sizeof(uint32_t));
+  const uint32_t actual_checksum =
+      crc32c::Mask(crc32c::Value(encoded.data(), encoded.size()));
+  if (stored_checksum != actual_checksum) {
+    return Status::Corruption("PreparedFileInfo checksum mismatch");
+  }
+
+  std::unordered_map<std::string, std::string> fields;
+  Status s = StringToMap(encoded.ToString(), &fields);
+  if (!s.ok()) {
+    return s;
+  }
+  for (const auto& field : kPreparedFileInfoTypeInfo) {
+    if (fields.find(field.first) == fields.end()) {
+      return Status::Corruption("PreparedFileInfo is missing ", field.first);
+    }
+  }
+
+  ConfigOptions config_options;
+  config_options.invoke_prepare_options = false;
+  auto result = std::make_shared<PreparedFileInfo>();
+  s = OptionTypeInfo::ParseType(config_options, fields,
+                                kPreparedFileInfoTypeInfo, result.get());
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!result->smallest.Valid() || !result->largest.Valid()) {
+    return Status::Corruption("PreparedFileInfo has invalid key bounds");
+  }
+
+  *prepared_file_info = std::move(result);
+  return Status::OK();
+}
 
 const std::string ExternalSstFilePropertyNames::kVersion =
     "rocksdb.external_sst_file.version";
