@@ -982,7 +982,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    options.merge_operator.reset(new TestPutOperator());
+    options.merge_operator = std::make_shared<TestPutOperator>();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
 
@@ -1110,7 +1110,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    options.merge_operator.reset(new TestPutOperator());
+    options.merge_operator = std::make_shared<TestPutOperator>();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
 
