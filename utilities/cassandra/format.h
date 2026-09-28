@@ -82,7 +82,8 @@ class ColumnBase {
   virtual std::size_t Size() const;
   virtual void Serialize(std::string* dest) const;
   static std::shared_ptr<ColumnBase> Deserialize(const char* src,
-                                                 std::size_t offset);
+                                                 std::size_t size,
+                                                 std::size_t offset = 0);
 
  private:
   int8_t mask_;
@@ -98,7 +99,8 @@ class Column : public ColumnBase {
   std::size_t Size() const override;
   void Serialize(std::string* dest) const override;
   static std::shared_ptr<Column> Deserialize(const char* src,
-                                             std::size_t offset);
+                                             std::size_t size,
+                                             std::size_t offset = 0);
 
  private:
   int64_t timestamp_;
@@ -116,7 +118,8 @@ class Tombstone : public ColumnBase {
   void Serialize(std::string* dest) const override;
   bool Collectable(int32_t gc_grace_period) const;
   static std::shared_ptr<Tombstone> Deserialize(const char* src,
-                                                std::size_t offset);
+                                                std::size_t size,
+                                                std::size_t offset = 0);
 
  private:
   int32_t local_deletion_time_;
@@ -134,7 +137,8 @@ class ExpiringColumn : public Column {
   std::shared_ptr<Tombstone> ToTombstone() const;
 
   static std::shared_ptr<ExpiringColumn> Deserialize(const char* src,
-                                                     std::size_t offset);
+                                                     std::size_t size,
+                                                     std::size_t offset = 0);
 
  private:
   int32_t ttl_;
@@ -146,6 +150,8 @@ using Columns = std::vector<std::shared_ptr<ColumnBase>>;
 
 class RowValue {
  public:
+  // Create an empty Row.
+  RowValue() : RowValue({}, 0) {}
   // Create a Row Tombstone.
   RowValue(int32_t local_deletion_time, int64_t marked_for_delete_at);
   // Create a Row containing columns.
@@ -166,6 +172,12 @@ class RowValue {
   RowValue RemoveTombstones(int32_t gc_grace_period) const;
   bool Empty() const;
 
+  // Safe deserialization: parses src into *value. Returns true on success,
+  // false if malformed, truncated, or invalid.
+  static bool Deserialize(const char* src, std::size_t size, RowValue* value);
+  // Deserialization returning RowValue; sets *success if non-null.
+  static RowValue Deserialize(const char* src, std::size_t size,
+                              bool* success);
   static RowValue Deserialize(const char* src, std::size_t size);
   // Merge multiple rows according to their timestamp.
   static RowValue Merge(std::vector<RowValue>&& values);
