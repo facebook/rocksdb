@@ -11,7 +11,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
       with:
@@ -33,7 +33,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     env:
       TEST_TMPDIR: "/tmp/rocksdb_test_tmp"
     steps:
@@ -47,7 +47,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     env:
       CC: clang-21
       CXX: clang++-21
@@ -84,7 +84,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -103,7 +103,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -161,7 +161,7 @@ jobs:
       labels: 4-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -174,7 +174,7 @@ jobs:
       labels: 4-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:24.1
-      options: --shm-size=16gb
+      options: --shm-size=8gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -189,7 +189,7 @@ jobs:
       labels: 16-core-ubuntu
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"

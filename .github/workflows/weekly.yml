@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 840
     container:
       image: ghcr.io/facebook/rocksdb_ubuntu:22.1
-      options: --shm-size=16gb
+      options: --shm-size=32gb
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
