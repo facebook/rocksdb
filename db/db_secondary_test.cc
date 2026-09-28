@@ -1013,6 +1013,14 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   options1.env = traced_env.get();
   OpenSecondary(options1);
 
+  // `db_secondary_` holds `traced_env` as its Env and touches it during close
+  // (CloseHelper unschedules background work through env_). traced_env is a
+  // local here, but db_secondary_ is a fixture member torn down later in
+  // ~DBSecondaryTestBase; an early return from a failed ASSERT below would free
+  // traced_env first and leave that later close calling into a destroyed Env.
+  // Close the secondary now, before traced_env is destroyed, on every path.
+  Defer close_secondary([this]() { CloseSecondary(); });
+
   static const auto verify_db = [&]() {
     std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
     std::unique_ptr<Iterator> iter2(db_secondary_->NewIterator(ReadOptions()));
@@ -1045,7 +1053,6 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
 
   Status s = db_secondary_->SetDBOptions({{"max_open_files", "-1"}});
   ASSERT_TRUE(s.IsNotSupported());
-  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
