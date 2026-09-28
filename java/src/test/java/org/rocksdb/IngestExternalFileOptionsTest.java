@@ -104,4 +104,13 @@ public class IngestExternalFileOptionsTest {
       assertThat(options.writeGlobalSeqno()).isTrue();
     }
   }
+
+  @Test
+  public void linkFiles() {
+    try (final IngestExternalFileOptions options = new IngestExternalFileOptions()) {
+      assertThat(options.linkFiles()).isFalse();
+      options.setLinkFiles(true);
+      assertThat(options.linkFiles()).isTrue();
+    }
+  }
 }
