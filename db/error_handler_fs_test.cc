@@ -3152,6 +3152,60 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
   Close();
 }
 
+// Drives RetryFlushesForErrorRecovery (the wait=true error-recovery path) with
+// atomic_flush and two column families, so its flush_memtable_ids vector is
+// built and paired with cfds in WaitForFlushMemTables. A soft, retryable
+// WAL-disabled flush error sets the recovery reason to
+// kErrorRecoveryRetryFlush, which is the reason Resume() routes through that
+// function.
+TEST_F(DBErrorHandlingFSTest, AtomicFlushErrorRecoveryTwoCFs) {
+  std::shared_ptr<ErrorHandlerFSListener> listener =
+      std::make_shared<ErrorHandlerFSListener>();
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  listener->EnableAutoRecovery(false);
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+  // Give the two CFs different per-CF memtable ids, so a wrong cfds/ids pairing
+  // changes the values (not just their positions). CF0 seals one memtable via a
+  // successful flush first, so its next immutable memtable is id 2 while CF1's
+  // is id 1.
+  ASSERT_OK(Put(0, Key(0), "v0", wo));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Put(0, Key(1), "v0b", wo));
+  ASSERT_OK(Put(1, Key(0), "v1", wo));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush({0, 1});
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+
+  // Resume routes through RetryFlushesForErrorRecovery(wait=true); the pairing
+  // invariant in that function fires under a debug build if the ids are
+  // misaligned with cfds.
+  ASSERT_OK(dbfull()->Resume());
+
+  ASSERT_EQ("v0", Get(0, Key(0)));
+  ASSERT_EQ("v0b", Get(0, Key(1)));
+  ASSERT_EQ("v1", Get(1, Key(0)));
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBErrorHandlingFSTest, DBErrorHandlingFencingTest,
                         ::testing::Bool());
 

@@ -3,8 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <atomic>
+
 #include "db/db_test_util.h"
 #include "port/port.h"
+#include "test_util/sync_point.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -13,6 +16,62 @@ class DBClipTest : public DBTestBase {
  public:
   DBClipTest() : DBTestBase("db_clip_test", /*env_do_fsync=*/true) {}
 };
+
+// ClipColumnFamily reads the CF's boundary keys under the DB mutex, then drops
+// it and issues several writes with those keys. Those keys must not point into
+// Version-owned FileMetaData, which a background job can replace and free in
+// that window. Here a full compaction runs inside the window and obsoletes the
+// Version the keys were read from.
+TEST_F(DBClipTest, BoundaryKeysSurviveConcurrentVersionChange) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 100; j++) {
+      int k = i * 100 + j;
+      values[k] = rnd.RandomString(1024);
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  std::atomic<bool> fired{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::ClipColumnFamily:PostBoundaryKeys", [&](void*) {
+        if (fired.exchange(true)) {
+          return;
+        }
+        // Replace and free the Version the boundary keys were read from, on
+        // another thread so this does not re-enter Clip's own call stack.
+        port::Thread compactor([&] {
+          ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+          ASSERT_OK(dbfull()->TEST_WaitForPurge());
+        });
+        compactor.join();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const auto begin_key = Key(251);
+  const auto end_key = Key(751);
+  ASSERT_OK(
+      db_->ClipColumnFamily(db_->DefaultColumnFamily(), begin_key, end_key));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(fired.load());
+
+  for (int i = 251; i < 751; i++) {
+    ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+  for (int i : {0, 250, 751, 999}) {
+    std::string result;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &result).IsNotFound());
+  }
+}
 
 TEST_F(DBClipTest, TestClipRange) {
   Options options = CurrentOptions();
