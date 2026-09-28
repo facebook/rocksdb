@@ -10,6 +10,7 @@
 #include "db/table_cache.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
@@ -72,7 +73,8 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
                        const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
-                       const std::string& db_session_id, bool fast_sst_open)
+                       const std::string& db_session_id, bool fast_sst_open,
+                       std::string column_family_name)
     : ioptions_(ioptions),
       file_options_(*file_options),
       cache_(cache),
@@ -83,7 +85,8 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
       block_cache_tracer_(block_cache_tracer),
       loader_mutex_(kLoadConcurency),
       io_tracer_(io_tracer),
-      db_session_id_(db_session_id) {
+      db_session_id_(db_session_id),
+      column_family_name_(std::move(column_family_name)) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -191,7 +194,7 @@ Status TableCache::GetTableReader(
         db_session_id_, file_meta.fd.GetNumber(), expected_unique_id,
         file_meta.fd.largest_seqno, file_meta.tail_size,
         file_meta.user_defined_timestamps_persisted,
-        avoid_shared_metadata_cache);
+        avoid_shared_metadata_cache, column_family_name_);
     // Route same-file ("embedded") blob reads through the CFD's BlobSource for
     // caching + stats. nullptr in non-DB contexts (e.g. repair).
     table_reader_options.blob_source = blob_source_;

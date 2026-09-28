@@ -220,15 +220,18 @@ class ExternalTableBuilder {
 struct ExternalTableOptions {
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const Comparator* comparator;
+  std::string column_family_name;
   const std::shared_ptr<FileSystem>& fs;
   const FileOptions& file_options;
 
   ExternalTableOptions(
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
       const Comparator* _comparator, const std::shared_ptr<FileSystem>& _fs,
-      const FileOptions& _file_options)
+      const FileOptions& _file_options,
+      const std::string& _column_family_name = "")
       : prefix_extractor(_prefix_extractor),
         comparator(_comparator),
+        column_family_name(_column_family_name),
         fs(_fs),
         file_options(_file_options) {}
 };
@@ -305,5 +308,10 @@ class ExternalTableFactory : public Customizable {
 // to allocate and set in ColumnFamilyOptions::table_factory.
 std::unique_ptr<TableFactory> NewExternalTableFactory(
     std::shared_ptr<ExternalTableFactory> inner_factory);
+
+// Returns the wrapped external-table factory when table_factory was created by
+// NewExternalTableFactory(). Returns nullptr otherwise.
+std::shared_ptr<ExternalTableFactory> GetWrappedExternalTableFactory(
+    const TableFactory* table_factory);
 
 }  // namespace ROCKSDB_NAMESPACE
