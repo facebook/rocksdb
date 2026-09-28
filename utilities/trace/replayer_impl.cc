@@ -169,7 +169,7 @@ Status ReplayerImpl::Replay(
     // rather than their executin timestamps. Although in single-thread replay,
     // the first error is also the last error, while in multi-thread replay, the
     // first error may not be the first error in execution, and it may not be
-    // the last error in exeution as well.
+    // the last error in execution as well.
     auto error_cb = [&mtx, &bg_s, &last_err_ts](Status err, uint64_t err_ts) {
       std::lock_guard<std::mutex> gd(mtx);
       // Only record the first error.

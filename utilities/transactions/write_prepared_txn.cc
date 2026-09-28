@@ -253,7 +253,7 @@ Status WritePreparedTxn::CommitInternal() {
   // If `two_write_queues && includes_data`, then `do_one_write` is false. The
   // following `WriteImpl` will insert the data of the commit-time-batch into
   // the database before updating the commit cache. Therefore, the data of the
-  // commmit-time-batch is considered uncommitted. Furthermore, since data of
+  // commit-time-batch is considered uncommitted. Furthermore, since data of
   // the commit-time-batch are not locked, it is possible for two uncommitted
   // versions of the same key to co-exist for a (short) period of time until
   // the commit cache is updated by the second write. If the two uncommitted
