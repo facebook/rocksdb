@@ -23,7 +23,7 @@ public class MergeOperatorV2Test {
   @Test
   public void testMergeOperator() throws RocksDBException {
     try (TestMergeOperator mergeOperator = new TestMergeOperator();
-         Options options = new Options()) {
+        Options options = new Options()) {
       options.setMergeOperator(mergeOperator);
       options.setCreateIfMissing(true);
 
