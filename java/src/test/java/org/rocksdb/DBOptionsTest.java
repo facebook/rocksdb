@@ -78,8 +78,7 @@ public class DBOptionsTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void failDBOptionsFromPropsWithEmptyProps() {
-    try (final DBOptions opt = DBOptions.getDBOptionsFromProps(
-        new Properties())) {
+    try (final DBOptions opt = DBOptions.getDBOptionsFromProps(new Properties())) {
       //no-op
     }
   }
@@ -103,8 +102,7 @@ public class DBOptionsTest {
   @Test
   public void setIncreaseParallelism() {
     try (final DBOptions opt = new DBOptions()) {
-      final int threads = Runtime.getRuntime()
-                                 .availableProcessors() * 2;
+      final int threads = Runtime.getRuntime().availableProcessors() * 2;
       opt.setIncreaseParallelism(threads);
     }
   }
@@ -702,9 +700,8 @@ public class DBOptionsTest {
         }
 
         @Override
-        public LogRecordFoundResult logRecordFound(final long logNumber,
-                                                   final String logFileName, final WriteBatch batch,
-                                                   final WriteBatch newBatch) {
+        public LogRecordFoundResult logRecordFound(final long logNumber, final String logFileName,
+            final WriteBatch batch, final WriteBatch newBatch) {
           return new LogRecordFoundResult(
               WalProcessingOption.CONTINUE_PROCESSING, false);
         }
@@ -795,8 +792,8 @@ public class DBOptionsTest {
   @Test
   public void rateLimiter() {
     try (final DBOptions options = new DBOptions();
-         final DBOptions anotherOptions = new DBOptions();
-         final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1)) {
+        final DBOptions anotherOptions = new DBOptions();
+        final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1)) {
       options.setRateLimiter(rateLimiter);
       // Test with parameter initialization
       anotherOptions.setRateLimiter(
@@ -821,8 +818,8 @@ public class DBOptionsTest {
     }
 
     try (final Statistics statistics = new Statistics();
-         final DBOptions options = new DBOptions().setStatistics(statistics);
-         final Statistics stats = options.statistics()) {
+        final DBOptions options = new DBOptions().setStatistics(statistics);
+        final Statistics stats = options.statistics()) {
       assertThat(stats).isNotNull();
     }
   }
@@ -942,7 +939,8 @@ public class DBOptionsTest {
   public void followerRefreshCatchupPeriodMs() {
     try (final DBOptions options = new DBOptions()) {
       final long followerRefreshCatchupPeriodMs = rand.nextLong();
-      then(options.setFollowerRefreshCatchupPeriodMs(followerRefreshCatchupPeriodMs)).isEqualTo(options);
+      then(options.setFollowerRefreshCatchupPeriodMs(followerRefreshCatchupPeriodMs))
+          .isEqualTo(options);
       then(options.followerRefreshCatchupPeriodMs()).isEqualTo(followerRefreshCatchupPeriodMs);
     }
   }
@@ -951,7 +949,8 @@ public class DBOptionsTest {
   public void followerRefreshCatchupRetryCount() {
     try (final DBOptions options = new DBOptions()) {
       final long followerRefreshCatchupRetryCount = rand.nextLong();
-      then(options.setFollowerRefreshCatchupRetryCount(followerRefreshCatchupRetryCount)).isEqualTo(options);
+      then(options.setFollowerRefreshCatchupRetryCount(followerRefreshCatchupRetryCount))
+          .isEqualTo(options);
       then(options.followerRefreshCatchupRetryCount()).isEqualTo(followerRefreshCatchupRetryCount);
     }
   }
@@ -1013,18 +1012,15 @@ public class DBOptionsTest {
                }
              }) {
       assertThat(options.setListeners(null)).isEqualTo(options);
-      assertThat(options.listeners()
-                        .size()).isEqualTo(0);
+      assertThat(options.listeners().size()).isEqualTo(0);
       assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
       final List<AbstractEventListener> listeners = options.listeners();
       assertEquals(el1, listeners.get(0));
       assertEquals(el2, listeners.get(1));
       options.setListeners(Collections.emptyList());
-      listeners.get(0)
-               .onTableFileDeleted(null);
+      listeners.get(0).onTableFileDeleted(null);
       assertTrue(wasCalled1.get());
-      listeners.get(1)
-               .onMemTableSealed(null);
+      listeners.get(1).onMemTableSealed(null);
       assertTrue(wasCalled2.get());
       final List<AbstractEventListener> listeners2 = options.listeners();
       assertNotNull(listeners2);

@@ -191,10 +191,9 @@ public class DBOptions extends RocksObject
     setOpenFilesAsync(nativeHandle_, openFilesAsync);
   }
 
-  @Override 
-  public DBOptions setFlushVerifyMemtableCount(
-      final boolean flushVerifyMemtableCount) {
-    assert(isOwningHandle());
+  @Override
+  public DBOptions setFlushVerifyMemtableCount(final boolean flushVerifyMemtableCount) {
+    assert (isOwningHandle());
     setFlushVerifyMemtableCount(nativeHandle_, flushVerifyMemtableCount);
     return this;
   }
@@ -205,65 +204,61 @@ public class DBOptions extends RocksObject
     return openFilesAsync(nativeHandle_);
   }
 
-  @Override 
+  @Override
   public boolean flushVerifyMemtableCount() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return flushVerifyMemtableCount(nativeHandle_);
   }
 
   @Override
-  public DBOptions setCompactionVerifyRecordCount(
-      final boolean compactionVerifyRecordCount) {
-    assert(isOwningHandle());
+  public DBOptions setCompactionVerifyRecordCount(final boolean compactionVerifyRecordCount) {
+    assert (isOwningHandle());
     setCompactionVerifyRecordCount(nativeHandle_, compactionVerifyRecordCount);
     return this;
   }
 
   @Override
   public boolean compactionVerifyRecordCount() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return compactionVerifyRecordCount(nativeHandle_);
   }
 
   @Override
-  public DBOptions setTrackAndVerifyWalsInManifest(
-      final boolean trackAndVerifyWalsInManifest) {
-    assert(isOwningHandle());
+  public DBOptions setTrackAndVerifyWalsInManifest(final boolean trackAndVerifyWalsInManifest) {
+    assert (isOwningHandle());
     setTrackAndVerifyWalsInManifest(nativeHandle_, trackAndVerifyWalsInManifest);
     return this;
   }
 
   @Override
   public boolean trackAndVerifyWalsInManifest() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return trackAndVerifyWalsInManifest(nativeHandle_);
   }
 
   @Override
-  public DBOptions setTrackAndVerifyWals(
-      final boolean trackAndVerifyWals) {
-    assert(isOwningHandle());
+  public DBOptions setTrackAndVerifyWals(final boolean trackAndVerifyWals) {
+    assert (isOwningHandle());
     setTrackAndVerifyWals(nativeHandle_, trackAndVerifyWals);
     return this;
   }
 
   @Override
   public boolean trackAndVerifyWals() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return trackAndVerifyWals(nativeHandle_);
   }
 
   @Override
-  public DBOptions setVerifySstUniqueIdInManifest(
-      final boolean verifySstUniqueIdInManifest) {
-    assert(isOwningHandle());
+  public DBOptions setVerifySstUniqueIdInManifest(final boolean verifySstUniqueIdInManifest) {
+    assert (isOwningHandle());
     setVerifySstUniqueIdInManifest(nativeHandle_, verifySstUniqueIdInManifest);
     return this;
   }
 
   @Override
   public boolean verifySstUniqueIdInManifest() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return verifySstUniqueIdInManifest(nativeHandle_);
   }
 
@@ -483,14 +478,14 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setMaxManifestSpaceAmpPet(final int maxManifestSpaceAmpPet) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setMaxManifestSpaceAmpPet(nativeHandle_, maxManifestSpaceAmpPet);
     return this;
   }
 
   @Override
   public int maxManifestSpaceAmpPet() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return maxManifestSpaceAmpPet(nativeHandle_);
   }
 
@@ -1086,14 +1081,14 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setWalCompression(final CompressionType walCompression) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setWalCompression(nativeHandle_, walCompression.getValue());
     return this;
   }
 
   @Override
   public CompressionType walCompression() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return CompressionType.getCompressionType(walCompression(nativeHandle_));
   }
 
@@ -1218,14 +1213,14 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setBackgroundCloseInactiveWals(final boolean manualWalFlush) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setBackgroundCloseInactiveWals(nativeHandle_, manualWalFlush);
     return this;
   }
 
   @Override
   public boolean backgroundCloseInactiveWals() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return backgroundCloseInactiveWals(nativeHandle_);
   }
 
@@ -1350,79 +1345,80 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setAllowDataInErrors(final boolean allowDataInErrors) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setAllowDataInErrors(nativeHandle_, allowDataInErrors);
     return this;
   }
 
   @Override
   public boolean allowDataInErrors() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return allowDataInErrors(nativeHandle_);
   }
 
   @Override
   public String dbHostId() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return dbHostId(nativeHandle_);
   }
 
   @Override
   public DBOptions setDbHostId(final String dbHostId) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setDbHostId(nativeHandle_, dbHostId);
     return this;
   }
 
   @Override
   public DBOptions setEnforceSingleDelContracts(final boolean enforceSingleDelContracts) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setEnforceSingleDelContracts(nativeHandle_, enforceSingleDelContracts);
     return this;
   }
 
   @Override
   public boolean enforceSingleDelContracts() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return enforceSingleDelContracts(nativeHandle_);
   }
 
   @Override
   public DBOptions setFollowerRefreshCatchupPeriodMs(final long followerRefreshCatchupPeriodMs) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setFollowerRefreshCatchupPeriodMs(nativeHandle_, followerRefreshCatchupPeriodMs);
     return this;
   }
 
   @Override
   public long followerRefreshCatchupPeriodMs() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return followerRefreshCatchupPeriodMs(nativeHandle_);
   }
 
   @Override
-  public DBOptions setFollowerRefreshCatchupRetryCount(final long followerRefreshCatchupRetryCount) {
-    assert(isOwningHandle());
+  public DBOptions setFollowerRefreshCatchupRetryCount(
+      final long followerRefreshCatchupRetryCount) {
+    assert (isOwningHandle());
     setFollowerRefreshCatchupRetryCount(nativeHandle_, followerRefreshCatchupRetryCount);
     return this;
   }
 
   @Override
   public long followerRefreshCatchupRetryCount() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return followerRefreshCatchupRetryCount(nativeHandle_);
   }
 
   @Override
   public DBOptions setFollowerCatchupRetryWaitMs(final long followerCatchupRetryWaitMs) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setFollowerCatchupRetryWaitMs(nativeHandle_, followerCatchupRetryWaitMs);
     return this;
   }
 
   @Override
   public long followerCatchupRetryWaitMs() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return followerCatchupRetryWaitMs(nativeHandle_);
   }
 
@@ -1470,15 +1466,19 @@ public class DBOptions extends RocksObject
   private static native boolean paranoidChecks(long handle);
   private static native void setOpenFilesAsync(long handle, boolean openFilesAsync);
   private static native boolean openFilesAsync(long handle);
-  private static native void setFlushVerifyMemtableCount(long handle, boolean flushVerifyMemtableCount);
+  private static native void setFlushVerifyMemtableCount(
+      long handle, boolean flushVerifyMemtableCount);
   private static native boolean flushVerifyMemtableCount(long handle);
-  private static native void setCompactionVerifyRecordCount(long handle, boolean compactionVerifyRecordCount);
+  private static native void setCompactionVerifyRecordCount(
+      long handle, boolean compactionVerifyRecordCount);
   private static native boolean compactionVerifyRecordCount(long handle);
-  private static native void setTrackAndVerifyWalsInManifest(long handle, boolean trackAndVerifyWalsInManifest);
+  private static native void setTrackAndVerifyWalsInManifest(
+      long handle, boolean trackAndVerifyWalsInManifest);
   private static native boolean trackAndVerifyWalsInManifest(long handle);
   private static native void setTrackAndVerifyWals(long handle, boolean trackAndVerifyWals);
   private static native boolean trackAndVerifyWals(long handle);
-  private static native void setVerifySstUniqueIdInManifest(long handle, boolean trackAndVerifyWals);
+  private static native void setVerifySstUniqueIdInManifest(
+      long handle, boolean trackAndVerifyWals);
   private static native boolean verifySstUniqueIdInManifest(long handle);
   private static native void setRateLimiter(long handle, long rateLimiterHandle);
   private static native void setSstFileManager(final long handle, final long sstFileManagerHandle);
@@ -1640,7 +1640,8 @@ public class DBOptions extends RocksObject
   private static native boolean twoWriteQueues(final long handle);
   private static native void setManualWalFlush(final long handle, final boolean manualWalFlush);
   private static native boolean manualWalFlush(final long handle);
-  private static native void setBackgroundCloseInactiveWals(final long handle, final boolean manualWalFlush);
+  private static native void setBackgroundCloseInactiveWals(
+      final long handle, final boolean manualWalFlush);
   private static native boolean backgroundCloseInactiveWals(final long handle);
   private static native void setAtomicFlush(final long handle, final boolean atomicFlush);
   private static native boolean atomicFlush(final long handle);
@@ -1670,17 +1671,22 @@ public class DBOptions extends RocksObject
   private static native void setBgerrorResumeRetryInterval(
       final long handle, final long bgerrorResumeRetryInterval);
   private static native long bgerrorResumeRetryInterval(final long handle);
-  private static native void setAllowDataInErrors(final long handle, final boolean allowDataInErrors);
+  private static native void setAllowDataInErrors(
+      final long handle, final boolean allowDataInErrors);
   private static native boolean allowDataInErrors(final long handle);
   private static native void setDbHostId(long handle, String dbLogDir);
   private static native String dbHostId(long handle);
-  private static native void setEnforceSingleDelContracts(final long handle, final boolean allowDataInErrors);
+  private static native void setEnforceSingleDelContracts(
+      final long handle, final boolean allowDataInErrors);
   private static native boolean enforceSingleDelContracts(final long handle);
-  private static native void setFollowerRefreshCatchupPeriodMs(final long handle, final long followerRefreshCatchupPeriodMs);
+  private static native void setFollowerRefreshCatchupPeriodMs(
+      final long handle, final long followerRefreshCatchupPeriodMs);
   private static native long followerRefreshCatchupPeriodMs(final long handle);
-  private static native void setFollowerRefreshCatchupRetryCount(final long handle, final long followerRefreshCatchupRetryCount);
+  private static native void setFollowerRefreshCatchupRetryCount(
+      final long handle, final long followerRefreshCatchupRetryCount);
   private static native long followerRefreshCatchupRetryCount(final long handle);
-  private static native void setFollowerCatchupRetryWaitMs(final long handle, final long followerCatchupRetryWaitMs);
+  private static native void setFollowerCatchupRetryWaitMs(
+      final long handle, final long followerCatchupRetryWaitMs);
   private static native long followerCatchupRetryWaitMs(final long handle);
 
   // instance variables

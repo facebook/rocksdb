@@ -162,8 +162,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return {@code this}
    */
-  @Deprecated
-  T setFlushVerifyMemtableCount(boolean flushVerifyMemtableCount);
+  @Deprecated T setFlushVerifyMemtableCount(boolean flushVerifyMemtableCount);
 
   /**
    * @deprecated This option might be removed in a future release.
@@ -178,8 +177,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return a flag indicating whether the verification is on
    */
-  @Deprecated
-  boolean flushVerifyMemtableCount();
+  @Deprecated boolean flushVerifyMemtableCount();
 
   /**
    * @deprecated This option might be removed in a future release.
@@ -202,8 +200,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return {@code this}
    */
-  @Deprecated
-  T setCompactionVerifyRecordCount(boolean compactionVerifyRecordCount);
+  @Deprecated T setCompactionVerifyRecordCount(boolean compactionVerifyRecordCount);
 
   /**
    * @deprecated This option might be removed in a future release.
@@ -222,8 +219,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return A flag to indicate whether compaction count is on
    */
-  @Deprecated
-  boolean compactionVerifyRecordCount();
+  @Deprecated boolean compactionVerifyRecordCount();
 
   /**
    * If true, the log numbers and sizes of the synced WALs are tracked
@@ -241,7 +237,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * <p>
    * Default: false
    *
-   * @param trackAndVerifyWalsInManifest A flag to indicate whether to track log numbers and sizes in MANIFEST.
+   * @param trackAndVerifyWalsInManifest A flag to indicate whether to track log numbers and sizes
+   *     in MANIFEST.
    *
    * @return {@code this}
    */
@@ -285,7 +282,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * <p>
    * Default: false
    *
-   * @param trackAndVerifyWals A flag to indicate whether each new WAL should record information about its predecessor for verification purposes
+   * @param trackAndVerifyWals A flag to indicate whether each new WAL should record information
+   *     about its predecessor for verification purposes
    *
    * @return {@code this}
    */
@@ -309,7 +307,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * This is intended to be a better replacement to
    * {@link #trackAndVerifyWalsInManifest()}.
    *
-   * @return A flag indicating whether each new WAL will record information about its predecessor for verification purposes
+   * @return A flag indicating whether each new WAL will record information about its predecessor
+   *     for verification purposes
    */
   boolean trackAndVerifyWals();
 
@@ -334,7 +333,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * Default: true
    *
    * @param verifySstUniqueIdInManifest A flag indicating whether the SST unique ID
-   *                                    should be verified against MANIFEST on every opening of an SST file
+   *                                    should be verified against MANIFEST on every opening of an
+   * SST file
    *
    * @return {@code this}
    */
@@ -1693,8 +1693,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return
    */
-  @Deprecated
-  T setBackgroundCloseInactiveWals(boolean manualWalFlush);
+  @Deprecated T setBackgroundCloseInactiveWals(boolean manualWalFlush);
 
   /**
    * Set to true to re-instate an old behavior of keeping complete, synced WAL
@@ -1707,8 +1706,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return
    */
-  @Deprecated
-  boolean backgroundCloseInactiveWals();
+  @Deprecated boolean backgroundCloseInactiveWals();
 
   /**
    * If true, RocksDB supports flushing multiple column families and committing
@@ -1776,7 +1774,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * total_order_seek=true and only auto_prefix_mode=true and
    * prefix_same_as_start=true can take advantage of prefix seek optimizations.
    *
-   * @param prefixSeekOptInOnly A flag that indicates whether every iterator should be created with total_order_seek=true
+   * @param prefixSeekOptInOnly A flag that indicates whether every iterator should be created with
+   *     total_order_seek=true
    *
    * @return {@code this}
    */
@@ -2071,8 +2070,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return {@code this}
    */
-  @Deprecated
-  T setEnforceSingleDelContracts(boolean enforceSingleDelContracts);
+  @Deprecated T setEnforceSingleDelContracts(boolean enforceSingleDelContracts);
 
   /**
    * DEPRECATED: This option might be removed in a future release.
@@ -2091,8 +2089,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return
    */
-  @Deprecated
-  boolean enforceSingleDelContracts();
+  @Deprecated boolean enforceSingleDelContracts();
 
   /**
    * When a RocksDB database is opened in follower mode, this option
@@ -2102,7 +2099,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * database state.
    * Default every 10s.
    *
-   * @param followerRefreshCatchupPeriodMs The intended frequency of the follower attempting to refresh its view of the leader
+   * @param followerRefreshCatchupPeriodMs The intended frequency of the follower attempting to
+   *     refresh its view of the leader
    *
    * @return {@code this}
    */
@@ -2127,7 +2125,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * unable to get a consistent view.
    * Default to 10 attempts
    *
-   * @param followerRefreshCatchupRetryCount The number of times to tail the MANIFEST and try to install a new, consistent version
+   * @param followerRefreshCatchupRetryCount The number of times to tail the MANIFEST and try to
+   *     install a new, consistent version
    *
    * @return {@code this}
    */

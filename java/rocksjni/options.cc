@@ -415,114 +415,119 @@ void Java_org_rocksdb_Options_setOpenFilesAsync(JNIEnv*, jclass, jlong jhandle,
   reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->open_files_async =
       static_cast<bool>(open_files_async);
 =======
- * Method:    setFlushVerifyMemtableCount
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setFlushVerifyMemtableCount(JNIEnv*, jclass,
-        jlong jhandle, jboolean flush_verify_memtable_count) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->flush_verify_memtable_count =
-      static_cast<bool>(flush_verify_memtable_count);
-}
+  *Method : setFlushVerifyMemtableCount* Signature : (JZ)V* /
+      void Java_org_rocksdb_Options_setFlushVerifyMemtableCount(
+          JNIEnv*, jclass, jlong jhandle,
+          jboolean flush_verify_memtable_count) {
+    reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->flush_verify_memtable_count =
+        static_cast<bool>(flush_verify_memtable_count);
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    compactionVerifyRecordCount
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_compactionVerifyRecordCount(JNIEnv*, jclass,
-        jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->flush_verify_memtable_count;
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    compactionVerifyRecordCount
+   * Signature: (J)Z
+   */
+  jboolean Java_org_rocksdb_Options_compactionVerifyRecordCount(JNIEnv*, jclass,
+                                                                jlong jhandle) {
+    return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->flush_verify_memtable_count;
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    setCompactionVerifyRecordCount
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setCompactionVerifyRecordCount(JNIEnv*, jclass,
-        jlong jhandle, jboolean compaction_verify_record_count) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->compaction_verify_record_count =
-      static_cast<bool>(compaction_verify_record_count);
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    setCompactionVerifyRecordCount
+   * Signature: (JZ)V
+   */
+  void Java_org_rocksdb_Options_setCompactionVerifyRecordCount(
+      JNIEnv*, jclass, jlong jhandle, jboolean compaction_verify_record_count) {
+    reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->compaction_verify_record_count =
+        static_cast<bool>(compaction_verify_record_count);
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    flushVerifyMemtableCount
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_flushVerifyMemtableCount(JNIEnv*, jclass,
-        jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->flush_verify_memtable_count;
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    flushVerifyMemtableCount
+   * Signature: (J)Z
+   */
+  jboolean Java_org_rocksdb_Options_flushVerifyMemtableCount(JNIEnv*, jclass,
+                                                             jlong jhandle) {
+    return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->flush_verify_memtable_count;
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    setTrackAndVerifyWalsInManifest
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setTrackAndVerifyWalsInManifest(JNIEnv*, jclass,
-        jlong jhandle, jboolean track_and_verify_wals_in_manifest) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->track_and_verify_wals_in_manifest =
-      static_cast<bool>(track_and_verify_wals_in_manifest);
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    setTrackAndVerifyWalsInManifest
+   * Signature: (JZ)V
+   */
+  void Java_org_rocksdb_Options_setTrackAndVerifyWalsInManifest(
+      JNIEnv*, jclass, jlong jhandle,
+      jboolean track_and_verify_wals_in_manifest) {
+    reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->track_and_verify_wals_in_manifest =
+        static_cast<bool>(track_and_verify_wals_in_manifest);
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    trackAndVerifyWalsInManifest
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_trackAndVerifyWalsInManifest(JNIEnv*, jclass,
-        jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->track_and_verify_wals_in_manifest;
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    trackAndVerifyWalsInManifest
+   * Signature: (J)Z
+   */
+  jboolean Java_org_rocksdb_Options_trackAndVerifyWalsInManifest(
+      JNIEnv*, jclass, jlong jhandle) {
+    return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->track_and_verify_wals_in_manifest;
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    setTrackAndVerifyWals
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setTrackAndVerifyWals(JNIEnv*, jclass,
-        jlong jhandle, jboolean track_and_verify_wals) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->track_and_verify_wals =
-      static_cast<bool>(track_and_verify_wals);
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    setTrackAndVerifyWals
+   * Signature: (JZ)V
+   */
+  void Java_org_rocksdb_Options_setTrackAndVerifyWals(
+      JNIEnv*, jclass, jlong jhandle, jboolean track_and_verify_wals) {
+    reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->track_and_verify_wals = static_cast<bool>(track_and_verify_wals);
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    trackAndVerifyWals
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_trackAndVerifyWals(JNIEnv*, jclass,
-        jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->track_and_verify_wals;
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    trackAndVerifyWals
+   * Signature: (J)Z
+   */
+  jboolean Java_org_rocksdb_Options_trackAndVerifyWals(JNIEnv*, jclass,
+                                                       jlong jhandle) {
+    return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->track_and_verify_wals;
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    setVerifySstUniqueIdInManifest
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setVerifySstUniqueIdInManifest(JNIEnv*, jclass,
-                                                              jlong jhandle, jboolean verify_sst_unique_id_in_manifest) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->verify_sst_unique_id_in_manifest =
-      static_cast<bool>(verify_sst_unique_id_in_manifest);
-}
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    setVerifySstUniqueIdInManifest
+   * Signature: (JZ)V
+   */
+  void Java_org_rocksdb_Options_setVerifySstUniqueIdInManifest(
+      JNIEnv*, jclass, jlong jhandle,
+      jboolean verify_sst_unique_id_in_manifest) {
+    reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->verify_sst_unique_id_in_manifest =
+        static_cast<bool>(verify_sst_unique_id_in_manifest);
+  }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    verifySstUniqueIdInManifest
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_verifySstUniqueIdInManifest(JNIEnv*, jclass,
-                                                               jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->verify_sst_unique_id_in_manifest;
+  /*
+   * Class:     org_rocksdb_Options
+   * Method:    verifySstUniqueIdInManifest
+   * Signature: (J)Z
+   */
+  jboolean Java_org_rocksdb_Options_verifySstUniqueIdInManifest(JNIEnv*, jclass,
+                                                                jlong jhandle) {
+    return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+        ->verify_sst_unique_id_in_manifest;
 >>>>>>> ab6589deb (Added methods defined in db_options.h which were not yet reflected on the JNI side.)
-}
+  }
 
 /*
  * Class:     org_rocksdb_Options
@@ -869,7 +874,7 @@ void Java_org_rocksdb_Options_setMaxBackgroundFlushes(
 jint Java_org_rocksdb_Options_maxManifestSpaceAmpPet(JNIEnv*, jclass,
                                                      jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-    ->max_manifest_space_amp_pct;
+      ->max_manifest_space_amp_pct;
 }
 
 /*
@@ -880,7 +885,8 @@ jint Java_org_rocksdb_Options_maxManifestSpaceAmpPet(JNIEnv*, jclass,
 void Java_org_rocksdb_Options_setMaxManifestSpaceAmpPet(
     JNIEnv*, jclass, jlong jhandle, jint max_manifest_space_amp_pct) {
   reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-    ->max_manifest_space_amp_pct = static_cast<int>(max_manifest_space_amp_pct);
+      ->max_manifest_space_amp_pct =
+      static_cast<int>(max_manifest_space_amp_pct);
 }
 
 /*
@@ -2164,8 +2170,8 @@ jbyte Java_org_rocksdb_Options_walRecoveryMode(JNIEnv*, jclass, jlong jhandle) {
  * Method:    setWalCompression
  * Signature: (JB)V
  */
-void Java_org_rocksdb_Options_setWalCompression(
-    JNIEnv*, jclass, jlong jhandle, jbyte jwal_compression_value) {
+void Java_org_rocksdb_Options_setWalCompression(JNIEnv*, jclass, jlong jhandle,
+                                                jbyte jwal_compression_value) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   opt->wal_compression =
       ROCKSDB_NAMESPACE::CompressionTypeJni::toCppCompressionType(
@@ -2315,7 +2321,7 @@ void Java_org_rocksdb_Options_setPrefixSeekOptInOnly(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_Options_prefixSeekOptInOnly(JNIEnv*, jclass,
-                                                        jlong jhandle) {
+                                                      jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jboolean>(opt->prefix_seek_opt_in_only);
 }
@@ -2392,11 +2398,11 @@ jlong Java_org_rocksdb_Options_logReadaheadSize(JNIEnv*, jclass,
  * Method:    setFileChecksumGenFactory
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setFileChecksumGenFactory(JNIEnv*, jclass,
-                                                        jlong jhandle,
-                                                        jlong jfile_checksum_gen_factory) {
+void Java_org_rocksdb_Options_setFileChecksumGenFactory(
+    JNIEnv*, jclass, jlong jhandle, jlong jfile_checksum_gen_factory) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->file_checksum_gen_factory = static_cast<size_t>(jfile_checksum_gen_factory);
+  opt->file_checksum_gen_factory =
+      static_cast<size_t>(jfile_checksum_gen_factory);
 }
 
 /*
@@ -2504,12 +2510,12 @@ jboolean Java_org_rocksdb_Options_allowDataInErrors(JNIEnv*, jclass,
  * Method:    setDbHostId
  * Signature: (JLjava/lang/String)V
  */
-void Java_org_rocksdb_Options_setDbHostId(JNIEnv* env, jclass, jlong jhandle,
+void Java_org_rocksdb_Options_setDbHostId(JNIEnv * env, jclass, jlong jhandle,
                                           jstring jdb_host_id) {
-const char* host_id = env->GetStringUTFChars(jdb_host_id, nullptr);
+  const char* host_id = env->GetStringUTFChars(jdb_host_id, nullptr);
   if (host_id == nullptr) {
     // exception thrown: OutOfMemoryError
-  return;
+    return;
   }
 
   reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->db_host_id.assign(
@@ -2522,11 +2528,10 @@ const char* host_id = env->GetStringUTFChars(jdb_host_id, nullptr);
  * Method:    dbHostId
  * Signature: (J)Ljava/lang/String
  */
-jstring Java_org_rocksdb_Options_dbHostId(JNIEnv* env, jclass,
-                                          jlong jhandle) {
+jstring Java_org_rocksdb_Options_dbHostId(JNIEnv * env, jclass, jlong jhandle) {
   return env->NewStringUTF(
       reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-        ->db_host_id.c_str());
+          ->db_host_id.c_str());
 }
 
 /*
@@ -2537,7 +2542,8 @@ jstring Java_org_rocksdb_Options_dbHostId(JNIEnv* env, jclass,
 void Java_org_rocksdb_Options_setEnforceSingleDelContracts(
     JNIEnv*, jclass, jlong jhandle, jboolean jenforce_single_del_contracts) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->enforce_single_del_contracts = static_cast<bool>(jenforce_single_del_contracts);
+  opt->enforce_single_del_contracts =
+      static_cast<bool>(jenforce_single_del_contracts);
 }
 
 /*
@@ -2560,7 +2566,7 @@ void Java_org_rocksdb_Options_setFollowerRefreshCatchupPeriodMs(
     JNIEnv*, jclass, jlong jhandle, jlong jfollower_refresh_catchup_period_ms) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   opt->follower_refresh_catchup_period_ms =
-  static_cast<uint64_t>(jfollower_refresh_catchup_period_ms);
+      static_cast<uint64_t>(jfollower_refresh_catchup_period_ms);
 }
 
 /*
@@ -2583,7 +2589,7 @@ void Java_org_rocksdb_Options_setFollowerRefreshCatchupRetryCount(
     JNIEnv*, jclass, jlong jhandle, jlong jfollower_catchup_retry_count) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   opt->follower_catchup_retry_count =
-  static_cast<uint64_t>(jfollower_catchup_retry_count);
+      static_cast<uint64_t>(jfollower_catchup_retry_count);
 }
 
 /*
@@ -2592,7 +2598,7 @@ void Java_org_rocksdb_Options_setFollowerRefreshCatchupRetryCount(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_Options_followerRefreshCatchupRetryCount(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+                                                                jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jlong>(opt->follower_catchup_retry_count);
 }
@@ -2606,7 +2612,7 @@ void Java_org_rocksdb_Options_setFollowerCatchupRetryWaitMs(
     JNIEnv*, jclass, jlong jhandle, jlong jfollower_catchup_retry_wait_ms) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   opt->follower_catchup_retry_wait_ms =
-  static_cast<uint64_t>(jfollower_catchup_retry_wait_ms);
+      static_cast<uint64_t>(jfollower_catchup_retry_wait_ms);
 }
 
 /*
@@ -2743,10 +2749,11 @@ jboolean Java_org_rocksdb_Options_manualWalFlush(JNIEnv*, jclass,
  * Method:    setBackgroundCloseInactiveWals
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_Options_setBackgroundCloseInactiveWals(JNIEnv*, jclass, jlong jhandle,
-                                                                jboolean jbackground_close_inactive_wals) {
+void Java_org_rocksdb_Options_setBackgroundCloseInactiveWals(
+    JNIEnv*, jclass, jlong jhandle, jboolean jbackground_close_inactive_wals) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->background_close_inactive_wals = jbackground_close_inactive_wals == JNI_TRUE;
+  opt->background_close_inactive_wals =
+      jbackground_close_inactive_wals == JNI_TRUE;
 }
 
 /*
@@ -2757,7 +2764,7 @@ void Java_org_rocksdb_Options_setBackgroundCloseInactiveWals(JNIEnv*, jclass, jl
 jboolean Java_org_rocksdb_Options_backgroundCloseInactiveWals(JNIEnv*, jclass,
                                                               jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-      return static_cast<jboolean>(opt->background_close_inactive_wals);
+  return static_cast<jboolean>(opt->background_close_inactive_wals);
 }
 
 /*
@@ -6510,16 +6517,17 @@ void Java_org_rocksdb_DBOptions_setOpenFilesAsync(JNIEnv*, jclass,
                                                   jboolean open_files_async) {
   reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->open_files_async =
       static_cast<bool>(open_files_async);
-                                                  }
-                                                  
+}
+
 /*
  * Class:     org_rocksdb_DBOptions
  * Method:    setFlushVerifyMemtableCount
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setFlushVerifyMemtableCount(JNIEnv*, jclass,
-        jlong jhandle, jboolean flush_verify_memtable_count) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->flush_verify_memtable_count =
+void Java_org_rocksdb_DBOptions_setFlushVerifyMemtableCount(
+    JNIEnv*, jclass, jlong jhandle, jboolean flush_verify_memtable_count) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->flush_verify_memtable_count =
       static_cast<bool>(flush_verify_memtable_count);
 }
 
@@ -6532,15 +6540,15 @@ jboolean Java_org_rocksdb_DBOptions_openFilesAsync(JNIEnv*, jclass,
                                                    jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->open_files_async;
-                                                   }
-                                                   
-      /*
+}
+
+/*
  * Class:     org_rocksdb_DBOptions
  * Method:    flushVerifyMemtableCount
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_flushVerifyMemtableCount(JNIEnv*, jclass,
-        jlong jhandle) {
+                                                             jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->flush_verify_memtable_count;
 }
@@ -6551,7 +6559,7 @@ jboolean Java_org_rocksdb_DBOptions_flushVerifyMemtableCount(JNIEnv*, jclass,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_compactionVerifyRecordCount(JNIEnv*, jclass,
-        jlong jhandle) {
+                                                                jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->flush_verify_memtable_count;
 }
@@ -6561,9 +6569,10 @@ jboolean Java_org_rocksdb_DBOptions_compactionVerifyRecordCount(JNIEnv*, jclass,
  * Method:    setCompactionVerifyRecordCount
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setCompactionVerifyRecordCount(JNIEnv*, jclass,
-        jlong jhandle, jboolean compaction_verify_record_count) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->compaction_verify_record_count =
+void Java_org_rocksdb_DBOptions_setCompactionVerifyRecordCount(
+    JNIEnv*, jclass, jlong jhandle, jboolean compaction_verify_record_count) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->compaction_verify_record_count =
       static_cast<bool>(compaction_verify_record_count);
 }
 
@@ -6572,9 +6581,11 @@ void Java_org_rocksdb_DBOptions_setCompactionVerifyRecordCount(JNIEnv*, jclass,
  * Method:    setTrackAndVerifyWalsInManifest
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setTrackAndVerifyWalsInManifest(JNIEnv*, jclass,
-        jlong jhandle, jboolean track_and_verify_wals_in_manifest) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->track_and_verify_wals_in_manifest =
+void Java_org_rocksdb_DBOptions_setTrackAndVerifyWalsInManifest(
+    JNIEnv*, jclass, jlong jhandle,
+    jboolean track_and_verify_wals_in_manifest) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->track_and_verify_wals_in_manifest =
       static_cast<bool>(track_and_verify_wals_in_manifest);
 }
 
@@ -6583,8 +6594,8 @@ void Java_org_rocksdb_DBOptions_setTrackAndVerifyWalsInManifest(JNIEnv*, jclass,
  * Method:    trackAndVerifyWalsInManifest
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_DBOptions_trackAndVerifyWalsInManifest(JNIEnv*, jclass,
-        jlong jhandle) {
+jboolean Java_org_rocksdb_DBOptions_trackAndVerifyWalsInManifest(
+    JNIEnv*, jclass, jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->track_and_verify_wals_in_manifest;
 }
@@ -6594,10 +6605,10 @@ jboolean Java_org_rocksdb_DBOptions_trackAndVerifyWalsInManifest(JNIEnv*, jclass
  * Method:    setTrackAndVerifyWals
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setTrackAndVerifyWals(JNIEnv*, jclass,
-                                                    jlong jhandle, jboolean track_and_verify_wals) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->track_and_verify_wals =
-      static_cast<bool>(track_and_verify_wals);
+void Java_org_rocksdb_DBOptions_setTrackAndVerifyWals(
+    JNIEnv*, jclass, jlong jhandle, jboolean track_and_verify_wals) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->track_and_verify_wals = static_cast<bool>(track_and_verify_wals);
 }
 
 /*
@@ -6606,7 +6617,7 @@ void Java_org_rocksdb_DBOptions_setTrackAndVerifyWals(JNIEnv*, jclass,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_trackAndVerifyWals(JNIEnv*, jclass,
-                                                     jlong jhandle) {
+                                                       jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->track_and_verify_wals;
 }
@@ -6616,9 +6627,10 @@ jboolean Java_org_rocksdb_DBOptions_trackAndVerifyWals(JNIEnv*, jclass,
  * Method:    setVerifySstUniqueIdInManifest
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setVerifySstUniqueIdInManifest(JNIEnv*, jclass,
-                                                             jlong jhandle, jboolean verify_sst_unique_id_in_manifest) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->verify_sst_unique_id_in_manifest =
+void Java_org_rocksdb_DBOptions_setVerifySstUniqueIdInManifest(
+    JNIEnv*, jclass, jlong jhandle, jboolean verify_sst_unique_id_in_manifest) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
+      ->verify_sst_unique_id_in_manifest =
       static_cast<bool>(verify_sst_unique_id_in_manifest);
 }
 
@@ -6628,7 +6640,7 @@ void Java_org_rocksdb_DBOptions_setVerifySstUniqueIdInManifest(JNIEnv*, jclass,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_verifySstUniqueIdInManifest(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+                                                                jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->verify_sst_unique_id_in_manifest;
 }
@@ -7077,7 +7089,7 @@ jint Java_org_rocksdb_DBOptions_maxBackgroundFlushes(JNIEnv*, jclass,
 jint Java_org_rocksdb_DBOptions_maxManifestSpaceAmpPet(JNIEnv*, jclass,
                                                        jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
-    ->max_manifest_space_amp_pct;
+      ->max_manifest_space_amp_pct;
 }
 
 /*
@@ -7088,7 +7100,8 @@ jint Java_org_rocksdb_DBOptions_maxManifestSpaceAmpPet(JNIEnv*, jclass,
 void Java_org_rocksdb_DBOptions_setMaxManifestSpaceAmpPet(
     JNIEnv*, jclass, jlong jhandle, jint max_manifest_space_amp_pct) {
   reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
-    ->max_manifest_space_amp_pct = static_cast<int>(max_manifest_space_amp_pct);
+      ->max_manifest_space_amp_pct =
+      static_cast<int>(max_manifest_space_amp_pct);
 }
 
 /*
@@ -8051,8 +8064,8 @@ void Java_org_rocksdb_DBOptions_setWalCompression(
     JNIEnv*, jclass, jlong jhandle, jbyte jwal_compression_value) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   opt->wal_compression =
-  ROCKSDB_NAMESPACE::CompressionTypeJni::toCppCompressionType(
-      jwal_compression_value);
+      ROCKSDB_NAMESPACE::CompressionTypeJni::toCppCompressionType(
+          jwal_compression_value);
 }
 
 /*
@@ -8060,7 +8073,8 @@ void Java_org_rocksdb_DBOptions_setWalCompression(
  * Method:    walCompression
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_DBOptions_walCompression(JNIEnv*, jclass, jlong jhandle) {
+jbyte Java_org_rocksdb_DBOptions_walCompression(JNIEnv*, jclass,
+                                                jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return ROCKSDB_NAMESPACE::CompressionTypeJni::toJavaCompressionType(
       opt->wal_compression);
@@ -8232,10 +8246,11 @@ jboolean Java_org_rocksdb_DBOptions_manualWalFlush(JNIEnv*, jclass,
  * Method:    setBackgroundCloseInactiveWals
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setBackgroundCloseInactiveWals(JNIEnv*, jclass, jlong jhandle,
-                                                               jboolean jbackground_close_inactive_wals) {
+void Java_org_rocksdb_DBOptions_setBackgroundCloseInactiveWals(
+    JNIEnv*, jclass, jlong jhandle, jboolean jbackground_close_inactive_wals) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->background_close_inactive_wals = jbackground_close_inactive_wals == JNI_TRUE;
+  opt->background_close_inactive_wals =
+      jbackground_close_inactive_wals == JNI_TRUE;
 }
 
 /*
@@ -8244,7 +8259,7 @@ void Java_org_rocksdb_DBOptions_setBackgroundCloseInactiveWals(JNIEnv*, jclass, 
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_backgroundCloseInactiveWals(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+                                                                jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jboolean>(opt->background_close_inactive_wals);
 }
@@ -8333,7 +8348,7 @@ void Java_org_rocksdb_DBOptions_setPrefixSeekOptInOnly(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_prefixSeekOptInOnly(JNIEnv*, jclass,
-                                                       jlong jhandle) {
+                                                        jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jboolean>(opt->prefix_seek_opt_in_only);
 }
@@ -8399,7 +8414,7 @@ void Java_org_rocksdb_DBOptions_setWriteIdentityFile(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_DBOptions_writeIdentityFile(JNIEnv*, jclass,
-                                                        jlong jhandle) {
+                                                      jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jboolean>(opt->write_identity_file);
 }
@@ -8521,7 +8536,7 @@ jboolean Java_org_rocksdb_DBOptions_allowDataInErrors(JNIEnv*, jclass,
  * Method:    setDbHostId
  * Signature: (JLjava/lang/String)V
  */
-void Java_org_rocksdb_DBOptions_setDbHostId(JNIEnv* env, jclass, jlong jhandle,
+void Java_org_rocksdb_DBOptions_setDbHostId(JNIEnv * env, jclass, jlong jhandle,
                                             jstring jdb_host_id) {
   const char* host_id = env->GetStringUTFChars(jdb_host_id, nullptr);
   if (host_id == nullptr) {
@@ -8529,7 +8544,8 @@ void Java_org_rocksdb_DBOptions_setDbHostId(JNIEnv* env, jclass, jlong jhandle,
     return;
   }
 
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->db_host_id.assign(host_id);
+  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)->db_host_id.assign(
+      host_id);
   env->ReleaseStringUTFChars(jdb_host_id, host_id);
 }
 
@@ -8538,11 +8554,11 @@ void Java_org_rocksdb_DBOptions_setDbHostId(JNIEnv* env, jclass, jlong jhandle,
  * Method:    dbHostId
  * Signature: (J)Ljava/lang/String
  */
-jstring Java_org_rocksdb_DBOptions_dbHostId(JNIEnv* env, jclass,
+jstring Java_org_rocksdb_DBOptions_dbHostId(JNIEnv * env, jclass,
                                             jlong jhandle) {
   return env->NewStringUTF(
       reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
-      ->db_host_id.c_str());
+          ->db_host_id.c_str());
 }
 
 /*
@@ -8553,7 +8569,8 @@ jstring Java_org_rocksdb_DBOptions_dbHostId(JNIEnv* env, jclass,
 void Java_org_rocksdb_DBOptions_setEnforceSingleDelContracts(
     JNIEnv*, jclass, jlong jhandle, jboolean jenforce_single_del_contracts) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->enforce_single_del_contracts = static_cast<bool>(jenforce_single_del_contracts);
+  opt->enforce_single_del_contracts =
+      static_cast<bool>(jenforce_single_del_contracts);
 }
 
 /*
@@ -8576,7 +8593,7 @@ void Java_org_rocksdb_DBOptions_setFollowerRefreshCatchupPeriodMs(
     JNIEnv*, jclass, jlong jhandle, jlong jfollower_refresh_catchup_period_ms) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   opt->follower_refresh_catchup_period_ms =
-  static_cast<uint64_t>(jfollower_refresh_catchup_period_ms);
+      static_cast<uint64_t>(jfollower_refresh_catchup_period_ms);
 }
 
 /*
@@ -8585,7 +8602,7 @@ void Java_org_rocksdb_DBOptions_setFollowerRefreshCatchupPeriodMs(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_DBOptions_followerRefreshCatchupPeriodMs(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+                                                                jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jlong>(opt->follower_refresh_catchup_period_ms);
 }
@@ -8599,7 +8616,7 @@ void Java_org_rocksdb_DBOptions_setFollowerRefreshCatchupRetryCount(
     JNIEnv*, jclass, jlong jhandle, jlong jfollower_catchup_retry_count) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   opt->follower_catchup_retry_count =
-  static_cast<uint64_t>(jfollower_catchup_retry_count);
+      static_cast<uint64_t>(jfollower_catchup_retry_count);
 }
 
 /*
@@ -8607,8 +8624,8 @@ void Java_org_rocksdb_DBOptions_setFollowerRefreshCatchupRetryCount(
  * Method:    followerRefreshCatchupRetryCount
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_DBOptions_followerRefreshCatchupRetryCount(JNIEnv*, jclass,
-                                                                  jlong jhandle) {
+jlong Java_org_rocksdb_DBOptions_followerRefreshCatchupRetryCount(
+    JNIEnv*, jclass, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jlong>(opt->follower_catchup_retry_count);
 }
@@ -8622,7 +8639,7 @@ void Java_org_rocksdb_DBOptions_setFollowerCatchupRetryWaitMs(
     JNIEnv*, jclass, jlong jhandle, jlong jfollower_catchup_retry_wait_ms) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   opt->follower_catchup_retry_wait_ms =
-  static_cast<uint64_t>(jfollower_catchup_retry_wait_ms);
+      static_cast<uint64_t>(jfollower_catchup_retry_wait_ms);
 }
 
 /*
