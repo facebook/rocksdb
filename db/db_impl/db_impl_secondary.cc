@@ -100,7 +100,11 @@ void DBImplSecondary::RetireSecondaryReadView(
     std::lock_guard<std::mutex> lock(retired_secondary_read_views_mutex_);
     retired_secondary_read_views_.emplace_back(std::move(read_view));
   }
-  retired_secondary_read_views_cv_.notify_all();
+  // Publish and close synchronously reclaim after retiring a view. Do not wake
+  // the background reclaimer here: it could take a reader-free view first and
+  // let catch-up scan for obsolete files before releasing the view's
+  // SuperVersions. A reader that makes a retained view reclaimable later wakes
+  // the reclaimer in ReleaseSecondaryReadView().
 }
 
 bool DBImplSecondary::HasReclaimableSecondaryReadView() const {
@@ -180,6 +184,9 @@ void DBImplSecondary::ReclaimRetiredSecondaryReadViewsLoop() {
 
 void DBImplSecondary::CleanupRetiredSecondaryReadViews() {
   ReclaimRetiredSecondaryReadViews();
+  std::unique_lock<std::mutex> lock(retired_secondary_read_views_mutex_);
+  retired_secondary_read_views_cv_.wait(
+      lock, [this]() { return secondary_read_view_reclaims_in_flight_ == 0; });
 }
 
 void DBImplSecondary::DrainRetiredSecondaryReadViews() {

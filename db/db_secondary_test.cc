@@ -1021,7 +1021,7 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   // Close the secondary now, before traced_env is destroyed, on every path.
   Defer close_secondary([this]() { CloseSecondary(); });
 
-  static const auto verify_db = [&]() {
+  const auto verify_db = [&]() {
     std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
     std::unique_ptr<Iterator> iter2(db_secondary_->NewIterator(ReadOptions()));
     for (iter1->SeekToFirst(), iter2->SeekToFirst();
