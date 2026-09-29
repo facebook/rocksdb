@@ -333,18 +333,18 @@ public class MergeTest {
   @Test
   public void cFInt64AddOperatorOption() throws InterruptedException, RocksDBException {
     try (final Int64AddOperator int64AddOperator = new Int64AddOperator();
-         final ColumnFamilyOptions cfOpt1 =
-             new ColumnFamilyOptions().setMergeOperator(int64AddOperator);
-         final ColumnFamilyOptions cfOpt2 =
-             new ColumnFamilyOptions().setMergeOperator(int64AddOperator)) {
+        final ColumnFamilyOptions cfOpt1 =
+            new ColumnFamilyOptions().setMergeOperator(int64AddOperator);
+        final ColumnFamilyOptions cfOpt2 =
+            new ColumnFamilyOptions().setMergeOperator(int64AddOperator)) {
       final List<ColumnFamilyDescriptor> cfDescriptors =
           Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1),
               new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2));
       final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
       try (final DBOptions opt =
                new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-           final RocksDB db = RocksDB.open(
-               opt, dbFolder.getRoot().getAbsolutePath(), cfDescriptors, columnFamilyHandleList)) {
+          final RocksDB db = RocksDB.open(
+              opt, dbFolder.getRoot().getAbsolutePath(), cfDescriptors, columnFamilyHandleList)) {
         try {
           // writing (long)100 under key
           db.put(columnFamilyHandleList.get(1), "cfkey".getBytes(), encodeSigned(50));
@@ -356,8 +356,8 @@ public class MergeTest {
           // Test also with createColumnFamily
           try (final ColumnFamilyOptions cfHandleOpts =
                    new ColumnFamilyOptions().setMergeOperator(int64AddOperator);
-               final ColumnFamilyHandle cfHandle = db.createColumnFamily(
-                   new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts))) {
+              final ColumnFamilyHandle cfHandle = db.createColumnFamily(
+                  new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts))) {
             // writing (long)200 under cfkey2
             db.put(cfHandle, "cfkey2".getBytes(), encodeSigned(200));
             // merge (long)50 under cfkey2
