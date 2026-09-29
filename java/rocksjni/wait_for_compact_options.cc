@@ -19,9 +19,8 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_WaitForCompactOptions_newWaitForCompactOptions(JNIEnv*,
-                                                                       jclass) {
-  auto* wait_for_compact_opts =
-      new ROCKSDB_NAMESPACE::WaitForCompactOptions();
+                                                                      jclass) {
+  auto* wait_for_compact_opts = new ROCKSDB_NAMESPACE::WaitForCompactOptions();
   return GET_CPLUSPLUS_POINTER(wait_for_compact_opts);
 }
 
@@ -43,7 +42,7 @@ void Java_org_rocksdb_WaitForCompactOptions_setAbortOnPause(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_WaitForCompactOptions_abortOnPause(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+                                                             jlong jhandle) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   return static_cast<jboolean>(wait_for_compact_opts->abort_on_pause);
@@ -55,8 +54,8 @@ jboolean Java_org_rocksdb_WaitForCompactOptions_abortOnPause(JNIEnv*, jclass,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_WaitForCompactOptions_setFlush(JNIEnv*, jclass,
-                                                      jlong jhandle,
-                                                      jboolean jflush) {
+                                                     jlong jhandle,
+                                                     jboolean jflush) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   wait_for_compact_opts->flush = jflush;
@@ -68,7 +67,7 @@ void Java_org_rocksdb_WaitForCompactOptions_setFlush(JNIEnv*, jclass,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_WaitForCompactOptions_flush(JNIEnv*, jclass,
-                                                       jlong jhandle) {
+                                                      jlong jhandle) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   return static_cast<jboolean>(wait_for_compact_opts->flush);
@@ -92,7 +91,7 @@ void Java_org_rocksdb_WaitForCompactOptions_setWaitForPurge(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_WaitForCompactOptions_waitForPurge(JNIEnv*, jclass,
-                                                              jlong jhandle) {
+                                                             jlong jhandle) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   return static_cast<jboolean>(wait_for_compact_opts->wait_for_purge);
@@ -104,8 +103,8 @@ jboolean Java_org_rocksdb_WaitForCompactOptions_waitForPurge(JNIEnv*, jclass,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_WaitForCompactOptions_setCloseDb(JNIEnv*, jclass,
-                                                        jlong jhandle,
-                                                        jboolean jclose_db) {
+                                                       jlong jhandle,
+                                                       jboolean jclose_db) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   wait_for_compact_opts->close_db = jclose_db;
@@ -117,7 +116,7 @@ void Java_org_rocksdb_WaitForCompactOptions_setCloseDb(JNIEnv*, jclass,
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_WaitForCompactOptions_closeDb(JNIEnv*, jclass,
-                                                         jlong jhandle) {
+                                                        jlong jhandle) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   return static_cast<jboolean>(wait_for_compact_opts->close_db);
@@ -128,12 +127,12 @@ jboolean Java_org_rocksdb_WaitForCompactOptions_closeDb(JNIEnv*, jclass,
  * Method:    setTimeout
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_WaitForCompactOptions_setTimeout(
-    JNIEnv*, jclass, jlong jhandle, jlong jtimeout_micros) {
+void Java_org_rocksdb_WaitForCompactOptions_setTimeout(JNIEnv*, jclass,
+                                                       jlong jhandle,
+                                                       jlong jtimeout_micros) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
-  wait_for_compact_opts->timeout =
-      std::chrono::microseconds(jtimeout_micros);
+  wait_for_compact_opts->timeout = std::chrono::microseconds(jtimeout_micros);
 }
 
 /*
@@ -142,7 +141,7 @@ void Java_org_rocksdb_WaitForCompactOptions_setTimeout(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_WaitForCompactOptions_timeout(JNIEnv*, jclass,
-                                                      jlong jhandle) {
+                                                     jlong jhandle) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   return static_cast<jlong>(wait_for_compact_opts->timeout.count());
@@ -153,9 +152,8 @@ jlong Java_org_rocksdb_WaitForCompactOptions_timeout(JNIEnv*, jclass,
  * Method:    disposeInternalJni
  * Signature: (J)V
  */
-void Java_org_rocksdb_WaitForCompactOptions_disposeInternalJni(JNIEnv*,
-                                                                jclass,
-                                                                jlong jhandle) {
+void Java_org_rocksdb_WaitForCompactOptions_disposeInternalJni(JNIEnv*, jclass,
+                                                               jlong jhandle) {
   auto* wait_for_compact_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::WaitForCompactOptions*>(jhandle);
   assert(wait_for_compact_opts != nullptr);

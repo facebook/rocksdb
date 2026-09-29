@@ -167,39 +167,27 @@ public class WaitForCompactOptionsTest {
   public void allCombinations() {
     try (final WaitForCompactOptions options = new WaitForCompactOptions()) {
       // Test all true
-      options.setAbortOnPause(true)
-          .setFlush(true)
-          .setWaitForPurge(true)
-          .setCloseDb(true);
+      options.setAbortOnPause(true).setFlush(true).setWaitForPurge(true).setCloseDb(true);
       assertThat(options.abortOnPause()).isTrue();
       assertThat(options.flush()).isTrue();
       assertThat(options.waitForPurge()).isTrue();
       assertThat(options.closeDb()).isTrue();
 
       // Test all false
-      options.setAbortOnPause(false)
-          .setFlush(false)
-          .setWaitForPurge(false)
-          .setCloseDb(false);
+      options.setAbortOnPause(false).setFlush(false).setWaitForPurge(false).setCloseDb(false);
       assertThat(options.abortOnPause()).isFalse();
       assertThat(options.flush()).isFalse();
       assertThat(options.waitForPurge()).isFalse();
       assertThat(options.closeDb()).isFalse();
 
       // Test mixed combinations
-      options.setAbortOnPause(true)
-          .setFlush(false)
-          .setWaitForPurge(true)
-          .setCloseDb(false);
+      options.setAbortOnPause(true).setFlush(false).setWaitForPurge(true).setCloseDb(false);
       assertThat(options.abortOnPause()).isTrue();
       assertThat(options.flush()).isFalse();
       assertThat(options.waitForPurge()).isTrue();
       assertThat(options.closeDb()).isFalse();
 
-      options.setAbortOnPause(false)
-          .setFlush(true)
-          .setWaitForPurge(false)
-          .setCloseDb(true);
+      options.setAbortOnPause(false).setFlush(true).setWaitForPurge(false).setCloseDb(true);
       assertThat(options.abortOnPause()).isFalse();
       assertThat(options.flush()).isTrue();
       assertThat(options.waitForPurge()).isFalse();
@@ -311,9 +299,8 @@ public class WaitForCompactOptionsTest {
   @Test
   public void waitForCompactBasic() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
-
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
       // Put some data to trigger potential compactions
       for (int i = 0; i < 100; i++) {
         db.put(("key" + i).getBytes(), ("value" + i).getBytes());
@@ -336,9 +323,8 @@ public class WaitForCompactOptionsTest {
   @Test
   public void waitForCompactWithFlush() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
-
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
       // Put some data
       for (int i = 0; i < 50; i++) {
         db.put(("key" + i).getBytes(), ("value" + i).getBytes());
@@ -358,9 +344,8 @@ public class WaitForCompactOptionsTest {
   @Test
   public void waitForCompactWithTimeout() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
-
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
       // Put minimal data
       db.put("test".getBytes(), "value".getBytes());
 
@@ -376,9 +361,8 @@ public class WaitForCompactOptionsTest {
   @Test
   public void waitForCompactEmptyDatabase() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
-
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
       // Wait on empty database - should complete immediately
       waitForCompactOptions.setTimeout(5000000); // 5 seconds timeout
       db.waitForCompact(waitForCompactOptions);
@@ -392,27 +376,22 @@ public class WaitForCompactOptionsTest {
   @Test
   public void waitForCompactWithAllOptions() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
-
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
       // Put some data
       for (int i = 0; i < 30; i++) {
         db.put(("key" + i).getBytes(), ("value" + i).getBytes());
       }
 
       // Configure all options
-      waitForCompactOptions
-          .setAbortOnPause(false)
-          .setFlush(true)
-          .setWaitForPurge(true)
-          .setTimeout(10000000); // 10 seconds timeout
+      waitForCompactOptions.setAbortOnPause(false).setFlush(true).setWaitForPurge(true).setTimeout(
+          10000000); // 10 seconds timeout
 
       db.waitForCompact(waitForCompactOptions);
 
       // Verify all data is intact
       for (int i = 0; i < 30; i++) {
-        assertThat(new String(db.get(("key" + i).getBytes())))
-            .isEqualTo("value" + i);
+        assertThat(new String(db.get(("key" + i).getBytes()))).isEqualTo("value" + i);
       }
     }
   }
@@ -420,9 +399,8 @@ public class WaitForCompactOptionsTest {
   @Test
   public void waitForCompactMultipleTimes() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
-
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final WaitForCompactOptions waitForCompactOptions = new WaitForCompactOptions()) {
       waitForCompactOptions.setTimeout(5000000); // 5 seconds timeout
 
       // Call waitForCompact multiple times

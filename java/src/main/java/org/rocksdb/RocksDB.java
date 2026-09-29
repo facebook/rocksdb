@@ -5183,10 +5183,9 @@ public class RocksDB extends RocksObject {
   private static native void lockWAL(final long handle) throws RocksDBException;
   private static native void unlockWAL(final long handle) throws RocksDBException;
   private static native void increaseFullHistoryTsLow(
-      final long handle, final long columnFamilyHandle, final byte[] tsLow)
+      final long handle, final long columnFamilyHandle, final byte[] tsLow) throws RocksDBException;
+  private static native byte[] getFullHistoryTsLow(final long handle, final long columnFamilyHandle)
       throws RocksDBException;
-  private static native byte[] getFullHistoryTsLow(
-      final long handle, final long columnFamilyHandle) throws RocksDBException;
   private static native long getLatestSequenceNumber(final long handle);
   private static native void disableFileDeletions(long handle) throws RocksDBException;
   private static native void enableFileDeletions(long handle) throws RocksDBException;

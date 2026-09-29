@@ -12,7 +12,6 @@ package org.rocksdb;
  * with optional timeout and abort-on-pause settings.
  */
 public class WaitForCompactOptions extends RocksObject {
-
   /**
    * Creates a new WaitForCompactOptions with default settings.
    * <p>
@@ -29,7 +28,7 @@ public class WaitForCompactOptions extends RocksObject {
 
   /**
    * Sets whether to abort waiting when background work is paused.
-   * 
+   *
    * @param abortOnPause if true, waiting will be aborted if background
    *                     work is paused via PauseBackgroundWork()
    * @return this WaitForCompactOptions instance
@@ -51,7 +50,7 @@ public class WaitForCompactOptions extends RocksObject {
   /**
    * Sets whether to wait for flush operations to complete in addition
    * to compaction operations.
-   * 
+   *
    * @param flush if true, also waits for flush operations
    * @return this WaitForCompactOptions instance
    */
@@ -71,7 +70,7 @@ public class WaitForCompactOptions extends RocksObject {
 
   /**
    * Sets whether to wait for purge to complete.
-   * 
+   *
    * @param waitForPurge if true, wait for purge to complete
    * @return this WaitForCompactOptions instance
    */
@@ -93,7 +92,7 @@ public class WaitForCompactOptions extends RocksObject {
    * Sets whether to call Close() after waiting is done.
    * By the time Close() is called here, there should be no background jobs
    * in progress and no new background jobs should be added.
-   * 
+   *
    * @param closeDb if true, close the database after waiting
    * @return this WaitForCompactOptions instance
    */
@@ -113,7 +112,7 @@ public class WaitForCompactOptions extends RocksObject {
 
   /**
    * Sets a timeout for waiting.
-   * 
+   *
    * @param timeoutMicros timeout in microseconds. 0 means no timeout.
    * @return this WaitForCompactOptions instance
    */
