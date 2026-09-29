@@ -13,7 +13,6 @@
 #include <array>
 #include <cinttypes>
 #include <cstdio>
-#include <iterator>
 #include <list>
 #include <map>
 #include <set>
@@ -5931,6 +5930,7 @@ Status VersionSet::ProcessManifestWrites(
   } else {
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
+    Status batch_apply_status;
     for (;;) {
       assert(!(*it)->edit_list.front()->IsColumnFamilyManipulation());
       last_writer = *it;
@@ -5939,7 +5939,12 @@ Status VersionSet::ProcessManifestWrites(
                    last_writer->max_file_opening_threads);
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
-      if (last_writer->cfd->IsDropped()) {
+      if (!batch_apply_status.ok()) {
+        // An earlier edit failed, so apply no more edits, but keep grouping
+        // until the loop conditions below end the batch as usual. LogAndApply()
+        // returns once a caller's first writer is done, so none of its writers
+        // may be left queued.
+      } else if (last_writer->cfd->IsDropped()) {
         // If we detect a dropped CF at this point, and the corresponding
         // version edits belong to an atomic group, then we need to find out
         // the preceding version edits in the same atomic group, and update
@@ -5955,10 +5960,10 @@ Status VersionSet::ProcessManifestWrites(
             size_t k = 0;
             while (k < edit_list.size()) {
               if (!edit_list[k]->IsInAtomicGroup()) {
-                break;
+                break;  // inner while-`k` loop
               } else if (edit_list[k]->GetRemainingEntries() == 0) {
                 ++k;
-                break;
+                break;  // inner while-`k` loop
               }
               ++k;
             }
@@ -5985,7 +5990,7 @@ Status VersionSet::ProcessManifestWrites(
             builder = builder_guards[i]->version_builder();
             TEST_SYNC_POINT_CALLBACK(
                 "VersionSet::ProcessManifestWrites:SameColumnFamily", &cf_id);
-            break;
+            break;  // inner for-`i` loop
           }
         }
         if (version == nullptr) {
@@ -6019,29 +6024,10 @@ Status VersionSet::ProcessManifestWrites(
           } else if (group_start != std::numeric_limits<size_t>::max()) {
             group_start = std::numeric_limits<size_t>::max();
           }
-          Status s = LogAndApplyHelper(last_writer->cfd, builder, e,
-                                       &max_last_sequence, mu);
-          if (!s.ok()) {
-            // free up the allocated memory
-            for (auto v : versions) {
-              delete v;
-            }
-            // Fail every writer this loop would have batched, not only the
-            // ones seen so far: a caller queues all its writers together and
-            // returns once its first is done, so they must finish together.
-            for (std::deque<ManifestWriter*>::const_iterator next =
-                     std::next(it);
-                 next != manifest_writers_.cend() && !skip_manifest_write;
-                 ++next) {
-              const auto* next_edit = (*next)->edit_list.front();
-              if (next_edit->IsColumnFamilyManipulation() ||
-                  next_edit->IsNoManifestWriteDummy()) {
-                break;
-              }
-              last_writer = *next;
-            }
-            finish_batch(s);
-            return s;
+          batch_apply_status = LogAndApplyHelper(last_writer->cfd, builder, e,
+                                                 &max_last_sequence, mu);
+          if (!batch_apply_status.ok()) {
+            break;  // inner for-`e` loop
           }
           batch_edits.push_back(e);
           batch_edits_ts_sz.push_back(edit_ts_sz);
@@ -6063,6 +6049,13 @@ Status VersionSet::ProcessManifestWrites(
         // nor for dummy skipping manifest write
         break;
       }
+    }
+    if (!batch_apply_status.ok()) {
+      for (auto v : versions) {
+        delete v;
+      }
+      finish_batch(batch_apply_status);
+      return batch_apply_status;
     }
     for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
       assert(!builder_guards.empty() &&

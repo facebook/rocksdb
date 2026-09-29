@@ -1575,14 +1575,17 @@ Status RunOrAbortOnHang(const std::function<Status()>& fn) {
 TEST_F(VersionSetTest, FailedEditReleasesEveryWriterInTheBatch) {
   NewDB();
 
-  // Two writers from one call. The first deletes a file that is not in the LSM
-  // tree, which fails while the batch is still being assembled. The second must
-  // fail with it: a caller returns as soon as its first writer is done.
+  // Three writers from one call. The first deletes a file that is not in the
+  // LSM tree, which fails while the batch is still being assembled. Both
+  // followers must fail with it: a caller returns as soon as its first writer
+  // is done.
   autovector<VersionEdit> edits;
   edits.emplace_back();
   edits.back().DeleteFile(/*level=*/1, /*file_number=*/12345);
   edits.emplace_back();
-  edits.back().SetDBId("db_id");
+  edits.back().SetDBId("db_id_1");
+  edits.emplace_back();
+  edits.back().SetDBId("db_id_2");
   autovector<ColumnFamilyData*> cfds;
   autovector<autovector<VersionEdit*>> edit_lists;
   for (VersionEdit& edit : edits) {
