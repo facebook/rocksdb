@@ -10,6 +10,11 @@
 #include "db/version_set.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <future>
+#include <tuple>
 
 #include "db/blob/blob_log_writer.h"
 #include "db/db_impl/db_impl.h"
@@ -1544,6 +1549,234 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
+}
+
+namespace {
+// Runs `fn` on its own thread and aborts if it does not return in time. A
+// LogAndApply queued behind a stranded writer is never woken, and the
+// VersionSet cannot be torn down while it waits.
+Status RunOrAbortOnHang(const std::function<Status()>& fn) {
+  std::promise<Status> result;
+  std::future<Status> finished = result.get_future();
+  port::Thread runner([&] { result.set_value(fn()); });
+  if (finished.wait_for(std::chrono::seconds(30)) !=
+      std::future_status::ready) {
+    fprintf(stderr, "LogAndApply did not finish: stranded manifest writer\n");
+    abort();
+  }
+  runner.join();
+  return finished.get();
+}
+}  // namespace
+
+// A batch that fails before the MANIFEST write must still take its writers off
+// the queue. They live on the failed caller's stack, so a stranded one leaves
+// the next LogAndApply waiting behind a writer that no longer exists.
+TEST_F(VersionSetTest, FailedEditReleasesEveryWriterInTheBatch) {
+  NewDB();
+
+  // Two writers from one call. The first deletes a file that is not in the LSM
+  // tree, which fails while the batch is still being assembled. The second must
+  // fail with it: a caller returns as soon as its first writer is done.
+  autovector<VersionEdit> edits;
+  edits.emplace_back();
+  edits.back().DeleteFile(/*level=*/1, /*file_number=*/12345);
+  edits.emplace_back();
+  edits.back().SetDBId("db_id");
+  autovector<ColumnFamilyData*> cfds;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  for (VersionEdit& edit : edits) {
+    cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
+    edit_lists.emplace_back(autovector<VersionEdit*>{&edit});
+  }
+  // Each writer's callback must also run, with the batch's error: a flush
+  // install relies on it to restore the flags of the memtables it marked.
+  std::vector<int> callback_calls(edits.size(), 0);
+  std::vector<Status::Code> callback_codes(edits.size(), Status::kOk);
+  std::vector<std::function<void(const Status&)>> manifest_wcbs;
+  for (size_t i = 0; i < edits.size(); ++i) {
+    manifest_wcbs.emplace_back([&, i](const Status& cb_status) {
+      ++callback_calls[i];
+      callback_codes[i] = cb_status.code();
+    });
+  }
+  mutex_.Lock();
+  const Status s = versions_->LogAndApply(
+      cfds, read_options_, write_options_, edit_lists, &mutex_,
+      /*dir_contains_current_file=*/nullptr, /*new_descriptor_log=*/false,
+      /*new_cf_options=*/nullptr, manifest_wcbs);
+  mutex_.Unlock();
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  for (size_t i = 0; i < edits.size(); ++i) {
+    EXPECT_EQ(1, callback_calls[i]) << "writer " << i;
+    EXPECT_EQ(Status::kCorruption, callback_codes[i]) << "writer " << i;
+  }
+
+  ASSERT_OK(RunOrAbortOnHang([&] {
+    VersionEdit next;
+    next.SetDBId("next_db_id");
+    return LogAndApplyToDefaultCF(next);
+  }));
+}
+
+TEST_F(VersionSetTest, FailedBatchSignalsWriterFromAnotherCaller) {
+  NewDB();
+
+  std::promise<void> first_manifest_write_started;
+  std::future<void> first_manifest_write_started_future =
+      first_manifest_write_started.get_future();
+  std::promise<void> release_first_manifest_write;
+  std::future<void> release_first_manifest_write_future =
+      release_first_manifest_write.get_future();
+  std::promise<void> failing_writer_queued;
+  std::future<void> failing_writer_queued_future =
+      failing_writer_queued.get_future();
+  std::promise<void> external_writer_queued;
+  std::future<void> external_writer_queued_future =
+      external_writer_queued.get_future();
+  std::atomic<int> queued_writers{0};
+  std::atomic<bool> block_first_manifest_write{true};
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+        const int num_queued =
+            queued_writers.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (num_queued == 2) {
+          failing_writer_queued.set_value();
+        } else if (num_queued == 3) {
+          external_writer_queued.set_value();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifestStart", [&](void*) {
+        if (block_first_manifest_write.exchange(false,
+                                                std::memory_order_relaxed)) {
+          first_manifest_write_started.set_value();
+          release_first_manifest_write_future.wait();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status leader_status;
+  Status failing_status;
+  Status external_status;
+  int external_callback_calls = 0;
+  Status::Code external_callback_code = Status::kOk;
+  ASSERT_OK(RunOrAbortOnHang([&] {
+    VersionEdit leader_edit;
+    leader_edit.SetDBId("leader_db_id");
+    port::Thread leader(
+        [&] { leader_status = LogAndApplyToDefaultCF(leader_edit); });
+    first_manifest_write_started_future.wait();
+
+    VersionEdit failing_edit;
+    failing_edit.DeleteFile(/*level=*/1, /*file_number=*/12345);
+    port::Thread failing(
+        [&] { failing_status = LogAndApplyToDefaultCF(failing_edit); });
+    failing_writer_queued_future.wait();
+
+    VersionEdit external_edit;
+    external_edit.SetDBId("external_db_id");
+    port::Thread external([&] {
+      mutex_.Lock();
+      external_status = versions_->LogAndApply(
+          versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+          write_options_, &external_edit, &mutex_,
+          /*dir_contains_current_file=*/nullptr,
+          /*new_descriptor_log=*/false,
+          /*column_family_options=*/nullptr, [&](const Status& cb_status) {
+            ++external_callback_calls;
+            external_callback_code = cb_status.code();
+          });
+      mutex_.Unlock();
+    });
+    external_writer_queued_future.wait();
+
+    release_first_manifest_write.set_value();
+    leader.join();
+    failing.join();
+    external.join();
+    return Status::OK();
+  }));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(leader_status);
+  ASSERT_TRUE(failing_status.IsCorruption()) << failing_status.ToString();
+  ASSERT_TRUE(external_status.IsCorruption()) << external_status.ToString();
+  EXPECT_EQ(1, external_callback_calls);
+  EXPECT_EQ(Status::kCorruption, external_callback_code);
+
+  ASSERT_OK(RunOrAbortOnHang([&] {
+    VersionEdit next;
+    next.SetDBId("next_db_id");
+    return LogAndApplyToDefaultCF(next);
+  }));
+}
+
+TEST_F(VersionSetTest, FailedVersionBuildReleasesTheBatch) {
+  NewDB();
+
+  VersionEdit edit;
+  for (const auto& [file_number, smallest, largest] :
+       {std::make_tuple(uint64_t{100}, "a", "b"),
+        std::make_tuple(uint64_t{101}, "c", "d")}) {
+    edit.AddFile(/*level=*/1, file_number, /*file_path_id=*/0,
+                 /*file_size=*/100, InternalKey(smallest, 1, kTypeValue),
+                 InternalKey(largest, 1, kTypeValue), /*smallest_seqno=*/1,
+                 /*largest_seqno=*/1, /*marked_for_compaction=*/false,
+                 Temperature::kUnknown, kInvalidBlobFileNumber,
+                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                 /*epoch_number=*/file_number, kUnknownFileChecksum,
+                 kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+                 /*compensated_range_deletion_size=*/0, /*tail_size=*/0,
+                 /*user_defined_timestamps_persisted=*/true);
+  }
+
+  // The file-pair hook fires only for a level holding two files, which here is
+  // the Version this batch builds and never the empty base, so the injected
+  // failure lands in SaveTo() after the batch is assembled.
+  bool armed = false;
+  bool injected = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack("VersionBuilder::CheckConsistency1",
+                                        [&](void*) { armed = !injected; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        if (armed) {
+          *static_cast<Status*>(arg) = Status::Corruption("Inject corruption");
+          armed = false;
+          injected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  int callback_calls = 0;
+  Status::Code callback_code = Status::kOk;
+  mutex_.Lock();
+  const Status s = versions_->LogAndApply(
+      versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+      write_options_, &edit, &mutex_, /*dir_contains_current_file=*/nullptr,
+      /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
+      [&](const Status& cb_status) {
+        ++callback_calls;
+        callback_code = cb_status.code();
+      });
+  mutex_.Unlock();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(injected);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  EXPECT_EQ(1, callback_calls);
+  EXPECT_EQ(Status::kCorruption, callback_code);
+
+  ASSERT_OK(RunOrAbortOnHang([&] {
+    VersionEdit next;
+    next.SetDBId("next_db_id");
+    return LogAndApplyToDefaultCF(next);
+  }));
 }
 
 TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {

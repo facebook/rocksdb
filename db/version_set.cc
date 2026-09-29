@@ -13,6 +13,7 @@
 #include <array>
 #include <cinttypes>
 #include <cstdio>
+#include <iterator>
 #include <list>
 #include <map>
 #include <set>
@@ -5860,6 +5861,39 @@ Status VersionSet::ProcessManifestWrites(
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
 
+  // Takes this batch, from the queue head through `last_writer`, off
+  // manifest_writers_: records `s` on each writer, runs its callback, and wakes
+  // writers other threads wait on, then the next batch's leader. Every return
+  // path must do this, because the writers in `writers` live on the caller's
+  // stack and a queued pointer to one would outlive them.
+  auto finish_batch = [&](const Status& s) {
+    while (true) {
+      ManifestWriter* ready = manifest_writers_.front();
+      manifest_writers_.pop_front();
+      bool need_signal = true;
+      for (const auto& w : writers) {
+        if (&w == ready) {
+          need_signal = false;
+          break;
+        }
+      }
+      ready->status = s;
+      ready->done = true;
+      if (ready->manifest_write_callback) {
+        (ready->manifest_write_callback)(s);
+      }
+      if (need_signal) {
+        ready->cv.Signal();
+      }
+      if (ready == last_writer) {
+        break;
+      }
+    }
+    if (!manifest_writers_.empty()) {
+      manifest_writers_.front()->cv.Signal();
+    }
+  };
+
   // Supports opening table readers with multiple threads, mostly useful for
   // batched external sst file ingestion.
   int batch_max_file_opening_threads = 1;
@@ -5992,7 +6026,21 @@ Status VersionSet::ProcessManifestWrites(
             for (auto v : versions) {
               delete v;
             }
-            // FIXME? manifest_writers_ still has requested updates
+            // Fail every writer this loop would have batched, not only the
+            // ones seen so far: a caller queues all its writers together and
+            // returns once its first is done, so they must finish together.
+            for (std::deque<ManifestWriter*>::const_iterator next =
+                     std::next(it);
+                 next != manifest_writers_.cend() && !skip_manifest_write;
+                 ++next) {
+              const auto* next_edit = (*next)->edit_list.front();
+              if (next_edit->IsColumnFamilyManipulation() ||
+                  next_edit->IsNoManifestWriteDummy()) {
+                break;
+              }
+              last_writer = *next;
+            }
+            finish_batch(s);
             return s;
           }
           batch_edits.push_back(e);
@@ -6026,7 +6074,7 @@ Status VersionSet::ProcessManifestWrites(
         for (auto v : versions) {
           delete v;
         }
-        // FIXME? manifest_writers_ still has requested updates
+        finish_batch(s);
         return s;
       }
     }
@@ -6481,32 +6529,7 @@ Status VersionSet::ProcessManifestWrites(
   }
 #endif  // NDEBUG
 
-  // wake up all the waiting writers
-  while (true) {
-    ManifestWriter* ready = manifest_writers_.front();
-    manifest_writers_.pop_front();
-    bool need_signal = true;
-    for (const auto& w : writers) {
-      if (&w == ready) {
-        need_signal = false;
-        break;
-      }
-    }
-    ready->status = s;
-    ready->done = true;
-    if (ready->manifest_write_callback) {
-      (ready->manifest_write_callback)(s);
-    }
-    if (need_signal) {
-      ready->cv.Signal();
-    }
-    if (ready == last_writer) {
-      break;
-    }
-  }
-  if (!manifest_writers_.empty()) {
-    manifest_writers_.front()->cv.Signal();
-  }
+  finish_batch(s);
   return s;
 }
 
