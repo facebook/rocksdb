@@ -36,7 +36,7 @@ public class SharedTempFileMockMain {
       assertThat(Files.exists(content)).isTrue();
       try (BufferedReader shared =
                new BufferedReader(new InputStreamReader(Files.newInputStream(content)));
-           BufferedReader resource = SharedTempFileLoaderTest.mockContentReader()) {
+          BufferedReader resource = SharedTempFileLoaderTest.mockContentReader()) {
         compare(resource, shared);
       }
       Thread.sleep(random.nextInt(1000));

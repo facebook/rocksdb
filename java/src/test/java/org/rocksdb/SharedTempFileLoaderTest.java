@@ -59,7 +59,7 @@ public class SharedTempFileLoaderTest {
       assertThat(Files.exists(content)).isTrue();
       try (BufferedReader shared =
                new BufferedReader(new InputStreamReader(Files.newInputStream(content)));
-           BufferedReader resource = mockContentReader()) {
+          BufferedReader resource = mockContentReader()) {
         compare(resource, shared);
       }
     }
@@ -80,7 +80,7 @@ public class SharedTempFileLoaderTest {
       assertThat(Files.exists(content)).isTrue();
       try (BufferedReader shared =
                new BufferedReader(new InputStreamReader(Files.newInputStream(content)));
-           BufferedReader resource = mockContentReader()) {
+          BufferedReader resource = mockContentReader()) {
         compare(resource, shared);
       }
 
@@ -92,7 +92,7 @@ public class SharedTempFileLoaderTest {
         assertThat(Files.exists(content2)).isTrue();
         try (BufferedReader shared =
                  new BufferedReader(new InputStreamReader(Files.newInputStream(content)));
-             BufferedReader resource = mockContentReader()) {
+            BufferedReader resource = mockContentReader()) {
           compare(resource, shared);
         }
       }
