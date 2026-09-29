@@ -5,13 +5,12 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.ClassRule;
 import org.junit.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class RibbonFilterTest {
-
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
       new RocksNativeLibraryResource();
@@ -52,8 +51,8 @@ public class RibbonFilterTest {
   public void ribbonFilterEquality() {
     // Test equals and hashCode
     try (final RibbonFilter filter1 = new RibbonFilter(10.0, 1);
-         final RibbonFilter filter2 = new RibbonFilter(10.0, 1);
-         final RibbonFilter filter3 = new RibbonFilter(10.0, 2)) {
+        final RibbonFilter filter2 = new RibbonFilter(10.0, 1);
+        final RibbonFilter filter3 = new RibbonFilter(10.0, 2)) {
       assertThat(filter1).isEqualTo(filter2);
       assertThat(filter1.hashCode()).isEqualTo(filter2.hashCode());
       assertThat(filter1).isNotEqualTo(filter3);
@@ -64,7 +63,7 @@ public class RibbonFilterTest {
   public void ribbonFilterWithTableConfig() {
     // Test using RibbonFilter with BlockBasedTableConfig
     try (final RibbonFilter ribbonFilter = new RibbonFilter(10.0);
-         final Options options = new Options()) {
+        final Options options = new Options()) {
       final BlockBasedTableConfig tableConfig = new BlockBasedTableConfig();
       tableConfig.setFilterPolicy(ribbonFilter);
       options.setTableFormatConfig(tableConfig);

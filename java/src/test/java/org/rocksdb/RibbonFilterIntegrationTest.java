@@ -5,31 +5,26 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.charset.StandardCharsets;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.nio.charset.StandardCharsets;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class RibbonFilterIntegrationTest {
-
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
       new RocksNativeLibraryResource();
 
-  @Rule
-  public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
   public void ribbonFilterBasicFunctionality() throws RocksDBException {
     // Test that Ribbon filter actually works in a real database scenario
     try (final RibbonFilter ribbonFilter = new RibbonFilter(10.0);
-         final Options options = new Options()
-             .setCreateIfMissing(true)) {
-      
+        final Options options = new Options().setCreateIfMissing(true)) {
       final BlockBasedTableConfig tableConfig = new BlockBasedTableConfig();
       tableConfig.setFilterPolicy(ribbonFilter);
       options.setTableFormatConfig(tableConfig);
@@ -62,9 +57,7 @@ public class RibbonFilterIntegrationTest {
   public void ribbonFilterHybridMode() throws RocksDBException {
     // Test hybrid Bloom/Ribbon configuration
     try (final RibbonFilter ribbonFilter = new RibbonFilter(10.0, 1);
-         final Options options = new Options()
-             .setCreateIfMissing(true)) {
-      
+        final Options options = new Options().setCreateIfMissing(true)) {
       final BlockBasedTableConfig tableConfig = new BlockBasedTableConfig();
       tableConfig.setFilterPolicy(ribbonFilter);
       options.setTableFormatConfig(tableConfig);

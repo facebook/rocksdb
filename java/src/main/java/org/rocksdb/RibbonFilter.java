@@ -8,7 +8,6 @@ package org.rocksdb;
 import java.util.Objects;
 
 public class RibbonFilter extends Filter {
-
   private static final double DEFAULT_BITS_PER_KEY = 10.0;
   private static final int DEFAULT_BLOOM_BEFORE_LEVEL = -1;
 
@@ -28,7 +27,8 @@ public class RibbonFilter extends Filter {
    * @param bitsPerKey the number of bits per key (typical: 8-12)
    */
   public RibbonFilter(final double bitsPerKey) {
-    this(createNewRibbonFilter(bitsPerKey, DEFAULT_BLOOM_BEFORE_LEVEL), bitsPerKey, DEFAULT_BLOOM_BEFORE_LEVEL);
+    this(createNewRibbonFilter(bitsPerKey, DEFAULT_BLOOM_BEFORE_LEVEL), bitsPerKey,
+        DEFAULT_BLOOM_BEFORE_LEVEL);
   }
 
   /**
@@ -46,7 +46,7 @@ public class RibbonFilter extends Filter {
    *
    * @param bitsPerKey the number of bits per key (typical: 8-12)
    * @param bloomBeforeLevel use Bloom filters for levels below this, Ribbon for levels at or above
-   *                         (-1 means always use Ribbon, 0 means use Bloom for L0, 
+   *                         (-1 means always use Ribbon, 0 means use Bloom for L0,
    *                         1 means Bloom for L0-L1, etc.)
    */
   public RibbonFilter(final double bitsPerKey, final int bloomBeforeLevel) {
@@ -60,7 +60,8 @@ public class RibbonFilter extends Filter {
    * @param bitsPerKey number of bits to use - recorded for comparison
    * @param bloomBeforeLevel bloom before level setting - recorded for comparison
    */
-  private RibbonFilter(final long nativeHandle, final double bitsPerKey, final int bloomBeforeLevel) {
+  private RibbonFilter(
+      final long nativeHandle, final double bitsPerKey, final int bloomBeforeLevel) {
     super(nativeHandle);
     this.bitsPerKey = bitsPerKey;
     this.bloomBeforeLevel = bloomBeforeLevel;
@@ -73,8 +74,8 @@ public class RibbonFilter extends Filter {
     if (o == null || getClass() != o.getClass())
       return false;
     RibbonFilter that = (RibbonFilter) o;
-    return Double.compare(that.bitsPerKey, bitsPerKey) == 0 &&
-           bloomBeforeLevel == that.bloomBeforeLevel;
+    return Double.compare(that.bitsPerKey, bitsPerKey) == 0
+        && bloomBeforeLevel == that.bloomBeforeLevel;
   }
 
   @Override
@@ -82,5 +83,6 @@ public class RibbonFilter extends Filter {
     return Objects.hash(bitsPerKey, bloomBeforeLevel);
   }
 
-  private static native long createNewRibbonFilter(final double bitsPerKey, final int bloomBeforeLevel);
+  private static native long createNewRibbonFilter(
+      final double bitsPerKey, final int bloomBeforeLevel);
 }
