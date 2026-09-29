@@ -702,9 +702,10 @@ public class OptionsTest {
   @Test
   public void writeBufferManagerMonitoring() throws RocksDBException {
     try (final Options opt = new Options(); final Cache cache = new LRUCache(1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(8 * 1024 * 1024, cache, true)) {
+        final WriteBufferManager writeBufferManager =
+            new WriteBufferManager(8 * 1024 * 1024, cache, true)) {
       opt.setWriteBufferManager(writeBufferManager);
-      
+
       // Test monitoring methods
       assertThat(writeBufferManager.enabled()).isTrue();
       assertThat(writeBufferManager.costToCache()).isTrue();
@@ -714,11 +715,11 @@ public class OptionsTest {
       assertThat(writeBufferManager.dummyEntriesInCacheUsage()).isEqualTo(0L);
       assertThat(writeBufferManager.isStallActive()).isFalse();
       assertThat(writeBufferManager.isStallThresholdExceeded()).isFalse();
-      
+
       // Test dynamic buffer size change
       writeBufferManager.setBufferSize(16 * 1024 * 1024);
       assertThat(writeBufferManager.bufferSize()).isEqualTo(16 * 1024 * 1024);
-      
+
       // Test dynamic allowStall change
       writeBufferManager.setAllowStall(false);
       assertThat(writeBufferManager.allowStall()).isFalse();

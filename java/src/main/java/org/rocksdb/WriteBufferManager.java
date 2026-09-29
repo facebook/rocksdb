@@ -44,7 +44,7 @@ public class WriteBufferManager extends RocksObject {
    * @return true if buffer limiting is enabled
    */
   public boolean enabled() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return enabled(nativeHandle_);
   }
 
@@ -54,7 +54,7 @@ public class WriteBufferManager extends RocksObject {
    * @return true if cache cost tracking is enabled
    */
   public boolean costToCache() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return costToCache(nativeHandle_);
   }
 
@@ -65,7 +65,7 @@ public class WriteBufferManager extends RocksObject {
    * @return total memory usage in bytes
    */
   public long memoryUsage() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return memoryUsage(nativeHandle_);
   }
 
@@ -75,7 +75,7 @@ public class WriteBufferManager extends RocksObject {
    * @return active memtable memory usage in bytes
    */
   public long mutableMemtableMemoryUsage() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return mutableMemtableMemoryUsage(nativeHandle_);
   }
 
@@ -85,7 +85,7 @@ public class WriteBufferManager extends RocksObject {
    * @return dummy cache entries size in bytes
    */
   public long dummyEntriesInCacheUsage() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return dummyEntriesInCacheUsage(nativeHandle_);
   }
 
@@ -95,7 +95,7 @@ public class WriteBufferManager extends RocksObject {
    * @return buffer size in bytes
    */
   public long bufferSize() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return bufferSize(nativeHandle_);
   }
 
@@ -106,7 +106,7 @@ public class WriteBufferManager extends RocksObject {
    * @param newSize new buffer size in bytes (must be &gt; 0)
    */
   public void setBufferSize(final long newSize) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     if (newSize <= 0) {
       throw new IllegalArgumentException("Buffer size must be greater than 0");
     }
@@ -119,7 +119,7 @@ public class WriteBufferManager extends RocksObject {
    * @param allowStall if true, enables stalling of writes when memory usage exceeds buffer size
    */
   public void setAllowStall(final boolean allowStall) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setAllowStall(nativeHandle_, allowStall);
     this.allowStall_ = allowStall;
   }
@@ -130,7 +130,7 @@ public class WriteBufferManager extends RocksObject {
    * @return true if stall is active
    */
   public boolean isStallActive() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return isStallActive(nativeHandle_);
   }
 
@@ -140,7 +140,7 @@ public class WriteBufferManager extends RocksObject {
    * @return true if memory usage &gt;= buffer size
    */
   public boolean isStallThresholdExceeded() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return isStallThresholdExceeded(nativeHandle_);
   }
 

@@ -37,8 +37,8 @@ jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
  * Signature: (J)Z
  */
 jboolean Java_org_rocksdb_WriteBufferManager_enabled(JNIEnv* /*env*/,
-                                                      jclass /*jcls*/,
-                                                      jlong jhandle) {
+                                                     jclass /*jcls*/,
+                                                     jlong jhandle) {
   auto* write_buffer_manager =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
           jhandle);
