@@ -189,6 +189,7 @@ public class DBOptions extends RocksObject
   public DBOptions setOpenFilesAsync(final boolean openFilesAsync) {
     assert (isOwningHandle());
     setOpenFilesAsync(nativeHandle_, openFilesAsync);
+    return this;
   }
 
   @Override

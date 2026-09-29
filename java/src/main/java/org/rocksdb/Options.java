@@ -334,6 +334,7 @@ public class Options extends RocksObject
   public Options setOpenFilesAsync(final boolean openFilesAsync) {
     assert (isOwningHandle());
     setOpenFilesAsync(nativeHandle_, openFilesAsync);
+    return this;
   }
 
   @Override
