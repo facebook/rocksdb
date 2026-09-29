@@ -80,8 +80,8 @@ public class KeyExistsTest {
     final long PSEUDO_RANDOM_SEED = 15875551233124l;
 
     try (Options options = new Options().setCreateIfMissing(true);
-         TtlDB db2 = TtlDB.open(options, dbFolder2.getRoot().getAbsolutePath(), 86400, false);
-         WriteOptions writeOptions = new WriteOptions()) {
+        TtlDB db2 = TtlDB.open(options, dbFolder2.getRoot().getAbsolutePath(), 86400, false);
+        WriteOptions writeOptions = new WriteOptions()) {
       writeOptions.setDisableWAL(true);
       db2.put(KNOWN_KEY, "value".getBytes(UTF_8));
 
@@ -103,7 +103,7 @@ public class KeyExistsTest {
       db2.compactRange();
     }
     try (Options options = new Options();
-         TtlDB db2 = TtlDB.open(options, dbFolder2.getRoot().getAbsolutePath(), 86400, true);) {
+        TtlDB db2 = TtlDB.open(options, dbFolder2.getRoot().getAbsolutePath(), 86400, true);) {
       assertThat(db2.keyExists(KNOWN_KEY)).isTrue();
     }
   }

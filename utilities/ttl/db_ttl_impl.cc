@@ -6,12 +6,11 @@
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include <array>
+#include <iostream>
 #include <memory>
 #include <utility>
 
 #include "db/db_impl/db_impl_metadata.h"
-#include <iostream>
-
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "logging/logging.h"
