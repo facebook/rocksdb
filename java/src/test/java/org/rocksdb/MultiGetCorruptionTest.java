@@ -40,7 +40,7 @@ public class MultiGetCorruptionTest {
   public void getKeyException() throws RocksDBException, IOException {
     createCorruptedDatabase();
     try (Options options = new Options().setCreateIfMissing(true).setParanoidChecks(true);
-         RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
+        RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
       exception.expect(RocksDBException.class); // We need to be sure, exception is thrown only
       db.get(KEY); //   on GET operation. Require careful data corruption.
     }
@@ -50,7 +50,7 @@ public class MultiGetCorruptionTest {
   public void multiGetKeyException() throws RocksDBException, IOException {
     createCorruptedDatabase();
     try (Options options = new Options().setCreateIfMissing(true).setParanoidChecks(true);
-         RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
+        RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
       exception.expect(RocksDBException.class);
       exception.expect(new CustomTypeSafeMatcher<RocksDBException>(
           "Status.Code equal to Corruption") {
@@ -74,7 +74,7 @@ public class MultiGetCorruptionTest {
 
   private void createCorruptedDatabase() throws RocksDBException, IOException {
     try (Options options = new Options().setCreateIfMissing(true).setParanoidChecks(true);
-         RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put(KEY, VALUE);
       try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
         db.flush(flushOptions);
