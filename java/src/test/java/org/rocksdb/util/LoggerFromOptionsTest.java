@@ -33,8 +33,8 @@ public class LoggerFromOptionsTest {
   public void openReadOnlyWithLoggerFromOptions() throws RocksDBException, IOException {
     // Create the DB and close it again
     try (final Options options = new Options().setCreateIfMissing(true);
-         final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true);
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.flush(flushOptions);
     }
 
@@ -50,13 +50,13 @@ public class LoggerFromOptionsTest {
     // Configure the log in order for the dump of log configuration to the log to be unique
     // Open the DB readonly and give it the new logger to use
     try (final Options options = new Options()
-                                     .setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL)
-                                     .setLogger(logger)
-                                     .setMaxLogFileSize(1024L * 64L)
-                                     .setRecycleLogFileNum(3)
-                                     .setLogFileTimeToRoll(2048)
-                                     .setKeepLogFileNum(8);
-         final RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
+             .setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL)
+             .setLogger(logger)
+             .setMaxLogFileSize(1024L * 64L)
+             .setRecycleLogFileNum(3)
+             .setLogFileTimeToRoll(2048)
+             .setKeepLogFileNum(8);
+        final RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db.getDBOptions()).isNotNull();
     }
 
