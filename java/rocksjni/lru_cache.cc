@@ -18,13 +18,10 @@
  * Method:    newLRUCache
  * Signature: (JIZDDJ)J
  */
-jlong Java_org_rocksdb_LRUCache_newLRUCache(JNIEnv* /*env*/, jclass /*jcls*/,
-                                            jlong jcapacity,
-                                            jint jnum_shard_bits,
-                                            jboolean jstrict_capacity_limit,
-                                            jdouble jhigh_pri_pool_ratio,
-                                            jdouble jlow_pri_pool_ratio,
-                                            jlong jsecondary_cache_handle) {
+jlong Java_org_rocksdb_LRUCache_newLRUCache(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jcapacity, jint jnum_shard_bits,
+    jboolean jstrict_capacity_limit, jdouble jhigh_pri_pool_ratio,
+    jdouble jlow_pri_pool_ratio, jlong jsecondary_cache_handle) {
   std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
   if (jsecondary_cache_handle != 0) {
     auto* secondary_cache_ptr =

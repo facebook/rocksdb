@@ -21,7 +21,8 @@ extern "C" {
  * Method:    newCompressedSecondaryCacheInstance
  * Signature: (J)J
  */
-JNIEXPORT jlong JNICALL Java_org_rocksdb_SecondaryCache_00024CompressedSecondaryCache_newCompressedSecondaryCacheInstance__J(
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_SecondaryCache_00024CompressedSecondaryCache_newCompressedSecondaryCacheInstance__J(
     JNIEnv* /*env*/, jclass /*jcls*/, jlong jcapacity) {
   auto opts = ROCKSDB_NAMESPACE::CompressedSecondaryCacheOptions();
   opts.capacity = static_cast<size_t>(jcapacity);
@@ -36,7 +37,8 @@ JNIEXPORT jlong JNICALL Java_org_rocksdb_SecondaryCache_00024CompressedSecondary
  * Method:    newCompressedSecondaryCacheInstance
  * Signature: (JIZD)J
  */
-JNIEXPORT jlong JNICALL Java_org_rocksdb_SecondaryCache_00024CompressedSecondaryCache_newCompressedSecondaryCacheInstance__JIZD(
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_SecondaryCache_00024CompressedSecondaryCache_newCompressedSecondaryCacheInstance__JIZD(
     JNIEnv* /*env*/, jclass /*jcls*/, jlong jcapacity, jint jnum_shard_bits,
     jboolean jstrict_capacity_limit, jdouble jhigh_pri_pool_ratio) {
   auto opts = ROCKSDB_NAMESPACE::CompressedSecondaryCacheOptions();
@@ -44,7 +46,7 @@ JNIEXPORT jlong JNICALL Java_org_rocksdb_SecondaryCache_00024CompressedSecondary
   opts.num_shard_bits = static_cast<int>(jnum_shard_bits);
   opts.strict_capacity_limit = static_cast<bool>(jstrict_capacity_limit);
   opts.high_pri_pool_ratio = static_cast<double>(jhigh_pri_pool_ratio);
-  
+
   auto cache = opts.MakeSharedSecondaryCache();
   auto* cache_ptr =
       new std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>(cache);
@@ -56,9 +58,8 @@ JNIEXPORT jlong JNICALL Java_org_rocksdb_SecondaryCache_00024CompressedSecondary
  * Method:    disposeInternalJni
  * Signature: (J)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_SecondaryCache_disposeInternalJni(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
-                                                         jlong jhandle) {
+JNIEXPORT void JNICALL Java_org_rocksdb_SecondaryCache_disposeInternalJni(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
   auto* cache =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>*>(
           jhandle);

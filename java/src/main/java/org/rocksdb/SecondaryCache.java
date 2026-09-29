@@ -10,7 +10,6 @@ package org.rocksdb;
  * Stores blocks in compressed form or on non-volatile storage.
  */
 public abstract class SecondaryCache extends RocksObject {
-
   protected SecondaryCache(final long nativeHandle) {
     super(nativeHandle);
   }
@@ -39,11 +38,8 @@ public abstract class SecondaryCache extends RocksObject {
    * @param highPriPoolRatio fraction reserved for high-priority entries (0.0-1.0)
    * @return a new CompressedSecondaryCache
    */
-  public static SecondaryCache newCompressedSecondaryCache(
-      final long capacity,
-      final int numShardBits,
-      final boolean strictCapacityLimit,
-      final double highPriPoolRatio) {
+  public static SecondaryCache newCompressedSecondaryCache(final long capacity,
+      final int numShardBits, final boolean strictCapacityLimit, final double highPriPoolRatio) {
     return new CompressedSecondaryCache(
         capacity, numShardBits, strictCapacityLimit, highPriPoolRatio);
   }
@@ -52,16 +48,12 @@ public abstract class SecondaryCache extends RocksObject {
    * Compressed cache using LZ4 compression.
    */
   private static class CompressedSecondaryCache extends SecondaryCache {
-
     private CompressedSecondaryCache(final long capacity) {
       super(newCompressedSecondaryCacheInstance(capacity));
     }
 
-    private CompressedSecondaryCache(
-        final long capacity,
-        final int numShardBits,
-        final boolean strictCapacityLimit,
-        final double highPriPoolRatio) {
+    private CompressedSecondaryCache(final long capacity, final int numShardBits,
+        final boolean strictCapacityLimit, final double highPriPoolRatio) {
       super(newCompressedSecondaryCacheInstance(
           capacity, numShardBits, strictCapacityLimit, highPriPoolRatio));
     }

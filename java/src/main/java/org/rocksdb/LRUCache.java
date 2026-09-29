@@ -118,9 +118,8 @@ public class LRUCache extends Cache {
   public LRUCache(final long capacity, final int numShardBits, final boolean strictCapacityLimit,
       final double highPriPoolRatio, final double lowPriPoolRatio,
       final SecondaryCache secondaryCache) {
-    super(newLRUCache(
-        capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, lowPriPoolRatio,
-        secondaryCache == null ? 0 : secondaryCache.nativeHandle_));
+    super(newLRUCache(capacity, numShardBits, strictCapacityLimit, highPriPoolRatio,
+        lowPriPoolRatio, secondaryCache == null ? 0 : secondaryCache.nativeHandle_));
   }
 
   private static native long newLRUCache(final long capacity, final int numShardBits,
