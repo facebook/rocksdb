@@ -722,7 +722,7 @@ public class ColumnFamilyOptionsTest {
     try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       // Default should be 0 (disabled)
       assertThat(options.memtableProtectionBytesPerKey()).isEqualTo(0);
-      
+
       // Test each supported value: 0, 1, 2, 4, 8
       final int[] supportedValues = {0, 1, 2, 4, 8};
       for (int val : supportedValues) {
