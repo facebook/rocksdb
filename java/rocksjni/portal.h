@@ -7425,7 +7425,8 @@ class IOPriorityJni {
 
   // Returns the equivalent C++ ROCKSDB_NAMESPACE::Env::IOPriority enum for the
   // provided Java org.rocksdb.IOPriority
-  static ROCKSDB_NAMESPACE::Env::IOPriority toCppIOPriority(jbyte jio_priority) {
+  static ROCKSDB_NAMESPACE::Env::IOPriority toCppIOPriority(
+      jbyte jio_priority) {
     switch (jio_priority) {
       case 0x0:
         return ROCKSDB_NAMESPACE::Env::IOPriority::IO_LOW;

@@ -11,7 +11,6 @@ package org.rocksdb;
  * when manually flushing the WAL.
  */
 public class FlushWALOptions extends RocksObject {
-  
   /**
    * Creates a new FlushWALOptions with default settings.
    * <p>
@@ -35,7 +34,7 @@ public class FlushWALOptions extends RocksObject {
 
   /**
    * Sets whether to sync the WAL to storage after flushing.
-   * 
+   *
    * @param sync if true, ensures data is persisted to storage
    * @return this FlushWALOptions instance
    */
@@ -57,7 +56,7 @@ public class FlushWALOptions extends RocksObject {
    * Sets the rate limiter priority for WAL flush I/O operations.
    * This allows controlling the priority of manual WAL flush operations
    * when rate limiting is enabled.
-   * 
+   *
    * @param rateLimiterPriority the priority level from {@link IOPriority}
    * @return this FlushWALOptions instance
    */

@@ -29,7 +29,7 @@ jlong Java_org_rocksdb_FlushWALOptions_newFlushWALOptions(JNIEnv*, jclass) {
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_FlushWALOptions_setSync(JNIEnv*, jclass, jlong jhandle,
-                                               jboolean jsync) {
+                                              jboolean jsync) {
   auto* flush_wal_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::FlushWALOptions*>(jhandle);
   flush_wal_opts->sync = jsync;
@@ -40,8 +40,7 @@ void Java_org_rocksdb_FlushWALOptions_setSync(JNIEnv*, jclass, jlong jhandle,
  * Method:    sync
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_FlushWALOptions_sync(JNIEnv*, jclass,
-                                                jlong jhandle) {
+jboolean Java_org_rocksdb_FlushWALOptions_sync(JNIEnv*, jclass, jlong jhandle) {
   auto* flush_wal_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::FlushWALOptions*>(jhandle);
   return static_cast<jboolean>(flush_wal_opts->sync);
@@ -66,7 +65,7 @@ void Java_org_rocksdb_FlushWALOptions_setRateLimiterPriority(
  * Signature: (J)B
  */
 jbyte Java_org_rocksdb_FlushWALOptions_rateLimiterPriority(JNIEnv*, jclass,
-                                                            jlong jhandle) {
+                                                           jlong jhandle) {
   auto* flush_wal_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::FlushWALOptions*>(jhandle);
   return ROCKSDB_NAMESPACE::IOPriorityJni::toJavaIOPriority(
@@ -79,7 +78,7 @@ jbyte Java_org_rocksdb_FlushWALOptions_rateLimiterPriority(JNIEnv*, jclass,
  * Signature: (J)V
  */
 void Java_org_rocksdb_FlushWALOptions_disposeInternalJni(JNIEnv*, jclass,
-                                                          jlong jhandle) {
+                                                         jlong jhandle) {
   auto* flush_wal_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::FlushWALOptions*>(jhandle);
   assert(flush_wal_opts != nullptr);
