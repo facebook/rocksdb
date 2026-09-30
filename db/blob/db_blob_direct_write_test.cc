@@ -40,6 +40,8 @@
 #include "rocksdb/utilities/replayer.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
+#include "util/defer.h"
+#include "util/file_checksum_helper.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -120,6 +122,59 @@ bool IsBlobFilePath(const std::string& fname) {
   return ParseFileName(basename, &file_number, &file_type) &&
          file_type == kBlobFile;
 }
+
+class BlobFileChecksumCapturingFileSystem : public FileSystemWrapper {
+ public:
+  explicit BlobFileChecksumCapturingFileSystem(
+      const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() {
+    return "BlobFileChecksumCapturingFileSystem";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    if (IsBlobFilePath(fname)) {
+      std::lock_guard<std::mutex> lock(mu_);
+      file_checksum_ = opts.file_checksum;
+      file_checksum_func_name_ = opts.file_checksum_func_name;
+      ++capture_count_;
+    }
+    return target()->NewRandomAccessFile(fname, opts, result, dbg);
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mu_);
+    file_checksum_.clear();
+    file_checksum_func_name_.clear();
+    capture_count_ = 0;
+  }
+
+  std::string GetFileChecksum() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return file_checksum_;
+  }
+
+  std::string GetFileChecksumFuncName() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return file_checksum_func_name_;
+  }
+
+  int GetCaptureCount() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return capture_count_;
+  }
+
+ private:
+  mutable std::mutex mu_;
+  std::string file_checksum_;
+  std::string file_checksum_func_name_;
+  int capture_count_ = 0;
+};
 
 // Keeps track of when an active blob file stops being writer-visible so the
 // test filesystem can model current-size visibility only while the file remains
@@ -1755,6 +1810,54 @@ TEST_F(
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->value().ToString(), values[target_idx]);
 }
+
+TEST_F(DBBlobDirectWriteTest, DirectWriteDelayedReadUsesFinalizedFileChecksum) {
+  auto capturing_fs = std::make_shared<BlobFileChecksumCapturingFileSystem>(
+      env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, capturing_fs));
+
+  Options options = GetDirectWriteOptions();
+  options.env = env.get();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  Defer close_db([this]() { Close(); });
+  Reopen(options);
+
+  const std::string key = "delayed-read-key";
+  const std::string value(96, 'v');
+  ASSERT_OK(Put(key, value));
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->Seek(key);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), key);
+  ASSERT_TRUE(iter->value().empty());
+
+  ASSERT_OK(Flush());
+
+  std::vector<ColumnFamilyMetaData> column_family_metadata;
+  db_->GetAllColumnFamilyMetaData(&column_family_metadata);
+  ASSERT_EQ(column_family_metadata.size(), 1);
+  ASSERT_EQ(column_family_metadata[0].blob_files.size(), 1);
+  const BlobMetaData& blob_metadata = column_family_metadata[0].blob_files[0];
+  ASSERT_FALSE(blob_metadata.checksum_value.empty());
+  ASSERT_EQ(blob_metadata.checksum_method, "FileChecksumCrc32c");
+
+  capturing_fs->Reset();
+  ASSERT_TRUE(iter->PrepareValue());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->value().ToString(), value);
+  ASSERT_GT(capturing_fs->GetCaptureCount(), 0);
+  ASSERT_EQ(capturing_fs->GetFileChecksum(), blob_metadata.checksum_value);
+  ASSERT_EQ(capturing_fs->GetFileChecksumFuncName(),
+            blob_metadata.checksum_method);
+
+  const int capture_count = capturing_fs->GetCaptureCount();
+  ASSERT_EQ(Get(key), value);
+  ASSERT_EQ(capturing_fs->GetCaptureCount(), capture_count);
+}
+
 TEST_F(DBBlobDirectWriteTest, OrderedTraceUsesLogicalBatchForBlobDirectWrite) {
   AssertOrderedTraceStoresLogicalPut(GetDirectWriteOptions(),
                                      /*expect_blob_files=*/true);
