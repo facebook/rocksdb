@@ -80,7 +80,7 @@ static TableProperties newTablePropertiesForTest() {
  */
 JNIEXPORT void JNICALL
 Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacksInThread(
-    JNIEnv *, jclass, jlong jhandle) {
+    JNIEnv*, jclass, jlong jhandle) {
   std::thread t1 = std::thread(
       Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks, nullptr,
       nullptr, jhandle);
