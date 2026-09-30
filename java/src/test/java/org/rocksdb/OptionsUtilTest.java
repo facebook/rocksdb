@@ -266,14 +266,13 @@ public class OptionsUtilTest {
     try (final ColumnFamilyOptions defaultCFOptions = new ColumnFamilyOptions()) {
       defaultCFOptions.setTableFormatConfig(new BlockBasedTableConfig());
       final byte[] altCFName = "alt_cf".getBytes();
-      try (final ColumnFamilyOptions altCFOptions =
-               new ColumnFamilyOptions()
-                   .setWriteBufferSize(70 * 1024)
-                   .setMaxWriteBufferNumber(7)
-                   .setMaxBytesForLevelBase(53 * 1024 * 1024)
-                   .setLevel0FileNumCompactionTrigger(3)
-                   .setLevel0SlowdownWritesTrigger(51)
-                   .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)) {
+      try (final ColumnFamilyOptions altCFOptions = new ColumnFamilyOptions()
+               .setWriteBufferSize(70 * 1024)
+               .setMaxWriteBufferNumber(7)
+               .setMaxBytesForLevelBase(53 * 1024 * 1024)
+               .setLevel0FileNumCompactionTrigger(3)
+               .setLevel0SlowdownWritesTrigger(51)
+               .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)) {
         final BlockBasedTableConfig altCFTableConfig = new BlockBasedTableConfig();
         altCFTableConfig.setCacheIndexAndFilterBlocks(true);
         altCFTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(false);
@@ -298,7 +297,7 @@ public class OptionsUtilTest {
         altCFTableConfig.setReadAmpBytesPerBit(2);
         altCFTableConfig.setFormatVersion(8);
         altCFTableConfig.setSeparateKeyValueInDataBlock(true);
-    altCFTableConfig.setEnableIndexCompression(false);
+        altCFTableConfig.setEnableIndexCompression(false);
         altCFTableConfig.setBlockAlign(true);
         altCFTableConfig.setSuperBlockAlignmentSize(1024 * 1024);
         altCFTableConfig.setSuperBlockAlignmentSpaceOverheadRatio(4 * 1024);

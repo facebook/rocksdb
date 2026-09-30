@@ -449,9 +449,9 @@ public class RocksDBTest {
     assertThatThrownBy(() -> {
       // merge (numberOfValueSplits + 1) valueSplit's to get value size exceeding Integer.MAX_VALUE
       try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
-           final Options opt =
-               new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
-           final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+          final Options opt =
+              new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
         db.put(key, valueSplit);
         for (int i = 0; i < numberOfValueSplits; i++) {
           db.merge(key, valueSplit);

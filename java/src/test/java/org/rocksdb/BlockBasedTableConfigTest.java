@@ -216,12 +216,12 @@ public class BlockBasedTableConfigTest {
   public void persistentCache() throws RocksDBException {
     try (final DBOptions dbOptions =
              new DBOptions().setInfoLogLevel(InfoLogLevel.INFO_LEVEL).setCreateIfMissing(true);
-         final Logger logger = new Logger(dbOptions.infoLogLevel()) {
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             System.out.println(infoLogLevel.name() + ": " + logMsg);
-           }
-         }) {
+        final Logger logger = new Logger(dbOptions.infoLogLevel()) {
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            System.out.println(infoLogLevel.name() + ": " + logMsg);
+          }
+        }) {
       try (final PersistentCache persistentCache =
                new PersistentCache(Env.getDefault(), dbFolder.getRoot().getPath(), 1024 * 1024 * 100, logger, false);
            final Options options = new Options().setTableFormatConfig(

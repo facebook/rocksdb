@@ -25,15 +25,15 @@ public class LoggerTest {
     final AtomicInteger logMessageCounter = new AtomicInteger();
     try (final Options options =
              new Options().setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL).setCreateIfMissing(true);
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           // Create new logger with max log level passed by options
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          // Create new logger with max log level passed by options
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       // Set custom logger to options
       options.setLogger(logger);
 
@@ -51,15 +51,15 @@ public class LoggerTest {
     try (final Options options =
              new Options().setInfoLogLevel(InfoLogLevel.WARN_LEVEL).setCreateIfMissing(true);
 
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           // Create new logger with max log level passed by options
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          // Create new logger with max log level passed by options
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       // Set custom logger to options
       options.setLogger(logger);
 
@@ -78,15 +78,15 @@ public class LoggerTest {
     try (final Options options =
              new Options().setInfoLogLevel(InfoLogLevel.FATAL_LEVEL).setCreateIfMissing(true);
 
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           // Create new logger with max log level passed by options
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          // Create new logger with max log level passed by options
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       // Set custom logger to options
       options.setLogger(logger);
 
@@ -103,15 +103,15 @@ public class LoggerTest {
     final AtomicInteger logMessageCounter = new AtomicInteger();
     try (final DBOptions options =
              new DBOptions().setInfoLogLevel(InfoLogLevel.FATAL_LEVEL).setCreateIfMissing(true);
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           // Create new logger with max log level passed by options
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          // Create new logger with max log level passed by options
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       // Set custom logger to options
       options.setLogger(logger);
 
@@ -139,15 +139,15 @@ public class LoggerTest {
     final AtomicInteger logMessageCounter = new AtomicInteger();
     try (final Options options =
              new Options().setInfoLogLevel(InfoLogLevel.FATAL_LEVEL).setCreateIfMissing(true);
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           // Create new logger with max log level passed by options
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          // Create new logger with max log level passed by options
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       assertThat(logger.infoLogLevel()).
           isEqualTo(InfoLogLevel.FATAL_LEVEL);
       logger.setInfoLogLevel(InfoLogLevel.WARN_LEVEL);
@@ -161,15 +161,15 @@ public class LoggerTest {
     final AtomicInteger logMessageCounter = new AtomicInteger();
     try (final Options options =
              new Options().setInfoLogLevel(InfoLogLevel.FATAL_LEVEL).setCreateIfMissing(true);
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           // Create new logger with max log level passed by options
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          // Create new logger with max log level passed by options
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       assertThat(logger.infoLogLevel()).
           isEqualTo(InfoLogLevel.FATAL_LEVEL);
       logger.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);
@@ -184,15 +184,15 @@ public class LoggerTest {
     try (final Options options =
              new Options().setInfoLogLevel(InfoLogLevel.FATAL_LEVEL).setCreateIfMissing(true);
 
-         // Create new logger with max log level passed by options
-         final Logger logger = new Logger(options.infoLogLevel()) {
-           @Override
-           protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-             assertThat(logMsg).isNotNull();
-             assertThat(logMsg.length()).isGreaterThan(0);
-             logMessageCounter.incrementAndGet();
-           }
-         }) {
+        // Create new logger with max log level passed by options
+        final Logger logger = new Logger(options.infoLogLevel()) {
+          @Override
+          protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+            assertThat(logMsg).isNotNull();
+            assertThat(logMsg.length()).isGreaterThan(0);
+            logMessageCounter.incrementAndGet();
+          }
+        }) {
       // Set custom logger to options
       options.setLogger(logger);
 
