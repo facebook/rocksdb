@@ -219,9 +219,9 @@ public class SstFileWriterTest {
             new IngestExternalFileOptions()) {
       try (final ColumnFamilyOptions cf_opts =
                new ColumnFamilyOptions().setMergeOperator(stringAppendOperator);
-           final ColumnFamilyDescriptor newCF =
-               new ColumnFamilyDescriptor("new_cf".getBytes(), cf_opts);
-           final ColumnFamilyHandle cf_handle = db.createColumnFamily(newCF)) {
+          final ColumnFamilyDescriptor newCF =
+              new ColumnFamilyDescriptor("new_cf".getBytes(), cf_opts);
+          final ColumnFamilyHandle cf_handle = db.createColumnFamily(newCF)) {
         db.ingestExternalFile(cf_handle, Collections.singletonList(sstFile.getAbsolutePath()),
             ingestExternalFileOptions);
 

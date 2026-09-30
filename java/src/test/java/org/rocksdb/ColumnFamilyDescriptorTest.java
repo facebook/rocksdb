@@ -23,8 +23,8 @@ public class ColumnFamilyDescriptorTest {
   @Test
   public void fromHandle2Descriptor() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cfDescriptor =
-             new ColumnFamilyDescriptor("myCf".getBytes(StandardCharsets.UTF_8))) {
+        final ColumnFamilyDescriptor cfDescriptor =
+            new ColumnFamilyDescriptor("myCf".getBytes(StandardCharsets.UTF_8))) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(cfDescriptor);
 
       final ColumnFamilyDescriptor result =

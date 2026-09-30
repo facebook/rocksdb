@@ -378,10 +378,10 @@ public class MultiGetTest {
   @Test
   public void putNThenMultiGetDirectNondefaultCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes());
-         ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor("cf1".getBytes());
-         ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor("cf2".getBytes())) {
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes());
+        ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor("cf1".getBytes());
+        ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor("cf2".getBytes())) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf0);
@@ -549,11 +549,11 @@ public class MultiGetTest {
   @Test
   public void putNThenMultiGetDirectMixedCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes());
-         final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor("cf1".getBytes());
-         final ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor("cf2".getBytes());
-         final ColumnFamilyDescriptor cf3 = new ColumnFamilyDescriptor("cf3".getBytes())) {
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes());
+        final ColumnFamilyDescriptor cf1 = new ColumnFamilyDescriptor("cf1".getBytes());
+        final ColumnFamilyDescriptor cf2 = new ColumnFamilyDescriptor("cf2".getBytes());
+        final ColumnFamilyDescriptor cf3 = new ColumnFamilyDescriptor("cf3".getBytes())) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
 
       cfDescriptors.add(cf0);
@@ -663,8 +663,8 @@ public class MultiGetTest {
   @Test
   public void putNThenMultiGetDirectTruncateCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes())) {
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        ColumnFamilyDescriptor cf0 = new ColumnFamilyDescriptor("cf0".getBytes())) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
       cfDescriptors.add(cf0);
       final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);
@@ -793,11 +793,11 @@ public class MultiGetTest {
   @Test
   public void putBigMultiGetDirectCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final ColumnFamilyOptions cfOptions =
-             new ColumnFamilyOptions().setMergeOperatorName("stringappend");
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 =
-             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
+        final ColumnFamilyOptions cfOptions =
+            new ColumnFamilyOptions().setMergeOperatorName("stringappend");
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyDescriptor cf0 =
+            new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf0);
@@ -868,11 +868,11 @@ public class MultiGetTest {
   @Test
   public void putBigMultiGetDirect2KeysCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final ColumnFamilyOptions cfOptions =
-             new ColumnFamilyOptions().setMergeOperatorName("stringappend");
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf1 =
-             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
+        final ColumnFamilyOptions cfOptions =
+            new ColumnFamilyOptions().setMergeOperatorName("stringappend");
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyDescriptor cf1 =
+            new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf1);
@@ -935,11 +935,11 @@ public class MultiGetTest {
   @Test
   public void putBigMultiGetAsListCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final ColumnFamilyOptions cfOptions =
-             new ColumnFamilyOptions().setMergeOperatorName("stringappend");
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 =
-             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions)) {
+        final ColumnFamilyOptions cfOptions =
+            new ColumnFamilyOptions().setMergeOperatorName("stringappend");
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyDescriptor cf0 =
+            new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
 
       cfDescriptors.add(cf0);
@@ -986,11 +986,11 @@ public class MultiGetTest {
   @Test
   public void putBigMultiGetAsList2KeysCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final ColumnFamilyOptions cfOptions =
-             new ColumnFamilyOptions().setMergeOperatorName("stringappend");
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor cf0 =
-             new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
+        final ColumnFamilyOptions cfOptions =
+            new ColumnFamilyOptions().setMergeOperatorName("stringappend");
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyDescriptor cf0 =
+            new ColumnFamilyDescriptor("cf0".getBytes(), cfOptions);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
       cfDescriptors.add(cf0);
       final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);

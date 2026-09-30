@@ -53,11 +53,10 @@ public class WalFilterTest {
     for (final WalProcessingOption option : WalProcessingOption.values()) {
       try (final ColumnFamilyDescriptor defaultCF =
                new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-           final ColumnFamilyDescriptor pikachuCF = new ColumnFamilyDescriptor(bytes("pikachu"))) {
+          final ColumnFamilyDescriptor pikachuCF = new ColumnFamilyDescriptor(bytes("pikachu"))) {
         List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(defaultCF, pikachuCF);
 
-        try (
-            final Options options = optionsForLogIterTest();
+        try (final Options options = optionsForLogIterTest();
             final DBOptions dbOptions = new DBOptions(options).setCreateMissingColumnFamilies(true);
 
             final RocksDB db = RocksDB.open(
@@ -85,7 +84,7 @@ public class WalFilterTest {
         try (final TestableWalFilter walFilter =
                  new TestableWalFilter(option, applyOptionForRecordIndex)) {
           try (final Options options = optionsForLogIterTest();
-               final DBOptions dbOptions = new DBOptions(options).setWalFilter(walFilter)) {
+              final DBOptions dbOptions = new DBOptions(options).setWalFilter(walFilter)) {
             try (final RocksDB db = RocksDB.open(
                      dbOptions, dbFolder.getRoot().getAbsolutePath(), cfDescriptors, cfHandles)) {
               try {

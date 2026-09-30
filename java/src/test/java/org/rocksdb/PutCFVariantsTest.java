@@ -81,14 +81,14 @@ public class PutCFVariantsTest {
   @Test
   public void writeAndRead() throws InterruptedException, RocksDBException {
     try (final UInt64AddOperator uint64AddOperator = new UInt64AddOperator();
-         final ColumnFamilyOptions cfOpt1 =
-             new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
-         final ColumnFamilyOptions cfOpt2 =
-             new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
-         final ColumnFamilyDescriptor defaultCf =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
-         final ColumnFamilyDescriptor newCF =
-             new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2);) {
+        final ColumnFamilyOptions cfOpt1 =
+            new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
+        final ColumnFamilyOptions cfOpt2 =
+            new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
+        final ColumnFamilyDescriptor defaultCf =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
+        final ColumnFamilyDescriptor newCF =
+            new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(defaultCf, newCF);
       final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
       try (final DBOptions opt =
@@ -107,9 +107,9 @@ public class PutCFVariantsTest {
 
           try (final ColumnFamilyOptions cfHandleOpts =
                    new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
-               final ColumnFamilyDescriptor newCF2 =
-                   new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts);
-               final ColumnFamilyHandle cfHandle = db.createColumnFamily(newCF2)) {
+              final ColumnFamilyDescriptor newCF2 =
+                  new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts);
+              final ColumnFamilyHandle cfHandle = db.createColumnFamily(newCF2)) {
             // writing (long)200 under cfkey2
             db.put(cfHandle, "cfkey2".getBytes(), longToByteArray(200));
             // merge (long)50 under cfkey2

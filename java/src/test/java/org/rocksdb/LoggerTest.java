@@ -131,8 +131,8 @@ public class LoggerTest {
 
       try (final ColumnFamilyDescriptor defaultCf =
                new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-           final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
-               Collections.singletonList(defaultCf), cfHandles)) {
+          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+              Collections.singletonList(defaultCf), cfHandles)) {
         try {
           // there should be zero messages
           // using fatal level as log level.
@@ -251,8 +251,8 @@ public class LoggerTest {
 
       try (final ColumnFamilyDescriptor defaultCF =
                new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-           final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
-               Collections.singletonList(defaultCF), cfHandles)) {
+          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
+              Collections.singletonList(defaultCF), cfHandles)) {
         try {
           // there should be zero messages
           // using fatal level as log level.

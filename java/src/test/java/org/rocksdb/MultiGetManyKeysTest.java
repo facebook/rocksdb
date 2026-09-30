@@ -106,8 +106,8 @@ public class MultiGetManyKeysTest {
 
     try (final ColumnFamilyDescriptor columnFamilyDescriptor =
              new ColumnFamilyDescriptor("cfTest".getBytes());
-         final ColumnFamilyDescriptor defaultCf =
-             new ColumnFamilyDescriptor("default".getBytes())) {
+        final ColumnFamilyDescriptor defaultCf =
+            new ColumnFamilyDescriptor("default".getBytes())) {
       putKeysAndValues(columnFamilyDescriptor, keyValues);
 
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
@@ -115,8 +115,7 @@ public class MultiGetManyKeysTest {
 
       columnFamilyDescriptors.add(defaultCf);
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-      try (
-          final Options options = new Options().setCreateIfMissing(true);
+      try (final Options options = new Options().setCreateIfMissing(true);
           final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
           final TransactionDB txnDB = TransactionDB.open(new DBOptions(options), txnDbOptions,
               dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {
@@ -145,8 +144,8 @@ public class MultiGetManyKeysTest {
     final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
     try (final ColumnFamilyDescriptor columnFamilyDescriptor =
              new ColumnFamilyDescriptor("cfTest".getBytes());
-         final ColumnFamilyDescriptor defaultCf =
-             new ColumnFamilyDescriptor("default".getBytes())) {
+        final ColumnFamilyDescriptor defaultCf =
+            new ColumnFamilyDescriptor("default".getBytes())) {
       putKeysAndValues(columnFamilyDescriptor, keyValues);
 
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
@@ -154,8 +153,7 @@ public class MultiGetManyKeysTest {
 
       columnFamilyDescriptors.add(defaultCf);
       final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-      try (
-          final Options options = new Options().setCreateIfMissing(true);
+      try (final Options options = new Options().setCreateIfMissing(true);
           final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
           final TransactionDB txnDB = TransactionDB.open(new DBOptions(options), txnDbOptions,
               dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {

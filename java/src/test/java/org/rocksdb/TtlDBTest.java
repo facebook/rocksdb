@@ -101,11 +101,11 @@ public class TtlDBTest {
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
     try (final ColumnFamilyDescriptor defaultCF =
              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final DBOptions dbOptions =
-             new DBOptions().setCreateMissingColumnFamilies(true).setCreateIfMissing(true);
-         final TtlDB ttlDB = TtlDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
-             Arrays.asList(defaultCF, newCF), columnFamilyHandleList, ttlValues, false)) {
+        final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
+        final DBOptions dbOptions =
+            new DBOptions().setCreateMissingColumnFamilies(true).setCreateIfMissing(true);
+        final TtlDB ttlDB = TtlDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
+            Arrays.asList(defaultCF, newCF), columnFamilyHandleList, ttlValues, false)) {
       try {
         ttlDB.put("key".getBytes(), "value".getBytes());
         assertThat(ttlDB.get("key".getBytes())).
@@ -135,9 +135,9 @@ public class TtlDBTest {
   public void createTtlColumnFamily() throws RocksDBException,
       InterruptedException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final ColumnFamilyHandle columnFamilyHandle = ttlDB.createColumnFamilyWithTtl(newCF, 1)) {
+        final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath());
+        final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
+        final ColumnFamilyHandle columnFamilyHandle = ttlDB.createColumnFamilyWithTtl(newCF, 1)) {
       ttlDB.put(columnFamilyHandle, "key".getBytes(),
           "value".getBytes());
       assertThat(ttlDB.get(columnFamilyHandle, "key".getBytes())).
@@ -179,9 +179,9 @@ public class TtlDBTest {
   @Test
   public void writeBatchWithFlushAndColumnFamily() throws RocksDBException {
     try (final DBOptions dbOptions = new DBOptions();
-         final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
-         final ColumnFamilyDescriptor defaultCF =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
+        final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
+        final ColumnFamilyDescriptor defaultCF =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY);) {
       System.out.println("Test start");
       dbOptions.setCreateIfMissing(true);
       dbOptions.setCreateMissingColumnFamilies(true);

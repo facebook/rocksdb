@@ -49,12 +49,12 @@ public class SstPartitionerTest {
 
     try (final SstPartitionerFixedPrefixFactory sstPartitionerFactory =
              new SstPartitionerFixedPrefixFactory(4);
-         final ColumnFamilyOptions columnFamilyOptions =
-             new ColumnFamilyOptions().setSstPartitionerFactory(sstPartitionerFactory);
-         final ColumnFamilyDescriptor cfDescriptor =
-             new ColumnFamilyDescriptor(cfName, columnFamilyOptions);
-         final Options opt = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+        final ColumnFamilyOptions columnFamilyOptions =
+            new ColumnFamilyOptions().setSstPartitionerFactory(sstPartitionerFactory);
+        final ColumnFamilyDescriptor cfDescriptor =
+            new ColumnFamilyDescriptor(cfName, columnFamilyOptions);
+        final Options opt = new Options().setCreateIfMissing(true);
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(cfDescriptor);
 
       // writing (long)100 under key

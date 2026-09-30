@@ -84,12 +84,12 @@ public class MergeTest {
       throws InterruptedException, RocksDBException {
     try (final ColumnFamilyOptions cfOpt1 =
              new ColumnFamilyOptions().setMergeOperatorName("stringappend");
-         final ColumnFamilyOptions cfOpt2 =
-             new ColumnFamilyOptions().setMergeOperatorName("stringappend");
-         final ColumnFamilyDescriptor defaultCfOpt1 =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
-         final ColumnFamilyDescriptor defaultCfOpt2 =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt2);) {
+        final ColumnFamilyOptions cfOpt2 =
+            new ColumnFamilyOptions().setMergeOperatorName("stringappend");
+        final ColumnFamilyDescriptor defaultCfOpt1 =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
+        final ColumnFamilyDescriptor defaultCfOpt2 =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt2);) {
       final List<ColumnFamilyDescriptor> cfDescriptors =
           Arrays.asList(defaultCfOpt1, defaultCfOpt2);
 
@@ -125,12 +125,12 @@ public class MergeTest {
       throws InterruptedException, RocksDBException {
     try (final ColumnFamilyOptions cfOpt1 =
              new ColumnFamilyOptions().setMergeOperatorName("uint64add");
-         final ColumnFamilyOptions cfOpt2 =
-             new ColumnFamilyOptions().setMergeOperatorName("uint64add");
-         final ColumnFamilyDescriptor defaultCfOpt1 =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
-         final ColumnFamilyDescriptor defaultCfOpt2 =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt2);) {
+        final ColumnFamilyOptions cfOpt2 =
+            new ColumnFamilyOptions().setMergeOperatorName("uint64add");
+        final ColumnFamilyDescriptor defaultCfOpt1 =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
+        final ColumnFamilyDescriptor defaultCfOpt2 =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt2);) {
       final List<ColumnFamilyDescriptor> cfDescriptors =
           Arrays.asList(defaultCfOpt1, defaultCfOpt2);
 
@@ -208,14 +208,14 @@ public class MergeTest {
   public void cFOperatorOption()
       throws InterruptedException, RocksDBException {
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
-         final ColumnFamilyOptions cfOpt1 =
-             new ColumnFamilyOptions().setMergeOperator(stringAppendOperator);
-         final ColumnFamilyOptions cfOpt2 =
-             new ColumnFamilyOptions().setMergeOperator(stringAppendOperator);
-         final ColumnFamilyDescriptor defaultCF =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
-         final ColumnFamilyDescriptor newCf =
-             new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2);) {
+        final ColumnFamilyOptions cfOpt1 =
+            new ColumnFamilyOptions().setMergeOperator(stringAppendOperator);
+        final ColumnFamilyOptions cfOpt2 =
+            new ColumnFamilyOptions().setMergeOperator(stringAppendOperator);
+        final ColumnFamilyDescriptor defaultCF =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
+        final ColumnFamilyDescriptor newCf =
+            new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(defaultCF, newCf);
       final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
       try (final DBOptions opt = new DBOptions()
@@ -240,9 +240,9 @@ public class MergeTest {
 
           try (final ColumnFamilyOptions cfHandleOpts =
                    new ColumnFamilyOptions().setMergeOperator(stringAppendOperator);
-               final ColumnFamilyDescriptor cf2 =
-                   new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts);
-               final ColumnFamilyHandle cfHandle = db.createColumnFamily(cf2)) {
+              final ColumnFamilyDescriptor cf2 =
+                  new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts);
+              final ColumnFamilyHandle cfHandle = db.createColumnFamily(cf2)) {
             // writing xx under cfkey2
             db.put(cfHandle, "cfkey2".getBytes(), "xx".getBytes());
             // merge yy under cfkey2
@@ -268,14 +268,14 @@ public class MergeTest {
   public void cFUInt64AddOperatorOption()
       throws InterruptedException, RocksDBException {
     try (final UInt64AddOperator uint64AddOperator = new UInt64AddOperator();
-         final ColumnFamilyOptions cfOpt1 =
-             new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
-         final ColumnFamilyOptions cfOpt2 =
-             new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
-         final ColumnFamilyDescriptor defaultCf =
-             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
-         final ColumnFamilyDescriptor newCf =
-             new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2);) {
+        final ColumnFamilyOptions cfOpt1 =
+            new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
+        final ColumnFamilyOptions cfOpt2 =
+            new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
+        final ColumnFamilyDescriptor defaultCf =
+            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1);
+        final ColumnFamilyDescriptor newCf =
+            new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2);) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(defaultCf, newCf);
       final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
       try (final DBOptions opt = new DBOptions()
@@ -300,9 +300,9 @@ public class MergeTest {
 
           try (final ColumnFamilyOptions cfHandleOpts =
                    new ColumnFamilyOptions().setMergeOperator(uint64AddOperator);
-               final ColumnFamilyDescriptor cf2 =
-                   new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts);
-               final ColumnFamilyHandle cfHandle = db.createColumnFamily(cf2)) {
+              final ColumnFamilyDescriptor cf2 =
+                  new ColumnFamilyDescriptor("new_cf2".getBytes(), cfHandleOpts);
+              final ColumnFamilyHandle cfHandle = db.createColumnFamily(cf2)) {
             // writing (long)200 under cfkey2
             db.put(cfHandle, "cfkey2".getBytes(), longToByteArray(200));
             // merge (long)50 under cfkey2
