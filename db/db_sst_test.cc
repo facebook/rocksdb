@@ -1183,10 +1183,43 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 }
 
 TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
+  Destroy(last_options_);
+
   int bg_delete_file = 0;
+  int preexisting_trash_files_scheduled = 0;
+  uint64_t preexisting_trash_penalty = 0;
+  std::string file_being_deleted;
+  std::string preexisting_trash_file;
+  std::vector<uint64_t> penalties;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* /*arg*/) { bg_delete_file++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile::cb",
+      [&](void* arg) { file_being_deleted = *static_cast<std::string*>(arg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::BackgroundEmptyTrash:Wait", [&](void* arg) {
+        uint64_t penalty = *(static_cast<uint64_t*>(arg));
+        penalties.push_back(penalty);
+        if (file_being_deleted == preexisting_trash_file) {
+          preexisting_trash_penalty = penalty;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleExistingTrashFileDeletion", [&](void* arg) {
+        const std::string& file_path = *static_cast<std::string*>(arg);
+        if (EndsWith(file_path, ".trash")) {
+          preexisting_trash_files_scheduled++;
+        }
+      });
+  std::atomic<bool> fail_preexisting_trash_delete{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:BeforeDeleteFile", [&](void* arg) {
+        if (file_being_deleted == preexisting_trash_file &&
+            fail_preexisting_trash_delete.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::IOError("injected delete error");
+        }
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Status s;
@@ -1196,7 +1229,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   options.sst_file_manager.reset(
       NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
   ASSERT_OK(s);
-  DestroyAndReopen(options);
+  Reopen(options);
 
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
@@ -1211,27 +1244,70 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
 
   int num_sst_files = 0;
   int num_wal_files = 0;
+  std::string sst_file_to_mark_trash;
   std::vector<std::string> db_files;
   ASSERT_OK(env_->GetChildren(dbname_, &db_files));
   for (const std::string& f : db_files) {
     if (f.substr(f.find_last_of('.') + 1) == "sst") {
       num_sst_files++;
+      if (sst_file_to_mark_trash.empty()) {
+        sst_file_to_mark_trash = dbname_;
+        sst_file_to_mark_trash.append("/").append(f);
+      }
     } else if (f.substr(f.find_last_of('.') + 1) == "log") {
       num_wal_files++;
+    } else {
+      continue;
     }
   }
   ASSERT_GT(num_sst_files, 0);
   ASSERT_GT(num_wal_files, 0);
+  ASSERT_FALSE(sst_file_to_mark_trash.empty());
+  uint64_t preexisting_trash_file_size = 0;
+  ASSERT_OK(
+      env_->GetFileSize(sst_file_to_mark_trash, &preexisting_trash_file_size));
+  preexisting_trash_file = sst_file_to_mark_trash;
+  preexisting_trash_file.append(".trash");
 
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
-  sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
+  const int64_t rate_bytes_per_sec = 1024 * 1024;
+  sfm->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   // Set an extra high trash ratio to prevent immediate/non-rate limited
   // deletions
   sfm->delete_scheduler()->SetMaxTrashDBRatio(1000.0);
-  ASSERT_OK(DestroyDB(dbname_, options));
+  ASSERT_OK(
+      sfm->OnAddFile(sst_file_to_mark_trash, preexisting_trash_file_size));
+  ASSERT_OK(sfm->ScheduleFileDeletion(sst_file_to_mark_trash, dbname_,
+                                      /*force_bg=*/true));
+  sfm->WaitForEmptyTrashInDirectory(dbname_);
+  ASSERT_FALSE(fail_preexisting_trash_delete);
+  ASSERT_OK(env_->FileExists(preexisting_trash_file));
+  ASSERT_EQ(sfm->GetTotalSize(), preexisting_trash_file_size);
+  ASSERT_EQ(sfm->GetTotalTrashSize(), preexisting_trash_file_size);
+
+  const std::string unaccounted_trash_file = dbname_ + "/unaccounted.sst.trash";
+  ASSERT_OK(WriteStringToFile(env_, "trash", unaccounted_trash_file,
+                              /*should_sync=*/false));
+
+  std::string dbname_alias = dbname_;
+  dbname_alias.insert(dbname_alias.find_last_of('/'), "/");
+  ASSERT_OK(DestroyDB(dbname_alias, options));
   sfm->WaitForEmptyTrash();
-  ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
+  ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files + 2);
+  ASSERT_EQ(preexisting_trash_files_scheduled, 2);
+  ASSERT_GE(preexisting_trash_penalty,
+            preexisting_trash_file_size * 1000000 / rate_bytes_per_sec);
+  ASSERT_EQ(penalties.size(), num_sst_files + num_wal_files + 2);
+  ASSERT_TRUE(sfm->GetTrackedFiles().empty());
+  ASSERT_EQ(sfm->GetTotalSize(), 0);
+  ASSERT_EQ(sfm->GetTotalTrashSize(), 0);
+  auto bg_errors = sfm->delete_scheduler()->GetBackgroundErrors();
+  ASSERT_EQ(bg_errors.size(), 1);
+  for (auto& error : bg_errors) {
+    ASSERT_NOK(error.second);
+  }
+  ASSERT_TRUE(env_->FileExists(dbname_).IsNotFound());
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {

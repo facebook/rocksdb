@@ -72,9 +72,20 @@ class DeleteScheduler {
                                const bool force_bg = false,
                                std::optional<int32_t> bucket = std::nullopt);
 
+  // Delete an existing trash file, preserving the accounting state of a
+  // previously failed deletion attempt when one exists.
+  Status DeleteExistingTrashFile(const std::string& file_path,
+                                 const std::string& dir_to_sync,
+                                 const bool force_bg = false,
+                                 std::optional<int32_t> bucket = std::nullopt);
+
   // Wait for all files being deleted in the background to finish or for
   // destructor to be called.
   void WaitForEmptyTrash();
+
+  // Wait for background deletions registered with this normalized
+  // dir_to_sync to finish or for the destructor to be called.
+  void WaitForEmptyTrashInDirectory(const std::string& dir_to_sync);
 
   // Creates a new trash bucket. A bucket is only created and returned when slow
   // deletion is enabled.
@@ -116,11 +127,18 @@ class DeleteScheduler {
   }
 
  private:
+  Status DeleteExistingTrashFileImpl(const std::string& file_path,
+                                     const std::string& dir_to_sync,
+                                     bool force_bg,
+                                     std::optional<int32_t> bucket,
+                                     bool account_if_not_failed);
+
   Status DeleteFileImmediately(const std::string& file_path, bool accounted);
 
-  Status AddFileToDeletionQueue(const std::string& file_path,
-                                const std::string& dir_to_sync,
-                                std::optional<int32_t> bucket, bool accounted);
+  Status AddFileToDeletionQueue(
+      const std::string& file_path, const std::string& dir_to_sync,
+      std::optional<int32_t> bucket, bool accounted,
+      std::optional<uint64_t> accounted_trash_size = std::nullopt);
 
   Status MarkAsTrash(const std::string& file_path, bool accounted,
                      std::string* path_in_trash);
@@ -142,24 +160,45 @@ class DeleteScheduler {
   std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second
   std::atomic<int64_t> rate_bytes_per_sec_;
-  // Mutex to protect queue_, pending_files_, next_trash_bucket_,
+  // Mutex to protect queue_, pending_files_, pending_files_in_directories_,
+  // failed_accounted_trash_deletions_, next_trash_bucket_,
   // pending_files_in_buckets_, bg_errors_, closing_, stats_
   InstrumentedMutex mu_;
 
   struct FileAndDir {
     FileAndDir(const std::string& _fname, const std::string& _dir,
-               bool _accounted, std::optional<int32_t> _bucket)
-        : fname(_fname), dir(_dir), accounted(_accounted), bucket(_bucket) {}
+               const std::string& _dir_key, bool _accounted,
+               std::optional<int32_t> _bucket, uint64_t _accounted_trash_size)
+        : fname(_fname),
+          dir(_dir),
+          dir_key(_dir_key),
+          accounted(_accounted),
+          bucket(_bucket),
+          accounted_trash_size(_accounted_trash_size) {}
     std::string fname;
-    std::string dir;  // empty will be skipped.
+    std::string dir;      // empty will be skipped.
+    std::string dir_key;  // normalized key for pending-directory accounting.
     bool accounted;
     std::optional<int32_t> bucket;
+    uint64_t accounted_trash_size;
+  };
+
+  struct FailedAccountedDeletion {
+    std::string file_path;
+    uint64_t trash_size;
   };
 
   // Queue of trash files that need to be deleted
   std::queue<FileAndDir> queue_;
   // Number of trash files that are waiting to be deleted
   int32_t pending_files_;
+  // Number of pending trash files grouped by the directory to sync.
+  std::map<std::string, int32_t> pending_files_in_directories_;
+  // Remaining trash bytes from failed accounted deletions, keyed by the
+  // normalized trash-file path. A later existing-trash deletion consumes this
+  // state so successful cleanup also clears SstFileManager accounting.
+  std::map<std::string, FailedAccountedDeletion>
+      failed_accounted_trash_deletions_;
   // Next trash bucket that can be created
   int32_t next_trash_bucket_;
   // A mapping from trash bucket to number of pending files in the bucket
@@ -174,6 +213,7 @@ class DeleteScheduler {
   // Condition variable signaled in these conditions
   //    - pending_files_ value change from 0 => 1
   //    - pending_files_ value change from 1 => 0
+  //    - a value in pending_files_in_directories_ changes from 1 => 0
   //    - a value in pending_files_in_buckets change from 1 => 0
   //    - closing_ value is set to true
   InstrumentedCondVar cv_;
