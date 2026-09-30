@@ -682,6 +682,30 @@ class DB {
   // Apply the specified updates atomically to the database.
   // If `updates` contains no update, WAL will still be synced if
   // options.sync=true.
+  //
+  // When the WAL is enabled, an IOError from the WAL write has a fundamentally
+  // indeterminate outcome: storage may have accepted the complete WAL record
+  // before the acknowledgement failed, so RocksDB cannot distinguish an
+  // absent, incomplete, or complete record from the error alone. Normal DB
+  // reads can continue, but the failed write is not made visible to them while
+  // this DB instance remains open.
+  //
+  // However, the persisted DB (what is visible on reopen) is still in an
+  // indeterminate state with respect to these updates until RocksDB reports
+  // successful live resumption (see DB::Resume()) from a supported file-scoped
+  // WAL error without closing or reopening the DB. If the DB is reopened, or
+  // for any other WAL error that does not carry this durable-abandonment
+  // guarantee, the application should rely on its own consistency-resolution
+  // mechanism within the bounds of RocksDB's documented guarantees (see
+  // WALRecoveryMode), such as idempotency, deduplication, or reconciliation.
+  // After such a successful live resumption, RocksDB has durably abandoned the
+  // failed write; retrying it is recommended to preserve one linear logical
+  // history.
+  //
+  // For the lifetime of the open DB after supported file-scoped live
+  // resumption, GetUpdatesSince() reports the reserved sequence range as a gap
+  // and does not return a physically complete but abandoned record.
+  //
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
@@ -2395,11 +2419,20 @@ class DB {
   // [start_seq, end_seq] covers seq_number.
   //
   // Only writes that reached the WAL are returned. Writes made with
-  // WriteOptions::disableWAL, and sequence numbers consumed by
-  // IngestExternalFile(), are absent and leave permanent holes in the
-  // sequence numbers seen here. Set WAL_ttl_seconds and/or WAL_size_limit_MB
-  // large enough to cover how far behind a consumer may fall, or the WAL will
-  // be cleared before the consumer reads it.
+  // WriteOptions::disableWAL, sequence numbers consumed by
+  // IngestExternalFile(), or sequence ranges reserved after a file-scoped WAL
+  // write error can be absent and leave permanent holes in the sequence
+  // numbers seen here. Set WAL_ttl_seconds and/or WAL_size_limit_MB large
+  // enough to cover how far behind a consumer may fall, or the WAL will be
+  // cleared before the consumer reads it.
+  //
+  // After successful live resumption from a supported file-scoped WAL write
+  // error, and while that DB instance remains open, iteration stops with
+  // Status::NotFound before the reserved sequence range. This remains true if
+  // the error-returned record is physically complete: the recovered DB
+  // abandoned that record, so returning it would make a WAL consumer diverge
+  // from the DB. A caller can start a new iterator after the reserved range,
+  // but must treat the intervening sequence numbers as a gap.
   //
   // Returns Status::NotSupported() for TransactionDB with the WritePrepared
   // or WriteUnprepared write policies.

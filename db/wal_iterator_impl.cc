@@ -10,15 +10,52 @@
 #include "db/write_batch_internal.h"
 #include "file/sequence_file_reader.h"
 #include "util/defer.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+void WalRecoverySequenceTracker::Record(uint64_t wal_number,
+                                        SequenceNumber start_sequence,
+                                        SequenceNumber end_sequence) {
+  assert(wal_number != 0);
+  assert(start_sequence <= end_sequence);
+  MutexLock lock(&mutex_);
+  auto [it, inserted] = gaps_by_end_sequence_.emplace(
+      end_sequence, WalRecoverySequenceGap{wal_number, start_sequence,
+                                           end_sequence, generation_ + 1});
+  if (inserted) {
+    ++generation_;
+  } else {
+    assert(it->second.wal_number == wal_number);
+    assert(it->second.start_sequence == start_sequence);
+  }
+}
+
+bool WalRecoverySequenceTracker::FirstAtOrAfter(
+    SequenceNumber sequence, WalRecoverySequenceGap* recovery_gap) const {
+  assert(recovery_gap != nullptr);
+  MutexLock lock(&mutex_);
+  auto it = gaps_by_end_sequence_.lower_bound(sequence);
+  if (it == gaps_by_end_sequence_.end()) {
+    return false;
+  }
+  *recovery_gap = it->second;
+  return true;
+}
+
+uint64_t WalRecoverySequenceTracker::CurrentGeneration() const {
+  MutexLock lock(&mutex_);
+  return generation_;
+}
 
 WalIteratorImpl::WalIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const WalIterator::ReadOptions& read_options, const EnvOptions& soptions,
     const SequenceNumber seq, std::unique_ptr<VectorWalPtr> files,
     VersionSet const* const versions, [[maybe_unused]] const bool seq_per_batch,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    const std::shared_ptr<IOTracer>& io_tracer,
+    std::shared_ptr<WalRecoverySequenceTracker> recovery_sequence_tracker,
+    uint64_t recovery_sequence_generation)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -27,6 +64,8 @@ WalIteratorImpl::WalIteratorImpl(
       files_(std::move(files)),
       versions_(versions),
       io_tracer_(io_tracer),
+      recovery_sequence_tracker_(std::move(recovery_sequence_tracker)),
+      recovery_sequence_generation_(recovery_sequence_generation),
       started_(false),
       is_valid_(false),
       current_file_index_(0),
@@ -34,6 +73,7 @@ WalIteratorImpl::WalIteratorImpl(
       current_last_seq_(0) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
+  assert(recovery_sequence_tracker_ != nullptr);
   // WalManager::GetUpdatesSince() rejects seq_per_batch before we get here, so
   // one update always consumes exactly one sequence number below.
   assert(!seq_per_batch);
@@ -108,6 +148,7 @@ void WalIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
     }
   });
   if (files_->size() <= start_file_index) {
+    StopBeforeRecoveryGap(/*wal_number=*/0, kMaxSequenceNumber);
     return;
   } else if (!current_status_.ok()) {
     // Already spent; see the comment on current_status_.
@@ -127,6 +168,9 @@ void WalIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
       continue;
     }
     UpdateCurrentWriteBatch(record);
+    if (!current_status_.ok()) {
+      return;
+    }
     if (current_last_seq_ >= starting_sequence_number_) {
       if (strict && current_batch_seq_ != starting_sequence_number_) {
         current_status_ = Status::Corruption(
@@ -164,6 +208,8 @@ void WalIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
     // Let NextImpl find the next available entry. started_ remains false
     // because we don't want to check for gaps while moving to start sequence
     NextImpl(true);
+  } else {
+    StopBeforeRecoveryGap(files_->back()->LogNumber(), kMaxSequenceNumber);
   }
 }
 
@@ -216,7 +262,10 @@ void WalIteratorImpl::NextImpl(bool internal) {
       }
     } else {
       is_valid_ = false;
-      if (current_last_seq_ == versions_->LastSequence()) {
+      if (StopBeforeRecoveryGap(files_->back()->LogNumber(),
+                                kMaxSequenceNumber)) {
+        return;
+      } else if (current_last_seq_ == versions_->LastSequence()) {
         // Caught up. Not an error: the caller may call Next() again later to
         // pick up writes that have not happened yet.
         current_status_ = Status::OK();
@@ -253,6 +302,10 @@ void WalIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   Status s = WriteBatchInternal::SetContents(batch.get(), record);
   s.PermitUncheckedError();  // TODO: What should we do with this error?
 
+  const SequenceNumber batch_sequence =
+      WriteBatchInternal::Sequence(batch.get());
+  const SequenceNumber batch_last_sequence =
+      batch_sequence + WriteBatchInternal::Count(batch.get()) - 1;
   SequenceNumber expected_seq = current_last_seq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches
   if (started_ && !IsBatchExpected(batch.get(), expected_seq)) {
@@ -263,16 +316,45 @@ void WalIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     current_status_ = Status::NotFound("Gap in sequence numbers");
     return;
   }
+  if (StopBeforeRecoveryGap(files_->at(current_file_index_)->LogNumber(),
+                            batch_last_sequence)) {
+    return;
+  }
 
-  current_batch_seq_ = WriteBatchInternal::Sequence(batch.get());
-  current_last_seq_ =
-      current_batch_seq_ + WriteBatchInternal::Count(batch.get()) - 1;
+  current_batch_seq_ = batch_sequence;
+  current_last_seq_ = batch_last_sequence;
   // currentBatchSeq_ can only change here
   assert(current_last_seq_ <= versions_->LastSequence());
 
   current_batch_ = std::move(batch);
   is_valid_ = true;
   current_status_ = Status::OK();
+}
+
+bool WalIteratorImpl::StopBeforeRecoveryGap(
+    uint64_t wal_number, SequenceNumber batch_last_sequence) {
+  WalRecoverySequenceGap recovery_gap{};
+  if (!recovery_sequence_tracker_->FirstAtOrAfter(starting_sequence_number_,
+                                                  &recovery_gap)) {
+    return false;
+  }
+
+  const bool gap_known_when_iterator_created =
+      recovery_gap.generation <= recovery_sequence_generation_;
+  const bool reached_gap = batch_last_sequence >= recovery_gap.start_sequence &&
+                           (gap_known_when_iterator_created ||
+                            wal_number >= recovery_gap.wal_number);
+  if (!reached_gap) {
+    return false;
+  }
+
+  is_valid_ = false;
+  current_status_ = Status::NotFound(
+      "Gap in sequence numbers after indeterminate WAL write through "
+      "sequence " +
+      std::to_string(recovery_gap.end_sequence));
+  reporter_.Info(current_status_.ToString().c_str());
+  return true;
 }
 
 Status WalIteratorImpl::OpenLogReader(const WalFile* log_file) {

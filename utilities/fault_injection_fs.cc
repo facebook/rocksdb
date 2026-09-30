@@ -1841,6 +1841,15 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
     ret = IOStatus::IOError(ctx->message);
     ret.SetRetryable(ctx->retryable);
     ret.SetDataLoss(ctx->has_data_loss);
+    if (type == FaultInjectionIOType::kWrite &&
+        inject_file_scope_on_wal_write_error_.load(std::memory_order_relaxed)) {
+      FileType file_type = kTempFile;
+      uint64_t file_number = 0;
+      if (TryParseFileName(file_name, &file_number, &file_type) &&
+          file_type == FileType::kWalFile) {
+        ret.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+      }
+    }
     injected_error_log_.Record(op_name, file_name, detail, ret);
     if (type == FaultInjectionIOType::kWrite) {
       TEST_SYNC_POINT(
