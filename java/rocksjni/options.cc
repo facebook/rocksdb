@@ -1981,6 +1981,33 @@ jlong Java_org_rocksdb_Options_writeThreadSlowYieldUsec(JNIEnv*, jclass,
       ->write_thread_slow_yield_usec;
 }
 
+// setSkipCheckingSstFileSizesOnDbOpen(final boolean
+// skipCheckingSstFileSizesOnDbOpen);
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setSkipCheckingSstFileSizesOnDbOpen
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setSkipCheckingSstFileSizesOnDbOpen(
+    JNIEnv*, jclass, jlong jhandle,
+    jboolean jskip_checking_sst_file_sizes_on_db_open) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opt->open_files_async =
+      static_cast<bool>(jskip_checking_sst_file_sizes_on_db_open);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    skipCheckingSstFileSizesOnDbOpen
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_skipCheckingSstFileSizesOnDbOpen(
+    JNIEnv*, jclass, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jboolean>(opt->open_files_async);
+}
+
 /*
  * Class:     org_rocksdb_Options
  * Method:    setSkipStatsUpdateOnDbOpen
