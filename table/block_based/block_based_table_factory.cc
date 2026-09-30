@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -459,95 +458,37 @@ static struct BlockBasedTableTypeInfo {
          {offsetof(struct BlockBasedTableOptions,
                    num_file_reads_for_auto_readahead),
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
-        // Aliases for direct ConfigureOption calls. ConfigureOptions()
-        // canonicalizes whole-map / whole-string input first and drops these
-        // keys when index_mode is present, so there an explicit index_mode
-        // wins regardless of iteration or textual order. The single-key
-        // Configurable::ConfigureOption() path -- what SetOptions() uses for
-        // dotted "block_based_table_factory.<name>" keys -- never reaches that
-        // canonicalization, so each parse function below also has to refuse to
-        // escalate an explicit kStandardOnly on its own. kStandardOnly is the
-        // rollback switch, so a stale deprecated bool applied after it must
-        // not silently turn the custom index back on.
-        //   fail_if_no_udi_on_open=true   -> at least kStandardRequired
-        //   use_udi_as_primary_index=true -> at least kCustomDefault
-        //   skip_standard_index=true      -> kCustomOnly
-        // The offset points at `index_mode` so the parse function mutates
-        // it directly through `addr`.
         {"fail_if_no_udi_on_open",
-         OptionTypeInfo(
-             offsetof(struct BlockBasedTableOptions, index_mode),
-             OptionType::kUnknown, OptionVerificationType::kNormal,
-             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
-             .SetParseFunc([](const ConfigOptions& /*opts*/,
-                              const std::string& /*name*/,
-                              const std::string& value, void* addr) -> Status {
-               auto* mode =
-                   static_cast<BlockBasedTableOptions::IndexMode*>(addr);
-               if (ParseBoolean("fail_if_no_udi_on_open", value) &&
-                   *mode != BlockBasedTableOptions::IndexMode::kStandardOnly &&
-                   *mode != BlockBasedTableOptions::IndexMode::kCustomDefault &&
-                   *mode != BlockBasedTableOptions::IndexMode::kCustomOnly) {
-                 *mode = BlockBasedTableOptions::IndexMode::kStandardRequired;
-               }
-               return Status::OK();
-             })},
+         {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
         {"use_udi_as_primary_index",
-         OptionTypeInfo(
-             offsetof(struct BlockBasedTableOptions, index_mode),
-             OptionType::kUnknown, OptionVerificationType::kNormal,
-             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
-             .SetParseFunc([](const ConfigOptions& /*opts*/,
-                              const std::string& /*name*/,
-                              const std::string& value, void* addr) -> Status {
-               auto* mode =
-                   static_cast<BlockBasedTableOptions::IndexMode*>(addr);
-               if (ParseBoolean("use_udi_as_primary_index", value) &&
-                   *mode != BlockBasedTableOptions::IndexMode::kStandardOnly &&
-                   *mode != BlockBasedTableOptions::IndexMode::kCustomOnly) {
-                 *mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
-               }
-               return Status::OK();
-             })},
-        {"skip_standard_index",
-         OptionTypeInfo(
-             offsetof(struct BlockBasedTableOptions, index_mode),
-             OptionType::kUnknown, OptionVerificationType::kNormal,
-             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever)
-             .SetParseFunc([](const ConfigOptions& /*opts*/,
-                              const std::string& /*name*/,
-                              const std::string& value, void* addr) -> Status {
-               auto* mode =
-                   static_cast<BlockBasedTableOptions::IndexMode*>(addr);
-               if (ParseBoolean("skip_standard_index", value) &&
-                   *mode != BlockBasedTableOptions::IndexMode::kStandardOnly) {
-                 *mode = BlockBasedTableOptions::IndexMode::kCustomOnly;
-               }
-               return Status::OK();
-             })},
+         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
     };
   }
 } block_based_table_type_info;
 
-static BlockBasedTableOptions::IndexMode GetEffectiveIndexMode(
-    const BlockBasedTableOptions& table_options) {
-  // An explicitly set index_mode wins over the deprecated bools, matching how
-  // ConfigureOptions() drops the aliases when index_mode is present in the
-  // OPTIONS map. Otherwise rolling back by setting index_mode=kStandardOnly
-  // would be silently escalated by a stale use_udi_as_primary_index the caller
-  // forgot to clear. Only the default value counts as "not set", so an explicit
-  // kStandardDefault is indistinguishable from leaving it alone.
-  if (table_options.index_mode !=
-      BlockBasedTableOptions::IndexMode::kStandardDefault) {
-    return table_options.index_mode;
+void BlockBasedTableFactory::UpdateIndexMode() {
+  if (index_mode_explicit_) {
+    // Effective options can be copied into a new factory. Clear ignored legacy
+    // inputs so an explicit kStandardDefault survives that reconstruction.
+    table_options_.use_udi_as_primary_index = false;
+    table_options_.fail_if_no_udi_on_open = false;
+    skip_standard_index_ = false;
+    return;
   }
-  if (table_options.use_udi_as_primary_index) {
-    return BlockBasedTableOptions::IndexMode::kCustomDefault;
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  if (skip_standard_index_) {
+    table_options_.index_mode = IndexMode::kCustomOnly;
+  } else if (table_options_.use_udi_as_primary_index) {
+    table_options_.index_mode = IndexMode::kCustomDefault;
+  } else if (table_options_.fail_if_no_udi_on_open) {
+    table_options_.index_mode = IndexMode::kStandardRequired;
+  } else {
+    table_options_.index_mode = IndexMode::kStandardDefault;
   }
-  if (table_options.fail_if_no_udi_on_open) {
-    return BlockBasedTableOptions::IndexMode::kStandardRequired;
-  }
-  return table_options.index_mode;
 }
 
 // TODO(myabandeh): We should return an error instead of silently changing the
@@ -555,10 +496,19 @@ static BlockBasedTableOptions::IndexMode GetEffectiveIndexMode(
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options),
+      index_mode_explicit_(_table_options.index_mode !=
+                           BlockBasedTableOptions::IndexMode::kStandardDefault),
       shared_state_(std::make_shared<SharedState>()) {
-  table_options_.index_mode = GetEffectiveIndexMode(table_options_);
+  UpdateIndexMode();
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info.info);
+  static const std::unordered_map<std::string, OptionTypeInfo>
+      skip_standard_type_info = {
+          {"skip_standard_index",
+           {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+            OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}}};
+  RegisterOptions("LegacyIndexOptions", &skip_standard_index_,
+                  &skip_standard_type_info);
 
   const auto table_reader_charged =
       table_options_.cache_usage_options.options_overrides
@@ -1232,6 +1182,16 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
                                            void* opt_ptr) {
   Status status = TableFactory::ParseOption(config_options, opt_info, opt_name,
                                             opt_value, opt_ptr);
+  if (status.ok()) {
+    if (opt_name == "index_mode") {
+      index_mode_explicit_ = true;
+      UpdateIndexMode();
+    } else if (opt_name == "use_udi_as_primary_index" ||
+               opt_name == "fail_if_no_udi_on_open" ||
+               opt_name == "skip_standard_index") {
+      UpdateIndexMode();
+    }
+  }
   if (config_options.input_strings_escaped && !status.ok()) {  // Got an error
     // !input_strings_escaped indicates the old API, where everything is
     // parsable.
@@ -1246,54 +1206,21 @@ Status BlockBasedTableFactory::ConfigureOptions(
     const ConfigOptions& config_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     std::unordered_map<std::string, std::string>* unused) {
-  std::unordered_map<std::string, std::string> normalized = opts_map;
-  constexpr const char* kFailIfMissing = "fail_if_no_udi_on_open";
-  constexpr const char* kUseAsPrimary = "use_udi_as_primary_index";
-  constexpr const char* kSkipStandard = "skip_standard_index";
-
-  auto parse_legacy_bool = [&](const char* name, bool* value) -> Status {
-    auto it = normalized.find(name);
-    if (it == normalized.end()) {
-      *value = false;
-      return Status::OK();
-    }
-    try {
-      *value = ParseBoolean(name, it->second);
-      return Status::OK();
-    } catch (const std::invalid_argument&) {
-      return Status::InvalidArgument("Invalid value for " + std::string(name) +
-                                     ": " + it->second +
-                                     "; expected true or false");
-    }
-  };
-
-  bool fail_if_missing = false;
-  bool use_as_primary = false;
-  bool skip_standard = false;
-  Status s = parse_legacy_bool(kFailIfMissing, &fail_if_missing);
-  if (s.ok()) {
-    s = parse_legacy_bool(kUseAsPrimary, &use_as_primary);
-  }
-  if (s.ok()) {
-    s = parse_legacy_bool(kSkipStandard, &skip_standard);
-  }
+  const bool was_explicit = index_mode_explicit_;
+  const bool skip_standard = skip_standard_index_;
+  const bool use_as_primary = table_options_.use_udi_as_primary_index;
+  const bool fail_if_missing = table_options_.fail_if_no_udi_on_open;
+  const BlockBasedTableOptions::IndexMode mode = table_options_.index_mode;
+  Status s = TableFactory::ConfigureOptions(config_options, opts_map, unused);
   if (!s.ok()) {
-    return s;
+    // The base rollback serializes the effective mode, not its legacy inputs.
+    index_mode_explicit_ = was_explicit;
+    skip_standard_index_ = skip_standard;
+    table_options_.use_udi_as_primary_index = use_as_primary;
+    table_options_.fail_if_no_udi_on_open = fail_if_missing;
+    table_options_.index_mode = mode;
   }
-
-  if (normalized.find("index_mode") == normalized.end()) {
-    if (skip_standard) {
-      normalized["index_mode"] = "kCustomOnly";
-    } else if (use_as_primary) {
-      normalized["index_mode"] = "kCustomDefault";
-    } else if (fail_if_missing) {
-      normalized["index_mode"] = "kStandardRequired";
-    }
-  }
-  normalized.erase(kFailIfMissing);
-  normalized.erase(kUseAsPrimary);
-  normalized.erase(kSkipStandard);
-  return TableFactory::ConfigureOptions(config_options, normalized, unused);
+  return s;
 }
 
 Status GetBlockBasedTableOptionsFromString(

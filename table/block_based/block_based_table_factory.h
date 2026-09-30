@@ -101,7 +101,11 @@ class BlockBasedTableFactory : public TableFactory {
   void InitializeOptions();
 
  private:
+  void UpdateIndexMode();
+
   BlockBasedTableOptions table_options_;
+  bool index_mode_explicit_;
+  bool skip_standard_index_ = false;
   // Share some state among cloned instances
   struct SharedState {
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr;

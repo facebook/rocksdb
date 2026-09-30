@@ -164,6 +164,150 @@ TEST(IndexFactoryCompatibilityTest, LegacyBlockBasedTableOptionsFields) {
             std::string::npos);
 }
 
+TEST(IndexFactoryCompatibilityTest, LegacyIndexBooleansCanBeCleared) {
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  ConfigOptions cfg;
+  cfg.ignore_unknown_options = false;
+  for (bool use_map : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "use_map=" << use_map);
+    BlockBasedTableFactory factory{BlockBasedTableOptions()};
+    auto set_bool = [&](const std::string& name, bool value,
+                        IndexMode expected) {
+      SCOPED_TRACE(name + "=" + (value ? "true" : "false"));
+      if (use_map) {
+        ASSERT_OK(
+            factory.ConfigureFromMap(cfg, {{name, value ? "true" : "false"}}));
+      } else {
+        ASSERT_OK(factory.ConfigureOption(cfg, name, value ? "true" : "false"));
+      }
+      EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
+                expected);
+    };
+    set_bool("fail_if_no_udi_on_open", true, IndexMode::kStandardRequired);
+    set_bool("use_udi_as_primary_index", true, IndexMode::kCustomDefault);
+    set_bool("skip_standard_index", true, IndexMode::kCustomOnly);
+    set_bool("skip_standard_index", false, IndexMode::kCustomDefault);
+    set_bool("use_udi_as_primary_index", false, IndexMode::kStandardRequired);
+    set_bool("fail_if_no_udi_on_open", false, IndexMode::kStandardDefault);
+  }
+
+  for (bool primary : {false, true}) {
+    BlockBasedTableOptions options;
+    options.use_udi_as_primary_index = primary;
+    options.fail_if_no_udi_on_open = !primary;
+    BlockBasedTableFactory factory(options);
+    ASSERT_OK(factory.ConfigureOption(
+        cfg, primary ? "use_udi_as_primary_index" : "fail_if_no_udi_on_open",
+        "false"));
+    EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
+              IndexMode::kStandardDefault);
+  }
+}
+
+TEST(IndexFactoryCompatibilityTest, ConfiguredIndexModeBeatsLegacyBooleans) {
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  const std::pair<const char*, IndexMode> modes[] = {
+      {"kStandardOnly", IndexMode::kStandardOnly},
+      {"kStandardDefault", IndexMode::kStandardDefault},
+      {"kStandardRequired", IndexMode::kStandardRequired},
+      {"kCustomDefault", IndexMode::kCustomDefault},
+      {"kCustomOnly", IndexMode::kCustomOnly}};
+  ConfigOptions cfg;
+  cfg.ignore_unknown_options = false;
+  for (const auto& [name, mode] : modes) {
+    for (bool use_map : {false, true}) {
+      SCOPED_TRACE(testing::Message() << name << " use_map=" << use_map);
+      BlockBasedTableFactory factory{BlockBasedTableOptions()};
+      auto set_option = [&](const std::string& key, const std::string& value) {
+        if (use_map) {
+          ASSERT_OK(factory.ConfigureFromMap(cfg, {{key, value}}));
+        } else {
+          ASSERT_OK(factory.ConfigureOption(cfg, key, value));
+        }
+      };
+      set_option("use_udi_as_primary_index", "true");
+      set_option("index_mode", name);
+      for (const char* alias :
+           {"use_udi_as_primary_index", "fail_if_no_udi_on_open",
+            "skip_standard_index"}) {
+        for (const char* value : {"false", "true"}) {
+          set_option(alias, value);
+          EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
+                    mode);
+        }
+      }
+      std::unique_ptr<TableFactory> clone = factory.Clone();
+      ASSERT_OK(
+          clone->ConfigureOption(cfg, "use_udi_as_primary_index", "true"));
+      EXPECT_EQ(clone->GetOptions<BlockBasedTableOptions>()->index_mode, mode);
+
+      BlockBasedTableFactory reconstructed(
+          *factory.GetOptions<BlockBasedTableOptions>());
+      EXPECT_EQ(reconstructed.GetOptions<BlockBasedTableOptions>()->index_mode,
+                mode);
+
+      BlockBasedTableFactory combined{BlockBasedTableOptions()};
+      ASSERT_OK(
+          combined.ConfigureFromMap(cfg, {{"index_mode", name},
+                                          {"use_udi_as_primary_index", "true"},
+                                          {"fail_if_no_udi_on_open", "true"},
+                                          {"skip_standard_index", "true"}}));
+      EXPECT_EQ(combined.GetOptions<BlockBasedTableOptions>()->index_mode,
+                mode);
+      BlockBasedTableOptions parsed;
+      ASSERT_OK(GetBlockBasedTableOptionsFromString(
+          cfg, BlockBasedTableOptions(),
+          std::string("index_mode=") + name +
+              ";use_udi_as_primary_index=true;fail_if_no_udi_on_open=true;"
+              "skip_standard_index=true",
+          &parsed));
+      BlockBasedTableFactory from_parsed(parsed);
+      EXPECT_EQ(from_parsed.GetOptions<BlockBasedTableOptions>()->index_mode,
+                mode);
+    }
+  }
+}
+
+TEST(IndexFactoryCompatibilityTest, LegacyIndexStateSurvivesFailedMapAndClone) {
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  ConfigOptions cfg;
+  cfg.ignore_unknown_options = false;
+  BlockBasedTableFactory factory{BlockBasedTableOptions()};
+  ASSERT_OK(factory.ConfigureOption(cfg, "use_udi_as_primary_index", "true"));
+  for (const char* invalid_name :
+       {"index_mode", "use_udi_as_primary_index", "fail_if_no_udi_on_open",
+        "skip_standard_index"}) {
+    SCOPED_TRACE(invalid_name);
+    std::unordered_map<std::string, std::string> updates = {
+        {"skip_standard_index", "true"}};
+    updates[invalid_name] = "invalid";
+    Status s = factory.ConfigureFromMap(cfg, updates);
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
+              IndexMode::kCustomDefault);
+    std::unique_ptr<TableFactory> clone = factory.Clone();
+    ASSERT_OK(clone->ConfigureOption(cfg, "use_udi_as_primary_index", "false"));
+    EXPECT_EQ(clone->GetOptions<BlockBasedTableOptions>()->index_mode,
+              IndexMode::kStandardDefault);
+  }
+  ASSERT_OK(factory.ConfigureOption(cfg, "skip_standard_index", "true"));
+  std::unique_ptr<TableFactory> clone = factory.Clone();
+  ASSERT_OK(clone->ConfigureOption(cfg, "skip_standard_index", "false"));
+  EXPECT_EQ(clone->GetOptions<BlockBasedTableOptions>()->index_mode,
+            IndexMode::kCustomDefault);
+  EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
+            IndexMode::kCustomOnly);
+
+  cfg.mutable_options_only = true;
+  for (const char* alias : {"use_udi_as_primary_index",
+                            "fail_if_no_udi_on_open", "skip_standard_index"}) {
+    Status s = factory.ConfigureOption(cfg, alias, "false");
+    EXPECT_TRUE(s.IsInvalidArgument());
+    EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
+              IndexMode::kCustomOnly);
+  }
+}
+
 // An index_mode the caller set explicitly must survive a deprecated bool they
 // forgot to clear, otherwise the documented rollback (drop index_mode back to
 // kStandardOnly) is silently escalated back to the custom index.
@@ -10627,6 +10771,78 @@ TEST_P(UserDefinedIndexTest, FooterRequirementForcesCustomReader) {
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
 }
 
+TEST_P(UserDefinedIndexTest, ReopenReusesCachedCustomIndex) {
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  const std::string sst_path =
+      test::PerThreadDBPath("udi_reopen_cache") + ".sst";
+  const auto& kvs = generateKVs(/*key_count=*/30);
+  for (IndexMode mode : {IndexMode::kStandardDefault, IndexMode::kCustomDefault,
+                         IndexMode::kCustomOnly}) {
+    for (bool cache_indexes : {false, true}) {
+      SCOPED_TRACE(testing::Message() << "mode=" << static_cast<int>(mode)
+                                      << " cache_indexes=" << cache_indexes);
+      BlockBasedTableOptions table_options;
+      table_options.block_cache = NewLRUCache(1 << 20);
+      table_options.cache_index_and_filter_blocks = cache_indexes;
+      table_options.user_defined_index_factory =
+          std::make_shared<TestIndexFactory>();
+      table_options.index_mode = mode;
+      table_options.flush_block_policy_factory =
+          std::make_shared<CustomFlushBlockPolicyFactory>();
+      Options options = options_;
+      options.compression = kNoCompression;
+      options.statistics = CreateDBStatistics();
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      {
+        SstFileWriter writer(EnvOptions(), options);
+        ASSERT_OK(writer.Open(sst_path));
+        for (const auto& [key, value] : kvs) {
+          ASSERT_OK(writer.Put(key, value));
+        }
+        ASSERT_OK(writer.Finish());
+      }
+
+      auto open_and_scan = [&](bool expect_cached) {
+        ASSERT_OK(options.statistics->Reset());
+        get_perf_context()->Reset();
+        SstFileReader reader(options);
+        ASSERT_OK(reader.Open(sst_path));
+        if (expect_cached) {
+          EXPECT_EQ(get_perf_context()->index_block_read_count, 0);
+          EXPECT_EQ(get_perf_context()->index_block_read_byte, 0);
+          EXPECT_EQ(options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD),
+                    0);
+          EXPECT_EQ(options.statistics->getTickerCount(
+                        BLOCK_CACHE_INDEX_ADD_REDUNDANT),
+                    0);
+          EXPECT_GE(options.statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT),
+                    1);
+        } else {
+          EXPECT_GT(get_perf_context()->index_block_read_count, 0);
+        }
+        ReadOptions ro;
+        ro.read_index = ReadOptions::ReadIndex::kPreferCustom;
+        std::unique_ptr<Iterator> iter(reader.NewIterator(ro));
+        iter->SeekToFirst();
+        for (const auto& [key, value] : kvs) {
+          ASSERT_TRUE(iter->Valid());
+          EXPECT_EQ(iter->key(), key);
+          EXPECT_EQ(iter->value(), value);
+          iter->Next();
+        }
+        EXPECT_FALSE(iter->Valid());
+        ASSERT_OK(iter->status());
+      };
+      open_and_scan(/*expect_cached=*/false);
+      open_and_scan(/*expect_cached=*/cache_indexes);
+      open_and_scan(/*expect_cached=*/cache_indexes);
+      table_options.block_cache->EraseUnRefEntries();
+      open_and_scan(/*expect_cached=*/false);
+      ASSERT_OK(options.env->DeleteFile(sst_path));
+    }
+  }
+}
+
 // Verifies that kStandardOnly truly ignores user_defined_index_factory:
 // even if a factory pointer is set in the table options, the reader must
 // not probe for a UDI block. This matches the kStandardOnly contract
@@ -11270,13 +11486,13 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
                   "skip_standard_index", "true",
                   BlockBasedTableOptions::IndexMode::kCustomOnly);
 
-  // Legacy escalation chained across separate single-key calls still works.
+  // Non-default modes supplied in the C++ options are explicit too.
   single_key_from(BlockBasedTableOptions::IndexMode::kStandardRequired,
                   "use_udi_as_primary_index", "true",
-                  BlockBasedTableOptions::IndexMode::kCustomDefault);
+                  BlockBasedTableOptions::IndexMode::kStandardRequired);
   single_key_from(BlockBasedTableOptions::IndexMode::kCustomDefault,
                   "skip_standard_index", "true",
-                  BlockBasedTableOptions::IndexMode::kCustomOnly);
+                  BlockBasedTableOptions::IndexMode::kCustomDefault);
 
   // Strict secondary mode must preserve the old fail_if_no_udi_on_open=true
   // behavior without switching default reads to the custom index.
