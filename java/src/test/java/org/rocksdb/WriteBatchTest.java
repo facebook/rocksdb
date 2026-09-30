@@ -486,7 +486,7 @@ public class WriteBatchTest {
   @Test
   public void byteBuffers() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       try (WriteBatch writeBatch = new WriteBatch()) {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
         ByteBuffer value = ByteBuffer.allocateDirect(16);

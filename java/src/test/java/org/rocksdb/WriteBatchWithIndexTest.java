@@ -1070,9 +1070,9 @@ public class WriteBatchWithIndexTest {
   @Test
   public void byteBuffers() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       try (WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-           final DBOptions dbOptions = new DBOptions()) {
+          final DBOptions dbOptions = new DBOptions()) {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
         ByteBuffer value = ByteBuffer.allocateDirect(16);
         key.put("key".getBytes(UTF_8)).flip();
@@ -1082,7 +1082,7 @@ public class WriteBatchWithIndexTest {
         assertThat(readBackValue).isEqualTo("value".getBytes(UTF_8));
       }
       try (WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-           final DBOptions dbOptions = new DBOptions()) {
+          final DBOptions dbOptions = new DBOptions()) {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
         ByteBuffer value = ByteBuffer.allocateDirect(16);
         key.put("key".getBytes(UTF_8)).flip();
@@ -1093,7 +1093,7 @@ public class WriteBatchWithIndexTest {
       }
 
       try (WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-           final DBOptions dbOptions = new DBOptions()) {
+          final DBOptions dbOptions = new DBOptions()) {
         byte[] keyByffer = new byte[16];
         byte[] valueByffer = new byte[16];
         ByteBuffer key = ByteBuffer.wrap(keyByffer, 2, 6).slice();
@@ -1105,7 +1105,7 @@ public class WriteBatchWithIndexTest {
         assertThat(readBackValue).isEqualTo("value".getBytes(UTF_8));
       }
       try (WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-           final DBOptions dbOptions = new DBOptions()) {
+          final DBOptions dbOptions = new DBOptions()) {
         byte[] keyByffer = new byte[16];
         byte[] valueByffer = new byte[16];
         ByteBuffer key = ByteBuffer.wrap(keyByffer, 2, 6).slice();

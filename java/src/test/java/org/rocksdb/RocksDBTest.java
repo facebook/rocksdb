@@ -628,7 +628,7 @@ public class RocksDBTest {
   @Test
   public void deleteByteBuffer() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final WriteOptions writeOptions = new WriteOptions();) {
+        final WriteOptions writeOptions = new WriteOptions();) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
       db.put("key3".getBytes(), "abcdefg".getBytes());
@@ -681,7 +681,7 @@ public class RocksDBTest {
   @Test
   public void getWithByteBuffer() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final ReadOptions readOptions = new ReadOptions()) {
+        final ReadOptions readOptions = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
 
       {
@@ -757,7 +757,7 @@ public class RocksDBTest {
   @Test
   public void keyExistByteBuffer() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final ReadOptions readOptions = new ReadOptions()) {
+        final ReadOptions readOptions = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
@@ -787,7 +787,7 @@ public class RocksDBTest {
   @Test
   public void keyMayExistByteBuffer() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final ReadOptions readOptions = new ReadOptions()) {
+        final ReadOptions readOptions = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
@@ -847,10 +847,10 @@ public class RocksDBTest {
   @Test
   public void mergeByteBuffer() throws RocksDBException {
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
-         final Options opt =
-             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
-         final WriteOptions wOpt = new WriteOptions();
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+        final Options opt =
+            new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+        final WriteOptions wOpt = new WriteOptions();
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(UTF_8), "value".getBytes());
       db.put("key2".getBytes(UTF_8), "value".getBytes());
       db.put("key3".getBytes(UTF_8), "value".getBytes());
@@ -921,8 +921,8 @@ public class RocksDBTest {
   @Test
   public void putByteBuffer() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
-         final WriteOptions wOpt = new WriteOptions();
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+        final WriteOptions wOpt = new WriteOptions();
+        final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       {
         ByteBuffer key = ByteBuffer.allocateDirect(16);
         key.put("key1".getBytes(UTF_8)).flip();
