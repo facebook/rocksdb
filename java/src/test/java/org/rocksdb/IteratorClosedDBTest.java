@@ -17,7 +17,7 @@ public class IteratorClosedDBTest {
   @Test
   public void ownedIterators() throws RocksDBException {
     try (Options options = new Options().setCreateIfMissing(true);
-         RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+        RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       byte[] key = {0x1};
       byte[] value = {0x2};
       db.put(key, value);
