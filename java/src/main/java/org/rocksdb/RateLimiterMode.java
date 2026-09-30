@@ -9,8 +9,19 @@ package org.rocksdb;
  * Mode for {@link RateLimiter#RateLimiter(long, long, int, RateLimiterMode)}.
  */
 public enum RateLimiterMode {
+  /**
+   * Only rate limit reads.
+   */
   READS_ONLY((byte)0x0),
+
+  /**
+   * Only rate limit writes.
+   */
   WRITES_ONLY((byte)0x1),
+
+  /**
+   * Rate limit all IO.
+   */
   ALL_IO((byte)0x2);
 
   private final byte value;

@@ -5,9 +5,23 @@
 
 package org.rocksdb;
 
+/**
+ * Conditions that caused  Write Stalls.
+ */
 public enum WriteStallCondition {
+  /**
+   * Delayed.
+   */
   DELAYED((byte) 0x0),
+
+  /**
+   * Stopped.
+   */
   STOPPED((byte) 0x1),
+
+  /**
+   * Normal.
+   */
   NORMAL((byte) 0x2);
 
   private final byte value;

@@ -218,6 +218,14 @@ public class TransactionDB extends RocksDB
     return oldTransaction;
   }
 
+  /**
+   * Gets a transaction by name.
+   *
+   * @param transactionName the name of the transaction.
+   *
+   * @return the transaction, or null if the transaction can't be found.
+   *
+   */
   public Transaction getTransactionByName(final String transactionName) {
     final long jtxnHandle = getTransactionByName(nativeHandle_, transactionName);
     if(jtxnHandle == 0) {
@@ -232,6 +240,11 @@ public class TransactionDB extends RocksDB
     return txn;
   }
 
+  /**
+   * Gets a list of all prepared transactions.
+   *
+   * @return the list of prepared transactions.
+   */
   public List<Transaction> getAllPreparedTransactions() {
     final long[] jtxnHandles = getAllPreparedTransactions(nativeHandle_);
 
@@ -247,11 +260,21 @@ public class TransactionDB extends RocksDB
     return txns;
   }
 
+  /**
+   * Information on Key Locks.
+   */
   public static class KeyLockInfo {
     private final String key;
     private final long[] transactionIDs;
     private final boolean exclusive;
 
+    /**
+     * Constructs a KeyLockInfo.
+     *
+     * @param key the key.
+     * @param transactionIDs the transaction ids
+     * @param exclusive true if the lock is exclusive, false if the lock is shared.
+     */
     @SuppressWarnings("PMD.ArrayIsStoredDirectly")
     public KeyLockInfo(final String key, final long[] transactionIDs, final boolean exclusive) {
       this.key = key;
@@ -315,6 +338,9 @@ public class TransactionDB extends RocksDB
         waitingKey, exclusive);
   }
 
+  /**
+   * Information on a Deadlock.
+   */
   public static class DeadlockInfo {
     private final long transactionID;
     private final long columnFamilyId;
@@ -366,25 +392,49 @@ public class TransactionDB extends RocksDB
     }
   }
 
+  /**
+   * The paths of a Deadlock.
+   */
   public static class DeadlockPath {
     final DeadlockInfo[] path;
     final boolean limitExceeded;
 
+    /**
+     * Construct a DeadLockPack.
+     *
+     * @param path the paths
+     * @param limitExceeded true if the limit is exceeded, false otherwise.
+     */
     @SuppressWarnings("PMD.ArrayIsStoredDirectly")
     public DeadlockPath(final DeadlockInfo[] path, final boolean limitExceeded) {
       this.path = path;
       this.limitExceeded = limitExceeded;
     }
 
+    /**
+     * Returns true if there are no paths and the limit is not exceeded.
+     *
+     * @return true if empty, false otherwise.
+     */
     public boolean isEmpty() {
       return path.length == 0 && !limitExceeded;
     }
   }
 
+  /**
+   * Get Deadlock Information.
+   *
+   * @return the deadlock paths.
+   */
   public DeadlockPath[] getDeadlockInfoBuffer() {
     return getDeadlockInfoBuffer(nativeHandle_);
   }
 
+  /**
+   * Set the size of the deadlock information buffer.
+   *
+   * @param targetSize the target size of the buffer.
+   */
   public void setDeadlockInfoBufferSize(final int targetSize) {
     setDeadlockInfoBufferSize(nativeHandle_, targetSize);
   }

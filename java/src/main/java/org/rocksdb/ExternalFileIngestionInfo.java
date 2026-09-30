@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Information about the ingestion of External Files.
+ */
 public class ExternalFileIngestionInfo {
   private final String columnFamilyName;
   private final String externalFilePath;

@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import java.util.Objects;
 
+/**
+ * Information on Table File creation.
+ */
 public class TableFileCreationInfo extends TableFileCreationBriefInfo {
   private final long fileSize;
   private final TableProperties tableProperties;

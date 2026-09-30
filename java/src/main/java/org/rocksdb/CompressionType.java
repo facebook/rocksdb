@@ -14,14 +14,49 @@ package org.rocksdb;
  * compression method (if any) is used to compress a block.</p>
  */
 public enum CompressionType {
+  /**
+   * No compression.
+   */
   NO_COMPRESSION((byte) 0x0, null, "kNoCompression"),
+
+  /**
+   * Snappy compression.
+   */
   SNAPPY_COMPRESSION((byte) 0x1, "snappy", "kSnappyCompression"),
+
+  /**
+   * ZLib compression.
+   */
   ZLIB_COMPRESSION((byte) 0x2, "z", "kZlibCompression"),
+
+  /**
+   * BZ2 compression.
+   */
   BZLIB2_COMPRESSION((byte) 0x3, "bzip2", "kBZip2Compression"),
+
+  /**
+   * LZ4 compression.
+   */
   LZ4_COMPRESSION((byte) 0x4, "lz4", "kLZ4Compression"),
+
+  /**
+   * LZ4 with high compression.
+   */
   LZ4HC_COMPRESSION((byte) 0x5, "lz4hc", "kLZ4HCCompression"),
+
+  /**
+   * Microsoft XPress compression (Windows only).
+   */
   XPRESS_COMPRESSION((byte) 0x6, "xpress", "kXpressCompression"),
+
+  /**
+   * ZStd compression.
+   */
   ZSTD_COMPRESSION((byte) 0x7, "zstd", "kZSTD"),
+
+  /**
+   * Disable compression.
+   */
   DISABLE_COMPRESSION_OPTION((byte) 0x7F, null, "kDisableCompressionOption");
 
   /**

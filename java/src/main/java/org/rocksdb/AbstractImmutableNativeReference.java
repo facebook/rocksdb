@@ -22,6 +22,11 @@ public abstract class AbstractImmutableNativeReference
    */
   protected final AtomicBoolean owningHandle_;
 
+  /**
+   * Construct an AbstractImmutableNativeReference.
+   *
+   * @param owningHandle true if this Java object owns the underlying C++ object, false otherwise.
+   */
   protected AbstractImmutableNativeReference(final boolean owningHandle) {
     this.owningHandle_ = new AtomicBoolean(owningHandle);
   }
