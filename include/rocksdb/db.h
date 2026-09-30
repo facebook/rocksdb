@@ -22,6 +22,7 @@
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/lsm_edit.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/multi_scan.h"
 #include "rocksdb/options.h"
@@ -2665,6 +2666,39 @@ class DB {
     handles.push_back(std::move(handle));
     return CommitFileIngestionHandles(std::move(handles));
   }
+
+  // EXPERIMENTAL
+  //
+  // ApplyLsmEdit() applies a caller-declared, range-scoped arrangement of SST
+  // files in one atomic MANIFEST write covering every LsmEdit in `edits`.
+  //
+  // Where IngestExternalFile() derives placement -- it probes the LSM level by
+  // level and picks the lowest one each file fits in -- ApplyLsmEdit() takes
+  // the placement as input and validates it (see LsmEditFile::level). A caller
+  // that already knows the shape it wants, typically because the files came
+  // out of an LSM it built itself, can therefore transplant that shape instead
+  // of first flattening it into something the placement heuristic will
+  // reproduce.
+  //
+  // In LsmEditDeletionMode::kFilesInRange, every existing file wholly inside
+  // `range` is removed, so the range contains exactly `add_files` afterward.
+  // This mode probes retained boundary-straddling files to prove the range was
+  // empty. In LsmEditDeletionMode::kExplicitFiles, exactly the files named in
+  // `delete_files` are removed and unlisted files remain, including files
+  // inside the range. In both modes every added or deleted file must be wholly
+  // inside `range`, and each added file is installed at its declared level.
+  //
+  // The files keep the sequence numbers they were written with; no global
+  // sequence number is assigned. In kFilesInRange mode, that is only sound if
+  // `range` holds no live key beforehand, so this call verifies that and fails
+  // with InvalidArgument otherwise. Files that lie partly inside `range` are
+  // handled per LsmEditOptions::probe_straddling_files.
+  //
+  // REQUIRES: each edit corresponds to a different column family.
+  //
+  // Not supported for column families with user-defined timestamps.
+  virtual Status ApplyLsmEdit(const LsmEditOptions& options,
+                              const std::vector<LsmEdit>& edits) = 0;
 
   // CreateColumnFamilyWithImport() will create a new column family with
   // column_family_name and import external SST files specified in `metadata`
