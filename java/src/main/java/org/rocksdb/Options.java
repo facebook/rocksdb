@@ -1060,6 +1060,20 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setSkipCheckingSstFileSizesOnDbOpen(
+      final boolean skipCheckingSstFileSizesOnDbOpen) {
+    assert (isOwningHandle());
+    setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
+    return this;
+  }
+
+  @Override
+  public boolean skipCheckingSstFileSizesOnDbOpen() {
+    assert (isOwningHandle());
+    return skipCheckingSstFileSizesOnDbOpen(nativeHandle_);
+  }
+
+  @Override
   public Options setSkipStatsUpdateOnDbOpen(final boolean skipStatsUpdateOnDbOpen) {
     assert(isOwningHandle());
     setSkipStatsUpdateOnDbOpen(nativeHandle_, skipStatsUpdateOnDbOpen);
@@ -2323,6 +2337,9 @@ public class Options extends RocksObject
   private static native void setWriteThreadSlowYieldUsec(
       long handle, long writeThreadSlowYieldUsec);
   private static native long writeThreadSlowYieldUsec(long handle);
+  private static native void setSkipCheckingSstFileSizesOnDbOpen(
+      final long handle, final boolean skipStatsUpdateOnDbOpen);
+  private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private static native void setSkipStatsUpdateOnDbOpen(
       final long handle, final boolean skipStatsUpdateOnDbOpen);
   private static native boolean skipStatsUpdateOnDbOpen(final long handle);
