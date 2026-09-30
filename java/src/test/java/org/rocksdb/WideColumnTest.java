@@ -57,8 +57,8 @@ public class WideColumnTest {
   @Test
   public void readKVAsWideColumn() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-      db.put(
-          "someKey".getBytes(StandardCharsets.UTF_8), "someValue".getBytes(StandardCharsets.UTF_8));
+      db.put("someKey".getBytes(StandardCharsets.UTF_8),
+          "someValue".getBytes(StandardCharsets.UTF_8));
 
       List<WideColumn<byte[]>> result = new ArrayList<>();
 
