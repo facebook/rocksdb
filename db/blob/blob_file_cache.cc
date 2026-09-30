@@ -38,11 +38,13 @@ BlobFileCache::BlobFileCache(Cache* cache,
 }
 
 Status BlobFileCache::GetBlobFileReader(
-    const ReadOptions& read_options, uint64_t blob_file_number,
+    const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
     CacheHandleGuard<BlobFileReader>* blob_file_reader,
     bool allow_footer_skip_retry) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
+
+  const uint64_t blob_file_number = blob_file.file_number;
 
   // NOTE: sharing same Cache with table_cache
   const Slice key = GetSliceForKey(&blob_file_number);
@@ -74,18 +76,8 @@ Status BlobFileCache::GetBlobFileReader(
   std::unique_ptr<BlobFileReader> reader;
 
   {
-    assert(file_options_);
-    Status s = BlobFileReader::Create(
-        *immutable_options_, read_options, *file_options_, column_family_id_,
-        blob_file_read_hist_, blob_file_number, io_tracer_,
-        /*skip_footer_validation=*/false, &reader);
-    if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
-      reader.reset();
-      s = BlobFileReader::Create(
-          *immutable_options_, read_options, *file_options_, column_family_id_,
-          blob_file_read_hist_, blob_file_number, io_tracer_,
-          /*skip_footer_validation=*/true, &reader);
-    }
+    Status s = OpenBlobFileReader(read_options, blob_file,
+                                  allow_footer_skip_retry, &reader);
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_options_->logger,
                      "BlobFileCache open failed for blob file %" PRIu64
@@ -114,7 +106,7 @@ Status BlobFileCache::GetBlobFileReader(
 }
 
 Status BlobFileCache::OpenBlobFileReaderUncached(
-    const ReadOptions& read_options, uint64_t blob_file_number,
+    const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
     std::unique_ptr<BlobFileReader>* blob_file_reader,
     bool allow_footer_skip_retry) {
   assert(blob_file_reader);
@@ -123,20 +115,76 @@ Status BlobFileCache::OpenBlobFileReaderUncached(
   Statistics* const statistics = immutable_options_->stats;
   RecordTick(statistics, NO_FILE_OPENS);
 
+  Status s = OpenBlobFileReader(read_options, blob_file,
+                                allow_footer_skip_retry, blob_file_reader);
+  if (!s.ok()) {
+    RecordTick(statistics, NO_FILE_ERRORS);
+  }
+  return s;
+}
+
+void BlobFileCache::RegisterBlobFileChecksum(
+    const BlobFileOpenInfo& blob_file) {
+  assert(blob_file.file_checksum.empty() ==
+         blob_file.file_checksum_func_name.empty());
+  if (blob_file.file_checksum.empty()) {
+    return;
+  }
+
+  const Slice key = GetSliceForKey(&blob_file.file_number);
+  MutexLock cache_lock(&mutex_.Get(key));
+  {
+    MutexLock checksum_lock(&blob_file_checksums_mutex_);
+    BlobFileChecksum& checksum = blob_file_checksums_[blob_file.file_number];
+    checksum.value = blob_file.file_checksum.ToString();
+    checksum.function_name = blob_file.file_checksum_func_name.ToString();
+  }
+
+  // Readers opened while the file was active did not carry finalized metadata
+  // and may also have observed a footer-less file size.
+  cache_.get()->Erase(key);
+}
+
+void BlobFileCache::UnregisterBlobFileChecksum(uint64_t blob_file_number) {
+  MutexLock checksum_lock(&blob_file_checksums_mutex_);
+  blob_file_checksums_.erase(blob_file_number);
+}
+
+Status BlobFileCache::OpenBlobFileReader(
+    const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
+    bool allow_footer_skip_retry,
+    std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(file_options_);
+  assert(blob_file.file_checksum.empty() ==
+         blob_file.file_checksum_func_name.empty());
+
+  FileOptions file_options = *file_options_;
+  if (!blob_file.file_checksum.empty()) {
+    file_options.file_checksum = blob_file.file_checksum.ToString();
+    file_options.file_checksum_func_name =
+        blob_file.file_checksum_func_name.ToString();
+  } else {
+    MutexLock checksum_lock(&blob_file_checksums_mutex_);
+    const auto it = blob_file_checksums_.find(blob_file.file_number);
+    if (it != blob_file_checksums_.end()) {
+      file_options.file_checksum = it->second.value;
+      file_options.file_checksum_func_name = it->second.function_name;
+    } else {
+      file_options.file_checksum.clear();
+      file_options.file_checksum_func_name.clear();
+    }
+  }
+
   Status s = BlobFileReader::Create(
-      *immutable_options_, read_options, *file_options_, column_family_id_,
-      blob_file_read_hist_, blob_file_number, io_tracer_,
+      *immutable_options_, read_options, file_options, column_family_id_,
+      blob_file_read_hist_, blob_file.file_number, io_tracer_,
       /*skip_footer_validation=*/false, blob_file_reader);
   if (!s.ok() && s.IsCorruption() && allow_footer_skip_retry) {
     blob_file_reader->reset();
     s = BlobFileReader::Create(
-        *immutable_options_, read_options, *file_options_, column_family_id_,
-        blob_file_read_hist_, blob_file_number, io_tracer_,
+        *immutable_options_, read_options, file_options, column_family_id_,
+        blob_file_read_hist_, blob_file.file_number, io_tracer_,
         /*skip_footer_validation=*/true, blob_file_reader);
-  }
-  if (!s.ok()) {
-    RecordTick(statistics, NO_FILE_ERRORS);
   }
   return s;
 }
@@ -178,7 +226,7 @@ Status BlobFileCache::InsertBlobFileReader(
 }
 
 Status BlobFileCache::RefreshBlobFileReader(
-    uint64_t blob_file_number,
+    const BlobFileOpenInfo& blob_file,
     std::unique_ptr<BlobFileReader>* blob_file_reader,
     CacheHandleGuard<BlobFileReader>* cached_blob_file_reader) {
   assert(blob_file_reader);
@@ -186,10 +234,26 @@ Status BlobFileCache::RefreshBlobFileReader(
   assert(cached_blob_file_reader);
   assert(cached_blob_file_reader->IsEmpty());
 
-  const Slice key = GetSliceForKey(&blob_file_number);
+  const Slice key = GetSliceForKey(&blob_file.file_number);
   MutexLock lock(&mutex_.Get(key));
 
   TypedHandle* handle = cache_.Lookup(key);
+
+  if (blob_file.file_checksum.empty()) {
+    MutexLock checksum_lock(&blob_file_checksums_mutex_);
+    if (blob_file_checksums_.find(blob_file.file_number) !=
+        blob_file_checksums_.end()) {
+      // This reader can have been opened just before finalization registered
+      // checksum metadata. Never let such a racing refresh repopulate the
+      // cache.
+      if (handle) {
+        *cached_blob_file_reader = cache_.Guard(handle);
+      }
+      blob_file_reader->reset();
+      return Status::OK();
+    }
+  }
+
   if (handle) {
     BlobFileReader* const cached_reader = cache_.Value(handle);
     assert(cached_reader != nullptr);

@@ -330,6 +330,11 @@ Status BlobFilePartitionManager::FinalizeBlobFile(
   *addition =
       BlobFileAddition(file_number, blob_count, total_blob_bytes,
                        std::move(checksum_method), std::move(checksum_value));
+  if (blob_file_cache_ != nullptr) {
+    const BlobFileOpenInfo blob_file{file_number, addition->GetChecksumValue(),
+                                     addition->GetChecksumMethod()};
+    blob_file_cache_->RegisterBlobFileChecksum(blob_file);
+  }
   return Status::OK();
 }
 
@@ -753,6 +758,9 @@ void BlobFilePartitionManager::UnprotectSealedBlobFileNumbers(
         // manifest-visible path. Evict it here so delayed protection does not
         // leave an obsolete blob reader behind until DB close.
         blob_file_cache_->Evict(file_number);
+        if (file_to_partition_.find(file_number) == file_to_partition_.end()) {
+          blob_file_cache_->UnregisterBlobFileChecksum(file_number);
+        }
       }
     }
   }
@@ -772,6 +780,10 @@ void BlobFilePartitionManager::RemoveFilePartitionMappings(
       // this file before it was sealed. Drop it now so future manifest-visible
       // reads reopen against the finalized on-disk size and footer state.
       blob_file_cache_->Evict(file_number);
+      if (protected_blob_file_refs_.find(file_number) ==
+          protected_blob_file_refs_.end()) {
+        blob_file_cache_->UnregisterBlobFileChecksum(file_number);
+      }
     }
   }
 }
@@ -809,9 +821,9 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
   }
 
   Status s;
+  const BlobFileOpenInfo blob_file{blob_idx.file_number(), Slice(), Slice()};
   CacheHandleGuard<BlobFileReader> reader;
-  s = blob_file_cache->GetBlobFileReader(read_options, blob_idx.file_number(),
-                                         &reader,
+  s = blob_file_cache->GetBlobFileReader(read_options, blob_file, &reader,
                                          /*allow_footer_skip_retry=*/true);
   if (!s.ok()) {
     return s;
@@ -836,7 +848,7 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
 
   std::unique_ptr<BlobFileReader> fresh_reader;
   s = blob_file_cache->OpenBlobFileReaderUncached(
-      read_options, blob_idx.file_number(), &fresh_reader,
+      read_options, blob_file, &fresh_reader,
       /*allow_footer_skip_retry=*/true);
   if (!s.ok()) {
     return s;
@@ -850,8 +862,7 @@ Status BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
   if (s.ok()) {
     blob_value->PinSelf(fresh_contents->data());
     CacheHandleGuard<BlobFileReader> ignored;
-    blob_file_cache
-        ->RefreshBlobFileReader(blob_idx.file_number(), &fresh_reader, &ignored)
+    blob_file_cache->RefreshBlobFileReader(blob_file, &fresh_reader, &ignored)
         .PermitUncheckedError();
   }
 

@@ -50,9 +50,10 @@ Status AppendBlobRefreshRetryFailure(const Status& stale_status,
 template <typename ReadFn>
 Status ReadBlobWithReaderRetry(BlobFileCache* blob_file_cache,
                                const ReadOptions& read_options,
-                               uint64_t file_number, const ReadFn& read) {
+                               const BlobFileOpenInfo& blob_file,
+                               const ReadFn& read) {
   CacheHandleGuard<BlobFileReader> blob_file_reader;
-  Status s = blob_file_cache->GetBlobFileReader(read_options, file_number,
+  Status s = blob_file_cache->GetBlobFileReader(read_options, blob_file,
                                                 &blob_file_reader);
   if (!s.ok()) {
     return s;
@@ -66,11 +67,11 @@ Status ReadBlobWithReaderRetry(BlobFileCache* blob_file_cache,
 
   const Status stale_status = s;
   blob_file_reader.Reset();
-  blob_file_cache->Evict(file_number);
+  blob_file_cache->Evict(blob_file.file_number);
 
   std::unique_ptr<BlobFileReader> fresh_reader;
   s = blob_file_cache->OpenBlobFileReaderUncached(
-      read_options, file_number, &fresh_reader,
+      read_options, blob_file, &fresh_reader,
       /*allow_footer_skip_retry=*/false);
   if (!s.ok()) {
     return AppendBlobRefreshRetryFailure(stale_status, s);
@@ -83,7 +84,7 @@ Status ReadBlobWithReaderRetry(BlobFileCache* blob_file_cache,
 
   CacheHandleGuard<BlobFileReader> ignored_reader;
   blob_file_cache
-      ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
+      ->RefreshBlobFileReader(blob_file, &fresh_reader, &ignored_reader)
       .PermitUncheckedError();
   return s;
 }
@@ -272,9 +273,9 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
 }
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
-                           const Slice& user_key, uint64_t file_number,
-                           uint64_t offset, uint64_t file_size,
-                           uint64_t value_size,
+                           const Slice& user_key,
+                           const BlobFileOpenInfo& blob_file, uint64_t offset,
+                           uint64_t file_size, uint64_t value_size,
                            CompressionType compression_type,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
@@ -282,7 +283,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   Status s;
 
-  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+  const CacheKey cache_key =
+      GetCacheKey(blob_file.file_number, file_size, offset);
 
   CacheHandleGuard<BlobContents> blob_handle;
 
@@ -332,8 +334,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
     uint64_t read_size = 0;
     s = ReadBlobWithReaderRetry(
-        blob_file_cache_, read_options, file_number,
-        [&](BlobFileReader* reader) {
+        blob_file_cache_, read_options, blob_file, [&](BlobFileReader* reader) {
           if (compression_type != reader->GetCompressionType()) {
             return Status::Corruption(
                 "Compression type mismatch when reading blob");
@@ -377,7 +378,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 }
 
 Status BlobSource::GetBlobRange(const ReadOptions& read_options,
-                                const Slice& user_key, uint64_t file_number,
+                                const Slice& user_key,
+                                const BlobFileOpenInfo& blob_file,
                                 uint64_t offset, uint64_t file_size,
                                 uint64_t value_size,
                                 CompressionType compression_type,
@@ -394,7 +396,8 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
 
   Status s;
 
-  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+  const CacheKey cache_key =
+      GetCacheKey(blob_file.file_number, file_size, offset);
 
   CacheHandleGuard<BlobContents> blob_handle;
 
@@ -435,8 +438,7 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
     // case (offset/size mismatch surfacing as Corruption), not a payload
     // checksum failure.
     s = ReadBlobWithReaderRetry(
-        blob_file_cache_, read_options, file_number,
-        [&](BlobFileReader* reader) {
+        blob_file_cache_, read_options, blob_file, [&](BlobFileReader* reader) {
           if (compression_type != reader->GetCompressionType()) {
             return Status::Corruption(
                 "Compression type mismatch when reading blob");
@@ -827,7 +829,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
   uint64_t total_bytes_read = 0;
   uint64_t bytes_read_in_file = 0;
 
-  for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
+  for (auto& [blob_file, file_size, blob_reqs_in_file] : blob_reqs) {
     // sort blob_reqs_in_file by file offset.
     std::sort(
         blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
@@ -835,7 +837,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
           return lhs.offset < rhs.offset;
         });
 
-    MultiGetBlobFromOneFile(read_options, file_number, file_size,
+    MultiGetBlobFromOneFile(read_options, blob_file, file_size,
                             blob_reqs_in_file, &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
@@ -847,7 +849,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
 }
 
 void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
-                                         uint64_t file_number,
+                                         const BlobFileOpenInfo& blob_file,
                                          uint64_t /*file_size*/,
                                          autovector<BlobReadRequest>& blob_reqs,
                                          uint64_t* bytes_read) {
@@ -865,6 +867,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   Mask cache_hit_mask = 0;
 
   uint64_t total_bytes = 0;
+  const uint64_t file_number = blob_file.file_number;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
 
   if (blob_cache_) {
@@ -936,7 +939,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+    Status s = blob_file_cache_->GetBlobFileReader(read_options, blob_file,
                                                    &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
@@ -976,7 +979,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
       std::unique_ptr<BlobFileReader> fresh_reader;
       s = blob_file_cache_->OpenBlobFileReaderUncached(
-          read_options, file_number, &fresh_reader,
+          read_options, blob_file, &fresh_reader,
           /*allow_footer_skip_retry=*/false);
       if (!s.ok()) {
         for (const auto& blob_req : _blob_reqs) {
@@ -1037,7 +1040,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
       if (install_fresh_reader) {
         CacheHandleGuard<BlobFileReader> ignored_reader;
         blob_file_cache_
-            ->RefreshBlobFileReader(file_number, &fresh_reader, &ignored_reader)
+            ->RefreshBlobFileReader(blob_file, &fresh_reader, &ignored_reader)
             .PermitUncheckedError();
       }
     }
@@ -1103,7 +1106,7 @@ void BlobSource::MultiGetBlobRange(
   uint64_t total_bytes_read = 0;
   uint64_t bytes_read_in_file = 0;
 
-  for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
+  for (auto& [blob_file, file_size, blob_reqs_in_file] : blob_reqs) {
     // Sort by effective read offset so the file system layer can coalesce
     // adjacent sub-range reads within one MultiRead.
     std::sort(blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
@@ -1113,7 +1116,7 @@ void BlobSource::MultiGetBlobRange(
                        rhs.offset + rhs.range_offset;
               });
 
-    MultiGetBlobRangeFromOneFile(read_options, file_number, file_size,
+    MultiGetBlobRangeFromOneFile(read_options, blob_file, file_size,
                                  blob_reqs_in_file, &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
@@ -1126,7 +1129,7 @@ void BlobSource::MultiGetBlobRange(
 }
 
 void BlobSource::MultiGetBlobRangeFromOneFile(
-    const ReadOptions& read_options, uint64_t file_number,
+    const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
     uint64_t /*file_size*/, autovector<BlobRangeReadRequest>& blob_reqs,
     uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
@@ -1140,6 +1143,7 @@ void BlobSource::MultiGetBlobRangeFromOneFile(
   Mask cache_hit_mask = 0;
 
   uint64_t total_bytes = 0;
+  const uint64_t file_number = blob_file.file_number;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
 
   // Probe the whole-value cache per request; on a hit, slice the requested
@@ -1196,7 +1200,7 @@ void BlobSource::MultiGetBlobRangeFromOneFile(
   // is simply surfaced per request. Hence no reader-refresh retry and no
   // cache-fill (a partial value cannot represent the whole-record cache entry).
   CacheHandleGuard<BlobFileReader> blob_file_reader;
-  Status s = blob_file_cache_->GetBlobFileReader(read_options, file_number,
+  Status s = blob_file_cache_->GetBlobFileReader(read_options, blob_file,
                                                  &blob_file_reader);
   if (!s.ok()) {
     for (auto& blob_req : _blob_reqs) {

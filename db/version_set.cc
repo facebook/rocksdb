@@ -2804,8 +2804,11 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   assert(blob_source_);
   value->Reset();
+  const BlobFileOpenInfo blob_file{blob_file_number,
+                                   blob_file_meta->GetChecksumValue(),
+                                   blob_file_meta->GetChecksumMethod()};
   const Status s = blob_source_->GetBlob(
-      read_options, user_key, blob_file_number, blob_index.offset(),
+      read_options, user_key, blob_file, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
       blob_index.compression(), prefetch_buffer, value, bytes_read);
 
@@ -2840,8 +2843,11 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
 
   assert(blob_source_);
   value->Reset();
+  const BlobFileOpenInfo blob_file{blob_file_number,
+                                   blob_file_meta->GetChecksumValue(),
+                                   blob_file_meta->GetChecksumMethod()};
   return blob_source_->GetBlobRange(
-      read_options, user_key, blob_file_number, blob_index.offset(),
+      read_options, user_key, blob_file, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
       blob_index.compression(), range_offset, range_length, value, bytes_read);
 }
@@ -2886,6 +2892,9 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       continue;
     }
     const uint64_t file_size = blob_file_meta->GetBlobFileSize();
+    const BlobFileOpenInfo blob_file{file_number,
+                                     blob_file_meta->GetChecksumValue(),
+                                     blob_file_meta->GetChecksumMethod()};
 
     if (req.range_length == kWholeBlobLength) {
       // Append to this file's current batch, or start a new batch when the file
@@ -2903,7 +2912,7 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       } else {
         idx = whole_reqs.size();  // no batch yet for this file, or it is full
         whole_idx[file_number] = idx;
-        whole_reqs.emplace_back(file_number, file_size,
+        whole_reqs.emplace_back(blob_file, file_size,
                                 autovector<BlobReadRequest>());
       }
       std::get<2>(whole_reqs[idx])
@@ -2926,7 +2935,7 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       } else {
         idx = range_reqs.size();  // no batch yet for this file, or it is full
         range_idx[file_number] = idx;
-        range_reqs.emplace_back(file_number, file_size,
+        range_reqs.emplace_back(blob_file, file_size,
                                 autovector<BlobRangeReadRequest>());
       }
       std::get<2>(range_reqs[idx])
@@ -2995,7 +3004,10 @@ void Version::MultiGetBlob(
     }
     if (blob_reqs_in_file.size() > 0) {
       const auto file_size = blob_file_meta->GetBlobFileSize();
-      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file);
+      const BlobFileOpenInfo blob_file{file_number,
+                                       blob_file_meta->GetChecksumValue(),
+                                       blob_file_meta->GetChecksumMethod()};
+      blob_reqs.emplace_back(blob_file, file_size, blob_reqs_in_file);
     }
   }
 

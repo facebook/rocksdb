@@ -990,13 +990,15 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;
 
-  Status s = blob_source->GetBlobFileReader(read_options_, blob_file_num,
+  const BlobFileOpenInfo blob_file{blob_file_num,
+                                   blob_addition.GetChecksumValue(),
+                                   blob_addition.GetChecksumMethod()};
+  Status s = blob_source->GetBlobFileReader(read_options_, blob_file,
                                             &blob_file_reader);
   if (!s.ok()) {
     return s;
   }
   // TODO: verify checksum
-  (void)blob_addition;
   return s;
 }
 

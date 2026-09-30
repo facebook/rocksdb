@@ -14,6 +14,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Non-owning metadata needed when opening a blob file for reading. The
+// checksum slices must remain valid while this object is in use. A file without
+// finalized checksum metadata, such as an active direct-write blob file, uses
+// empty slices for both checksum fields.
+struct BlobFileOpenInfo {
+  uint64_t file_number = 0;
+  Slice file_checksum;
+  Slice file_checksum_func_name;
+};
+
 // A read Blob request structure for use in BlobSource::MultiGetBlob and
 // BlobFileReader::MultiGetBlob.
 struct BlobReadRequest {
@@ -53,7 +63,7 @@ struct BlobReadRequest {
 };
 
 using BlobFileReadRequests =
-    std::tuple<uint64_t /* file_number */, uint64_t /* file_size */,
+    std::tuple<BlobFileOpenInfo, uint64_t /* file_size */,
                autovector<BlobReadRequest>>;
 
 // A byte-range (partial) blob read request for the lazy blob-read multi
@@ -97,7 +107,7 @@ struct BlobRangeReadRequest {
 };
 
 using BlobFileRangeReadRequests =
-    std::tuple<uint64_t /* file_number */, uint64_t /* file_size */,
+    std::tuple<BlobFileOpenInfo, uint64_t /* file_size */,
                autovector<BlobRangeReadRequest>>;
 
 }  // namespace ROCKSDB_NAMESPACE

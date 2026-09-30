@@ -104,6 +104,10 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
                                          &checksum_method, &checksum_value));
 }
 
+BlobFileOpenInfo OpenInfoWithoutChecksum(uint64_t file_number) {
+  return BlobFileOpenInfo{file_number, Slice(), Slice()};
+}
+
 }  // anonymous namespace
 
 class BlobSourceTest : public DBTestBase {
@@ -212,10 +216,10 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
 
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    kNoCompression, prefetch_buffer, &values[i],
-                                    &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(blob_file_number),
+          blob_offsets[i], file_size, blob_sizes[i], kNoCompression,
+          prefetch_buffer, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
@@ -251,10 +255,10 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
 
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    kNoCompression, prefetch_buffer, &values[i],
-                                    &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(blob_file_number),
+          blob_offsets[i], file_size, blob_sizes[i], kNoCompression,
+          prefetch_buffer, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
@@ -299,10 +303,10 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
 
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    kNoCompression, prefetch_buffer, &values[i],
-                                    &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(blob_file_number),
+          blob_offsets[i], file_size, blob_sizes[i], kNoCompression,
+          prefetch_buffer, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
@@ -339,10 +343,10 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
 
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    kNoCompression, prefetch_buffer, &values[i],
-                                    &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(blob_file_number),
+          blob_offsets[i], file_size, blob_sizes[i], kNoCompression,
+          prefetch_buffer, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
@@ -385,7 +389,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                                 blob_offsets[i]));
 
       ASSERT_TRUE(blob_source
-                      .GetBlob(read_options, keys[i], blob_file_number,
+                      .GetBlob(read_options, keys[i],
+                               OpenInfoWithoutChecksum(blob_file_number),
                                blob_offsets[i], file_size, blob_sizes[i],
                                kNoCompression, prefetch_buffer, &values[i],
                                &bytes_read)
@@ -427,7 +432,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                                 blob_offsets[i]));
 
       ASSERT_TRUE(blob_source
-                      .GetBlob(read_options, keys[i], file_number,
+                      .GetBlob(read_options, keys[i],
+                               OpenInfoWithoutChecksum(file_number),
                                blob_offsets[i], file_size, blob_sizes[i],
                                kNoCompression, prefetch_buffer, &values[i],
                                &bytes_read)
@@ -522,8 +528,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                   compression, blob_offsets, blob_sizes);
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    ASSERT_OK(blob_source.GetBlobFileReader(read_options, file_number,
-                                            &blob_file_reader));
+    ASSERT_OK(blob_source.GetBlobFileReader(
+        read_options, OpenInfoWithoutChecksum(file_number), &blob_file_reader));
     ASSERT_NE(blob_file_reader.GetValue(), nullptr);
 
     const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
@@ -541,10 +547,10 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[i]));
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    compression, nullptr /*prefetch_buffer*/,
-                                    &values[i], &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(file_number),
+          blob_offsets[i], file_size, blob_sizes[i], compression,
+          nullptr /*prefetch_buffer*/, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
       ASSERT_EQ(bytes_read,
@@ -564,10 +570,10 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                                blob_offsets[i]));
 
       // Compressed blob size is passed in GetBlob
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    compression, nullptr /*prefetch_buffer*/,
-                                    &values[i], &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(file_number),
+          blob_offsets[i], file_size, blob_sizes[i], compression,
+          nullptr /*prefetch_buffer*/, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
       ASSERT_EQ(bytes_read,
@@ -674,7 +680,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
             keys[j], blob_offsets[j], blob_sizes[j], kNoCompression,
             &value_buf[i * num_blobs + j], &statuses_buf[i * num_blobs + j]);
       }
-      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file[i]);
+      blob_reqs.emplace_back(OpenInfoWithoutChecksum(file_number), file_size,
+                             blob_reqs_in_file[i]);
     }
 
     get_perf_context()->Reset();
@@ -731,7 +738,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
     }
 
     // Add a fake multi-get blob request.
-    blob_reqs.emplace_back(fake_file_number, file_size, fake_blob_reqs_in_file);
+    blob_reqs.emplace_back(OpenInfoWithoutChecksum(fake_file_number), file_size,
+                           fake_blob_reqs_in_file);
 
     blob_source.MultiGetBlob(read_options, blob_reqs, &bytes_read);
 
@@ -865,8 +873,9 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     statistics->Reset().PermitUncheckedError();
 
     // Get half of blobs
-    blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+    blob_source.MultiGetBlobFromOneFile(
+        read_options, OpenInfoWithoutChecksum(blob_file_number), file_size,
+        blob_reqs, &bytes_read);
 
     uint64_t fs_read_bytes = 0;
     uint64_t ca_read_bytes = 0;
@@ -911,10 +920,10 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
 
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    kNoCompression, prefetch_buffer,
-                                    &value_buf[i], &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], OpenInfoWithoutChecksum(blob_file_number),
+          blob_offsets[i], file_size, blob_sizes[i], kNoCompression,
+          prefetch_buffer, &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
       ASSERT_TRUE(value_buf[i].IsPinned());
       ASSERT_EQ(bytes_read,
@@ -935,8 +944,9 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                              kNoCompression, &value_buf[i], &statuses_buf[i]);
     }
 
-    blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+    blob_source.MultiGetBlobFromOneFile(
+        read_options, OpenInfoWithoutChecksum(blob_file_number), file_size,
+        blob_reqs, &bytes_read);
 
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < num_blobs; ++i) {
@@ -985,8 +995,9 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
 
-    blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+    blob_source.MultiGetBlobFromOneFile(
+        read_options, OpenInfoWithoutChecksum(blob_file_number), file_size,
+        blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIncomplete());
@@ -1029,8 +1040,9 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
 
-    blob_source.MultiGetBlobFromOneFile(read_options, non_existing_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+    blob_source.MultiGetBlobFromOneFile(
+        read_options, OpenInfoWithoutChecksum(non_existing_file_number),
+        file_size, blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIOError());
@@ -1104,8 +1116,9 @@ TEST_F(BlobSourceTest, GetBlobPreservesCorruptionDetailsWhenRefreshOpenFails) {
   PinnableSlice value;
   uint64_t bytes_read = 0;
   ASSERT_OK(blob_source.GetBlob(
-      read_options, keys[0], blob_file_number, blob_offsets[0], file_size,
-      blob_sizes[0], kNoCompression, prefetch_buffer, &value, &bytes_read));
+      read_options, keys[0], OpenInfoWithoutChecksum(blob_file_number),
+      blob_offsets[0], file_size, blob_sizes[0], kNoCompression,
+      prefetch_buffer, &value, &bytes_read));
   ASSERT_EQ(value, blobs[0]);
 
   const std::string blob_file_path =
@@ -1114,10 +1127,10 @@ TEST_F(BlobSourceTest, GetBlobPreservesCorruptionDetailsWhenRefreshOpenFails) {
 
   PinnableSlice invalid_value;
   bytes_read = 0;
-  Status s =
-      blob_source.GetBlob(read_options, keys[0], blob_file_number, file_size,
-                          file_size, blob_sizes[0], kNoCompression,
-                          prefetch_buffer, &invalid_value, &bytes_read);
+  Status s = blob_source.GetBlob(
+      read_options, keys[0], OpenInfoWithoutChecksum(blob_file_number),
+      file_size, file_size, blob_sizes[0], kNoCompression, prefetch_buffer,
+      &invalid_value, &bytes_read);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_EQ(bytes_read, 0);
 
@@ -1178,8 +1191,9 @@ TEST_F(BlobSourceTest,
   PinnableSlice value;
   uint64_t bytes_read = 0;
   ASSERT_OK(blob_source.GetBlob(
-      read_options, keys[0], blob_file_number, blob_offsets[0], file_size,
-      blob_sizes[0], kNoCompression, prefetch_buffer, &value, &bytes_read));
+      read_options, keys[0], OpenInfoWithoutChecksum(blob_file_number),
+      blob_offsets[0], file_size, blob_sizes[0], kNoCompression,
+      prefetch_buffer, &value, &bytes_read));
   ASSERT_EQ(value, blobs[0]);
 
   const std::string blob_file_path =
@@ -1193,8 +1207,9 @@ TEST_F(BlobSourceTest,
                          &values[0], &statuses[0]);
 
   bytes_read = 0;
-  blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number, file_size,
-                                      blob_reqs, &bytes_read);
+  blob_source.MultiGetBlobFromOneFile(read_options,
+                                      OpenInfoWithoutChecksum(blob_file_number),
+                                      file_size, blob_reqs, &bytes_read);
   ASSERT_TRUE(statuses[0].IsCorruption());
   ASSERT_EQ(bytes_read, 0);
 
@@ -1303,8 +1318,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
   CacheHandleGuard<BlobFileReader> file_reader;
   ReadOptions read_options;
-  ASSERT_OK(
-      blob_source.GetBlobFileReader(read_options, file_number, &file_reader));
+  ASSERT_OK(blob_source.GetBlobFileReader(
+      read_options, OpenInfoWithoutChecksum(file_number), &file_reader));
   ASSERT_NE(file_reader.GetValue(), nullptr);
   const uint64_t file_size = file_reader.GetValue()->GetFileSize();
   ASSERT_EQ(file_reader.GetValue()->GetCompressionType(), kNoCompression);
@@ -1322,7 +1337,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     get_perf_context()->Reset();
 
     // key0 should be filled to the primary cache from the blob file.
-    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[0],
+                                  OpenInfoWithoutChecksum(file_number),
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   values.data(), nullptr /* bytes_read */));
@@ -1331,17 +1347,18 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
     // key0 should be evicted and key0's dummy item is inserted into secondary
     // cache. key1 should be filled to the primary cache from the blob file.
-    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
-                                  blob_offsets[1], file_size, blob_sizes[1],
-                                  kNoCompression, nullptr /* prefetch_buffer */,
-                                  &values[1], nullptr /* bytes_read */));
+    ASSERT_OK(blob_source.GetBlob(
+        read_options, keys[1], OpenInfoWithoutChecksum(file_number),
+        blob_offsets[1], file_size, blob_sizes[1], kNoCompression,
+        nullptr /* prefetch_buffer */, &values[1], nullptr /* bytes_read */));
 
     // Release cache handle
     values[1].Reset();
 
     // key0 should be filled to the primary cache from the blob file. key1
     // should be evicted and key1's dummy item is inserted into secondary cache.
-    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[0],
+                                  OpenInfoWithoutChecksum(file_number),
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   values.data(), nullptr /* bytes_read */));
@@ -1354,10 +1371,10 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
     // key0 should be evicted and is inserted into secondary cache.
     // key1 should be filled to the primary cache from the blob file.
-    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
-                                  blob_offsets[1], file_size, blob_sizes[1],
-                                  kNoCompression, nullptr /* prefetch_buffer */,
-                                  &values[1], nullptr /* bytes_read */));
+    ASSERT_OK(blob_source.GetBlob(
+        read_options, keys[1], OpenInfoWithoutChecksum(file_number),
+        blob_offsets[1], file_size, blob_sizes[1], kNoCompression,
+        nullptr /* prefetch_buffer */, &values[1], nullptr /* bytes_read */));
     ASSERT_EQ(values[1], blobs[1]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[1]));
@@ -1422,9 +1439,10 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // fetch key0 from the blob file to the primary cache.
       // key1 is evicted and inserted into the secondary cache.
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys[0], file_number, blob_offsets[0], file_size,
-          blob_sizes[0], kNoCompression, nullptr /* prefetch_buffer */,
-          values.data(), nullptr /* bytes_read */));
+          read_options, keys[0], OpenInfoWithoutChecksum(file_number),
+          blob_offsets[0], file_size, blob_sizes[0], kNoCompression,
+          nullptr /* prefetch_buffer */, values.data(),
+          nullptr /* bytes_read */));
       ASSERT_EQ(values[0], blobs[0]);
 
       // Release cache handle
@@ -1606,8 +1624,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
-          blob_file_size_, blob_sizes[i], kNoCompression,
+          read_options, keys_[i], OpenInfoWithoutChecksum(kBlobFileNumber),
+          blob_offsets[i], blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), 0);
@@ -1625,8 +1643,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
-          blob_file_size_, blob_sizes[i], kNoCompression,
+          read_options, keys_[i], OpenInfoWithoutChecksum(kBlobFileNumber),
+          blob_offsets[i], blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
 
       size_t charge = 0;
@@ -1728,8 +1746,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
-          blob_file_size_, blob_sizes[i], kNoCompression,
+          read_options, keys_[i], OpenInfoWithoutChecksum(kBlobFileNumber),
+          blob_offsets[i], blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), 0);
@@ -1744,8 +1762,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
-          blob_file_size_, blob_sizes[i], kNoCompression,
+          read_options, keys_[i], OpenInfoWithoutChecksum(kBlobFileNumber),
+          blob_offsets[i], blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
 
       // Release cache handle
