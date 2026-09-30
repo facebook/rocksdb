@@ -2129,7 +2129,7 @@ std::vector<uint64_t> parse_buckets(const std::string& bucket_str) {
   return buckets;
 }
 
-int block_cache_trace_analyzer_tool(int argc, char** argv) {
+ROCKSDB_LIBRARY_API int block_cache_trace_analyzer_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
   if (FLAGS_block_cache_trace_path.empty()) {
     fprintf(stderr, "block cache trace path is empty\n");
