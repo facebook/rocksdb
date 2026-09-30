@@ -181,6 +181,33 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
+  if (FLAGS_use_full_external_table) {
+    if (FLAGS_column_families != 1) {
+      return ReturnValidationError(
+          "use_full_external_table currently requires column_families=1");
+    }
+    if (FLAGS_delrangepercent > 0 ||
+        FLAGS_min_tombstones_for_range_conversion > 0) {
+      return ReturnValidationError(
+          "use_full_external_table does not support range deletions");
+    }
+    if (FLAGS_user_timestamp_size > 0 || FLAGS_use_timed_put_one_in > 0) {
+      return ReturnValidationError(
+          "use_full_external_table does not support timestamped entries");
+    }
+    if (FLAGS_preclude_last_level_data_seconds != 0 ||
+        FLAGS_preserve_internal_time_seconds != 0) {
+      return ReturnValidationError(
+          "use_full_external_table does not support sequence-number time "
+          "tracking");
+    }
+    if (FLAGS_test_backward_scan ||
+        (FLAGS_use_multiscan && FLAGS_multiscan_reverse)) {
+      return ReturnValidationError(
+          "use_full_external_table does not support backward iteration");
+    }
+  }
+
   if (!FLAGS_verify_cpu_corruption_dir.empty()) {
     // The full-keyspace read-back is only well-defined with a single writer,
     // and injected I/O faults would taint it -- so require --threads=1 and all

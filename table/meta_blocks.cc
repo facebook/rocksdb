@@ -38,6 +38,13 @@ const std::string kRangeDelBlockName = "rocksdb.range_del";
 Status GetGlobalSequenceNumber(const TableProperties& table_properties,
                                SequenceNumber largest_seqno,
                                SequenceNumber* global_seqno) {
+  // A wrapping reader will apply the effective global seqno. Keep this reader
+  // on the stored per-entry sequence numbers to avoid applying it twice.
+  if (largest_seqno == kDisableGlobalSequenceNumber) {
+    *global_seqno = kDisableGlobalSequenceNumber;
+    return Status::OK();
+  }
+
   const auto& props = table_properties.user_collected_properties;
   const auto version_pos = props.find(ExternalSstFilePropertyNames::kVersion);
   const auto seqno_pos = props.find(ExternalSstFilePropertyNames::kGlobalSeqno);

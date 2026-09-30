@@ -1688,6 +1688,7 @@ if(WITH_TESTS)
       db/db_with_timestamp_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
+      test_util/simple_external_table_factory.cc
       utilities/agg_merge/test_agg_merge.cc
       utilities/cassandra/test_utils.cc
   )

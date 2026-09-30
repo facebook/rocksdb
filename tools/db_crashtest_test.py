@@ -122,6 +122,7 @@ class DBCrashTestTest(unittest.TestCase):
             "enable_ts": False,
             "test_multiops_txn": False,
             "test_tiered_storage": False,
+            "test_full_external_table": False,
             "print_stderr_separately": False,
         }
         args.update(overrides)
@@ -417,6 +418,101 @@ class DBCrashTestTest(unittest.TestCase):
                 }
             ),
         )
+
+    def test_full_external_table_profile(self):
+        db_crashtest = self.load_db_crashtest()
+        args = self.build_mode_args(
+            test_type="blackbox", test_full_external_table=True
+        )
+
+        # Choose the blob overlay whenever it is consulted. The full external
+        # table profile must bypass that random overlay.
+        with mock.patch.object(
+            db_crashtest.random, "choice", side_effect=lambda values: values[-1]
+        ):
+            params = db_crashtest.gen_cmd_params(args)
+        command_params = dict(params)
+        command_params["enable_compaction_filter"] = 0
+        command_params["inplace_update_support"] = 0
+        command_params["db"] = self.test_tmpdir
+        command, finalized = db_crashtest.gen_cmd(command_params, [])
+
+        expected = {
+            "backup_one_in": 0,
+            "column_families": 1,
+            "open_files": 100,
+            "target_file_size_base": 1024 * 1024,
+            "target_file_size_multiplier": 1,
+            "write_buffer_size": 1024 * 1024,
+            "compaction_ttl": 0,
+            "delpercent": 5,
+            "delrangepercent": 0,
+            "get_property_one_in": 0,
+            "get_properties_of_all_tables_one_in": 0,
+            "ingest_external_file_with_embedded_blobs": 0,
+            "ingest_wbwi_one_in": 0,
+            "min_tombstones_for_range_conversion": 0,
+            "periodic_compaction_seconds": 0,
+            "preclude_last_level_data_seconds": 0,
+            "preserve_internal_time_seconds": 0,
+            "remote_compaction_worker_threads": 0,
+            "set_options_one_in": 0,
+            "test_backward_scan": 0,
+            "use_full_external_table": 1,
+            "use_timed_put_one_in": 0,
+            "user_timestamp_size": 0,
+        }
+        self.assertEqual(expected, db_crashtest.full_external_table_params)
+        self.assertEqual(expected, {key: finalized.get(key) for key in expected})
+        for inherited_param in (
+            "adaptive_readahead",
+            "allow_unprepared_value",
+            "async_io",
+            "block_protection_bytes_per_key",
+            "bottommost_compression_type",
+            "check_multiget_consistency",
+            "checksum_type",
+            "compression_auto_skip",
+            "compression_manager",
+            "compression_type",
+            "enable_checksum_handoff",
+            "enable_compaction_filter",
+            "file_checksum_impl",
+            "ingest_external_file_one_in",
+            "mmap_read",
+            "paranoid_file_checks",
+            "test_batches_snapshots",
+            "use_async_db_api",
+            "use_merge",
+            "use_multiget",
+            "use_trie_index",
+            "verify_checksum_one_in",
+            "verify_file_checksums_one_in",
+            "verify_manifest_content_on_close",
+        ):
+            self.assertIs(
+                db_crashtest.default_params[inherited_param],
+                params[inherited_param],
+            )
+        self.assertEqual(10 * 1024 * 1024, finalized["max_bytes_for_level_base"])
+        self.assertEqual(1, finalized["verify_sst_unique_id_in_manifest"])
+        self.assertGreater(finalized["acquire_snapshot_one_in"], 0)
+        self.assertIn("--use_full_external_table=1", command)
+        self.assertFalse(
+            any(arg.startswith("--test_full_external_table=") for arg in command)
+        )
+        for fault_param in (
+            "metadata_read_fault_one_in",
+            "metadata_write_fault_one_in",
+            "open_metadata_read_fault_one_in",
+            "open_metadata_write_fault_one_in",
+            "open_read_fault_one_in",
+            "open_write_fault_one_in",
+            "read_fault_one_in",
+            "sync_fault_injection",
+            "write_fault_one_in",
+        ):
+            self.assertIs(db_crashtest.default_params[fault_param], params[fault_param])
 
     def test_cache_and_write_buffer_size_multiplier_preserves_randomization(self):
         db_crashtest = self.load_db_crashtest()
