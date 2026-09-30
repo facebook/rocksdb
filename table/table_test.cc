@@ -8642,7 +8642,7 @@ TEST_F(ExternalTableTest, FullModeDBMultiScanWithGlobalSeqno) {
   const std::string file_path = dbname_ + "/multiscan.sst";
   SstFileWriter writer(EnvOptions(options), options);
   ASSERT_OK(writer.Open(file_path));
-  for (const std::string& key : {"a", "b", "c", "d", "e"}) {
+  for (const std::string key : {"a", "b", "c", "d", "e"}) {
     ASSERT_OK(writer.Put(key, "new-" + key));
   }
   ASSERT_OK(writer.Finish());
