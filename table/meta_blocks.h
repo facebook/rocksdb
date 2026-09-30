@@ -115,8 +115,8 @@ Status ParsePropertiesBlock(
     std::unique_ptr<TableProperties>& new_table_properties);
 
 // Sets global_seqno to the sequence number that should replace per-entry
-// sequence numbers while reading this file, or
-// kDisableGlobalSequenceNumber when entries retain their stored sequences.
+// sequence numbers while reading this file. When largest_seqno is
+// kDisableGlobalSequenceNumber, leaves the stored sequence numbers unchanged.
 Status GetGlobalSequenceNumber(const TableProperties& table_properties,
                                SequenceNumber largest_seqno,
                                SequenceNumber* global_seqno);

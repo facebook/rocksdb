@@ -38,6 +38,7 @@
 #include "file/file_util.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -50,6 +51,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "test_util/simple_external_table_factory.h"
 #include "test_util/testutil.h"
 #include "util/aligned_buffer.h"
 #include "util/cast_util.h"
@@ -4965,12 +4967,26 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   unknownPropertyNames.insert(levelPropertyNames.begin(),
                               levelPropertyNames.end());
 
+  std::unordered_set<std::string> blockCachePropertyNames = {
+      DB::Properties::kBlockCacheCapacity,
+      DB::Properties::kBlockCacheEntryStats,
+      DB::Properties::kFastBlockCacheEntryStats,
+      DB::Properties::kBlockCacheUsage,
+      DB::Properties::kBlockCachePinnedUsage,
+  };
+  const Options options = db_->GetOptions();
+  if (options.table_factory->GetOptions<Cache>(
+          TableFactory::kBlockCacheOpts()) == nullptr) {
+    unknownPropertyNames.insert(blockCachePropertyNames.begin(),
+                                blockCachePropertyNames.end());
+  }
+
   std::unordered_set<std::string> blobCachePropertyNames = {
       DB::Properties::kBlobCacheCapacity,
       DB::Properties::kBlobCacheUsage,
       DB::Properties::kBlobCachePinnedUsage,
   };
-  if (db_->GetOptions().blob_cache == nullptr) {
+  if (options.blob_cache == nullptr) {
     unknownPropertyNames.insert(blobCachePropertyNames.begin(),
                                 blobCachePropertyNames.end());
   }
@@ -5644,6 +5660,8 @@ void StressTest::PrintEnv() const {
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
           FLAGS_use_multiget ? "true" : "false");
+  fprintf(stdout, "Use full external table   : %s\n",
+          FLAGS_use_full_external_table ? "true" : "false");
   fprintf(stdout, "Use async DB API          : %s\n",
           FLAGS_use_async_db_api ? "true" : "false");
   fprintf(stdout, "Use GetEntity             : %s\n",
@@ -5799,6 +5817,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     fprintf(stderr, "Unknown compression manager: %s\n",
             FLAGS_compression_manager.c_str());
     exit(1);
+  }
+  if (FLAGS_use_full_external_table) {
+    options_.table_factory = NewExternalTableFactory(
+        std::make_shared<SimpleFullExternalTableFactory>());
   }
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,

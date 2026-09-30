@@ -212,6 +212,9 @@ early_argument_parsing_before_main()
 #   for multiops_txn:
 #       default_params < {blackbox,whitebox,liveness}_default_params <
 #       multiops_txn_params < args
+#   for full external table:
+#       default_params < blackbox_default_params <
+#       full_external_table_params < args
 # Liveness mode reapplies liveness_fault_injection_params after args so the
 # base liveness profile cannot accidentally turn fault injection back on.
 
@@ -962,6 +965,57 @@ blackbox_simple_default_params = {
 }
 
 whitebox_simple_default_params = {}
+
+full_external_table_params = {
+    # Backup verification reconstructs Options from strings, but the test-only
+    # full external table factory is not registered for reconstruction.
+    "backup_one_in": 0,
+    # The db_stress full external table integration currently supports one CF.
+    "column_families": 1,
+    # The simple reader loads each open table into memory, so keep generated
+    # files and the number held open small enough to bound the DB's memory use.
+    "open_files": 100,
+    "target_file_size_base": 1024 * 1024,
+    "target_file_size_multiplier": 1,
+    "write_buffer_size": 1024 * 1024,
+    # RocksDB permits TTL only for factories identifying as block-based.
+    "compaction_ttl": 0,
+    # Replace the default 1% range-delete share to keep the workload at 100%.
+    "delpercent": 5,
+    # External tables do not expose the separate range-tombstone iterator.
+    "delrangepercent": 0,
+    # Aggregated table properties are not supported by the simple factory.
+    "get_property_one_in": 0,
+    # This probe cannot distinguish checksum failures from injected read faults.
+    "get_properties_of_all_tables_one_in": 0,
+    # Embedded-blob SST writing requires direct block-based table options.
+    "ingest_external_file_with_embedded_blobs": 0,
+    # WAL-disabled WBWI state can be lost on a crash before the ingested
+    # memtable is flushed, which the expected-state recovery cannot reconstruct.
+    "ingest_wbwi_one_in": 0,
+    # Tombstone conversion would create unsupported range tombstones.
+    "min_tombstones_for_range_conversion": 0,
+    # RocksDB permits periodic compaction only for block-based factories.
+    "periodic_compaction_seconds": 0,
+    # Full external tables do not persist sequence-number-to-time mappings.
+    "preclude_last_level_data_seconds": 0,
+    "preserve_internal_time_seconds": 0,
+    # Remote-compaction workers reconstruct factories by name, but this test
+    # factory is not registered.
+    "remote_compaction_worker_threads": 0,
+    # The randomized option table includes a block_based_table_factory update,
+    # which is invalid when the active factory is external.
+    "set_options_one_in": 0,
+    # DBIter::Prev() requires value pinning that the external iterator adapter
+    # does not currently propagate.
+    "test_backward_scan": 0,
+    # Select the table implementation under test.
+    "use_full_external_table": 1,
+    # TimedPut is not an entry type supported by external tables.
+    "use_timed_put_one_in": 0,
+    # External tables reject user-defined timestamps in keys and comparators.
+    "user_timestamp_size": 0,
+}
 
 cf_consistency_params = {
     "disable_wal": lambda: random.randint(0, 1),
@@ -1969,14 +2023,15 @@ def gen_cmd_params(args):
         params.update(multiops_txn_params)
     if args.test_tiered_storage:
         params.update(tiered_params)
+    if args.test_full_external_table:
+        params.update(full_external_table_params)
 
-    # Best-effort recovery, tiered storage are currently incompatible with
-    # BlobDB and blob direct write. Test BE recovery if specified on the
-    # command line; otherwise, apply one of the blob feature overrides with a
-    # 10% chance.
+    # These specialized profiles use fixed table configurations. Otherwise,
+    # apply a blob feature override with a 10% chance.
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
+        and not args.test_full_external_table
         and args.test_type != "liveness"
         and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
@@ -2045,6 +2100,7 @@ def gen_cmd(params, unknown_params):
                 "test_multiops_txn",
                 "stress_cmd",
                 "test_tiered_storage",
+                "test_full_external_table",
                 "cleanup_cmd",
                 "print_stderr_separately",
                 "verify_timeout",
@@ -2816,6 +2872,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action="store_true")
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
+    parser.add_argument("--test_full_external_table", action="store_true")
     parser.add_argument("--cleanup_cmd")  # ignore old option for now
     parser.add_argument("--print_stderr_separately", action="store_true", default=False)
     parser.add_argument(
@@ -2841,6 +2898,7 @@ def main():
         + list(best_efforts_recovery_params.items())
         + list(cf_consistency_params.items())
         + list(tiered_params.items())
+        + list(full_external_table_params.items())
         + list(txn_params.items())
         + list(optimistic_txn_params.items())
     )

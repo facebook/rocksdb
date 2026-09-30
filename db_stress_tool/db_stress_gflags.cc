@@ -760,6 +760,9 @@ DEFINE_bool(use_udi_as_primary_index, false,
             "the UDI is a secondary index and reads require "
             "ReadOptions::table_index_factory to be set.");
 
+DEFINE_bool(use_full_external_table, false,
+            "Use the simple full external table test factory.");
+
 DEFINE_bool(test_backward_scan, true,
             "Test backward iteration (Prev, SeekForPrev) in stress tests.");
 
