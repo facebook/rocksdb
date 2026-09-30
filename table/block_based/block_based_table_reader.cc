@@ -1883,7 +1883,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
                           /*get_context=*/nullptr, lookup_context,
                           /*for_compaction=*/false, use_cache,
                           /*async_read=*/false,
-                          /*use_block_cache_for_lookup=*/false);
+                          /*use_block_cache_for_lookup=*/true);
       }
       if (s.ok()) {
         assert(!rep_->udi_block.IsEmpty());

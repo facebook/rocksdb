@@ -680,6 +680,10 @@ struct BlockBasedTableOptions {
   // use_udi_as_primary_index, skip_standard_index, and
   // fail_if_no_udi_on_open are accepted as parse aliases when index_mode is
   // absent. An explicit index_mode wins regardless of parse order.
+  // When constructing a factory from this C++ options struct, the default
+  // kStandardDefault value is indistinguishable from an unset mode, so legacy
+  // bools still apply. Using ConfigureOption() on the factory to set
+  // index_mode=kStandardDefault selects it explicitly, overriding legacy bools.
   enum class IndexMode {
     kStandardOnly = 0,
     kStandardDefault = 1,
@@ -694,15 +698,15 @@ struct BlockBasedTableOptions {
   // EXPERIMENTAL
   //
   // Deprecated compatibility input for old UDI callers. Prefer index_mode.
-  // NewBlockBasedTableFactory() translates this to kCustomDefault, unless
-  // index_mode is already kCustomOnly.
+  // NewBlockBasedTableFactory() translates this to kCustomDefault when
+  // index_mode is still kStandardDefault.
   bool use_udi_as_primary_index = false;
 
   // EXPERIMENTAL
   //
   // Deprecated compatibility input for old UDI callers. Prefer index_mode.
-  // NewBlockBasedTableFactory() translates this to kStandardRequired, unless
-  // index_mode already requires or prefers the custom index.
+  // NewBlockBasedTableFactory() translates this to kStandardRequired when
+  // index_mode is still kStandardDefault and use_udi_as_primary_index is false.
   bool fail_if_no_udi_on_open = false;
 
   // If true, place whole keys in the filter (not just prefixes).
