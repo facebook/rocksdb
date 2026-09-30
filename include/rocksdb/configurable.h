@@ -289,7 +289,8 @@ class ROCKSDB_LIBRARY_API Configurable {
   // with that name is returned.
   // e.g,, RegisterOptions("X", &my_ptr, ...); GetOptionsPtr("X") returns
   // "my_ptr"
-  ROCKSDB_LIBRARY_API virtual const void* GetOptionsPtr(const std::string& name) const;
+  ROCKSDB_LIBRARY_API virtual const void* GetOptionsPtr(
+      const std::string& name) const;
 
   // Method for allowing options to be configured outside of the normal
   // registered options framework.  Classes may override this method if they

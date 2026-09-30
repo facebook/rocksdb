@@ -263,10 +263,10 @@ class ROCKSDB_LIBRARY_API DB {
   // will use to operate on column family column_family[i].
   // Before destroying the DB, you have to close all column families by calling
   // DestroyColumnFamilyHandle() with all the handles.
-  ROCKSDB_LIBRARY_API static Status Open(const DBOptions& db_options, const std::string& name,
-                     const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle*>* handles,
-                     std::unique_ptr<DB>* dbptr);
+  ROCKSDB_LIBRARY_API static Status Open(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
 
   // OpenForReadOnly() creates a Read-only instance that supports reads alone.
   //

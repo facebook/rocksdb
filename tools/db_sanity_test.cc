@@ -100,7 +100,9 @@ class ROCKSDB_LIBRARY_API SanityTestSpecialComparator : public SanityTest {
       : SanityTest(path) {
     options_.comparator = new NewComparator();
   }
-  ROCKSDB_LIBRARY_API ~SanityTestSpecialComparator() { delete options_.comparator; }
+  ROCKSDB_LIBRARY_API ~SanityTestSpecialComparator() {
+    delete options_.comparator;
+  }
   Options GetOptions() const override { return options_; }
   std::string Name() const override { return "SpecialComparator"; }
 

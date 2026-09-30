@@ -554,8 +554,8 @@ class Status {
         data_loss_(data_loss),
         scope_(scope) {}
 
-  ROCKSDB_LIBRARY_API Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
-         Severity sev = kNoError);
+  ROCKSDB_LIBRARY_API Status(Code _code, SubCode _subcode, const Slice& msg,
+                             const Slice& msg2, Severity sev = kNoError);
   Status(Code _code, const Slice& msg, const Slice& msg2)
       : Status(_code, kNone, msg, msg2) {}
 

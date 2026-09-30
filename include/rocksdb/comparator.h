@@ -42,7 +42,8 @@ class CompareInterface {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class ROCKSDB_LIBRARY_API Comparator : public Customizable, public CompareInterface {
+class ROCKSDB_LIBRARY_API Comparator : public Customizable,
+                                       public CompareInterface {
  public:
   Comparator() : timestamp_size_(0) {}
 
