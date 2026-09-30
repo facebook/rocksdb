@@ -380,7 +380,6 @@ public class AbstractMutableOptions {
           }
         case STRING:
           return setString(key, option.value.toString());
-
         default:
           throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
       }
