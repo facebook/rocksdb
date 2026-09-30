@@ -192,7 +192,7 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3J(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
     jlongArray jcf_descriptors) {
   return rocksdb_open_helper(
-      env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
+      env, jopt_handle, jdb_path, jcf_descriptors,
       [](const ROCKSDB_NAMESPACE::DBOptions& options,
          const std::string& db_path,
          const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
