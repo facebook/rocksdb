@@ -866,6 +866,59 @@ TEST_F(ExternalSSTFileTest, IngestWithFileInfoRejectsWriteGlobalSeqno) {
   ASSERT_TRUE(db_->IngestExternalFiles({arg}).IsInvalidArgument());
 }
 
+TEST_F(ExternalSSTFileTest, IngestWithSerializedFileInfo) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  const std::string file_path = sst_files_dir_ + "serialized_file_info.sst";
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(file_path));
+  ASSERT_OK(writer.Put(Key(10), "v10"));
+  ExternalSstFileInfo file_info;
+  ASSERT_OK(writer.Finish(&file_info));
+
+  std::string serialized;
+  ASSERT_OK(
+      SerializePreparedFileInfo(*file_info.prepared_file_info, &serialized));
+  std::shared_ptr<const PreparedFileInfo> deserialized;
+  ASSERT_OK(DeserializePreparedFileInfo(serialized, &deserialized));
+
+  IngestExternalFileArg arg;
+  arg.column_family = db_->DefaultColumnFamily();
+  arg.external_files = {file_path};
+  arg.file_infos = {deserialized.get()};
+  ASSERT_OK(db_->IngestExternalFiles({arg}));
+  ASSERT_EQ(Get(Key(10)), "v10");
+}
+
+TEST_F(ExternalSSTFileTest, PreparedFileInfoRejectsInvalidSerialization) {
+  std::shared_ptr<const PreparedFileInfo> prepared_file_info;
+  ASSERT_TRUE(DeserializePreparedFileInfo("invalid", &prepared_file_info)
+                  .IsCorruption());
+  ASSERT_EQ(prepared_file_info, nullptr);
+}
+
+TEST_F(ExternalSSTFileTest, PreparedFileInfoDetectsSerializationCorruption) {
+  Options options = CurrentOptions();
+  const std::string file_path = sst_files_dir_ + "file_info_corruption.sst";
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(file_path));
+  ASSERT_OK(writer.Put(Key(1), "v1"));
+  ExternalSstFileInfo file_info;
+  ASSERT_OK(writer.Finish(&file_info));
+
+  std::string serialized;
+  ASSERT_OK(
+      SerializePreparedFileInfo(*file_info.prepared_file_info, &serialized));
+  ASSERT_FALSE(serialized.empty());
+  serialized.back() ^= 1;
+
+  std::shared_ptr<const PreparedFileInfo> deserialized;
+  ASSERT_TRUE(
+      DeserializePreparedFileInfo(serialized, &deserialized).IsCorruption());
+  ASSERT_EQ(deserialized, nullptr);
+}
+
 TEST_F(ExternalSSTFileTest, GetPreparedFileInfoForExternalSstIngestion) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -906,10 +959,15 @@ TEST_F(ExternalSSTFileTest, GetPreparedFileInfoForExternalSstIngestion) {
   ASSERT_EQ(prepared_file_info->table_properties.key_largest_seqno,
             live_meta[0].largest_seqno);
 
+  std::string serialized;
+  ASSERT_OK(SerializePreparedFileInfo(*prepared_file_info, &serialized));
+  std::shared_ptr<const PreparedFileInfo> deserialized;
+  ASSERT_OK(DeserializePreparedFileInfo(serialized, &deserialized));
+
   IngestExternalFileArg arg;
   arg.column_family = db_->DefaultColumnFamily();
   arg.external_files = {file_path};
-  arg.file_infos = {prepared_file_info.get()};
+  arg.file_infos = {deserialized.get()};
   arg.options.allow_db_generated_files = true;
   arg.options.snapshot_consistency = false;
 
