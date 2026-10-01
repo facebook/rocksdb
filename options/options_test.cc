@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cinttypes>
 #include <cstring>
+#include <map>
 #include <type_traits>
 #include <unordered_map>
 
@@ -4802,6 +4803,21 @@ TEST_F(OptionTypeInfoTest, TestInvalidArgs) {
                            });
   ASSERT_OK(func_info.Parse(config_options, "b", "1", &i));
   ASSERT_NOK(func_info.Parse(config_options, "b", "x", &i));
+}
+
+TEST_F(OptionTypeInfoTest, StringMapRejectsMalformedEntries) {
+  ConfigOptions config_options;
+  OptionTypeInfo string_map = OptionTypeInfo::StringMap(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone);
+  const std::map<std::string, std::string> expected = {{"existing", "value"}};
+
+  for (const char* malformed : {"{00;}", "{00=zz;}"}) {
+    SCOPED_TRACE(malformed);
+    std::map<std::string, std::string> parsed = expected;
+    ASSERT_TRUE(string_map.Parse(config_options, "map", malformed, &parsed)
+                    .IsInvalidArgument());
+    ASSERT_EQ(parsed, expected);
+  }
 }
 
 TEST_F(OptionTypeInfoTest, TestParseFunc) {

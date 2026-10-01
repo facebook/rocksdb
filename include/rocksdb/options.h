@@ -3147,7 +3147,8 @@ struct IngestExternalFileOptions {
 // prepare ingestion without re-opening and scanning the SST to recompute file
 // metadata. It is produced by SstFileWriter::Finish() for writer-created files
 // or by DB::GetPreparedFileInfoForExternalSstIngestion() for live DB-generated
-// files.
+// files. SerializePreparedFileInfo() and DeserializePreparedFileInfo() in
+// rocksdb/db.h can be used to persist it without exposing its contents.
 struct PreparedFileInfo;
 
 // It is valid that files_checksums and files_checksum_func_names are both

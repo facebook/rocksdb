@@ -448,36 +448,41 @@ class OptionTypeInfo {
                                   char kv_separator = '=',
                                   char item_separator = ';') {
     OptionTypeInfo info(_offset, OptionType::kStringMap, _verification, _flags);
-    info.SetParseFunc(
-        [kv_separator, item_separator](const ConfigOptions&, const std::string&,
-                                       const std::string& value, void* addr) {
-          std::map<std::string, std::string> map;
-          Status s;
-          // Permit `{k1=v1;k2=v2}` (as serialized) or bare `k1=v1;k2=v2`.
-          std::string stripped = OptionTypeInfo::StripOuterBraces(value);
-          for (size_t start = 0, end = 0;
-               s.ok() && start < stripped.size() && end != std::string::npos;
-               start = end + 1) {
-            std::string token;
-            s = OptionTypeInfo::NextToken(stripped, item_separator, start, &end,
-                                          &token);
-            if (s.ok() && !token.empty()) {
-              size_t pos = token.find(kv_separator);
-              assert(pos != std::string::npos);
-              std::string k = token.substr(0, pos);
-              std::string v = token.substr(pos + 1);
-              std::string decoded_key;
-              std::string decoded_value;
-              (Slice(k)).DecodeHex(&decoded_key);
-              (Slice(v)).DecodeHex(&decoded_value);
-              map.emplace(std::move(decoded_key), std::move(decoded_value));
-            }
+    info.SetParseFunc([kv_separator, item_separator](
+                          const ConfigOptions&, const std::string&,
+                          const std::string& value, void* addr) {
+      std::map<std::string, std::string> map;
+      Status s;
+      // Permit `{k1=v1;k2=v2}` (as serialized) or bare `k1=v1;k2=v2`.
+      std::string stripped = OptionTypeInfo::StripOuterBraces(value);
+      for (size_t start = 0, end = 0;
+           s.ok() && start < stripped.size() && end != std::string::npos;
+           start = end + 1) {
+        std::string token;
+        s = OptionTypeInfo::NextToken(stripped, item_separator, start, &end,
+                                      &token);
+        if (s.ok() && !token.empty()) {
+          size_t pos = token.find(kv_separator);
+          if (pos == std::string::npos) {
+            return Status::InvalidArgument("Invalid string map entry: ", token);
           }
-          if (s.ok()) {
-            *(static_cast<std::map<std::string, std::string>*>(addr)) = map;
+          std::string k = token.substr(0, pos);
+          std::string v = token.substr(pos + 1);
+          std::string decoded_key;
+          std::string decoded_value;
+          if (!Slice(k).DecodeHex(&decoded_key) ||
+              !Slice(v).DecodeHex(&decoded_value)) {
+            return Status::InvalidArgument("Invalid hex in string map entry: ",
+                                           token);
           }
-          return s;
-        });
+          map.emplace(std::move(decoded_key), std::move(decoded_value));
+        }
+      }
+      if (s.ok()) {
+        *(static_cast<std::map<std::string, std::string>*>(addr)) = map;
+      }
+      return s;
+    });
     info.SetSerializeFunc(
         [kv_separator, item_separator](const ConfigOptions&, const std::string&,
                                        const void* addr, std::string* value) {
