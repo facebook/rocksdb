@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "port/port.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -79,6 +80,11 @@ class CloseCountingWritableFile : public FSWritableFileOwnerWrapper {
 // the expected fixed-width fields. The test writes one entry, flushes the
 // file, and decodes the raw bytes back into an entry struct.
 TEST_F(InjectedErrorLogTest, BasicRecordAndFlush) {
+  if (!port::kLittleEndian) {
+    ROCKSDB_GTEST_BYPASS(
+        "Persistent injected error log requires little-endian");
+    return;
+  }
   std::string path = test::PerThreadDBPath("injected_error_log_basic.bin");
   {
     InjectedErrorLog log(path);
@@ -114,6 +120,11 @@ TEST_F(InjectedErrorLogTest, BasicRecordAndFlush) {
 // to the old in-memory ring size. The test writes more than 1,000 entries and
 // checks that both the first and last ones are still present in the file.
 TEST_F(InjectedErrorLogTest, DirectLogKeepsAllEntries) {
+  if (!port::kLittleEndian) {
+    ROCKSDB_GTEST_BYPASS(
+        "Persistent injected error log requires little-endian");
+    return;
+  }
   std::string path =
       test::PerThreadDBPath("injected_error_log_all_entries.bin");
   {
@@ -144,6 +155,11 @@ TEST_F(InjectedErrorLogTest, DirectLogKeepsAllEntries) {
 // shared file. The test has several threads emit records concurrently and then
 // checks the raw file size matches the total number of writes.
 TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
+  if (!port::kLittleEndian) {
+    ROCKSDB_GTEST_BYPASS(
+        "Persistent injected error log requires little-endian");
+    return;
+  }
   std::string path = test::PerThreadDBPath("injected_error_log_concurrent.bin");
   constexpr int kNumThreads = 4;
   constexpr int kRecordsPerThread = 200;
@@ -180,6 +196,11 @@ TEST_F(InjectedErrorLogTest, ConcurrentRecord) {
 // in the fixed-width record. The test logs a path longer than the file-name
 // field and checks the stored sample matches the expected tail bytes.
 TEST_F(InjectedErrorLogTest, LongFileNameKeepsSuffix) {
+  if (!port::kLittleEndian) {
+    ROCKSDB_GTEST_BYPASS(
+        "Persistent injected error log requires little-endian");
+    return;
+  }
   std::string path =
       test::PerThreadDBPath("injected_error_log_suffix_truncation.bin");
   const std::string long_file_name =
