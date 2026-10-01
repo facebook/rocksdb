@@ -487,17 +487,16 @@ Status LoadExternalTableProperties(
     std::shared_ptr<const TableProperties>* table_properties) {
   std::unique_ptr<char[]> property_block;
   uint64_t property_block_size = 0;
-  uint64_t property_block_offset = 0;
-  Status status = reader->GetPropertiesBlock(
-      &property_block, &property_block_size, &property_block_offset);
+  Status status =
+      reader->GetPropertiesBlock(&property_block, &property_block_size);
   std::shared_ptr<TableProperties> loaded_properties;
   if (status.ok()) {
     auto parsed_properties = std::make_unique<TableProperties>();
     BlockContents block_contents(std::move(property_block),
                                  property_block_size);
     Block block(std::move(block_contents));
-    status = ParsePropertiesBlock(ioptions, property_block_offset, block,
-                                  parsed_properties);
+    status = ParsePropertiesBlock(ioptions, block, parsed_properties,
+                                  nullptr /* global_seqno_value_offset */);
     if (!status.ok()) {
       return status;
     }

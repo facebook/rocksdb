@@ -414,7 +414,7 @@ Status SimpleExternalTableReader<Mode>::Get(
 
 template <ExternalTableMode Mode>
 Status SimpleExternalTableReader<Mode>::GetPropertiesBlock(
-    std::unique_ptr<char[]>* block, uint64_t* size, uint64_t* file_offset) {
+    std::unique_ptr<char[]>* block, uint64_t* size) {
   Status status;
   if (properties_block_.empty()) {
     *size = 0;
@@ -423,7 +423,6 @@ Status SimpleExternalTableReader<Mode>::GetPropertiesBlock(
     *block = std::make_unique<char[]>(properties_block_.size());
     memcpy(block->get(), properties_block_.data(), properties_block_.size());
     *size = properties_block_.size();
-    *file_offset = properties_offset_;
   }
   TEST_SYNC_POINT_CALLBACK("SimpleExternalTableReader::GetPropertiesBlock",
                            &status);

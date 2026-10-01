@@ -377,8 +377,12 @@ bool NotifyCollectTableCollectorsOnFinish(
 }
 
 Status ParsePropertiesBlock(
-    const ImmutableOptions& ioptions, uint64_t offset, Block& properties_block,
-    std::unique_ptr<TableProperties>& new_table_properties) {
+    const ImmutableOptions& ioptions, Block& properties_block,
+    std::unique_ptr<TableProperties>& new_table_properties,
+    uint32_t* global_seqno_value_offset) {
+  if (global_seqno_value_offset != nullptr) {
+    *global_seqno_value_offset = 0;
+  }
   std::unique_ptr<MetaBlockIter> iter(properties_block.NewMetaIterator());
 
   //  All pre-defined properties of type uint64_t
@@ -476,9 +480,9 @@ Status ParsePropertiesBlock(
     auto raw_val = iter->value();
     auto pos = predefined_uint64_properties.find(key);
 
-    if (key == ExternalSstFilePropertyNames::kGlobalSeqno) {
-      new_table_properties->external_sst_file_global_seqno_offset =
-          offset + iter->ValueOffset();
+    if (key == ExternalSstFilePropertyNames::kGlobalSeqno &&
+        global_seqno_value_offset != nullptr) {
+      *global_seqno_value_offset = iter->ValueOffset();
     }
 
     if (pos != predefined_uint64_properties.end()) {
@@ -549,14 +553,6 @@ Status ReadTablePropertiesHelper(
   while (true) {
     BlockContents block_contents;
     size_t len = handle.size() + footer.GetBlockTrailerSize();
-    // If this is an external SST file ingested with write_global_seqno set to
-    // true, then we expect the checksum mismatch because checksum was written
-    // by SstFileWriter, but its global seqno in the properties block may have
-    // been changed during ingestion. For this reason, we initially read
-    // and process without checksum verification, then later try checksum
-    // verification so that if it fails, we can copy to a temporary buffer with
-    // global seqno set to its original value, i.e. 0, and attempt checksum
-    // verification again.
     if (!retry) {
       ReadOptions modified_ro = ro;
       modified_ro.verify_checksums = false;
@@ -607,26 +603,24 @@ Status ReadTablePropertiesHelper(
     uint64_t block_size = block_contents.data.size();
     Block properties_block(std::move(block_contents));
     std::unique_ptr<TableProperties> new_table_properties{new TableProperties};
-    s = ParsePropertiesBlock(ioptions, handle.offset(), properties_block,
-                             new_table_properties);
+    uint32_t global_seqno_value_offset = 0;
+    s = ParsePropertiesBlock(ioptions, properties_block, new_table_properties,
+                             &global_seqno_value_offset);
 
-    // Modified version of BlockFetcher checksum verification
-    // (See write_global_seqno comment above)
-    if (s.ok() && footer.GetBlockTrailerSize() > 0) {
+    if (s.ok() && ro.verify_checksums && footer.GetBlockTrailerSize() > 0) {
       s = VerifyBlockChecksum(footer, properties_block.data(), block_size,
                               file->file_name(), handle.offset(),
                               BlockType::kProperties);
-      if (s.IsCorruption()) {
-        if (new_table_properties->external_sst_file_global_seqno_offset != 0) {
-          std::string tmp_buf(properties_block.data(), len);
-          uint64_t global_seqno_offset =
-              new_table_properties->external_sst_file_global_seqno_offset -
-              handle.offset();
-          EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
-          s = VerifyBlockChecksum(footer, tmp_buf.data(), block_size,
-                                  file->file_name(), handle.offset(),
-                                  BlockType::kProperties);
-        }
+      if (s.IsCorruption() && global_seqno_value_offset != 0 &&
+          block_size >= sizeof(uint64_t) &&
+          global_seqno_value_offset <= block_size - sizeof(uint64_t)) {
+        // Older ingestion could rewrite this value without updating the block
+        // checksum. Verify against the original zero placeholder.
+        std::string tmp_buf(properties_block.data(), len);
+        EncodeFixed64(&tmp_buf[global_seqno_value_offset], 0);
+        s = VerifyBlockChecksum(footer, tmp_buf.data(), block_size,
+                                file->file_name(), handle.offset(),
+                                BlockType::kProperties);
       }
     }
 

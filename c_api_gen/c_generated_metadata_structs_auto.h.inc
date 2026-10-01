@@ -122,10 +122,6 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_table_properties_fast_compression_estimated_data_size(
     const rocksdb_table_properties_t* props);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_table_properties_external_sst_file_global_seqno_offset(
-    const rocksdb_table_properties_t* props);
-
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_table_properties_tail_start_offset(
     const rocksdb_table_properties_t* props);
 

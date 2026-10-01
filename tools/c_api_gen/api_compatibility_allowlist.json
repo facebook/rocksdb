@@ -19,6 +19,21 @@
       "kind": "removed",
       "function": "rocksdb_table_properties_user_key_common_prefix",
       "reason": "Getter for the format_version 8 'user_key_common_prefix' table property, which a predecessor (D116105558) reserved for a whole-file common-prefix optimization that was investigated and rejected. The property and this generated getter are removed before format_version 8 (and thus the property) appears in any release, so no released consumer could depend on it."
+    },
+    {
+      "kind": "removed",
+      "function": "rocksdb_ingestexternalfileoptions_set_write_global_seqno",
+      "reason": "Removed with the write_global_seqno option after its deprecation in RocksDB 8.0. Ingestion now always records assigned sequence numbers in the MANIFEST."
+    },
+    {
+      "kind": "removed",
+      "function": "rocksdb_ingestexternalfileoptions_get_write_global_seqno",
+      "reason": "Removed with the write_global_seqno option after its deprecation in RocksDB 8.0. Ingestion now always records assigned sequence numbers in the MANIFEST."
+    },
+    {
+      "kind": "removed",
+      "function": "rocksdb_table_properties_external_sst_file_global_seqno_offset",
+      "reason": "Removed after write_global_seqno was removed because RocksDB no longer mutates the global sequence number stored in external SST files during ingestion."
     }
   ]
 }

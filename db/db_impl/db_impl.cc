@@ -7064,10 +7064,6 @@ Status DBImpl::PrepareFileIngestion(
                                        "] size must match external_files[" +
                                        std::to_string(i) + "] size");
       }
-      if (args[i].options.write_global_seqno) {
-        return Status::InvalidArgument(
-            "write_global_seqno is not supported when file_infos is set");
-      }
     }
     if (i && args[i].options.fill_cache != args[i - 1].options.fill_cache) {
       return Status::InvalidArgument(
@@ -7114,13 +7110,6 @@ Status DBImpl::PrepareFileIngestion(
       }
     }
 
-    if (ingest_opts.allow_db_generated_files) {
-      if (ingest_opts.write_global_seqno) {
-        return Status::NotSupported(
-            "write_global_seqno is deprecated and does not work with "
-            "allow_db_generated_files.");
-      }
-    }
     if (ingest_opts.move_files && ingest_opts.link_files) {
       return Status::InvalidArgument(
           "`move_files` and `link_files` can not both be true.");

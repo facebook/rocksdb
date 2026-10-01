@@ -444,8 +444,7 @@ class TableConstructor : public Constructor {
     if (largest_seqno_ != 0) {
       // Pretend that it's an external file written by SstFileWriter.
       internal_tbl_prop_coll_factories.emplace_back(
-          new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                      0 /* global_seqno*/));
+          new SstFileWriterPropertiesCollectorFactory(2 /* version */));
     }
 
     std::string column_family_name;
@@ -6032,14 +6031,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   // rocksdb still works.
 }
 
-/*
- * Disable TableWithGlobalSeqno since RocksDB does not store global_seqno in
- * the SST file any more. Instead, RocksDB deduces global_seqno from the
- * MANIFEST while reading from an SST. Therefore, it's not possible to test the
- * functionality of global_seqno in a single, isolated unit test without the
- * involvement of Version, VersionSet, etc.
- */
-TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
+TEST_P(BlockBasedTableTest, LegacyGlobalSeqnoChecksumRecovery) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   test::StringSink* sink = new test::StringSink();
   std::unique_ptr<FSWritableFile> holder(sink);
@@ -6052,8 +6044,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   InternalKeyComparator ikc(options.comparator);
   InternalTblPropCollFactories internal_tbl_prop_coll_factories;
   internal_tbl_prop_coll_factories.emplace_back(
-      new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                  0 /* global_seqno*/));
+      new SstFileWriterPropertiesCollectorFactory(2 /* version */));
   std::string column_family_name;
   const ReadOptions read_options;
   const WriteOptions write_options;
@@ -6077,61 +6068,84 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   test::RandomRWStringSink ss_rw(sink);
   uint32_t version;
   uint64_t global_seqno;
-  uint64_t global_seqno_offset;
+  uint64_t global_seqno_offset = 0;
 
-  // Helper function to get version, global_seqno, global_seqno_offset
-  std::function<void()> GetVersionAndGlobalSeqno = [&]() {
-    std::unique_ptr<FSRandomAccessFile> source(
-        new test::StringSource(ss_rw.contents(), 73342, true));
-    std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(source), ""));
+  // Locate the field without exposing its offset through TableProperties.
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource(ss_rw.contents(), 73342, true));
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(source), ""));
+  Footer footer;
+  ASSERT_OK(
+      ReadFooterFromFile(IOOptions(), file_reader.get(), *FileSystem::Default(),
+                         nullptr /* prefetch_buffer */, ss_rw.contents().size(),
+                         &footer, kBlockBasedTableMagicNumber));
+  BlockHandle properties_handle;
+  ASSERT_OK(FindMetaBlockInFile(
+      file_reader.get(), ss_rw.contents().size(), kBlockBasedTableMagicNumber,
+      ioptions, read_options, kPropertiesBlockName, &properties_handle));
+  ReadOptions no_checksum_read_options;
+  no_checksum_read_options.verify_checksums = false;
+  BlockContents properties_contents;
+  BlockFetcher block_fetcher(file_reader.get(), nullptr /* prefetch_buffer */,
+                             footer, no_checksum_read_options,
+                             properties_handle, &properties_contents, ioptions,
+                             false /* decompress */, false /*maybe_compressed*/,
+                             BlockType::kProperties, nullptr /*decompressor*/,
+                             PersistentCacheOptions::kEmpty);
+  ASSERT_OK(block_fetcher.ReadBlockContents());
+  Block properties_block(std::move(properties_contents));
+  std::unique_ptr<MetaBlockIter> properties_iter(
+      properties_block.NewMetaIterator());
+  for (properties_iter->SeekToFirst(); properties_iter->Valid();
+       properties_iter->Next()) {
+    if (properties_iter->key() == ExternalSstFilePropertyNames::kGlobalSeqno) {
+      global_seqno_offset =
+          properties_handle.offset() + properties_iter->ValueOffset();
+      break;
+    }
+  }
+  ASSERT_NE(global_seqno_offset, 0);
 
-    std::unique_ptr<TableProperties> props;
-    ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
-                                  kBlockBasedTableMagicNumber, ioptions,
-                                  read_options, &props));
+  // Helper function to get version and global_seqno.
+  std::function<void(const ReadOptions&)> GetVersionAndGlobalSeqno =
+      [&](const ReadOptions& properties_read_options) {
+        std::unique_ptr<FSRandomAccessFile> properties_source(
+            new test::StringSource(ss_rw.contents(), 73342, true));
+        std::unique_ptr<RandomAccessFileReader> properties_file_reader(
+            new RandomAccessFileReader(std::move(properties_source), ""));
 
-    UserCollectedProperties user_props = props->user_collected_properties;
-    version = DecodeFixed32(
-        user_props[ExternalSstFilePropertyNames::kVersion].c_str());
-    global_seqno = DecodeFixed64(
-        user_props[ExternalSstFilePropertyNames::kGlobalSeqno].c_str());
-    global_seqno_offset = props->external_sst_file_global_seqno_offset;
-  };
+        std::unique_ptr<TableProperties> props;
+        ASSERT_OK(ReadTableProperties(properties_file_reader.get(),
+                                      ss_rw.contents().size(),
+                                      kBlockBasedTableMagicNumber, ioptions,
+                                      properties_read_options, &props));
 
-  // Helper function to update the value of the global seqno in the file
-  std::function<void(uint64_t)> SetGlobalSeqno = [&](uint64_t val) {
-    std::string new_global_seqno;
-    PutFixed64(&new_global_seqno, val);
+        UserCollectedProperties user_props = props->user_collected_properties;
+        version = DecodeFixed32(
+            user_props[ExternalSstFilePropertyNames::kVersion].c_str());
+        global_seqno = DecodeFixed64(
+            user_props[ExternalSstFilePropertyNames::kGlobalSeqno].c_str());
+      };
 
-    ASSERT_OK(ss_rw.Write(global_seqno_offset, new_global_seqno, IOOptions(),
-                          nullptr));
-  };
-
-  // Helper function to get the contents of the table InternalIterator
+  std::unique_ptr<FSRandomAccessFile> iterator_source(
+      new test::StringSource(ss_rw.contents(), 73342, true));
+  std::unique_ptr<RandomAccessFileReader> iterator_file_reader(
+      new RandomAccessFileReader(std::move(iterator_source), ""));
   std::unique_ptr<TableReader> table_reader;
-  std::function<InternalIterator*()> GetTableInternalIter = [&]() {
-    std::unique_ptr<FSRandomAccessFile> source(
-        new test::StringSource(ss_rw.contents(), 73342, true));
-    std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(source), ""));
+  ASSERT_OK(options.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, moptions.prefix_extractor,
+                         moptions.compression_manager.get(), EnvOptions(), ikc,
+                         0 /* block_protection_bytes_per_key */),
+      std::move(iterator_file_reader), ss_rw.contents().size(), &table_reader));
 
-    options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor,
-                           moptions.compression_manager.get(), EnvOptions(),
-                           ikc, 0 /* block_protection_bytes_per_key */),
-        std::move(file_reader), ss_rw.contents().size(), &table_reader);
-
-    return table_reader->NewIterator(
-        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
-        /*skip_filters=*/false, TableReaderCaller::kUncategorized);
-  };
-
-  GetVersionAndGlobalSeqno();
+  GetVersionAndGlobalSeqno(read_options);
   ASSERT_EQ(2u, version);
   ASSERT_EQ(0u, global_seqno);
 
-  InternalIterator* iter = GetTableInternalIter();
+  InternalIterator* iter = table_reader->NewIterator(
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized);
   char current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
@@ -6146,81 +6160,26 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   ASSERT_EQ(current_c, 'z' + 1);
   delete iter;
 
-  // Update global sequence number to 10
-  SetGlobalSeqno(10);
-  GetVersionAndGlobalSeqno();
+  std::string new_global_seqno;
+  PutFixed64(&new_global_seqno, 10);
+  ASSERT_OK(
+      ss_rw.Write(global_seqno_offset, new_global_seqno, IOOptions(), nullptr));
+
+  GetVersionAndGlobalSeqno(read_options);
   ASSERT_EQ(2u, version);
   ASSERT_EQ(10u, global_seqno);
 
-  iter = GetTableInternalIter();
-  current_c = 'a';
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 10);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
-    current_c++;
-  }
-  ASSERT_EQ(current_c, 'z' + 1);
-
-  // Verify Seek
-  for (char c = 'a'; c <= 'z'; c++) {
-    std::string k = std::string(8, c);
-    InternalKey ik(k, 10, kValueTypeForSeek);
-    iter->Seek(ik.Encode());
-    ASSERT_TRUE(iter->Valid());
-
-    ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 10);
-    ASSERT_EQ(pik.user_key.ToString(), k);
-    ASSERT_EQ(iter->value().ToString(), k);
-  }
-  delete iter;
-
-  // Update global sequence number to 3
-  SetGlobalSeqno(3);
-  GetVersionAndGlobalSeqno();
+  const uint64_t checksum_offset =
+      properties_handle.offset() + properties_handle.size() + 1;
+  std::string bad_checksum_byte(
+      1, static_cast<char>(ss_rw.contents()[checksum_offset] ^ 0xff));
+  ASSERT_OK(
+      ss_rw.Write(checksum_offset, bad_checksum_byte, IOOptions(), nullptr));
+  ReadOptions skip_checksum_read_options;
+  skip_checksum_read_options.verify_checksums = false;
+  GetVersionAndGlobalSeqno(skip_checksum_read_options);
   ASSERT_EQ(2u, version);
-  ASSERT_EQ(3u, global_seqno);
-
-  iter = GetTableInternalIter();
-  current_c = 'a';
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 3);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
-    current_c++;
-  }
-  ASSERT_EQ(current_c, 'z' + 1);
-
-  // Verify Seek
-  for (char c = 'a'; c <= 'z'; c++) {
-    std::string k = std::string(8, c);
-    // seqno=4 is less than 3 so we still should get our key
-    InternalKey ik(k, 4, kValueTypeForSeek);
-    iter->Seek(ik.Encode());
-    ASSERT_TRUE(iter->Valid());
-
-    ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 3);
-    ASSERT_EQ(pik.user_key.ToString(), k);
-    ASSERT_EQ(iter->value().ToString(), k);
-  }
-
-  delete iter;
+  ASSERT_EQ(10u, global_seqno);
 }
 
 TEST_P(BlockBasedTableTest, BlockAlignTest) {
@@ -6265,7 +6224,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
       new test::StringSource(sink->contents(), 73342, false));
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(source), "test"));
-  // Helper function to get version, global_seqno, global_seqno_offset
+  // Verify that data blocks are aligned.
   std::function<void()> VerifyBlockAlignment = [&]() {
     std::unique_ptr<TableProperties> props;
     ASSERT_OK(ReadTableProperties(file_reader.get(), sink->contents().size(),
@@ -8423,7 +8382,6 @@ TEST_F(ExternalTableTest, BasicModeGlobalSeqnoAcrossLevels) {
 
   IngestExternalFileOptions ingest_options;
   ingest_options.allow_global_seqno = true;
-  ingest_options.write_global_seqno = false;
   ASSERT_OK(db_->IngestExternalFile({old_file}, ingest_options));
   ASSERT_EQ(NumTableFilesAtLevel(6), 1);
 
@@ -9463,7 +9421,6 @@ TEST_F(ExternalTableTest, IngestionTest) {
   IngestExternalFileOptions ifo;
   ifo.allow_db_generated_files = false;
   ifo.fill_cache = false;
-  ifo.write_global_seqno = false;
   s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
   ASSERT_OK(s);
 

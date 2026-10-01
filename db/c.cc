@@ -5227,11 +5227,6 @@ uint64_t rocksdb_table_properties_fast_compression_estimated_data_size(
   return props->rep.fast_compression_estimated_data_size;
 }
 
-uint64_t rocksdb_table_properties_external_sst_file_global_seqno_offset(
-    const rocksdb_table_properties_t* props) {
-  return props->rep.external_sst_file_global_seqno_offset;
-}
-
 uint64_t rocksdb_table_properties_tail_start_offset(
     const rocksdb_table_properties_t* props) {
   return props->rep.tail_start_offset;
@@ -11274,16 +11269,6 @@ unsigned char rocksdb_ingestexternalfileoptions_get_allow_blocking_flush(
 unsigned char rocksdb_ingestexternalfileoptions_get_ingest_behind(
     rocksdb_ingestexternalfileoptions_t* opt) {
   return opt->rep.ingest_behind;
-}
-
-void rocksdb_ingestexternalfileoptions_set_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt, unsigned char v) {
-  opt->rep.write_global_seqno = v;
-}
-
-unsigned char rocksdb_ingestexternalfileoptions_get_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt) {
-  return opt->rep.write_global_seqno;
 }
 
 void rocksdb_ingestexternalfileoptions_set_verify_checksums_before_ingest(

@@ -5156,8 +5156,6 @@ const std::string IngestExternalSstFilesCommand::ARG_ALLOW_BLOCKING_FLUSH =
     "allow_blocking_flush";
 const std::string IngestExternalSstFilesCommand::ARG_INGEST_BEHIND =
     "ingest_behind";
-const std::string IngestExternalSstFilesCommand::ARG_WRITE_GLOBAL_SEQNO =
-    "write_global_seqno";
 
 void IngestExternalSstFilesCommand::Help(std::string& ret) {
   ret.append("  ");
@@ -5168,7 +5166,6 @@ void IngestExternalSstFilesCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_ALLOW_GLOBAL_SEQNO + "] ");
   ret.append(" [--" + ARG_ALLOW_BLOCKING_FLUSH + "] ");
   ret.append(" [--" + ARG_INGEST_BEHIND + "] ");
-  ret.append(" [--" + ARG_WRITE_GLOBAL_SEQNO + "] ");
   ret.append("\n");
 }
 
@@ -5180,14 +5177,12 @@ IngestExternalSstFilesCommand::IngestExternalSstFilesCommand(
           options, flags, false /* is_read_only */,
           BuildCmdLineOptions({ARG_MOVE_FILES, ARG_SNAPSHOT_CONSISTENCY,
                                ARG_ALLOW_GLOBAL_SEQNO, ARG_CREATE_IF_MISSING,
-                               ARG_ALLOW_BLOCKING_FLUSH, ARG_INGEST_BEHIND,
-                               ARG_WRITE_GLOBAL_SEQNO})),
+                               ARG_ALLOW_BLOCKING_FLUSH, ARG_INGEST_BEHIND})),
       move_files_(false),
       snapshot_consistency_(true),
       allow_global_seqno_(true),
       allow_blocking_flush_(true),
-      ingest_behind_(false),
-      write_global_seqno_(true) {
+      ingest_behind_(false) {
   create_if_missing_ =
       IsFlagPresent(flags, ARG_CREATE_IF_MISSING) ||
       ParseBooleanOption(options, ARG_CREATE_IF_MISSING, false);
@@ -5204,23 +5199,6 @@ IngestExternalSstFilesCommand::IngestExternalSstFilesCommand(
       ParseBooleanOption(options, ARG_ALLOW_BLOCKING_FLUSH, true);
   ingest_behind_ = IsFlagPresent(flags, ARG_INGEST_BEHIND) ||
                    ParseBooleanOption(options, ARG_INGEST_BEHIND, false);
-  write_global_seqno_ =
-      IsFlagPresent(flags, ARG_WRITE_GLOBAL_SEQNO) ||
-      ParseBooleanOption(options, ARG_WRITE_GLOBAL_SEQNO, true);
-
-  if (allow_global_seqno_) {
-    if (!write_global_seqno_) {
-      fprintf(stderr,
-              "Warning: not writing global_seqno to the ingested SST can\n"
-              "prevent older versions of RocksDB from being able to open it\n");
-    }
-  } else {
-    if (write_global_seqno_) {
-      exec_state_ = LDBCommandExecuteResult::Failed(
-          "ldb cannot write global_seqno to the ingested SST when global_seqno "
-          "is not allowed");
-    }
-  }
 
   if (params.size() != 1) {
     exec_state_ =
@@ -5245,7 +5223,6 @@ void IngestExternalSstFilesCommand::DoCommand() {
   ifo.allow_global_seqno = allow_global_seqno_;
   ifo.allow_blocking_flush = allow_blocking_flush_;
   ifo.ingest_behind = ingest_behind_;
-  ifo.write_global_seqno = write_global_seqno_;
   Status status = db_->IngestExternalFile(cfh, {input_sst_path_}, ifo);
   if (!status.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(
