@@ -26,6 +26,7 @@
 #include "env/io_posix.h"
 #include "monitoring/thread_status_util.h"
 #include "port/lang.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
@@ -79,7 +80,9 @@ uint8_t DetailPayloadSize(const InjectedErrorLog::TaggedEntryDetail& detail) {
 
 int OpenInjectedErrorLogFile(const std::string& path) {
 #ifndef OS_WIN
-  if (path.empty()) {
+  // Entry is written in native layout, while the decoder expects little-endian
+  // fields. Keep the optional log disabled on unsupported architectures.
+  if (!port::kLittleEndian || path.empty()) {
     return -1;
   }
   int flags = O_WRONLY | O_CREAT | O_TRUNC;
