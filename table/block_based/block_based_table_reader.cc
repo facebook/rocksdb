@@ -3578,9 +3578,8 @@ void BlockBasedTable::DumpBlockChecksumInfo(const BlockHandle& block_handle,
   IODebugContext dbg;
   IOStatus io_s = rep_->file->PrepareIOOptions(read_options, opts, &dbg);
   if (io_s.ok()) {
-    io_s =
-        rep_->file->Read(opts, block_handle.offset(), block_size_with_trailer,
-                         &raw_block_slice, raw_block.get(), nullptr, &dbg);
+    io_s = rep_->file->Read(block_handle.offset(), block_size_with_trailer,
+                            opts, &raw_block_slice, raw_block.get(), &dbg);
   }
   if (io_s.ok() && raw_block_slice.size() == block_size_with_trailer) {
     const char* data = raw_block_slice.data();

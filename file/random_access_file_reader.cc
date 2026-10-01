@@ -22,6 +22,10 @@
 #include "util/random.h"
 #include "util/rate_limiter_impl.h"
 
+#if USE_COROUTINES
+#include "folly/io/async/EventBase.h"
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 inline Histograms GetFileReadHistograms(Statistics* stats,
                                         Env::IOActivity io_activity) {
@@ -168,6 +172,27 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
 
 namespace ROCKSDB_NAMESPACE {
 
+IOStatus RandomAccessFileReader::Read(uint64_t offset, size_t n,
+                                      const IOOptions& opts, Slice* result,
+                                      char* scratch,
+                                      IODebugContext* dbg) const {
+  FSReadRequest req;
+  req.offset = offset;
+  req.len = n;
+  req.scratch = scratch;
+  Read(opts, &req, /*direct_io_buffer_context=*/nullptr, dbg);
+  if (req.fs_scratch != nullptr) {
+    *result = Slice();
+    if (!req.status.ok()) {
+      return std::move(req.status);
+    }
+    return IOStatus::InvalidArgument(
+        "Use the FSReadRequest overload for filesystem-owned buffers");
+  }
+  *result = req.result;
+  return std::move(req.status);
+}
+
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
                                                   IOOptions& opts,
                                                   IODebugContext* dbg) const {
@@ -290,6 +315,38 @@ IOStatus RandomAccessFileReader::ReadAsync(
 #endif  // __clang_analyzer__
 
   return s;
+}
+
+bool RandomAccessFileReader::SubmitReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(FSReadRequest&)> cb, IODebugContext* dbg) {
+#if USE_COROUTINES
+  if (file_system_ != nullptr) {
+    auto* read_executor = file_system_->GetReadExecutor();
+    if (read_executor != nullptr) {
+      auto* read_event_base = read_executor->getEventBase();
+      assert(read_event_base != nullptr);
+      auto task = [](RandomAccessFileReader* reader, FSReadRequest* task_req,
+                     IOOptions task_opts,
+                     std::function<void(FSReadRequest&)> task_cb,
+                     IODebugContext* task_dbg) -> folly::coro::Task<void> {
+        co_await folly::coro::co_nothrow(reader->ReadCoroutine(
+            task_opts, task_req,
+            /*direct_io_buffer_context=*/nullptr, task_dbg));
+        task_cb(*task_req);
+      }(this, &req, opts, std::move(cb), dbg);
+      auto task_with_executor = folly::coro::co_withExecutor(
+          folly::Executor::getKeepAliveToken(read_event_base), std::move(task));
+      if (read_event_base->inRunningEventBaseThread()) {
+        std::move(task_with_executor).startInlineUnsafe();
+      } else {
+        std::move(task_with_executor).start();
+      }
+      return true;
+    }
+  }
+#endif  // USE_COROUTINES
+  return FSRandomAccessFile::SubmitReadAsync(req, opts, std::move(cb), dbg);
 }
 
 void RandomAccessFileReader::ReadAsyncCallback(FSReadRequest& req,

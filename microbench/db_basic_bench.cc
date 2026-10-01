@@ -1591,7 +1591,7 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
   Slice result;
   uint64_t idx = 0;
   for (auto _ : state) {
-    s = readers[idx++ % kFileNum]->Read(io_options, 0, kDefaultPageSize / 3,
+    s = readers[idx++ % kFileNum]->Read(0, kDefaultPageSize / 3, io_options,
                                         &result, scratch.get(), nullptr);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());

@@ -944,8 +944,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
           IODebugContext dbg;
           IOStatus io_s = file->PrepareIOOptions(options, opts, &dbg);
           opts.verify_and_reconstruct_read = true;
-          io_s = file->Read(opts, handle.offset(), BlockSizeWithTrailer(handle),
-                            &result, const_cast<char*>(data), nullptr, &dbg);
+          io_s = file->Read(handle.offset(), BlockSizeWithTrailer(handle), opts,
+                            &result, const_cast<char*>(data), &dbg);
           if (io_s.ok()) {
             assert(result.data() == data);
             assert(result.size() == BlockSizeWithTrailer(handle));

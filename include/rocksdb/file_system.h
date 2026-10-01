@@ -1141,13 +1141,21 @@ class FSRandomAccessFile {
   // All arguments and any memory they reference remain valid until cb is
   // invoked.
   //
-  // Default implementation is to read the data synchronously and invoke the
-  // callback before returning.
+  // Default implementation reads the data synchronously and invokes the
+  // callback before returning. It uses MultiRead() when scratch is nullptr so
+  // implementations supporting kFSBuffer can provide an allocated buffer.
   virtual bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
                                std::function<void(FSReadRequest&)> cb,
                                IODebugContext* dbg) {
-    req.status =
-        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    if (req.scratch == nullptr) {
+      IOStatus status = MultiRead(&req, /*num_reqs=*/1, opts, dbg);
+      if (!status.ok()) {
+        req.status = std::move(status);
+      }
+    } else {
+      req.status =
+          Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    }
     cb(req);
     return false;
   }

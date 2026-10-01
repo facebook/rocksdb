@@ -1448,17 +1448,20 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   {
     StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
     // TODO: rate limit old blob DB file reads.
+    FSReadRequest read_req;
+    read_req.offset = record_offset;
+    read_req.len = static_cast<size_t>(record_size);
     if (reader->use_direct_io()) {
+      read_req.scratch = nullptr;
       AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
-      s = reader->Read(IOOptions(), record_offset,
-                       static_cast<size_t>(record_size), &blob_record, nullptr,
-                       &direct_io_context);
+      reader->Read(IOOptions(), &read_req, &direct_io_context);
     } else {
       buf.reserve(static_cast<size_t>(record_size));
-      s = reader->Read(IOOptions(), record_offset,
-                       static_cast<size_t>(record_size), &blob_record,
-                       buf.data());
+      read_req.scratch = buf.data();
+      reader->Read(IOOptions(), &read_req);
     }
+    s = std::move(read_req.status);
+    blob_record = read_req.result;
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
 

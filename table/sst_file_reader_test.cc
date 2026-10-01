@@ -151,8 +151,8 @@ class SstFileReaderTest : public testing::Test {
 
     std::string scratch(size, '\0');
     Slice result;
-    ASSERT_OK(
-        file_reader->Read(IOOptions(), offset, size, &result, scratch.data()));
+    ASSERT_OK(file_reader->Read(offset, size, IOOptions(), &result,
+                                scratch.data(), nullptr));
     ASSERT_EQ(result.size(), size);
     bytes->assign(result.data(), result.size());
   }

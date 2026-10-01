@@ -585,8 +585,8 @@ Status ReadTablePropertiesHelper(
       opts.verify_and_reconstruct_read = true;
       std::unique_ptr<char[]> data(new char[len]);
       Slice result;
-      IOStatus io_s = file->Read(opts, handle.offset(), len, &result,
-                                 data.get(), nullptr, &dbg);
+      IOStatus io_s =
+          file->Read(handle.offset(), len, opts, &result, data.get(), &dbg);
       RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
       if (!io_s.ok()) {
         ROCKS_LOG_INFO(ioptions.info_log,

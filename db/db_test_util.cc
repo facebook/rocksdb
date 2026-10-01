@@ -991,35 +991,12 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
                                               bool async,
                                               bool optimize_multiget_for_io,
                                               bool use_coroutine) {
-  ReadOptions options;
-  options.verify_checksums = true;
-  options.snapshot = snapshot;
-  options.async_io = async;
-  options.optimize_multiget_for_io = optimize_multiget_for_io;
-  std::vector<Slice> keys;
-  std::vector<std::string> result(k.size());
-  std::vector<Status> statuses(k.size());
-  std::vector<PinnableSlice> pin_values(k.size());
+  std::vector<Status> statuses;
+  std::vector<PinnableSlice> pin_values;
+  MultiGet(k, snapshot, async, optimize_multiget_for_io, use_coroutine,
+           pin_values, statuses);
 
-  for (size_t i = 0; i < k.size(); ++i) {
-    keys.emplace_back(k[i]);
-  }
-#if USE_COROUTINES
-  if (use_coroutine) {
-    std::vector<ColumnFamilyHandle*> cfs(keys.size(),
-                                         dbfull()->DefaultColumnFamily());
-    folly::coro::blockingWait(CoroDB::CoMultiGet(
-        dbfull(), options, keys.size(), cfs.data(), keys.data(),
-        pin_values.data(), /*timestamps=*/nullptr, statuses.data(),
-        /*sorted_input=*/false));
-  } else
-#else
-  (void)use_coroutine;
-#endif  // USE_COROUTINES
-  {
-    db_->MultiGet(options, dbfull()->DefaultColumnFamily(), keys.size(),
-                  keys.data(), pin_values.data(), statuses.data());
-  }
+  std::vector<std::string> result(k.size());
   for (size_t i = 0; i < statuses.size(); ++i) {
     if (statuses[i].IsNotFound()) {
       result[i] = "NOT_FOUND";
@@ -1033,6 +1010,42 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
     }
   }
   return result;
+}
+
+void DBTestBase::MultiGet(const std::vector<std::string>& k,
+                          const Snapshot* snapshot, bool async,
+                          bool optimize_multiget_for_io, bool use_coroutine,
+                          std::vector<PinnableSlice>& values,
+                          std::vector<Status>& statuses) {
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  options.async_io = async;
+  options.optimize_multiget_for_io = optimize_multiget_for_io;
+  std::vector<Slice> keys;
+  values.clear();
+  statuses.resize(k.size());
+  values.resize(k.size());
+
+  for (size_t i = 0; i < k.size(); ++i) {
+    keys.emplace_back(k[i]);
+  }
+#if USE_COROUTINES
+  if (use_coroutine) {
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(),
+                                         dbfull()->DefaultColumnFamily());
+    folly::coro::blockingWait(CoroDB::CoMultiGet(
+        dbfull(), options, keys.size(), cfs.data(), keys.data(), values.data(),
+        /*timestamps=*/nullptr, statuses.data(),
+        /*sorted_input=*/false));
+  } else
+#else
+  (void)use_coroutine;
+#endif  // USE_COROUTINES
+  {
+    db_->MultiGet(options, dbfull()->DefaultColumnFamily(), keys.size(),
+                  keys.data(), values.data(), statuses.data());
+  }
 }
 
 Status DBTestBase::Get(const std::string& k, PinnableSlice* v,

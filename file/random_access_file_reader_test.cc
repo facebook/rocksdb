@@ -21,6 +21,7 @@
 #include "folly/coro/BlockingWait.h"
 #include "folly/coro/Task.h"
 #include "folly/executors/IOThreadPoolExecutor.h"
+#include "folly/synchronization/Baton.h"
 #include "rocksdb/statistics.h"
 #endif
 
@@ -127,19 +128,98 @@ TEST_F(RandomAccessFileReaderTest, CountsCoroutineReadSyncFallback) {
                                 env_->GetSystemClock().get(), nullptr,
                                 statistics.get());
   std::string scratch(content.size(), '\0');
-  Slice result;
+  FSReadRequest req;
+  req.offset = 0;
+  req.len = content.size();
+  req.scratch = scratch.data();
 
   folly::IOThreadPoolExecutor executor(1);
   folly::EventBase* event_base = executor.getEventBase();
   ASSERT_NE(event_base, nullptr);
-  ASSERT_OK(folly::coro::blockingWait(folly::coro::co_withExecutor(
+  folly::coro::blockingWait(folly::coro::co_withExecutor(
       folly::Executor::getKeepAliveToken(event_base),
-      reader.ReadCoroutine(IOOptions(), 0, content.size(), &result,
-                           scratch.data(), nullptr, nullptr))));
+      reader.ReadCoroutine(IOOptions(), &req, nullptr, nullptr)));
 
-  ASSERT_EQ(content, result.ToString());
+  ASSERT_OK(req.status);
+  ASSERT_EQ(content, req.result.ToString());
   EXPECT_EQ(1, statistics->getTickerCount(FILE_SUBMIT_ASYNC_READ_FALLBACK));
 }
+
+TEST_F(RandomAccessFileReaderTest, SubmitReadAsyncDirectIOAligned) {
+  fs_->SetReadIOExecutorThreads(1);
+  auto* read_executor = fs_->GetReadExecutor();
+  if (read_executor == nullptr) {
+    ROCKSDB_GTEST_SKIP("FileSystem has no read executor");
+    return;
+  }
+  auto* read_event_base = read_executor->getEventBase();
+  ASSERT_NE(read_event_base, nullptr);
+
+  const std::string fname = "submit-read-async";
+  Random rand(0);
+  const std::string content = rand.RandomString(2 * kDefaultPageSize);
+  Write(fname, content);
+
+  FileOptions file_opts;
+  file_opts.use_direct_reads = true;
+  const std::string fpath = Path(fname);
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(fs_->NewRandomAccessFile(fpath, file_opts, &file, nullptr));
+  std::unique_ptr<RandomAccessFileReader> reader(new RandomAccessFileReader(
+      std::move(file), fpath, /*clock=*/nullptr,
+      /*io_tracer=*/nullptr, /*stats=*/nullptr, Histograms::HISTOGRAM_ENUM_MAX,
+      /*file_read_hist=*/nullptr, /*rate_limiter=*/nullptr,
+      /*listeners=*/{}, Temperature::kUnknown, /*is_last_level=*/false,
+      fs_.get()));
+
+  const size_t page_size = reader->GetRequiredBufferAlignment();
+  AlignedBuffer scratch;
+  scratch.Alignment(page_size);
+  scratch.AllocateNewBuffer(page_size);
+  FSReadRequest req;
+  req.offset = 0;
+  req.len = page_size;
+  req.scratch = scratch.BufferStart();
+
+  bool underlying_submit_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", [&](void* arg) {
+        underlying_submit_called = true;
+        const auto* submitted_req = static_cast<FSReadRequest*>(arg);
+        EXPECT_EQ(submitted_req->offset, req.offset);
+        EXPECT_EQ(submitted_req->len, req.len);
+        EXPECT_EQ(submitted_req->scratch, req.scratch);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  folly::Baton<> completion;
+  size_t callback_count = 0;
+  FSReadRequest* completed_req = nullptr;
+  bool submitted_async = false;
+  const IOOptions io_options;
+  read_event_base->runInEventBaseThreadAndWait([&] {
+    submitted_async = reader->SubmitReadAsync(
+        req, io_options,
+        [&](FSReadRequest& completed) {
+          ++callback_count;
+          completed_req = &completed;
+          completion.post();
+        },
+        /*dbg=*/nullptr);
+  });
+  completion.wait();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(submitted_async);
+  ASSERT_TRUE(underlying_submit_called);
+  ASSERT_EQ(callback_count, 1);
+  ASSERT_EQ(completed_req, &req);
+  ASSERT_OK(req.status);
+  ASSERT_EQ(req.result.data(), req.scratch);
+  ASSERT_EQ(req.result, Slice(content.data(), req.len));
+}
+
 #endif  // USE_COROUTINES
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
@@ -165,9 +245,13 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
     io_opts.rate_limiter_priority = rate_limiter_priority;
     AlignedBuffer direct_io_buffer;
     AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
-    ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr,
-                      &direct_io_context,
-                      /*dbg=*/nullptr));
+    FSReadRequest read_req;
+    read_req.offset = offset;
+    read_req.len = len;
+    read_req.scratch = nullptr;
+    r->Read(io_opts, &read_req, &direct_io_context, /*dbg=*/nullptr);
+    ASSERT_OK(read_req.status);
+    result = read_req.result;
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
 }
@@ -189,8 +273,8 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIOCopiesToScratch) {
   size_t len = page_size / 3;
   std::string scratch(len, '\0');
   Slice result;
-  ASSERT_OK(r->Read(IOOptions(), offset, len, &result, scratch.data(),
-                    /*direct_io_buffer=*/nullptr, /*dbg=*/nullptr));
+  ASSERT_OK(r->Read(offset, len, IOOptions(), &result, scratch.data(),
+                    /*dbg=*/nullptr));
   ASSERT_EQ(result.data(), scratch.data());
   ASSERT_EQ(result.ToString(), content.substr(offset, len));
 }
@@ -233,9 +317,14 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIOUsesExternalBuffer) {
   AlignedBuffer direct_io_buffer;
   AlignedBufferAllocationContext direct_io_context{&direct_io_buffer,
                                                    &allocator};
+  FSReadRequest read_req;
+  read_req.offset = offset;
+  read_req.len = len;
+  read_req.scratch = nullptr;
   Slice result;
-  ASSERT_OK(r->Read(IOOptions(), offset, len, &result, /*scratch=*/nullptr,
-                    &direct_io_context, /*dbg=*/nullptr));
+  r->Read(IOOptions(), &read_req, &direct_io_context, /*dbg=*/nullptr);
+  ASSERT_OK(read_req.status);
+  result = read_req.result;
   ASSERT_EQ(result.ToString(), content.substr(offset, len));
 
   ASSERT_EQ(allocations, 1);

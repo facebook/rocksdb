@@ -60,10 +60,15 @@ inline folly::coro::Task<void> SubmitMultiReadAsync(
 }
 #endif  // WITH_COROUTINES
 
-DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
-(const IOOptions& opts, uint64_t offset, size_t n, Slice* result, char* scratch,
+DEFINE_SYNC_AND_ASYNC(void, RandomAccessFileReader::Read)
+(const IOOptions& opts, FSReadRequest* read_req,
  AlignedBufferAllocationContext* direct_io_buffer_context, IODebugContext* dbg)
     const {
+  assert(read_req != nullptr);
+  const uint64_t offset = read_req->offset;
+  const size_t n = read_req->len;
+  Slice* result = &read_req->result;
+  char* scratch = read_req->scratch;
   AlignedBuffer* direct_io_buffer = direct_io_buffer_context != nullptr
                                         ? direct_io_buffer_context->buffer
                                         : nullptr;
@@ -142,7 +147,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
         // Only user reads are expected to specify a timeout. And user reads
         // are not subjected to rate_limiter and should go through only
         // one iteration of this loop, so we don't need to check and adjust
-        // the opts.timeout before calling file_->Read.
+        // the opts.timeout before issuing the read.
         assert(!opts.timeout.count() || allowed == read_size);
 #if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
         FSReadRequest fs_req;
@@ -202,9 +207,18 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
+          const size_t remaining_bytes = n - pos;
           allowed = rate_limiter_->RequestToken(
-              n - pos, (use_direct_io() ? alignment : 0), rate_limiter_priority,
-              stats_, RateLimiter::OpType::kRead);
+              remaining_bytes, (use_direct_io() ? alignment : 0),
+              rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
+          // A null scratch lets the FileSystem provide the result buffer.
+          // Acquire all tokens before issuing one read since independently
+          // allocated chunks cannot share one result and fs_scratch owner.
+          while (scratch == nullptr && allowed < remaining_bytes) {
+            allowed += rate_limiter_->RequestToken(
+                remaining_bytes - allowed, (use_direct_io() ? alignment : 0),
+                rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
+          }
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
           }
@@ -221,7 +235,7 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
         // Only user reads are expected to specify a timeout. And user reads
         // are not subjected to rate_limiter and should go through only
         // one iteration of this loop, so we don't need to check and adjust
-        // the opts.timeout before calling file_->Read.
+        // the opts.timeout before issuing the read.
         assert(!opts.timeout.count() || allowed == n);
 #if defined(USE_COROUTINES) && defined(WITH_COROUTINES)
         FSReadRequest fs_req;
@@ -229,22 +243,38 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
         fs_req.len = allowed;
         fs_req.scratch = scratch != nullptr ? scratch + pos : nullptr;
         fs_req.status.PermitUncheckedError();
-        if (fs_req.scratch != nullptr) {
-          TEST_SYNC_POINT_CALLBACK(
-              "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", &fs_req);
-          co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, stats_,
-                                        dbg);
-          io_s = fs_req.status;
-          tmp_result = fs_req.result;
-        } else {
-          io_s = file_->Read(offset + pos, allowed, opts, &tmp_result, nullptr,
-                             dbg);
+        TEST_SYNC_POINT_CALLBACK(
+            "RandomAccessFileReader::ReadCoroutine:SubmitReadAsync", &fs_req);
+        co_await SubmitMultiReadAsync(file_.get(), &fs_req, 1, opts, stats_,
+                                      dbg);
+        io_s = fs_req.status;
+        tmp_result = fs_req.result;
+        if (scratch == nullptr) {
+          read_req->fs_scratch = std::move(fs_req.fs_scratch);
         }
 #else
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
-          io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
-                             scratch != nullptr ? scratch + pos : nullptr, dbg);
+          if (scratch == nullptr) {
+            // MultiRead lets the file system allocate the buffer when scratch
+            // is null.
+            FSReadRequest fs_req;
+            fs_req.offset = offset + pos;
+            fs_req.len = allowed;
+            fs_req.scratch = nullptr;
+            fs_req.status.PermitUncheckedError();
+            IOStatus multi_read_status =
+                file_->MultiRead(&fs_req, /*num_reqs=*/1, opts, dbg);
+            if (!multi_read_status.ok()) {
+              fs_req.status = std::move(multi_read_status);
+            }
+            io_s = fs_req.status;
+            tmp_result = fs_req.result;
+            read_req->fs_scratch = std::move(fs_req.fs_scratch);
+          } else {
+            io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
+                               scratch + pos, dbg);
+          }
         }
 #endif
         if (ShouldNotifyListeners()) {
@@ -286,7 +316,8 @@ DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::Read)
   }
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read::AnyOffset", &pair);
 #endif
-  CO_RETURN io_s;
+  read_req->status = std::move(io_s);
+  CO_RETURN;
 }
 
 DEFINE_SYNC_AND_ASYNC(IOStatus, RandomAccessFileReader::MultiRead)

@@ -216,7 +216,7 @@ bool PlainTableFileReader::ReadNonMmap(uint32_t file_offset, uint32_t len,
   Slice read_result;
   // TODO: rate limit plain table reads.
   Status s =
-      file_info_->file->Read(IOOptions(), file_offset, size_to_read,
+      file_info_->file->Read(file_offset, size_to_read, IOOptions(),
                              &read_result, new_buffer->buf.get(), nullptr);
   if (!s.ok()) {
     status_ = s;

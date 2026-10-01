@@ -1253,6 +1253,11 @@ class DBTestBase : public testing::Test {
                                     bool optimize_multiget_for_io = true,
                                     bool use_coroutine = false);
 
+  void MultiGet(const std::vector<std::string>& k, const Snapshot* snapshot,
+                bool async, bool optimize_multiget_for_io, bool use_coroutine,
+                std::vector<PinnableSlice>& values,
+                std::vector<Status>& statuses);
+
   Status CompactRange(const CompactRangeOptions& options,
                       std::optional<Slice> begin, std::optional<Slice> end);
 

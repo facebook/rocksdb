@@ -65,7 +65,8 @@ Status SstFileReader::Open(const std::string& file_path) {
         std::move(file), file_path, r->ioptions.clock,
         /*io_tracer=*/nullptr, r->ioptions.stats, Histograms::SST_READ_MICROS,
         /*file_read_hist=*/nullptr, r->ioptions.rate_limiter.get(),
-        r->ioptions.listeners, fopts.temperature, /*is_last_level=*/false));
+        r->ioptions.listeners, fopts.temperature, /*is_last_level=*/false,
+        fs.get()));
   }
   if (s.ok()) {
     TableReaderOptions t_opt(

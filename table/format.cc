@@ -620,17 +620,22 @@ static Status ReadFooterFromFileInternal(
       !prefetch_buffer->TryReadFromCache(opts, file, read_offset,
                                          Footer::kMaxEncodedLength,
                                          &footer_input, nullptr)) {
+    FSReadRequest read_req;
+    read_req.offset = read_offset;
+    read_req.len = Footer::kMaxEncodedLength;
     if (file->use_direct_io()) {
+      read_req.scratch = nullptr;
       AlignedBufferAllocationContext direct_io_context{&direct_io_buffer};
-      s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, nullptr, &direct_io_context);
+      file->Read(opts, &read_req, &direct_io_context);
     } else {
-      s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, footer_buf.data());
+      read_req.scratch = footer_buf.data();
+      file->Read(opts, &read_req);
     }
+    s = std::move(read_req.status);
     if (!s.ok()) {
       return s;
     }
+    footer_input = read_req.result;
   }
 
   TEST_SYNC_POINT_CALLBACK("ReadFooterFromFileInternal:0", &footer_input);
