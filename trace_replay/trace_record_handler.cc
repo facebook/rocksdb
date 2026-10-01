@@ -19,11 +19,16 @@ TraceExecutionHandler::TraceExecutionHandler(
       write_opts_(WriteOptions()),
       read_opts_(ReadOptions()) {
   assert(db != nullptr);
-  assert(!handles.empty());
-  cf_map_.reserve(handles.size());
+  cf_map_.reserve(handles.size() + 1);
   for (ColumnFamilyHandle* handle : handles) {
     assert(handle != nullptr);
     cf_map_.insert({handle->GetID(), handle});
+  }
+  // Every DB has a default column family, so records on it can be replayed
+  // even when the caller did not pass its handle.
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  if (default_cf != nullptr) {
+    cf_map_.insert({default_cf->GetID(), default_cf});
   }
   clock_ = db_->GetEnv()->GetSystemClock().get();
 }
