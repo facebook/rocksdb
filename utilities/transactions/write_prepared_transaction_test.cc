@@ -4572,6 +4572,39 @@ TEST_P(WritePreparedTransactionTest, GetEntitySkipsPreparedUncommitted) {
   scenario.TearDown(db);
 }
 
+// Transaction entity reads must apply the same WritePrepared visibility rules
+// as their value-only counterparts.
+TEST_P(WritePreparedTransactionTest, TxnGetEntitySkipsPreparedUncommitted) {
+  PreparedEntityScenario scenario;
+  ASSERT_NO_FATAL_FAILURE(SetUpPreparedEntityScenario(db, options, &scenario));
+
+  std::unique_ptr<Transaction> reader(db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(reader, nullptr);
+
+  {
+    SCOPED_TRACE("prepared, not yet committed");
+    EXPECT_NO_FATAL_FAILURE(VerifyTxnGetEntity(
+        reader.get(), scenario.snapshot_read_options, "key1", "value1"));
+    EXPECT_NO_FATAL_FAILURE(
+        VerifyTxnGetEntity(reader.get(), ReadOptions(), "key1", "value1"));
+  }
+
+  ASSERT_OK(scenario.txn->Commit());
+
+  {
+    SCOPED_TRACE("committed after the snapshot was taken");
+    EXPECT_NO_FATAL_FAILURE(VerifyTxnGetEntity(
+        reader.get(), scenario.snapshot_read_options, "key1", "value1"));
+    EXPECT_NO_FATAL_FAILURE(
+        VerifyTxnGetEntity(reader.get(), ReadOptions(), "key1", "value2"));
+    EXPECT_NO_FATAL_FAILURE(VerifyTxnGetEntityForUpdate(
+        reader.get(), scenario.snapshot_read_options, "key1", "value1"));
+  }
+
+  reader.reset();
+  scenario.TearDown(db);
+}
+
 #if USE_COROUTINES
 TEST_P(WritePreparedTransactionTest, GetEntityCoroutine) {
   options.env = Env::Default();
