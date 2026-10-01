@@ -389,10 +389,9 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
 
   InternalTblPropCollFactories internal_tbl_prop_coll_factories;
 
-  // SstFileWriter properties collector to add SstFileWriter version.
+  // SstFileWriter properties collector to add SstFileWriter properties.
   internal_tbl_prop_coll_factories.emplace_back(
-      new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                  0 /* global_seqno*/));
+      new SstFileWriterPropertiesCollectorFactory(2 /* version */));
 
   // User collector factories
   auto user_collector_factories =

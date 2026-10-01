@@ -172,11 +172,6 @@ uint64_t rocksdb_table_properties_fast_compression_estimated_data_size(
   return props->rep.fast_compression_estimated_data_size;
 }
 
-uint64_t rocksdb_table_properties_external_sst_file_global_seqno_offset(
-    const rocksdb_table_properties_t* props) {
-  return props->rep.external_sst_file_global_seqno_offset;
-}
-
 uint64_t rocksdb_table_properties_tail_start_offset(
     const rocksdb_table_properties_t* props) {
   return props->rep.tail_start_offset;

@@ -1190,7 +1190,6 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
   ASSERT_OK(db->Flush(FlushOptions()));
   // Ingest the file.
   IngestExternalFileOptions ingest_options;
-  ingest_options.write_global_seqno = true;
   ASSERT_OK(db->IngestExternalFile({sst_name_}, ingest_options));
   std::vector<std::string> live_files;
   uint64_t manifest_file_size = 0;

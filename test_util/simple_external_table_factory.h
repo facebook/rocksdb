@@ -76,8 +76,8 @@ class SimpleExternalTableReader : public ExternalTableReaderBase<Mode> {
     co_return Get(read_options, key, prefix_extractor, result);
   }
 #endif
-  Status GetPropertiesBlock(std::unique_ptr<char[]>* block, uint64_t* size,
-                            uint64_t* file_offset) override;
+  Status GetPropertiesBlock(std::unique_ptr<char[]>* block,
+                            uint64_t* size) override;
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
   Status VerifyChecksum(const ReadOptions& read_options) override;
 

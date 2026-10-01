@@ -133,9 +133,6 @@ struct IngestedFileInfo : public KeyRangeInfo {
   std::string limit_ukey;
   // Sequence number for keys in external file
   SequenceNumber original_seqno;
-  // Offset of the global sequence number field in the file, will
-  // be zero if version is 1 (global seqno is not supported)
-  size_t global_seqno_offset;
   // External file size
   uint64_t file_size;
   // total number of keys in external file
@@ -430,20 +427,14 @@ class ExternalSstFileIngestionJob {
   // REQUIRES: Mutex held
   Status CheckLevelForIngestedBehindFile(IngestedFileInfo* file_to_ingest);
 
-  // Set the file global sequence number to `seqno`
+  // Set the file's assigned global sequence number to `seqno`.
   Status AssignGlobalSeqnoForIngestedFile(IngestedFileInfo* file_to_ingest,
                                           SequenceNumber seqno);
-  // Generate the file checksum and store in the IngestedFileInfo
-  IOStatus GenerateChecksumForIngestedFile(IngestedFileInfo* file_to_ingest);
 
   // Check if `file_to_ingest` can fit in level `level`
   // REQUIRES: Mutex held
   bool IngestedFileFitInLevel(const IngestedFileInfo* file_to_ingest,
                               int level);
-
-  // Helper method to sync given file.
-  template <typename TWritableFile>
-  Status SyncIngestedFile(TWritableFile* file);
 
   // Helper function to obtain the smallest and largest sequence number from a
   // file. When OK is returned, file_to_ingest->smallest_seqno and
@@ -484,9 +475,6 @@ class ExternalSstFileIngestionJob {
   // Set in ExternalSstFileIngestionJob::Prepare(), if true all files are
   // ingested in L0
   bool files_overlap_{false};
-  // Set in ExternalSstFileIngestionJob::Prepare(), if true and DB
-  // file_checksum_gen_factory is set, DB will generate checksum each file.
-  bool need_generate_file_checksum_{true};
   std::shared_ptr<IOTracer> io_tracer_;
 
   // Flag indicating whether the column family is flushed after `Prepare` and

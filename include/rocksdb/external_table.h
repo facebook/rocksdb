@@ -267,13 +267,9 @@ class ExternalTableReaderBase : public ExternalTableReaderLookupBase<Mode> {
   // block should be written to the table file as is (no compression or
   // mutation of any kind). Implementations may return NotSupported and provide
   // the complete properties, including user-collected properties, through
-  // GetTableProperties() instead. If the deprecated
-  // IngestExternalFileOptions::write_global_seqno option is used, file_offset
-  // must be the properties block's offset in the table file. Otherwise it is
-  // unused.
+  // GetTableProperties() instead.
   virtual Status GetPropertiesBlock(std::unique_ptr<char[]>* /*property_block*/,
-                                    uint64_t* /*size*/,
-                                    uint64_t* /*file_offset*/) {
+                                    uint64_t* /*size*/) {
     return Status::NotSupported();
   }
 

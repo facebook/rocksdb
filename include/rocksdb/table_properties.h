@@ -354,11 +354,6 @@ struct TableProperties {
   // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
   // 0 means unknown.
   uint64_t fast_compression_estimated_data_size = 0;
-  // Offset of the value of the property "external sst file global seqno" in the
-  // file if the property exists.
-  // 0 means not exists.
-  uint64_t external_sst_file_global_seqno_offset = 0;
-
   // Offset where the "tail" part of SST file starts
   // "Tail" refers to all blocks after data blocks till the end of the SST file
   uint64_t tail_start_offset = 0;

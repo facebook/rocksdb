@@ -157,50 +157,6 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
-  /**
-   * Returns true write if the global_seqno is written to a given offset
-   * in the external SST file for backward compatibility.
-   * <p>
-   * See {@link #setWriteGlobalSeqno(boolean)}.
-   *
-   * @return true if the global_seqno is written to a given offset,
-   *     false otherwise.
-   */
-  public boolean writeGlobalSeqno() {
-    return writeGlobalSeqno(nativeHandle_);
-  }
-
-  /**
-   * Set to true if you would like to write the global_seqno to a given offset
-   * in the external SST file for backward compatibility.
-   * <p>
-   * Older versions of RocksDB write the global_seqno to a given offset within
-   * the ingested SST files, and new versions of RocksDB do not.
-   * <p>
-   * If you ingest an external SST using new version of RocksDB and would like
-   * to be able to downgrade to an older version of RocksDB, you should set
-   * {@link #writeGlobalSeqno()} to true.
-   * <p>
-   * If your service is just starting to use the new RocksDB, we recommend that
-   * you set this option to false, which brings two benefits:
-   *    1. No extra random write for global_seqno during ingestion.
-   *    2. Without writing external SST file, it's possible to do checksum.
-   * <p>
-   * We have a plan to set this option to false by default in the future.
-   * <p>
-   * Default: true
-   *
-   * @param writeGlobalSeqno true to write the gloal_seqno to a given offset,
-   *     false otherwise
-   *
-   * @return the reference to the current IngestExternalFileOptions.
-   */
-  public IngestExternalFileOptions setWriteGlobalSeqno(
-      final boolean writeGlobalSeqno) {
-    setWriteGlobalSeqno(nativeHandle_, writeGlobalSeqno);
-    return this;
-  }
-
   private static native long newIngestExternalFileOptions();
   private static native long newIngestExternalFileOptions(final boolean moveFiles,
       final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
@@ -224,6 +180,4 @@ public class IngestExternalFileOptions extends RocksObject {
       final long handle, final boolean allowBlockingFlush);
   private static native boolean ingestBehind(final long handle);
   private static native void setIngestBehind(final long handle, final boolean ingestBehind);
-  private static native boolean writeGlobalSeqno(final long handle);
-  private static native void setWriteGlobalSeqno(final long handle, final boolean writeGlobalSeqNo);
 }
