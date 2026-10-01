@@ -63,6 +63,46 @@ TEST_F(BlobFileAdditionTest, NonEmpty) {
   TestEncodeDecode(blob_file_addition);
 }
 
+TEST_F(BlobFileAdditionTest, IndirectionIdentity) {
+  BlobFileAddition addition(/*blob_file_number=*/123,
+                            /*total_blob_count=*/2,
+                            /*total_blob_bytes=*/456, "", "");
+  addition.SetIndirectionIdentity();
+
+  ASSERT_TRUE(addition.HasIndirectionInfo());
+  ASSERT_TRUE(addition.IsIndirectIdentityFile());
+  ASSERT_FALSE(addition.IsIndirectCarrierFile());
+  ASSERT_EQ(addition.GetOriginFileNumber(), 123U);
+  ASSERT_EQ(addition.GetMapOffset(), 0U);
+  ASSERT_EQ(addition.GetMapSize(), 0U);
+  ASSERT_EQ(addition.GetMapChecksum(), 0U);
+  TestEncodeDecode(addition);
+}
+
+TEST_F(BlobFileAdditionTest, IndirectionCarrier) {
+  BlobFileAddition addition(/*blob_file_number=*/456,
+                            /*total_blob_count=*/2,
+                            /*total_blob_bytes=*/789, "", "");
+  ASSERT_OK(addition.SetIndirectionCarrier(
+      /*origin_file_number=*/123, /*map_offset=*/1000, /*map_size=*/200,
+      /*map_checksum=*/300));
+
+  ASSERT_TRUE(addition.HasIndirectionInfo());
+  ASSERT_FALSE(addition.IsIndirectIdentityFile());
+  ASSERT_TRUE(addition.IsIndirectCarrierFile());
+  ASSERT_EQ(addition.GetOriginFileNumber(), 123U);
+  ASSERT_EQ(addition.GetMapOffset(), 1000U);
+  ASSERT_EQ(addition.GetMapSize(), 200U);
+  ASSERT_EQ(addition.GetMapChecksum(), 300U);
+  TestEncodeDecode(addition);
+
+  ASSERT_TRUE(addition
+                  .SetIndirectionCarrier(
+                      /*origin_file_number=*/456, /*map_offset=*/1000,
+                      /*map_size=*/200, /*map_checksum=*/300)
+                  .IsInvalidArgument());
+}
+
 TEST_F(BlobFileAdditionTest, DecodeErrors) {
   std::string str;
   Slice slice(str);
@@ -171,7 +211,7 @@ TEST_F(BlobFileAdditionTest, ForwardIncompatibleCustomField) {
       "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
 
-        constexpr uint32_t forward_incompatible_tag = (1 << 6) + 1;
+        constexpr uint32_t forward_incompatible_tag = (1 << 6) + 2;
         PutVarint32(output, forward_incompatible_tag);
 
         PutLengthPrefixedSlice(output, "foobar");

@@ -40,6 +40,33 @@ class BlobFileAddition {
   const std::string& GetChecksumMethod() const { return checksum_method_; }
   const std::string& GetChecksumValue() const { return checksum_value_; }
 
+  bool HasIndirectionInfo() const {
+    return origin_file_number_ != kInvalidBlobFileNumber;
+  }
+  bool IsIndirectIdentityFile() const {
+    return HasIndirectionInfo() && origin_file_number_ == blob_file_number_ &&
+           map_size_ == 0;
+  }
+  bool IsIndirectCarrierFile() const {
+    return HasIndirectionInfo() && origin_file_number_ != blob_file_number_ &&
+           map_size_ > 0;
+  }
+  uint64_t GetOriginFileNumber() const { return origin_file_number_; }
+  uint64_t GetMapOffset() const { return map_offset_; }
+  uint64_t GetMapSize() const { return map_size_; }
+  uint32_t GetMapChecksum() const { return map_checksum_; }
+
+  // Marks a v1 physical origin whose indirect BlobIndexes currently resolve
+  // by identity. This is persisted as a forward-incompatible field so an old
+  // binary fails during MANIFEST replay instead of interpreting stable IDs as
+  // terminal physical locations.
+  void SetIndirectionIdentity();
+
+  // Marks a v2 physical file as the current carrier for `origin_file_number`.
+  // The complete embedded map occupies [map_offset, map_offset + map_size).
+  Status SetIndirectionCarrier(uint64_t origin_file_number, uint64_t map_offset,
+                               uint64_t map_size, uint32_t map_checksum);
+
   void EncodeTo(std::string* output) const;
   Status DecodeFrom(Slice* input);
 
@@ -54,6 +81,10 @@ class BlobFileAddition {
   uint64_t total_blob_bytes_ = 0;
   std::string checksum_method_;
   std::string checksum_value_;
+  uint64_t origin_file_number_ = kInvalidBlobFileNumber;
+  uint64_t map_offset_ = 0;
+  uint64_t map_size_ = 0;
+  uint32_t map_checksum_ = 0;
 };
 
 bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs);

@@ -13,6 +13,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 uint64_t SharedBlobFileMetaData::GetBlobFileSize() const {
+  if (IsIndirectCarrierFile()) {
+    return map_offset_ + map_size_ + BlobLogFooterV2::kSize;
+  }
   return BlobLogHeader::kSize + total_blob_bytes_ + BlobLogFooter::kSize;
 }
 
@@ -31,6 +34,12 @@ std::ostream& operator<<(std::ostream& os,
      << " checksum_method: " << shared_meta.GetChecksumMethod()
      << " checksum_value: "
      << Slice(shared_meta.GetChecksumValue()).ToString(/* hex */ true);
+  if (shared_meta.HasIndirectionInfo()) {
+    os << " origin_file_number: " << shared_meta.GetOriginFileNumber()
+       << " map_offset: " << shared_meta.GetMapOffset()
+       << " map_size: " << shared_meta.GetMapSize()
+       << " map_checksum: " << shared_meta.GetMapChecksum();
+  }
 
   return os;
 }

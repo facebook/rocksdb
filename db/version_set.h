@@ -470,6 +470,19 @@ class VersionStorageInfo {
     return std::shared_ptr<BlobFileMetaData>();
   }
 
+  // Returns the physical identity file or current mapped carrier for an
+  // indirect BlobID origin. Legacy blob files are intentionally absent.
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaDataByOrigin(
+      uint64_t origin_file_number) const {
+    const auto it = blob_origins_.find(origin_file_number);
+    if (it == blob_origins_.end()) {
+      return std::shared_ptr<BlobFileMetaData>();
+    }
+    return it->second;
+  }
+
+  Status ValidateBlobIndirection() const;
+
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   struct BlobStats {
     uint64_t total_file_size = 0;
@@ -737,6 +750,10 @@ class VersionStorageInfo {
 
   // Vector of blob files in version sorted by blob file number.
   BlobFiles blob_files_;
+
+  // Current physical carrier for each stable indirect BlobID origin.
+  UnorderedMap<uint64_t, std::shared_ptr<BlobFileMetaData>> blob_origins_;
+  bool blob_origin_conflict_ = false;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
