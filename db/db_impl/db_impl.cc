@@ -319,6 +319,10 @@ Status DBImpl::Resume() {
     return Status::OK();
   }
 
+  if (read_only_) {
+    return Status::NotSupported("Cannot resume a read-only DB");
+  }
+
   if (error_handler_.IsRecoveryInProgress()) {
     // Don't allow a mix of manual and automatic recovery
     return Status::Busy("Recovery in progress");
@@ -728,7 +732,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
 void DBImpl::WaitForBackgroundWork() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_pressure_callback_in_progress_) {
+         bg_flush_scheduled_ || bg_pressure_callback_in_progress_ ||
+         bg_async_file_open_state_ == AsyncFileOpenState::kScheduled) {
     bg_cv_.Wait();
   }
 }
@@ -811,6 +816,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
+  env_->UnSchedule(&bg_async_file_open_state_, Env::Priority::HIGH);
   if (!wait) {
     return;
   }

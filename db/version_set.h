@@ -2051,8 +2051,8 @@ class ReactiveVersionSet : public VersionSet {
                      WriteBufferManager* write_buffer_manager,
                      WriteController* write_controller,
                      const std::shared_ptr<IOTracer>& io_tracer,
-                     const std::string& db_id,
-                     const std::string& db_session_id);
+                     const std::string& db_id, const std::string& db_session_id,
+                     bool defer_sst_file_opening);
 
   ~ReactiveVersionSet() override;
 
@@ -2115,6 +2115,9 @@ class ReactiveVersionSet : public VersionSet {
   // VersionEditHandlerPointInTime::trust_manifest_recovery_). Set only for the
   // DB::OpenAndCompact remote-compaction path.
   bool trust_manifest_recovery_ = false;
+  // Defers initial SecondaryDB SST validation and opening until after
+  // OpenAsSecondary returns. Catch-up remains synchronous.
+  const bool defer_sst_file_opening_;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options_;
   using VersionSet::LogAndApply;

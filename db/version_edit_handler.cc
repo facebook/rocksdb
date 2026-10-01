@@ -722,14 +722,15 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options, bool allow_incomplete_valid_version,
-    bool trust_manifest_recovery,
+    bool trust_manifest_recovery, bool defer_sst_file_opening,
     EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_found_and_missing_files=*/true,
                          /*no_error_if_files_missing=*/true, io_tracer,
                          read_options, allow_incomplete_valid_version,
                          epoch_number_requirement),
-      trust_manifest_recovery_(trust_manifest_recovery) {}
+      trust_manifest_recovery_(trust_manifest_recovery),
+      defer_sst_file_opening_(defer_sst_file_opening) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& cfid_and_version : atomic_update_versions_) {
@@ -916,7 +917,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     auto* version = new Version(
         cfd, version_set_, version_set_->file_options_, mopts, io_tracer_,
         version_set_->current_version_number_++, epoch_number_requirement_);
-    if (!trust_manifest_recovery_) {
+    if (!trust_manifest_recovery_ && !defer_sst_file_opening_) {
       s = builder->LoadTableHandlers(
           cfd->internal_stats(),
           version_set_->db_options_->max_file_opening_threads, false, true,
@@ -970,9 +971,9 @@ Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
                                                  const std::string& fpath,
                                                  int level,
                                                  const FileMetaData& fmeta) {
-  if (trust_manifest_recovery_) {
+  if (trust_manifest_recovery_ || defer_sst_file_opening_) {
     // Trust the MANIFEST: do not stat/open the file to classify it. The
-    // compaction opens (and unique-id verifies) only its input files on demand.
+    // compaction or asynchronous opener validates files later.
     return Status::OK();
   }
   return version_set_->VerifyFileMetadata(read_options_, cfd, fpath, level,
@@ -1163,6 +1164,13 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
   assert(s);
   if (s->ok()) {
     if (Mode::kRecovery == mode_) {
+      if (defer_sst_file_opening_) {
+        // Deferred verification treats each added SST as found. Discard files
+        // also deleted during initial replay so they are not reported as
+        // obsolete files from a later catch-up.
+        GetAndClearIntermediateFiles();
+      }
+      defer_sst_file_opening_ = false;
       mode_ = Mode::kCatchUp;
     } else {
       assert(Mode::kCatchUp == mode_);
@@ -1173,11 +1181,10 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
 std::vector<std::string> ManifestTailer::GetAndClearIntermediateFiles() {
   std::vector<std::string> res;
   for (const auto& builder : builders_) {
-    auto files =
+    std::vector<std::string> files =
         builder.second->version_builder()->GetAndClearIntermediateFiles();
     res.insert(res.end(), std::make_move_iterator(files.begin()),
                std::make_move_iterator(files.end()));
-    files.erase(files.begin(), files.end());
   }
   return res;
 }

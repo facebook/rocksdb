@@ -7176,7 +7176,8 @@ Status VersionSet::TryRecoverFromOneManifest(
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
       read_options, /*allow_incomplete_valid_version=*/true,
-      /*trust_manifest_recovery=*/false, EpochNumberRequirement::kMightMissing);
+      /*trust_manifest_recovery=*/false,
+      /*defer_sst_file_opening=*/false, EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -8370,12 +8371,13 @@ ReactiveVersionSet::ReactiveVersionSet(
     const FileOptions& _file_options, Cache* table_cache,
     WriteBufferManager* write_buffer_manager, WriteController* write_controller,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-    const std::string& db_session_id)
+    const std::string& db_session_id, bool defer_sst_file_opening)
     : VersionSet(dbname, imm_db_options, mutable_db_options, _file_options,
                  table_cache, write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, db_id,
                  db_session_id, /*daily_offpeak_time_utc*/ "",
-                 /*error_handler=*/nullptr, /*unchanging=*/false) {}
+                 /*error_handler=*/nullptr, /*unchanging=*/false),
+      defer_sst_file_opening_(defer_sst_file_opening) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
 
@@ -8399,10 +8401,10 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(
-      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
-                         io_tracer_, read_options_, trust_manifest_recovery_,
-                         EpochNumberRequirement::kMightMissing));
+  manifest_tailer_.reset(new ManifestTailer(
+      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
+      read_options_, trust_manifest_recovery_, defer_sst_file_opening_,
+      EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 

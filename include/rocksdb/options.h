@@ -803,20 +803,27 @@ struct DBOptions {
   int read_io_executor_threads = 1;
 
   // If true, SST files are opened and validated asynchronously in the
-  // background after DB::Open returns. This reduces DB open time for
-  // databases with many SST files and high latency file systems. Mostly useful
-  // when max_open_files = -1, as max_open_files != -1 usually has fast open
-  // times. See also `max_file_opening_threads` and
+  // background after DB::Open or DB::OpenAsSecondary returns. This reduces DB
+  // open time for databases with many SST files and high latency file systems.
+  // Mostly useful when max_open_files = -1, as max_open_files != -1 usually has
+  // fast open times. See also `max_file_opening_threads` and
   // `skip_stats_update_on_db_open` to improve file open latency.
+  //
+  // A secondary with this option can no longer rely on max_open_files = -1 to
+  // pin every current SST before OpenAsSecondary returns. If the primary
+  // deletes a file before the background job opens it, the background job or
+  // later reads can return an I/O error. TryCatchUpWithPrimary() does not clear
+  // a latched asynchronous-open background error; fix the underlying problem
+  // and reopen the secondary instead.
   //
   // Note: This option is currently not compatible with FIFO compaction and
   // requires skip_stats_update_on_db_open=true.
   //
-  // Errors will no longer show up in DB::Open, but instead can show up as
-  // either background errors and/or operations that access the file (e.g.
+  // Errors will no longer show up in the DB open call, but instead can show up
+  // as either background errors and/or operations that access the file (e.g.
   // reads, compactions).
   //
-  // When false (default), SST files are opened and validated during DB::Open.
+  // When false (default), SST files are opened and validated during DB open.
   //
   // Default: false
   bool open_files_async = false;

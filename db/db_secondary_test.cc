@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -875,6 +876,336 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value", "new_bar_value");
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsync) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("key", "value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+  secondary_options.statistics = CreateDBStatistics();
+
+  std::atomic<uint32_t> file_opens = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::Rep::LoadTableHandlers::BeforeFindTable",
+      [&](void* /*arg*/) { ++file_opens; });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBSecondaryTest::OpenFilesAsync:Release",
+        "DBImpl::BGWorkAsyncFileOpen::Start"},
+       {"DBImpl::BGWorkAsyncFileOpen:Done",
+        "DBSecondaryTest::OpenFilesAsync:Done"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondary(secondary_options);
+  ASSERT_EQ(0, file_opens.load());
+  ASSERT_EQ(0, TestGetTickerCount(secondary_options, NO_FILE_OPENS));
+
+  TEST_SYNC_POINT("DBSecondaryTest::OpenFilesAsync:Release");
+  TEST_SYNC_POINT("DBSecondaryTest::OpenFilesAsync:Done");
+  ASSERT_EQ(3, file_opens.load());
+  ASSERT_EQ(3, TestGetTickerCount(secondary_options, NO_FILE_OPENS));
+  VerifySecondaryValue("key", "value2");
+
+  const uint32_t initial_file_opens = file_opens.load();
+  const uint64_t initial_no_file_opens =
+      TestGetTickerCount(secondary_options, NO_FILE_OPENS);
+  ASSERT_OK(Put("key", "value3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_GT(file_opens.load(), initial_file_opens);
+  ASSERT_GT(TestGetTickerCount(secondary_options, NO_FILE_OPENS),
+            initial_no_file_opens);
+  VerifySecondaryValue("key", "value3");
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncRequiresSkipStatsUpdate) {
+  Options options = CurrentOptions();
+  options.open_files_async = true;
+  options.skip_stats_update_on_db_open = false;
+
+  ASSERT_TRUE(TryOpenSecondary(options).IsInvalidArgument());
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncRejectsFIFOCompaction) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.open_files_async = true;
+  options.skip_stats_update_on_db_open = true;
+
+  const Status s = TryOpenSecondary(options);
+  ASSERT_TRUE(s.IsNotSupported());
+  ASSERT_NE(std::string::npos, s.ToString().find("FIFO compaction"));
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncQueuedJobCanceledDuringShutdown) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+
+  const int original_high_threads =
+      env_->GetBackgroundThreads(Env::Priority::HIGH);
+  Defer restore_high_threads([&] {
+    env_->SetBackgroundThreads(original_high_threads, Env::Priority::HIGH);
+  });
+  std::atomic<uint32_t> async_open_cancellations = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::UnscheduleAsyncFileOpenCallback",
+      [&](void* /*arg*/) { ++async_open_cancellations; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  for (int mode = 0; mode < 2; ++mode) {
+    const bool cancel_directly = mode == 1;
+    SCOPED_TRACE(cancel_directly ? "CancelAllBackgroundWork" : "Close");
+
+    env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+    test::SleepingBackgroundTask sleeping_task;
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                   Env::Priority::HIGH);
+    sleeping_task.WaitUntilSleeping();
+
+    OpenSecondary(secondary_options);
+    ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+    env_->SetBackgroundThreads(0, Env::Priority::HIGH);
+    sleeping_task.WakeUp();
+    sleeping_task.WaitUntilDone();
+
+    std::mutex close_mutex;
+    std::condition_variable close_cv;
+    bool close_done = false;
+    Status close_status;
+    port::Thread close_thread([&] {
+      if (cancel_directly) {
+        CancelAllBackgroundWork(db_secondary_.get(), /*wait=*/true);
+      } else {
+        close_status = db_secondary_->Close();
+      }
+      {
+        std::lock_guard<std::mutex> lock(close_mutex);
+        close_done = true;
+      }
+      close_cv.notify_all();
+    });
+    bool closed_without_worker;
+    {
+      std::unique_lock<std::mutex> lock(close_mutex);
+      closed_without_worker = close_cv.wait_for(lock, std::chrono::seconds(10),
+                                                [&] { return close_done; });
+    }
+    if (!closed_without_worker) {
+      // Let an uncanceled opener drain so a regression fails without hanging
+      // the test process.
+      env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+    }
+    close_thread.join();
+
+    ASSERT_TRUE(closed_without_worker);
+    ASSERT_OK(close_status);
+    ASSERT_EQ(static_cast<uint32_t>(mode + 1), async_open_cancellations.load());
+    if (cancel_directly) {
+      CloseSecondary();
+    } else {
+      db_secondary_.reset();
+    }
+  }
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncDetectsFileSizeMismatch) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  const std::string table_path =
+      GetNewestTableFilePath(kDefaultColumnFamilyName);
+  uint64_t table_size = 0;
+  ASSERT_OK(env_->GetFileSize(table_path, &table_size));
+  Close();
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBSecondaryTest::OpenFilesAsyncDetectsFileSizeMismatch:Release",
+        "DBImpl::BGWorkAsyncFileOpen::Start"},
+       {"DBImpl::BGWorkAsyncFileOpen:Done",
+        "DBSecondaryTest::OpenFilesAsyncDetectsFileSizeMismatch:Done"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondary(secondary_options);
+  std::unique_ptr<WritableFile> table_file;
+  ASSERT_OK(env_->ReopenWritableFile(table_path, &table_file, EnvOptions()));
+  ASSERT_OK(table_file->Truncate(table_size + 1));
+  ASSERT_OK(table_file->Close());
+  TEST_SYNC_POINT(
+      "DBSecondaryTest::OpenFilesAsyncDetectsFileSizeMismatch:Release");
+  TEST_SYNC_POINT(
+      "DBSecondaryTest::OpenFilesAsyncDetectsFileSizeMismatch:Done");
+
+  const Status bg_error = db_secondary_full()->TEST_GetBGError();
+  ASSERT_TRUE(bg_error.IsCorruption());
+  ASSERT_NE(std::string::npos,
+            bg_error.ToString().find("Sst file size mismatch"));
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncStopsOpeningDuringShutdown) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("key", "value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.max_file_opening_threads = 1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+
+  std::mutex state_mutex;
+  std::condition_variable state_cv;
+  uint32_t file_opens = 0;
+  bool allow_async_open = false;
+  bool close_waiting = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::Rep::LoadTableHandlers::BeforeFindTable",
+      [&](void* /*arg*/) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        ++file_opens;
+        if (file_opens == 1) {
+          state_cv.notify_all();
+          state_cv.wait(lock, [&] { return allow_async_open; });
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::~DBImpl:WaitJob", [&](void* /*arg*/) {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        close_waiting = true;
+        state_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondary(secondary_options);
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&] { return file_opens == 1; });
+  }
+
+  Status close_status;
+  port::Thread close_thread([&] { close_status = db_secondary_->Close(); });
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    state_cv.wait(lock, [&] { return close_waiting; });
+    allow_async_open = true;
+    state_cv.notify_all();
+  }
+  close_thread.join();
+
+  ASSERT_OK(close_status);
+  ASSERT_EQ(1, file_opens);
+  db_secondary_.reset();
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncErrorDoesNotStartRecovery) {
+  class CountingListener final : public EventListener {
+   public:
+    void OnBackgroundError(BackgroundErrorReason /*reason*/,
+                           Status* bg_error) override {
+      *bg_error = Status::IOError("listener-adjusted file-open error");
+      ++background_errors;
+    }
+
+    void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/, Status bg_error,
+                              bool* /*auto_recovery*/) override {
+      bg_error.PermitUncheckedError();
+      ++recovery_begins;
+    }
+
+    std::atomic<uint32_t> background_errors{0};
+    std::atomic<uint32_t> recovery_begins{0};
+  };
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(new CompositeEnvWrapper(env_, fault_fs));
+  Options secondary_options = options;
+  secondary_options.env = fault_env.get();
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+  auto listener = std::make_shared<CountingListener>();
+  secondary_options.listeners.emplace_back(listener);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBSecondaryTest::OpenFilesAsyncErrorDoesNotStartRecovery:Release",
+        "DBImpl::BGWorkAsyncFileOpen::Start"},
+       {"DBImpl::BGWorkAsyncFileOpen:Done",
+        "DBSecondaryTest::OpenFilesAsyncErrorDoesNotStartRecovery:Done"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup([&] {
+    fault_fs->SetFilesystemActive(true);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondary(secondary_options);
+  IOStatus error = IOStatus::IOError("injected retryable file-open error");
+  error.SetRetryable(true);
+  fault_fs->SetFilesystemActive(false, error);
+  TEST_SYNC_POINT(
+      "DBSecondaryTest::OpenFilesAsyncErrorDoesNotStartRecovery:Release");
+  TEST_SYNC_POINT(
+      "DBSecondaryTest::OpenFilesAsyncErrorDoesNotStartRecovery:Done");
+
+  const Status bg_error = db_secondary_full()->TEST_GetBGError();
+  ASSERT_OK(bg_error);
+  ASSERT_FALSE(db_secondary_full()->TEST_IsRecoveryInProgress());
+  ASSERT_EQ(1, listener->background_errors.load());
+  ASSERT_EQ(0, listener->recovery_begins.load());
+  std::string value;
+  ASSERT_TRUE(db_secondary_->Get(ReadOptions(), "key", &value).IsIOError());
+  ASSERT_OK(db_secondary_->Resume());
+  fault_fs->SetFilesystemActive(true);
+  VerifySecondaryValue("key", "value");
+  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, OptionsOverrideTest) {
@@ -2221,6 +2552,50 @@ TEST_F(DBSecondaryTest, PrimaryDropColumnFamily) {
   ASSERT_TRUE(iterators[1]->Valid());
   ASSERT_EQ("foo", iterators[1]->key().ToString());
   ASSERT_EQ("foo_val_1", iterators[1]->value().ToString());
+}
+
+TEST_F(DBSecondaryTest, OpenFilesAsyncPrimaryDropColumnFamily) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  const std::string kCfName = "pikachu";
+  CreateAndReopenWithCF({kCfName}, options);
+  ASSERT_OK(Put(1 /*cf*/, "foo", "foo_val"));
+  ASSERT_OK(Flush(1 /*cf*/));
+  const std::string table_path = GetNewestTableFilePath(kCfName);
+
+  Options secondary_options = options;
+  secondary_options.max_open_files = -1;
+  secondary_options.open_files_async = true;
+  secondary_options.skip_stats_update_on_db_open = true;
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBSecondaryTest::OpenFilesAsyncPrimaryDropColumnFamily:Release",
+        "DBImpl::BGWorkAsyncFileOpen::Start"},
+       {"DBImpl::BGWorkAsyncFileOpen:Done",
+        "DBSecondaryTest::OpenFilesAsyncPrimaryDropColumnFamily:Done"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_point([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  OpenSecondaryWithColumnFamilies({kCfName}, secondary_options);
+  ASSERT_EQ(2, handles_secondary_.size());
+  ASSERT_OK(db_->DisableFileDeletions());
+  ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handles_[1]));
+  handles_[1] = nullptr;
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  TEST_SYNC_POINT(
+      "DBSecondaryTest::OpenFilesAsyncPrimaryDropColumnFamily:Release");
+  TEST_SYNC_POINT(
+      "DBSecondaryTest::OpenFilesAsyncPrimaryDropColumnFamily:Done");
+  ASSERT_OK(db_->EnableFileDeletions());
+  dbfull()->TEST_DeleteObsoleteFiles();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  ASSERT_TRUE(env_->FileExists(table_path).IsNotFound());
+  VerifySecondaryValue(handles_secondary_[1], "foo", "foo_val");
 }
 
 TEST_F(DBSecondaryTest, ReclaimsRetiredReadViewAfterLastReader) {
