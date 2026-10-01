@@ -1389,7 +1389,7 @@ class FileChecksumTestHelper {
     Slice result;
     uint64_t offset = 0;
     Status s;
-    s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
+    s = file_reader_->Read(offset, 2048, IOOptions(), &result, scratch.get(),
                            nullptr);
     if (!s.ok()) {
       return s;
@@ -1397,7 +1397,7 @@ class FileChecksumTestHelper {
     while (result.size() != 0) {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
-      s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
+      s = file_reader_->Read(offset, 2048, IOOptions(), &result, scratch.get(),
                              nullptr);
       if (!s.ok()) {
         return s;
@@ -8172,6 +8172,15 @@ class ExternalTableTest : public DBTestBase {
   };
 };
 
+class ExternalTablePointReadTest : public ExternalTableTest,
+                                   public testing::WithParamInterface<bool> {
+ public:
+  ExternalTablePointReadTest() : use_coroutine_(GetParam()) {}
+
+ protected:
+  const bool use_coroutine_;
+};
+
 TEST_F(ExternalTableTest, BootstrapConfig) {
   RegisterConfigurableSimpleExternalTableFactory();
 
@@ -8517,7 +8526,7 @@ TEST_F(ExternalTableTest, BasicModeGlobalSeqnoAcrossLevels) {
   ASSERT_EQ(Get("c"), "old-c");
 }
 
-TEST_F(ExternalTableTest, FullModeLiveWritesAndCompaction) {
+TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
   if (encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
     return;
@@ -8539,7 +8548,6 @@ TEST_F(ExternalTableTest, FullModeLiveWritesAndCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 1);
 
-  std::string value;
   {
     ManagedSnapshot snapshot(db_.get());
 
@@ -8555,20 +8563,19 @@ TEST_F(ExternalTableTest, FullModeLiveWritesAndCompaction) {
     ASSERT_OK(Merge("merged", "m2"));
     ASSERT_OK(Put("live", "memtable"));
 
-    ASSERT_OK(db_->Get(ReadOptions(), "merged", &value));
-    ASSERT_EQ(value, "base,m1,m2");
-    ASSERT_TRUE(db_->Get(ReadOptions(), "deleted", &value).IsNotFound());
-    ASSERT_OK(db_->Get(ReadOptions(), "stable", &value));
-    ASSERT_EQ(value, "v2");
+    ASSERT_EQ(
+        Get("merged", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+        "base,m1,m2");
+    ASSERT_EQ(
+        Get("deleted", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+        "NOT_FOUND");
+    ASSERT_EQ(
+        Get("stable", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+        "v2");
 
-    ReadOptions snapshot_read_options;
-    snapshot_read_options.snapshot = snapshot.snapshot();
-    ASSERT_OK(db_->Get(snapshot_read_options, "merged", &value));
-    ASSERT_EQ(value, "base");
-    ASSERT_OK(db_->Get(snapshot_read_options, "deleted", &value));
-    ASSERT_EQ(value, "old");
-    ASSERT_OK(db_->Get(snapshot_read_options, "stable", &value));
-    ASSERT_EQ(value, "v1");
+    ASSERT_EQ(Get("merged", snapshot.snapshot(), use_coroutine_), "base");
+    ASSERT_EQ(Get("deleted", snapshot.snapshot(), use_coroutine_), "old");
+    ASSERT_EQ(Get("stable", snapshot.snapshot(), use_coroutine_), "v1");
 
     ASSERT_OK(Flush());
     ASSERT_EQ(NumTableFilesAtLevel(0), 1);
@@ -8580,19 +8587,12 @@ TEST_F(ExternalTableTest, FullModeLiveWritesAndCompaction) {
     ASSERT_EQ(NumTableFilesAtLevel(1), 0);
     ASSERT_EQ(NumTableFilesAtLevel(2), 1);
 
-    std::array<Slice, 4> keys = {Slice("deleted"), Slice("live"),
-                                 Slice("merged"), Slice("stable")};
-    std::array<PinnableSlice, 4> values;
-    std::array<Status, 4> statuses;
-    db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
-                  keys.data(), values.data(), statuses.data());
-    ASSERT_TRUE(statuses[0].IsNotFound());
-    ASSERT_OK(statuses[1]);
-    ASSERT_OK(statuses[2]);
-    ASSERT_OK(statuses[3]);
-    ASSERT_EQ(values[1], "memtable");
-    ASSERT_EQ(values[2], "base,m1,m2");
-    ASSERT_EQ(values[3], "v2");
+    const std::vector<std::string> expected_values = {"NOT_FOUND", "memtable",
+                                                      "base,m1,m2", "v2"};
+    ASSERT_EQ(MultiGet({"deleted", "live", "merged", "stable"},
+                       /*snapshot=*/nullptr, /*async=*/false,
+                       /*optimize_multiget_for_io=*/true, use_coroutine_),
+              expected_values);
 
     std::vector<std::pair<std::string, std::string>> actual;
     std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
@@ -8605,23 +8605,24 @@ TEST_F(ExternalTableTest, FullModeLiveWritesAndCompaction) {
         {"live", "memtable"}, {"merged", "base,m1,m2"}, {"stable", "v2"}};
     ASSERT_EQ(actual, expected);
 
-    ASSERT_OK(db_->Get(snapshot_read_options, "merged", &value));
-    ASSERT_EQ(value, "base");
-    ASSERT_OK(db_->Get(snapshot_read_options, "deleted", &value));
-    ASSERT_EQ(value, "old");
-    ASSERT_OK(db_->Get(snapshot_read_options, "stable", &value));
-    ASSERT_EQ(value, "v1");
+    ASSERT_EQ(Get("merged", snapshot.snapshot(), use_coroutine_), "base");
+    ASSERT_EQ(Get("deleted", snapshot.snapshot(), use_coroutine_), "old");
+    ASSERT_EQ(Get("stable", snapshot.snapshot(), use_coroutine_), "v1");
   }
 
   Close();
   Reopen(options);
-  ASSERT_OK(db_->Get(ReadOptions(), "merged", &value));
-  ASSERT_EQ(value, "base,m1,m2");
-  ASSERT_TRUE(db_->Get(ReadOptions(), "deleted", &value).IsNotFound());
-  ASSERT_OK(db_->Get(ReadOptions(), "live", &value));
-  ASSERT_EQ(value, "memtable");
-  ASSERT_OK(db_->Get(ReadOptions(), "stable", &value));
-  ASSERT_EQ(value, "v2");
+  ASSERT_EQ(
+      Get("merged", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+      "base,m1,m2");
+  ASSERT_EQ(
+      Get("deleted", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+      "NOT_FOUND");
+  ASSERT_EQ(Get("live", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+            "memtable");
+  ASSERT_EQ(
+      Get("stable", static_cast<const Snapshot*>(nullptr), use_coroutine_),
+      "v2");
 }
 
 TEST_F(ExternalTableTest, FullModeDBMultiScanWithGlobalSeqno) {
@@ -8959,7 +8960,7 @@ TEST_F(ExternalTableTest, ReaderFileReadsUpdateStatistics) {
   EXPECT_GT(listener->read_bytes(), listener_read_bytes_before);
 }
 
-TEST_F(ExternalTableTest, PinnedGetTest) {
+TEST_P(ExternalTablePointReadTest, PinnedGetTest) {
   if (encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
     return;
@@ -8995,14 +8996,12 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   PinnableSlice pinnable;
-  ASSERT_OK(
-      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key1", &pinnable));
+  ASSERT_OK(Get("key1", &pinnable, use_coroutine_));
   ASSERT_EQ(pinnable.ToString(), "pinned_val1");
   ASSERT_TRUE(pinnable.IsPinned());
   pinnable.Reset();
 
-  ASSERT_OK(
-      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "key2", &pinnable));
+  ASSERT_OK(Get("key2", &pinnable, use_coroutine_));
   ASSERT_EQ(pinnable.ToString(), "pinned_val2");
   ASSERT_TRUE(pinnable.IsPinned());
   pinnable.Reset();
@@ -9014,39 +9013,43 @@ TEST_F(ExternalTableTest, PinnedGetTest) {
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 2);
 
   // Verify NotFound still works (does not invoke SaveValue)
-  Status s =
-      db_->Get(ReadOptions(), db_->DefaultColumnFamily(), "missing", &pinnable);
+  Status s = Get("missing", &pinnable, use_coroutine_);
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ(simple_save_value_count.load(), 2);
 
   // Test MultiGet with PinnableSlice to exercise the batched pin path
-  const size_t num_keys = 3;
-  std::array<Slice, num_keys> mg_keys = {Slice("key1"), Slice("missing"),
-                                         Slice("key2")};
-  std::array<PinnableSlice, num_keys> mg_values;
-  std::array<Status, num_keys> mg_statuses;
-  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
-                mg_keys.data(), mg_values.data(), mg_statuses.data());
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+  MultiGet({"key1", "missing", "key2"}, /*snapshot=*/nullptr,
+           /*async=*/false, /*optimize_multiget_for_io=*/true, use_coroutine_,
+           values, statuses);
 
-  ASSERT_OK(mg_statuses[0]);
-  ASSERT_EQ(mg_values[0].ToString(), "pinned_val1");
-  ASSERT_TRUE(mg_values[0].IsPinned());
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0].ToString(), "pinned_val1");
+  ASSERT_TRUE(values[0].IsPinned());
 
-  ASSERT_TRUE(mg_statuses[1].IsNotFound());
+  ASSERT_TRUE(statuses[1].IsNotFound());
 
-  ASSERT_OK(mg_statuses[2]);
-  ASSERT_EQ(mg_values[2].ToString(), "pinned_val2");
-  ASSERT_TRUE(mg_values[2].IsPinned());
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2].ToString(), "pinned_val2");
+  ASSERT_TRUE(values[2].IsPinned());
 
-  // Reset PinnableSlices to trigger cleanups
-  for (auto& v : mg_values) {
-    v.Reset();
+  for (PinnableSlice& value : values) {
+    value.Reset();
   }
   ASSERT_EQ(factory->last_reader()->pin_cleanup_count(), 4);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+
+#if USE_COROUTINES
+INSTANTIATE_TEST_CASE_P(SyncAndCoroutine, ExternalTablePointReadTest,
+                        testing::Bool());
+#else
+INSTANTIATE_TEST_CASE_P(SyncAndCoroutine, ExternalTablePointReadTest,
+                        testing::Values(false));
+#endif  // USE_COROUTINES
 
 TEST_F(ExternalTableTest, SstReaderPinnableMultiGetTest) {
   if (encrypted_env_) {

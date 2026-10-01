@@ -262,8 +262,7 @@ IOStatus GenerateOneFileChecksum(
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    io_s = reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr,
-                        &dbg);
+    io_s = reader->Read(offset, bytes_to_read, opts, &slice, buf.get(), &dbg);
     if (!io_s.ok()) {
       return IOStatus::Corruption("file read failed with error: " +
                                   io_s.ToString());

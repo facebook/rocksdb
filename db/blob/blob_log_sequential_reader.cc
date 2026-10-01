@@ -29,7 +29,7 @@ Status BlobLogSequentialReader::ReadSlice(uint64_t size, Slice* slice,
 
   StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
   // TODO: rate limit `BlobLogSequentialReader` reads (it appears unused?)
-  Status s = file_->Read(IOOptions(), next_byte_, static_cast<size_t>(size),
+  Status s = file_->Read(next_byte_, static_cast<size_t>(size), IOOptions(),
                          slice, buf, nullptr);
   next_byte_ += size;
   if (!s.ok()) {

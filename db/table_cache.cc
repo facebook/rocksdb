@@ -174,11 +174,11 @@ Status TableCache::GetTableReader(
     }
     StopWatch sw(ioptions_.clock, ioptions_.stats, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(file), fname, ioptions_.clock,
-                                   io_tracer_, ioptions_.stats, SST_READ_MICROS,
-                                   file_read_hist, ioptions_.rate_limiter.get(),
-                                   ioptions_.listeners, file_temperature,
-                                   level == ioptions_.num_levels - 1));
+        new RandomAccessFileReader(
+            std::move(file), fname, ioptions_.clock, io_tracer_,
+            ioptions_.stats, SST_READ_MICROS, file_read_hist,
+            ioptions_.rate_limiter.get(), ioptions_.listeners, file_temperature,
+            level == ioptions_.num_levels - 1, ioptions_.fs.get()));
     UniqueId64x2 expected_unique_id;
     if (ioptions_.verify_sst_unique_id_in_manifest) {
       expected_unique_id = file_meta.unique_id;

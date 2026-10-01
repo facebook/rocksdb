@@ -14,6 +14,11 @@
 #include "rocksdb/external_table.h"
 #include "rocksdb/file_system.h"
 
+#if USE_COROUTINES
+#include "folly/coro/Coroutine.h"
+#include "rocksdb/coro_external_table.h"
+#endif
+
 // Test-only external table implementation shared by basic and full modes. It
 // writes length-prefixed key/value records in caller-provided order, followed
 // by RocksDB's properties block and a footer describing the properties and
@@ -36,7 +41,12 @@ using SimpleExternalTableEntries =
     std::vector<std::pair<std::string, std::string>>;
 
 template <ExternalTableMode Mode>
+#if USE_COROUTINES
+class SimpleExternalTableReader : public ExternalTableReaderBase<Mode>,
+                                  public CoroExternalTableReaderBase<Mode> {
+#else
 class SimpleExternalTableReader : public ExternalTableReaderBase<Mode> {
+#endif
  public:
   using GetArgument = typename ExternalTableReaderLookupBase<Mode>::GetArgument;
 
@@ -53,6 +63,19 @@ class SimpleExternalTableReader : public ExternalTableReaderBase<Mode> {
   Status Get(const ReadOptions& read_options, const Slice& key,
              const SliceTransform* prefix_extractor,
              GetArgument result) override;
+#if USE_COROUTINES
+  CoroExternalTableReaderBase<Mode>* GetCoroExternalTableReader() override {
+    return this;
+  }
+
+  folly::coro::Task<Status> GetCoroutine(const ReadOptions& read_options,
+                                         const Slice& key,
+                                         const SliceTransform* prefix_extractor,
+                                         GetArgument result) override {
+    co_await folly::coro::co_reschedule_on_current_executor;
+    co_return Get(read_options, key, prefix_extractor, result);
+  }
+#endif
   Status GetPropertiesBlock(std::unique_ptr<char[]>* block, uint64_t* size,
                             uint64_t* file_offset) override;
   std::shared_ptr<const TableProperties> GetTableProperties() const override;

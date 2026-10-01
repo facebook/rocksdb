@@ -89,6 +89,7 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
+  FileSystem* file_system_;
   FSRandomAccessFilePtr file_;
   std::string file_name_;
   SystemClock* clock_;
@@ -143,8 +144,9 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       Temperature file_temperature = Temperature::kUnknown,
-      bool is_last_level = false)
-      : file_(std::move(raf), io_tracer, _file_name),
+      bool is_last_level = false, FileSystem* file_system = nullptr)
+      : file_system_(file_system),
+        file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         clock_(clock),
         stats_(stats),
@@ -154,6 +156,7 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
         listeners_(),
         file_temperature_(file_temperature),
         is_last_level_(is_last_level) {
+    (void)file_system_;
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
                     if (e->ShouldBeNotifiedOnFileIO()) {
@@ -170,9 +173,10 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
   ~RandomAccessFileReader() override = default;
 
-  // In non-direct IO mode,
-  // 1. if using mmap, result is stored in a buffer other than scratch;
-  // 2. if not using mmap, result is stored in the buffer starting from scratch.
+  // In non-direct IO mode, mmap reads can return a buffer other than scratch.
+  // The FSReadRequest overload can also return a filesystem-provided buffer
+  // through result and fs_scratch when scratch is null. The read status is
+  // returned in req->status.
   //
   // In direct IO mode, if direct_io_buffer_context is provided then it
   // allocates the aligned buffer and the result refers to a region in
@@ -180,16 +184,12 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
   // scratch; unaligned reads use an internal aligned buffer and copy the
   // requested subrange to scratch.
   DECLARE_SYNC_AND_ASYNC_CONST(
-      IOStatus, Read, const IOOptions& opts, uint64_t offset, size_t n,
-      Slice* result, char* scratch,
+      void, Read, const IOOptions& opts, FSReadRequest* req,
       AlignedBufferAllocationContext* direct_io_buffer_context = nullptr,
       IODebugContext* dbg = nullptr);
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
-                char* scratch, IODebugContext* dbg) const override {
-    return Read(opts, offset, n, result, scratch,
-                /*direct_io_buffer_context=*/nullptr, dbg);
-  }
+                char* scratch, IODebugContext* dbg) const override;
 
   // REQUIRES: num_reqs > 0 and reqs do not overlap.
   // MultiRead uses direct_io_buffer_context to allocate the aligned buffer in
@@ -256,6 +256,10 @@ class RandomAccessFileReader final : public FSRandomAccessFile {
     return ReadAsync(req, opts, std::move(cb), cb_arg, io_handle, del_fn,
                      /*aligned_buf=*/nullptr, dbg);
   }
+
+  bool SubmitReadAsync(FSReadRequest& req, const IOOptions& opts,
+                       std::function<void(FSReadRequest&)> cb,
+                       IODebugContext* dbg) override;
 
   Temperature GetTemperature() const override {
     return file_->GetTemperature();

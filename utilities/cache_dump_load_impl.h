@@ -261,7 +261,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
                                : bytes_to_read;
 
     while (to_read > 0) {
-      io_s = file_reader_->Read(IOOptions(), offset_, to_read, &result_,
+      io_s = file_reader_->Read(offset_, to_read, IOOptions(), &result_,
                                 buffer_, nullptr);
       if (!io_s.ok()) {
         return io_s;

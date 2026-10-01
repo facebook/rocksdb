@@ -31,6 +31,8 @@ enum class ExternalTableMode {
 class ExternalTableIteratorBase;
 template <ExternalTableMode Mode>
 class ExternalTableReaderBase;
+template <ExternalTableMode Mode>
+class CoroExternalTableReaderBase;
 
 class ExternalTableBuilderBase;
 
@@ -290,6 +292,13 @@ class ExternalTableReaderBase : public ExternalTableReaderLookupBase<Mode> {
 
   virtual Status VerifyChecksum(const ReadOptions& /*ro*/) {
     return Status::OK();
+  }
+
+  // Returns the non-owning native coroutine interface, or nullptr when this
+  // reader does not support it. The returned pointer must not outlive this
+  // reader.
+  virtual CoroExternalTableReaderBase<Mode>* GetCoroExternalTableReader() {
+    return nullptr;
   }
 };
 

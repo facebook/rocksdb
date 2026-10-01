@@ -278,22 +278,24 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
     return s;
   }
 
+  FSReadRequest read_req;
+  read_req.offset = read_offset;
+  read_req.len = read_size;
   if (file_reader->use_direct_io()) {
-    constexpr char* scratch = nullptr;
+    read_req.scratch = nullptr;
     AlignedBufferAllocationContext direct_io_context{direct_io_buffer};
-
-    s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
-                          &direct_io_context, &dbg);
+    file_reader->Read(io_options, &read_req, &direct_io_context, &dbg);
   } else {
     buf->reset(new char[read_size]);
-
-    s = file_reader->Read(io_options, read_offset, read_size, slice, buf->get(),
-                          nullptr, &dbg);
+    read_req.scratch = buf->get();
+    file_reader->Read(io_options, &read_req, nullptr, &dbg);
   }
+  s = std::move(read_req.status);
 
   if (!s.ok()) {
     return s;
   }
+  *slice = read_req.result;
 
   if (slice->size() != read_size) {
     return Status::Corruption("Incomplete blob read from " +

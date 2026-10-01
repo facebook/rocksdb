@@ -591,6 +591,7 @@ ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 	FOLLY_DEPENDENT_HEADERS := \
 		include/rocksdb/coro_db.h \
+		include/rocksdb/coro_external_table.h \
 		include/rocksdb/utilities/coro_stackable_db.h
 # Some headers like in port/ are platform-specific
 	DEV_HEADERS_TO_CHECK := $(filter-out $(FOLLY_DEPENDENT_HEADERS), $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|range_tree/|secondary_index/'))

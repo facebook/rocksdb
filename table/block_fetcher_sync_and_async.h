@@ -41,9 +41,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockFetcher::ReadBlock)(bool retry) {
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
 #endif
-      io_status_ = CO_AWAIT(file_->Read, opts, handle_.offset(),
-                            block_size_with_trailer_, &slice_,
-                            /*scratch=*/nullptr, &direct_io_context, &dbg);
+      read_req.offset = handle_.offset();
+      read_req.len = block_size_with_trailer_;
+      read_req.scratch = nullptr;
+      CO_AWAIT(file_->Read, opts, &read_req, &direct_io_context, &dbg);
+      io_status_ = std::move(read_req.status);
+      slice_ = read_req.result;
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
@@ -78,10 +81,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockFetcher::ReadBlock)(bool retry) {
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
 #endif
 
-      io_status_ = CO_AWAIT(file_->Read, opts, handle_.offset(),
-                            /*size*/ block_size_with_trailer_,
-                            /*result*/ &slice_, /*scratch*/ used_buf_,
-                            /*direct_io_buffer=*/nullptr, &dbg);
+      read_req.offset = handle_.offset();
+      read_req.len = block_size_with_trailer_;
+      read_req.scratch = used_buf_;
+      CO_AWAIT(file_->Read, opts, &read_req,
+               /*direct_io_buffer=*/nullptr, &dbg);
+      io_status_ = std::move(read_req.status);
+      slice_ = read_req.result;
       PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
       if (slice_.data() == &stack_buf_[0]) {
