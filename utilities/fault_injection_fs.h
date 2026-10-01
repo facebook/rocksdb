@@ -44,6 +44,8 @@ namespace ROCKSDB_NAMESPACE {
 // A binary log that records injected errors directly to a file.
 // Thread-safe for concurrent writes. The log file can be flushed on exit or
 // from a signal handler so records survive clean exits and crash paths.
+// Disabled on big-endian platforms because the decoder expects little-endian
+// fields in the native Entry layout.
 class InjectedErrorLog {
  public:
   static constexpr size_t kMaxOpNameLen = 32;
@@ -90,8 +92,6 @@ class InjectedErrorLog {
 
   static_assert(sizeof(Entry) == 256,
                 "Injected error log entry size must stay stable");
-  static_assert(port::kLittleEndian,
-                "Injected error log requires little-endian platforms");
 
   explicit InjectedErrorLog(const std::string& path);
   ~InjectedErrorLog();
