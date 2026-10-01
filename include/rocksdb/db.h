@@ -2812,7 +2812,13 @@ class DB {
     return Status::NotSupported("EndBlockCacheTrace() is not implemented.");
   }
 
-  // Create a default trace replayer.
+  // Create a default trace replayer. `handles` are the column families that
+  // read records (Get, MultiGet, iterator seek) may refer to. The default
+  // column family is always included, so `handles` may be empty for a trace
+  // of the default column family only. A read record on any other column
+  // family fails with Status::Corruption(). Write records do not use
+  // `handles`; they are applied to the column families named in the write
+  // batch.
   virtual Status NewDefaultReplayer(
       const std::vector<ColumnFamilyHandle*>& /*handles*/,
       std::unique_ptr<TraceReader>&& /*reader*/,

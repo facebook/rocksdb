@@ -4271,6 +4271,147 @@ TEST_F(DBTest2, TraceWithLimit) {
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
+namespace {
+Status ReplayTraceFile(Env* env, const std::string& trace_filename, DB* db,
+                       const std::vector<ColumnFamilyHandle*>& handles,
+                       uint32_t num_threads,
+                       TraceExecutionResultHandler* res_handler = nullptr) {
+  std::unique_ptr<TraceReader> trace_reader;
+  Status s =
+      NewFileTraceReader(env, EnvOptions(), trace_filename, &trace_reader);
+  if (!s.ok()) {
+    return s;
+  }
+  std::unique_ptr<Replayer> replayer;
+  s = db->NewDefaultReplayer(handles, std::move(trace_reader), &replayer);
+  if (!s.ok()) {
+    return s;
+  }
+  s = replayer->Prepare();
+  if (!s.ok()) {
+    return s;
+  }
+  // Count the replayed records by type in `res_handler`, if given.
+  std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)> res_cb;
+  if (res_handler != nullptr) {
+    res_cb = [res_handler](const Status& exec_s,
+                           std::unique_ptr<TraceRecordResult>&& res) {
+      exec_s.PermitUncheckedError();
+      if (res != nullptr) {
+        EXPECT_OK(res->Accept(res_handler));
+      }
+    };
+  }
+  return replayer->Replay(ReplayOptions(num_threads, 1.0), res_cb);
+}
+}  // anonymous namespace
+
+TEST_F(DBTest2, TraceReplayDefaultColumnFamilyWithoutHandles) {
+  Options options = CurrentOptions();
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(TraceOptions(), std::move(trace_writer)));
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("b", "2"));
+  ASSERT_EQ("1", Get("a"));
+  std::vector<std::string> values;
+  for (const Status& s :
+       db_->MultiGet(ReadOptions(), {Slice("a"), Slice("b")}, &values)) {
+    ASSERT_OK(s);
+  }
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek("a");
+  iter->SeekForPrev("b");
+  ASSERT_OK(iter->status());
+  iter.reset();
+  ASSERT_OK(db_->EndTrace());
+
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay2");
+  options.create_if_missing = true;
+  for (uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    ASSERT_OK(DestroyDB(dbname2, options));
+    std::unique_ptr<DB> db2;
+    ASSERT_OK(DB::Open(options, dbname2, &db2));
+    // No handles: every read record on the default column family must still
+    // replay.
+    TraceExecutionResultHandler res_handler;
+    ASSERT_OK(ReplayTraceFile(env_, trace_filename, db2.get(),
+                              /*handles=*/{}, num_threads, &res_handler));
+    // Each record replayed and produced a result.
+    ASSERT_EQ(2, res_handler.GetNumWrites());
+    ASSERT_EQ(1, res_handler.GetNumGets());
+    ASSERT_EQ(1, res_handler.GetNumMultiGets());
+    ASSERT_EQ(2, res_handler.GetNumIterSeeks());
+    std::string value;
+    ASSERT_OK(db2->Get(ReadOptions(), "a", &value));
+    ASSERT_EQ("1", value);
+    ASSERT_OK(db2->Get(ReadOptions(), "b", &value));
+    ASSERT_EQ("2", value);
+  }
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+TEST_F(DBTest2, TraceReplayReturnsExecutionError) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(TraceOptions(), std::move(trace_writer)));
+  ASSERT_EQ("NOT_FOUND", Get(1, "a"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "b"));
+  ASSERT_OK(db_->EndTrace());
+
+  // The replay DB has no "pikachu" column family, so both Get records fail.
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay2");
+  options.create_if_missing = true;
+  ASSERT_OK(DestroyDB(dbname2, options));
+  std::unique_ptr<DB> db2;
+  ASSERT_OK(DB::Open(options, dbname2, &db2));
+  for (uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    Status s = ReplayTraceFile(env_, trace_filename, db2.get(),
+                               {db2->DefaultColumnFamily()}, num_threads);
+    ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  }
+  db2.reset();
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
+TEST_F(DBTest2, TraceReplayReturnsNotSupportedExecutionError) {
+  Options options = CurrentOptions();
+  std::string trace_filename = dbname_ + "/rocksdb.trace";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(
+      NewFileTraceWriter(env_, EnvOptions(), trace_filename, &trace_writer));
+  ASSERT_OK(db_->StartTrace(TraceOptions(), std::move(trace_writer)));
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+  ASSERT_OK(db_->EndTrace());
+
+  // DeleteRange is not compatible with row_cache, so replaying the DeleteRange
+  // write fails with NotSupported. Unlike an unsupported trace type, this must
+  // not be skipped.
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay2");
+  options.create_if_missing = true;
+  options.row_cache = NewLRUCache(1 << 20);
+  for (uint32_t num_threads : {1U, 2U}) {
+    SCOPED_TRACE("num_threads=" + std::to_string(num_threads));
+    ASSERT_OK(DestroyDB(dbname2, options));
+    std::unique_ptr<DB> db2;
+    ASSERT_OK(DB::Open(options, dbname2, &db2));
+    Status s = ReplayTraceFile(env_, trace_filename, db2.get(),
+                               /*handles=*/{}, num_threads);
+    ASSERT_TRUE(s.IsNotSupported()) << s.ToString();
+  }
+  ASSERT_OK(DestroyDB(dbname2, options));
+}
+
 TEST_F(DBTest2, TraceWithSampling) {
   Options options = CurrentOptions();
   ReadOptions ro;

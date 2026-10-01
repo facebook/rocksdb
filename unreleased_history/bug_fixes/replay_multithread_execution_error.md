@@ -1,0 +1,1 @@
+Fixed multi-threaded `Replayer::Replay()` ignoring errors from executing trace records and returning OK. It now stops and returns the error, including `Status::NotSupported()` from executing a record, as single-threaded replay does.

@@ -84,7 +84,9 @@ class TraceRecord {
   virtual Status Accept(Handler* handler,
                         std::unique_ptr<TraceRecordResult>* result) = 0;
 
-  // Create a handler for the exeution of TraceRecord.
+  // Create a handler for the execution of TraceRecord. `handles` are the column
+  // families that read records may refer to. The default column family of
+  // `db` is always included, so `handles` may be empty.
   static Handler* NewExecutionHandler(
       DB* db, const std::vector<ColumnFamilyHandle*>& handles);
 

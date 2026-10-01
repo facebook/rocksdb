@@ -76,6 +76,14 @@ class Replayer {
   //
   // result_callback reports the status of executing a trace record, and the
   // actual operation execution result (See the description for Execute()).
+  // With multiple threads, it is called concurrently and must be thread-safe.
+  //
+  // Replay stops at the first trace record that fails to decode or execute and
+  // returns that status. Trace types the replayer does not support are
+  // skipped, but a supported record whose execution returns
+  // Status::NotSupported() stops the replay. With multiple threads, records
+  // already scheduled still run, and the status returned is that of the failed
+  // record with the earliest trace timestamp.
   virtual Status Replay(
       const ReplayOptions& options,
       const std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)>&

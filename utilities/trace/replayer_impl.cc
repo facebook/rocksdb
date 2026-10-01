@@ -152,9 +152,12 @@ Status ReplayerImpl::Replay(
     thread_pool.SetBackgroundThreads(static_cast<int>(options.num_threads));
 
     std::mutex mtx;
-    // Background decoding and execution status.
+    // Background decoding and execution status. Guarded by mtx; read without
+    // it only after the thread pool is joined.
     Status bg_s = Status::OK();
     uint64_t last_err_ts = static_cast<uint64_t>(-1);
+    // Set with bg_s so the scheduling loop can stop without taking mtx.
+    std::atomic<bool> bg_failed{false};
     // Callback function used in background work to update bg_s for the ealiest
     // TraceRecord which has execution error. This is different from the
     // timestamp of the first execution error (either start or end timestamp).
@@ -170,19 +173,21 @@ Status ReplayerImpl::Replay(
     // the first error is also the last error, while in multi-thread replay, the
     // first error may not be the first error in execution, and it may not be
     // the last error in exeution as well.
-    auto error_cb = [&mtx, &bg_s, &last_err_ts](Status err, uint64_t err_ts) {
+    auto error_cb = [&mtx, &bg_s, &last_err_ts, &bg_failed](const Status& err,
+                                                            uint64_t err_ts) {
       std::lock_guard<std::mutex> gd(mtx);
       // Only record the first error.
-      if (!err.ok() && !err.IsNotSupported() && err_ts < last_err_ts) {
+      if (!err.ok() && err_ts < last_err_ts) {
         bg_s = err;
         last_err_ts = err_ts;
+        bg_failed.store(true, std::memory_order_relaxed);
       }
     };
 
     std::chrono::system_clock::time_point replay_epoch =
         std::chrono::system_clock::now();
 
-    while (bg_s.ok() && s.ok()) {
+    while (!bg_failed.load(std::memory_order_relaxed) && s.ok()) {
       Trace trace;
       s = ReadTrace(&trace);
       // If already at trace end, ReadTrace should return Status::Incomplete().
@@ -288,8 +293,10 @@ void ReplayerImpl::BackgroundWork(void* arg) {
   Status s = TracerHelper::DecodeTraceRecord(&(ra->trace_entry),
                                              ra->trace_file_version, &record);
   if (!s.ok()) {
-    // Stop the replay
-    if (ra->error_cb != nullptr) {
+    // Stop the replay, except for an unsupported trace type, which is skipped
+    // as in single-threaded replay. Replay() schedules only supported types,
+    // so this is a safeguard.
+    if (!s.IsNotSupported() && ra->error_cb != nullptr) {
       ra->error_cb(s, ra->trace_entry.ts);
     }
     // Report the result
@@ -307,6 +314,11 @@ void ReplayerImpl::BackgroundWork(void* arg) {
     ra->result_cb(s, std::move(res));
   }
   record.reset();
+  // Stop the replay on any execution error, including NotSupported, as
+  // single-threaded replay does.
+  if (!s.ok() && ra->error_cb != nullptr) {
+    ra->error_cb(s, ra->trace_entry.ts);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
