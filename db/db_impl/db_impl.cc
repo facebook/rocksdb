@@ -549,7 +549,10 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
       FlushOptions flush_opts;
       // We allow flush to stall write since we are trying to resume from error.
       flush_opts.allow_write_stall = true;
-      flush_opts.force_atomic_flush = context.IsWALWriteErrorRecovery();
+      // Keep the per-column-family WAL replay boundaries in one MANIFEST
+      // commit. Otherwise a crash between sequential flushes can recover only
+      // part of a write batch spanning multiple column families.
+      flush_opts.force_atomic_flush = true;
       if (context.IsWALWriteErrorRecovery()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "[WAL recovery] Starting atomic flush of all live "

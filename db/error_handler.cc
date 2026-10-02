@@ -491,12 +491,11 @@ void ErrorHandler::SetBGErrorImpl(const Status& bg_status,
   }
   if (db_options_.manual_wal_flush && wal_related && bg_io_err.IsIOError()) {
     // With manual_wal_flush, a WAL write failure can drop buffered WAL writes.
-    // Memtables and WAL then become inconsistent. A successful memtable flush
-    // on one CF can cause CFs to be inconsistent upon restart. Before we fix
-    // the bug in auto recovery from WAL write failures that can flush one CF
-    // at a time, we set the error severity to fatal to disallow auto recovery.
-    // TODO: remove parameter `wal_related` once we can automatically recover
-    //  from WAL write failures.
+    // Memtables and WAL can then become inconsistent. Full error recovery now
+    // flushes all CFs atomically, but automatically recovering this case still
+    // needs dedicated analysis and testing. Keep the error fatal until then.
+    // TODO: Re-evaluate `wal_related` and automatic recovery for
+    //  manual_wal_flush WAL failures.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kFatalError);
     CheckAndSetRecoveryAndBGError(bg_err, context);
