@@ -7,7 +7,9 @@
 
 #include <atomic>
 #include <cinttypes>
+#include <condition_variable>
 #include <future>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -748,6 +750,153 @@ TEST_F(DeleteSchedulerTest, DeleteAccountedAndUnaccountedFiles) {
   }
 
   delete_scheduler_->WaitForEmptyTrash();
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  ASSERT_EQ(0, sst_file_mgr_->GetTotalSize());
+}
+
+TEST_F(DeleteSchedulerTest, WaitForEmptyTrashInDirectory) {
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / s
+  NewDeleteScheduler();
+
+  const std::string first_file =
+      NewDummyFile("first.data", 1024, /*dummy_files_dirs_idx=*/0);
+  const std::string second_file =
+      NewDummyFile("second.data", 1024, /*dummy_files_dirs_idx=*/1);
+  std::string first_dir_alias = dummy_files_dirs_[0];
+  first_dir_alias.insert(first_dir_alias.find_last_of('/'), "/");
+  std::string second_dir_alias = dummy_files_dirs_[1];
+  second_dir_alias.insert(second_dir_alias.find_last_of('/'), "/");
+  std::string second_trash_file = second_file;
+  second_trash_file.append(".trash");
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool second_delete_started = false;
+  bool allow_second_delete = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile::cb", [&](void* arg) {
+        const std::string& path = *static_cast<std::string*>(arg);
+        if (path != second_trash_file) {
+          return;
+        }
+        std::unique_lock<std::mutex> lock(mutex);
+        second_delete_started = true;
+        cv.notify_one();
+        cv.wait(lock, [&] { return allow_second_delete; });
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(delete_scheduler_->DeleteFile(first_file, first_dir_alias));
+  ASSERT_OK(delete_scheduler_->DeleteFile(second_file, dummy_files_dirs_[1]));
+
+  delete_scheduler_->WaitForEmptyTrashInDirectory(dummy_files_dirs_[0]);
+
+  Status second_file_status;
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    cv.wait(lock, [&] { return second_delete_started; });
+    second_file_status = env_->FileExists(second_trash_file);
+    allow_second_delete = true;
+  }
+  cv.notify_one();
+
+  delete_scheduler_->WaitForEmptyTrashInDirectory(second_dir_alias);
+  ASSERT_OK(second_file_status);
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  ASSERT_EQ(0, sst_file_mgr_->GetTotalSize());
+}
+
+TEST_F(DeleteSchedulerTest, RetryFailedAccountedTrashDeletion) {
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / s
+  NewDeleteScheduler();
+
+  constexpr uint64_t file_size = 1024;
+  const std::string file = NewDummyFile("retry.data", file_size);
+  const std::string trash_file = file + DeleteScheduler::kTrashExtension;
+  std::atomic<bool> fail_next_delete{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:BeforeDeleteFile", [&](void* arg) {
+        if (fail_next_delete.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::IOError("injected delete error");
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(delete_scheduler_->DeleteFile(file, dummy_files_dirs_[0],
+                                          /*force_bg=*/true));
+  delete_scheduler_->WaitForEmptyTrashInDirectory(dummy_files_dirs_[0]);
+  ASSERT_FALSE(fail_next_delete);
+  ASSERT_OK(env_->FileExists(trash_file));
+  ASSERT_EQ(file_size, sst_file_mgr_->GetTotalSize());
+  ASSERT_EQ(file_size, delete_scheduler_->GetTotalTrashSize());
+  auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+  ASSERT_EQ(1, bg_errors.size());
+  for (auto& error : bg_errors) {
+    ASSERT_NOK(error.second);
+  }
+
+  std::optional<int32_t> bucket = delete_scheduler_->NewTrashBucket();
+  ASSERT_TRUE(bucket.has_value());
+  ASSERT_OK(sst_file_mgr_->ScheduleExistingTrashFileDeletion(
+      trash_file, dummy_files_dirs_[0], /*force_bg=*/true, bucket));
+  delete_scheduler_->WaitForEmptyTrashBucket(bucket.value());
+
+  ASSERT_TRUE(env_->FileExists(trash_file).IsNotFound());
+  ASSERT_EQ(0, sst_file_mgr_->GetTotalSize());
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  bg_errors = delete_scheduler_->GetBackgroundErrors();
+  ASSERT_EQ(1, bg_errors.size());
+  for (auto& error : bg_errors) {
+    ASSERT_NOK(error.second);
+  }
+}
+
+TEST_F(DeleteSchedulerTest, ConcurrentDirectoryWaitStress) {
+  rate_bytes_per_sec_ = 64 * 1024 * 1024;
+  NewDeleteScheduler();
+
+  constexpr int num_rounds = 10;
+  constexpr int files_per_directory = 20;
+  for (int round = 0; round < num_rounds; ++round) {
+    std::vector<std::string> aliases;
+    aliases.reserve(dummy_files_dirs_.size());
+    for (const std::string& dir : dummy_files_dirs_) {
+      std::string alias = dir;
+      alias.insert(alias.find_last_of('/'), "/");
+      aliases.push_back(std::move(alias));
+    }
+
+    for (size_t dir = 0; dir < dummy_files_dirs_.size(); ++dir) {
+      for (int file = 0; file < files_per_directory; ++file) {
+        const std::string name = "stress_" + std::to_string(round) + "_" +
+                                 std::to_string(file) + ".data";
+        const std::string path = NewDummyFile(name, 1024, dir);
+        const std::string& directory_key =
+            (round + static_cast<int>(dir)) % 2 == 0 ? dummy_files_dirs_[dir]
+                                                     : aliases[dir];
+        ASSERT_OK(delete_scheduler_->DeleteFile(path, directory_key,
+                                                /*force_bg=*/true));
+      }
+    }
+
+    std::vector<port::Thread> waiters;
+    waiters.reserve(dummy_files_dirs_.size());
+    for (size_t dir = 0; dir < dummy_files_dirs_.size(); ++dir) {
+      waiters.emplace_back([&, dir] {
+        const std::string& directory_key =
+            (round + static_cast<int>(dir)) % 2 == 0 ? aliases[dir]
+                                                     : dummy_files_dirs_[dir];
+        delete_scheduler_->WaitForEmptyTrashInDirectory(directory_key);
+      });
+    }
+    for (auto& waiter : waiters) {
+      waiter.join();
+    }
+    for (size_t dir = 0; dir < dummy_files_dirs_.size(); ++dir) {
+      ASSERT_EQ(0, CountTrashFiles(dir));
+    }
+  }
+
   ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
   ASSERT_EQ(0, sst_file_mgr_->GetTotalSize());
 }

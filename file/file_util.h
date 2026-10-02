@@ -75,6 +75,15 @@ Status DeleteUnaccountedDBFile(const ImmutableDBOptions* db_options,
                                const bool force_bg, const bool force_fg,
                                std::optional<int32_t> bucket);
 
+// Delete a file that is already marked as trash. If the SstFileManager has a
+// failed accounted deletion for the file, its accounting is preserved through
+// the retry.
+Status DeleteExistingTrashDBFile(const ImmutableDBOptions* db_options,
+                                 const std::string& fname,
+                                 const std::string& dir_to_sync,
+                                 const bool force_bg, const bool force_fg,
+                                 std::optional<int32_t> bucket);
+
 // TODO(hx235): pass the whole DBOptions intead of its individual fields
 IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,

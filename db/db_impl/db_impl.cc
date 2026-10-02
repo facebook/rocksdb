@@ -70,6 +70,7 @@
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "env/unique_id_gen.h"
+#include "file/delete_scheduler.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -6392,21 +6393,36 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   // log file and prevents cleanup and directory removal
   soptions.info_log.reset();
   IOOptions io_opts;
-  // Ignore error in case directory does not exist
-  soptions.fs
-      ->GetChildren(dbname, io_opts, &filenames,
-                    /*IODebugContext*=*/nullptr)
-      .PermitUncheckedError();
 
   std::set<std::string> paths_to_delete;
   FileLock* lock;
   const std::string lockname = LockFileName(dbname);
   Status result = env->LockFile(lockname, &lock);
   if (result.ok()) {
+    if (sfm) {
+      sfm->WaitForEmptyTrashInDirectory(dbname);
+    }
+    // Ignore error in case directory does not exist
+    soptions.fs
+        ->GetChildren(dbname, io_opts, &filenames,
+                      /*IODebugContext*=*/nullptr)
+        .PermitUncheckedError();
+
     uint64_t number;
     FileType type;
     InfoLogPrefix info_log_prefix(!soptions.db_log_dir.empty(), dbname);
     for (const auto& fname : filenames) {
+      if (DeleteScheduler::IsTrashFile(fname)) {
+        std::string trash_file_path = dbname;
+        trash_file_path.append("/").append(fname);
+        Status del = DeleteExistingTrashDBFile(&soptions, trash_file_path,
+                                               dbname, /*force_bg=*/false,
+                                               /*force_fg=*/false, bucket);
+        if (!del.ok() && result.ok()) {
+          result = del;
+        }
+        continue;
+      }
       if (ParseFileName(fname, &number, info_log_prefix.prefix, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
         Status del;
@@ -6446,14 +6462,26 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     }
 
     for (const auto& path : paths) {
+      if (sfm) {
+        sfm->WaitForEmptyTrashInDirectory(path);
+      }
       if (soptions.fs
               ->GetChildren(path, io_opts, &filenames,
                             /*IODebugContext*=*/nullptr)
               .ok()) {
         for (const auto& fname : filenames) {
-          if (ParseFileName(fname, &number, &type) &&
-              (type == kTableFile ||
-               type == kBlobFile)) {  // Lock file will be deleted at end
+          if (DeleteScheduler::IsTrashFile(fname)) {
+            std::string trash_file_path = path;
+            trash_file_path.append("/").append(fname);
+            Status del = DeleteExistingTrashDBFile(&soptions, trash_file_path,
+                                                   path, /*force_bg=*/false,
+                                                   /*force_fg=*/false, bucket);
+            if (!del.ok() && result.ok()) {
+              result = del;
+            }
+          } else if (ParseFileName(fname, &number, &type) &&
+                     (type == kTableFile ||
+                      type == kBlobFile)) {  // Lock file will be deleted at end
             std::string file_path = path + "/" + fname;
             Status del = DeleteUnaccountedDBFile(&soptions, file_path, dbname,
                                                  /*force_bg=*/false,
@@ -6472,6 +6500,9 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     std::string archivedir = ArchivalDirectory(dbname);
     bool wal_dir_exists = false;
     if (!soptions.IsWalDirSameAsDBPath(dbname)) {
+      if (sfm) {
+        sfm->WaitForEmptyTrashInDirectory(soptions.wal_dir);
+      }
       wal_dir_exists =
           soptions.fs
               ->GetChildren(soptions.wal_dir, io_opts, &walDirFiles,
@@ -6484,13 +6515,25 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     // processed and removed before those otherwise we have issues
     // removing them
     std::vector<std::string> archiveFiles;
+    if (sfm) {
+      sfm->WaitForEmptyTrashInDirectory(archivedir);
+    }
     if (soptions.fs
             ->GetChildren(archivedir, io_opts, &archiveFiles,
                           /*IODebugContext*=*/nullptr)
             .ok()) {
       // Delete archival files.
       for (const auto& file : archiveFiles) {
-        if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        if (DeleteScheduler::IsTrashFile(file)) {
+          std::string trash_file_path = archivedir;
+          trash_file_path.append("/").append(file);
+          Status del = DeleteExistingTrashDBFile(
+              &soptions, trash_file_path, archivedir, /*force_bg=*/false,
+              /*force_fg=*/!wal_in_db_path, bucket);
+          if (!del.ok() && result.ok()) {
+            result = del;
+          }
+        } else if (ParseFileName(file, &number, &type) && type == kWalFile) {
           Status del = DeleteUnaccountedDBFile(
               &soptions, archivedir + "/" + file, archivedir,
               /*force_bg=*/false, /*force_fg=*/!wal_in_db_path, bucket);
@@ -6505,7 +6548,16 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     // Delete log files in the WAL dir
     if (wal_dir_exists) {
       for (const auto& file : walDirFiles) {
-        if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        if (DeleteScheduler::IsTrashFile(file)) {
+          std::string trash_file_path = soptions.wal_dir;
+          trash_file_path.append("/").append(file);
+          Status del = DeleteExistingTrashDBFile(
+              &soptions, trash_file_path, soptions.wal_dir,
+              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path, bucket);
+          if (!del.ok() && result.ok()) {
+            result = del;
+          }
+        } else if (ParseFileName(file, &number, &type) && type == kWalFile) {
           Status del = DeleteUnaccountedDBFile(
               &soptions, LogFileName(soptions.wal_dir, number),
               soptions.wal_dir, /*force_bg=*/false,

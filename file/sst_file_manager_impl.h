@@ -140,9 +140,20 @@ class SstFileManagerImpl : public SstFileManager {
       const bool force_bg = false,
       std::optional<int32_t> bucket = std::nullopt);
 
+  // Delete a file that is already marked as trash. If an earlier accounted
+  // deletion failed, preserve that accounting through the retry.
+  Status ScheduleExistingTrashFileDeletion(
+      const std::string& file_path, const std::string& dir_to_sync,
+      const bool force_bg = false,
+      std::optional<int32_t> bucket = std::nullopt);
+
   // Wait for all files being deleted in the background to finish or for
   // destructor to be called.
   virtual void WaitForEmptyTrash();
+
+  // Wait for background deletions registered with this normalized
+  // dir_to_sync to finish or for the destructor to be called.
+  void WaitForEmptyTrashInDirectory(const std::string& dir_to_sync);
 
   // Creates a new trash bucket. A legitimate bucket is only created and
   // returned when slow deletion is enabled.
