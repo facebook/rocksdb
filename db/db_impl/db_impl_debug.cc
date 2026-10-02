@@ -182,9 +182,23 @@ Status DBImpl::TEST_FlushMemTableWithListenerWait(bool allow_write_stall,
 
 Status DBImpl::TEST_AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& provided_candidate_cfds,
-    const FlushOptions& flush_opts) {
-  return AtomicFlushMemTables(flush_opts, FlushReason::kTest,
-                              provided_candidate_cfds);
+    const FlushOptions& flush_opts, bool non_blocking_write_thread) {
+  const auto join_mode = non_blocking_write_thread
+                             ? WriteThreadJoinMode::kNonBlocking
+                             : WriteThreadJoinMode::kBlocking;
+  return AtomicFlushMemTablesImpl(flush_opts, FlushReason::kTest,
+                                  provided_candidate_cfds,
+                                  false /* entered_write_thread */, join_mode);
+}
+
+void DBImpl::TEST_BeginWriteStall() {
+  InstrumentedMutexLock l(&mutex_);
+  write_thread_.BeginWriteStall();
+}
+
+void DBImpl::TEST_EndWriteStall() {
+  InstrumentedMutexLock l(&mutex_);
+  write_thread_.EndWriteStall();
 }
 
 Status DBImpl::TEST_WaitForBackgroundWork() {

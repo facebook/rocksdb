@@ -21,13 +21,21 @@ namespace ROCKSDB_NAMESPACE {
 WriteBufferManager::WriteBufferManager(size_t _buffer_size,
                                        std::shared_ptr<Cache> cache,
                                        bool allow_stall)
+    : WriteBufferManager(_buffer_size, cache, allow_stall,
+                         WriteBufferFlushPolicy::kFlushOldest) {}
+
+WriteBufferManager::WriteBufferManager(size_t _buffer_size,
+                                       std::shared_ptr<Cache> cache,
+                                       bool allow_stall,
+                                       WriteBufferFlushPolicy flush_policy)
     : buffer_size_(_buffer_size),
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
       cache_res_mgr_(nullptr),
       allow_stall_(allow_stall),
-      stall_active_(false) {
+      stall_active_(false),
+      flush_policy_(flush_policy) {
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -180,6 +188,39 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
     }
   }
   wbm_stall->Signal();
+}
+
+void WriteBufferManager::RegisterFlushInitiator(FlushInitiator* initiator) {
+  std::lock_guard<std::mutex> lock(flush_initiators_mu_);
+  flush_initiators_.push_back(initiator);
+}
+
+void WriteBufferManager::DeregisterFlushInitiator(FlushInitiator* initiator) {
+  std::lock_guard<std::mutex> lock(flush_initiators_mu_);
+  flush_initiators_.remove(initiator);
+}
+
+bool WriteBufferManager::InitiateFlushOnLargestDB(FlushInitiator* self) {
+  // Hold the registry lock across callbacks to pin raw initiator pointers.
+  std::lock_guard<std::mutex> lock(flush_initiators_mu_);
+  if (self != nullptr && flush_initiators_.size() == 1 &&
+      flush_initiators_.front() == self) {
+    return false;
+  }
+  FlushInitiator* best = nullptr;
+  size_t best_mem = 0;
+  for (FlushInitiator* initiator : flush_initiators_) {
+    size_t mem = initiator->GetFlushableMemUsage();
+    if (best == nullptr || mem > best_mem) {
+      best = initiator;
+      best_mem = mem;
+    }
+  }
+  if (best == nullptr || best == self || best_mem == 0) {
+    return false;
+  }
+  // DB state can change after bidding; propagate a declined schedule.
+  return best->ScheduleFlush();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
