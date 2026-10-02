@@ -105,7 +105,7 @@ No data is rewritten — files are simply removed.
 **When**: `ttl > 0`
 
 Drops L0 files whose data is older than the TTL threshold. Iterates from
-oldest to newest, checking `newest_key_time` or `creation_time` from table
+oldest to newest, checking `newest_key_time` or `oldest_ancestor_time` from table
 properties against `current_time - ttl`.
 
 ```

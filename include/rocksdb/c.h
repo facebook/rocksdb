@@ -1785,6 +1785,10 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_table_properties_column_family_id(
     const rocksdb_table_properties_t* props);
 
 extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_table_properties_oldest_ancestor_time(
+    const rocksdb_table_properties_t* props);
+
+extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_table_properties_creation_time(const rocksdb_table_properties_t* props);
 
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_table_properties_oldest_key_time(

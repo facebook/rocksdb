@@ -407,7 +407,7 @@ struct FileMetaData {
     }
     TableReader* reader = fd.pinned_reader.Get();
     if (reader != nullptr && reader->GetTableProperties() != nullptr) {
-      return reader->GetTableProperties()->creation_time;
+      return reader->GetTableProperties()->oldest_ancestor_time;
     }
     return kUnknownOldestAncesterTime;
   }
