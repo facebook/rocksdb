@@ -138,6 +138,98 @@ class BlobFileReaderTest : public testing::Test {
   std::unique_ptr<Env> mock_env_;
 };
 
+TEST(BlobMapFormatTest, HeaderV2RoundTrip) {
+  BlobLogHeaderV2 header(/*column_family_id=*/7, kLZ4Compression,
+                         /*origin_file_number=*/123);
+  std::string encoded;
+  header.EncodeTo(&encoded);
+  ASSERT_EQ(encoded.size(), BlobLogHeaderV2::kSize);
+
+  BlobLogHeaderV2 decoded;
+  ASSERT_OK(decoded.DecodeFrom(encoded));
+  EXPECT_EQ(decoded.version, kVersion2);
+  EXPECT_EQ(decoded.column_family_id, 7U);
+  EXPECT_EQ(decoded.compression, kLZ4Compression);
+  EXPECT_EQ(decoded.origin_file_number, 123U);
+
+  encoded[4] = static_cast<char>(kVersion1);
+  BlobLogHeaderV2 invalid;
+  ASSERT_TRUE(invalid.DecodeFrom(encoded).IsCorruption());
+}
+
+TEST(BlobMapFormatTest, FooterV2RoundTripAndChecksum) {
+  BlobLogFooterV2 footer;
+  footer.blob_count = 3;
+  footer.origin_file_number = 123;
+  footer.map_offset = 4096;
+  footer.map_size = 256;
+  footer.map_crc = 789;
+
+  std::string encoded;
+  footer.EncodeTo(&encoded);
+  ASSERT_EQ(encoded.size(), BlobLogFooterV2::kSize);
+
+  BlobLogFooterV2 decoded;
+  ASSERT_OK(decoded.DecodeFrom(encoded));
+  EXPECT_EQ(decoded.blob_count, footer.blob_count);
+  EXPECT_EQ(decoded.origin_file_number, footer.origin_file_number);
+  EXPECT_EQ(decoded.map_offset, footer.map_offset);
+  EXPECT_EQ(decoded.map_size, footer.map_size);
+  EXPECT_EQ(decoded.map_crc, footer.map_crc);
+
+  encoded[8] ^= 1;
+  ASSERT_TRUE(decoded.DecodeFrom(encoded).IsCorruption());
+}
+
+TEST(BlobMapFormatTest, RecordV2BindsOriginOffset) {
+  const std::string key = "key";
+  const std::string value = "value";
+
+  BlobLogRecordV2 record;
+  record.key = key;
+  record.value = value;
+  record.origin_offset = 987;
+
+  std::string encoded;
+  record.EncodeHeaderTo(&encoded);
+  ASSERT_EQ(encoded.size(), BlobLogRecordV2::kHeaderSize);
+
+  BlobLogRecordV2 decoded;
+  ASSERT_OK(decoded.DecodeHeaderFrom(encoded));
+  EXPECT_EQ(decoded.key_size, key.size());
+  EXPECT_EQ(decoded.value_size, value.size());
+  EXPECT_EQ(decoded.origin_offset, 987U);
+  decoded.key = key;
+  decoded.value = value;
+  ASSERT_OK(decoded.CheckBlobCRC());
+
+  encoded[24] ^= 1;
+  ASSERT_TRUE(decoded.DecodeHeaderFrom(encoded).IsCorruption());
+}
+
+TEST(BlobMapFormatTest, MapRoundTripLookupAndValidation) {
+  BlobMap map({{100, 1000}, {200, 1200}, {400, 1600}});
+  std::string encoded;
+  uint32_t checksum = 0;
+  ASSERT_OK(map.EncodeTo(&encoded, &checksum));
+
+  BlobMap decoded;
+  ASSERT_OK(decoded.DecodeFrom(encoded, checksum));
+  EXPECT_EQ(decoded.entries(), map.entries());
+
+  uint64_t destination_offset = 0;
+  ASSERT_OK(decoded.Find(200, &destination_offset));
+  EXPECT_EQ(destination_offset, 1200U);
+  ASSERT_TRUE(decoded.Find(201, &destination_offset).IsNotFound());
+
+  std::string corrupt = encoded;
+  corrupt[BlobMap::kHeaderSize] ^= 1;
+  ASSERT_TRUE(decoded.DecodeFrom(corrupt, checksum).IsCorruption());
+
+  BlobMap unsorted({{200, 1200}, {100, 1000}});
+  ASSERT_TRUE(unsorted.EncodeTo(&encoded, &checksum).IsInvalidArgument());
+}
+
 namespace {
 
 // Returns a stale path-level size for one target blob file while leaving the

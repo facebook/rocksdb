@@ -57,6 +57,28 @@ TEST(BlobIndexTest, SameFileBlobIndex) {
   EXPECT_NE(blob_index.DebugString(false).find("file:same"), std::string::npos);
 }
 
+TEST(BlobIndexTest, IndirectBlobIndex) {
+  std::string encoded;
+  BlobIndex::EncodeIndirectBlob(&encoded, /*origin_file_number=*/123,
+                                /*origin_offset=*/456, /*size=*/789,
+                                kLZ4Compression);
+
+  BlobIndex blob_index;
+  ASSERT_OK(blob_index.DecodeFrom(encoded));
+  EXPECT_TRUE(blob_index.IsIndirect());
+  EXPECT_FALSE(blob_index.IsSameFile());
+  EXPECT_EQ(blob_index.file_number(), 123U);
+  EXPECT_EQ(blob_index.offset(), 456U);
+  EXPECT_EQ(blob_index.size(), 789U);
+  EXPECT_EQ(blob_index.compression(), kLZ4Compression);
+  EXPECT_NE(blob_index.DebugString(false).find("origin:123"),
+            std::string::npos);
+
+  std::string reencoded;
+  blob_index.EncodeTo(&reencoded);
+  EXPECT_EQ(reencoded, encoded);
+}
+
 // kTypeBlobIndex is a value type used by BlobDB only. The base rocksdb
 // should accept the value type on write, and report not supported value
 // for reads, unless caller request for it explicitly. The base rocksdb

@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -19,6 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 
 constexpr uint32_t kMagicNumber = 2395959;  // 0x00248f37
 constexpr uint32_t kVersion1 = 1;
+constexpr uint32_t kVersion2 = 2;
+constexpr uint32_t kBlobMapMagicNumber = 0x424d4150;  // "BMAP"
 
 using ExpirationRange = std::pair<uint64_t, uint64_t>;
 
@@ -62,6 +65,29 @@ struct BlobLogHeader {
   Status DecodeFrom(Slice slice);
 };
 
+// Header for a lineage-pure blob file produced by indirection GC. The first
+// 30 bytes intentionally have the same shape as BlobLogHeader, followed by the
+// immutable origin blob file number shared by all records in the file.
+struct BlobLogHeaderV2 {
+  static constexpr size_t kSize = BlobLogHeader::kSize + sizeof(uint64_t);
+
+  BlobLogHeaderV2() = default;
+  BlobLogHeaderV2(uint32_t _column_family_id, CompressionType _compression,
+                  uint64_t _origin_file_number)
+      : column_family_id(_column_family_id),
+        compression(_compression),
+        origin_file_number(_origin_file_number) {}
+
+  uint32_t version = kVersion2;
+  uint32_t column_family_id = 0;
+  CompressionType compression = kNoCompression;
+  uint64_t origin_file_number = 0;
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice slice);
+};
+
 // clang-format off
 
 // Format of blob log file footer (32 bytes):
@@ -85,6 +111,25 @@ struct BlobLogFooter {
   uint64_t blob_count = 0;
   ExpirationRange expiration_range = std::make_pair(0, 0);
   uint32_t crc = 0;
+
+  void EncodeTo(std::string* dst);
+
+  Status DecodeFrom(Slice slice);
+};
+
+// Footer for a v2 blob container. The embedded map immediately precedes this
+// footer and is additionally checksummed on its own. `map_offset` and
+// `map_size` allow readers to fetch the map with a single range read.
+struct BlobLogFooterV2 {
+  static constexpr size_t kSize = 48;
+
+  uint32_t version = kVersion2;
+  uint64_t blob_count = 0;
+  uint64_t origin_file_number = 0;
+  uint64_t map_offset = 0;
+  uint64_t map_size = 0;
+  uint32_t map_crc = 0;
+  uint32_t footer_crc = 0;
 
   void EncodeTo(std::string* dst);
 
@@ -144,6 +189,74 @@ struct BlobLogRecord {
   Status DecodeHeaderFrom(Slice src);
 
   Status CheckBlobCRC() const;
+};
+
+// Relocated record format for a v2 lineage-pure blob container. The origin
+// file number is stored once in BlobLogHeaderV2. Each record carries its
+// immutable origin offset, covered by header_crc, so a corrupt map cannot
+// silently select another valid record for the same user key.
+struct BlobLogRecordV2 {
+  static constexpr size_t kHeaderSize = 40;
+
+  static constexpr uint64_t CalculateAdjustmentForRecordHeader(
+      uint64_t key_size) {
+    return key_size + kHeaderSize;
+  }
+
+  uint64_t key_size = 0;
+  uint64_t value_size = 0;
+  uint64_t expiration = 0;
+  uint64_t origin_offset = 0;
+  uint32_t header_crc = 0;
+  uint32_t blob_crc = 0;
+  Slice key;
+  Slice value;
+
+  uint64_t record_size() const { return kHeaderSize + key_size + value_size; }
+
+  void EncodeHeaderTo(std::string* dst);
+
+  Status DecodeHeaderFrom(Slice src);
+
+  Status CheckBlobCRC() const;
+};
+
+struct BlobMapEntry {
+  uint64_t origin_offset = 0;
+  uint64_t destination_offset = 0;
+
+  bool operator==(const BlobMapEntry& rhs) const {
+    return origin_offset == rhs.origin_offset &&
+           destination_offset == rhs.destination_offset;
+  }
+};
+
+// A complete, immutable mapping snapshot for one logical origin blob file.
+// Entries are encoded in strictly increasing origin-offset order. The map is
+// kept deliberately simple and fixed-width so it can be range-read, validated,
+// and binary-searched without depending on a column family's table format.
+class BlobMap {
+ public:
+  static constexpr size_t kHeaderSize = 16;
+  static constexpr size_t kEntrySize = 16;
+  static constexpr size_t kTrailerSize = sizeof(uint32_t);
+
+  BlobMap() = default;
+  explicit BlobMap(std::vector<BlobMapEntry> entries)
+      : entries_(std::move(entries)) {}
+
+  const std::vector<BlobMapEntry>& entries() const { return entries_; }
+
+  Status Validate() const;
+
+  Status EncodeTo(std::string* dst, uint32_t* checksum) const;
+
+  Status DecodeFrom(Slice src, uint32_t expected_checksum);
+
+  Status Find(uint64_t origin_offset, uint64_t* destination_offset) const;
+
+ private:
+  std::vector<BlobMapEntry> entries_;
 };
 
 // Checks whether a blob offset is potentially valid or not.
