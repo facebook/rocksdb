@@ -27,6 +27,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -809,7 +810,8 @@ Status StringToMap(const std::string& opts_str,
 
     // Locate value start (after '=' and any whitespace).
     size_t value_start = eq_pos + 1;
-    while (value_start < opts.size() && isspace(opts[value_start])) {
+    while (value_start < opts.size() &&
+           isspace(lossless_cast<unsigned char>(opts[value_start]))) {
       ++value_start;
     }
 
@@ -836,7 +838,8 @@ Status StringToMap(const std::string& opts_str,
       value = opts.substr(value_start, brace_pos - value_start + 1);
       pos = brace_pos + 1;
       // Allow whitespace, then either delimiter or end.
-      while (pos < opts.size() && isspace(opts[pos])) {
+      while (pos < opts.size() &&
+             isspace(lossless_cast<unsigned char>(opts[pos]))) {
         ++pos;
       }
       if (pos < opts.size() && opts[pos] != ';') {
@@ -1074,7 +1077,8 @@ std::unordered_map<std::string, PrepopulateBlobCache>
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {
-  while (pos < opts.size() && isspace(opts[pos])) {
+  while (pos < opts.size() &&
+         isspace(lossless_cast<unsigned char>(opts[pos]))) {
     ++pos;
   }
   // Empty value at the end
@@ -1102,7 +1106,8 @@ Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
       // skip all whitespace and move to the next delimiter
       // brace_pos points to the next position after the matching '}'
       pos = brace_pos + 1;
-      while (pos < opts.size() && isspace(opts[pos])) {
+      while (pos < opts.size() &&
+             isspace(lossless_cast<unsigned char>(opts[pos]))) {
         ++pos;
       }
       if (pos < opts.size() && opts[pos] != delimiter) {
