@@ -897,6 +897,13 @@ TEST_F(DBTablePropertiesTest, LsmInfoAtCreationPacking) {
   EXPECT_TRUE(decoded.is_bottommost);
 }
 
+TEST_F(DBTablePropertiesTest, CreationTimeAliasesOldestAncestorTime) {
+  TableProperties props;
+  ASSERT_EQ(&props.creation_time, &props.oldest_ancestor_time);
+  props.creation_time = 12345;
+  ASSERT_EQ(props.oldest_ancestor_time, 12345U);
+}
+
 TEST_F(DBTablePropertiesTest, UncompressedDataSizeAndLsmInfoPersisted) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;

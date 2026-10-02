@@ -537,10 +537,10 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * filters periodically. Users can also use the feature to clear up SST
    * files using old format.
    * <p>
-   * A file's age is computed by looking at file_creation_time or creation_time
-   * table properties in order, if they have valid non-zero values; if not, the
-   * age is based on the file's last modified time (given by the underlying
-   * Env).
+   * A file's age is computed by looking at file_creation_time or
+   * oldest_ancestor_time table properties in order, if they have valid
+   * non-zero values; if not, the age is based on the file's last modified time
+   * (given by the underlying Env).
    * <p>
    * Supported in Level and FIFO compaction.
    * In FIFO compaction, this option has the same meaning as TTL and whichever

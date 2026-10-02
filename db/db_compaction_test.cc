@@ -5881,7 +5881,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
           props->file_creation_time = 0;
         }
         if (set_creation_time_to_zero) {
-          props->creation_time = 0;
+          props->oldest_ancestor_time = 0;
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -12417,7 +12417,7 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
     ASSERT_EQ(newest_key_time, file_metadatas[idx]
                                    ->fd.pinned_reader.Get()
                                    ->GetTableProperties()
-                                   ->creation_time);
+                                   ->oldest_ancestor_time);
   }
   // The delta between the first and last newest_key_times is 15s
   uint64_t last_newest_key_time = prev_newest_key_time;
@@ -12436,12 +12436,12 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
                 ->GetTableProperties()
                 ->newest_key_time,
             first_newest_key_time);
-  // Contrast newest_key_time with creation_time, which records the oldest
-  // ancestor time (15s older than newest_key_time)
+  // Contrast newest_key_time with oldest_ancestor_time (15s older than
+  // newest_key_time)
   ASSERT_EQ(file_metadatas[0]
                 ->fd.pinned_reader.Get()
                 ->GetTableProperties()
-                ->creation_time,
+                ->oldest_ancestor_time,
             last_newest_key_time);
   ASSERT_EQ(file_metadatas[0]->oldest_ancester_time, last_newest_key_time);
 

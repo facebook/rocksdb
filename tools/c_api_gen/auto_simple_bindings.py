@@ -819,13 +819,35 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
                 continue
             seen_bases.add(base_name)
             collect(base_name)
+        # Members of an anonymous union are accessed as direct members. Clang
+        # emits the unnamed union record followed by an implicit unnamed
+        # FieldDecl for it.
+        anon_union_fields: list[dict] = []
         for child in node.get("inner", []):
-            if child.get("kind") == "FieldDecl":
+            kind = child.get("kind")
+            if (
+                kind in ("RecordDecl", "CXXRecordDecl")
+                and child.get("tagUsed") == "union"
+                and "name" not in child
+            ):
+                anon_union_fields = [
+                    c for c in child.get("inner", []) if c.get("kind") == "FieldDecl"
+                ]
+                continue
+            if kind != "FieldDecl":
+                continue
+            if "name" in child:
+                members = [child]
+            elif child.get("isImplicit"):
+                members = anon_union_fields
+            else:
+                members = []
+            for member in members:
                 fields.append(
                     (
-                        child["name"],
+                        member["name"],
                         _normalize_qual_type(
-                            child["type"]["qualType"], struct_name
+                            member["type"]["qualType"], struct_name
                         ),
                     )
                 )
