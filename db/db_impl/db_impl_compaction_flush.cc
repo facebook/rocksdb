@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <deque>
+#include <memory>
 #include <unordered_map>
 
 #include "db/blob/blob_file_partition_manager.h"
@@ -2033,7 +2034,7 @@ Status DBImpl::PauseBackgroundWork() {
   InstrumentedMutexLock guard_lock(&mutex_);
   bg_compaction_paused_++;
   while (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
-         bg_flush_scheduled_ > 0) {
+         bg_flush_scheduled_ > 0 || bg_wbm_flush_scheduled_ > 0) {
     bg_cv_.Wait();
   }
   bg_work_paused_++;
@@ -2724,10 +2725,51 @@ void DBImpl::MaybeSyncLastSequenceWithAllocatedForRecovery(
   }
 }
 
+Status DBImpl::EnterWriteThreadForNonBlockingFlush(
+    WriteThread::Writer* w, WriteThread::Writer* nonmem_w) {
+  mutex_.AssertHeld();
+  if (!write_thread_.EnterUnbatchedNonBlocking(w, &mutex_)) {
+    return Status::Incomplete(
+        "Write stall in progress, unable to join the write thread to switch "
+        "memtables");
+  }
+  if (two_write_queues_ &&
+      !nonmem_write_thread_.EnterUnbatchedNonBlocking(nonmem_w, &mutex_)) {
+    write_thread_.ExitUnbatched(w);
+    return Status::Incomplete(
+        "Write stall in progress, unable to join the write thread to switch "
+        "memtables");
+  }
+  if (!error_handler_.IsBGWorkStopped() && !write_controller_.IsStopped() &&
+      !WouldBlockJoiningWriteThread()) {
+    return Status::OK();
+  }
+  write_thread_.ExitUnbatched(w);
+  if (two_write_queues_) {
+    nonmem_write_thread_.ExitUnbatched(nonmem_w);
+  }
+  return Status::Incomplete(
+      "Write stop started while joining the write thread to switch memtables");
+}
+
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              FlushReason flush_reason,
                              bool entered_write_thread) {
+  return FlushMemTableImpl(cfd, flush_options, flush_reason,
+                           entered_write_thread, WriteThreadJoinMode::kBlocking,
+                           nullptr /* made_progress */);
+}
+
+Status DBImpl::FlushMemTableImpl(ColumnFamilyData* cfd,
+                                 const FlushOptions& flush_options,
+                                 FlushReason flush_reason,
+                                 bool entered_write_thread,
+                                 WriteThreadJoinMode join_mode,
+                                 bool* made_progress) {
+  if (made_progress != nullptr) {
+    *made_progress = false;
+  }
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   if (!flush_options.wait && write_controller_.IsStopped()) {
@@ -2763,12 +2805,44 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteThread::Writer w;
     WriteThread::Writer nonmem_w;
     if (needs_to_join_write_thread) {
-      write_thread_.EnterUnbatched(&w, &mutex_);
-      if (two_write_queues_) {
-        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      if (join_mode == WriteThreadJoinMode::kNonBlocking) {
+        s = EnterWriteThreadForNonBlockingFlush(&w, &nonmem_w);
+        if (!s.ok()) {
+          return s;
+        }
+      } else {
+        write_thread_.EnterUnbatched(&w, &mutex_);
+        if (two_write_queues_) {
+          nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+        }
       }
     }
+    if (join_mode == WriteThreadJoinMode::kNonBlocking && cfd->IsDropped()) {
+      TEST_SYNC_POINT("DBImpl::FlushMemTableImpl:Dropped");
+      if (needs_to_join_write_thread) {
+        write_thread_.ExitUnbatched(&w);
+        if (two_write_queues_) {
+          nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+        }
+      }
+      s.PermitUncheckedOk();
+      return Status::ColumnFamilyDropped();
+    }
     WaitForPendingWrites();
+
+    if (join_mode == WriteThreadJoinMode::kNonBlocking &&
+        flush_reason == FlushReason::kWriteBufferManager &&
+        cfd->imm()->IsFlushPendingOrRunning()) {
+      TEST_SYNC_POINT("DBImpl::FlushMemTableImpl:AlreadyFlushing");
+      if (needs_to_join_write_thread) {
+        write_thread_.ExitUnbatched(&w);
+        if (two_write_queues_) {
+          nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+        }
+      }
+      return Status::Incomplete(
+          "Column family started flushing before the WBM handoff completed");
+    }
 
     // Recovery may have released `mutex_` after the earlier `ResumeImpl()`
     // sync. Refresh sequence state at the actual memtable-switch fence, after
@@ -2779,6 +2853,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load() ||
         IsRecoveryFlush(flush_reason)) {
       s = SwitchMemtable(cfd, &context);
+      if (s.ok() && made_progress != nullptr) {
+        *made_progress = true;
+      }
     }
     const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
     if (s.ok()) {
@@ -2851,7 +2928,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
             req.cfd_to_max_mem_id_to_persist.begin()->first;
         bool already_queued_for_flush = loop_cfd->queued_for_flush();
         bool flush_req_enqueued = EnqueuePendingFlush(req);
-        if (already_queued_for_flush || flush_req_enqueued) {
+        if (flush_req_enqueued && made_progress != nullptr) {
+          *made_progress = true;
+        }
+        if (flush_reason != FlushReason::kWriteBufferManager &&
+            (already_queued_for_flush || flush_req_enqueued)) {
           loop_cfd->SetFlushSkipReschedule();
         }
       }
@@ -2866,7 +2947,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
   }
 
-  NotifyOnManualFlushScheduled({cfd}, flush_reason);
+  if (flush_reason != FlushReason::kWriteBufferManager) {
+    NotifyOnManualFlushScheduled({cfd}, flush_reason);
+  }
   TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleFlush");
   TEST_SYNC_POINT("DBImpl::FlushMemTable:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
@@ -2895,6 +2978,20 @@ Status DBImpl::AtomicFlushMemTables(
     const FlushOptions& flush_options, FlushReason flush_reason,
     const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     bool entered_write_thread) {
+  return AtomicFlushMemTablesImpl(flush_options, flush_reason,
+                                  provided_candidate_cfds, entered_write_thread,
+                                  WriteThreadJoinMode::kBlocking,
+                                  nullptr /* made_progress */);
+}
+
+Status DBImpl::AtomicFlushMemTablesImpl(
+    const FlushOptions& flush_options, FlushReason flush_reason,
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+    bool entered_write_thread, WriteThreadJoinMode join_mode,
+    bool* made_progress) {
+  if (made_progress != nullptr) {
+    *made_progress = false;
+  }
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
@@ -2925,32 +3022,30 @@ Status DBImpl::AtomicFlushMemTables(
     candidate_cfds = provided_candidate_cfds;
   }
 
+  const auto unref_generated_candidates = [&]() {
+    if (!provided_candidate_cfds.empty()) {
+      return;
+    }
+    for (auto candidate_cfd : candidate_cfds) {
+      candidate_cfd->UnrefAndTryDelete();
+    }
+    candidate_cfds.clear();
+  };
+
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
     for (auto cfd : candidate_cfds) {
       bool flush_needed = true;
       s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
       if (!s.ok()) {
-        // Unref the newly generated candidate cfds (when not provided) in
-        // `candidate_cfds`
-        if (provided_candidate_cfds.empty()) {
-          for (auto candidate_cfd : candidate_cfds) {
-            candidate_cfd->UnrefAndTryDelete();
-          }
-        }
+        unref_generated_candidates();
         return s;
       } else if (flush_needed) {
         ++num_cfs_to_flush;
       }
     }
     if (0 == num_cfs_to_flush) {
-      // Unref the newly generated candidate cfds (when not provided) in
-      // `candidate_cfds`
-      if (provided_candidate_cfds.empty()) {
-        for (auto candidate_cfd : candidate_cfds) {
-          candidate_cfd->UnrefAndTryDelete();
-        }
-      }
+      unref_generated_candidates();
       return s;
     }
   }
@@ -2965,9 +3060,17 @@ Status DBImpl::AtomicFlushMemTables(
     WriteThread::Writer w;
     WriteThread::Writer nonmem_w;
     if (needs_to_join_write_thread) {
-      write_thread_.EnterUnbatched(&w, &mutex_);
-      if (two_write_queues_) {
-        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      if (join_mode == WriteThreadJoinMode::kNonBlocking) {
+        s = EnterWriteThreadForNonBlockingFlush(&w, &nonmem_w);
+        if (!s.ok()) {
+          unref_generated_candidates();
+          return s;
+        }
+      } else {
+        write_thread_.EnterUnbatched(&w, &mutex_);
+        if (two_write_queues_) {
+          nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+        }
       }
     }
     WaitForPendingWrites();
@@ -2979,25 +3082,31 @@ Status DBImpl::AtomicFlushMemTables(
 
     SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds, flush_reason);
 
-    // Unref the newly generated candidate cfds (when not provided) in
-    // `candidate_cfds`
-    if (provided_candidate_cfds.empty()) {
-      for (auto candidate_cfd : candidate_cfds) {
-        candidate_cfd->UnrefAndTryDelete();
-      }
-    }
+    unref_generated_candidates();
 
+    const bool defer_wbm_accounting_refresh = cfds.size() > 1;
+    bool switch_attempted = false;
     for (auto cfd : cfds) {
       if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load() &&
           !IsRecoveryFlush(flush_reason)) {
         continue;
       }
       cfd->Ref();
-      s = SwitchMemtable(cfd, &context);
+      switch_attempted = true;
+      s = defer_wbm_accounting_refresh
+              ? SwitchMemtableImpl(cfd, &context, nullptr, 0,
+                                   false /* refresh_wbm_accounting */)
+              : SwitchMemtable(cfd, &context);
       cfd->UnrefAndTryDelete();
       if (!s.ok()) {
         break;
       }
+      if (made_progress != nullptr) {
+        *made_progress = true;
+      }
+    }
+    if (defer_wbm_accounting_refresh && switch_attempted) {
+      UpdateWBMAccountingAfterMemtableSwitch(true /* refresh_now */);
     }
     if (s.ok()) {
       AssignAtomicFlushSeq(cfds);
@@ -3014,7 +3123,9 @@ Status DBImpl::AtomicFlushMemTables(
         }
       }
       GenerateFlushRequest(cfds, flush_reason, &flush_req);
-      EnqueuePendingFlush(flush_req);
+      if (EnqueuePendingFlush(flush_req) && made_progress != nullptr) {
+        *made_progress = true;
+      }
       MaybeScheduleFlushOrCompaction();
     }
 
@@ -3025,7 +3136,9 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
   }
-  NotifyOnManualFlushScheduled(cfds, flush_reason);
+  if (flush_reason != FlushReason::kWriteBufferManager) {
+    NotifyOnManualFlushScheduled(cfds, flush_reason);
+  }
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
@@ -3878,11 +3991,34 @@ bool DBImpl::EnqueuePendingFlush(const FlushRequest& flush_req) {
       enqueued = true;
     }
   } else {
-    // Atomic flush requests bypass the queued_for_flush() deduplication guard.
-    // This means an atomic request and a non-atomic request for the same CF
-    // can coexist in the flush queue. This is safe because PickMemtablesToFlush
-    // uses flush_in_progress_ to prevent double-picking of memtables, and
-    // BackgroundFlush filters out CFs where !IsFlushPending().
+    if (flush_req.flush_reason == FlushReason::kWriteBufferManager &&
+        write_buffer_manager_->ShouldTrackFlushInitiator()) {
+      for (const FlushRequest& queued : flush_queue_) {
+        if (!queued.atomic_flush) {
+          continue;
+        }
+        bool covered = true;
+        for (const auto& requested : flush_req.cfd_to_max_mem_id_to_persist) {
+          const auto queued_entry =
+              queued.cfd_to_max_mem_id_to_persist.find(requested.first);
+          if (queued_entry == queued.cfd_to_max_mem_id_to_persist.end() ||
+              queued_entry->second < requested.second) {
+            covered = false;
+            break;
+          }
+        }
+        if (covered) {
+          TEST_SYNC_POINT(
+              "DBImpl::EnqueuePendingFlush:AtomicWBMRequestDeduplicated");
+          return false;
+        }
+      }
+    }
+    // Atomic flush requests normally bypass the per-CF queued_for_flush()
+    // guard. Cross-DB WBM requests are deduplicated above because its
+    // autonomous retry loop must not repeatedly enqueue the same atomic cut
+    // while HIGH workers are unavailable. Other atomic requests retain their
+    // existing behavior.
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
       ColumnFamilyData* cfd = iter.first;
       cfd->Ref();
@@ -4005,6 +4141,205 @@ void DBImpl::UnscheduleFlushCallback(void* arg) {
   }
   delete static_cast<FlushThreadArg*>(arg);
   TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
+}
+
+void DBImpl::RefreshFlushableMemAccounting() {
+  mutex_.AssertHeld();
+  versions_->GetColumnFamilySet()->RefreshFlushableMemAccounting();
+}
+
+bool DBImpl::TryRefreshFlushableMemAccounting() {
+  if (!mutex_.TryLock()) {
+    return false;
+  }
+  Defer unlock_mutex([this] { mutex_.Unlock(); });
+  RefreshFlushableMemAccounting();
+  return wbm_flush_initiator_ != nullptr &&
+         wbm_flush_initiator_->HasAccurateFlushableMemUsage();
+}
+
+DBImpl::FlushableCFs DBImpl::CollectFlushableCFs(
+    bool include_waiting_immutable) {
+  mutex_.AssertHeld();
+  FlushableCFs result;
+  SequenceNumber oldest_seq = kMaxSequenceNumber;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    const size_t mutable_mem =
+        cfd->mem()->IsEmpty() ? 0 : cfd->mem()->WBMTrackedMemoryUsage();
+    size_t waiting_immutable_mem = 0;
+    if (include_waiting_immutable) {
+      if (immutable_db_options_.atomic_flush) {
+        waiting_immutable_mem =
+            cfd->imm()->WBMTrackedUnstartedMemTablesMemoryUsage();
+      } else if (!cfd->imm()->IsFlushPendingOrRunning()) {
+        waiting_immutable_mem =
+            cfd->imm()->WBMTrackedUnflushedMemTablesMemoryUsage();
+      }
+    }
+    result.total_mem += mutable_mem + waiting_immutable_mem;
+    // Non-atomic flushes skip CFs already flushing.
+    if (cfd->imm()->IsFlushPendingOrRunning()) {
+      continue;
+    }
+    size_t mem = mutable_mem;
+    if (include_waiting_immutable) {
+      mem += waiting_immutable_mem;
+    }
+    if (mem == 0) {
+      continue;
+    }
+    if (result.largest == nullptr || mem > result.largest_mem) {
+      result.largest = cfd;
+      result.largest_mem = mem;
+    }
+    const SequenceNumber seq = cfd->mem()->GetCreationSeq();
+    if (result.oldest == nullptr || seq < oldest_seq) {
+      result.oldest = cfd;
+      oldest_seq = seq;
+    }
+  }
+  return result;
+}
+
+bool DBImpl::ScheduleWriteBufferManagerFlush() {
+  std::unique_ptr<FlushThreadArg> fta;
+  {
+    if (!mutex_.TryLock()) {
+      return false;
+    }
+    Defer unlock_mutex([this] { mutex_.Unlock(); });
+    // Recheck bid eligibility because DB state may have changed.
+    if (!write_buffer_manager_->ShouldTrackFlushInitiator() ||
+        shutdown_initiated_.load(std::memory_order_acquire) ||
+        shutting_down_.load(std::memory_order_acquire) ||
+        reject_new_background_jobs_ || !opened_successfully_ || read_only_ ||
+        error_handler_.IsBGWorkStopped() || write_controller_.IsStopped() ||
+        // Reject both the pause drain and fully paused states.
+        bg_work_paused_ > 0 || bg_compaction_paused_ > 0 ||
+        // Never queue work that would wait behind this DB's stall.
+        WouldBlockJoiningWriteThread()) {
+      return false;
+    }
+    // A queued or running job does not count as new progress. Returning false
+    // lets the coordinator try another DB instead of queuing more work behind
+    // a busy LOW pool.
+    if (bg_wbm_flush_scheduled_ > 0) {
+      return false;
+    }
+    const FlushableCFs flushable =
+        CollectFlushableCFs(true /* include_waiting_immutable */);
+    const bool has_flushable_cf = immutable_db_options_.atomic_flush
+                                      ? flushable.total_mem > 0
+                                      : flushable.largest != nullptr;
+    if (!has_flushable_cf) {
+      wbm_flush_initiator_->SetHasFlushableCF(false);
+      write_buffer_manager_->NotifyFlushInitiatorChanged();
+      return false;
+    }
+    fta = std::make_unique<FlushThreadArg>();
+    fta->db_ = this;
+    fta->thread_pri_ = kWBMFlushPriority;
+    wbm_flush_initiator_->SetHasFlushableCF(false);
+    write_buffer_manager_->NotifyFlushInitiatorChanged();
+    ++bg_wbm_flush_scheduled_;
+  }
+
+  // Scheduling outside mutex_ avoids nesting it with the Env thread-pool lock.
+  // Deregistration keeps this DB alive until this callback returns; afterwards
+  // the background-job counter protects it through execution or cancellation.
+  env_->Schedule(&DBImpl::BGWorkWBMFlush, fta.release(), kWBMFlushPriority,
+                 GetTaskTag(TaskType::kDefault) /* tag */,
+                 &DBImpl::UnscheduleWBMFlushCallback);
+  return true;
+}
+
+void DBImpl::BGWorkWBMFlush(void* arg) {
+  const std::unique_ptr<FlushThreadArg> fta(static_cast<FlushThreadArg*>(arg));
+
+  IOSTATS_SET_THREAD_POOL_ID(fta->thread_pri_);
+  TEST_SYNC_POINT("DBImpl::BGWorkWBMFlush");
+  static_cast_with_check<DBImpl>(fta->db_)->BackgroundCallWBMFlush();
+}
+
+void DBImpl::UnscheduleWBMFlushCallback(void* arg) {
+  const std::unique_ptr<FlushThreadArg> fta(static_cast<FlushThreadArg*>(arg));
+  fta->db_->mutex_.AssertHeld();
+  fta->db_->RefreshFlushableMemAccounting();
+  fta->db_->bg_wbm_flush_scheduled_--;
+  fta->db_->write_buffer_manager_->NotifyFlushInitiatorFlushCancelled();
+  fta->db_->bg_cv_.SignalAll();
+  [[maybe_unused]] size_t flushable_mem =
+      fta->db_->wbm_flush_initiator_->GetFlushableMemUsage();
+  TEST_SYNC_POINT_CALLBACK("DBImpl::UnscheduleWBMFlushCallback",
+                           &flushable_mem);
+}
+
+void DBImpl::BackgroundCallWBMFlush() {
+  const bool atomic_flush = immutable_db_options_.atomic_flush;
+  ColumnFamilyData* cfd_to_flush = nullptr;
+  bool has_flushable_cf = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (!shutdown_initiated_.load(std::memory_order_acquire) &&
+        !shutting_down_.load(std::memory_order_acquire) &&
+        !reject_new_background_jobs_ && opened_successfully_ && !read_only_ &&
+        !error_handler_.IsBGWorkStopped() && !write_controller_.IsStopped() &&
+        bg_work_paused_ == 0 && bg_compaction_paused_ == 0 &&
+        !WouldBlockJoiningWriteThread()) {
+      const FlushableCFs flushable =
+          CollectFlushableCFs(true /* include_waiting_immutable */);
+      has_flushable_cf =
+          atomic_flush ? flushable.total_mem > 0 : flushable.largest != nullptr;
+      if (!atomic_flush) {
+        cfd_to_flush = flushable.largest;
+        if (cfd_to_flush != nullptr) {
+          cfd_to_flush->Ref();
+        }
+      }
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::BackgroundCallWBMFlush:AfterPick");
+
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  flush_options.allow_write_stall = true;
+  bool made_progress = false;
+  if (has_flushable_cf) {
+    Status s;
+    if (atomic_flush) {
+      s = AtomicFlushMemTablesImpl(
+          flush_options, FlushReason::kWriteBufferManager,
+          {} /* provided_candidate_cfds */, false /* entered_write_thread */,
+          WriteThreadJoinMode::kNonBlocking, &made_progress);
+    } else {
+      s = FlushMemTableImpl(cfd_to_flush, flush_options,
+                            FlushReason::kWriteBufferManager,
+                            false /* entered_write_thread */,
+                            WriteThreadJoinMode::kNonBlocking, &made_progress);
+    }
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "Flush on behalf of a shared WriteBufferManager failed: %s",
+          s.ToString().c_str());
+    }
+    s.PermitUncheckedError();
+  }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCallWBMFlush:MadeProgress",
+                           &made_progress);
+
+  InstrumentedMutexLock l(&mutex_);
+  if (cfd_to_flush != nullptr) {
+    cfd_to_flush->UnrefAndTryDelete();
+  }
+  RefreshFlushableMemAccounting();
+  --bg_wbm_flush_scheduled_;
+  write_buffer_manager_->NotifyFlushInitiatorFlushCompleted(made_progress);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::BGWorkWBMFlush:done", this);
+  bg_cv_.SignalAll();
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
@@ -4237,6 +4572,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
     bg_flush_scheduled_--;
+    if (write_buffer_manager_->ShouldTrackFlushInitiator()) {
+      RefreshFlushableMemAccounting();
+    }
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
 
@@ -5707,9 +6045,10 @@ Status DBImpl::WaitForCompact(
     if (bg_work_paused_ && wait_for_compact_options.abort_on_pause) {
       return Status::Aborted();
     }
+    // A WBM job can enqueue a regular flush, so wait for both to quiesce.
     if ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || unscheduled_compactions_ ||
-         !parked_compaction_cfds_.empty() ||
+         bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
+         unscheduled_compactions_ || !parked_compaction_cfds_.empty() ||
          (wait_for_compact_options.wait_for_purge && bg_purge_scheduled_) ||
          unscheduled_flushes_ || error_handler_.IsRecoveryInProgress()) &&
         (error_handler_.GetBGError().ok())) {

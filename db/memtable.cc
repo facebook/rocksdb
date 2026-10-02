@@ -189,11 +189,12 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber latest_seq, uint32_t column_family_id)
+                   SequenceNumber latest_seq, uint32_t column_family_id,
+                   FlushInitiator* flush_initiator)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       kArenaBlockSize(Arena::OptimizeBlockSize(moptions_.arena_block_size)),
-      mem_tracker_(write_buffer_manager),
+      mem_tracker_(write_buffer_manager, flush_initiator),
       arena_(moptions_.arena_block_size,
              (write_buffer_manager != nullptr &&
               (write_buffer_manager->enabled() ||
@@ -1165,6 +1166,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   }
 
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz_);
+  bool activate_flush_initiator = false;
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint. Hints are for point key table
@@ -1187,7 +1189,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     // (non-concurrent), these counters may be concurrently modified by
     // BatchPostProcess() (e.g., from AddLogicallyRedundantRangeTombstone
     // called on a read path).
-    num_entries_.FetchAddRelaxed(1);
+    activate_flush_initiator = num_entries_.FetchAddRelaxed(1) == 0;
     data_size_.FetchAddRelaxed(encoded_len);
     if (type == kTypeDeletion || type == kTypeSingleDeletion ||
         type == kTypeDeletionWithTimestamp) {
@@ -1244,6 +1246,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   while ((cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
          !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
   }
+  if (activate_flush_initiator) {
+    mem_tracker_.ActivateFlushInitiator();
+  }
   MaybeUpdateNewestUDT(key_slice);
   if (type == kTypeRangeDeletion) {
     auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
@@ -1274,7 +1279,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     is_range_del_table_empty_.StoreRelaxed(false);
   }
   UpdateOldestKeyTime();
-
   TEST_SYNC_POINT_CALLBACK("MemTable::Add:BeforeReturn:Encoded", &encoded);
   return Status::OK();
 }

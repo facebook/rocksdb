@@ -2496,12 +2496,26 @@ rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache);
 
 /* WriteBufferManager */
 
+enum {
+  rocksdb_write_buffer_manager_flush_policy_oldest = 0,
+  rocksdb_write_buffer_manager_flush_policy_largest = 1,
+  rocksdb_write_buffer_manager_flush_policy_largest_across_dbs = 2
+};
+
 extern ROCKSDB_LIBRARY_API rocksdb_write_buffer_manager_t*
 rocksdb_write_buffer_manager_create(size_t buffer_size, bool allow_stall);
+extern ROCKSDB_LIBRARY_API rocksdb_write_buffer_manager_t*
+rocksdb_write_buffer_manager_create_with_policy(size_t buffer_size,
+                                                bool allow_stall,
+                                                int flush_policy);
 extern ROCKSDB_LIBRARY_API rocksdb_write_buffer_manager_t*
 rocksdb_write_buffer_manager_create_with_cache(size_t buffer_size,
                                                const rocksdb_cache_t* cache,
                                                bool allow_stall);
+extern ROCKSDB_LIBRARY_API rocksdb_write_buffer_manager_t*
+rocksdb_write_buffer_manager_create_with_cache_and_policy(
+    size_t buffer_size, const rocksdb_cache_t* cache, bool allow_stall,
+    int flush_policy);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_destroy(
     rocksdb_write_buffer_manager_t* wbm);
@@ -2523,7 +2537,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_buffer_size(
     rocksdb_write_buffer_manager_t* wbm, size_t new_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_allow_stall(
     rocksdb_write_buffer_manager_t* wbm, bool new_allow_stall);
-
+extern ROCKSDB_LIBRARY_API int rocksdb_write_buffer_manager_flush_policy(
+    rocksdb_write_buffer_manager_t* wbm);
+extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_flush_policy(
+    rocksdb_write_buffer_manager_t* wbm, int flush_policy);
 /* SstFileManager */
 
 extern ROCKSDB_LIBRARY_API rocksdb_sst_file_manager_t*

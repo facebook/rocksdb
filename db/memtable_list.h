@@ -399,6 +399,14 @@ class MemTableList {
   // the unflushed mem-tables.
   size_t ApproximateUnflushedMemTablesMemoryUsage();
 
+  // Returns the memory charged to the WriteBufferManager by unflushed
+  // memtables.
+  size_t WBMTrackedUnflushedMemTablesMemoryUsage() const;
+
+  // Returns WBM-tracked memory for immutable memtables whose flush has not
+  // started. Requires the DB mutex, like the other MemTableList accessors.
+  size_t WBMTrackedUnstartedMemTablesMemoryUsage() const;
+
   // Returns an estimate of the timestamp of the earliest key.
   uint64_t ApproximateOldestKeyTime() const;
 
