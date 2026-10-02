@@ -85,6 +85,8 @@ class WBWIMemTable final : public ReadOnlyMemTable {
     return 0;
   }
 
+  size_t WBMTrackedMemoryUsage() const override { return 0; }
+
   void UniqueRandomSample(
       const uint64_t& /* target_sample_size */,
       std::unordered_set<const char*>* /* entries */) override {

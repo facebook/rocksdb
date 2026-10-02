@@ -3167,6 +3167,32 @@ TEST_P(ColumnFamilyTest, CreateDropAndDestroy) {
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
 }
 
+TEST_P(ColumnFamilyTest, DropWaitsForUnorderedMemtableWrite) {
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL",
+        "ColumnFamilyTest::DropWaitsForUnorderedMemtableWrite:AfterWAL"},
+       {"DBImpl::WaitForPendingWrites:BeforeBlock",
+        "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
+
+  db_options_.unordered_write = true;
+  Open();
+  ColumnFamilyHandle* cfh;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "yoyo", &cfh));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer(
+      [&] { ASSERT_OK(db_->Put(WriteOptions(), cfh, "foo", "bar")); });
+
+  TEST_SYNC_POINT(
+      "ColumnFamilyTest::DropWaitsForUnorderedMemtableWrite:AfterWAL");
+  ASSERT_OK(db_->DropColumnFamily(cfh));
+  writer.join();
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cfh));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
   ColumnFamilyHandle* cfh;
   Open();

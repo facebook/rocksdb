@@ -5705,6 +5705,8 @@ void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
+    FlushInitiator* flush_initiator = column_family_set_->flush_initiator();
+    const bool fast_sst_open = column_family_set_->GetFastSstOpen();
 
     // Clear TableCache to prevent use-after-free: Reset() deletes old
     // ColumnFamilySet but reuses table_cache_, which may contain
@@ -5718,10 +5720,11 @@ void VersionSet::Reset() {
     // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
     // Note: we may not be able to recover db_id from MANIFEST if
     // options.write_dbid_to_manifest is false (default).
-    column_family_set_.reset(new ColumnFamilySet(
-        dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, db_id_, db_session_id_,
-        column_family_set_->GetFastSstOpen()));
+    column_family_set_.reset(
+        new ColumnFamilySet(dbname_, db_options_, file_options_, table_cache_,
+                            wbm, wc, block_cache_tracer_, io_tracer_, db_id_,
+                            db_session_id_, fast_sst_open));
+    column_family_set_->SetFlushInitiator(flush_initiator);
   }
   db_id_.clear();
   next_file_number_.store(2);
