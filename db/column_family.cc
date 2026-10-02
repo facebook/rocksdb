@@ -37,6 +37,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/stream_aggregation.h"
 #include "rocksdb/table.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -1593,6 +1594,36 @@ Status ColumnFamilyData::ValidateOptions(
           "Not persisting user-defined timestamps"
           "feature only support user-defined timestamps formatted as "
           "uint64_t.");
+    }
+  }
+
+  if (cf_options.stream_aggregation_factory != nullptr) {
+    if (cf_options.compaction_style != kCompactionStyleLevel &&
+        cf_options.compaction_style != kCompactionStyleUniversal) {
+      return Status::NotSupported(
+          "StreamAggregation requires leveled or universal compaction");
+    }
+    if (ucmp->timestamp_size() != 0) {
+      return Status::NotSupported(
+          "StreamAggregation does not support user-defined timestamps");
+    }
+    if (db_options.allow_ingest_behind || cf_options.cf_allow_ingest_behind) {
+      return Status::NotSupported(
+          "StreamAggregation does not support ingest-behind");
+    }
+    if (cf_options.preclude_last_level_data_seconds != 0 ||
+        cf_options.preserve_internal_time_seconds != 0) {
+      return Status::NotSupported(
+          "StreamAggregation does not support sequence-time placement or "
+          "preservation");
+    }
+    StreamAggregationFactory::ValidationContext validation_context;
+    validation_context.blob_files_enabled = cf_options.enable_blob_files;
+    validation_context.user_timestamp_size = ucmp->timestamp_size();
+    Status validation_status =
+        cf_options.stream_aggregation_factory->Validate(validation_context);
+    if (!validation_status.ok()) {
+      return validation_status;
     }
   }
 
