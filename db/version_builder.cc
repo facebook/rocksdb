@@ -1718,9 +1718,11 @@ class VersionBuilder::Rep : public MutableScalars {
            missing_blob_files_high_ != kInvalidBlobFileNumber;
   }
 
-  std::vector<std::string>& GetAndClearIntermediateFiles() {
+  std::vector<std::string> GetAndClearIntermediateFiles() {
     assert(track_found_and_missing_files_);
-    return intermediate_files_;
+    std::vector<std::string> result;
+    result.swap(intermediate_files_);
+    return result;
   }
 
   void ClearFoundFiles() {
@@ -2073,7 +2075,7 @@ bool VersionBuilder::ValidVersionAvailable() {
 
 bool VersionBuilder::HasMissingFiles() const { return rep_->HasMissingFiles(); }
 
-std::vector<std::string>& VersionBuilder::GetAndClearIntermediateFiles() {
+std::vector<std::string> VersionBuilder::GetAndClearIntermediateFiles() {
   return rep_->GetAndClearIntermediateFiles();
 }
 

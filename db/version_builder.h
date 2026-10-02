@@ -77,11 +77,10 @@ class VersionBuilder {
 
   bool HasMissingFiles() const;
 
-  // When applying a sequence of VersionEdit, intermediate files are the ones
-  // that are added and then deleted. The caller should clear this intermediate
-  // files tracking after calling this API. So that the tracking for subsequent
-  // VersionEdits can start over with a clean state.
-  std::vector<std::string>& GetAndClearIntermediateFiles();
+  // When applying a sequence of VersionEdits, intermediate files are the ones
+  // that are added and then deleted. Returns the tracked files and clears them
+  // so that subsequent VersionEdits start with a clean state.
+  std::vector<std::string> GetAndClearIntermediateFiles();
 
   // Clearing all the found files in this Version.
   void ClearFoundFiles();

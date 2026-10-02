@@ -2452,6 +2452,8 @@ TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorKillSwitchOff) {
   Options options = CurrentOptions();
   options.num_levels = 7;
   options.max_open_files = -1;
+  options.open_files_async = true;
+  options.skip_stats_update_on_db_open = true;
   options.level0_file_num_compaction_trigger = 100;  // no auto compaction
   options.remote_compaction_manifest_floor = false;  // kill switch OFF
   ReopenWithCompactionService(&options);
@@ -2464,8 +2466,15 @@ TEST_F(CompactionServiceTest, RemoteCompactionManifestFloorKillSwitchOff) {
   ASSERT_OK(Flush());  // L0: Delete(k)
 
   // Reopen so the MANIFEST is rewritten as current state before we perturb it.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkAsyncFileOpen:Done",
+        "CompactionServiceTest::ManifestFloorKillSwitchOff:OpenDone"}});
+  SyncPoint::GetInstance()->EnableProcessing();
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
+  TEST_SYNC_POINT("CompactionServiceTest::ManifestFloorKillSwitchOff:OpenDone");
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   GetCompactionService()->SetCanceled(false);
 
   bool floor_provided_seen = true;

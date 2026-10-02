@@ -3072,8 +3072,18 @@ void DBImpl::ScheduleAsyncFileOpening() {
   bg_async_file_open_state_ = AsyncFileOpenState::kScheduled;
 
   // since this is a one time job, best to schedule it with high priority
+  auto unschedule_callback = [](void* arg) {
+    auto* unscheduled_ctx = static_cast<AsyncFileOpenContext*>(arg);
+    DBImpl* db = unscheduled_ctx->db;
+    db->mutex_.AssertHeld();
+    delete unscheduled_ctx;
+    db->bg_async_file_open_state_ = AsyncFileOpenState::kComplete;
+    db->bg_cv_.SignalAll();
+    TEST_SYNC_POINT("DBImpl::UnscheduleAsyncFileOpenCallback");
+    TEST_SYNC_POINT("DBImpl::BGWorkAsyncFileOpen:Done");
+  };
   env_->Schedule(&DBImpl::BGWorkAsyncFileOpen, ctx, Env::Priority::HIGH,
-                 nullptr);
+                 &bg_async_file_open_state_, unschedule_callback);
 }
 
 void DBImpl::MarkAsyncFileOpenNotNeeded() {
@@ -3103,8 +3113,9 @@ void DBImpl::BGWorkAsyncFileOpen(void* arg) {
     auto* version = ctx->versions[i];
     ColumnFamilyData* cfd = version->cfd();
 
-    // Skip column families that were dropped after scheduling
-    if (cfd->IsDropped()) {
+    // Retained secondary handles remain readable after the primary drops the
+    // column family, so their captured Versions still need pinned readers.
+    if (cfd->IsDropped() && !db->read_only_) {
       continue;
     }
 
@@ -3134,11 +3145,15 @@ void DBImpl::BGWorkAsyncFileOpen(void* arg) {
     if (!s.ok()) {
       ROCKS_LOG_ERROR(
           db->immutable_db_options_.info_log,
-          "BGWorkAsyncFileOpen: LoadTableHandlers failed for CF %s: "
-          "%s",
+          "BGWorkAsyncFileOpen: file validation/opening failed for CF %s: %s",
           cfd->GetName().c_str(), s.ToString().c_str());
       InstrumentedMutexLock l(&db->mutex_);
-      db->error_handler_.SetBGError(s, BackgroundErrorReason::kAsyncFileOpen);
+      if (db->read_only_) {
+        db->error_handler_.SetBGErrorNoAutoRecovery(
+            s, BackgroundErrorReason::kAsyncFileOpen);
+      } else {
+        db->error_handler_.SetBGError(s, BackgroundErrorReason::kAsyncFileOpen);
+      }
       break;
     }
   }

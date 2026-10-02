@@ -296,7 +296,8 @@ void ErrorHandler::CancelErrorRecoveryForShutDown() {
 // end whether recovery succeeded or not
 void ErrorHandler::HandleKnownErrors(const Status& bg_err,
                                      BackgroundErrorReason reason,
-                                     const DBRecoverContext& context) {
+                                     const DBRecoverContext& context,
+                                     bool allow_auto_recovery) {
   db_mutex_->AssertHeld();
   if (bg_err.ok()) {
     return;
@@ -340,7 +341,7 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
     recovery_error_ = status_to_io_status(Status(new_bg_err));
   }
 
-  bool auto_recovery = auto_recovery_;
+  bool auto_recovery = allow_auto_recovery && auto_recovery_;
   if (new_bg_err.severity() >= Status::Severity::kFatalError && auto_recovery) {
     auto_recovery = false;
   }
@@ -355,7 +356,7 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
     Status s = new_bg_err;
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
                                           db_mutex_, &auto_recovery);
-    if (!s.ok() && (s.severity() > bg_error_.severity())) {
+    if (!s.ok() && s.severity() > bg_error_.severity()) {
       bg_error_ = s;
       UpdateRecoveryContext(context, /*replace_existing_context=*/true);
     } else {
@@ -417,12 +418,27 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
 //    such as delegating to SstFileManager to handle no space error.
 void ErrorHandler::SetBGError(const Status& bg_status,
                               BackgroundErrorReason reason, bool wal_related) {
-  SetBGError(bg_status, reason, wal_related, DBRecoverContext());
+  SetBGErrorImpl(bg_status, reason, wal_related, DBRecoverContext(),
+                 /*allow_auto_recovery=*/true);
 }
 
 void ErrorHandler::SetBGError(const Status& bg_status,
                               BackgroundErrorReason reason, bool wal_related,
                               DBRecoverContext context) {
+  SetBGErrorImpl(bg_status, reason, wal_related, std::move(context),
+                 /*allow_auto_recovery=*/true);
+}
+
+void ErrorHandler::SetBGErrorNoAutoRecovery(const Status& bg_status,
+                                            BackgroundErrorReason reason) {
+  SetBGErrorImpl(bg_status, reason, /*wal_related=*/false, DBRecoverContext(),
+                 /*allow_auto_recovery=*/false);
+}
+
+void ErrorHandler::SetBGErrorImpl(const Status& bg_status,
+                                  BackgroundErrorReason reason,
+                                  bool wal_related, DBRecoverContext context,
+                                  bool allow_auto_recovery) {
   db_mutex_->AssertHeld();
   Status tmp_status = bg_status;
   IOStatus bg_io_err = status_to_io_status(std::move(tmp_status));
@@ -452,6 +468,14 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
+    if (!allow_auto_recovery) {
+      EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                            &bg_err, db_mutex_, &auto_recovery);
+      if (!bg_err.ok()) {
+        CheckAndSetRecoveryAndBGError(bg_err, context);
+      }
+      return;
+    }
     CheckAndSetRecoveryAndBGError(bg_err, context);
     ROCKS_LOG_INFO(
         db_options_.info_log,
@@ -536,6 +560,15 @@ void ErrorHandler::SetBGError(const Status& bg_status,
       severity = Status::Severity::kHardError;
     }
     Status bg_err(new_bg_io_err, severity);
+    if (!allow_auto_recovery) {
+      bool auto_recovery = false;
+      EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                            &bg_err, db_mutex_, &auto_recovery);
+      if (!bg_err.ok()) {
+        CheckAndSetRecoveryAndBGError(bg_err, context);
+      }
+      return;
+    }
     CheckAndSetRecoveryAndBGError(bg_err, context);
     bool auto_recovery = db_options_.max_bgerror_resume_count > 0;
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
@@ -544,7 +577,7 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     StartRecoverFromRetryableBGIOError(bg_io_err);
     return;
   }
-  HandleKnownErrors(new_bg_io_err, reason, context);
+  HandleKnownErrors(new_bg_io_err, reason, context, allow_auto_recovery);
 }
 
 void ErrorHandler::AddFilesToQuarantine(
@@ -860,7 +893,7 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(
   if (recovery_in_prog_ && recovery_error_.ok()) {
     recovery_error_ = status_to_io_status(Status(bg_err));
   }
-  if (bg_err.severity() > bg_error_.severity()) {
+  if (!bg_err.ok() && bg_err.severity() > bg_error_.severity()) {
     bg_error_ = bg_err;
     UpdateRecoveryContext(context, /*replace_existing_context=*/true);
   } else {

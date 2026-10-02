@@ -326,6 +326,22 @@ class DB {
   //
   // Multiple secondary instances can co-exist at the same time.
   //
+  // The primary can delete obsolete files that a secondary still references.
+  // To keep those files safely accessible, applications must either coordinate
+  // primary deletion with all secondaries, or provide an Env/FileSystem that
+  // delays physical deletion until every instance releases the file. As a
+  // table-files-only workaround when `open_files_async=false`, setting
+  // `max_open_files=-1` makes the secondary eagerly open its current SSTs;
+  // this does not protect other file types.
+  //
+  // With `open_files_async=true`, OpenAsSecondary returns before its current
+  // SSTs have all been opened, so `max_open_files=-1` does not provide that
+  // workaround. A missing file can surface as a background error and/or a read
+  // error. TryCatchUpWithPrimary can resolve a transient, non-latched error if
+  // a newer primary version no longer references the file. A latched
+  // asynchronous-open background error requires closing and reopening the
+  // secondary after fixing the underlying problem.
+  //
 
   // Open DB as secondary instance
   //

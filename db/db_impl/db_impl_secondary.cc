@@ -1183,6 +1183,24 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     bool recover_wal, bool trust_manifest_recovery) {
   *dbptr = nullptr;
+  // Only normal DB::OpenAsSecondary recovery can defer SST opening.
+  // `recover_wal` excludes OpenAndCompact even when no snapshot floor is
+  // supplied, `open_files_async` is the explicit opt-in, and trust-MANIFEST
+  // recovery must only open its protected compaction inputs.
+  const bool defer_sst_file_opening =
+      recover_wal && db_options.open_files_async && !trust_manifest_recovery;
+  if (defer_sst_file_opening && !db_options.skip_stats_update_on_db_open) {
+    return Status::InvalidArgument(
+        "open_files_async requires skip_stats_update_on_db_open = true.");
+  }
+  if (defer_sst_file_opening) {
+    for (const ColumnFamilyDescriptor& column_family : column_families) {
+      if (column_family.options.compaction_style == kCompactionStyleFIFO) {
+        return Status::NotSupported(
+            "FIFO compaction is not supported with open_files_async = true.");
+      }
+    }
+  }
 
   DBOptions tmp_opts(db_options);
   Status s;
@@ -1195,7 +1213,7 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
   }
 
   assert(tmp_opts.info_log != nullptr);
-  if (db_options.max_open_files != -1) {
+  if (db_options.max_open_files != -1 || defer_sst_file_opening) {
     std::ostringstream oss;
     oss << "The primary instance may delete all types of files after they "
            "become obsolete. The application can coordinate the primary and "
@@ -1203,15 +1221,24 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
            "currently being used by the secondary. Alternatively, a custom "
            "Env/FS can be provided such that files become inaccessible only "
            "after all primary and secondaries indicate that they are obsolete "
-           "and deleted. If the above two are not possible, you can open the "
-           "secondary instance with `max_open_files==-1` so that secondary "
-           "will eagerly keep all table files open. Even if a file is deleted, "
-           "its content can still be accessed via a prior open file "
-           "descriptor. This is a hacky workaround for only table files. If "
-           "none of the above is done, then point lookup or "
+           "and deleted. ";
+    if (defer_sst_file_opening) {
+      oss << "With `open_files_async=true`, `max_open_files==-1` does not pin "
+             "all table files before OpenAsSecondary returns. ";
+    } else {
+      oss << "If the above two are not possible, you can open the secondary "
+             "instance with `max_open_files==-1` so that secondary will "
+             "eagerly keep all table files open. Even if a file is deleted, "
+             "its content can still be accessed via a prior open file "
+             "descriptor. This is a hacky workaround for only table files. ";
+    }
+    oss << "If none of the above is done, then point lookup or "
            "range scan via the secondary instance can result in IOError: file "
-           "not found. This can be resolved by retrying "
-           "TryCatchUpWithPrimary().";
+           "not found. TryCatchUpWithPrimary() can resolve a transient, "
+           "non-latched error if a newer primary version no longer references "
+           "the missing file. A latched asynchronous-open background error "
+           "requires closing and reopening the secondary after fixing the "
+           "underlying problem.";
     ROCKS_LOG_WARN(tmp_opts.info_log, "%s", oss.str().c_str());
   }
 
@@ -1221,9 +1248,10 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
       dbname, &impl->immutable_db_options_, impl->mutable_db_options_,
       impl->file_options_, impl->table_cache_.get(),
       impl->write_buffer_manager_, &impl->write_controller_, impl->io_tracer_,
-      impl->db_id_, impl->db_session_id_));
-  static_cast_with_check<ReactiveVersionSet>(impl->versions_.get())
-      ->SetTrustManifestRecovery(trust_manifest_recovery);
+      impl->db_id_, impl->db_session_id_, defer_sst_file_opening));
+  ReactiveVersionSet* reactive_versions =
+      static_cast_with_check<ReactiveVersionSet>(impl->versions_.get());
+  reactive_versions->SetTrustManifestRecovery(trust_manifest_recovery);
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
@@ -1262,7 +1290,11 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
       cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
     impl->PublishSecondaryReadView();
-    impl->MarkAsyncFileOpenNotNeeded();
+    if (defer_sst_file_opening) {
+      impl->ScheduleAsyncFileOpening();
+    } else {
+      impl->MarkAsyncFileOpenNotNeeded();
+    }
   }
   impl->mutex_.Unlock();
   impl->CleanupRetiredSecondaryReadViews();

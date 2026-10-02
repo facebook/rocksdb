@@ -83,6 +83,9 @@ class ErrorHandler {
   void SetBGError(const Status& bg_err, BackgroundErrorReason reason,
                   bool wal_related, DBRecoverContext context);
 
+  void SetBGErrorNoAutoRecovery(const Status& bg_err,
+                                BackgroundErrorReason reason);
+
   Status GetBGError() const { return bg_error_; }
 
   Status GetRecoveryError() const { return recovery_error_; }
@@ -174,8 +177,12 @@ class ErrorHandler {
   // unsorted.
   autovector<uint64_t> files_to_quarantine_;
 
+  void SetBGErrorImpl(const Status& bg_err, BackgroundErrorReason reason,
+                      bool wal_related, DBRecoverContext context,
+                      bool allow_auto_recovery);
   void HandleKnownErrors(const Status& bg_err, BackgroundErrorReason reason,
-                         const DBRecoverContext& context);
+                         const DBRecoverContext& context,
+                         bool allow_auto_recovery);
   // REQUIRES: db_mutex_ held. When replacing the general recovery context,
   // retain WAL facts accumulated from concurrent errors independently.
   void UpdateRecoveryContext(const DBRecoverContext& context,
@@ -185,7 +192,7 @@ class ErrorHandler {
   void StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
   void RecoverFromRetryableBGIOError();
   // If recovery is in progress, record the first new error for the current
-  // attempt. If this error is more severe, retain it and its recovery context.
+  // attempt. A more severe error replaces the current background error.
   void CheckAndSetRecoveryAndBGError(const Status& bg_err,
                                      const DBRecoverContext& context);
 };
