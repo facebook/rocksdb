@@ -199,6 +199,49 @@ Status DBImpl::EnableFileDeletions() {
   return Status::OK();
 }
 
+Status DBImpl::DisableWalDeletions() {
+  int saved_counter;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    saved_counter = ++disable_wal_deletions_;
+  }
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "WAL Deletions Disabled. Counter: %d", saved_counter);
+  return Status::OK();
+}
+
+Status DBImpl::EnableWalDeletions() {
+  JobContext job_context(0);
+  int saved_counter;  // initialize on all paths
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (disable_wal_deletions_ > 0) {
+      --disable_wal_deletions_;
+    }
+    saved_counter = disable_wal_deletions_;
+    if (saved_counter == 0) {
+      // Full scan rediscovers WALs whose writers and live-WAL accounting were
+      // already released while physical deletion was disabled. This also
+      // respects the independent all-files deletion gate.
+      FindObsoleteFiles(&job_context, true);
+      bg_cv_.SignalAll();
+    }
+  }
+  if (saved_counter == 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "WAL Deletions Enabled");
+    if (job_context.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(job_context);
+    }
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "WAL Deletions Enable, but not really enabled. Counter: %d",
+                   saved_counter);
+  }
+  job_context.Clean();
+  LogFlush(immutable_db_options_.info_log);
+  return Status::OK();
+}
+
 bool DBImpl::IsFileDeletionsEnabled() const {
   return 0 == disable_delete_obsolete_files_;
 }
@@ -282,6 +325,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
       versions_->pending_manifest_file_number();
+  job_context->wal_deletions_disabled = disable_wal_deletions_ > 0;
   job_context->log_number = MinLogNumberToKeep();
   job_context->prev_log_number = versions_->prev_log_number();
 
@@ -664,7 +708,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     bool keep = true;
     switch (type) {
       case kWalFile:
-        keep = ((number >= state.log_number) ||
+        keep = (state.wal_deletions_disabled || (number >= state.log_number) ||
                 (number == state.prev_log_number) ||
                 (wal_recycle_files_set.find(number) !=
                  wal_recycle_files_set.end()));
@@ -835,7 +879,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       }
     }
   }
-  wal_manager_.PurgeObsoleteWALFiles();
+  if (!state.wal_deletions_disabled) {
+    wal_manager_.PurgeObsoleteWALFiles();
+  }
   LogFlush(immutable_db_options_.info_log);
   TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:BeforePendingPurgeFinished");
   InstrumentedMutexLock l(&mutex_);
