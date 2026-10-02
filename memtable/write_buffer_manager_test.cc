@@ -9,6 +9,12 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
+#include "memory/allocator.h"
 #include "rocksdb/advanced_cache.h"
 #include "test_util/testharness.h"
 
@@ -293,6 +299,305 @@ TEST_F(ChargeWriteBufferTest, BasicWithCacheFull) {
   ASSERT_GE(cache->GetPinnedUsage(), 46 * kSizeDummyEntry);
   ASSERT_LT(cache->GetPinnedUsage(),
             46 * kSizeDummyEntry + kMetaDataChargeOverhead);
+}
+
+namespace {
+// Test double for a DB in the cross-DB flush registry.
+class FakeFlushInitiator : public FlushInitiator {
+ public:
+  FakeFlushInitiator(size_t mem, bool can_flush, bool atomic_flush = false)
+      : FlushInitiator(atomic_flush), can_flush_(can_flush) {
+    ReserveMem(mem, mem);
+  }
+
+  bool ScheduleFlush() override {
+    ++schedule_calls_;
+    return can_flush_;
+  }
+
+  void SetLargestMem(size_t mem) { SetLargestMutableCFMem(mem); }
+
+  bool can_flush_;
+  int schedule_calls_ = 0;
+};
+
+class RegistryReentrantFlushInitiator : public FlushInitiator {
+ public:
+  RegistryReentrantFlushInitiator(WriteBufferManager* wbm,
+                                  FlushInitiator* nested)
+      : FlushInitiator(false), wbm_(wbm), nested_(nested) {
+    ReserveMem(100, 100);
+  }
+
+  bool ScheduleFlush() override {
+    wbm_->RegisterFlushInitiator(nested_);
+    wbm_->DeregisterFlushInitiator(nested_);
+    return true;
+  }
+
+ private:
+  WriteBufferManager* const wbm_;
+  FlushInitiator* const nested_;
+};
+
+class BlockingFlushInitiator : public FlushInitiator {
+ public:
+  BlockingFlushInitiator() : FlushInitiator(false) { ReserveMem(100, 100); }
+
+  bool ScheduleFlush() override {
+    std::unique_lock<std::mutex> lock(mu_);
+    entered_ = true;
+    cv_.notify_all();
+    cv_.wait(lock, [this] { return released_; });
+    return true;
+  }
+
+  void WaitUntilEntered() {
+    std::unique_lock<std::mutex> lock(mu_);
+    cv_.wait(lock, [this] { return entered_; });
+  }
+
+  void Release() {
+    std::lock_guard<std::mutex> lock(mu_);
+    released_ = true;
+    cv_.notify_all();
+  }
+
+ private:
+  std::mutex mu_;
+  std::condition_variable cv_;
+  bool entered_ = false;
+  bool released_ = false;
+};
+}  // anonymous namespace
+
+// InitiateFlushOnLargestDB() must report true only when a flush is genuinely in
+// flight somewhere else, because the caller skips its own flush when it does.
+TEST_F(WriteBufferManagerTest, InitiateFlushOnLargestDBContract) {
+  WriteBufferManager wbf(100 * 1024 * 1024, nullptr /* cache */,
+                         false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  FakeFlushInitiator self(/*mem=*/100, /*can_flush=*/true);
+  FakeFlushInitiator bigger(/*mem=*/200, /*can_flush=*/true);
+  wbf.RegisterFlushInitiator(&self);
+  wbf.RegisterFlushInitiator(&bigger);
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+
+  // The larger DB accepts, so the caller may defer to it.
+  ASSERT_TRUE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(1, bigger.schedule_calls_);
+  ASSERT_EQ(0, self.schedule_calls_);
+
+  // The larger DB's state changed after it won the bid and it now declines.
+  // The caller must be told so, otherwise nothing would flush at all.
+  bigger.can_flush_ = false;
+  ASSERT_FALSE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(2, bigger.schedule_calls_);
+  ASSERT_EQ(0, self.schedule_calls_);
+
+  // Caller is itself the largest: it flushes itself rather than deferring.
+  bigger.SetLargestMem(1);
+  bigger.can_flush_ = true;
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  ASSERT_FALSE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(2, bigger.schedule_calls_);
+
+  // Nobody has anything to reclaim: there is no one to defer to.
+  self.SetLargestMem(0);
+  bigger.SetLargestMem(0);
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  ASSERT_FALSE(wbf.InitiateFlushOnLargestDB(&self));
+  ASSERT_EQ(2, bigger.schedule_calls_);
+
+  wbf.DeregisterFlushInitiator(&self);
+  wbf.DeregisterFlushInitiator(&bigger);
+}
+
+TEST_F(WriteBufferManagerTest, FlushInitiatorTracksMutableMemory) {
+  FakeFlushInitiator normal(/*mem=*/0, /*can_flush=*/true);
+  normal.ReserveMem(/*mem=*/100, /*memtable_mem=*/100);
+  normal.ReserveMem(/*mem=*/50, /*memtable_mem=*/50);
+
+  EXPECT_EQ(150, normal.GetTotalMutableMem());
+  EXPECT_EQ(100, normal.GetLargestMutableCFMem());
+  EXPECT_EQ(100, normal.GetFlushableMemUsage());
+
+  normal.ScheduleFreeMem(100);
+  normal.SetLargestMutableCFMem(50);
+  EXPECT_EQ(50, normal.GetTotalMutableMem());
+  EXPECT_EQ(50, normal.GetFlushableMemUsage());
+
+  FakeFlushInitiator atomic(/*mem=*/0, /*can_flush=*/true,
+                            /*atomic_flush=*/true);
+  atomic.ReserveMem(/*mem=*/100, /*memtable_mem=*/100);
+  atomic.ReserveMem(/*mem=*/50, /*memtable_mem=*/50);
+  EXPECT_EQ(150, atomic.GetFlushableMemUsage());
+}
+
+TEST_F(WriteBufferManagerTest, LargestMutableCFRebuildRejectsStaleUpdate) {
+  FakeFlushInitiator initiator(/*mem=*/100, /*can_flush=*/true);
+  const uint64_t update_seq = initiator.GetLargestMutableCFUpdateSequence();
+
+  initiator.UpdateLargestMutableCFMem(200);
+
+  EXPECT_FALSE(initiator.TrySetLargestMutableCFMem(50, update_seq));
+  EXPECT_EQ(200, initiator.GetLargestMutableCFMem());
+}
+
+TEST_F(WriteBufferManagerTest, InaccurateLargestMutableCFIsNotSelected) {
+  WriteBufferManager wbf(1024, nullptr, false,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  FakeFlushInitiator stale(/*mem=*/200, /*can_flush=*/true);
+  FakeFlushInitiator current(/*mem=*/100, /*can_flush=*/true);
+  wbf.RegisterFlushInitiator(&stale);
+  wbf.RegisterFlushInitiator(&current);
+
+  stale.InvalidateLargestMutableCFMem();
+  EXPECT_FALSE(stale.HasAccurateFlushableMemUsage());
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  EXPECT_FALSE(wbf.InitiateFlushOnLargestDB(&stale));
+  EXPECT_EQ(0, stale.schedule_calls_);
+  EXPECT_EQ(0, current.schedule_calls_);
+  EXPECT_TRUE(wbf.InitiateFlushOnLargestDB(nullptr));
+  EXPECT_EQ(1, current.schedule_calls_);
+
+  stale.SetLargestMutableCFMem(200);
+  EXPECT_TRUE(stale.HasAccurateFlushableMemUsage());
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  EXPECT_TRUE(wbf.InitiateFlushOnLargestDB(nullptr));
+  EXPECT_EQ(1, stale.schedule_calls_);
+
+  wbf.DeregisterFlushInitiator(&stale);
+  wbf.DeregisterFlushInitiator(&current);
+}
+
+TEST_F(WriteBufferManagerTest, AllocTrackerPublishesOnlyActiveMemtables) {
+  WriteBufferManager wbf(1024);
+  FakeFlushInitiator initiator(/*mem=*/0, /*can_flush=*/true);
+  AllocTracker tracker(&wbf, &initiator);
+
+  tracker.Allocate(100);
+  EXPECT_EQ(0, initiator.GetFlushableMemUsage());
+
+  tracker.ActivateFlushInitiator();
+  EXPECT_EQ(100, initiator.GetFlushableMemUsage());
+
+  tracker.Allocate(50);
+  EXPECT_EQ(150, initiator.GetTotalMutableMem());
+  EXPECT_EQ(150, initiator.GetLargestMutableCFMem());
+
+  tracker.DeactivateFlushInitiator();
+  EXPECT_EQ(0, initiator.GetTotalMutableMem());
+  tracker.DoneAllocating();
+  EXPECT_EQ(0, initiator.GetTotalMutableMem());
+}
+
+TEST_F(WriteBufferManagerTest, AllocTrackerWithoutManagerDoesNotPublish) {
+  FakeFlushInitiator initiator(/*mem=*/0, /*can_flush=*/true);
+  AllocTracker tracker(nullptr, &initiator);
+
+  tracker.ActivateFlushInitiator();
+
+  EXPECT_EQ(0, initiator.GetFlushableMemUsage());
+}
+
+TEST_F(WriteBufferManagerTest, FlushPolicyStopsAndRestartsSorter) {
+  WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  FakeFlushInitiator initiator(/*mem=*/100, /*can_flush=*/true);
+  wbf.RegisterFlushInitiator(&initiator);
+  EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
+
+  wbf.SetFlushPolicy(WriteBufferFlushPolicy::kFlushOldest);
+  EXPECT_FALSE(wbf.TEST_HasFlushInitiatorSorter());
+  EXPECT_FALSE(wbf.InitiateFlushOnLargestDB(nullptr));
+
+  wbf.SetFlushPolicy(WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+  EXPECT_TRUE(wbf.InitiateFlushOnLargestDB(nullptr));
+
+  wbf.DeregisterFlushInitiator(&initiator);
+}
+
+TEST_F(WriteBufferManagerTest, DeregistrationReclaimsRegistryState) {
+  WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+
+  for (size_t i = 0; i < 1000; ++i) {
+    auto initiator =
+        std::make_unique<FakeFlushInitiator>(i + 1, /*can_flush=*/true);
+    wbf.RegisterFlushInitiator(initiator.get());
+    wbf.DeregisterFlushInitiator(initiator.get());
+  }
+
+  EXPECT_EQ(0, wbf.TEST_GetFlushInitiatorRegistrySize());
+}
+
+TEST_F(WriteBufferManagerTest, LargeFlushInitiatorRegistry) {
+  constexpr size_t kNumDBs = 10000;
+  WriteBufferManager wbf(100 * 1024 * 1024, nullptr /* cache */,
+                         false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  std::vector<std::unique_ptr<FakeFlushInitiator>> initiators;
+  initiators.reserve(kNumDBs);
+  for (size_t i = 0; i < kNumDBs; ++i) {
+    initiators.emplace_back(std::make_unique<FakeFlushInitiator>(i + 1, true));
+    wbf.RegisterFlushInitiator(initiators.back().get());
+  }
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+
+  EXPECT_TRUE(wbf.InitiateFlushOnLargestDB(nullptr));
+  EXPECT_EQ(1, initiators.back()->schedule_calls_);
+
+  // Forward-order removal repeatedly exercises the swap-with-last index fixup.
+  for (const auto& initiator : initiators) {
+    wbf.DeregisterFlushInitiator(initiator.get());
+  }
+}
+
+TEST_F(WriteBufferManagerTest, ScheduleFlushRunsOutsideRegistryLock) {
+  WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  FakeFlushInitiator nested(/*mem=*/1, /*can_flush=*/true);
+  RegistryReentrantFlushInitiator initiator(&wbf, &nested);
+  wbf.RegisterFlushInitiator(&initiator);
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+
+  EXPECT_TRUE(wbf.InitiateFlushOnLargestDB(nullptr));
+
+  wbf.DeregisterFlushInitiator(&initiator);
+}
+
+TEST_F(WriteBufferManagerTest, DeregistrationWaitsForCachedCandidateReader) {
+  WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
+  BlockingFlushInitiator initiator;
+  wbf.RegisterFlushInitiator(&initiator);
+  wbf.TEST_RefreshFlushInitiatorCandidate();
+
+  std::thread selector(
+      [&] { EXPECT_TRUE(wbf.InitiateFlushOnLargestDB(nullptr)); });
+  initiator.WaitUntilEntered();
+
+  std::atomic<bool> deregistration_started{false};
+  std::atomic<bool> deregistration_finished{false};
+  std::thread deregister([&] {
+    deregistration_started.store(true, std::memory_order_release);
+    wbf.DeregisterFlushInitiator(&initiator);
+    deregistration_finished.store(true, std::memory_order_release);
+  });
+  while (!deregistration_started.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  EXPECT_FALSE(deregistration_finished.load(std::memory_order_acquire));
+
+  initiator.Release();
+  selector.join();
+  deregister.join();
+  EXPECT_TRUE(deregistration_finished.load(std::memory_order_acquire));
+  EXPECT_FALSE(wbf.InitiateFlushOnLargestDB(nullptr));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

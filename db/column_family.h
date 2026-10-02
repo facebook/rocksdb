@@ -52,6 +52,7 @@ struct SuperVersionContext;
 class BlobFileCache;
 class BlobFilePartitionManager;
 class BlobSource;
+class FlushInitiator;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -871,6 +872,14 @@ class ColumnFamilySet {
 
   WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
 
+  void SetFlushInitiator(FlushInitiator* flush_initiator) {
+    flush_initiator_ = flush_initiator;
+  }
+
+  FlushInitiator* flush_initiator() const { return flush_initiator_; }
+
+  void RefreshLargestMutableCFMem();
+
   WriteController* write_controller() { return write_controller_; }
 
  private:
@@ -912,6 +921,7 @@ class ColumnFamilySet {
   const ImmutableDBOptions* const db_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
+  FlushInitiator* flush_initiator_ = nullptr;
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;

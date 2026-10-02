@@ -140,7 +140,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+                               kMaxSequenceNumber, 0 /* column_family_id */,
+                               nullptr /* flush_initiator */);
 
   // Write some keys and make sure it returns false on duplicates
   ASSERT_OK(
@@ -188,7 +189,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
       new TestPrefixExtractor());  // which uses _ to extract the prefix
   ioptions = ImmutableOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                     kMaxSequenceNumber, 0 /* column_family_id */);
+                     kMaxSequenceNumber, 0 /* column_family_id */,
+                     nullptr /* flush_initiator */);
   // Insert a duplicate key with _ in it
   ASSERT_OK(
       mem->Add(seq, kTypeValue, "key_1", "value", nullptr /* kv_prot_info */));
@@ -201,7 +203,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   options.allow_concurrent_memtable_write = true;
   ioptions = ImmutableOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                     kMaxSequenceNumber, 0 /* column_family_id */);
+                     kMaxSequenceNumber, 0 /* column_family_id */,
+                     nullptr /* flush_initiator */);
   MemTablePostProcessInfo post_process_info;
   ASSERT_OK(mem->Add(seq, kTypeValue, "key", "value",
                      nullptr /* kv_prot_info */, true, &post_process_info));
@@ -234,7 +237,8 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+                               kMaxSequenceNumber, 0 /* column_family_id */,
+                               nullptr /* flush_initiator */);
 
   // Put 0 as the base
   PutFixed64(&value, static_cast<uint64_t>(0));
