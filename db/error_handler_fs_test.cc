@@ -1543,6 +1543,97 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
   Close();
 }
 
+TEST_F(DBErrorHandlingFSTest, NonFileScopedWALSyncErrorRecoveryIsAtomic) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
+
+  const std::vector<std::string> column_family_names = {
+      kDefaultColumnFamilyName, "one", "two", "three"};
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.atomic_flush = false;
+  options.avoid_flush_during_shutdown = true;
+  options.disable_auto_compactions = true;
+  options.max_bgerror_resume_count = 0;
+
+  for (const bool fail_recovery_flush : {false, true}) {
+    SCOPED_TRACE("fail_recovery_flush=" + std::to_string(fail_recovery_flush));
+    DestroyAndReopen(options);
+    CreateAndReopenWithCF({"one", "two", "three"}, options);
+
+    // Leave the last CF empty. Recovery must still advance its WAL replay
+    // boundary in the same MANIFEST commit as the non-empty CFs.
+    for (size_t i = 0; i + 1 < handles_.size(); ++i) {
+      ASSERT_OK(Put(static_cast<int>(i), "seed", "value"));
+    }
+
+    WriteBatch batch;
+    for (ColumnFamilyHandle* handle : handles_) {
+      ASSERT_OK(batch.Put(handle, "batch_key", "batch_value"));
+    }
+
+    IOStatus wal_sync_error =
+        IOStatus::IOError("injected non-file-scoped WAL sync error");
+    wal_sync_error.SetRetryable(true);
+    std::atomic<bool> inject_wal_sync_error{true};
+    SyncPoint::GetInstance()->SetCallBack(
+        "WritableFileWriter::SyncInternal:0", [&](void*) {
+          if (inject_wal_sync_error.exchange(false)) {
+            fault_fs_->SetFilesystemActive(false, wal_sync_error);
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    WriteOptions write_options;
+    write_options.sync = true;
+    Status write_status = db_->Write(write_options, &batch);
+    ASSERT_TRUE(write_status.IsIOError()) << write_status.ToString();
+    ASSERT_FALSE(inject_wal_sync_error.load());
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    fault_fs_->SetFilesystemActive(true);
+
+    for (size_t i = 0; i < handles_.size(); ++i) {
+      ASSERT_EQ("NOT_FOUND", Get(static_cast<int>(i), "batch_key"));
+    }
+
+    std::atomic<int> flush_count{0};
+    SyncPoint::GetInstance()->SetCallBack(
+        "FlushJob::WriteLevel0Table:s", [&](void* status_ptr) {
+          if (flush_count.fetch_add(1) == 2 && fail_recovery_flush) {
+            IOStatus flush_error =
+                IOStatus::IOError("injected recovery flush error");
+            flush_error.SetRetryable(true);
+            *static_cast<Status*>(status_ptr) = flush_error;
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Status resume_status = db_->Resume();
+    if (fail_recovery_flush) {
+      ASSERT_TRUE(resume_status.IsIOError()) << resume_status.ToString();
+    } else {
+      ASSERT_OK(resume_status);
+    }
+    ASSERT_GE(flush_count.load(), 3);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ReopenWithColumnFamilies(column_family_names, options);
+    const std::string expected =
+        fail_recovery_flush ? "batch_value" : "NOT_FOUND";
+    for (size_t i = 0; i < handles_.size(); ++i) {
+      EXPECT_EQ(expected, Get(static_cast<int>(i), "batch_key"))
+          << column_family_names[i];
+    }
+  }
+}
+
 TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   if (mem_env_ != nullptr) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");

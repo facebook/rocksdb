@@ -2730,6 +2730,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              bool entered_write_thread) {
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
+  assert(!IsRecoveryFlush(flush_reason));
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
@@ -2770,21 +2771,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    // Recovery may have released `mutex_` after the earlier `ResumeImpl()`
-    // sync. Refresh sequence state at the actual memtable-switch fence, after
-    // both write queues are drained and before `SwitchMemtable()` consumes
-    // `LastSequence()`.
-    MaybeSyncLastSequenceWithAllocatedForRecovery(flush_reason);
-
-    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load() ||
-        IsRecoveryFlush(flush_reason)) {
+    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-          !cached_recoverable_state_empty_.load() ||
-          IsRecoveryFlush(flush_reason)) {
+          !cached_recoverable_state_empty_.load()) {
         FlushRequest req{
             flush_reason, false /* atomic_flush */, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
@@ -2972,9 +2965,10 @@ Status DBImpl::AtomicFlushMemTables(
     }
     WaitForPendingWrites();
 
-    // Keep atomic recovery flushes consistent with the single-CF path: the
-    // sequence sync must happen after both write queues are drained and before
-    // any recovery memtable switch reads `LastSequence()`.
+    // Recovery may have released `mutex_` after the earlier `ResumeImpl()`
+    // sync. Refresh sequence state at the atomic memtable-switch fence, after
+    // both write queues are drained and before `SwitchMemtable()` consumes
+    // `LastSequence()`.
     MaybeSyncLastSequenceWithAllocatedForRecovery(flush_reason);
 
     SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds, flush_reason);

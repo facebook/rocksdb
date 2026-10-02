@@ -240,10 +240,11 @@ TEST_F(WritePreparedTransactionSeqnoTest,
 
 // Regression test for the gap left by syncing only at the start of
 // ResumeImpl(). Recovery drops mutex_ in FlushAllColumnFamilies() before it
-// enters FlushMemTable(), so a WriteUnprepared WAL-only commit can advance
-// LastAllocatedSequence() after the early sync but before SwitchMemtable()
-// reads LastSequence(). The fix syncs again at the recovery flush fence, after
-// both write queues are drained and immediately before switching memtables.
+// enters AtomicFlushMemTables(), so a WriteUnprepared WAL-only commit can
+// advance LastAllocatedSequence() after the early sync but before
+// SwitchMemtable() reads LastSequence(). The fix syncs again at the recovery
+// flush fence, after both write queues are drained and immediately before
+// switching memtables.
 TEST_F(WritePreparedTransactionSeqnoTest,
        WriteUnpreparedWalOnlyCommitDuringRecoveryFlushUpdatesSwitchSeq) {
   // Use WRITE_UNPREPARED because a prepared transaction's commit marker is a
@@ -281,10 +282,11 @@ TEST_F(WritePreparedTransactionSeqnoTest,
   SequenceNumber allocated_after_gap_commit = 0;
 
   // Force the reviewed interleaving: ResumeImpl() has completed its early sync
-  // and FlushAllColumnFamilies() has released mutex_, but FlushMemTable() has
-  // not yet joined/drained both write queues before SwitchMemtable().
+  // and FlushAllColumnFamilies() has released mutex_, but
+  // AtomicFlushMemTables() has not yet joined/drained both write queues before
+  // SwitchMemtable().
   sync_point.SetCallBack(
-      "DBImpl::FlushAllColumnFamilies:BeforeFlushMemTable", [&](void*) {
+      "DBImpl::FlushAllColumnFamilies:BeforeAtomicFlushMemTables", [&](void*) {
         if (committed_in_flush_gap.exchange(true)) {
           return;
         }
