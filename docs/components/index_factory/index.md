@@ -60,6 +60,13 @@ always wins over them, on every configuration path -- whole-map
 API -- so setting `index_mode=kStandardOnly` is a reliable rollback switch even
 when a stale bool is left behind.
 
+Old OPTIONS files serialized `kStandardDefault` even when legacy flags selected
+another mode. Unmarked input containing that default and legacy flags retains
+the old interpretation. New OPTIONS files serialize `index_mode_explicit=true`
+so even an explicit default overrides stale flags. Include this marker in a
+mixed map or string when the default is intended to be authoritative;
+single-key `ConfigureOption()` remains an explicit selection.
+
 Legacy aliases retain their boolean state across configuration calls. Clearing
 an alias recomputes the mode from the remaining enabled aliases unless a mode
 was selected explicitly. Explicit modes clear ignored legacy inputs so a copied
@@ -110,10 +117,12 @@ baking a degraded reader into a long-lived `Rep`.
 - The raw block is charged exactly once. When the table reader owns it
   (`cache_index_and_filter_blocks=false`, the default),
   `BlockBasedTable::ApproximateMemoryUsage()` adds it. When it lives in the
-  block cache, the cache charges it and the table reader does not. An
-  `IndexFactoryReader::ApproximateMemoryUsage()` implementation must therefore
-  report only what it allocates itself, never the serialized block it points
-  into -- `TrieIndexReader` reports just its auxiliary lookup tables.
+  block cache, the cache charges it and the table reader does not. Legacy
+  `IndexFactoryReader::ApproximateMemoryUsage()` estimates include serialized
+  bytes by default; the wrapper subtracts those bytes before adding auxiliary
+  reader memory. Readers reporting only their own allocations must override
+  `MemoryUsageIncludesIndexBlock()` to return false. `TrieIndexReader` uses this
+  convention and reports just its auxiliary lookup tables.
 
 ## Parallel compression
 
