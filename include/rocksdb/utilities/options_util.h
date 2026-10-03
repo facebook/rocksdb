@@ -80,7 +80,9 @@ Status LoadOptionsFromFile(const ConfigOptions& config_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
                            std::shared_ptr<Cache>* cache = {});
 
-// Returns the latest options file name under the specified db path.
+// Returns the MANIFEST-selected effective OPTIONS file, unless a higher
+// unprepared OPTIONS file indicates output from a legacy writer. With no
+// effective pointer, returns the highest-numbered unprepared OPTIONS file.
 Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
                                 std::string* options_file_name);
 

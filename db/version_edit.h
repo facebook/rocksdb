@@ -75,6 +75,8 @@ enum Tag : uint32_t {
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
   kLastCompactedManifestFileSize,
+  kEffectiveOptionsFileNumber,
+  kPreparedOptionsFileNumber,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -1042,6 +1044,47 @@ class VersionEdit {
     return last_compacted_manifest_file_size_;
   }
 
+  // Records the exact OPTIONS file that describes the DB state after this
+  // edit. This tag is safely ignorable so older RocksDB binaries retain their
+  // legacy behavior of selecting the newest OPTIONS file by file number.
+  void SetEffectiveOptionsFileNumber(uint64_t number) {
+    has_effective_options_file_number_ = true;
+    effective_options_file_number_ = number;
+  }
+  bool HasEffectiveOptionsFileNumber() const {
+    return has_effective_options_file_number_;
+  }
+  uint64_t GetEffectiveOptionsFileNumber() const {
+    return effective_options_file_number_;
+  }
+
+  // Records that OPTIONS-<number> is about to be published. A later
+  // effective-options record commits it. The tag is safely ignorable so older
+  // RocksDB binaries retain their legacy highest-numbered OPTIONS behavior.
+  void SetPreparedOptionsFileNumber(uint64_t number) {
+    has_prepared_options_file_number_ = true;
+    prepared_options_file_number_ = number;
+  }
+  bool HasPreparedOptionsFileNumber() const {
+    return has_prepared_options_file_number_;
+  }
+  uint64_t GetPreparedOptionsFileNumber() const {
+    return prepared_options_file_number_;
+  }
+
+  // Marks a live OPTIONS-only MANIFEST write as DB-wide metadata that does not
+  // change an LSM Version. This is intentionally not encoded; recovery applies
+  // the persisted fields through VersionEditHandler instead.
+  void MarkOptionsFileManipulation() {
+    assert(NumEntries() == 0);
+    assert(!IsColumnFamilyManipulation());
+    assert(HasPreparedOptionsFileNumber() || HasEffectiveOptionsFileNumber());
+    is_options_file_manipulation_ = true;
+  }
+  bool IsOptionsFileManipulation() const {
+    return is_options_file_manipulation_;
+  }
+
   // Recovery-time per-column-family edits only need to be written when they
   // advance the CF's log number or carry some other manifest state.
   bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
@@ -1140,6 +1183,15 @@ class VersionEdit {
 
   bool has_last_compacted_manifest_file_size_ = false;
   uint64_t last_compacted_manifest_file_size_ = 0;
+
+  bool has_effective_options_file_number_ = false;
+  uint64_t effective_options_file_number_ = 0;
+
+  bool has_prepared_options_file_number_ = false;
+  uint64_t prepared_options_file_number_ = 0;
+
+  // Non-persisted marker for the live MANIFEST writer fast path.
+  bool is_options_file_manipulation_ = false;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them

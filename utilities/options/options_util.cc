@@ -5,11 +5,13 @@
 
 #include "rocksdb/utilities/options_util.h"
 
+#include "db/version_set.h"
 #include "file/filename.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status LoadOptionsFromFile(const ConfigOptions& config_options,
@@ -43,9 +45,25 @@ Status LoadOptionsFromFile(const ConfigOptions& config_options,
 
 Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
                                 std::string* options_file_name) {
+  assert(env != nullptr);
+  assert(options_file_name != nullptr);
   Status s;
-  std::string latest_file_name;
-  uint64_t latest_time_stamp = 0;
+  auto select_effective_options_file = [&](uint64_t file_number) {
+    const std::string full_name = OptionsFileName(dbpath, file_number);
+    Status exists_s = env->FileExists(full_name);
+    if (!exists_s.ok()) {
+      if (exists_s.IsNotFound() || exists_s.IsPathNotFound()) {
+        return Status::Corruption(
+            "MANIFEST references a missing effective OPTIONS file", full_name);
+      }
+      return exists_s;
+    }
+    *options_file_name = OptionsFileName(file_number);
+    return Status::OK();
+  };
+  // A writer can prepare or commit while the directory is being scanned.
+  // Replay the complete protocol state after the scan before selecting a file.
+  TEST_SYNC_POINT("GetLatestOptionsFileName:AfterPointerAbsentManifestReplay");
   std::vector<std::string> file_names;
   s = env->GetChildren(dbpath, &file_names);
   if (s.IsNotFound()) {
@@ -55,22 +73,39 @@ Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
   } else if (!s.ok()) {
     return s;
   }
-  for (auto& file_name : file_names) {
-    uint64_t time_stamp;
-    FileType type;
-    if (ParseFileName(file_name, &time_stamp, &type) && type == kOptionsFile) {
-      if (time_stamp > latest_time_stamp) {
-        latest_time_stamp = time_stamp;
-        latest_file_name = file_name;
-      }
-    }
+  OptionsFileProtocolState protocol_state;
+  s = VersionSet::GetOptionsFileProtocolState(
+      dbpath, env->GetFileSystem().get(), &protocol_state,
+      /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr);
+  if (!s.ok()) {
+    return s;
   }
-  if (latest_file_name.size() == 0) {
+
+  bool selected_by_manifest = false;
+  const uint64_t selected_options_file_number =
+      VersionSet::ResolveOptionsFileNumber(protocol_state, file_names,
+                                           &selected_by_manifest);
+  if (selected_by_manifest) {
+    return select_effective_options_file(selected_options_file_number);
+  }
+  if (selected_options_file_number == 0) {
     return Status::NotFound(Status::kPathNotFound,
                             "No options files found in the DB directory.",
                             dbpath);
   }
-  *options_file_name = latest_file_name;
+  // Preserve the directory entry's spelling for legacy files. Historically
+  // ParseFileName accepted non-canonical zero padding such as OPTIONS-0001.
+  for (const std::string& file_name : file_names) {
+    uint64_t number = 0;
+    FileType type;
+    if (ParseFileName(file_name, &number, &type) && type == kOptionsFile &&
+        number == selected_options_file_number) {
+      *options_file_name = file_name;
+      return Status::OK();
+    }
+  }
+  *options_file_name = OptionsFileName(selected_options_file_number);
   return Status::OK();
 }
 

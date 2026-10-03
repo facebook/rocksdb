@@ -1583,6 +1583,21 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   boolean writeDbidToManifest();
 
   /**
+   * Selects prepare/file/commit OPTIONS publication through the MANIFEST for
+   * this writable open. If false, writes use legacy highest-numbered-OPTIONS
+   * behavior even when the MANIFEST contains older protocol records.
+   *
+   * @param track whether this writable open should use the publication protocol
+   * @return the instance of the current object
+   */
+  T setTrackOptionsFileNumberInManifest(final boolean track);
+
+  /**
+   * @return whether this open uses MANIFEST OPTIONS publication
+   */
+  boolean trackOptionsFileNumberInManifest();
+
+  /**
    * The number of bytes to prefetch when reading the log. This is mostly useful
    * for reading a remotely located log, as it can save the number of
    * round-trips. If 0, then the prefetching is disabled.

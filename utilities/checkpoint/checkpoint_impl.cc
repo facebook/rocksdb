@@ -461,6 +461,7 @@ Status CheckpointImpl::CreateCheckpointImpl(
   // Populated by CreateCustomCheckpoint when include_cf_ids restricts the
   // checkpoint to a subset of column families.
   std::vector<uint32_t> excluded_cf_ids;
+  SubsetCheckpointOptionsSnapshot options_snapshot;
   std::string manifest_relative_filename;
   uint64_t manifest_size = 0;
   if (s.ok()) {
@@ -492,7 +493,7 @@ Status CheckpointImpl::CreateCheckpointImpl(
           &sequence_number, log_size_for_flush,
           /*get_live_table_checksum=*/false, /*atomic_flush=*/false,
           include_cf_ids, &excluded_cf_ids, &manifest_relative_filename,
-          &manifest_size);
+          &manifest_size, &options_snapshot);
 
       // Await any deferred work and fold in the first error before committing.
       Status finish_s = mover->Finish();
@@ -512,9 +513,14 @@ Status CheckpointImpl::CreateCheckpointImpl(
               "Subset checkpoint did not record a MANIFEST descriptor entry");
         } else {
           DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
-          s = db_impl->AppendColumnFamilyDropsToManifest(
-              full_private_path + "/" + manifest_relative_filename,
-              manifest_size, excluded_cf_ids);
+          s = db_impl->CreateOptionsFileForSubsetCheckpoint(full_private_path,
+                                                            options_snapshot);
+          if (s.ok()) {
+            s = db_impl->AppendColumnFamilyDropsToManifest(
+                full_private_path + "/" + manifest_relative_filename,
+                manifest_size, excluded_cf_ids,
+                options_snapshot.options_file_number);
+          }
         }
       }
 
@@ -590,7 +596,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     bool get_live_table_checksum, bool atomic_flush,
     const std::vector<uint32_t>& include_cf_ids,
     std::vector<uint32_t>* excluded_cf_ids,
-    std::string* manifest_relative_filename, uint64_t* manifest_size) {
+    std::string* manifest_relative_filename, uint64_t* manifest_size,
+    SubsetCheckpointOptionsSnapshot* options_snapshot) {
   *sequence_number = db_->GetLatestSequenceNumber();
 
   LiveFilesStorageInfoOptions opts;
@@ -605,9 +612,10 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       s = db_->GetLiveFilesStorageInfo(opts, &infos);
     } else {
       assert(excluded_cf_ids != nullptr);
+      assert(options_snapshot != nullptr);
       DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
       s = db_impl->GetLiveFilesStorageInfoForSubsetCheckpoint(
-          opts, include_cf_ids, &infos, excluded_cf_ids);
+          opts, include_cf_ids, &infos, excluded_cf_ids, options_snapshot);
     }
     if (!s.ok()) {
       return s;
