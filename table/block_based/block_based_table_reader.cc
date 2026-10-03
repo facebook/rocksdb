@@ -1901,11 +1901,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       if (s.ok()) {
         std::unique_ptr<IndexFactoryReader> udi_reader;
         // Legacy NewReader implementations can advance the mutable Slice.
-        const size_t index_block_size = rep_->udi_block.GetValue()->data.size();
+        // Keep the cached view immutable, including across concurrent opens.
+        Slice index_contents = rep_->udi_block.GetValue()->data;
+        const size_t index_block_size = index_contents.size();
         IndexFactoryOptions udi_option;
         udi_option.comparator = rep_->internal_comparator.user_comparator();
         s = table_options.user_defined_index_factory->NewReader(
-            udi_option, rep_->udi_block.GetValue()->data, udi_reader);
+            udi_option, index_contents, udi_reader);
         if (s.ok()) {
           if (udi_reader) {
             // Primary UDI mode is purely config-driven. The

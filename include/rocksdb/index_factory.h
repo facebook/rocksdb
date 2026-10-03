@@ -373,8 +373,10 @@ class IndexFactory : public Customizable {
 
   // Create a reader for an existing serialized index block.
   // @param options         Configuration (comparator, etc.)
-  // @param index_contents  Raw bytes of the serialized index. The Slice
-  //                        must remain valid for the lifetime of the reader.
+  // @param index_contents  Raw bytes of the serialized index. The backing
+  //                        bytes remain valid for the lifetime of the reader.
+  //                        The factory may advance this Slice, but must not
+  //                        retain a reference to the Slice object itself.
   virtual Status NewReader(const IndexFactoryOptions& options,
                            Slice& index_contents,
                            std::unique_ptr<IndexFactoryReader>& reader) const {

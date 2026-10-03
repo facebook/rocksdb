@@ -82,7 +82,9 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   void OnKeyAdded(const Slice& key, ValueType type,
                   const Slice& value) override;
 
-  // Finalize the trie and return the serialized index data.
+  // Finalize the trie and return the serialized index data. Returns
+  // NotSupported if any data-block offset or size exceeds UINT32_MAX;
+  // the serialized trie encodes these fields as 32-bit integers.
   Status Finish(Slice* index_contents) override;
 
   // Returns an estimate of the current serialized index size.
@@ -92,6 +94,7 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
   const Comparator* comparator_;
   LoudsTrieBuilder trie_builder_;
   bool finished_;
+  bool has_unsupported_handle_ = false;
 
   // --- Sequence number handling ---
   //
@@ -122,8 +125,9 @@ class TrieIndexBuilder final : public UserDefinedIndexBuilder {
     TrieBlockHandle handle;
   };
   std::vector<BufferedEntry> buffered_entries_;
-  // Running total of separator key bytes for O(1) EstimatedSize().
-  uint64_t total_separator_bytes_ = 0;
+  // Upper bound on distinct trie edges for O(1) EstimatedSize(). Comparing
+  // adjacent separators avoids charging their common prefix repeatedly.
+  uint64_t estimated_trie_edges_ = 0;
 };
 
 // ============================================================================
