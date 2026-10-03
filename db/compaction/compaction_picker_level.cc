@@ -21,6 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  assert(vstorage != nullptr);
   if (!vstorage->ExpiredTtlFiles().empty()) {
     return true;
   }
@@ -34,6 +35,9 @@ bool LevelCompactionPicker::NeedsCompaction(
     return true;
   }
   if (!vstorage->FilesMarkedForForcedBlobGC().empty()) {
+    return true;
+  }
+  if (vstorage->BlobFileForStandaloneGC()) {
     return true;
   }
   if (!vstorage->ReadTriggeredCompactionFiles().empty()) {

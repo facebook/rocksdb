@@ -3642,6 +3642,27 @@ TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
                   .IsInvalidArgument());
 }
 
+TEST(ColumnFamilyTest, ValidateBlobIndirection) {
+  DBOptions db_options;
+  ColumnFamilyOptions cf_options;
+
+  cf_options.enable_blob_indirection = true;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsInvalidArgument());
+
+  cf_options.enable_blob_files = true;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.enable_blob_direct_write = true;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.enable_blob_direct_write = false;
+  cf_options.blob_compression_type = kLZ4Compression;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+}
+
 TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
   DBOptions db_options;
 

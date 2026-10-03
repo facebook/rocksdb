@@ -23,7 +23,10 @@
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
+#include "table/embedded_blob_sst.h"
+#include "table/format.h"
 #include "util/autovector.h"
+#include "util/coding.h"
 #include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -84,7 +87,7 @@ bool ShouldKeepFooterlessBlobFile(FileSystem* fs,
     return !io_s.IsPathNotFound();
   }
 
-  if (file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+  if (file_size < 2 * sizeof(uint32_t)) {
     return true;
   }
 
@@ -96,21 +99,76 @@ bool ShouldKeepFooterlessBlobFile(FileSystem* fs,
   if (!io_s.ok()) {
     return !io_s.IsPathNotFound();
   }
+  if (file == nullptr) {
+    return true;
+  }
 
-  std::array<char, BlobLogFooter::kSize> scratch{};
+  std::array<char, BlobLogHeader::kSize> header_scratch{};
+  Slice header_slice;
+  io_s = file->Read(0, BlobLogHeader::kSize, io_options, &header_slice,
+                    header_scratch.data(), dbg);
+  if (!io_s.ok()) {
+    return !io_s.IsPathNotFound();
+  }
+  Slice version_slice = header_slice;
+  uint32_t magic_number = 0;
+  uint32_t version = 0;
+  const bool is_v1_blob = GetFixed32(&version_slice, &magic_number) &&
+                          GetFixed32(&version_slice, &version) &&
+                          magic_number == kMagicNumber && version == kVersion1;
+  const bool is_blob_gc_carrier =
+      header_slice.size() >= kBlobGcCarrierFilePrefixSize &&
+      Slice(header_slice.data(), kBlobGcCarrierFilePrefixSize) ==
+          Slice(kBlobGcCarrierFilePrefix, kBlobGcCarrierFilePrefixSize);
+  if (!is_blob_gc_carrier && is_v1_blob) {
+    if (file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+      return true;
+    }
+    BlobLogHeader header;
+    if (header_slice.size() != BlobLogHeader::kSize ||
+        !header.DecodeFrom(header_slice).ok()) {
+      return true;
+    }
+
+    std::array<char, BlobLogFooter::kSize> footer_scratch{};
+    Slice footer_slice;
+    io_s = file->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
+                      io_options, &footer_slice, footer_scratch.data(), dbg);
+    if (!io_s.ok()) {
+      return !io_s.IsPathNotFound();
+    }
+    if (footer_slice.size() != BlobLogFooter::kSize) {
+      return true;
+    }
+    BlobLogFooter footer;
+    return !footer.DecodeFrom(footer_slice).ok();
+  }
+
+  // A standalone-GC carrier is an ordinary block-based table stored in the
+  // blob-file namespace. It is renamed to its final name only after Finish,
+  // Sync, and Close, so a valid footer identifies a complete unreachable
+  // orphan that is safe to purge. Unknown or truncated formats stay protected.
+  if (file_size < Footer::kMinEncodedLength) {
+    return true;
+  }
+  const size_t footer_size = static_cast<size_t>(
+      std::min<uint64_t>(file_size, Footer::kMaxEncodedLength));
+  std::array<char, Footer::kMaxEncodedLength> footer_scratch{};
   Slice footer_slice;
-  io_s = file->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
-                    io_options, &footer_slice, scratch.data(), dbg);
+  io_s = file->Read(file_size - footer_size, footer_size, io_options,
+                    &footer_slice, footer_scratch.data(), dbg);
   if (!io_s.ok()) {
     return !io_s.IsPathNotFound();
   }
 
-  if (footer_slice.size() != BlobLogFooter::kSize) {
+  if (footer_slice.size() != footer_size) {
     return true;
   }
 
-  BlobLogFooter footer;
-  return !footer.DecodeFrom(footer_slice).ok();
+  Footer table_footer;
+  const Status footer_status = table_footer.DecodeFrom(
+      footer_slice, file_size - footer_size, kBlockBasedTableMagicNumber);
+  return !footer_status.ok() || table_footer.format_version() < 7;
 }
 
 }  // namespace
@@ -710,15 +768,17 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       }
       case kTempFile:
-        // Any temp files that are currently being written to must
-        // be recorded in pending_outputs_, which is inserted into "live".
+        // Any temp files that are currently being written to must be recorded
+        // in pending_outputs_. The snapshot's minimum pending output protects
+        // those files even though a temp file is not in an SST/blob live set.
         // Also, SetCurrentFile creates a temp file when writing out new
         // manifest, which is equal to state.pending_manifest_file_number. We
         // should not delete that file
         //
         // TODO(yhchiang): carefully modify the third condition to safely
         //                 remove the temp options files.
-        keep = (sst_live_set.find(number) != sst_live_set.end()) ||
+        keep = (number >= state.min_pending_output) ||
+               (sst_live_set.find(number) != sst_live_set.end()) ||
                (blob_live_set.find(number) != blob_live_set.end()) ||
                (number == state.pending_manifest_file_number) ||
                (to_delete.find(kOptionsFileNamePrefix) != std::string::npos);
