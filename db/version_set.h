@@ -85,6 +85,28 @@ class ManifestTailer;
 class FilePickerMultiGet;
 class MultiScanArgs;
 
+// OPTIONS publication records recovered from a MANIFEST. A prepare protects a
+// newly allocated file number from being mistaken for output from a legacy
+// writer. A commit selects the file and retires older prepares.
+struct OptionsFileProtocolState {
+  uint64_t effective_options_file_number = 0;
+  bool has_effective_options_file_number = false;
+  std::set<uint64_t> prepared_options_file_numbers;
+
+  void ApplyPrepare(uint64_t number);
+  void ApplyCommit(uint64_t number);
+
+  bool operator==(const OptionsFileProtocolState& rhs) const {
+    return effective_options_file_number == rhs.effective_options_file_number &&
+           has_effective_options_file_number ==
+               rhs.has_effective_options_file_number &&
+           prepared_options_file_numbers == rhs.prepared_options_file_numbers;
+  }
+  bool operator!=(const OptionsFileProtocolState& rhs) const {
+    return !(*this == rhs);
+  }
+};
+
 // VersionEdit is always supposed to be valid and it is used to point at
 // entries in Manifest. Ideally it should not be used as a container to
 // carry around few of its fields as function params because it can cause
@@ -1443,6 +1465,20 @@ class VersionSet {
       const std::string& manifest_path, FileSystem* fs,
       std::vector<std::string>* column_families);
 
+  // Replays CURRENT's stable MANIFEST snapshot and returns both committed and
+  // uncommitted OPTIONS publication records.
+  static Status GetOptionsFileProtocolState(
+      const std::string& dbname, FileSystem* fs,
+      OptionsFileProtocolState* protocol_state);
+
+  // Resolves a stable MANIFEST protocol state against a DB directory listing.
+  // A higher canonical OPTIONS file without a surviving prepare record is
+  // treated as output from a legacy writer and supersedes the committed
+  // pointer. Prepared-but-uncommitted files are ignored.
+  static uint64_t ResolveOptionsFileNumber(
+      const OptionsFileProtocolState& protocol_state,
+      const std::vector<std::string>& filenames, bool* selected_by_manifest);
+
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
@@ -1471,6 +1507,34 @@ class VersionSet {
   uint64_t manifest_file_number() const { return manifest_file_number_; }
 
   uint64_t options_file_number() const { return options_file_number_; }
+
+  // True while a reactive instance resolves the OPTIONS file corresponding to
+  // its newly replayed MANIFEST state. Protected by the DB mutex.
+  bool options_file_state_refresh_pending() const {
+    return options_file_state_refresh_pending_;
+  }
+
+  // True when options_file_number() is the last committed MANIFEST pointer and
+  // has not been superseded by a higher OPTIONS file from a legacy writer.
+  bool has_manifest_options_file_number() const {
+    return has_manifest_options_file_number_;
+  }
+
+  const std::set<uint64_t>& prepared_options_file_numbers() const {
+    return prepared_options_file_numbers_;
+  }
+
+  OptionsFileProtocolState options_file_protocol_state() const {
+    OptionsFileProtocolState state;
+    state.effective_options_file_number = options_file_number_;
+    state.has_effective_options_file_number = has_manifest_options_file_number_;
+    state.prepared_options_file_numbers = prepared_options_file_numbers_;
+    return state;
+  }
+
+  void ApplyPreparedOptionsFileNumber(uint64_t number);
+  void ApplyEffectiveOptionsFileNumber(uint64_t number);
+  void ApplyLegacyOptionsFileNumber(uint64_t number);
 
   uint64_t pending_manifest_file_number() const {
     return pending_manifest_file_number_;
@@ -1787,19 +1851,23 @@ class VersionSet {
   unsigned TEST_GetMaxManifestSpaceAmpPct() {
     return max_manifest_space_amp_pct_;
   }
+  void TEST_ClearEffectiveOptionsFileNumber() {
+    has_manifest_options_file_number_ = false;
+  }
   size_t TEST_GetManifestPreallocationSize() {
     return manifest_preallocation_size_;
   }
 
-  // Appends a kColumnFamilyDrop record for each id in cf_ids to the MANIFEST
-  // file at manifest_path, whose valid content length is manifest_size bytes.
-  // Intended for post-processing a checkpoint's copied MANIFEST so that column
-  // families whose SST/blob files were not copied are recorded as dropped and
-  // thus not opened during recovery.
+  // Appends a kColumnFamilyDrop record for each id in cf_ids and, when nonzero,
+  // an OPTIONS prepare and/or commit record to the MANIFEST at manifest_path,
+  // whose valid content length is manifest_size bytes. Intended for
+  // post-processing a checkpoint's copied MANIFEST and offline ldb repair.
   Status AppendColumnFamilyDropsToManifest(
       const std::string& manifest_path, uint64_t manifest_size,
       const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
-      uint64_t manifest_preallocation_size);
+      uint64_t manifest_preallocation_size,
+      uint64_t prepared_options_file_number,
+      uint64_t effective_options_file_number);
 
  protected:
   struct ManifestWriter;
@@ -1848,7 +1916,9 @@ class VersionSet {
   Status WriteCurrentStateToManifest(
       const WriteOptions& write_options,
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
+      const VersionEdit& wal_additions,
+      const OptionsFileProtocolState& options_protocol_state, log::Writer* log,
+      IOStatus& io_s);
 
   // Reopen the existing MANIFEST file for append at the end of Recover()
   // when reuse_manifest_on_open is set, so the next LogAndApply appends
@@ -1913,6 +1983,10 @@ class VersionSet {
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t options_file_size_;
+  bool has_manifest_options_file_number_;
+  std::set<uint64_t> prepared_options_file_numbers_;
+  bool options_file_state_refresh_pending_ = false;
+  uint64_t options_file_state_refresh_generation_ = 0;
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads. It normally indicates the last sequence in
   // the memtable but when using two write queues it could also indicate the
@@ -2067,6 +2141,13 @@ class ReactiveVersionSet : public VersionSet {
       std::unordered_set<ColumnFamilyData*>* cfds_changed,
       std::vector<std::string>* files_to_delete);
 
+  // Refreshes operational OPTIONS metadata without holding the DB mutex during
+  // filesystem I/O. The captured MANIFEST/protocol state is validated before
+  // the result is installed. REQUIRES: `mu` is not held on entry.
+  Status RefreshOptionsFileStateOutsideMutex(
+      InstrumentedMutex* mu,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
+
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
@@ -2106,9 +2187,19 @@ class ReactiveVersionSet : public VersionSet {
 
   Status MaybeSwitchManifest(
       log::Reader::Reporter* reporter,
-      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+      uint64_t* current_manifest_file_number);
 
  private:
+  Status RefreshOptionsFileState(log::FragmentBufferedReader* manifest_reader);
+  Status ReadOptionsFileState(const std::string& manifest_path,
+                              uint64_t replayed_manifest_size,
+                              uint64_t manifest_file_number,
+                              const OptionsFileProtocolState& protocol_state,
+                              uint64_t* selected_options_file_number,
+                              uint64_t* selected_options_file_size,
+                              bool* selected_by_manifest);
+
   std::unique_ptr<ManifestTailer> manifest_tailer_;
   // When true, MANIFEST recovery trusts the manifest and does not stat/open SST
   // or blob files (see

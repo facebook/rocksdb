@@ -1636,6 +1636,25 @@ struct DBOptions {
   // are phased out.
   bool write_dbid_to_manifest = true;
 
+  // EXPERIMENTAL: If true, OPTIONS publication uses a MANIFEST prepare record,
+  // followed by the durable OPTIONS file and a MANIFEST commit record. For a
+  // column-family create or drop, the commit and membership edit are the same
+  // MANIFEST record.
+  //
+  // If false, writable opens retain the legacy behavior and do not emit prepare
+  // or commit records. A higher OPTIONS file without a surviving prepare is
+  // treated as output from such a legacy writer and supersedes an older commit.
+  // Disabling the option does not remove historical protocol records.
+  //
+  // This rollout control is intentionally not persisted in OPTIONS files.
+  // Older binaries safely ignore the MANIFEST fields and retain their legacy
+  // highest-numbered-OPTIONS behavior. A crash after a new binary writes an
+  // OPTIONS file but before its commit can therefore expose that file to an old
+  // binary, matching the legacy failure behavior.
+  //
+  // Default: false
+  bool track_options_file_number_in_manifest = false;
+
   // It is expected that the Identity file will be obsoleted by recording
   // DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
   // maintains the historical behavior of writing an Identity file, while

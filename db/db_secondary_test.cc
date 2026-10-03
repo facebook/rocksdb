@@ -9,6 +9,8 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -20,6 +22,7 @@
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
+#include "options/options_parser.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -286,7 +289,692 @@ void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
 class DBSecondaryTest : public DBSecondaryTestBase {
  public:
   explicit DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
+
+  Options TrackedPrimaryOptions(bool force_manifest_rotation) {
+    Options options = GetDefaultOptions();
+    options.create_if_missing = true;
+    options.track_options_file_number_in_manifest = true;
+    if (force_manifest_rotation) {
+      options.max_manifest_file_size = 1;
+      options.max_manifest_space_amp_pct = 0;
+    }
+    return options;
+  }
+
+  void ReopenPrimaryAndSecondary(const Options& primary_options) {
+    Reopen(primary_options);
+    Options secondary_options = primary_options;
+    secondary_options.create_if_missing = false;
+    secondary_options.track_options_file_number_in_manifest = false;
+    secondary_options.max_open_files = -1;
+    OpenSecondary(secondary_options);
+  }
+
+  void GetSingleLiveFileStorageInfo(FileType file_type,
+                                    LiveFileStorageInfo* result) {
+    ASSERT_NE(nullptr, result);
+    LiveFilesStorageInfoOptions live_options;
+    live_options.wal_size_for_flush = std::numeric_limits<uint64_t>::max();
+    std::vector<LiveFileStorageInfo> files;
+    ASSERT_OK(db_secondary_->GetLiveFilesStorageInfo(live_options, &files));
+    bool found = false;
+    for (const auto& file : files) {
+      if (file.file_type == file_type) {
+        ASSERT_FALSE(found);
+        *result = file;
+        found = true;
+      }
+    }
+    ASSERT_TRUE(found);
+  }
+
+  void PersistDefaultOptions(const Options& options, uint64_t file_number) {
+    ASSERT_OK(PersistRocksDBOptions(
+        WriteOptions(), DBOptions(options), {kDefaultColumnFamilyName},
+        {ColumnFamilyOptions(options)}, OptionsFileName(dbname_, file_number),
+        env_->GetFileSystem().get()));
+  }
+
+  void AssertProgressWhileOperationIsPaused(
+      const std::string& sync_point,
+      const std::function<Status()>& paused_operation,
+      const std::function<Status()>& progress_operation) {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callback_entered = false;
+    bool release_callback = false;
+    bool progress_finished = false;
+    Status paused_status;
+    Status progress_status;
+
+    SyncPoint::GetInstance()->SetCallBack(sync_point, [&](void*) {
+      std::unique_lock<std::mutex> lock(mutex);
+      if (callback_entered) {
+        return;
+      }
+      callback_entered = true;
+      cv.notify_all();
+      cv.wait(lock, [&]() { return release_callback; });
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    std::thread paused_thread([&]() { paused_status = paused_operation(); });
+    std::unique_ptr<std::thread> progress_thread;
+    bool observed_callback = false;
+    bool observed_progress = false;
+    {
+      std::unique_lock<std::mutex> lock(mutex);
+      observed_callback = cv.wait_for(lock, std::chrono::seconds(10),
+                                      [&]() { return callback_entered; });
+      if (observed_callback) {
+        progress_thread = std::make_unique<std::thread>([&]() {
+          progress_status = progress_operation();
+          std::lock_guard<std::mutex> progress_lock(mutex);
+          progress_finished = true;
+          cv.notify_all();
+        });
+        observed_progress = cv.wait_for(lock, std::chrono::seconds(10),
+                                        [&]() { return progress_finished; });
+      }
+      release_callback = true;
+      cv.notify_all();
+    }
+
+    paused_thread.join();
+    if (progress_thread != nullptr) {
+      progress_thread->join();
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_TRUE(observed_callback);
+    ASSERT_TRUE(observed_progress);
+    ASSERT_OK(paused_status);
+    ASSERT_OK(progress_status);
+  }
 };
+
+TEST_F(DBSecondaryTest,
+       OptionsProtocolManifestWritesDoNotStallNormalWritesOrBuildVersions) {
+  Options options = TrackedPrimaryOptions(false);
+  Reopen(options);
+
+  std::atomic<int> versions_built{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:NewVersion", [&](void* arg) {
+        if (arg != nullptr) {
+          ++versions_built;
+        }
+      });
+
+  AssertProgressWhileOperationIsPaused(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest",
+      [&]() {
+        return db_->SetDBOptions({{"stats_dump_period_sec", "1000000000"}});
+      },
+      [&]() { return db_->Put(WriteOptions(), "key", "value"); });
+  ASSERT_EQ(0, versions_built.load());
+}
+
+TEST_F(DBSecondaryTest, LiveFileOptionsStatDoesNotHoldDBMutex) {
+  Options options = TrackedPrimaryOptions(false);
+  Reopen(options);
+  ASSERT_OK(db_->DisableFileDeletions());
+
+  AssertProgressWhileOperationIsPaused(
+      "DBImpl::GetLiveFilesStorageInfo:BeforeOptionsFileSize",
+      [&]() {
+        LiveFilesStorageInfoOptions live_options;
+        live_options.wal_size_for_flush = std::numeric_limits<uint64_t>::max();
+        std::vector<LiveFileStorageInfo> files;
+        return db_->GetLiveFilesStorageInfo(live_options, &files);
+      },
+      [&]() {
+        std::vector<std::string> files;
+        uint64_t manifest_size = 0;
+        return db_->GetLiveFiles(files, &manifest_size,
+                                 /*flush_memtable=*/false);
+      });
+
+  ASSERT_OK(db_->EnableFileDeletions());
+}
+
+TEST_F(DBSecondaryTest, ReactiveOptionsDiscoveryDoesNotHoldDBMutex) {
+  Options primary_options = GetDefaultOptions();
+  primary_options.create_if_missing = true;
+  ReopenPrimaryAndSecondary(primary_options);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  bool live_files_deferred = false;
+  bool storage_info_deferred = false;
+  AssertProgressWhileOperationIsPaused(
+      "ReactiveVersionSet::RefreshLegacyOptionsFileState:AfterGetChildren",
+      [&]() { return db_secondary_->TryCatchUpWithPrimary(); },
+      [&]() {
+        std::vector<std::string> files;
+        uint64_t manifest_size = 0;
+        Status s = db_secondary_->GetLiveFiles(files, &manifest_size,
+                                               /*flush_memtable=*/false);
+        live_files_deferred = s.IsTryAgain();
+        if (!live_files_deferred) {
+          return s.ok()
+                     ? Status::Corruption("live-file snapshot was not deferred")
+                     : s;
+        }
+
+        LiveFilesStorageInfoOptions live_options;
+        live_options.wal_size_for_flush = std::numeric_limits<uint64_t>::max();
+        std::vector<LiveFileStorageInfo> storage_info;
+        s = db_secondary_->GetLiveFilesStorageInfo(live_options, &storage_info);
+        storage_info_deferred = s.IsTryAgain();
+        if (!storage_info_deferred) {
+          return s.ok()
+                     ? Status::Corruption("storage snapshot was not deferred")
+                     : s;
+        }
+        return Status::OK();
+      });
+  ASSERT_TRUE(live_files_deferred);
+  ASSERT_TRUE(storage_info_deferred);
+  VerifySecondaryValue("key", "value");
+
+  std::vector<std::string> files;
+  uint64_t manifest_size = 0;
+  ASSERT_OK(db_secondary_->GetLiveFiles(files, &manifest_size,
+                                        /*flush_memtable=*/false));
+}
+
+TEST_F(DBSecondaryTest, ConcurrentOptionsRefreshFailureKeepsSnapshotsPending) {
+  Options primary_options = GetDefaultOptions();
+  primary_options.create_if_missing = true;
+  ReopenPrimaryAndSecondary(primary_options);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  int before_refresh_calls = 0;
+  int scan_calls = 0;
+  bool release_first_catchup = false;
+  bool release_older_scan = false;
+  bool release_newer_scan = false;
+  bool older_scan_failed = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::TryCatchUpWithPrimary:BeforeOptionsRefresh",
+      [&](void*) {
+        std::unique_lock<std::mutex> lock(mutex);
+        ++before_refresh_calls;
+        cv.notify_all();
+        if (before_refresh_calls == 1) {
+          cv.wait(lock, [&]() { return release_first_catchup; });
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::RefreshLegacyOptionsFileState:AfterGetChildren",
+      [&](void* arg) {
+        std::unique_lock<std::mutex> lock(mutex);
+        const int scan_ordinal = ++scan_calls;
+        cv.notify_all();
+        if (scan_ordinal == 1) {
+          cv.wait(lock, [&]() { return release_older_scan; });
+          auto* status = static_cast<Status*>(arg);
+          assert(status != nullptr);
+          *status = Status::IOError("injected older OPTIONS scan failure");
+          older_scan_failed = true;
+        } else {
+          assert(scan_ordinal == 2);
+          cv.wait(lock, [&]() { return release_newer_scan; });
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  Status first_status;
+  first_status.PermitUncheckedOk();
+  Status second_status;
+  second_status.PermitUncheckedOk();
+  Status live_files_status;
+  live_files_status.PermitUncheckedOk();
+  Status storage_info_status;
+  storage_info_status.PermitUncheckedOk();
+
+  std::thread first_catchup(
+      [&]() { first_status = db_secondary_->TryCatchUpWithPrimary(); });
+  std::unique_ptr<std::thread> second_catchup;
+  bool observed_first_catchup = false;
+  bool observed_older_scan = false;
+  bool observed_newer_scan = false;
+  bool checked_pending_snapshots = false;
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    observed_first_catchup = cv.wait_for(lock, std::chrono::seconds(10), [&]() {
+      return before_refresh_calls >= 1;
+    });
+  }
+  if (observed_first_catchup) {
+    second_catchup = std::make_unique<std::thread>(
+        [&]() { second_status = db_secondary_->TryCatchUpWithPrimary(); });
+    std::unique_lock<std::mutex> lock(mutex);
+    observed_older_scan = cv.wait_for(lock, std::chrono::seconds(10),
+                                      [&]() { return scan_calls >= 1; });
+    if (observed_older_scan) {
+      release_first_catchup = true;
+      cv.notify_all();
+      observed_newer_scan = cv.wait_for(lock, std::chrono::seconds(10),
+                                        [&]() { return scan_calls >= 2; });
+    }
+  }
+  if (observed_newer_scan) {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      release_older_scan = true;
+      cv.notify_all();
+    }
+    second_catchup->join();
+
+    std::vector<std::string> files;
+    uint64_t manifest_size = 0;
+    live_files_status = db_secondary_->GetLiveFiles(files, &manifest_size,
+                                                    /*flush_memtable=*/false);
+    LiveFilesStorageInfoOptions live_options;
+    live_options.wal_size_for_flush = std::numeric_limits<uint64_t>::max();
+    std::vector<LiveFileStorageInfo> storage_info;
+    storage_info_status =
+        db_secondary_->GetLiveFilesStorageInfo(live_options, &storage_info);
+    checked_pending_snapshots = true;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    release_first_catchup = true;
+    release_older_scan = true;
+    release_newer_scan = true;
+    cv.notify_all();
+  }
+  if (second_catchup != nullptr && second_catchup->joinable()) {
+    second_catchup->join();
+  }
+  first_catchup.join();
+
+  ASSERT_TRUE(observed_first_catchup);
+  ASSERT_TRUE(observed_older_scan);
+  ASSERT_TRUE(observed_newer_scan);
+  ASSERT_TRUE(older_scan_failed);
+  ASSERT_TRUE(checked_pending_snapshots);
+  ASSERT_TRUE(live_files_status.IsTryAgain());
+  ASSERT_TRUE(storage_info_status.IsTryAgain());
+  ASSERT_OK(first_status);
+  ASSERT_OK(second_status);
+
+  std::vector<std::string> files;
+  uint64_t manifest_size = 0;
+  ASSERT_OK(db_secondary_->GetLiveFiles(files, &manifest_size,
+                                        /*flush_memtable=*/false));
+}
+
+TEST_F(DBSecondaryTest, RecoversEffectiveOptionsFileNumber) {
+  Options primary_options = TrackedPrimaryOptions(false);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  VersionSet* primary_versions = dbfull()->GetVersionSet();
+  ASSERT_TRUE(primary_versions->has_manifest_options_file_number());
+  const uint64_t expected_options_file_number =
+      primary_versions->options_file_number();
+
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  ASSERT_TRUE(secondary_versions->has_manifest_options_file_number());
+  ASSERT_EQ(expected_options_file_number,
+            secondary_versions->options_file_number());
+}
+
+TEST_F(DBSecondaryTest, LiveFileMetadataTracksEffectiveOptionsSize) {
+  Options primary_options = TrackedPrimaryOptions(false);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  LiveFileStorageInfo initial_info;
+  GetSingleLiveFileStorageInfo(kOptionsFile, &initial_info);
+  uint64_t initial_file_size = 0;
+  ASSERT_OK(env_->GetFileSize(
+      OptionsFileName(dbname_, initial_info.file_number), &initial_file_size));
+  ASSERT_EQ(initial_file_size, initial_info.size);
+
+  ASSERT_OK(db_->SetDBOptions({{"stats_dump_period_sec", "1000000000"}}));
+  const uint64_t expected_options_file_number =
+      dbfull()->GetVersionSet()->options_file_number();
+  ASSERT_NE(initial_info.file_number, expected_options_file_number);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  LiveFileStorageInfo rotated_info;
+  GetSingleLiveFileStorageInfo(kOptionsFile, &rotated_info);
+  ASSERT_EQ(expected_options_file_number, rotated_info.file_number);
+  uint64_t rotated_file_size = 0;
+  ASSERT_OK(env_->GetFileSize(
+      OptionsFileName(dbname_, rotated_info.file_number), &rotated_file_size));
+  ASSERT_NE(initial_file_size, rotated_file_size);
+  ASSERT_EQ(rotated_file_size, rotated_info.size);
+}
+
+TEST_F(DBSecondaryTest, SupersededOptionsPointerDoesNotPoisonManifestTailer) {
+  Options primary_options = TrackedPrimaryOptions(false);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  VersionSet* primary_versions = dbfull()->GetVersionSet();
+  const uint64_t old_options_file_number =
+      primary_versions->options_file_number();
+
+  bool advanced_primary = false;
+  Status primary_status;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::ReadAndApply:AfterManifestRead", [&](void*) {
+        if (advanced_primary) {
+          return;
+        }
+        advanced_primary = true;
+        primary_status = db_->SetDBOptions({{"stats_dump_period_sec", "1001"}});
+        if (primary_status.ok()) {
+          primary_status =
+              db_->SetDBOptions({{"stats_dump_period_sec", "1002"}});
+        }
+        if (primary_status.ok()) {
+          dbfull()->TEST_DeleteObsoleteFiles();
+          primary_status = dbfull()->TEST_WaitForPurge();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_TRUE(advanced_primary);
+  ASSERT_OK(primary_status);
+  ASSERT_TRUE(
+      env_->FileExists(OptionsFileName(dbname_, old_options_file_number))
+          .IsNotFound());
+
+  // The primary appended after the first tail read reached EOF. A normal
+  // subsequent catch-up observes the new pointer; the missing superseded
+  // operational snapshot does not poison MANIFEST tailing state.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  ASSERT_EQ(primary_versions->options_file_number(),
+            secondary_versions->options_file_number());
+}
+
+TEST_F(DBSecondaryTest, ManifestSwitchClearsPointerAbsentInNewSnapshot) {
+  Options primary_options = TrackedPrimaryOptions(true);
+  ReopenPrimaryAndSecondary(primary_options);
+  ASSERT_TRUE(
+      db_secondary_full()->GetVersionSet()->has_manifest_options_file_number());
+  const uint64_t old_manifest_file_number =
+      dbfull()->GetVersionSet()->manifest_file_number();
+
+  // Simulate a rolled snapshot written by a pointer-unaware binary. The test
+  // hook only changes the primary's in-memory emission state; the next forced
+  // MANIFEST snapshot is otherwise produced through the normal writer.
+  {
+    InstrumentedMutexLock l(dbfull()->mutex());
+    dbfull()->GetVersionSet()->TEST_ClearEffectiveOptionsFileNumber();
+  }
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_FALSE(dbfull()->GetVersionSet()->has_manifest_options_file_number());
+  ASSERT_NE(old_manifest_file_number,
+            dbfull()->GetVersionSet()->manifest_file_number());
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  ASSERT_FALSE(secondary_versions->has_manifest_options_file_number());
+
+  uint64_t latest_options_number = 0;
+  std::vector<std::string> children;
+  ASSERT_OK(env_->GetChildren(dbname_, &children));
+  for (const auto& child : children) {
+    uint64_t number = 0;
+    FileType type;
+    if (ParseFileName(child, &number, &type) && type == kOptionsFile) {
+      latest_options_number = std::max(latest_options_number, number);
+    }
+  }
+  ASSERT_EQ(latest_options_number, secondary_versions->options_file_number());
+}
+
+TEST_F(DBSecondaryTest, PointerAbsentCatchUpRefreshesLegacyOptions) {
+  Options primary_options = TrackedPrimaryOptions(true);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  {
+    InstrumentedMutexLock l(dbfull()->mutex());
+    dbfull()->GetVersionSet()->TEST_ClearEffectiveOptionsFileNumber();
+  }
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  ASSERT_FALSE(secondary_versions->has_manifest_options_file_number());
+  const uint64_t old_options_number = secondary_versions->options_file_number();
+  ASSERT_NE(0U, old_options_number);
+
+  const uint64_t newest_options_number = old_options_number + 1000001;
+  for (uint64_t number :
+       {old_options_number + 1000000, newest_options_number}) {
+    PersistDefaultOptions(primary_options, number);
+  }
+  dbfull()->TEST_DeleteObsoleteFiles();
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  ASSERT_TRUE(env_->FileExists(OptionsFileName(dbname_, old_options_number))
+                  .IsNotFound());
+
+  // There are no new MANIFEST edits. Catch-up must nevertheless refresh the
+  // pointer-absent legacy maximum instead of retaining the deleted file.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(newest_options_number, secondary_versions->options_file_number());
+
+  LiveFileStorageInfo options_info;
+  GetSingleLiveFileStorageInfo(kOptionsFile, &options_info);
+  ASSERT_EQ(newest_options_number, options_info.file_number);
+}
+
+TEST_F(DBSecondaryTest, LegacyOptionsRefreshErrorDoesNotBlockCatchUp) {
+  Options primary_options = GetDefaultOptions();
+  primary_options.create_if_missing = true;
+  ReopenPrimaryAndSecondary(primary_options);
+  ASSERT_FALSE(
+      db_secondary_full()->GetVersionSet()->has_manifest_options_file_number());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::RefreshLegacyOptionsFileState:AfterGetChildren",
+      [&](void* arg) {
+        injected = true;
+        auto* status = static_cast<Status*>(arg);
+        assert(status != nullptr);
+        *status = Status::IOError("injected OPTIONS directory scan failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  // Successfully replayed MANIFEST state is core database state. Failure to
+  // refresh auxiliary legacy OPTIONS metadata must not suppress its
+  // SuperVersion/read-view publication.
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_TRUE(injected);
+  VerifySecondaryValue("key", "value");
+  ASSERT_EQ(0U, db_secondary_full()->GetVersionSet()->options_file_number());
+}
+
+TEST_F(DBSecondaryTest,
+       FailedLegacyOptionsStatDoesNotRetirePreparedCandidates) {
+  Options primary_options = TrackedPrimaryOptions(false);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  VersionSet* primary_versions = dbfull()->GetVersionSet();
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  ASSERT_TRUE(primary_versions->has_manifest_options_file_number());
+  const uint64_t committed_options_number =
+      primary_versions->options_file_number();
+  const uint64_t prepared_options_number = committed_options_number + 1000000;
+  const uint64_t legacy_options_number = prepared_options_number + 1;
+
+  VersionEdit prepare;
+  prepare.SetPreparedOptionsFileNumber(prepared_options_number);
+  {
+    InstrumentedMutexLock l(dbfull()->mutex());
+    ASSERT_OK(primary_versions->LogAndApplyToDefaultColumnFamily(
+        ReadOptions(), WriteOptions(), &prepare, dbfull()->mutex(),
+        /*dir_contains_current_file=*/nullptr));
+  }
+  PersistDefaultOptions(primary_options, prepared_options_number);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(1U, secondary_versions->prepared_options_file_numbers().count(
+                    prepared_options_number));
+  ASSERT_EQ(committed_options_number,
+            secondary_versions->options_file_number());
+
+  PersistDefaultOptions(primary_options, legacy_options_number);
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::RefreshOptionsFileState:AfterGetFileSize",
+      [&](void* arg) {
+        injected = true;
+        auto* status = static_cast<Status*>(arg);
+        assert(status != nullptr);
+        *status = Status::IOError("injected OPTIONS stat failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(injected);
+  ASSERT_TRUE(secondary_versions->has_manifest_options_file_number());
+  ASSERT_EQ(committed_options_number,
+            secondary_versions->options_file_number());
+  ASSERT_EQ(1U, secondary_versions->prepared_options_file_numbers().count(
+                    prepared_options_number));
+
+  ASSERT_OK(env_->DeleteFile(OptionsFileName(dbname_, legacy_options_number)));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_TRUE(secondary_versions->has_manifest_options_file_number());
+  ASSERT_EQ(committed_options_number,
+            secondary_versions->options_file_number());
+  ASSERT_EQ(1U, secondary_versions->prepared_options_file_numbers().count(
+                    prepared_options_number));
+}
+
+TEST_F(DBSecondaryTest, FailedManifestSwitchKeepsOldManifestIdentity) {
+  Options primary_options = TrackedPrimaryOptions(true);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  VersionSet* primary_versions = dbfull()->GetVersionSet();
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  const uint64_t old_manifest_file_number =
+      secondary_versions->manifest_file_number();
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_NE(old_manifest_file_number, primary_versions->manifest_file_number());
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::MaybeSwitchManifest:BeforeInstall", [&](void* arg) {
+        if (!injected) {
+          injected = true;
+          auto* status = static_cast<Status*>(arg);
+          assert(status != nullptr);
+          *status = Status::IOError("injected GetChildren failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  ASSERT_NOK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_TRUE(injected);
+  ASSERT_EQ(old_manifest_file_number,
+            secondary_versions->manifest_file_number());
+
+  LiveFileStorageInfo manifest_info;
+  GetSingleLiveFileStorageInfo(kDescriptorFile, &manifest_info);
+  ASSERT_EQ(old_manifest_file_number, manifest_info.file_number);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(primary_versions->manifest_file_number(),
+            secondary_versions->manifest_file_number());
+}
+
+TEST_F(DBSecondaryTest, FailedManifestReplayKeepsOptionsProtocolState) {
+  Options primary_options = TrackedPrimaryOptions(true);
+  ReopenPrimaryAndSecondary(primary_options);
+
+  VersionSet* primary_versions = dbfull()->GetVersionSet();
+  VersionSet* secondary_versions = db_secondary_full()->GetVersionSet();
+  const uint64_t old_manifest_file_number =
+      secondary_versions->manifest_file_number();
+  const uint64_t old_options_file_number =
+      secondary_versions->options_file_number();
+  ASSERT_TRUE(secondary_versions->has_manifest_options_file_number());
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_NE(old_manifest_file_number, primary_versions->manifest_file_number());
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReactiveVersionSet::ReadAndApply:BeforeManifestRead", [&](void* arg) {
+        if (!injected) {
+          injected = true;
+          auto* status = static_cast<Status*>(arg);
+          assert(status != nullptr);
+          *status = Status::IOError("injected MANIFEST read failure");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer sync_point_cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  ASSERT_NOK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_TRUE(injected);
+  ASSERT_EQ(old_manifest_file_number,
+            secondary_versions->manifest_file_number());
+  ASSERT_TRUE(secondary_versions->has_manifest_options_file_number());
+  ASSERT_EQ(old_options_file_number, secondary_versions->options_file_number());
+
+  LiveFileStorageInfo manifest_info;
+  GetSingleLiveFileStorageInfo(kDescriptorFile, &manifest_info);
+  ASSERT_EQ(old_manifest_file_number, manifest_info.file_number);
+  LiveFileStorageInfo options_info;
+  GetSingleLiveFileStorageInfo(kOptionsFile, &options_info);
+  ASSERT_EQ(old_options_file_number, options_info.file_number);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(primary_versions->manifest_file_number(),
+            secondary_versions->manifest_file_number());
+  ASSERT_EQ(primary_versions->options_file_number(),
+            secondary_versions->options_file_number());
+  VerifySecondaryValue("key", "value");
+}
 
 TEST_F(DBSecondaryTest, FailOpenIfLoggerCreationFail) {
   Options options = GetDefaultOptions();

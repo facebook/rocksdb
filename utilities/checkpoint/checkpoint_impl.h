@@ -18,6 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class CopyEngine;
 class RateLimiter;
+struct SubsetCheckpointOptionsSnapshot;
 
 class CheckpointImpl : public Checkpoint {
  public:
@@ -77,7 +78,8 @@ class CheckpointImpl : public Checkpoint {
       const std::vector<uint32_t>& include_cf_ids = {},
       std::vector<uint32_t>* excluded_cf_ids = nullptr,
       std::string* manifest_relative_filename = nullptr,
-      uint64_t* manifest_size = nullptr);
+      uint64_t* manifest_size = nullptr,
+      SubsetCheckpointOptionsSnapshot* options_snapshot = nullptr);
 
  private:
   Status CleanStagingDirectory(const std::string& path, Logger* info_log);

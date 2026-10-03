@@ -4467,8 +4467,14 @@ Status DBImpl::WrapUpCreateColumnFamilies(
       break;
     }
   }
-  // Attempt both follow-up actions even if one fails
-  Status s = WriteOptionsFile(write_options, false /*db_mutex_already_held*/);
+  // Tracked creates already published their OPTIONS snapshot in the same
+  // MANIFEST edit. Legacy creates retain the historical post-create write.
+  Status s;
+  if (immutable_db_options_.track_options_file_number_in_manifest) {
+    MaybeDeleteObsoleteOptionsFiles();
+  } else {
+    s = WriteOptionsFile(write_options, false /*db_mutex_already_held*/);
+  }
   if (register_worker) {
     s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
   }
@@ -4583,6 +4589,39 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     return s;
   }
 
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ColumnFamilySet* column_family_set = versions_->GetColumnFamilySet();
+    assert(column_family_set != nullptr);
+    if (column_family_set->GetColumnFamily(column_family_name) != nullptr) {
+      return Status::InvalidArgument("Column family already exists");
+    }
+  }
+
+  uint64_t pending_options_file_number = 0;
+  uint64_t pending_options_file_size = 0;
+  s = PersistOptionsFileForColumnFamilyManipulation(
+      write_options, &column_family_name, &cf_options,
+      std::numeric_limits<uint32_t>::max(), &pending_options_file_number,
+      &pending_options_file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  bool retain_pending_options_on_error = false;
+  bool release_superseded_options = false;
+  Defer release_pending_options([&]() {
+    if (!retain_pending_options_on_error) {
+      if (release_superseded_options) {
+        ReleasePendingOptionsFileNumbersThrough(pending_options_file_number);
+      } else {
+        ReleasePendingOptionsFileNumber(pending_options_file_number);
+      }
+    }
+  });
+  // TEST_SYNC_POINT handles the disabled singleton case internally.
+  // @lint-ignore NULLSAFECLANG nullable-dereference
+  TEST_SYNC_POINT("DBImpl::CreateColumnFamilyImpl:AfterPersistOptions");
+
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
@@ -4599,10 +4638,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     edit.SetComparatorName(cf_options.comparator->Name());
     edit.SetPersistUserDefinedTimestamps(
         cf_options.persist_user_defined_timestamps);
+    if (pending_options_file_number != 0) {
+      edit.SetEffectiveOptionsFileNumber(pending_options_file_number);
+    }
 
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
     {  // write thread
+      retain_pending_options_on_error = pending_options_file_number != 0;
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
       // LogAndApply will both write the creation in MANIFEST and create
@@ -4611,6 +4654,13 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
       write_thread_.ExitUnbatched(&w);
+      if (s.ok()) {
+        retain_pending_options_on_error = false;
+        release_superseded_options = true;
+      }
+    }
+    if (s.ok() && pending_options_file_number != 0) {
+      versions_->options_file_size_ = pending_options_file_size;
     }
     if (s.ok()) {
       auto* cfd =
@@ -4657,8 +4707,12 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   InstrumentedMutexLock ol(&options_mutex_);
   Status s = DropColumnFamilyImpl(column_family);
   if (s.ok()) {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    s = WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
+    if (immutable_db_options_.track_options_file_number_in_manifest) {
+      MaybeDeleteObsoleteOptionsFiles();
+    } else {
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      s = WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
+    }
   }
   return s;
 }
@@ -4676,11 +4730,12 @@ Status DBImpl::DropColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    // TODO: plumb Env::IOActivity, Env::IOPriority
-    Status persist_options_status =
-        WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/);
-    if (s.ok() && !persist_options_status.ok()) {
-      s = persist_options_status;
+    if (immutable_db_options_.track_options_file_number_in_manifest) {
+      MaybeDeleteObsoleteOptionsFiles();
+    } else {
+      // TODO: plumb Env::IOActivity, Env::IOPriority
+      s.UpdateIfOk(
+          WriteOptionsFile(WriteOptions(), false /*db_mutex_already_held*/));
     }
   }
   return s;
@@ -4695,17 +4750,47 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
+  assert(cfd != nullptr);
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
 
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (cfd->IsDropped()) {
+      return Status::InvalidArgument("Column family already dropped!\n");
+    }
+  }
+
   bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
+
+  uint64_t pending_options_file_number = 0;
+  uint64_t pending_options_file_size = 0;
+  Status s = PersistOptionsFileForColumnFamilyManipulation(
+      write_options, nullptr, nullptr, cfd->GetID(),
+      &pending_options_file_number, &pending_options_file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  bool retain_pending_options_on_error = false;
+  bool release_superseded_options = false;
+  Defer release_pending_options([&]() {
+    if (!retain_pending_options_on_error) {
+      if (release_superseded_options) {
+        ReleasePendingOptionsFileNumbersThrough(pending_options_file_number);
+      } else {
+        ReleasePendingOptionsFileNumber(pending_options_file_number);
+      }
+    }
+  });
 
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(cfd->GetID());
+  if (pending_options_file_number != 0) {
+    edit.SetEffectiveOptionsFileNumber(pending_options_file_number);
+  }
 
-  Status s;
   // Save re-aquiring lock for RegisterRecordSeqnoTimeWorker when not
   // applicable
   MinAndMaxPreserveSeconds preserve_info;
@@ -4716,11 +4801,19 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     }
     if (s.ok()) {
       // we drop column family from a single write thread
+      retain_pending_options_on_error = pending_options_file_number != 0;
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
+      if (s.ok()) {
+        retain_pending_options_on_error = false;
+        release_superseded_options = true;
+      }
+      if (s.ok() && pending_options_file_number != 0) {
+        versions_->options_file_size_ = pending_options_file_size;
+      }
       if (s.ok() && cfd->blob_partition_manager() != nullptr) {
         UnregisterBlobDirectWriteColumnFamily();
       }
@@ -6614,37 +6707,56 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  const bool track_options_file_number =
+      immutable_db_options_.track_options_file_number_in_manifest;
 
   // Unlock during expensive operations.
   mutex_.Unlock();
 
-  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
-  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
-  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteOptionsFile:PersistOptions",
-                           &db_options);
-
-  std::string file_name =
-      TempOptionsFileName(GetName(), versions_->NewFileNumber());
-  Status s = PersistRocksDBOptions(write_options, db_options, cf_names, cf_opts,
-                                   file_name, fs_.get());
+  uint64_t options_file_number = 0;
+  uint64_t options_file_size = 0;
+  bool retain_pending_options_on_error = false;
+  Status s = PersistOptionsFile(write_options, db_options, cf_names, cf_opts,
+                                track_options_file_number, &options_file_number,
+                                &options_file_size);
+  if (s.ok()) {
+    // TEST_SYNC_POINT handles the disabled singleton case internally.
+    // @lint-ignore NULLSAFECLANG nullable-dereference
+    TEST_SYNC_POINT("DBImpl::WriteOptionsFile:AfterPersistOptions");
+  }
 
   if (s.ok()) {
-    s = RenameTempFileToOptionsFile(file_name,
-                                    db_options.compaction_service != nullptr);
-  }
-
-  if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
-    if (!GetEnv()->DeleteFile(file_name).ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to delete temp options file %s",
-                     file_name.c_str());
+    mutex_.Lock();
+    if (track_options_file_number) {
+      VersionEdit edit;
+      edit.SetEffectiveOptionsFileNumber(options_file_number);
+      edit.MarkOptionsFileManipulation();
+      retain_pending_options_on_error = true;
+      s = versions_->LogAndApplyToDefaultColumnFamily(
+          ReadOptions(), write_options, &edit, &mutex_,
+          directories_.GetDbDir());
+      if (s.ok()) {
+        retain_pending_options_on_error = false;
+      }
+    } else {
+      versions_->ApplyLegacyOptionsFileNumber(options_file_number);
     }
+    if (s.ok()) {
+      versions_->options_file_size_ = options_file_size;
+    }
+    mutex_.Unlock();
   }
 
-  if (!s.ok()) {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "Unnable to persist options -- %s", s.ToString().c_str());
-    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
+  if (s.ok()) {
+    MaybeDeleteObsoleteOptionsFiles();
+  }
+
+  if (!retain_pending_options_on_error) {
+    if (s.ok()) {
+      ReleasePendingOptionsFileNumbersThrough(options_file_number);
+    } else {
+      ReleasePendingOptionsFileNumber(options_file_number);
+    }
   }
 
   // Restore lock if appropriate
@@ -6654,9 +6766,131 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
   return s;
 }
 
+Status DBImpl::PersistOptionsFile(
+    const WriteOptions& write_options, const DBOptions& db_options,
+    const std::vector<std::string>& cf_names,
+    const std::vector<ColumnFamilyOptions>& cf_opts,
+    bool track_options_file_number, uint64_t* options_file_number,
+    uint64_t* options_file_size) {
+  assert(options_file_number != nullptr);
+  assert(options_file_size != nullptr);
+  *options_file_number = 0;
+  *options_file_size = 0;
+
+  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
+  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteOptionsFile:PersistOptions",
+                           const_cast<DBOptions*>(&db_options));
+
+  const std::string file_name =
+      TempOptionsFileName(GetName(), versions_->NewFileNumber());
+  *options_file_number = versions_->NewFileNumber();
+
+  Status s;
+  if (track_options_file_number) {
+    InstrumentedMutexLock l(&mutex_);
+    VersionEdit prepare;
+    prepare.SetPreparedOptionsFileNumber(*options_file_number);
+    // Old binaries ignore the prepare tag. Persist the allocation separately
+    // so they still cannot reuse its canonical file number.
+    prepare.SetNextFile(versions_->current_next_file_number());
+    prepare.MarkOptionsFileManipulation();
+    s = versions_->LogAndApplyToDefaultColumnFamily(
+        ReadOptions(), write_options, &prepare, &mutex_,
+        directories_.GetDbDir());
+  }
+  if (s.ok()) {
+    s = PersistRocksDBOptions(write_options, db_options, cf_names, cf_opts,
+                              file_name, fs_.get());
+  }
+  if (s.ok()) {
+    s = RenameTempFileToOptionsFile(file_name, *options_file_number,
+                                    options_file_size);
+  }
+
+  if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
+    if (!GetEnv()->DeleteFile(file_name).ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to delete temp options file %s",
+                     file_name.c_str());
+    }
+  }
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Unable to persist options -- %s", s.ToString().c_str());
+    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
+  }
+  return s;
+}
+
+Status DBImpl::PersistOptionsFileForColumnFamilyManipulation(
+    const WriteOptions& write_options, const std::string* added_cf_name,
+    const ColumnFamilyOptions* added_cf_options, uint32_t excluded_cf_id,
+    uint64_t* options_file_number, uint64_t* options_file_size) {
+  options_mutex_.AssertHeld();
+  assert((added_cf_name == nullptr) == (added_cf_options == nullptr));
+  assert(options_file_number != nullptr);
+  assert(options_file_size != nullptr);
+  *options_file_number = 0;
+  *options_file_size = 0;
+
+  bool bootstrap_tracking = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    bootstrap_tracking =
+        immutable_db_options_.track_options_file_number_in_manifest &&
+        !versions_->has_manifest_options_file_number();
+  }
+  if (bootstrap_tracking) {
+    // A pointer-absent DB still uses highest-numbered OPTIONS semantics. Bind
+    // the current topology before writing a proposed topology snapshot, so a
+    // failed CF MANIFEST edit cannot make its orphan candidate authoritative.
+    Status bootstrap_s =
+        WriteOptionsFile(write_options, /*db_mutex_already_held=*/false);
+    if (!bootstrap_s.ok()) {
+      return bootstrap_s;
+    }
+  }
+
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyOptions> cf_opts;
+  DBOptions db_options;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    assert(versions_ != nullptr);
+    if (!immutable_db_options_.track_options_file_number_in_manifest) {
+      return Status::OK();
+    }
+    auto* column_family_set = versions_->GetColumnFamilySet();
+    assert(column_family_set != nullptr);
+    for (auto* cfd : *column_family_set) {
+      assert(cfd != nullptr);
+      if (cfd->IsDropped() || cfd->GetID() == excluded_cf_id) {
+        continue;
+      }
+      cf_names.push_back(cfd->GetName());
+      cf_opts.push_back(cfd->GetLatestCFOptions());
+    }
+    if (added_cf_name != nullptr) {
+      assert(added_cf_options != nullptr);
+      cf_names.push_back(*added_cf_name);
+      cf_opts.push_back(SanitizeCfOptions(immutable_db_options_,
+                                          /*read_only=*/false,
+                                          *added_cf_options));
+    }
+    db_options = BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  }
+
+  return PersistOptionsFile(write_options, db_options, cf_names, cf_opts,
+                            /*track_options_file_number=*/true,
+                            options_file_number, options_file_size);
+}
+
 namespace {
 void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
                               const size_t num_files_to_keep,
+                              uint64_t protected_file_number,
+                              const std::set<uint64_t>& pending_file_numbers,
                               const std::shared_ptr<Logger>& info_log,
                               Env* env) {
   if (filenames.size() <= num_files_to_keep) {
@@ -6664,6 +6898,12 @@ void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
   }
   for (auto iter = std::next(filenames.begin(), num_files_to_keep);
        iter != filenames.end(); ++iter) {
+    const uint64_t file_number =
+        std::numeric_limits<uint64_t>::max() - iter->first;
+    if (file_number == protected_file_number ||
+        pending_file_numbers.find(file_number) != pending_file_numbers.end()) {
+      continue;
+    }
     if (!env->DeleteFile(iter->second).ok()) {
       ROCKS_LOG_WARN(info_log, "Unable to delete options file %s",
                      iter->second.c_str());
@@ -6695,8 +6935,22 @@ Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
     }
   }
 
-  // Keeps the latest 2 Options file
+  // Keep the latest two snapshots for legacy fallback. Files referenced by the
+  // MANIFEST publication protocol are retained separately below and can
+  // increase the total number of retained OPTIONS files beyond two.
   const size_t kNumOptionsFilesKept = 2;
+  uint64_t protected_file_number = 0;
+  std::set<uint64_t> pending_file_numbers;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (versions_->has_manifest_options_file_number()) {
+      protected_file_number = versions_->options_file_number();
+    }
+    pending_file_numbers = pending_options_file_numbers_;
+    pending_file_numbers.insert(
+        versions_->prepared_options_file_numbers().begin(),
+        versions_->prepared_options_file_numbers().end());
+  }
   if (options_filenames.size() > kNumOptionsFilesKept) {
     if (schedule_only) {
       InstrumentedMutexLock l(&mutex_);
@@ -6705,12 +6959,18 @@ Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
            iter != options_filenames.end(); ++iter) {
         const uint64_t file_number =
             std::numeric_limits<uint64_t>::max() - iter->first;
+        if (file_number == protected_file_number ||
+            pending_file_numbers.find(file_number) !=
+                pending_file_numbers.end()) {
+          continue;
+        }
         SchedulePendingPurge(iter->second, GetName(), kOptionsFile, file_number,
                              /*job_id=*/0);
       }
       SchedulePurge();
     } else {
       DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
+                               protected_file_number, pending_file_numbers,
                                immutable_db_options_.info_log, GetEnv());
     }
   }
@@ -6718,17 +6978,23 @@ Status DBImpl::DeleteObsoleteOptionsFiles(bool schedule_only) {
 }
 
 Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
-                                           bool is_remote_compaction_enabled) {
+                                           uint64_t options_file_number,
+                                           uint64_t* options_file_size) {
   Status s;
 
-  uint64_t options_file_number = versions_->NewFileNumber();
+  assert(options_file_size != nullptr);
   std::string options_file_name =
       OptionsFileName(GetName(), options_file_number);
-  uint64_t options_file_size = 0;
-  s = GetEnv()->GetFileSize(file_name, &options_file_size);
+  Env* env = GetEnv();
+  assert(env != nullptr);
+  {
+    InstrumentedMutexLock l(&mutex_);
+    pending_options_file_numbers_.insert(options_file_number);
+  }
+  s = env->GetFileSize(file_name, options_file_size);
   if (s.ok()) {
     // Retry if the file name happen to conflict with an existing one.
-    s = GetEnv()->RenameFile(file_name, options_file_name);
+    s = env->RenameFile(file_name, options_file_name);
     std::unique_ptr<FSDirectory> dir_obj;
     if (s.ok()) {
       s = fs_->NewDirectory(GetName(), IOOptions(), &dir_obj, nullptr);
@@ -6752,47 +7018,53 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
     }
   }
 
-  if (s.ok()) {
-    enum class ObsoleteOptionsFileCleanup {
-      kSkip,
-      kDeleteNow,
-      kSchedule,
-    };
-    ObsoleteOptionsFileCleanup obsolete_options_file_cleanup =
-        ObsoleteOptionsFileCleanup::kSkip;
-
-    {
-      InstrumentedMutexLock l(&mutex_);
-      versions_->options_file_number_ = options_file_number;
-      versions_->options_file_size_ = options_file_size;
-      if (!disable_delete_obsolete_files_ && !is_remote_compaction_enabled) {
-        if (immutable_db_options_.avoid_unnecessary_blocking_io &&
-            !reject_new_background_jobs_) {
-          // DB::Open() sets `opened_successfully_` after WriteOptionsFile()
-          // returns, then schedules the deferred OPTIONS-file purge.
-          obsolete_options_file_cleanup =
-              opened_successfully_ ? ObsoleteOptionsFileCleanup::kSchedule
-                                   : ObsoleteOptionsFileCleanup::kSkip;
-        } else {
-          obsolete_options_file_cleanup =
-              ObsoleteOptionsFileCleanup::kDeleteNow;
-        }
-      }
-    }
-
-    if (obsolete_options_file_cleanup != ObsoleteOptionsFileCleanup::kSkip) {
-      Status obsolete_options_status =
-          DeleteObsoleteOptionsFiles(obsolete_options_file_cleanup ==
-                                     ObsoleteOptionsFileCleanup::kSchedule);
-      if (!obsolete_options_status.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "Unable to delete obsolete OPTIONS files: %s",
-                       obsolete_options_status.ToString().c_str());
-      }
-    }
+  if (!s.ok()) {
+    ReleasePendingOptionsFileNumber(options_file_number);
   }
 
   return s;
+}
+
+void DBImpl::ReleasePendingOptionsFileNumber(uint64_t options_file_number) {
+  if (options_file_number == 0) {
+    return;
+  }
+  InstrumentedMutexLock l(&mutex_);
+  pending_options_file_numbers_.erase(options_file_number);
+}
+
+void DBImpl::ReleasePendingOptionsFileNumbersThrough(
+    uint64_t options_file_number) {
+  InstrumentedMutexLock l(&mutex_);
+  pending_options_file_numbers_.erase(
+      pending_options_file_numbers_.begin(),
+      pending_options_file_numbers_.upper_bound(options_file_number));
+}
+
+void DBImpl::MaybeDeleteObsoleteOptionsFiles() {
+  enum class Cleanup { kSkip, kDeleteNow, kSchedule };
+  Cleanup cleanup = Cleanup::kSkip;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    if (!disable_delete_obsolete_files_ &&
+        immutable_db_options_.compaction_service == nullptr) {
+      if (immutable_db_options_.avoid_unnecessary_blocking_io &&
+          !reject_new_background_jobs_) {
+        cleanup = opened_successfully_ ? Cleanup::kSchedule : Cleanup::kSkip;
+      } else {
+        cleanup = Cleanup::kDeleteNow;
+      }
+    }
+  }
+  if (cleanup == Cleanup::kSkip) {
+    return;
+  }
+  Status s = DeleteObsoleteOptionsFiles(cleanup == Cleanup::kSchedule);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Unable to delete obsolete OPTIONS files: %s",
+                   s.ToString().c_str());
+  }
 }
 
 #ifndef NROCKSDB_THREAD_STATUS

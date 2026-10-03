@@ -92,6 +92,7 @@ struct ImmutableDBOptions {
   bool prefix_seek_opt_in_only;
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
+  bool track_options_file_number_in_manifest;
   bool reuse_manifest_on_open;
   bool write_identity_file;
   size_t log_readahead_size;
