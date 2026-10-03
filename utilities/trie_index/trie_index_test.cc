@@ -6191,10 +6191,11 @@ TEST_F(TrieIndexFactoryTest, ParallelInvalidPreparedEntrySkipped) {
   builder->FinishAddEntry(h, unfilled.get(), &scratch,
                           /*skip_delta_encoding=*/false);
 
+  EXPECT_EQ(builder->EstimatedSize(), empty_estimate);
   // No trie entries were committed; Finish should produce an empty index.
   Slice contents;
   ASSERT_OK(builder->Finish(&contents));
-  EXPECT_EQ(builder->EstimatedSize(), empty_estimate);
+  EXPECT_EQ(builder->EstimatedSize(), contents.size());
   EXPECT_GE(empty_estimate, contents.size());
 }
 
