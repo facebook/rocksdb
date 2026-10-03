@@ -11823,7 +11823,8 @@ TEST_P(UserDefinedIndexTest, RawIndexMemoryIsChargedExactlyOnce) {
   Options options = options_;
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ImmutableOptions ioptions(options);
+  std::unique_ptr<ImmutableOptions> immutable_options =
+      std::make_unique<ImmutableOptions>(options);
   MutableCFOptions moptions(options);
   InternalKeyComparator internal_comparator(options.comparator);
 
@@ -11834,18 +11835,18 @@ TEST_P(UserDefinedIndexTest, RawIndexMemoryIsChargedExactlyOnce) {
   }
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
-  table.Finish(options, ioptions, moptions, table_options, internal_comparator,
-               &keys, &kvmap);
+  table.Finish(options, *immutable_options, moptions, table_options,
+               internal_comparator, &keys, &kvmap);
   const size_t owned_memory = table.GetTableReader()->ApproximateMemoryUsage();
   ASSERT_EQ(block_cache->GetUsage(), 0);
 
   table.ResetTableReader();
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ImmutableOptions cached_ioptions(options);
+  immutable_options = std::make_unique<ImmutableOptions>(options);
   MutableCFOptions cached_moptions(options);
   const size_t cache_usage_before = block_cache->GetUsage();
-  ASSERT_OK(table.Reopen(cached_ioptions, cached_moptions));
+  ASSERT_OK(table.Reopen(*immutable_options, cached_moptions));
   const size_t cached_memory = table.GetTableReader()->ApproximateMemoryUsage();
   const size_t index_cache_charge =
       block_cache->GetUsage() - cache_usage_before;
