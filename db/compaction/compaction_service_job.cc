@@ -28,6 +28,18 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   assert(db_options_.compaction_service);
 
   const Compaction* compaction = sub_compact->compaction;
+  const auto* cfd = compaction->column_family_data();
+  if (compaction->mutable_cf_options().enable_blob_files &&
+      cfd->ioptions().enable_blob_direct_write) {
+    if (sub_compact->sub_job_id == 0) {
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "[%s] [JOB %d] Blob direct write requires local compaction",
+          cfd->GetName().c_str(), job_id_);
+    }
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
   CompactionServiceInput compaction_input;
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;
@@ -41,7 +53,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     }
   }
 
-  compaction_input.cf_name = compaction->column_family_data()->GetName();
+  compaction_input.cf_name = cfd->GetName();
   compaction_input.snapshots = job_context_->snapshot_seqs;
   compaction_input.has_begin = sub_compact->start.has_value();
   compaction_input.begin =
@@ -74,16 +86,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
-      compaction->column_family_data()->GetName().c_str(), job_id_,
-      compaction_input.output_level, input_files_oss.str().c_str());
+      cfd->GetName().c_str(), job_id_, compaction_input.output_level,
+      input_files_oss.str().c_str());
   CompactionServiceJobInfo info(
-      dbname_, db_id_, db_session_id_,
-      compaction->column_family_data()->GetID(),
-      compaction->column_family_data()->GetName(), GetCompactionId(sub_compact),
-      thread_pri_, compaction->compaction_reason(),
-      compaction->is_full_compaction(), compaction->is_manual_compaction(),
-      compaction->bottommost_level(), compaction->start_level(),
-      compaction->output_level());
+      dbname_, db_id_, db_session_id_, cfd->GetID(), cfd->GetName(),
+      GetCompactionId(sub_compact), thread_pri_,
+      compaction->compaction_reason(), compaction->is_full_compaction(),
+      compaction->is_manual_compaction(), compaction->bottommost_level(),
+      compaction->start_level(), compaction->output_level());
   CompactionServiceScheduleResponse response =
       db_options_.compaction_service->Schedule(info, compaction_input_binary);
   switch (response.status) {
@@ -281,7 +291,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.temperature = file.file_temperature;
     meta.tail_size =
         FileMetaData::CalculateTailSize(file_size, file.table_properties);
-    auto cfd = compaction->column_family_data();
     CompactionOutputs* compaction_outputs =
         sub_compact->Outputs(file.is_proximal_level_output);
     assert(compaction_outputs);
