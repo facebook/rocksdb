@@ -249,6 +249,13 @@ class VersionStorageInfo {
       double blob_garbage_collection_force_threshold,
       bool enable_blob_garbage_collection);
 
+  // Selects the single indirect blob root with the largest reclaimable byte
+  // count whose individual garbage ratio meets `threshold`. Unlike legacy
+  // blob GC, this selection is independent of file age and SST layout.
+  void ComputeBlobFileForStandaloneGC(double threshold,
+                                      bool enable_blob_indirection,
+                                      bool enable_blob_garbage_collection);
+
   // This computes read_triggered_compaction_files_ and is called by
   // ComputeCompactionScore()
   //
@@ -470,6 +477,19 @@ class VersionStorageInfo {
     return std::shared_ptr<BlobFileMetaData>();
   }
 
+  // Returns the physical identity file or current mapped carrier for an
+  // indirect BlobID origin. Legacy blob files are intentionally absent.
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaDataByOrigin(
+      uint64_t origin_file_number) const {
+    const auto it = blob_origins_.find(origin_file_number);
+    if (it == blob_origins_.end()) {
+      return std::shared_ptr<BlobFileMetaData>();
+    }
+    return it->second;
+  }
+
+  Status ValidateBlobIndirection() const;
+
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   struct BlobStats {
     uint64_t total_file_size = 0;
@@ -562,6 +582,28 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_forced_blob_gc_;
+  }
+
+  const std::shared_ptr<BlobFileMetaData>& BlobFileForStandaloneGC() const {
+    assert(finalized_);
+    return blob_file_for_standalone_gc_;
+  }
+
+  // Suppress a candidate that the standalone job cannot safely rewrite, while
+  // allowing a lower-ranked candidate in this Version to be selected. A later
+  // Version retries all candidates from fresh metadata.
+  void SuppressBlobFileForStandaloneGC(uint64_t origin_file_number,
+                                       uint64_t physical_file_number) {
+    assert(finalized_);
+    suppressed_standalone_blob_gcs_.emplace(origin_file_number,
+                                            physical_file_number);
+    if (blob_file_for_standalone_gc_ &&
+        blob_file_for_standalone_gc_->GetOriginFileNumber() ==
+            origin_file_number &&
+        blob_file_for_standalone_gc_->GetBlobFileNumber() ==
+            physical_file_number) {
+      blob_file_for_standalone_gc_.reset();
+    }
   }
 
   // REQUIRES: ComputeCompactionScore has been called
@@ -738,6 +780,10 @@ class VersionStorageInfo {
   // Vector of blob files in version sorted by blob file number.
   BlobFiles blob_files_;
 
+  // Current physical carrier for each stable indirect BlobID origin.
+  UnorderedMap<uint64_t, std::shared_ptr<BlobFileMetaData>> blob_origins_;
+  bool blob_origin_conflict_ = false;
+
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
@@ -784,6 +830,10 @@ class VersionStorageInfo {
       bottommost_files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
+
+  // Highest-value non-prefix indirect root selected for a standalone rewrite.
+  std::shared_ptr<BlobFileMetaData> blob_file_for_standalone_gc_;
+  std::set<std::pair<uint64_t, uint64_t>> suppressed_standalone_blob_gcs_;
 
   autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 

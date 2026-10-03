@@ -52,7 +52,8 @@ class BlobFileBuilderTest : public testing::Test {
                       CompressionType blob_compression_type,
                       const std::vector<std::pair<std::string, std::string>>&
                           expected_key_value_pairs,
-                      const std::vector<std::string>& blob_indexes) {
+                      const std::vector<std::string>& blob_indexes,
+                      bool expect_indirect = false) {
     assert(expected_key_value_pairs.size() == blob_indexes.size());
 
     std::unique_ptr<FSRandomAccessFile> file;
@@ -99,6 +100,7 @@ class BlobFileBuilderTest : public testing::Test {
       ASSERT_OK(blob_index.DecodeFrom(blob_indexes[i]));
       ASSERT_FALSE(blob_index.IsInlined());
       ASSERT_FALSE(blob_index.HasTTL());
+      ASSERT_EQ(blob_index.IsIndirect(), expect_indirect);
       ASSERT_EQ(blob_index.file_number(), blob_file_number);
       ASSERT_EQ(blob_index.offset(), blob_offset);
       ASSERT_EQ(blob_index.size(), value.size());
@@ -197,6 +199,44 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   // Verify the contents of the new blob file as well as the blob references
   VerifyBlobFile(blob_file_number, blob_file_path, column_family_id,
                  kNoCompression, expected_key_value_pairs, blob_indexes);
+}
+
+TEST_F(BlobFileBuilderTest, BuildIndirectIdentityFile) {
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlobFileBuilderTest_BuildIndirectIdentityFile"),
+      0);
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.env = mock_env_.get();
+
+  ImmutableOptions immutable_options(options);
+  MutableCFOptions mutable_cf_options(options);
+  std::vector<std::string> blob_file_paths;
+  std::vector<BlobFileAddition> blob_file_additions;
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), fs_, &immutable_options, &mutable_cf_options,
+      &file_options_, &write_options_, /*db_id=*/"", /*db_session_id=*/"",
+      /*job_id=*/1, /*column_family_id=*/123, /*column_family_name=*/"default",
+      Env::WLTH_MEDIUM, /*io_tracer=*/nullptr, /*blob_callback=*/nullptr,
+      BlobFileCreationReason::kFlush, &blob_file_paths, &blob_file_additions);
+
+  const std::vector<std::pair<std::string, std::string>> key_values = {
+      {"key", "large-value"}};
+  std::vector<std::string> blob_indexes(1);
+  ASSERT_OK(
+      builder.Add(key_values[0].first, key_values[0].second, &blob_indexes[0]));
+  ASSERT_OK(builder.Finish());
+
+  ASSERT_EQ(blob_file_additions.size(), 1);
+  const BlobFileAddition& addition = blob_file_additions.front();
+  ASSERT_TRUE(addition.IsIndirectIdentityFile());
+  ASSERT_EQ(addition.GetOriginFileNumber(), addition.GetBlobFileNumber());
+  ASSERT_EQ(addition.GetCarrierFileSize(), 0);
+  VerifyBlobFile(addition.GetBlobFileNumber(), blob_file_paths.front(),
+                 /*column_family_id=*/123, kNoCompression, key_values,
+                 blob_indexes, /*expect_indirect=*/true);
 }
 
 TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {

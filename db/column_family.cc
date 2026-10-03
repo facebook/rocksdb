@@ -38,6 +38,7 @@
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
+#include "table/adaptive/adaptive_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
@@ -673,11 +674,27 @@ ColumnFamilyData::ColumnFamilyData(
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer,
                                       db_session_id, fast_sst_open, name_));
+    const BlockBasedTableOptions* carrier_table_options =
+        mutable_cf_options_.table_factory == nullptr
+            ? nullptr
+            : mutable_cf_options_.table_factory
+                  ->GetOptions<BlockBasedTableOptions>();
+    if (mutable_cf_options_.table_factory != nullptr) {
+      const AdaptiveTableFactory* const adaptive_table_factory =
+          mutable_cf_options_.table_factory
+              ->CheckedCast<AdaptiveTableFactory>();
+      if (adaptive_table_factory != nullptr) {
+        carrier_table_options =
+            adaptive_table_factory->GetBlockBasedTableReaderOptions();
+      }
+    }
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, &ioptions(), soptions(), id_,
-                          internal_stats_->GetBlobFileReadHist(), io_tracer));
+                          internal_stats_->GetBlobFileReadHist(), io_tracer,
+                          carrier_table_options));
     blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
                                       db_session_id, blob_file_cache_.get()));
+    blob_file_cache_->SetBlobSource(blob_source_.get());
     // Let the table cache route same-file ("embedded") blob reads through the
     // blob value cache + stats. Both objects share this CFD's lifetime.
     table_cache_->SetBlobSource(blob_source_.get());
@@ -1569,6 +1586,37 @@ Status ColumnFamilyData::ValidateOptions(
     if (ucmp->timestamp_size() > 0) {
       return Status::NotSupported(
           "Blob direct write does not support user-defined timestamps.");
+    }
+  }
+  if (cf_options.enable_blob_indirection) {
+    if (!cf_options.enable_blob_files) {
+      return Status::InvalidArgument(
+          "Blob indirection requires enable_blob_files=true.");
+    }
+    if (cf_options.enable_blob_direct_write) {
+      return Status::NotSupported(
+          "Blob indirection does not support blob direct write.");
+    }
+    if (cf_options.blob_compression_type != kNoCompression) {
+      return Status::NotSupported(
+          "Blob indirection does not support compressed blob files.");
+    }
+    if (db_options.compaction_service != nullptr) {
+      return Status::NotSupported(
+          "Blob indirection does not support remote compaction.");
+    }
+    const BlockBasedTableOptions* const table_options =
+        cf_options.table_factory == nullptr
+            ? nullptr
+            : cf_options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (table_options == nullptr) {
+      return Status::NotSupported(
+          "Blob indirection requires block-based table format.");
+    }
+    if (table_options->format_version < 7) {
+      return Status::NotSupported(
+          "Blob indirection requires block-based table format version 7 or "
+          "newer.");
     }
   }
   if (ucmp->timestamp_size() > 0 &&

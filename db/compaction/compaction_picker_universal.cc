@@ -607,6 +607,10 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
 
 bool UniversalCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  assert(vstorage != nullptr);
+  if (vstorage->BlobFileForStandaloneGC()) {
+    return true;
+  }
   const int kLevel0 = 0;
   if (vstorage->CompactionScore(kLevel0) >= 1) {
     return true;

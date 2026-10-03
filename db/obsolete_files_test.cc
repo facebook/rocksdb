@@ -24,6 +24,8 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/sst_file_writer.h"
+#include "rocksdb/table.h"
 #include "rocksdb/wal_iterator.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -66,6 +68,25 @@ void WriteFooterlessBlobFile(const ImmutableOptions& immutable_options,
   ASSERT_OK(blob_log_writer.AddRecord(WriteOptions(), "key", "blob",
                                       &key_offset, &blob_offset));
   ASSERT_OK(blob_log_writer.file()->Close(IOOptions()));
+}
+
+void WriteCompleteCarrierTable(const ImmutableOptions& immutable_options,
+                               uint64_t blob_file_number) {
+  assert(!immutable_options.cf_paths.empty());
+
+  const std::string blob_file_path =
+      BlobFileName(immutable_options.cf_paths.front().path, blob_file_number);
+  Options options;
+  options.env = immutable_options.env;
+  BlockBasedTableOptions table_options;
+  table_options.format_version = 7;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  SstFileWriter writer(EnvOptions(), options);
+  SstFileWriterEmbeddedBlobOptions embedded_options;
+  embedded_options.min_blob_size = 0;
+  ASSERT_OK(writer.OpenWithEmbeddedBlobs(blob_file_path, embedded_options));
+  ASSERT_OK(writer.Put("key", "blob"));
+  ASSERT_OK(writer.Finish());
 }
 
 std::vector<uint64_t> ListBlobFileNumbers(Env* env, const std::string& path) {
@@ -414,6 +435,41 @@ TEST_F(ObsoleteFilesTest, FooterlessBlobFileIsKeptDuringPurge) {
 
   ASSERT_FALSE(deleted);
   ASSERT_OK(env_->FileExists(blob_file_path));
+}
+
+TEST_F(ObsoleteFilesTest, CompleteCarrierTableIsDeletedDuringPurge) {
+  ReopenDB();
+
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  const auto& cf_paths = cfd->ioptions().cf_paths;
+  assert(!cf_paths.empty());
+  const std::string& path = cf_paths.front().path;
+  constexpr uint64_t blob_file_number = 778;
+  const std::string blob_file_path = BlobFileName(path, blob_file_number);
+  WriteCompleteCarrierTable(cfd->ioptions(), blob_file_number);
+  ASSERT_OK(env_->FileExists(blob_file_path));
+
+  constexpr int job_id = 0;
+  JobContext job_context{job_id};
+  dbfull()->TEST_LockMutex();
+  constexpr bool force_full_scan = false;
+  dbfull()->FindObsoleteFiles(&job_context, force_full_scan);
+  dbfull()->TEST_UnlockMutex();
+
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(blob_file_number), path);
+  job_context.min_pending_output = blob_file_number + 1;
+  job_context.min_blob_file_number_to_keep = blob_file_number + 1;
+
+  dbfull()->PurgeObsoleteFiles(job_context);
+  job_context.Clean();
+
+  ASSERT_TRUE(env_->FileExists(blob_file_path).IsNotFound());
 }
 
 TEST_F(ObsoleteFilesTest, SealedDirectWriteBlobFileIsKeptDuringPurge) {

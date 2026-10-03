@@ -24,13 +24,15 @@ class AdaptiveTableFactory : public TableFactory {
  public:
   ~AdaptiveTableFactory() {}
 
+  static const char* kClassName() { return "AdaptiveTableFactory"; }
+
   explicit AdaptiveTableFactory(
       std::shared_ptr<TableFactory> table_factory_to_write,
       std::shared_ptr<TableFactory> block_based_table_factory,
       std::shared_ptr<TableFactory> plain_table_factory,
       std::shared_ptr<TableFactory> cuckoo_table_factory);
 
-  const char* Name() const override { return "AdaptiveTableFactory"; }
+  const char* Name() const override { return kClassName(); }
 
   using TableFactory::NewTableReader;
   Status NewTableReader(
@@ -42,6 +44,13 @@ class AdaptiveTableFactory : public TableFactory {
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const override;
+
+  // Generic option discovery describes the factory used for new tables.
+  const void* GetOptionsPtr(const std::string& name) const override;
+
+  // Callers opening an existing file known to use block-based format need the
+  // nested reader's cache and read settings instead of the write factory.
+  const BlockBasedTableOptions* GetBlockBasedTableReaderOptions() const;
 
   std::string GetPrintableOptions() const override;
 

@@ -17,6 +17,7 @@
 #include "db/blob/blob_gen2_format.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -34,6 +35,65 @@ using EmbeddedBlobSstBuilderOptions = SstFileWriterEmbeddedBlobOptions;
 // values for correctness.
 inline constexpr char kEmbeddedBlobSstStatsPropertyName[] =
     "rocksdb.embedded.blob.stats";
+
+// A block-based table carrying one standalone Blob GC generation stores the
+// stable origin blob-file number in its checksummed properties block. The
+// MANIFEST supplies the expected origin; readers require an exact match before
+// using the table as a carrier.
+inline constexpr char kBlobGcCarrierOriginPropertyName[] =
+    "rocksdb.blob.gc.carrier.origin";
+
+// Carrier tables put embedded payloads before their data blocks. Prefix the
+// file with an engine-owned discriminator so obsolete-file cleanup never
+// mistakes user-controlled payload bytes for a v1 blob-log header.
+inline constexpr char kBlobGcCarrierFilePrefix[] = "RDBGC001";
+inline constexpr size_t kBlobGcCarrierFilePrefixSize =
+    sizeof(kBlobGcCarrierFilePrefix) - 1;
+
+inline void EncodeBlobGcCarrierOrigin(uint64_t origin_file_number,
+                                      std::string* dst) {
+  assert(dst != nullptr);
+  dst->clear();
+  PutFixed64(dst, origin_file_number);
+}
+
+inline Status DecodeBlobGcCarrierOrigin(Slice input,
+                                        uint64_t* origin_file_number) {
+  if (origin_file_number == nullptr || input.size() != sizeof(uint64_t) ||
+      !GetFixed64(&input, origin_file_number) || !input.empty() ||
+      *origin_file_number == 0) {
+    return Status::Corruption("Invalid Blob GC carrier origin property");
+  }
+  return Status::OK();
+}
+
+// Fixed-width big-endian encoding preserves numeric offset order under the
+// bytewise comparator used by carrier tables.
+inline std::string EncodeBlobGcCarrierKey(uint64_t origin_offset) {
+  std::string key(sizeof(origin_offset), '\0');
+  for (size_t i = 0; i < sizeof(origin_offset); ++i) {
+    key[i] = static_cast<char>(origin_offset >>
+                               (8 * (sizeof(origin_offset) - 1 - i)));
+  }
+  return key;
+}
+
+// Carrier tables use only the standard bytewise index. Preserve the column
+// family's block sizing and block cache while removing user-key-specific
+// filters and custom indexes that do not apply to encoded offsets.
+inline BlockBasedTableOptions MakeBlobGcCarrierTableOptions(
+    const BlockBasedTableOptions& source) {
+  BlockBasedTableOptions options(source);
+  options.index_type = BlockBasedTableOptions::kBinarySearch;
+  options.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinarySearch;
+  options.filter_policy.reset();
+  options.partition_filters = false;
+  options.user_defined_index_factory.reset();
+  options.use_udi_as_primary_index = false;
+  options.fail_if_no_udi_on_open = false;
+  return options;
+}
 
 // Embedded blob records use the SimpleGen2Blob record format (payload bytes
 // followed by a compression-marker byte and a four-byte checksum); see
@@ -65,7 +125,7 @@ inline Status DecodeEmbeddedBlobStats(Slice input, EmbeddedBlobStats* stats) {
 
   EmbeddedBlobStats decoded;
   if (!GetVarint64(&input, &decoded.blob_count) ||
-      !GetVarint64(&input, &decoded.payload_bytes)) {
+      !GetVarint64(&input, &decoded.payload_bytes) || !input.empty()) {
     return Status::Corruption("Error decoding embedded blob stats");
   }
 
