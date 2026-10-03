@@ -5,6 +5,7 @@
 
 #include "db/compaction/compaction_iterator.h"
 
+#include <algorithm>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -1452,6 +1453,14 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
         blob_garbage_collection_cutoff_file_number_) {
       return;
     }
+    const Version* const input_version = compaction_->input_version();
+    assert(input_version != nullptr);
+    const auto blob_meta =
+        input_version->storage_info()->GetBlobFileMetaDataByOrigin(
+            blob_index.file_number());
+    if (blob_meta != nullptr && blob_meta->HasIndirectionInfo()) {
+      return;
+    }
 
     FilePrefetchBuffer* prefetch_buffer =
         prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
@@ -1654,6 +1663,14 @@ bool CompactionIterator::FetchBlobsNeedingGC(
     // Check if this blob file needs garbage collection
     if (blob_index.file_number() >=
         blob_garbage_collection_cutoff_file_number_) {
+      continue;
+    }
+    const Version* const input_version = compaction_->input_version();
+    assert(input_version != nullptr);
+    const auto blob_meta =
+        input_version->storage_info()->GetBlobFileMetaDataByOrigin(
+            blob_index.file_number());
+    if (blob_meta != nullptr && blob_meta->HasIndirectionInfo()) {
       continue;
     }
 
@@ -2035,18 +2052,33 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
   assert(storage_info);
 
   const auto& blob_files = storage_info->GetBlobFiles();
+  const size_t direct_blob_file_count =
+      std::count_if(blob_files.begin(), blob_files.end(), [](const auto& meta) {
+        assert(meta);
+        return !meta->HasIndirectionInfo();
+      });
 
-  const size_t cutoff_index = static_cast<size_t>(
-      compaction->blob_garbage_collection_age_cutoff() * blob_files.size());
+  const size_t cutoff_index =
+      static_cast<size_t>(compaction->blob_garbage_collection_age_cutoff() *
+                          direct_blob_file_count);
 
-  if (cutoff_index >= blob_files.size()) {
+  if (cutoff_index >= direct_blob_file_count) {
     return std::numeric_limits<uint64_t>::max();
   }
 
-  const auto& meta = blob_files[cutoff_index];
-  assert(meta);
+  size_t direct_index = 0;
+  for (const auto& meta : blob_files) {
+    assert(meta);
+    if (meta->HasIndirectionInfo()) {
+      continue;
+    }
+    if (direct_index++ == cutoff_index) {
+      return meta->GetBlobFileNumber();
+    }
+  }
 
-  return meta->GetBlobFileNumber();
+  assert(false);
+  return std::numeric_limits<uint64_t>::max();
 }
 
 std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(

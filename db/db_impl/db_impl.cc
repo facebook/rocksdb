@@ -4695,6 +4695,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
+  assert(cfd != nullptr);
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
@@ -4721,6 +4722,16 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
+      if (s.ok()) {
+        for (auto it = standalone_blob_gc_census_cache_.begin();
+             it != standalone_blob_gc_census_cache_.end();) {
+          if (it->first.first == cfd->GetID()) {
+            it = standalone_blob_gc_census_cache_.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
       if (s.ok() && cfd->blob_partition_manager() != nullptr) {
         UnregisterBlobDirectWriteColumnFamily();
       }

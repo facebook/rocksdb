@@ -1762,10 +1762,10 @@ class DBImpl : public DB
   // (i.e. while input files still have being_compacted == true). Idempotent:
   // safe to call from multiple potential release sites; only fires once per
   // compaction, and only if NotifyOnCompactionBegin previously fired.
-  void NotifyOnCompactionPreCommit(ColumnFamilyData* cfd, Compaction* c,
-                                   const Status& st,
-                                   const CompactionJobStats& job_stats,
-                                   int job_id);
+  void NotifyOnCompactionPreCommit(
+      ColumnFamilyData* cfd, Compaction* c, const Status& st,
+      const CompactionJobStats& job_stats, int job_id,
+      std::vector<std::pair<uint32_t, uint64_t>>* blob_route_reservations);
   void NotifyOnDBShutdownBegin();
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
@@ -2930,6 +2930,12 @@ class DBImpl : public DB
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
                               Env::Priority thread_pri);
+  // Rewrites one indirect blob root selected by garbage ratio. REQUIRES:
+  // mutex_ held on entry and return; releases it while scanning and writing.
+  Status RunStandaloneBlobGC(
+      ColumnFamilyData* cfd,
+      const std::shared_ptr<BlobFileMetaData>& source_meta, bool* made_progress,
+      uint64_t* sfm_reserved_bytes, LogBuffer* log_buffer, int job_id);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
                          bool* flush_rescheduled_to_retain_udt,
@@ -3644,6 +3650,32 @@ class DBImpl : public DB
   // original AddToCompactionQueue() call.
   std::deque<ColumnFamilyData*> compaction_queue_;
   std::unordered_set<ColumnFamilyData*> parked_compaction_cfds_;
+
+  // Logical blob roots currently being rewritten without an SST compaction.
+  // Protected by mutex_. This prevents duplicate physical outputs while the
+  // DB mutex is released for the copy phase.
+  std::set<std::pair<uint32_t, uint64_t>> standalone_blob_gcs_in_progress_;
+
+  struct StandaloneBlobGCLiveReference {
+    std::string user_key;
+    BlobIndex blob_index;
+  };
+  struct StandaloneBlobGCCensus {
+    std::weak_ptr<BlobFileMetaData> source_meta;
+    std::vector<StandaloneBlobGCLiveReference> live_blobs;
+  };
+  // Exact per-origin results collected together in one visible-key scan.
+  // Protected by mutex_. At most one bounded completed batch is retained for
+  // the DB. Entries are consumed once and remain usable only while their
+  // unchanged shared source metadata is present in a Version.
+  std::map<std::pair<uint32_t, uint64_t>, StandaloneBlobGCCensus>
+      standalone_blob_gc_census_cache_;
+
+  // Logical blob roots whose current physical route has been exposed to an
+  // OnCompactionPreCommit listener and must remain stable until installation.
+  // The count permits overlapping normal compactions to reserve one origin.
+  std::map<std::pair<uint32_t, uint64_t>, size_t>
+      blob_routes_reserved_for_precommit_;
 
   // A map to store file numbers and filenames of the files to be purged
   std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;

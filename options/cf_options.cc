@@ -984,6 +984,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"enable_blob_indirection",
+         {offsetof(struct ImmutableCFOptions, enable_blob_indirection),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"enable_blob_direct_write",
          {offsetof(struct ImmutableCFOptions, enable_blob_direct_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -1148,6 +1152,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       blob_cache(cf_options.blob_cache),
+      enable_blob_indirection(cf_options.enable_blob_indirection),
       enable_blob_direct_write(cf_options.enable_blob_direct_write),
       blob_direct_write_partitions(cf_options.blob_direct_write_partitions),
       blob_direct_write_partition_strategy(

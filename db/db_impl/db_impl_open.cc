@@ -603,6 +603,28 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
+  ColumnFamilySet* const column_family_set = versions_->GetColumnFamilySet();
+  assert(column_family_set != nullptr);
+  for (ColumnFamilyData* cfd : *column_family_set) {
+    assert(cfd != nullptr);
+    Version* const current = cfd->current();
+    assert(current != nullptr);
+    for (const auto& blob_meta : current->storage_info()->GetBlobFiles()) {
+      assert(blob_meta);
+      if (blob_meta->HasIndirectionInfo()) {
+        if (cfd->ioptions().enable_blob_direct_write) {
+          return Status::NotSupported(
+              "Blob direct write cannot be used with persisted blob "
+              "indirection metadata");
+        }
+        if (!read_only && immutable_db_options_.compaction_service != nullptr) {
+          return Status::NotSupported(
+              "CompactionService cannot be used with persisted blob "
+              "indirection metadata");
+        }
+      }
+    }
+  }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       const auto& moptions = cfd->GetLatestMutableCFOptions();

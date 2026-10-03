@@ -2790,8 +2790,10 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   }
 
   const uint64_t blob_file_number = blob_index.file_number();
-
-  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  auto blob_file_meta =
+      blob_index.IsIndirect()
+          ? storage_info_.GetBlobFileMetaDataByOrigin(blob_file_number)
+          : storage_info_.GetBlobFileMetaData(blob_file_number);
   if (!blob_file_meta) {
     // INTEGRITY CHECK -- do not weaken. The blob index must reference a known
     // external blob file. No metadata (including file_number 0, the
@@ -2804,9 +2806,20 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   assert(blob_source_);
   value->Reset();
-  const BlobFileOpenInfo blob_file{blob_file_number,
+  const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                    blob_file_meta->GetChecksumValue(),
                                    blob_file_meta->GetChecksumMethod()};
+  if (blob_index.IsIndirect()) {
+    if (!blob_file_meta->IsIndirectIdentityFile() &&
+        !blob_file_meta->IsIndirectCarrierFile()) {
+      return Status::Corruption("Invalid indirect blob routing metadata");
+    }
+    return blob_source_->GetBlobByOrigin(
+        read_options, user_key, blob_file, blob_file_meta->GetBlobFileSize(),
+        mutable_cf_options_.block_protection_bytes_per_key, blob_file_number,
+        blob_index.offset(), blob_index.size(), blob_index.checksum(),
+        blob_index.compression(), value, bytes_read);
+  }
   const Status s = blob_source_->GetBlob(
       read_options, user_key, blob_file, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
@@ -2832,8 +2845,10 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
   }
 
   const uint64_t blob_file_number = blob_index.file_number();
-
-  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  auto blob_file_meta =
+      blob_index.IsIndirect()
+          ? storage_info_.GetBlobFileMetaDataByOrigin(blob_file_number)
+          : storage_info_.GetBlobFileMetaData(blob_file_number);
   if (!blob_file_meta) {
     // INTEGRITY CHECK -- see Version::GetBlob. No metadata (including
     // file_number 0, the same-file "embedded" sentinel) means a corrupt index
@@ -2843,9 +2858,20 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
 
   assert(blob_source_);
   value->Reset();
-  const BlobFileOpenInfo blob_file{blob_file_number,
+  const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                    blob_file_meta->GetChecksumValue(),
                                    blob_file_meta->GetChecksumMethod()};
+  if (blob_index.IsIndirect()) {
+    if (!blob_file_meta->IsIndirectIdentityFile() &&
+        !blob_file_meta->IsIndirectCarrierFile()) {
+      return Status::Corruption("Invalid indirect blob routing metadata");
+    }
+    return blob_source_->GetBlobRangeByOrigin(
+        read_options, user_key, blob_file, blob_file_meta->GetBlobFileSize(),
+        mutable_cf_options_.block_protection_bytes_per_key, blob_file_number,
+        blob_index.offset(), blob_index.size(), range_offset, range_length,
+        value, bytes_read);
+  }
   return blob_source_->GetBlobRange(
       read_options, user_key, blob_file, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
@@ -2868,8 +2894,12 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
   // of that file's current (most recently started, still fillable) batch.
   autovector<BlobFileReadRequests> whole_reqs;
   autovector<BlobFileRangeReadRequests> range_reqs;
+  autovector<IndirectBlobFileReadRequests> indirect_whole_reqs;
+  autovector<IndirectBlobFileRangeReadRequests> indirect_range_reqs;
   std::unordered_map<uint64_t, size_t> whole_idx;
   std::unordered_map<uint64_t, size_t> range_idx;
+  std::unordered_map<uint64_t, size_t> indirect_whole_idx;
+  std::unordered_map<uint64_t, size_t> indirect_range_idx;
 
   for (auto& req : reqs) {
     assert(req.user_key);
@@ -2884,15 +2914,25 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
     }
 
     const uint64_t file_number = blob_index.file_number();
-    auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
+    auto blob_file_meta =
+        blob_index.IsIndirect()
+            ? storage_info_.GetBlobFileMetaDataByOrigin(file_number)
+            : storage_info_.GetBlobFileMetaData(file_number);
     if (!blob_file_meta) {
       // INTEGRITY CHECK -- see Version::GetBlob. A same-file/embedded reference
       // (file_number 0) must be resolved via SameFileBlobReader, not here.
       *req.status = Status::Corruption("Invalid blob file number");
       continue;
     }
+    if (blob_index.IsIndirect() && !blob_file_meta->IsIndirectIdentityFile() &&
+        !blob_file_meta->IsIndirectCarrierFile()) {
+      *req.status =
+          Status::Corruption("Invalid indirect blob routing metadata");
+      continue;
+    }
+    const bool logical_indirect = blob_index.IsIndirect();
     const uint64_t file_size = blob_file_meta->GetBlobFileSize();
-    const BlobFileOpenInfo blob_file{file_number,
+    const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                      blob_file_meta->GetChecksumValue(),
                                      blob_file_meta->GetChecksumMethod()};
 
@@ -2904,20 +2944,40 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       // MAX_BATCH_SIZE, and BlobSource tracks a batch's cache hits in a 64-bit
       // mask -- while MultiGetEntityLazy does not otherwise bound how many keys
       // can reference a single blob file.
-      size_t idx;
-      auto it = whole_idx.find(file_number);
-      if (it != whole_idx.end() && std::get<2>(whole_reqs[it->second]).size() <
-                                       MultiGetContext::MAX_BATCH_SIZE) {
-        idx = it->second;  // this file's current batch still has room
+      if (logical_indirect) {
+        size_t idx;
+        auto it = indirect_whole_idx.find(file_number);
+        if (it != indirect_whole_idx.end() &&
+            std::get<3>(indirect_whole_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = indirect_whole_reqs.size();
+          indirect_whole_idx[file_number] = idx;
+          indirect_whole_reqs.emplace_back(blob_file, file_size, file_number,
+                                           autovector<BlobReadRequest>());
+        }
+        std::get<3>(indirect_whole_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          blob_index.compression(), blob_index.checksum(),
+                          req.result, req.status);
       } else {
-        idx = whole_reqs.size();  // no batch yet for this file, or it is full
-        whole_idx[file_number] = idx;
-        whole_reqs.emplace_back(blob_file, file_size,
-                                autovector<BlobReadRequest>());
+        size_t idx;
+        auto it = whole_idx.find(file_number);
+        if (it != whole_idx.end() &&
+            std::get<2>(whole_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = whole_reqs.size();
+          whole_idx[file_number] = idx;
+          whole_reqs.emplace_back(blob_file, file_size,
+                                  autovector<BlobReadRequest>());
+        }
+        std::get<2>(whole_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          blob_index.compression(), req.result, req.status);
       }
-      std::get<2>(whole_reqs[idx])
-          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
-                        blob_index.compression(), req.result, req.status);
     } else {
       // A strict sub-range of a compressed blob cannot be decompressed in
       // isolation; the caller resolves such columns whole and slices instead.
@@ -2927,21 +2987,41 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       }
       // Same per-file batching and MAX_BATCH_SIZE cap as the whole-value path
       // above.
-      size_t idx;
-      auto it = range_idx.find(file_number);
-      if (it != range_idx.end() && std::get<2>(range_reqs[it->second]).size() <
-                                       MultiGetContext::MAX_BATCH_SIZE) {
-        idx = it->second;  // this file's current batch still has room
+      if (logical_indirect) {
+        size_t idx;
+        auto it = indirect_range_idx.find(file_number);
+        if (it != indirect_range_idx.end() &&
+            std::get<3>(indirect_range_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = indirect_range_reqs.size();
+          indirect_range_idx[file_number] = idx;
+          indirect_range_reqs.emplace_back(blob_file, file_size, file_number,
+                                           autovector<BlobRangeReadRequest>());
+        }
+        std::get<3>(indirect_range_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          req.range_offset, req.range_length, req.result,
+                          req.status);
       } else {
-        idx = range_reqs.size();  // no batch yet for this file, or it is full
-        range_idx[file_number] = idx;
-        range_reqs.emplace_back(blob_file, file_size,
-                                autovector<BlobRangeReadRequest>());
+        size_t idx;
+        auto it = range_idx.find(file_number);
+        if (it != range_idx.end() &&
+            std::get<2>(range_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = range_reqs.size();
+          range_idx[file_number] = idx;
+          range_reqs.emplace_back(blob_file, file_size,
+                                  autovector<BlobRangeReadRequest>());
+        }
+        std::get<2>(range_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          req.range_offset, req.range_length, req.result,
+                          req.status);
       }
-      std::get<2>(range_reqs[idx])
-          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
-                        req.range_offset, req.range_length, req.result,
-                        req.status);
     }
   }
 
@@ -2954,6 +3034,18 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
     blob_source_->MultiGetBlobRange(read_options, range_reqs,
                                     /*bytes_read=*/nullptr);
   }
+  if (!indirect_whole_reqs.empty()) {
+    blob_source_->MultiGetBlobByOrigin(
+        read_options, indirect_whole_reqs,
+        mutable_cf_options_.block_protection_bytes_per_key,
+        /*bytes_read=*/nullptr);
+  }
+  if (!indirect_range_reqs.empty()) {
+    blob_source_->MultiGetBlobRangeByOrigin(
+        read_options, indirect_range_reqs,
+        mutable_cf_options_.block_protection_bytes_per_key,
+        /*bytes_read=*/nullptr);
+  }
 }
 
 void Version::MultiGetBlob(
@@ -2962,12 +3054,14 @@ void Version::MultiGetBlob(
   assert(!blob_ctxs.empty());
 
   autovector<BlobFileReadRequests> blob_reqs;
+  autovector<IndirectBlobFileReadRequests> indirect_blob_reqs;
 
   for (auto& ctx : blob_ctxs) {
     const auto file_number = ctx.first;
-    const auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
-
     autovector<BlobReadRequest> blob_reqs_in_file;
+    autovector<BlobReadRequest> indirect_blob_reqs_in_file;
+    std::shared_ptr<BlobFileMetaData> direct_meta;
+    std::shared_ptr<BlobFileMetaData> indirect_meta;
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.blob_index;
@@ -2983,6 +3077,10 @@ void Version::MultiGetBlob(
         key_context->columns->Reset();
       }
 
+      const auto blob_file_meta =
+          blob_index.IsIndirect()
+              ? storage_info_.GetBlobFileMetaDataByOrigin(file_number)
+              : storage_info_.GetBlobFileMetaData(file_number);
       if (!blob_file_meta) {
         // INTEGRITY CHECK -- do not weaken; see Version::GetBlob and
         // FileMetaData::UpdateBoundaries. A same-file/embedded reference must
@@ -2997,23 +3095,57 @@ void Version::MultiGetBlob(
         continue;
       }
 
-      blob_reqs_in_file.emplace_back(
-          key_context->get_context->ukey_to_get_blob_value(),
-          blob_index.offset(), blob_index.size(), blob_index.compression(),
-          &blob.result, key_context->s);
+      if (blob_index.IsIndirect() &&
+          !blob_file_meta->IsIndirectIdentityFile() &&
+          !blob_file_meta->IsIndirectCarrierFile()) {
+        *key_context->s =
+            Status::Corruption("Invalid indirect blob routing metadata");
+        continue;
+      }
+
+      if (blob_index.IsIndirect()) {
+        indirect_meta = blob_file_meta;
+        indirect_blob_reqs_in_file.emplace_back(
+            key_context->get_context->ukey_to_get_blob_value(),
+            blob_index.offset(), blob_index.size(), blob_index.compression(),
+            blob_index.checksum(), &blob.result, key_context->s);
+      } else {
+        direct_meta = blob_file_meta;
+        blob_reqs_in_file.emplace_back(
+            key_context->get_context->ukey_to_get_blob_value(),
+            blob_index.offset(), blob_index.size(), blob_index.compression(),
+            &blob.result, key_context->s);
+      }
     }
-    if (blob_reqs_in_file.size() > 0) {
-      const auto file_size = blob_file_meta->GetBlobFileSize();
-      const BlobFileOpenInfo blob_file{file_number,
-                                       blob_file_meta->GetChecksumValue(),
-                                       blob_file_meta->GetChecksumMethod()};
-      blob_reqs.emplace_back(blob_file, file_size, blob_reqs_in_file);
+    if (!blob_reqs_in_file.empty()) {
+      assert(direct_meta);
+      const BlobFileOpenInfo blob_file{direct_meta->GetBlobFileNumber(),
+                                       direct_meta->GetChecksumValue(),
+                                       direct_meta->GetChecksumMethod()};
+      blob_reqs.emplace_back(blob_file, direct_meta->GetBlobFileSize(),
+                             std::move(blob_reqs_in_file));
+    }
+    if (!indirect_blob_reqs_in_file.empty()) {
+      assert(indirect_meta);
+      const BlobFileOpenInfo carrier_file{indirect_meta->GetBlobFileNumber(),
+                                          indirect_meta->GetChecksumValue(),
+                                          indirect_meta->GetChecksumMethod()};
+      indirect_blob_reqs.emplace_back(
+          carrier_file, indirect_meta->GetBlobFileSize(), file_number,
+          std::move(indirect_blob_reqs_in_file));
     }
   }
 
   if (blob_reqs.size() > 0) {
     blob_source_->MultiGetBlob(read_options, blob_reqs,
                                /*bytes_read=*/nullptr);
+  }
+  if (!indirect_blob_reqs.empty()) {
+    assert(blob_source_ != nullptr);
+    blob_source_->MultiGetBlobByOrigin(
+        read_options, indirect_blob_reqs,
+        mutable_cf_options_.block_protection_bytes_per_key,
+        /*bytes_read=*/nullptr);
   }
 
   for (auto& ctx : blob_ctxs) {
@@ -3860,6 +3992,10 @@ void VersionStorageInfo::ComputeCompactionScore(
       mutable_cf_options.blob_garbage_collection_age_cutoff,
       mutable_cf_options.blob_garbage_collection_force_threshold,
       mutable_cf_options.enable_blob_garbage_collection);
+  ComputeBlobFileForStandaloneGC(
+      mutable_cf_options.blob_garbage_collection_force_threshold,
+      immutable_options.enable_blob_indirection,
+      mutable_cf_options.enable_blob_garbage_collection);
   ComputeFilesMarkedForReadTriggeredCompaction(
       mutable_cf_options.read_triggered_compaction_threshold,
       immutable_options.compaction_style);
@@ -4015,9 +4151,17 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
-  // Number of blob files eligible for GC based on age
+  size_t direct_blob_file_count = 0;
+  for (const auto& meta : blob_files_) {
+    assert(meta);
+    if (!meta->HasIndirectionInfo()) {
+      ++direct_blob_file_count;
+    }
+  }
+
+  // Number of legacy direct blob files eligible for GC based on age.
   const size_t cutoff_count = static_cast<size_t>(
-      blob_garbage_collection_age_cutoff * blob_files_.size());
+      blob_garbage_collection_age_cutoff * direct_blob_file_count);
   if (!cutoff_count) {
     return;
   }
@@ -4050,24 +4194,35 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   //
   // Then, the oldest batch of blob files consists of blob files 10 and 11,
   // and we can get rid of them by forcing the compaction of SSTs 1 and 2.
-  const auto& oldest_meta = blob_files_.front();
+  auto oldest_it = std::find_if(blob_files_.begin(), blob_files_.end(),
+                                [](const auto& meta) {
+                                  assert(meta);
+                                  return !meta->HasIndirectionInfo();
+                                });
+  assert(oldest_it != blob_files_.end());
+  const auto& oldest_meta = *oldest_it;
   assert(oldest_meta);
-
-  const auto& linked_ssts = oldest_meta->GetLinkedSsts();
-  assert(!linked_ssts.empty());
 
   size_t count = 1;
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
+  uint64_t newest_eligible_direct_file_number =
+      oldest_meta->GetBlobFileNumber();
 
-  assert(cutoff_count <= blob_files_.size());
+  assert(cutoff_count <= direct_blob_file_count);
 
-  for (; count < cutoff_count; ++count) {
-    const auto& meta = blob_files_[count];
+  for (auto it = std::next(oldest_it); count < cutoff_count; ++it) {
+    assert(it != blob_files_.end());
+    const auto& meta = *it;
     assert(meta);
+    if (meta->HasIndirectionInfo()) {
+      continue;
+    }
 
     sum_total_blob_bytes += meta->GetTotalBlobBytes();
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+    newest_eligible_direct_file_number = meta->GetBlobFileNumber();
+    ++count;
   }
 
   if (sum_garbage_blob_bytes <
@@ -4075,23 +4230,144 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
-  for (uint64_t sst_file_number : linked_ssts) {
-    const FileLocation location = GetFileLocation(sst_file_number);
-    assert(location.IsValid());
-
-    const int level = location.GetLevel();
-    assert(level >= 0);
-
-    const size_t pos = location.GetPosition();
-
-    FileMetaData* const sst_meta = files_[level][pos];
-    assert(sst_meta);
-
-    if (sst_meta->being_compacted) {
-      continue;
+  if (direct_blob_file_count == blob_files_.size()) {
+    assert(files_ != nullptr);
+    // Preserve legacy forced-GC selection when this Version contains only
+    // direct blob files. In that case the oldest file's linked-SST set is
+    // complete and avoids rewriting SSTs that reference only newer files in
+    // the eligible batch.
+    const auto& linked_ssts = oldest_meta->GetLinkedSsts();
+    assert(!linked_ssts.empty());
+    for (uint64_t sst_file_number : linked_ssts) {
+      const FileLocation location = GetFileLocation(sst_file_number);
+      assert(location.IsValid());
+      const int level = location.GetLevel();
+      assert(level >= 0);
+      FileMetaData* const sst_meta = files_[level][location.GetPosition()];
+      assert(sst_meta);
+      if (!sst_meta->being_compacted) {
+        files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
+      }
     }
+    return;
+  }
 
-    files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
+  // An SST records only its oldest logical blob origin. In a mixed Version,
+  // that lower bound can belong to an indirect origin even when the same SST
+  // also references a newer eligible direct file, so the direct file's
+  // explicit linked-SST set is not sufficient. Conservatively compact every
+  // SST whose lower bound could include the eligible direct range.
+  uint64_t oldest_in_flight_file_number = std::numeric_limits<uint64_t>::max();
+  assert(files_ != nullptr);
+  for (int level = 0; level < num_levels(); ++level) {
+    for (FileMetaData* const sst_meta : files_[level]) {
+      assert(sst_meta);
+      if (sst_meta->oldest_blob_file_number == kInvalidBlobFileNumber ||
+          sst_meta->oldest_blob_file_number >
+              newest_eligible_direct_file_number) {
+        continue;
+      }
+      if (sst_meta->being_compacted) {
+        oldest_in_flight_file_number =
+            std::min(oldest_in_flight_file_number, sst_meta->fd.GetNumber());
+      }
+    }
+  }
+
+  for (int level = 0; level < num_levels(); ++level) {
+    for (FileMetaData* const sst_meta : files_[level]) {
+      assert(sst_meta);
+      if (sst_meta->being_compacted ||
+          sst_meta->oldest_blob_file_number == kInvalidBlobFileNumber ||
+          sst_meta->oldest_blob_file_number >
+              newest_eligible_direct_file_number ||
+          sst_meta->fd.GetNumber() > oldest_in_flight_file_number) {
+        continue;
+      }
+
+      files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
+    }
+  }
+  // Conservative lower-bound selection can include an SST that only refers to
+  // an older indirect origin. If that false positive is rewritten, its output
+  // gets a newer file number. Pick by file number so it moves behind untried
+  // SSTs instead of being selected repeatedly by key order.
+  std::sort(files_marked_for_forced_blob_gc_.begin(),
+            files_marked_for_forced_blob_gc_.end(),
+            [](const auto& lhs, const auto& rhs) {
+              assert(lhs.second);
+              assert(rhs.second);
+              return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
+            });
+}
+
+void VersionStorageInfo::ComputeBlobFileForStandaloneGC(
+    double threshold, bool enable_blob_indirection,
+    bool enable_blob_garbage_collection) {
+  blob_file_for_standalone_gc_.reset();
+  blob_files_for_standalone_gc_census_.clear();
+  if (!enable_blob_indirection || !enable_blob_garbage_collection ||
+      threshold >= 1.0) {
+    return;
+  }
+
+  uint64_t batched_live_blob_count = 0;
+  while (blob_files_for_standalone_gc_census_.size() <
+         kStandaloneBlobGCCensusBatchSize) {
+    std::shared_ptr<BlobFileMetaData> best_meta;
+    uint64_t best_live_blob_count = 0;
+    double best_reclaimable_score = 0.0;
+    for (const auto& meta : blob_files_) {
+      assert(meta);
+      if (std::find(blob_files_for_standalone_gc_census_.begin(),
+                    blob_files_for_standalone_gc_census_.end(),
+                    meta) != blob_files_for_standalone_gc_census_.end() ||
+          !meta->HasIndirectionInfo() || meta->GetTotalBlobBytes() == 0 ||
+          meta->GetGarbageBlobCount() == 0 ||
+          meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount() ||
+          suppressed_standalone_blob_gcs_.count(
+              {meta->GetOriginFileNumber(), meta->GetBlobFileNumber()}) != 0) {
+        continue;
+      }
+      const double garbage_ratio =
+          static_cast<double>(meta->GetGarbageBlobBytes()) /
+          static_cast<double>(meta->GetTotalBlobBytes());
+      if (garbage_ratio < threshold) {
+        continue;
+      }
+
+      const uint64_t live_blob_count =
+          meta->GetTotalBlobCount() - meta->GetGarbageBlobCount();
+      if (!StandaloneBlobGCMetadataFits(live_blob_count) ||
+          live_blob_count >
+              std::numeric_limits<uint64_t>::max() - batched_live_blob_count ||
+          !StandaloneBlobGCMetadataFits(batched_live_blob_count +
+                                        live_blob_count)) {
+        continue;
+      }
+      // Rank by physical bytes weighted by the stable logical garbage ratio.
+      // Logical live bytes include original user keys, which carriers do not
+      // store, so they cannot be subtracted from a carrier's physical size.
+      // The GC job measures the exact output and suppresses it if it does not
+      // shrink the source file.
+      const double reclaimable_score =
+          static_cast<double>(meta->GetBlobFileSize()) * garbage_ratio;
+      if (!best_meta || reclaimable_score > best_reclaimable_score ||
+          (reclaimable_score == best_reclaimable_score &&
+           meta->GetOriginFileNumber() < best_meta->GetOriginFileNumber())) {
+        best_meta = meta;
+        best_live_blob_count = live_blob_count;
+        best_reclaimable_score = reclaimable_score;
+      }
+    }
+    if (!best_meta) {
+      break;
+    }
+    batched_live_blob_count += best_live_blob_count;
+    blob_files_for_standalone_gc_census_.emplace_back(std::move(best_meta));
+  }
+  if (!blob_files_for_standalone_gc_census_.empty()) {
+    blob_file_for_standalone_gc_ = blob_files_for_standalone_gc_census_.front();
   }
 }
 
@@ -4185,7 +4461,36 @@ void VersionStorageInfo::AddBlobFile(
          (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
                                     blob_file_meta->GetBlobFileNumber()));
 
+  if (blob_file_meta->HasIndirectionInfo()) {
+    const uint64_t origin_file_number = blob_file_meta->GetOriginFileNumber();
+    const bool inserted =
+        blob_origins_.emplace(origin_file_number, blob_file_meta).second;
+    if (!inserted) {
+      blob_origin_conflict_ = true;
+    }
+  }
+
   blob_files_.emplace_back(std::move(blob_file_meta));
+}
+
+Status VersionStorageInfo::ValidateBlobIndirection() const {
+  if (blob_origin_conflict_) {
+    return Status::Corruption("VersionStorageInfo",
+                              "Multiple blob files for one indirect origin");
+  }
+  for (const auto& entry : blob_origins_) {
+    const std::shared_ptr<BlobFileMetaData>& meta = entry.second;
+    if (!meta || entry.first == kInvalidBlobFileNumber ||
+        entry.first != meta->GetOriginFileNumber()) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection origin metadata");
+    }
+    if (!meta->IsIndirectIdentityFile() && !meta->IsIndirectCarrierFile()) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection carrier metadata");
+    }
+  }
+  return Status::OK();
 }
 
 VersionStorageInfo::BlobFiles::const_iterator
@@ -5421,18 +5726,22 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const autovector<VersionEdit*>& edit_list;
   const std::function<void(const Status&)> manifest_write_callback;
+  // This writer's caller must run a precondition after reaching the head of
+  // the queue, so an earlier writer must not absorb it into a group commit.
+  bool requires_precondition;
   int max_file_opening_threads;
 
   explicit ManifestWriter(
       InstrumentedMutex* mu, ColumnFamilyData* _cfd,
       const autovector<VersionEdit*>& e,
       const std::function<void(const Status&)>& manifest_wcb,
-      int _max_file_opening_threads = 1)
+      bool _requires_precondition, int _max_file_opening_threads = 1)
       : done(false),
         cv(mu),
         cfd(_cfd),
         edit_list(e),
         manifest_write_callback(manifest_wcb),
+        requires_precondition(_requires_precondition),
         max_file_opening_threads(_max_file_opening_threads) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
@@ -6054,6 +6363,11 @@ Status VersionSet::ProcessManifestWrites(
         // no grouping when skipping manifest write
         break;
       }
+      if ((*it)->requires_precondition) {
+        // Let this writer become the queue head so its caller can validate the
+        // precondition against all Versions committed before it.
+        break;
+      }
       const auto* next = (*it)->edit_list.front();
       if (next->IsColumnFamilyManipulation() ||
           next->IsNoManifestWriteDummy()) {
@@ -6588,6 +6902,7 @@ Status VersionSet::LogAndApply(
     const auto wcb =
         manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
     writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb,
+                         /*requires_precondition=*/i == 0 && !!pre_cb,
                          max_file_opening_threads);
     manifest_writers_.push_back(&writers[i]);
   }
@@ -7631,9 +7946,20 @@ Status VersionSet::WriteCurrentStateToManifest(
 
         const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
-        edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
-                         meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
-                         meta->GetChecksumValue());
+        BlobFileAddition addition(blob_file_number, meta->GetTotalBlobCount(),
+                                  meta->GetTotalBlobBytes(),
+                                  meta->GetChecksumMethod(),
+                                  meta->GetChecksumValue());
+        if (meta->IsIndirectIdentityFile()) {
+          addition.SetIndirectionIdentity();
+        } else if (meta->IsIndirectCarrierFile()) {
+          const Status indirection_status = addition.SetIndirectionCarrier(
+              meta->GetOriginFileNumber(), meta->GetCarrierFileSize());
+          if (!indirection_status.ok()) {
+            return indirection_status;
+          }
+        }
+        edit.AddBlobFile(std::move(addition));
         if (meta->GetGarbageBlobCount() > 0) {
           edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
                                   meta->GetGarbageBlobBytes());
