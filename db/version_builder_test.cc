@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 
+#include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
@@ -907,6 +908,55 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
             BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(), 0);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), 0);
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, ApplyIndirectBlobCarrier) {
+  UpdateVersionStorageInfo();
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  constexpr uint64_t origin_file_number = 1234;
+  constexpr uint64_t carrier_file_number = 2345;
+  constexpr uint64_t total_blob_count = 2;
+  constexpr uint64_t total_blob_bytes = 1000;
+  constexpr uint64_t carrier_file_size = 1536;
+
+  BlobFileAddition addition(carrier_file_number, total_blob_count,
+                            total_blob_bytes, "", "");
+  ASSERT_OK(
+      addition.SetIndirectionCarrier(origin_file_number, carrier_file_size));
+
+  VersionEdit edit;
+  edit.AddBlobFile(std::move(addition));
+  constexpr uint64_t table_file_number = 1;
+  AddDummyFileToEdit(&edit, table_file_number, origin_file_number,
+                     /*epoch_number=*/1);
+  ASSERT_OK(builder.Apply(&edit));
+
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
+      force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
+      0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  const std::shared_ptr<BlobFileMetaData> carrier =
+      new_vstorage.GetBlobFileMetaDataByOrigin(origin_file_number);
+  ASSERT_NE(carrier, nullptr);
+  EXPECT_EQ(carrier->GetBlobFileNumber(), carrier_file_number);
+  EXPECT_TRUE(carrier->IsIndirectCarrierFile());
+  EXPECT_EQ(carrier->GetCarrierFileSize(), carrier_file_size);
+  EXPECT_EQ(carrier->GetBlobFileSize(), carrier_file_size);
+  EXPECT_EQ(carrier->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
 
   UnrefFilesInVersion(&new_vstorage);
 }

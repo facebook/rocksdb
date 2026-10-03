@@ -28,6 +28,7 @@
 #include "test_util/sync_point.h"
 #include "trace_replay/io_tracer.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -79,6 +80,7 @@ BlobFileBuilder::BlobFileBuilder(
                               ? blob_compressor_->ObtainWorkingArea()
                               : Compressor::ManagedWorkingArea{}),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
+      enable_blob_indirection_(immutable_options->enable_blob_indirection),
       file_options_(file_options),
       write_options_(write_options),
       db_id_(std::move(db_id)),
@@ -168,8 +170,15 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset, blob.size(),
-                        blob_compression_type_);
+  if (enable_blob_indirection_) {
+    const uint32_t checksum = crc32c::Value(value.data(), value.size());
+    BlobIndex::EncodeIndirectBlob(blob_index, blob_file_number, blob_offset,
+                                  blob.size(), checksum,
+                                  blob_compression_type_);
+  } else {
+    BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset,
+                          blob.size(), blob_compression_type_);
+  }
 
   return Status::OK();
 }
@@ -357,9 +366,13 @@ Status BlobFileBuilder::CloseBlobFile() {
   }
 
   assert(blob_file_additions_);
-  blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
-                                     std::move(checksum_method),
-                                     std::move(checksum_value));
+  BlobFileAddition blob_file_addition(blob_file_number, blob_count_,
+                                      blob_bytes_, std::move(checksum_method),
+                                      std::move(checksum_value));
+  if (enable_blob_indirection_) {
+    blob_file_addition.SetIndirectionIdentity();
+  }
+  blob_file_additions_->emplace_back(std::move(blob_file_addition));
 
   assert(immutable_options_);
   ROCKS_LOG_INFO(immutable_options_->logger,
