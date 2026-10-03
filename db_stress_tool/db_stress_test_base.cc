@@ -5744,6 +5744,8 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_avoid_unnecessary_blocking_io));
   fprintf(stdout, "Write DB ID to manifest   : %d\n",
           static_cast<int>(FLAGS_write_dbid_to_manifest));
+  fprintf(stdout, "Track OPTIONS in manifest : %d\n",
+          static_cast<int>(FLAGS_track_options_file_number_in_manifest));
   fprintf(stdout, "Optimize manifest recovery: %d\n",
           static_cast<int>(FLAGS_optimize_manifest_for_recovery));
   fprintf(stdout, "Reuse manifest on open    : %d\n",
@@ -6284,11 +6286,21 @@ void StressTest::RecordManifestStateBeforeReopen() {
   }
 
   if (reuse_manifest && optimize_manifest) {
+    bool effective_options_pointer_active =
+        FLAGS_track_options_file_number_in_manifest;
+    if (db_ != nullptr) {
+      auto* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+      VersionSet* versions = db_impl->GetVersionSet();
+      assert(versions != nullptr);
+      effective_options_pointer_active |=
+          versions->has_manifest_options_file_number();
+    }
     // Check if ALL conditions for complete avoidance are met.
     // If so, use STRICT mode where failures are fatal.
     const bool no_manifest_writes_expected =
         FLAGS_avoid_flush_during_recovery &&  // No flush during recovery
-        !FLAGS_write_dbid_to_manifest;        // No DB_ID write on open
+        !FLAGS_write_dbid_to_manifest &&      // No DB_ID write on open
+        !effective_options_pointer_active;    // No OPTIONS pointer update
     // Note: avoid_flush_during_shutdown is NOT required for STRICT mode.
     // If avoid_flush_during_shutdown=true leaves data in WAL, but
     // avoid_flush_during_recovery=true prevents flushing it, so MANIFEST
@@ -6956,6 +6968,8 @@ void InitializeOptionsFromFlags(
   options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+  options.track_options_file_number_in_manifest =
+      FLAGS_track_options_file_number_in_manifest;
   options.optimize_manifest_for_recovery = FLAGS_optimize_manifest_for_recovery;
   options.write_identity_file = FLAGS_write_identity_file;
   options.reuse_manifest_on_open = FLAGS_reuse_manifest_on_open;

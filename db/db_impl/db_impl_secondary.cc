@@ -1023,15 +1023,17 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   JobContext job_context(0, true /*create_superversion*/);
+  auto* reactive_versions =
+      static_cast_with_check<ReactiveVersionSet>(versions_.get());
+  bool refresh_options_file_state = false;
   {
     InstrumentedMutexLock lock_guard(&mutex_);
     assert(manifest_reader_.get() != nullptr);
-    auto* reactive_versions =
-        static_cast_with_check<ReactiveVersionSet>(versions_.get());
     s = reactive_versions->ReadAndApply(&mutex_, &manifest_reader_,
                                         manifest_reader_status_.get(),
                                         &cfds_changed,
                                         /*files_to_delete=*/nullptr);
+    refresh_options_file_state = s.ok();
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));
@@ -1127,6 +1129,16 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
           "DBImplSecondary::TryCatchUpWithPrimary:AllowPublishReadView");
       PublishSecondaryReadView();
     }
+  }
+  if (refresh_options_file_state) {
+    TEST_SYNC_POINT(
+        "DBImplSecondary::TryCatchUpWithPrimary:BeforeOptionsRefresh");
+    Status options_s = reactive_versions->RefreshOptionsFileStateOutsideMutex(
+        &mutex_, &manifest_reader_);
+    // OPTIONS is operational metadata. A failed or stale scan must not hide
+    // versions and WALs that catch-up already published; the next round
+    // retries.
+    options_s.PermitUncheckedError();
   }
   CleanupRetiredSecondaryReadViews();
   job_context.Clean();

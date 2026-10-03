@@ -86,6 +86,25 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+void RetirePreparedOptionsThrough(std::set<uint64_t>* prepared,
+                                  uint64_t number) {
+  prepared->erase(prepared->begin(), prepared->upper_bound(number));
+}
+
+}  // namespace
+
+void OptionsFileProtocolState::ApplyPrepare(uint64_t number) {
+  prepared_options_file_numbers.insert(number);
+}
+
+void OptionsFileProtocolState::ApplyCommit(uint64_t number) {
+  effective_options_file_number = number;
+  has_effective_options_file_number = true;
+  RetirePreparedOptionsThrough(&prepared_options_file_numbers, number);
+}
+
+namespace {
+
 using ScanOptionsMap = std::unordered_map<size_t, MultiScanArgs>;
 
 // Find File in LevelFilesBrief data structure
@@ -5436,15 +5455,13 @@ struct VersionSet::ManifestWriter {
         max_file_opening_threads(_max_file_opening_threads) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
-  bool IsAllWalEdits() const {
-    bool all_wal_edits = true;
+  bool IsAllVersionIndependentEdits() const {
     for (const auto& e : edit_list) {
-      if (!e->IsWalManipulation()) {
-        all_wal_edits = false;
-        break;
+      if (!e->IsWalManipulation() && !e->IsOptionsFileManipulation()) {
+        return false;
       }
     }
-    return all_wal_edits;
+    return true;
   }
 };
 
@@ -5517,6 +5534,7 @@ VersionSet::VersionSet(
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),
       options_file_size_(0),
+      has_manifest_options_file_number_(false),
       pending_manifest_file_number_(0),
       last_sequence_(0),
       last_allocated_sequence_(0),
@@ -5701,6 +5719,22 @@ VersionSet::~VersionSet() {
   io_status_.PermitUncheckedError();
 }
 
+void VersionSet::ApplyPreparedOptionsFileNumber(uint64_t number) {
+  prepared_options_file_numbers_.insert(number);
+}
+
+void VersionSet::ApplyEffectiveOptionsFileNumber(uint64_t number) {
+  options_file_number_ = number;
+  has_manifest_options_file_number_ = true;
+  RetirePreparedOptionsThrough(&prepared_options_file_numbers_, number);
+}
+
+void VersionSet::ApplyLegacyOptionsFileNumber(uint64_t number) {
+  options_file_number_ = number;
+  has_manifest_options_file_number_ = false;
+  RetirePreparedOptionsThrough(&prepared_options_file_numbers_, number);
+}
+
 void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
@@ -5728,6 +5762,11 @@ void VersionSet::Reset() {
   min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
   options_file_number_ = 0;
+  options_file_size_ = 0;
+  has_manifest_options_file_number_ = false;
+  prepared_options_file_numbers_.clear();
+  options_file_state_refresh_pending_ = false;
+  options_file_state_refresh_generation_ = 0;
   pending_manifest_file_number_ = 0;
   last_sequence_.store(0);
   last_allocated_sequence_.store(0);
@@ -6006,8 +6045,8 @@ Status VersionSet::ProcessManifestWrites(
           }
         }
         if (version == nullptr) {
-          // WAL manipulations do not need to be applied to versions.
-          if (!last_writer->IsAllWalEdits()) {
+          // WAL and OPTIONS protocol manipulations do not change LSM Versions.
+          if (!last_writer->IsAllVersionIndependentEdits()) {
             version = new Version(
                 last_writer->cfd, this, file_options_,
                 last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
@@ -6018,8 +6057,8 @@ Status VersionSet::ProcessManifestWrites(
                 new BaseReferencedVersionBuilder(last_writer->cfd));
             builder = builder_guards.back()->version_builder();
           }
-          assert(last_writer->IsAllWalEdits() || builder);
-          assert(last_writer->IsAllWalEdits() || version);
+          assert(last_writer->IsAllVersionIndependentEdits() || builder);
+          assert(last_writer->IsAllVersionIndependentEdits() || version);
           TEST_SYNC_POINT_CALLBACK(
               "VersionSet::ProcessManifestWrites:NewVersion", version);
         }
@@ -6164,6 +6203,7 @@ Status VersionSet::ProcessManifestWrites(
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
   VersionEdit wal_additions;
+  OptionsFileProtocolState options_protocol_state;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -6184,6 +6224,7 @@ Status VersionSet::ProcessManifestWrites(
     for (const auto& wal : wals_.GetWals()) {
       wal_additions.AddWal(wal.first, wal.second);
     }
+    options_protocol_state = options_file_protocol_state();
   }
 
   uint64_t new_manifest_file_size = 0;
@@ -6244,7 +6285,8 @@ Status VersionSet::ProcessManifestWrites(
                                  opt_file_opts, manifest_preallocation_size);
         raw_desc_log_ptr = new_desc_log_ptr.get();
         s = WriteCurrentStateToManifest(write_options, curr_state,
-                                        wal_additions, raw_desc_log_ptr, io_s);
+                                        wal_additions, options_protocol_state,
+                                        raw_desc_log_ptr, io_s);
         assert(s == io_s);
       }
       if (!io_s.ok()) {
@@ -6449,6 +6491,16 @@ Status VersionSet::ProcessManifestWrites(
       }
     }
     if (!skip_manifest_write) {
+      for (const auto* edit : batch_edits) {
+        assert(edit != nullptr);
+        if (edit->HasPreparedOptionsFileNumber()) {
+          ApplyPreparedOptionsFileNumber(edit->GetPreparedOptionsFileNumber());
+        }
+        if (edit->HasEffectiveOptionsFileNumber()) {
+          ApplyEffectiveOptionsFileNumber(
+              edit->GetEffectiveOptionsFileNumber());
+        }
+      }
       assert(max_last_sequence >= descriptor_last_sequence_);
       descriptor_last_sequence_ = max_last_sequence;
       manifest_file_number_ = pending_manifest_file_number_;
@@ -6687,10 +6739,10 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetLastSequence(*max_last_sequence);
   }
 
-  // The builder can be nullptr only if edit is WAL manipulation,
-  // because WAL edits do not need to be applied to versions,
-  // we return Status::OK() in this case.
-  assert(builder || edit->IsWalManipulation());
+  // WAL and OPTIONS protocol edits update DB-wide metadata without changing an
+  // LSM Version, so they do not need a VersionBuilder.
+  assert(builder || edit->IsWalManipulation() ||
+         edit->IsOptionsFileManipulation());
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
@@ -6821,8 +6873,10 @@ Status VersionSet::ReopenManifestForAppend(const std::string& manifest_path) {
 Status VersionSet::AppendColumnFamilyDropsToManifest(
     const std::string& manifest_path, uint64_t manifest_size,
     const std::vector<uint32_t>& cf_ids, const WriteOptions& write_options,
-    uint64_t manifest_preallocation_size) {
-  if (cf_ids.empty()) {
+    uint64_t manifest_preallocation_size, uint64_t prepared_options_file_number,
+    uint64_t effective_options_file_number) {
+  if (cf_ids.empty() && prepared_options_file_number == 0 &&
+      effective_options_file_number == 0) {
     return Status::OK();
   }
 
@@ -6908,14 +6962,53 @@ Status VersionSet::AppendColumnFamilyDropsToManifest(
     writer.reset();
   };
 
-  for (uint32_t cf_id : cf_ids) {
+  for (size_t i = 0; i < cf_ids.size(); ++i) {
+    assert(writer != nullptr);
     VersionEdit edit;
-    edit.SetColumnFamily(cf_id);
+    edit.SetColumnFamily(cf_ids[i]);
     edit.DropColumnFamily();
+    if (i + 1 == cf_ids.size()) {
+      if (prepared_options_file_number != 0) {
+        edit.SetPreparedOptionsFileNumber(prepared_options_file_number);
+      }
+      if (effective_options_file_number != 0) {
+        edit.SetEffectiveOptionsFileNumber(effective_options_file_number);
+      }
+      const uint64_t allocated_options_file_number =
+          std::max(prepared_options_file_number, effective_options_file_number);
+      if (allocated_options_file_number != 0) {
+        edit.SetNextFile(allocated_options_file_number);
+      }
+    }
     std::string record;
     if (!edit.EncodeTo(&record)) {
       s = Status::Corruption(
           "Unable to encode column family drop VersionEdit for checkpoint");
+      close_writer();
+      return s;
+    }
+    IOStatus add_s = writer->AddRecord(write_options, record);
+    if (!add_s.ok()) {
+      s = add_s;
+      close_writer();
+      return s;
+    }
+  }
+
+  if (cf_ids.empty()) {
+    assert(writer != nullptr);
+    VersionEdit edit;
+    if (prepared_options_file_number != 0) {
+      edit.SetPreparedOptionsFileNumber(prepared_options_file_number);
+    }
+    if (effective_options_file_number != 0) {
+      edit.SetEffectiveOptionsFileNumber(effective_options_file_number);
+    }
+    edit.SetNextFile(
+        std::max(prepared_options_file_number, effective_options_file_number));
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      s = Status::Corruption("Unable to encode effective OPTIONS VersionEdit");
       close_writer();
       return s;
     }
@@ -6943,6 +7036,20 @@ Status VersionSet::AppendColumnFamilyDropsToManifest(
       fs_->RenameFile(tmp_path, manifest_path, IOOptions(), /*dbg=*/nullptr);
   if (!rename_s.ok()) {
     return rename_s;
+  }
+  const size_t slash = manifest_path.find_last_of("/\\");
+  const std::string manifest_dir =
+      slash == std::string::npos ? "." : manifest_path.substr(0, slash);
+  std::unique_ptr<FSDirectory> dir;
+  IOStatus dir_s = fs_->NewDirectory(manifest_dir, IOOptions(), &dir, nullptr);
+  if (!dir_s.ok()) {
+    return dir_s;
+  }
+  assert(dir != nullptr);
+  dir_s = dir->FsyncWithDirOptions(IOOptions(), nullptr,
+                                   DirFsyncOptions(manifest_path));
+  if (!dir_s.ok()) {
+    return dir_s;
   }
   return Status::OK();
 }
@@ -7256,6 +7363,167 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   return handler.status();
 }
 
+Status VersionSet::GetOptionsFileProtocolState(
+    const std::string& dbname, FileSystem* fs,
+    OptionsFileProtocolState* protocol_state) {
+  assert(fs != nullptr);
+  assert(protocol_state != nullptr);
+  *protocol_state = OptionsFileProtocolState();
+
+  IOStatus io_s = fs->FileExists(CurrentFileName(dbname), IOOptions(), nullptr);
+  if (io_s.IsNotFound()) {
+    io_s.PermitUncheckedError();
+    return Status::OK();
+  }
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  Status last_retry_status;
+  last_retry_status.PermitUncheckedOk();
+  auto remember_retry_status = [&](const Status& retry_status) {
+    last_retry_status = retry_status;
+    // The saved value is returned if every attempt races. Mark this local copy
+    // consumed on paths that instead succeed or return a terminal error.
+    last_retry_status.PermitUncheckedError();
+  };
+  constexpr int kMaxAttempts = 3;
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    std::string manifest_path;
+    uint64_t manifest_file_number = 0;
+    Status s = GetCurrentManifestPath(dbname, fs, /*is_retry=*/attempt > 0,
+                                      &manifest_path, &manifest_file_number);
+    if (!s.ok()) {
+      remember_retry_status(s);
+      if (s.IsNotFound()) {
+        continue;
+      }
+      return s;
+    }
+
+    uint64_t manifest_size_before = 0;
+    s = fs->GetFileSize(manifest_path, IOOptions(), &manifest_size_before,
+                        nullptr);
+    if (!s.ok()) {
+      remember_retry_status(s);
+      if (s.IsNotFound()) {
+        continue;
+      }
+      return s;
+    }
+
+    std::unique_ptr<FSSequentialFile> file;
+    s = fs->NewSequentialFile(manifest_path, FileOptions(), &file, nullptr);
+    if (!s.ok()) {
+      remember_retry_status(s);
+      if (s.IsNotFound()) {
+        continue;
+      }
+      return s;
+    }
+    auto file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), manifest_path, /*io_tracer=*/nullptr);
+    LogReporter reporter;
+    reporter.status = &s;
+    log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                       /*checksum=*/true, /*log_number=*/0);
+
+    OptionsFileProtocolState found_protocol_state;
+    auto apply_edit = [&](const VersionEdit& edit) {
+      if (edit.HasPreparedOptionsFileNumber()) {
+        found_protocol_state.ApplyPrepare(edit.GetPreparedOptionsFileNumber());
+      }
+      if (edit.HasEffectiveOptionsFileNumber()) {
+        found_protocol_state.ApplyCommit(edit.GetEffectiveOptionsFileNumber());
+      }
+    };
+
+    AtomicGroupReadBuffer atomic_group;
+    Slice record;
+    std::string scratch;
+    while (s.ok() && reader.ReadRecord(&record, &scratch)) {
+      VersionEdit edit;
+      s = edit.DecodeFrom(record);
+      if (!s.ok()) {
+        break;
+      }
+      s = atomic_group.AddEdit(&edit);
+      if (!s.ok()) {
+        break;
+      }
+      if (edit.IsInAtomicGroup()) {
+        if (!atomic_group.IsFull()) {
+          continue;
+        }
+        for (const auto& grouped_edit : atomic_group.replay_buffer()) {
+          apply_edit(grouped_edit);
+        }
+        atomic_group.Clear();
+      } else {
+        apply_edit(edit);
+      }
+    }
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::string current_manifest_path;
+    uint64_t current_manifest_file_number = 0;
+    s = GetCurrentManifestPath(dbname, fs, /*is_retry=*/true,
+                               &current_manifest_path,
+                               &current_manifest_file_number);
+    if (!s.ok()) {
+      remember_retry_status(s);
+      if (s.IsNotFound()) {
+        continue;
+      }
+      return s;
+    }
+    uint64_t manifest_size_after = 0;
+    s = fs->GetFileSize(manifest_path, IOOptions(), &manifest_size_after,
+                        nullptr);
+    if (!s.ok()) {
+      remember_retry_status(s);
+      if (s.IsNotFound()) {
+        continue;
+      }
+      return s;
+    }
+    if (manifest_path != current_manifest_path ||
+        manifest_file_number != current_manifest_file_number ||
+        manifest_size_before != manifest_size_after) {
+      remember_retry_status(Status::TryAgain("MANIFEST changed while read"));
+      continue;
+    }
+
+    *protocol_state = std::move(found_protocol_state);
+    return Status::OK();
+  }
+  return last_retry_status;
+}
+
+uint64_t VersionSet::ResolveOptionsFileNumber(
+    const OptionsFileProtocolState& protocol_state,
+    const std::vector<std::string>& filenames, bool* selected_by_manifest) {
+  assert(selected_by_manifest != nullptr);
+  uint64_t selected = protocol_state.effective_options_file_number;
+  *selected_by_manifest = protocol_state.has_effective_options_file_number;
+  for (const std::string& filename : filenames) {
+    uint64_t number = 0;
+    FileType type;
+    if (!ParseFileName(filename, &number, &type) || type != kOptionsFile ||
+        protocol_state.prepared_options_file_numbers.find(number) !=
+            protocol_state.prepared_options_file_numbers.end()) {
+      continue;
+    }
+    if (number > selected) {
+      selected = number;
+      *selected_by_manifest = false;
+    }
+  }
+  return selected;
+}
+
 Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         const Options* options,
                                         const FileOptions& file_options,
@@ -7502,7 +7770,9 @@ void VersionSet::MarkMinLogNumberToKeep(uint64_t number) {
 Status VersionSet::WriteCurrentStateToManifest(
     const WriteOptions& write_options,
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& wal_additions,
+    const OptionsFileProtocolState& options_protocol_state, log::Writer* log,
+    IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -7674,6 +7944,40 @@ Status VersionSet::WriteCurrentStateToManifest(
       if (!io_s.ok()) {
         return io_s;
       }
+    }
+  }
+
+  if (options_protocol_state.has_effective_options_file_number) {
+    assert(log != nullptr);
+    VersionEdit edit;
+    edit.SetEffectiveOptionsFileNumber(
+        options_protocol_state.effective_options_file_number);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(write_options, record);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
+  // A fresh MANIFEST must retain unresolved prepares so recovery keeps
+  // distinguishing their files from output produced by a legacy writer.
+  for (uint64_t prepared_options_file_number :
+       options_protocol_state.prepared_options_file_numbers) {
+    assert(log != nullptr);
+    VersionEdit edit;
+    edit.SetPreparedOptionsFileNumber(prepared_options_file_number);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(write_options, record);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
 
@@ -8381,6 +8685,161 @@ ReactiveVersionSet::ReactiveVersionSet(
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
 
+Status ReactiveVersionSet::RefreshOptionsFileState(
+    log::FragmentBufferedReader* manifest_reader) {
+  assert(manifest_reader != nullptr);
+
+  const std::string& manifest_path = manifest_reader->file()->file_name();
+  const uint64_t replayed_manifest_size = manifest_reader->GetReadOffset();
+  uint64_t selected_options_file_number = 0;
+  uint64_t selected_options_file_size = 0;
+  bool selected_by_manifest = false;
+  Status s = ReadOptionsFileState(
+      manifest_path, replayed_manifest_size, manifest_file_number_,
+      options_file_protocol_state(), &selected_options_file_number,
+      &selected_options_file_size, &selected_by_manifest);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!selected_by_manifest) {
+    // Do not retire prepare markers until every fallible part of this refresh
+    // has succeeded. A later retry still needs them to reject exact prepared
+    // candidates.
+    ApplyLegacyOptionsFileNumber(selected_options_file_number);
+  }
+  options_file_size_ = selected_options_file_size;
+  return Status::OK();
+}
+
+Status ReactiveVersionSet::ReadOptionsFileState(
+    const std::string& manifest_path, uint64_t replayed_manifest_size,
+    uint64_t manifest_file_number,
+    const OptionsFileProtocolState& protocol_state,
+    uint64_t* selected_options_file_number,
+    uint64_t* selected_options_file_size, bool* selected_by_manifest) {
+  assert(selected_options_file_number != nullptr);
+  assert(selected_options_file_size != nullptr);
+  assert(selected_by_manifest != nullptr);
+
+  uint64_t manifest_size = 0;
+  Status s =
+      fs_->GetFileSize(manifest_path, IOOptions(), &manifest_size, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  if (manifest_size != replayed_manifest_size) {
+    return Status::TryAgain("MANIFEST advanced before legacy OPTIONS scan");
+  }
+
+  std::vector<std::string> filenames;
+  s = fs_->GetChildren(dbname_, IOOptions(), &filenames, nullptr);
+  // TEST_SYNC_POINT_CALLBACK handles the disabled singleton internally.
+  // @lint-ignore NULLSAFECLANG nullable-dereference
+  TEST_SYNC_POINT_CALLBACK(
+      "ReactiveVersionSet::RefreshLegacyOptionsFileState:AfterGetChildren", &s);
+  if (!s.ok()) {
+    return s;
+  }
+  std::string current_manifest_path;
+  uint64_t current_manifest_file_number = 0;
+  s = GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/true,
+                             &current_manifest_path,
+                             &current_manifest_file_number);
+  if (!s.ok()) {
+    return s;
+  }
+  s = fs_->GetFileSize(manifest_path, IOOptions(), &manifest_size, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  if (current_manifest_path != manifest_path ||
+      current_manifest_file_number != manifest_file_number ||
+      manifest_size != replayed_manifest_size) {
+    return Status::TryAgain("MANIFEST advanced during legacy OPTIONS scan");
+  }
+
+  *selected_options_file_number =
+      ResolveOptionsFileNumber(protocol_state, filenames, selected_by_manifest);
+
+  *selected_options_file_size = 0;
+  if (*selected_options_file_number != 0) {
+    s = fs_->GetFileSize(
+        OptionsFileName(dbname_, *selected_options_file_number), IOOptions(),
+        selected_options_file_size, nullptr);
+    TEST_SYNC_POINT_CALLBACK(
+        "ReactiveVersionSet::RefreshOptionsFileState:AfterGetFileSize", &s);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
+}
+
+Status ReactiveVersionSet::RefreshOptionsFileStateOutsideMutex(
+    InstrumentedMutex* mu,
+    std::unique_ptr<log::FragmentBufferedReader>* manifest_reader) {
+  assert(mu != nullptr);
+  assert(manifest_reader != nullptr);
+
+  std::string manifest_path;
+  uint64_t replayed_manifest_size = 0;
+  uint64_t manifest_file_number = 0;
+  uint64_t refresh_generation = 0;
+  OptionsFileProtocolState protocol_state;
+  {
+    InstrumentedMutexLock l(mu);
+    if (manifest_reader->get() == nullptr) {
+      return Status::InvalidArgument("MANIFEST reader is not initialized");
+    }
+    if (!options_file_state_refresh_pending_) {
+      return Status::OK();
+    }
+    manifest_path = manifest_reader->get()->file()->file_name();
+    replayed_manifest_size = manifest_reader->get()->GetReadOffset();
+    manifest_file_number = manifest_file_number_;
+    // Each scan claims the current replay state. Concurrent scans can inspect
+    // the same MANIFEST snapshot, but only the newest one may publish or clear
+    // the pending marker.
+    refresh_generation = ++options_file_state_refresh_generation_;
+    protocol_state = options_file_protocol_state();
+  }
+
+  uint64_t selected_options_file_number = 0;
+  uint64_t selected_options_file_size = 0;
+  bool selected_by_manifest = false;
+  Status s = ReadOptionsFileState(
+      manifest_path, replayed_manifest_size, manifest_file_number,
+      protocol_state, &selected_options_file_number,
+      &selected_options_file_size, &selected_by_manifest);
+  if (!s.ok()) {
+    InstrumentedMutexLock l(mu);
+    if (options_file_state_refresh_generation_ == refresh_generation) {
+      options_file_state_refresh_pending_ = false;
+    }
+    return s;
+  }
+
+  InstrumentedMutexLock l(mu);
+  if (options_file_state_refresh_generation_ != refresh_generation ||
+      manifest_reader->get() == nullptr ||
+      manifest_reader->get()->file()->file_name() != manifest_path ||
+      manifest_reader->get()->GetReadOffset() != replayed_manifest_size ||
+      manifest_file_number_ != manifest_file_number ||
+      options_file_protocol_state() != protocol_state) {
+    if (options_file_state_refresh_generation_ == refresh_generation) {
+      options_file_state_refresh_pending_ = false;
+    }
+    return Status::TryAgain(
+        "MANIFEST or OPTIONS protocol advanced during OPTIONS scan");
+  }
+  if (!selected_by_manifest) {
+    ApplyLegacyOptionsFileNumber(selected_options_file_number);
+  }
+  options_file_size_ = selected_options_file_size;
+  options_file_state_refresh_pending_ = false;
+  return Status::OK();
+}
+
 Status ReactiveVersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
@@ -8394,10 +8853,13 @@ Status ReactiveVersionSet::Recover(
   manifest_reporter->reset(new LogReporter());
   static_cast_with_check<LogReporter>(manifest_reporter->get())->status =
       manifest_reader_status->get();
-  Status s = MaybeSwitchManifest(manifest_reporter->get(), manifest_reader);
+  uint64_t current_manifest_file_number = 0;
+  Status s = MaybeSwitchManifest(manifest_reporter->get(), manifest_reader,
+                                 &current_manifest_file_number);
   if (!s.ok()) {
     return s;
   }
+  manifest_file_number_ = current_manifest_file_number;
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
@@ -8410,6 +8872,14 @@ Status ReactiveVersionSet::Recover(
 
   s = manifest_tailer_->status();
   if (s.ok()) {
+    Status options_size_s = RefreshOptionsFileState(manifest_reader->get());
+    if (!options_size_s.ok()) {
+      if (!has_manifest_options_file_number_) {
+        options_file_number_ = 0;
+      }
+      options_file_size_ = 0;
+    }
+    options_size_s.PermitUncheckedError();
     RecoverEpochNumbers();
   }
   return s;
@@ -8428,14 +8898,49 @@ Status ReactiveVersionSet::ReadAndApply(
   Status s;
   log::Reader* reader = manifest_reader->get();
   assert(reader);
-  s = MaybeSwitchManifest(reader->GetReporter(), manifest_reader);
+  const uint64_t previous_manifest_file_number = manifest_file_number_;
+  const OptionsFileProtocolState previous_options_state =
+      options_file_protocol_state();
+  const uint64_t previous_options_file_size = options_file_size_;
+  uint64_t current_manifest_file_number = 0;
+  s = MaybeSwitchManifest(reader->GetReporter(), manifest_reader,
+                          &current_manifest_file_number);
   if (!s.ok()) {
     return s;
   }
-  manifest_tailer_->Iterate(*(manifest_reader->get()), manifest_read_status);
-  s = manifest_tailer_->status();
+  manifest_file_number_ = current_manifest_file_number;
+  TEST_SYNC_POINT_CALLBACK(
+      "ReactiveVersionSet::ReadAndApply:BeforeManifestRead", &s);
   if (s.ok()) {
+    manifest_tailer_->Iterate(*manifest_reader->get(), manifest_read_status);
+    s = manifest_tailer_->status();
+  }
+  // TEST_SYNC_POINT handles the disabled singleton case internally.
+  // @lint-ignore NULLSAFECLANG nullable-dereference
+  TEST_SYNC_POINT("ReactiveVersionSet::ReadAndApply:AfterManifestRead");
+  if (s.ok()) {
+    // Filesystem discovery runs after the caller releases the DB mutex. Clear
+    // metadata that might belong to the previously replayed MANIFEST now, so a
+    // concurrent observer can never pair the new protocol state with stale
+    // legacy selection or size data.
+    options_file_state_refresh_pending_ = true;
+    ++options_file_state_refresh_generation_;
+    if (!has_manifest_options_file_number_) {
+      options_file_number_ = 0;
+    }
+    options_file_size_ = 0;
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());
+  } else {
+    // A MANIFEST switch and its OPTIONS protocol state become visible as one
+    // successful replay. Keep the previously installed metadata when opening
+    // or reading the new MANIFEST fails; the next catch-up retries the switch.
+    manifest_file_number_ = previous_manifest_file_number;
+    options_file_number_ = previous_options_state.effective_options_file_number;
+    has_manifest_options_file_number_ =
+        previous_options_state.has_effective_options_file_number;
+    prepared_options_file_numbers_ =
+        previous_options_state.prepared_options_file_numbers;
+    options_file_size_ = previous_options_file_size;
   }
   if (files_to_delete) {
     *files_to_delete = manifest_tailer_->GetAndClearIntermediateFiles();
@@ -8452,12 +8957,14 @@ uint64_t ReactiveVersionSet::GetInstalledVersionLogNumber(
 
 Status ReactiveVersionSet::MaybeSwitchManifest(
     log::Reader::Reporter* reporter,
-    std::unique_ptr<log::FragmentBufferedReader>* manifest_reader) {
+    std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+    uint64_t* current_manifest_file_number) {
   assert(manifest_reader != nullptr);
+  assert(current_manifest_file_number != nullptr);
   Status s;
   std::string manifest_path;
   s = GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
-                             &manifest_path, &manifest_file_number_);
+                             &manifest_path, current_manifest_file_number);
   if (!s.ok()) {
     return s;
   }
@@ -8495,12 +9002,29 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
     manifest_file_reader.reset(new SequentialFileReader(
         std::move(manifest_file), manifest_path,
         db_options_->log_readahead_size, io_tracer_, db_options_->listeners));
+    // TEST_SYNC_POINT_CALLBACK handles the disabled singleton internally.
+    // @lint-ignore NULLSAFECLANG nullable-dereference
+    TEST_SYNC_POINT_CALLBACK(
+        "ReactiveVersionSet::MaybeSwitchManifest:BeforeInstall", &s);
+    if (!s.ok()) {
+      return s;
+    }
     manifest_reader->reset(new log::FragmentBufferedReader(
         nullptr, std::move(manifest_file_reader), reporter, true /* checksum */,
         0 /* log_number */));
     ROCKS_LOG_INFO(db_options_->info_log, "Switched to new manifest: %s\n",
                    manifest_path.c_str());
     if (manifest_tailer_) {
+      // Each MANIFEST is a self-contained snapshot. An older writer can roll
+      // one without the safe-ignore pointer, so discard the prior MANIFEST's
+      // binding. The stable post-replay refresh installs legacy highest-number
+      // semantics only after it verifies this MANIFEST did not advance during
+      // the directory scan. A pointer replayed from the new MANIFEST overrides
+      // these values.
+      has_manifest_options_file_number_ = false;
+      options_file_number_ = 0;
+      options_file_size_ = 0;
+      prepared_options_file_numbers_.clear();
       manifest_tailer_->PrepareToReadNewManifest();
     }
   } else if (s.IsPathNotFound()) {

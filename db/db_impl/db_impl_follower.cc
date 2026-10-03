@@ -99,13 +99,16 @@ Status DBImplFollower::TryCatchUpWithLeader() {
   // read the manifest and apply new changes to the follower instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   JobContext job_context(0, true /*create_superversion*/);
+  auto* reactive_versions =
+      static_cast_with_check<ReactiveVersionSet>(versions_.get());
+  bool refresh_options_file_state = false;
   {
     InstrumentedMutexLock lock_guard(&mutex_);
     std::vector<std::string> files_to_delete;
-    s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
-            ->ReadAndApply(&mutex_, &manifest_reader_,
-                           manifest_reader_status_.get(), &cfds_changed,
-                           &files_to_delete);
+    s = reactive_versions->ReadAndApply(&mutex_, &manifest_reader_,
+                                        manifest_reader_status_.get(),
+                                        &cfds_changed, &files_to_delete);
+    refresh_options_file_state = s.ok();
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem_);
     pending_outputs_inserted_elem_.reset(new std::list<uint64_t>::iterator(
         CaptureCurrentFileNumberInPendingOutputs()));
@@ -164,6 +167,13 @@ Status DBImplFollower::TryCatchUpWithLeader() {
                        io_s.ToString().c_str());
       }
     }
+  }
+  if (refresh_options_file_state) {
+    Status options_s = reactive_versions->RefreshOptionsFileStateOutsideMutex(
+        &mutex_, &manifest_reader_);
+    // OPTIONS is operational metadata. A failed or stale scan must not hide
+    // versions that catch-up already published; the next round retries.
+    options_s.PermitUncheckedError();
   }
   CleanupRetiredSecondaryReadViews();
   job_context.Clean();

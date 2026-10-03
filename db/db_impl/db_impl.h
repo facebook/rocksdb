@@ -99,6 +99,16 @@ struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
 
+// Captured under the same DB mutex hold as a subset checkpoint's MANIFEST
+// boundary and live CF set. This prevents the generated OPTIONS membership
+// from describing a different point in time than the copied MANIFEST.
+struct SubsetCheckpointOptionsSnapshot {
+  uint64_t options_file_number = 0;
+  DBOptions db_options;
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyOptions> cf_options;
+};
+
 // Class to maintain directories for all database paths other than main one.
 class Directories {
  public:
@@ -640,7 +650,8 @@ class DBImpl : public DB
       const LiveFilesStorageInfoOptions& opts,
       const std::vector<uint32_t>& include_cf_ids,
       std::vector<LiveFileStorageInfo>* files,
-      std::vector<uint32_t>* excluded_cf_ids);
+      std::vector<uint32_t>* excluded_cf_ids,
+      SubsetCheckpointOptionsSnapshot* options_snapshot);
 
   // Shared body of GetLiveFilesStorageInfo and its subset-checkpoint variant.
   // include_cf_ids empty -> no filter; otherwise records skipped CF ids in
@@ -649,15 +660,23 @@ class DBImpl : public DB
       const LiveFilesStorageInfoOptions& opts,
       const std::vector<uint32_t>& include_cf_ids,
       std::vector<LiveFileStorageInfo>* files,
-      std::vector<uint32_t>* excluded_cf_ids);
+      std::vector<uint32_t>* excluded_cf_ids,
+      SubsetCheckpointOptionsSnapshot* options_snapshot);
 
   // Appends kColumnFamilyDrop records to the MANIFEST file at manifest_path for
   // the given column family ids. Used by Checkpoint to make a subset-CF
   // checkpoint's copied MANIFEST consistent with the reduced file set. Operates
   // only on the given file; does not mutate this DB's live state.
-  Status AppendColumnFamilyDropsToManifest(const std::string& manifest_path,
-                                           uint64_t manifest_size,
-                                           const std::vector<uint32_t>& cf_ids);
+  Status AppendColumnFamilyDropsToManifest(
+      const std::string& manifest_path, uint64_t manifest_size,
+      const std::vector<uint32_t>& cf_ids,
+      uint64_t effective_options_file_number = 0);
+
+  // Writes a previously captured subset-specific OPTIONS snapshot into the
+  // checkpoint. A zero file number is a no-op for a legacy source DB.
+  Status CreateOptionsFileForSubsetCheckpoint(
+      const std::string& checkpoint_dir,
+      const SubsetCheckpointOptionsSnapshot& options_snapshot);
 
   Status GetPreparedFileInfoForExternalSstIngestion(
       const std::string& file_path,
@@ -1726,6 +1745,27 @@ class DBImpl : public DB
   Status WriteOptionsFile(const WriteOptions& write_options,
                           bool db_mutex_already_held);
 
+  // Writes, renames, and directory-syncs an OPTIONS snapshot, but does not
+  // publish it in VersionSet. The caller must either commit its file number in
+  // MANIFEST or leave it as an unreferenced orphan.
+  Status PersistOptionsFile(const WriteOptions& write_options,
+                            const DBOptions& db_options,
+                            const std::vector<std::string>& cf_names,
+                            const std::vector<ColumnFamilyOptions>& cf_opts,
+                            bool track_options_file_number,
+                            uint64_t* options_file_number,
+                            uint64_t* options_file_size);
+
+  // For tracked DBs, prepares the OPTIONS snapshot that should become
+  // effective with a column-family add/drop. Returns file number zero when the
+  // legacy publication mode is active.
+  Status PersistOptionsFileForColumnFamilyManipulation(
+      const WriteOptions& write_options, const std::string* added_cf_name,
+      const ColumnFamilyOptions* added_cf_options, uint32_t excluded_cf_id,
+      uint64_t* options_file_number, uint64_t* options_file_size);
+  void ReleasePendingOptionsFileNumber(uint64_t options_file_number);
+  void ReleasePendingOptionsFileNumbersThrough(uint64_t options_file_number);
+
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
@@ -1735,7 +1775,9 @@ class DBImpl : public DB
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name,
-                                     bool is_remote_compaction_enabled);
+                                     uint64_t options_file_number,
+                                     uint64_t* options_file_size);
+  void MaybeDeleteObsoleteOptionsFiles();
   Status DeleteObsoleteOptionsFiles(bool schedule_only);
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
@@ -3605,6 +3647,10 @@ class DBImpl : public DB
   // deletes any OPTIONS file that has number bigger than any of the file number
   // in min_options_file_numbers_.
   std::list<uint64_t> min_options_file_numbers_;
+
+  // Exact canonical OPTIONS files between durable rename and completion of
+  // their MANIFEST publication. Protected by mutex_.
+  std::set<uint64_t> pending_options_file_numbers_;
 
   // flush_queue_ and compaction_queue_ hold column families that we need to
   // flush and compact, respectively.
