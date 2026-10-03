@@ -7,12 +7,14 @@
 
 #include <cinttypes>
 #include <memory>
+#include <vector>
 
 #include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "table/internal_iterator.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -26,6 +28,9 @@ class Slice;
 class FilePrefetchBuffer;
 class BlobContents;
 class Statistics;
+class BlobSource;
+class BlobIndex;
+struct BlockBasedTableOptions;
 
 class BlobFileReader {
  public:
@@ -50,6 +55,18 @@ class BlobFileReader {
       uint32_t column_family_id, HistogramImpl* blob_file_read_hist,
       uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
       bool skip_footer_validation, std::unique_ptr<BlobFileReader>* reader);
+
+  // Opens a complete standalone-GC carrier as a block-based table and validates
+  // its checksummed origin property against the MANIFEST route.
+  static Status CreateCarrier(
+      const ImmutableOptions& immutable_options,
+      const ReadOptions& read_options, const FileOptions& file_options,
+      HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+      uint64_t expected_file_size, uint64_t expected_origin_file_number,
+      const BlockBasedTableOptions& table_options,
+      uint8_t block_protection_bytes_per_key,
+      const std::shared_ptr<IOTracer>& io_tracer, BlobSource* blob_source,
+      std::unique_ptr<BlobFileReader>* reader);
 
   BlobFileReader(const BlobFileReader&) = delete;
   BlobFileReader& operator=(const BlobFileReader&) = delete;
@@ -103,6 +120,23 @@ class BlobFileReader {
                            std::unique_ptr<BlobContents>>>& blob_reqs,
       uint64_t* bytes_read) const;
 
+  Status GetBlobFromCarrier(const ReadOptions& read_options,
+                            uint64_t origin_offset, uint64_t value_size,
+                            CompressionType compression_type,
+                            uint64_t range_offset, size_t range_length,
+                            PinnableSlice* result, uint64_t* bytes_read) const;
+
+  void MultiGetBlobFromCarrier(const ReadOptions& read_options,
+                               autovector<BlobReadRequest>& blob_reqs,
+                               uint64_t* bytes_read) const;
+
+  void MultiGetBlobRangeFromCarrier(const ReadOptions& read_options,
+                                    autovector<BlobRangeReadRequest>& blob_reqs,
+                                    uint64_t* bytes_read) const;
+
+  bool IsCarrier() const { return carrier_state_ != nullptr; }
+  uint64_t GetCarrierOrigin() const;
+
   CompressionType GetCompressionType() const { return compression_type_; }
 
   uint64_t GetFileSize() const { return file_size_; }
@@ -114,6 +148,10 @@ class BlobFileReader {
                  std::shared_ptr<Decompressor> decompressor, SystemClock* clock,
                  Statistics* statistics, bool has_footer);
 
+  struct CarrierState;
+  BlobFileReader(uint64_t file_size, SystemClock* clock, Statistics* statistics,
+                 std::unique_ptr<CarrierState> carrier_state);
+
   // `skip_footer_size_check` is used for direct-write files that are still
   // missing their footer at open time.
   static Status OpenFile(const ImmutableOptions& immutable_options,
@@ -123,7 +161,15 @@ class BlobFileReader {
                          const std::shared_ptr<IOTracer>& io_tracer,
                          uint64_t* file_size,
                          std::unique_ptr<RandomAccessFileReader>* file_reader,
-                         bool skip_footer_size_check);
+                         bool skip_footer_size_check, bool is_carrier = false);
+
+  std::unique_ptr<InternalIterator> NewCarrierLookupIterator(
+      ReadOptions* lookup_options) const;
+
+  Status FindCarrierBlobIndex(InternalIterator* iterator,
+                              uint64_t origin_offset, uint64_t value_size,
+                              CompressionType compression_type,
+                              BlobIndex* blob_index) const;
 
   static Status ReadHeader(const RandomAccessFileReader* file_reader,
                            const ReadOptions& read_options,
@@ -161,6 +207,7 @@ class BlobFileReader {
   Statistics* statistics_;
   // False when the reader was opened before the blob file footer was written.
   bool has_footer_;
+  std::unique_ptr<CarrierState> carrier_state_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

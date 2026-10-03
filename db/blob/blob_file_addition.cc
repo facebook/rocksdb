@@ -28,7 +28,31 @@ enum BlobFileAddition::CustomFieldTags : uint32_t {
   kForwardIncompatibleMask = 1 << 6,
 
   // Add forward incompatible fields here
+  kIndirectionInfo = (1 << 6) | 1,
 };
+
+void BlobFileAddition::SetIndirectionIdentity() {
+  assert(blob_file_number_ != kInvalidBlobFileNumber);
+  origin_file_number_ = blob_file_number_;
+  carrier_file_size_ = 0;
+}
+
+Status BlobFileAddition::SetIndirectionCarrier(uint64_t origin_file_number,
+                                               uint64_t carrier_file_size) {
+  if (blob_file_number_ == kInvalidBlobFileNumber ||
+      origin_file_number == kInvalidBlobFileNumber ||
+      origin_file_number == blob_file_number_) {
+    return Status::InvalidArgument(
+        "Blob indirection carrier requires distinct valid physical and origin "
+        "files");
+  }
+  if (carrier_file_size == 0) {
+    return Status::InvalidArgument("Invalid Blob GC carrier file size");
+  }
+  origin_file_number_ = origin_file_number;
+  carrier_file_size_ = carrier_file_size;
+  return Status::OK();
+}
 
 void BlobFileAddition::EncodeTo(std::string* output) const {
   PutVarint64(output, blob_file_number_);
@@ -41,6 +65,14 @@ void BlobFileAddition::EncodeTo(std::string* output) const {
   // CustomFieldTags above) followed by a length prefixed slice. Unknown custom
   // fields will be ignored during decoding unless they're in the forward
   // incompatible range.
+
+  if (HasIndirectionInfo()) {
+    std::string value;
+    PutVarint64(&value, origin_file_number_);
+    PutVarint64(&value, carrier_file_size_);
+    PutVarint32(output, kIndirectionInfo);
+    PutLengthPrefixedSlice(output, value);
+  }
 
   TEST_SYNC_POINT_CALLBACK("BlobFileAddition::EncodeTo::CustomFields", output);
 
@@ -84,15 +116,39 @@ Status BlobFileAddition::DecodeFrom(Slice* input) {
       break;
     }
 
-    if (custom_field_tag & kForwardIncompatibleMask) {
-      return Status::Corruption(
-          class_name, "Forward incompatible custom field encountered");
-    }
-
     Slice custom_field_value;
     if (!GetLengthPrefixedSlice(input, &custom_field_value)) {
       return Status::Corruption(class_name,
                                 "Error decoding custom field value");
+    }
+
+    if (custom_field_tag == kIndirectionInfo) {
+      if (HasIndirectionInfo()) {
+        return Status::Corruption(class_name,
+                                  "Duplicate blob indirection info");
+      }
+      if (!GetVarint64(&custom_field_value, &origin_file_number_) ||
+          !GetVarint64(&custom_field_value, &carrier_file_size_) ||
+          !custom_field_value.empty()) {
+        return Status::Corruption(class_name,
+                                  "Error decoding blob indirection info");
+      }
+      if (blob_file_number_ == kInvalidBlobFileNumber) {
+        return Status::Corruption(class_name, "Invalid blob file number");
+      }
+      if (origin_file_number_ == kInvalidBlobFileNumber) {
+        return Status::Corruption(class_name, "Invalid origin file number");
+      }
+      const bool identity = origin_file_number_ == blob_file_number_;
+      if (identity != (carrier_file_size_ == 0)) {
+        return Status::Corruption(class_name, "Invalid blob indirection state");
+      }
+      continue;
+    }
+
+    if (custom_field_tag & kForwardIncompatibleMask) {
+      return Status::Corruption(
+          class_name, "Forward incompatible custom field encountered");
     }
   }
 
@@ -122,7 +178,9 @@ bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
          lhs.GetTotalBlobCount() == rhs.GetTotalBlobCount() &&
          lhs.GetTotalBlobBytes() == rhs.GetTotalBlobBytes() &&
          lhs.GetChecksumMethod() == rhs.GetChecksumMethod() &&
-         lhs.GetChecksumValue() == rhs.GetChecksumValue();
+         lhs.GetChecksumValue() == rhs.GetChecksumValue() &&
+         lhs.GetOriginFileNumber() == rhs.GetOriginFileNumber() &&
+         lhs.GetCarrierFileSize() == rhs.GetCarrierFileSize();
 }
 
 bool operator!=(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
@@ -137,6 +195,10 @@ std::ostream& operator<<(std::ostream& os,
      << " checksum_method: " << blob_file_addition.GetChecksumMethod()
      << " checksum_value: "
      << Slice(blob_file_addition.GetChecksumValue()).ToString(/* hex */ true);
+  if (blob_file_addition.HasIndirectionInfo()) {
+    os << " origin_file_number: " << blob_file_addition.GetOriginFileNumber()
+       << " carrier_file_size: " << blob_file_addition.GetCarrierFileSize();
+  }
 
   return os;
 }
@@ -149,6 +211,10 @@ JSONWriter& operator<<(JSONWriter& jw,
      << "ChecksumMethod" << blob_file_addition.GetChecksumMethod()
      << "ChecksumValue"
      << Slice(blob_file_addition.GetChecksumValue()).ToString(/* hex */ true);
+  if (blob_file_addition.HasIndirectionInfo()) {
+    jw << "OriginFileNumber" << blob_file_addition.GetOriginFileNumber()
+       << "CarrierFileSize" << blob_file_addition.GetCarrierFileSize();
+  }
 
   return jw;
 }
