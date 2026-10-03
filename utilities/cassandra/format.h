@@ -98,8 +98,7 @@ class Column : public ColumnBase {
   int64_t Timestamp() const override;
   std::size_t Size() const override;
   void Serialize(std::string* dest) const override;
-  static std::shared_ptr<Column> Deserialize(const char* src,
-                                             std::size_t size,
+  static std::shared_ptr<Column> Deserialize(const char* src, std::size_t size,
                                              std::size_t offset = 0);
 
  private:
@@ -176,8 +175,7 @@ class RowValue {
   // false if malformed, truncated, or invalid.
   static bool Deserialize(const char* src, std::size_t size, RowValue* value);
   // Deserialization returning RowValue; sets *success if non-null.
-  static RowValue Deserialize(const char* src, std::size_t size,
-                              bool* success);
+  static RowValue Deserialize(const char* src, std::size_t size, bool* success);
   static RowValue Deserialize(const char* src, std::size_t size);
   // Merge multiple rows according to their timestamp.
   static RowValue Merge(std::vector<RowValue>&& values);

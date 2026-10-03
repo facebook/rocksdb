@@ -78,11 +78,10 @@ void Column::Serialize(std::string* dest) const {
   dest->append(value_, value_size_);
 }
 
-std::shared_ptr<Column> Column::Deserialize(const char* src,
-                                            std::size_t size,
+std::shared_ptr<Column> Column::Deserialize(const char* src, std::size_t size,
                                             std::size_t offset) {
-  constexpr std::size_t kHeaderSize = sizeof(int8_t) + sizeof(int8_t) +
-                                      sizeof(int64_t) + sizeof(int32_t);
+  constexpr std::size_t kHeaderSize =
+      sizeof(int8_t) + sizeof(int8_t) + sizeof(int64_t) + sizeof(int32_t);
   if (src == nullptr || size < offset || size - offset < kHeaderSize) {
     return nullptr;
   }
@@ -163,8 +162,8 @@ std::shared_ptr<ExpiringColumn> ExpiringColumn::Deserialize(
       ROCKSDB_NAMESPACE::cassandra::Deserialize<int32_t>(src, offset);
   offset += sizeof(value_size);
 
-  if (value_size < 0 ||
-      static_cast<std::size_t>(value_size) > (size - offset - sizeof(int32_t))) {
+  if (value_size < 0 || static_cast<std::size_t>(value_size) >
+                            (size - offset - sizeof(int32_t))) {
     return nullptr;
   }
   const char* value = src + offset;
@@ -203,8 +202,8 @@ bool Tombstone::Collectable(int32_t gc_grace_period_in_seconds) const {
 std::shared_ptr<Tombstone> Tombstone::Deserialize(const char* src,
                                                   std::size_t size,
                                                   std::size_t offset) {
-  constexpr std::size_t kHeaderSize = sizeof(int8_t) + sizeof(int8_t) +
-                                      sizeof(int32_t) + sizeof(int64_t);
+  constexpr std::size_t kHeaderSize =
+      sizeof(int8_t) + sizeof(int8_t) + sizeof(int32_t) + sizeof(int64_t);
   if (src == nullptr || size < offset || size - offset < kHeaderSize) {
     return nullptr;
   }
@@ -321,8 +320,7 @@ RowValue RowValue::RemoveTombstones(int32_t gc_grace_period) const {
 bool RowValue::Empty() const { return columns_.empty(); }
 
 bool RowValue::Deserialize(const char* src, std::size_t size, RowValue* value) {
-  constexpr std::size_t kRowHeaderSize =
-      sizeof(int32_t) + sizeof(int64_t);
+  constexpr std::size_t kRowHeaderSize = sizeof(int32_t) + sizeof(int64_t);
   if (src == nullptr || size < kRowHeaderSize) {
     return false;
   }

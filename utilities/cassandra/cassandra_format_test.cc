@@ -386,7 +386,8 @@ TEST(RowValueTest, MalformedPayloads) {
     EXPECT_TRUE(r2.Empty());
   }
 
-  // 2. Invalid row header when size > 12 (must have default tombstone timestamps)
+  // 2. Invalid row header when size > 12 (must have default tombstone
+  // timestamps)
   {
     std::string buf;
     Serialize<int32_t>(100, &buf);  // local_deletion_time != kDefault
@@ -411,14 +412,15 @@ TEST(RowValueTest, MalformedPayloads) {
     EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
   }
 
-  // 4. Oversized value_size in Column (e.g. 0x7fffffff or exceeding remaining buffer)
+  // 4. Oversized value_size in Column (e.g. 0x7fffffff or exceeding remaining
+  // buffer)
   {
     std::string buf;
     Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
     Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
-    Serialize<int8_t>(0, &buf);       // mask
-    Serialize<int8_t>(1, &buf);       // index
-    Serialize<int64_t>(1000, &buf);   // timestamp
+    Serialize<int8_t>(0, &buf);            // mask
+    Serialize<int8_t>(1, &buf);            // index
+    Serialize<int64_t>(1000, &buf);        // timestamp
     Serialize<int32_t>(0x7fffffff, &buf);  // huge value_size
     buf.append("small");
     EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
@@ -499,14 +501,14 @@ TEST(RowValueTest, MalformedPayloads) {
     EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
   }
 
-  // 9. Invalid column masks (unexpected bits or both deletion and expiration set)
+  // 9. Invalid column masks (unexpected bits or both deletion and expiration
+  // set)
   {
     std::string buf;
     Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
     Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
-    Serialize<int8_t>(ColumnTypeMask::DELETION_MASK |
-                          ColumnTypeMask::EXPIRATION_MASK,
-                      &buf);
+    Serialize<int8_t>(
+        ColumnTypeMask::DELETION_MASK | ColumnTypeMask::EXPIRATION_MASK, &buf);
     Serialize<int8_t>(1, &buf);
     Serialize<int64_t>(1000, &buf);
     Serialize<int32_t>(0, &buf);
