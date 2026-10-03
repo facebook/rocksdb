@@ -4305,48 +4305,69 @@ void VersionStorageInfo::ComputeBlobFileForStandaloneGC(
     double threshold, bool enable_blob_indirection,
     bool enable_blob_garbage_collection) {
   blob_file_for_standalone_gc_.reset();
+  blob_files_for_standalone_gc_census_.clear();
   if (!enable_blob_indirection || !enable_blob_garbage_collection ||
       threshold >= 1.0) {
     return;
   }
 
-  double best_reclaimable_score = 0.0;
-  for (const auto& meta : blob_files_) {
-    assert(meta);
-    if (!meta->HasIndirectionInfo() || meta->GetTotalBlobBytes() == 0 ||
-        meta->GetGarbageBlobCount() == 0 ||
-        meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount() ||
-        suppressed_standalone_blob_gcs_.count(
-            {meta->GetOriginFileNumber(), meta->GetBlobFileNumber()}) != 0) {
-      continue;
-    }
-    const double garbage_ratio =
-        static_cast<double>(meta->GetGarbageBlobBytes()) /
-        static_cast<double>(meta->GetTotalBlobBytes());
-    if (garbage_ratio < threshold) {
-      continue;
-    }
+  uint64_t batched_live_blob_count = 0;
+  while (blob_files_for_standalone_gc_census_.size() <
+         kStandaloneBlobGCCensusBatchSize) {
+    std::shared_ptr<BlobFileMetaData> best_meta;
+    uint64_t best_live_blob_count = 0;
+    double best_reclaimable_score = 0.0;
+    for (const auto& meta : blob_files_) {
+      assert(meta);
+      if (std::find(blob_files_for_standalone_gc_census_.begin(),
+                    blob_files_for_standalone_gc_census_.end(),
+                    meta) != blob_files_for_standalone_gc_census_.end() ||
+          !meta->HasIndirectionInfo() || meta->GetTotalBlobBytes() == 0 ||
+          meta->GetGarbageBlobCount() == 0 ||
+          meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount() ||
+          suppressed_standalone_blob_gcs_.count(
+              {meta->GetOriginFileNumber(), meta->GetBlobFileNumber()}) != 0) {
+        continue;
+      }
+      const double garbage_ratio =
+          static_cast<double>(meta->GetGarbageBlobBytes()) /
+          static_cast<double>(meta->GetTotalBlobBytes());
+      if (garbage_ratio < threshold) {
+        continue;
+      }
 
-    const uint64_t live_blob_count =
-        meta->GetTotalBlobCount() - meta->GetGarbageBlobCount();
-    if (!StandaloneBlobGCMetadataFits(live_blob_count)) {
-      continue;
+      const uint64_t live_blob_count =
+          meta->GetTotalBlobCount() - meta->GetGarbageBlobCount();
+      if (!StandaloneBlobGCMetadataFits(live_blob_count) ||
+          live_blob_count >
+              std::numeric_limits<uint64_t>::max() - batched_live_blob_count ||
+          !StandaloneBlobGCMetadataFits(batched_live_blob_count +
+                                        live_blob_count)) {
+        continue;
+      }
+      // Rank by physical bytes weighted by the stable logical garbage ratio.
+      // Logical live bytes include original user keys, which carriers do not
+      // store, so they cannot be subtracted from a carrier's physical size.
+      // The GC job measures the exact output and suppresses it if it does not
+      // shrink the source file.
+      const double reclaimable_score =
+          static_cast<double>(meta->GetBlobFileSize()) * garbage_ratio;
+      if (!best_meta || reclaimable_score > best_reclaimable_score ||
+          (reclaimable_score == best_reclaimable_score &&
+           meta->GetOriginFileNumber() < best_meta->GetOriginFileNumber())) {
+        best_meta = meta;
+        best_live_blob_count = live_blob_count;
+        best_reclaimable_score = reclaimable_score;
+      }
     }
-    // Rank by physical bytes weighted by the stable logical garbage ratio.
-    // Logical live bytes include original user keys, which carriers do not
-    // store, so they cannot be subtracted from a carrier's physical size. The
-    // GC job measures the exact output and suppresses it if it does not shrink
-    // the source file.
-    const double reclaimable_score =
-        static_cast<double>(meta->GetBlobFileSize()) * garbage_ratio;
-    if (!blob_file_for_standalone_gc_ ||
-        reclaimable_score > best_reclaimable_score ||
-        (reclaimable_score == best_reclaimable_score &&
-         meta->GetOriginFileNumber() <
-             blob_file_for_standalone_gc_->GetOriginFileNumber())) {
-      blob_file_for_standalone_gc_ = meta;
-      best_reclaimable_score = reclaimable_score;
+    if (!best_meta) {
+      break;
     }
+    batched_live_blob_count += best_live_blob_count;
+    blob_files_for_standalone_gc_census_.emplace_back(std::move(best_meta));
+  }
+  if (!blob_files_for_standalone_gc_census_.empty()) {
+    blob_file_for_standalone_gc_ = blob_files_for_standalone_gc_census_.front();
   }
 }
 

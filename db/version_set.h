@@ -589,6 +589,12 @@ class VersionStorageInfo {
     return blob_file_for_standalone_gc_;
   }
 
+  const std::vector<std::shared_ptr<BlobFileMetaData>>&
+  BlobFilesForStandaloneGCCensus() const {
+    assert(finalized_);
+    return blob_files_for_standalone_gc_census_;
+  }
+
   // Suppress a candidate that the standalone job cannot safely rewrite, while
   // allowing a lower-ranked candidate in this Version to be selected. A later
   // Version retries all candidates from fresh metadata.
@@ -603,6 +609,20 @@ class VersionStorageInfo {
         blob_file_for_standalone_gc_->GetBlobFileNumber() ==
             physical_file_number) {
       blob_file_for_standalone_gc_.reset();
+    }
+    blob_files_for_standalone_gc_census_.erase(
+        std::remove_if(
+            blob_files_for_standalone_gc_census_.begin(),
+            blob_files_for_standalone_gc_census_.end(),
+            [&](const std::shared_ptr<BlobFileMetaData>& meta) {
+              return meta->GetOriginFileNumber() == origin_file_number &&
+                     meta->GetBlobFileNumber() == physical_file_number;
+            }),
+        blob_files_for_standalone_gc_census_.end());
+    if (!blob_file_for_standalone_gc_ &&
+        !blob_files_for_standalone_gc_census_.empty()) {
+      blob_file_for_standalone_gc_ =
+          blob_files_for_standalone_gc_census_.front();
     }
   }
 
@@ -833,6 +853,9 @@ class VersionStorageInfo {
 
   // Highest-value non-prefix indirect root selected for a standalone rewrite.
   std::shared_ptr<BlobFileMetaData> blob_file_for_standalone_gc_;
+  // Bounded set whose exact live references can share one keyspace census.
+  std::vector<std::shared_ptr<BlobFileMetaData>>
+      blob_files_for_standalone_gc_census_;
   std::set<std::pair<uint64_t, uint64_t>> suppressed_standalone_blob_gcs_;
 
   autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;

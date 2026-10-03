@@ -152,6 +152,7 @@ struct BlobLogRecord {
 // implementation separately accounts for heap-backed user-key bytes.
 constexpr uint64_t kStandaloneBlobGCMaxMetadataBytes = 64ULL << 20;
 constexpr uint64_t kStandaloneBlobGCMetadataBytesPerBlob = 128;
+constexpr size_t kStandaloneBlobGCCensusBatchSize = 8;
 
 inline bool StandaloneBlobGCMetadataFits(uint64_t blob_count,
                                          uint64_t user_key_bytes = 0) {

@@ -822,6 +822,29 @@ TEST_F(VersionStorageInfoTest, StandaloneBlobGCSelectsReclaimableBytes) {
   EXPECT_EQ(vstorage_.BlobFileForStandaloneGC(), nullptr);
 }
 
+TEST_F(VersionStorageInfoTest, StandaloneBlobGCCensusBatchIsBoundedAndRanked) {
+  for (uint64_t i = 0; i < 10; ++i) {
+    AddIndirectBlob(/*blob_file_number=*/10 + i,
+                    /*total_blob_count=*/10,
+                    /*total_blob_bytes=*/1000,
+                    /*garbage_blob_count=*/5,
+                    /*garbage_blob_bytes=*/500 + 10 * i);
+  }
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+
+  const auto& census_batch = vstorage_.BlobFilesForStandaloneGCCensus();
+  ASSERT_EQ(census_batch.size(), kStandaloneBlobGCCensusBatchSize);
+  for (size_t i = 0; i < census_batch.size(); ++i) {
+    EXPECT_EQ(census_batch[i]->GetOriginFileNumber(), 19 - i);
+  }
+  ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 19);
+}
+
 TEST_F(VersionStorageInfoTest, StandaloneBlobGCFallsBackAfterSuppression) {
   AddIndirectBlob(/*blob_file_number=*/10, /*total_blob_count=*/10,
                   /*total_blob_bytes=*/1000, /*garbage_blob_count=*/7,

@@ -145,15 +145,24 @@ Status DBImpl::RunStandaloneBlobGC(
   }
   const uint64_t expected_live_count =
       source_meta->GetTotalBlobCount() - source_meta->GetGarbageBlobCount();
-  struct LiveBlobReference {
-    std::string user_key;
-    BlobIndex blob_index;
-  };
+  using LiveBlobReference = StandaloneBlobGCLiveReference;
   static_assert(sizeof(LiveBlobReference) <=
                 kStandaloneBlobGCMetadataBytesPerBlob);
   std::vector<LiveBlobReference> live_blobs;
   if (expected_live_count > live_blobs.max_size()) {
     return Status::Corruption("Standalone blob GC live count is too large");
+  }
+  const std::pair<uint32_t, uint64_t> census_cache_key{cfd->GetID(),
+                                                       origin_file_number};
+  bool used_cached_census = false;
+  auto cached_census = standalone_blob_gc_census_cache_.find(census_cache_key);
+  if (cached_census != standalone_blob_gc_census_cache_.end()) {
+    if (cached_census->second.source_meta.lock() == source_meta &&
+        cached_census->second.live_blobs.size() == expected_live_count) {
+      live_blobs = std::move(cached_census->second.live_blobs);
+      used_cached_census = true;
+    }
+    standalone_blob_gc_census_cache_.erase(cached_census);
   }
   const auto suppress_candidate = [&]() {
     assert(cfd != nullptr);
@@ -206,6 +215,39 @@ Status DBImpl::RunStandaloneBlobGC(
     *sfm_reserved_bytes = estimated_output_size;
   }
 
+  struct BatchedCensus {
+    std::shared_ptr<BlobFileMetaData> source_meta;
+    StandaloneBlobGCCensus census;
+    uint64_t user_key_bytes = 0;
+    bool valid = true;
+  };
+  std::vector<BatchedCensus> batched_censuses;
+  uint64_t total_expected_live_count = expected_live_count;
+  if (!used_cached_census) {
+    Version* const current = cfd->current();
+    assert(current != nullptr);
+    for (const auto& meta :
+         current->storage_info()->BlobFilesForStandaloneGCCensus()) {
+      if (meta == source_meta ||
+          standalone_blob_gcs_in_progress_.count(
+              {cfd->GetID(), meta->GetOriginFileNumber()}) != 0) {
+        continue;
+      }
+      const uint64_t live_count =
+          meta->GetTotalBlobCount() - meta->GetGarbageBlobCount();
+      if (live_count > std::numeric_limits<uint64_t>::max() -
+                           total_expected_live_count ||
+          !StandaloneBlobGCMetadataFits(total_expected_live_count +
+                                        live_count)) {
+        continue;
+      }
+      total_expected_live_count += live_count;
+      StandaloneBlobGCCensus census;
+      census.source_meta = meta;
+      batched_censuses.push_back({meta, std::move(census), 0, true});
+    }
+  }
+
   const SequenceNumber snapshot = GetLastPublishedSequence();
   const Comparator* const user_comparator = cfd->user_comparator();
   assert(user_comparator != nullptr);
@@ -247,100 +289,191 @@ Status DBImpl::RunStandaloneBlobGC(
   bool unsupported_census = false;
 
   mutex_.Unlock();
-  live_blobs.reserve(static_cast<size_t>(expected_live_count));
-  uint64_t live_user_key_bytes = 0;
-  uint64_t scanned_keys = 0;
-  TEST_SYNC_POINT("DBImpl::RunStandaloneBlobGC:CensusStarted");
-  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
-    TEST_SYNC_POINT("DBImpl::RunStandaloneBlobGC:DuringCensus");
-    if ((scanned_keys++ & kStandaloneBlobGCAbortCheckMask) == 0) {
-      status = check_for_interrupt();
-      if (!status.ok()) {
-        break;
-      }
+  uint64_t primary_user_key_bytes = 0;
+  uint64_t all_user_key_bytes = 0;
+  bool secondary_batch_abandoned = false;
+  if (!used_cached_census) {
+    live_blobs.reserve(static_cast<size_t>(expected_live_count));
+    for (BatchedCensus& batched : batched_censuses) {
+      const uint64_t live_count = batched.source_meta->GetTotalBlobCount() -
+                                  batched.source_meta->GetGarbageBlobCount();
+      batched.census.live_blobs.reserve(static_cast<size_t>(live_count));
     }
 
-    const auto add_live_blob = [&](const BlobIndex& blob_index) -> Status {
-      if (!blob_index.IsIndirect() ||
-          blob_index.file_number() != origin_file_number) {
-        return Status::OK();
+    const auto abandon_secondary_batch = [&]() {
+      if (secondary_batch_abandoned) {
+        return;
       }
-      if (blob_index.compression() != kNoCompression) {
-        unsupported_census = true;
-        return Status::NotSupported(
-            "Standalone blob GC does not yet support compressed blobs");
+      for (BatchedCensus& batched : batched_censuses) {
+        batched.valid = false;
+        std::vector<LiveBlobReference>().swap(batched.census.live_blobs);
+        batched.user_key_bytes = 0;
       }
-
-      const Slice visible_user_key = iterator->key();
-      Slice timestamp;
-      if (timestamp_size > 0) {
-        timestamp = iterator->timestamp();
-        if (timestamp.size() != timestamp_size) {
-          return Status::Corruption(
-              "Unexpected user-defined timestamp in blob GC census");
-        }
-      }
-      const uint64_t remaining_user_key_bytes =
-          kStandaloneBlobGCMaxMetadataBytes - live_user_key_bytes;
-      if (visible_user_key.size() > remaining_user_key_bytes ||
-          timestamp.size() >
-              remaining_user_key_bytes - visible_user_key.size()) {
-        unsupported_census = true;
-        return Status::NotSupported(
-            "Standalone blob GC census exceeds the memory budget");
-      }
-      const uint64_t user_key_size = visible_user_key.size() + timestamp.size();
-      if (live_blobs.size() >= expected_live_count ||
-          !StandaloneBlobGCMetadataFits(expected_live_count,
-                                        live_user_key_bytes + user_key_size)) {
-        unsupported_census = true;
-        return Status::NotSupported(
-            "Standalone blob GC census exceeds the memory budget");
-      }
-
-      live_blobs.emplace_back();
-      LiveBlobReference& live_blob = live_blobs.back();
-      live_blob.user_key.reserve(static_cast<size_t>(user_key_size));
-      live_blob.user_key.assign(visible_user_key.data(),
-                                visible_user_key.size());
-      if (!timestamp.empty()) {
-        live_blob.user_key.append(timestamp.data(), timestamp.size());
-      }
-      live_blob.blob_index = blob_index;
-      live_user_key_bytes += user_key_size;
-      return Status::OK();
+      secondary_batch_abandoned = true;
+      total_expected_live_count = expected_live_count;
+      all_user_key_bytes = primary_user_key_bytes;
     };
 
-    if (iterator->IsBlob()) {
-      BlobIndex blob_index;
-      status = blob_index.DecodeFrom(iterator->value());
-      if (status.ok()) {
-        status = add_live_blob(blob_index);
-      }
-    } else {
-      for (const auto& blob_column : iterator->GetWideColumnBlobIndexes()) {
-        status = add_live_blob(blob_column.second);
+    uint64_t scanned_keys = 0;
+    // @lint-ignore NULLSAFECLANG nullable-dereference
+    TEST_SYNC_POINT("DBImpl::RunStandaloneBlobGC:CensusStarted");
+    for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+      // @lint-ignore NULLSAFECLANG nullable-dereference
+      TEST_SYNC_POINT("DBImpl::RunStandaloneBlobGC:DuringCensus");
+      if ((scanned_keys++ & kStandaloneBlobGCAbortCheckMask) == 0) {
+        status = check_for_interrupt();
         if (!status.ok()) {
           break;
         }
       }
+
+      const auto add_live_blob = [&](const BlobIndex& blob_index) -> Status {
+        assert(iterator != nullptr);
+        if (!blob_index.IsIndirect()) {
+          return Status::OK();
+        }
+
+        std::vector<LiveBlobReference>* target = nullptr;
+        uint64_t target_expected_count = 0;
+        uint64_t* target_user_key_bytes = nullptr;
+        bool primary = blob_index.file_number() == origin_file_number;
+        if (primary) {
+          target = &live_blobs;
+          target_expected_count = expected_live_count;
+          target_user_key_bytes = &primary_user_key_bytes;
+        } else if (!secondary_batch_abandoned) {
+          for (BatchedCensus& batched : batched_censuses) {
+            if (batched.valid && batched.source_meta->GetOriginFileNumber() ==
+                                     blob_index.file_number()) {
+              target = &batched.census.live_blobs;
+              target_expected_count =
+                  batched.source_meta->GetTotalBlobCount() -
+                  batched.source_meta->GetGarbageBlobCount();
+              target_user_key_bytes = &batched.user_key_bytes;
+              break;
+            }
+          }
+        }
+        if (target == nullptr) {
+          return Status::OK();
+        }
+        assert(target_user_key_bytes != nullptr);
+        if (blob_index.compression() != kNoCompression) {
+          if (!primary) {
+            abandon_secondary_batch();
+            return Status::OK();
+          }
+          unsupported_census = true;
+          return Status::NotSupported(
+              "Standalone blob GC does not yet support compressed blobs");
+        }
+
+        const Slice visible_user_key = iterator->key();
+        Slice timestamp;
+        if (timestamp_size > 0) {
+          timestamp = iterator->timestamp();
+          if (timestamp.size() != timestamp_size) {
+            return Status::Corruption(
+                "Unexpected user-defined timestamp in blob GC census");
+          }
+        }
+        const uint64_t user_key_size =
+            visible_user_key.size() + timestamp.size();
+        const auto metadata_fits = [&]() {
+          assert(target != nullptr);
+          return visible_user_key.size() <=
+                     kStandaloneBlobGCMaxMetadataBytes - all_user_key_bytes &&
+                 timestamp.size() <= kStandaloneBlobGCMaxMetadataBytes -
+                                         all_user_key_bytes -
+                                         visible_user_key.size() &&
+                 target->size() < target_expected_count &&
+                 StandaloneBlobGCMetadataFits(
+                     total_expected_live_count,
+                     all_user_key_bytes + user_key_size);
+        };
+        if (!metadata_fits() && !secondary_batch_abandoned &&
+            !batched_censuses.empty()) {
+          abandon_secondary_batch();
+          if (!primary) {
+            return Status::OK();
+          }
+          target = &live_blobs;
+          target_expected_count = expected_live_count;
+          target_user_key_bytes = &primary_user_key_bytes;
+        }
+        if (!metadata_fits()) {
+          unsupported_census = true;
+          return Status::NotSupported(
+              "Standalone blob GC census exceeds the memory budget");
+        }
+
+        target->emplace_back();
+        LiveBlobReference& live_blob = target->back();
+        live_blob.user_key.reserve(static_cast<size_t>(user_key_size));
+        live_blob.user_key.assign(visible_user_key.data(),
+                                  visible_user_key.size());
+        if (!timestamp.empty()) {
+          live_blob.user_key.append(timestamp.data(), timestamp.size());
+        }
+        live_blob.blob_index = blob_index;
+        *target_user_key_bytes += user_key_size;
+        all_user_key_bytes += user_key_size;
+        return Status::OK();
+      };
+
+      if (iterator->IsBlob()) {
+        BlobIndex blob_index;
+        status = blob_index.DecodeFrom(iterator->value());
+        if (status.ok()) {
+          status = add_live_blob(blob_index);
+        }
+      } else {
+        for (const auto& blob_column : iterator->GetWideColumnBlobIndexes()) {
+          status = add_live_blob(blob_column.second);
+          if (!status.ok()) {
+            break;
+          }
+        }
+      }
+      if (!status.ok()) {
+        break;
+      }
     }
-    if (!status.ok()) {
-      break;
+    if (status.ok()) {
+      status = iterator->status();
     }
-  }
-  if (status.ok()) {
-    status = iterator->status();
-  }
-  if (status.ok()) {
-    status = check_for_interrupt();
+    if (status.ok()) {
+      status = check_for_interrupt();
+    }
   }
 
-  if (status.ok()) {
-    std::sort(live_blobs.begin(), live_blobs.end(),
+  const auto sort_live_blobs = [](std::vector<LiveBlobReference>* blobs) {
+    std::sort(blobs->begin(), blobs->end(),
               [](const LiveBlobReference& lhs, const LiveBlobReference& rhs) {
                 return lhs.blob_index.offset() < rhs.blob_index.offset();
               });
+  };
+  if (status.ok() && !used_cached_census) {
+    sort_live_blobs(&live_blobs);
+    for (BatchedCensus& batched : batched_censuses) {
+      if (!batched.valid) {
+        continue;
+      }
+      sort_live_blobs(&batched.census.live_blobs);
+      const uint64_t expected = batched.source_meta->GetTotalBlobCount() -
+                                batched.source_meta->GetGarbageBlobCount();
+      if (batched.census.live_blobs.size() != expected) {
+        batched.valid = false;
+        continue;
+      }
+      for (size_t i = 1; i < batched.census.live_blobs.size(); ++i) {
+        if (batched.census.live_blobs[i - 1].blob_index.offset() ==
+            batched.census.live_blobs[i].blob_index.offset()) {
+          batched.valid = false;
+          break;
+        }
+      }
+    }
   }
   if (status.ok() && live_blobs.size() != expected_live_count) {
     status = Status::NotSupported(
@@ -353,6 +486,8 @@ Status DBImpl::RunStandaloneBlobGC(
       status = Status::Corruption("Duplicate live indirect BlobID");
     }
   }
+  const bool completed_batch_census = status.ok() && !used_cached_census;
+
   std::string checksum_method;
   std::string checksum_value;
   uint64_t carrier_file_size = 0;
@@ -573,6 +708,29 @@ Status DBImpl::RunStandaloneBlobGC(
     mutex_.Lock();
     output_created = false;
   };
+
+  if (completed_batch_census && !cfd->IsDropped()) {
+    // Retain one completed batch DB-wide so cached census memory cannot grow
+    // with the number of column families. Interleaved CF jobs may evict an
+    // optimization, but a cache miss always falls back to a fresh scan.
+    standalone_blob_gc_census_cache_.clear();
+    Version* const current = cfd->current();
+    assert(current != nullptr);
+    for (BatchedCensus& batched : batched_censuses) {
+      if (!batched.valid) {
+        continue;
+      }
+      const auto& meta = batched.source_meta;
+      const auto current_meta =
+          current->storage_info()->GetBlobFileMetaDataByOrigin(
+              meta->GetOriginFileNumber());
+      if (current_meta == meta) {
+        standalone_blob_gc_census_cache_.emplace(
+            std::make_pair(cfd->GetID(), meta->GetOriginFileNumber()),
+            std::move(batched.census));
+      }
+    }
+  }
 
   if (unsupported_census) {
     assert(status.IsNotSupported());

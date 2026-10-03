@@ -3656,6 +3656,21 @@ class DBImpl : public DB
   // DB mutex is released for the copy phase.
   std::set<std::pair<uint32_t, uint64_t>> standalone_blob_gcs_in_progress_;
 
+  struct StandaloneBlobGCLiveReference {
+    std::string user_key;
+    BlobIndex blob_index;
+  };
+  struct StandaloneBlobGCCensus {
+    std::weak_ptr<BlobFileMetaData> source_meta;
+    std::vector<StandaloneBlobGCLiveReference> live_blobs;
+  };
+  // Exact per-origin results collected together in one visible-key scan.
+  // Protected by mutex_. At most one bounded completed batch is retained for
+  // the DB. Entries are consumed once and remain usable only while their
+  // unchanged shared source metadata is present in a Version.
+  std::map<std::pair<uint32_t, uint64_t>, StandaloneBlobGCCensus>
+      standalone_blob_gc_census_cache_;
+
   // Logical blob roots whose current physical route has been exposed to an
   // OnCompactionPreCommit listener and must remain stable until installation.
   // The count permits overlapping normal compactions to reserve one origin.
