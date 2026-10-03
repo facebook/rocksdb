@@ -145,8 +145,9 @@ class TrieIndexBuilder final : public IndexFactoryBuilder {
   uint64_t estimated_trie_edges_ = 0;
   uint64_t estimated_num_entries_ = 0;
   std::string previous_prepared_separator_;
-  void UpdateSizeEstimate(const Slice& separator,
-                          const Slice& previous_separator);
+  // Returns the shared prefix length for reusing emit-owned separator bytes.
+  size_t UpdateSizeEstimate(const Slice& separator,
+                            const Slice& previous_separator);
 
   // Staged data for the parallel AddIndexEntry protocol. Populated by
   // PrepareAddEntry on the emit thread, consumed by FinishAddEntry on
