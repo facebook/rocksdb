@@ -252,11 +252,12 @@ uint64_t TrieIndexBuilder::EstimatedSize() const {
   return 1024 + estimated_trie_edges_ * 12 + estimated_num_entries_ * 20;
 }
 
-void TrieIndexBuilder::UpdateSizeEstimate(const Slice& separator,
-                                          const Slice& previous_separator) {
+size_t TrieIndexBuilder::UpdateSizeEstimate(const Slice& separator,
+                                            const Slice& previous_separator) {
   const size_t shared_prefix = previous_separator.difference_offset(separator);
   estimated_trie_edges_ += separator.size() - shared_prefix;
   ++estimated_num_entries_;
+  return shared_prefix;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,10 +296,13 @@ void TrieIndexBuilder::PrepareAddEntry(const Slice& last_key_in_current_block,
   }
 
   p->valid = true;
-  UpdateSizeEstimate(p->separator_key, previous_prepared_separator_);
+  const size_t shared_prefix =
+      UpdateSizeEstimate(p->separator_key, previous_prepared_separator_);
   // The writer can move the prepared key as soon as this callback returns.
-  // Keep one emit-owned copy; assign reuses its capacity across blocks.
-  previous_prepared_separator_.assign(p->separator_key);
+  // Keep one emit-owned copy, reusing the prefix bytes already stored here.
+  previous_prepared_separator_.replace(shared_prefix, std::string::npos,
+                                       p->separator_key.data() + shared_prefix,
+                                       p->separator_key.size() - shared_prefix);
 }
 
 void TrieIndexBuilder::FinishAddEntry(const BlockHandle& block_handle,
