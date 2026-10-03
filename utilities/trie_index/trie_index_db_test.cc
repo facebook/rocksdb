@@ -670,6 +670,44 @@ TEST_P(TrieIndexDBTest, CompactionTailSizeIsUpperBound) {
   EXPECT_EQ(value, "new");
 }
 
+TEST_P(TrieIndexDBTest, SharedPrefixDoesNotCutCompactionFilesEarly) {
+  options_.disable_auto_compactions = true;
+  options_.compression = kNoCompression;
+  options_.target_file_size_is_upper_bound = true;
+  options_.target_file_size_base = 256 << 10;
+  ASSERT_OK(OpenDB(512));
+  const std::string prefix(512, 'p');
+  constexpr int kKeyCount = 2048;
+  for (char version : {'a', 'b'}) {
+    for (int i = 0; i < kKeyCount; ++i) {
+      ASSERT_OK(db_->Put(WriteOptions(), prefix + MakeKeyBody(i),
+                         std::string(64, version)));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  std::vector<LiveFileMetaData> files;
+  db_->GetLiveFilesMetaData(&files);
+  // About 1.2 MiB of data (plus a similarly sized standard index in dual
+  // modes) should fit in a small number of 256 KiB SSTs. Charging the shared
+  // prefix once per block used to produce dozens.
+  EXPECT_GT(files.size(), 1U);
+  EXPECT_LE(files.size(), 12U);
+  for (const auto& file : files) {
+    EXPECT_LE(file.size, options_.target_file_size_base);
+  }
+  ASSERT_OK(db_->Close());
+  db_.reset();
+  ASSERT_OK(OpenDB(512));
+  for (int i = 0; i < kKeyCount; ++i) {
+    ASSERT_NO_FATAL_FAILURE(
+        VerifyGetBothIndexes(prefix + MakeKeyBody(i), std::string(64, 'b')));
+  }
+}
+
 TEST_P(TrieIndexDBTest, FlushWithAllOperationTypes) {
   // Write every supported operation type via the DB API, flush, and verify
   // reads return correct results through both the standard index and the trie

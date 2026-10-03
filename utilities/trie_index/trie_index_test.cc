@@ -2441,7 +2441,7 @@ class TrieIndexFactoryTest : public testing::Test {
   }
 
   void AssertSerializedSizeBound(const std::vector<std::string>& keys,
-                                 bool parallel) {
+                                 bool parallel, uint64_t max_size_ratio) {
     std::unique_ptr<IndexFactoryBuilder> builder;
     ASSERT_OK(factory_->NewBuilder(IndexFactoryOptions(), builder));
     if (parallel && !builder->SupportsParallelAddEntry()) {
@@ -2468,6 +2468,10 @@ class TrieIndexFactoryTest : public testing::Test {
     Slice contents;
     ASSERT_OK(builder->Finish(&contents));
     EXPECT_GE(estimate, contents.size());
+    EXPECT_EQ(builder->EstimatedSize(), contents.size());
+    if (max_size_ratio > 0) {
+      EXPECT_LE(estimate, max_size_ratio * contents.size());
+    }
   }
 
   std::shared_ptr<TrieIndexFactory> factory_;
@@ -2477,6 +2481,7 @@ TEST_F(TrieIndexFactoryTest, EstimatedSizeBoundsSerializedTrie) {
   struct KeySet {
     const char* name;
     std::vector<std::string> keys;
+    uint64_t max_size_ratio = 0;
   };
   std::vector<KeySet> cases = {
       {"empty", {}},
@@ -2485,8 +2490,10 @@ TEST_F(TrieIndexFactoryTest, EstimatedSizeBoundsSerializedTrie) {
       {"prefixes", {"a", "ab", "abc", "abcd", "b"}},
       {"overflow", std::vector<std::string>(64, "same")},
       {"dense", {}},
-      {"shared_prefix", {}},
+      {"shared_prefix", {}, 4},
       {"sparse", {}},
+      {"dense_shared_prefix", {}, 4},
+      {"random", {}},
   };
   for (int i = 1; i < 256; ++i) {
     cases[5].keys.emplace_back(1, static_cast<char>(i));
@@ -2495,13 +2502,77 @@ TEST_F(TrieIndexFactoryTest, EstimatedSizeBoundsSerializedTrie) {
   for (int i = 1; i <= 64; ++i) {
     cases[7].keys.emplace_back(32 + i, static_cast<char>(i));
   }
+  Random random(301);
+  for (int i = 0; i < 4096; ++i) {
+    cases[8].keys.push_back(std::string(1, static_cast<char>(i % 256)) +
+                            std::string(512, 'p') + std::to_string(i));
+    cases[9].keys.push_back(test::RandomKey(&random, 1 + i % 128));
+  }
 
   for (auto& key_set : cases) {
     SCOPED_TRACE(key_set.name);
     std::sort(key_set.keys.begin(), key_set.keys.end());
     for (bool parallel : {false, true}) {
       SCOPED_TRACE(parallel);
-      AssertSerializedSizeBound(key_set.keys, parallel);
+      AssertSerializedSizeBound(key_set.keys, parallel, key_set.max_size_ratio);
+    }
+  }
+}
+
+TEST_F(TrieIndexFactoryTest, BlockHandleEncodingLimit) {
+  constexpr uint64_t kLimit = UINT32_MAX;
+  for (bool parallel : {false, true}) {
+    for (bool large_offset : {false, true}) {
+      for (size_t invalid_entry : {0U, 1U, 2U}) {
+        SCOPED_TRACE(testing::Message() << parallel << " " << large_offset
+                                        << " " << invalid_entry);
+        std::unique_ptr<IndexFactoryBuilder> builder;
+        ASSERT_OK(factory_->NewBuilder(IndexFactoryOptions(), builder));
+        if (parallel && !builder->SupportsParallelAddEntry()) {
+          continue;
+        }
+        // Identical separators exercise both primary and overflow handles.
+        const Slice key("same");
+        for (size_t i = 0; i < 2; ++i) {
+          IndexFactoryBuilder::BlockHandle handle{kLimit, kLimit};
+          if (i == invalid_entry) {
+            if (large_offset) {
+              ++handle.offset;
+            } else {
+              ++handle.size;
+            }
+          }
+          std::string scratch;
+          const Slice* next = i == 0 ? &key : nullptr;
+          const auto context = EntryCtx(200 - i * 100, 100);
+          if (parallel) {
+            auto prepared = builder->CreatePreparedAddEntry();
+            builder->PrepareAddEntry(key, next, context, prepared.get());
+            builder->FinishAddEntry(handle, prepared.get(), &scratch, false);
+          } else {
+            builder->AddIndexEntry(key, next, handle, &scratch, context);
+          }
+        }
+        Slice contents;
+        Status s = builder->Finish(&contents);
+        if (invalid_entry < 2) {
+          EXPECT_TRUE(s.IsNotSupported()) << s.ToString();
+          EXPECT_TRUE(contents.empty());
+        } else {
+          ASSERT_OK(s);
+          std::unique_ptr<IndexFactoryReader> reader;
+          ASSERT_OK(
+              factory_->NewReader(IndexFactoryOptions(), contents, reader));
+          auto iter = reader->NewIterator(ReadOptions());
+          IterateResult result;
+          ASSERT_OK(iter->SeekToFirstAndGetResult(&result));
+          EXPECT_EQ(iter->value().offset, kLimit);
+          EXPECT_EQ(iter->value().size, kLimit);
+          ASSERT_OK(iter->NextAndGetResult(&result));
+          EXPECT_EQ(iter->value().offset, kLimit);
+          EXPECT_EQ(iter->value().size, kLimit);
+        }
+      }
     }
   }
 }

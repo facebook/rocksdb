@@ -1127,7 +1127,7 @@ struct BlockBasedTableBuilder::Rep {
   void ForwardAddIndexEntryToAll(const Slice& last_internal_key,
                                  const Slice* first_internal_key_next,
                                  const BlockHandle& handle,
-                                 bool skip_delta_encoding = false) {
+                                 bool skip_delta_encoding) {
     if (builtin_index_builder != nullptr) {
       builtin_index_builder->AddIndexEntryDirect(
           last_internal_key, first_internal_key_next, handle,
@@ -1927,8 +1927,8 @@ struct BlockBasedTableBuilder::Rep {
       custom_opts.comparator = internal_comparator.user_comparator();
       CustomIndex ci;
       ci.name = table_options.user_defined_index_factory->Name();
-      auto s = table_options.user_defined_index_factory->NewBuilder(custom_opts,
-                                                                    ci.builder);
+      Status s = table_options.user_defined_index_factory->NewBuilder(
+          custom_opts, ci.builder);
       if (!s.ok()) {
         SetStatus(s);
       } else if (ci.builder != nullptr) {
@@ -2473,54 +2473,53 @@ void BlockBasedTableBuilder::EmitBlockForParallel(
   // charged to estimated_inflight_size, so the emitter must still run the
   // state transition below or the pipeline stalls holding the block.
   if (!r->custom_indexes.empty()) {
-    auto prepare_custom_entries = [&]() {
-      ParsedInternalKey last_pkey;
-      Status parse_s = ParseInternalKey(last_key_in_current_block, &last_pkey,
-                                        /*log_err_key=*/false);
-      assert(parse_s.ok());
-      if (UNLIKELY(!parse_s.ok())) {
-        r->SetStatus(
-            Status::Corruption("Failed to parse last_key_in_current_block in "
-                               "EmitBlockForParallel: " +
-                               parse_s.ToString()));
-        return false;
-      }
-      IndexFactoryBuilder::IndexEntryContext ctx;
-      ctx.last_key_tag =
-          PackSequenceAndType(last_pkey.sequence, last_pkey.type);
-      const Slice* next_user = nullptr;
-      ParsedInternalKey next_pkey;
-      if (first_key_in_next_block != nullptr) {
-        Status next_parse_s =
-            ParseInternalKey(*first_key_in_next_block, &next_pkey,
-                             /*log_err_key=*/false);
-        assert(next_parse_s.ok());
-        if (UNLIKELY(!next_parse_s.ok())) {
-          r->SetStatus(
-              Status::Corruption("Failed to parse first_key_in_next_block in "
-                                 "EmitBlockForParallel: " +
-                                 next_parse_s.ToString()));
-          return false;
-        }
-        next_user = &next_pkey.user_key;
-        ctx.first_key_tag =
-            PackSequenceAndType(next_pkey.sequence, next_pkey.type);
-      }
-      for (size_t i = 0; i < r->custom_indexes.size(); i++) {
-        r->custom_indexes[i].builder->PrepareAddEntry(
-            last_pkey.user_key, next_user, ctx,
-            block_rep->custom_prepared_entries[i].get());
-      }
-      return true;
-    };
     // Test hook: skip_custom_prepare=true takes the same path as a parse
     // failure, exercising the stale-flag reset above.
     bool skip_custom_prepare = false;
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::EmitBlockForParallel:SkipCustomPrepare",
         &skip_custom_prepare);
-    if (!skip_custom_prepare && prepare_custom_entries()) {
-      block_rep->custom_entries_prepared = true;
+    if (!skip_custom_prepare) {
+      block_rep->custom_entries_prepared = [&]() {
+        ParsedInternalKey last_pkey;
+        Status parse_s = ParseInternalKey(last_key_in_current_block, &last_pkey,
+                                          /*log_err_key=*/false);
+        assert(parse_s.ok());
+        if (UNLIKELY(!parse_s.ok())) {
+          r->SetStatus(
+              Status::Corruption("Failed to parse last_key_in_current_block in "
+                                 "EmitBlockForParallel: " +
+                                 parse_s.ToString()));
+          return false;
+        }
+        IndexFactoryBuilder::IndexEntryContext ctx;
+        ctx.last_key_tag =
+            PackSequenceAndType(last_pkey.sequence, last_pkey.type);
+        const Slice* next_user = nullptr;
+        ParsedInternalKey next_pkey;
+        if (first_key_in_next_block != nullptr) {
+          Status next_parse_s =
+              ParseInternalKey(*first_key_in_next_block, &next_pkey,
+                               /*log_err_key=*/false);
+          assert(next_parse_s.ok());
+          if (UNLIKELY(!next_parse_s.ok())) {
+            r->SetStatus(
+                Status::Corruption("Failed to parse first_key_in_next_block in "
+                                   "EmitBlockForParallel: " +
+                                   next_parse_s.ToString()));
+            return false;
+          }
+          next_user = &next_pkey.user_key;
+          ctx.first_key_tag =
+              PackSequenceAndType(next_pkey.sequence, next_pkey.type);
+        }
+        for (size_t i = 0; i < r->custom_indexes.size(); i++) {
+          r->custom_indexes[i].builder->PrepareAddEntry(
+              last_pkey.user_key, next_user, ctx,
+              block_rep->custom_prepared_entries[i].get());
+        }
+        return true;
+      }();
     }
   }
 
@@ -3158,7 +3157,8 @@ void BlockBasedTableBuilder::MaybeStartParallelCompression() {
       auto& slot = pc_rep.ring_buffer[i];
       slot.custom_prepared_entries.reserve(rep_->custom_indexes.size());
       for (auto& ci : rep_->custom_indexes) {
-        auto entry = ci.builder->CreatePreparedAddEntry();
+        std::unique_ptr<IndexFactoryBuilder::PreparedAddEntry> entry =
+            ci.builder->CreatePreparedAddEntry();
         if (UNLIKELY(entry == nullptr)) {
           assert(false);
           rep_->pc_rep.reset();
@@ -3574,7 +3574,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       rep_->SetStatus(cs);
       break;
     }
-    const auto mode = rep_->table_options.index_mode;
+    const BlockBasedTableOptions::IndexMode mode =
+        rep_->table_options.index_mode;
     if (contents.empty() &&
         (mode == BlockBasedTableOptions::IndexMode::kStandardRequired ||
          mode == BlockBasedTableOptions::IndexMode::kCustomDefault ||

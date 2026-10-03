@@ -439,8 +439,17 @@ class FooterBuilder {
                uint64_t footer_offset, ChecksumType checksum_type,
                const BlockHandle& metaindex_handle,
                const BlockHandle& index_handle = BlockHandle::NullBlockHandle(),
-               uint32_t base_context_checksum = 0,
-               uint64_t incompatible_features = 0);
+               uint32_t base_context_checksum = 0) {
+    return Build(table_magic_number, format_version, footer_offset,
+                 checksum_type, metaindex_handle, index_handle,
+                 base_context_checksum, /*incompatible_features=*/0);
+  }
+
+  Status Build(uint64_t table_magic_number, uint32_t format_version,
+               uint64_t footer_offset, ChecksumType checksum_type,
+               const BlockHandle& metaindex_handle,
+               const BlockHandle& index_handle, uint32_t base_context_checksum,
+               uint64_t incompatible_features);
 
   // After Builder, get a Slice for the serialized Footer, backed by this
   // FooterBuilder.
