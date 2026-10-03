@@ -48,7 +48,7 @@ Step 4: **SST file lookup** -- `Version::MultiGet()` searches SST files level by
 | Async cache probes | `StartAsyncLookupFull()` + `WaitAll()` | Parallel cache lookups |
 | Shared cleanable | `SharedCleanablePtr` for reused blocks | Reduces cache refcount contention |
 | Coroutine parallelism | `folly::coro::collectAllRange` for per-level files | Parallel SST lookups within a level |
-| Stack scratch buffer | `kMultiGetReadStackBufSize` (8192 bytes) | Avoids heap allocation for small reads |
+| Synchronous stack scratch buffer | `kMultiGetReadStackBufSize` (8192 bytes) | Avoids heap allocation for small synchronous reads |
 
 ## Bloom Filter Batch Check
 
@@ -68,9 +68,9 @@ During data iteration, keys that reused a previous block share the existing bloc
 
 Step 1: When compression is enabled and blocks are physically adjacent (`prev_end == handle.offset()`), they are merged into a single `FSReadRequest`
 
-Step 2: A scratch buffer strategy is used: if total read size fits in `kMultiGetReadStackBufSize` (8192 bytes), a stack buffer avoids heap allocation; otherwise a heap buffer is used
+Step 2: When temporary scratch storage is required, the synchronous path uses a stack buffer if the total read size fits in `kMultiGetReadStackBufSize` (8192 bytes), and otherwise uses a heap buffer. The coroutine path has no embedded stack buffer and allocates heap scratch only after request planning identifies blocks requiring I/O, so cache-hit-only requests allocate no scratch buffer
 
-Step 3: I/O dispatch -- synchronous path uses `file->MultiRead()` to issue all requests at once; coroutine path uses `co_await batch->context()->reader().MultiReadAsync()`
+Step 3: I/O dispatch -- the synchronous expansion uses `file->MultiRead()`. In the coroutine expansion, `use_coro_read()` selects `file->MultiReadCoroutine()`; otherwise direct I/O uses `file->MultiRead()` and buffered I/O awaits `AsyncFileReader::MultiReadAsync()`
 
 Step 4: After reads complete, each block is verified (checksum), decompressed if needed, and inserted into block cache
 
@@ -78,13 +78,15 @@ This reduces system calls from O(keys) to O(distinct_read_regions), which is oft
 
 ## Async I/O and Coroutine Integration
 
-When `ReadOptions::async_io` and `ReadOptions::optimize_multiget_for_io` are both true, and the filesystem supports `kAsyncIO`:
+MultiGet has two coroutine integration modes:
 
-**Within a level:** Multiple SST files are processed concurrently via `folly::coro::collectAllRange`. `MultiGetFilter` is called first to filter keys, then coroutines are launched for each file. Note: the coroutine path is disabled for L0 (where files overlap and must be processed in order), and requires both coroutine and async-I/O support to be available at compile time. Also, `TableCache::MultiGetFilter()` returns `Status::NotSupported()` when row cache is enabled, so the filter-then-launch sequence is skipped in that case.
+**Synchronous API async optimization:** When `ReadOptions::async_io` and `ReadOptions::optimize_multiget_for_io` are both true, coroutine support is compiled in, and the filesystem supports async I/O, the synchronous `Version::MultiGet()` expansion uses `MultiGetAsync()` to overlap reads across levels.
+
+**Coroutine API:** The coroutine `Version::MultiGet()` expansion processes L0 files serially because they overlap, but each SST lookup still awaits `MultiGetFromSSTCoroutine()`. When multiple files remain in an L1+ level, it launches per-file tasks and awaits them with `folly::coro::collectAllRange`; this fanout is not gated by `ReadOptions::async_io` or `ReadOptions::optimize_multiget_for_io`. `MultiGetFilter()` runs before the tasks are launched. When row cache is enabled, `TableCache::MultiGetFilter()` returns `Status::NotSupported()`, so filtering occurs inside each task instead.
 
 **Async cache probes:** For each unique block handle, `block_cache.StartAsyncLookupFull()` initiates an async cache lookup. All lookups are started, then `WaitAll()` collects results. Cache hits populate results directly; misses accumulate into the I/O phase.
 
-**Async disk I/O:** `AsyncFileReader` (see `AsyncFileReader` in `util/async_file_reader.h`) implements the C++20 Awaitable concept. `MultiReadAsyncImpl` calls `RandomAccessFileReader::ReadAsync`, which on Linux uses `io_uring` via `PosixFileSystem::Poll()`. The `ReadAwaiter` stores pending I/O handles and the suspended coroutine handle.
+**Async disk I/O:** When `use_coro_read()` is enabled, the coroutine expansion awaits `RandomAccessFileReader::MultiReadCoroutine()`. Otherwise, buffered reads use `AsyncFileReader::MultiReadAsync()`. `AsyncFileReader` implements the C++20 Awaitable concept; `MultiReadAsyncImpl` calls `RandomAccessFileReader::ReadAsync`, which on Linux uses `io_uring` via `PosixFileSystem::Poll()`. The `ReadAwaiter` stores pending I/O handles and the suspended coroutine handle.
 
 ## Version::MultiGet SST File Routing
 
