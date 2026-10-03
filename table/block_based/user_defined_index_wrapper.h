@@ -179,8 +179,8 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
-    // kDefault       -> follow udi_is_primary_, unless a legacy specific
-    //                   factory was requested.
+    // kDefault       -> follow udi_is_primary_. A legacy factory request can
+    //                   select a secondary custom index.
     // kBuiltin       -> standard index.
     // kPreferCustom  -> custom index. The "prefer" fallback runs at SST
     //                   open: SSTs lacking a UDI block don't get this
@@ -208,6 +208,8 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
         break;
     }
     if (read_options.read_index != ReadOptions::ReadIndex::kBuiltin &&
+        !(read_options.read_index == ReadOptions::ReadIndex::kDefault &&
+          use_udi) &&
         read_options.table_index_factory != nullptr) {
       const char* requested_name = read_options.table_index_factory->Name();
       if (name_ == requested_name) {

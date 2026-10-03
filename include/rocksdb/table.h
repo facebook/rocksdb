@@ -675,6 +675,7 @@ struct BlockBasedTableOptions {
   // Incompatible with:
   //   - Partitioned index (kTwoLevelIndexSearch) in kCustomDefault/kCustomOnly
   //   - Partitioned filters in kCustomDefault/kCustomOnly
+  //   - User-defined timestamps with a factory in any mode except kStandardOnly
   //
   // OPTIONS file compatibility: the legacy boolean names
   // use_udi_as_primary_index, skip_standard_index, and
@@ -682,6 +683,10 @@ struct BlockBasedTableOptions {
   // absent, or when an unmarked legacy encoding contains kStandardDefault.
   // New OPTIONS files also serialize index_mode_explicit=true,
   // making their mode authoritative regardless of legacy flags or parse order.
+  // They also serialize equivalent legacy booleans for kStandardDefault,
+  // kStandardRequired, and kCustomDefault so older binaries retain routing when
+  // loading newer OPTIONS files with ignore_unknown_options=true. The other
+  // modes have no legacy equivalent; custom-only SSTs reject older readers.
   // When constructing a factory from this C++ options struct, the default
   // kStandardDefault value is indistinguishable from an unset mode, so legacy
   // bools still apply. Using ConfigureOption() on the factory to set
@@ -700,16 +705,31 @@ struct BlockBasedTableOptions {
   // EXPERIMENTAL
   //
   // Deprecated compatibility input for old UDI callers. Prefer index_mode.
-  // NewBlockBasedTableFactory() translates this to kCustomDefault when
+  // GetEffectiveIndexMode() resolves this to kCustomDefault when
   // index_mode is still kStandardDefault.
   bool use_udi_as_primary_index = false;
 
   // EXPERIMENTAL
   //
   // Deprecated compatibility input for old UDI callers. Prefer index_mode.
-  // NewBlockBasedTableFactory() translates this to kStandardRequired when
+  // GetEffectiveIndexMode() resolves this to kStandardRequired when
   // index_mode is still kStandardDefault and use_udi_as_primary_index is false.
   bool fail_if_no_udi_on_open = false;
+
+  // Resolves deprecated inputs without changing index_mode. GetOptions()
+  // preserves those inputs so copying the options and clearing a legacy bool
+  // can still roll back its policy. Explicit modes configured through the
+  // factory clear ignored legacy inputs, including for kStandardDefault.
+  IndexMode GetEffectiveIndexMode() const {
+    if (index_mode != IndexMode::kStandardDefault) {
+      return index_mode;
+    }
+    if (use_udi_as_primary_index) {
+      return IndexMode::kCustomDefault;
+    }
+    return fail_if_no_udi_on_open ? IndexMode::kStandardRequired
+                                  : IndexMode::kStandardDefault;
+  }
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.

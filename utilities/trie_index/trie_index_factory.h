@@ -25,6 +25,13 @@
 //    ReadOptions ro;
 //    ro.table_index_factory = trie_factory.get();
 //    auto iter = db->NewIterator(ro);
+//
+//  The trie format stores data-block offsets and sizes as 32-bit integers.
+//  If either exceeds UINT32_MAX, SST construction fails with NotSupported in
+//  every mode that builds the trie, including kStandardDefault. File-size
+//  targets do not guarantee this limit: L0 outputs and SstFileWriter
+//  outputs are not split at the target size. Bound those outputs explicitly
+//  or use kStandardOnly to stop building the trie.
 
 #pragma once
 

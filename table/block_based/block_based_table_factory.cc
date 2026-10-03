@@ -259,6 +259,35 @@ static std::unordered_map<std::string,
         {"kFlushAndCompaction",
          BlockBasedTableOptions::PrepopulateBlockCache::kFlushAndCompaction}};
 
+namespace {
+
+OptionTypeInfo LegacyIndexBoolean(
+    bool BlockBasedTableOptions::* input,
+    BlockBasedTableOptions::IndexMode serialized_mode) {
+  return {
+      0,
+      OptionType::kBoolean,
+      OptionVerificationType::kNormal,
+      OptionTypeFlags::kCompareNever,
+      [input](const ConfigOptions&, const std::string& name,
+              const std::string& value, void* addr) {
+        auto* options = static_cast<BlockBasedTableOptions*>(addr);
+        options->*input = ParseBoolean(name, value);
+        return Status::OK();
+      },
+      [serialized_mode](const ConfigOptions&, const std::string&,
+                        const void* addr, std::string* value) {
+        const auto* options = static_cast<const BlockBasedTableOptions*>(addr);
+        // Older binaries route only by these flags. Project the effective
+        // policy even when an explicit mode cleared the input aliases.
+        *value = options->GetEffectiveIndexMode() == serialized_mode ? "true"
+                                                                     : "false";
+        return Status::OK();
+      }};
+}
+
+}  // namespace
+
 static struct BlockBasedTableTypeInfo {
   std::unordered_map<std::string, OptionTypeInfo> info;
 
@@ -314,9 +343,37 @@ static struct BlockBasedTableTypeInfo {
          OptionTypeInfo::Enum<BlockBasedTableOptions::IndexShorteningMode>(
              offsetof(struct BlockBasedTableOptions, index_shortening),
              &block_base_table_index_shortening_mode_string_map)},
-        {"index_mode", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexMode>(
-                           offsetof(struct BlockBasedTableOptions, index_mode),
-                           &block_base_table_index_mode_string_map)},
+        {"index_mode",
+         {0, OptionType::kEnum, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone,
+          [](const ConfigOptions&, const std::string& name,
+             const std::string& value, void* addr) {
+            auto* options = static_cast<BlockBasedTableOptions*>(addr);
+            if (ParseEnum(block_base_table_index_mode_string_map, value,
+                          &options->index_mode)) {
+              return Status::OK();
+            }
+            return Status::InvalidArgument("No mapping for enum ", name);
+          },
+          [](const ConfigOptions&, const std::string& name, const void* addr,
+             std::string* value) {
+            const auto* options =
+                static_cast<const BlockBasedTableOptions*>(addr);
+            if (SerializeEnum(block_base_table_index_mode_string_map,
+                              options->GetEffectiveIndexMode(), value)) {
+              return Status::OK();
+            }
+            return Status::InvalidArgument("No mapping for enum ", name);
+          },
+          [](const ConfigOptions&, const std::string&, const void* addr1,
+             const void* addr2, std::string*) {
+            const auto* options1 =
+                static_cast<const BlockBasedTableOptions*>(addr1);
+            const auto* options2 =
+                static_cast<const BlockBasedTableOptions*>(addr2);
+            return options1->GetEffectiveIndexMode() ==
+                   options2->GetEffectiveIndexMode();
+          }}},
         {"data_block_hash_table_util_ratio",
          {offsetof(struct BlockBasedTableOptions,
                    data_block_hash_table_util_ratio),
@@ -460,13 +517,12 @@ static struct BlockBasedTableTypeInfo {
                    num_file_reads_for_auto_readahead),
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
         {"fail_if_no_udi_on_open",
-         {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
+         LegacyIndexBoolean(
+             &BlockBasedTableOptions::fail_if_no_udi_on_open,
+             BlockBasedTableOptions::IndexMode::kStandardRequired)},
         {"use_udi_as_primary_index",
-         {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
+         LegacyIndexBoolean(&BlockBasedTableOptions::use_udi_as_primary_index,
+                            BlockBasedTableOptions::IndexMode::kCustomDefault)},
     };
   }
 } block_based_table_type_info;
@@ -498,11 +554,9 @@ void BlockBasedTableFactory::UpdateIndexMode() {
   using IndexMode = BlockBasedTableOptions::IndexMode;
   if (skip_standard_index_) {
     table_options_.index_mode = IndexMode::kCustomOnly;
-  } else if (table_options_.use_udi_as_primary_index) {
-    table_options_.index_mode = IndexMode::kCustomDefault;
-  } else if (table_options_.fail_if_no_udi_on_open) {
-    table_options_.index_mode = IndexMode::kStandardRequired;
   } else {
+    // Keep the requested default instead of storing a derived mode that would
+    // become explicit when callers copy these options into a new factory.
     table_options_.index_mode = IndexMode::kStandardDefault;
   }
 }
@@ -740,7 +794,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
 
 Status BlockBasedTableFactory::ValidateOptions(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
-  Status index_mode_status = ValidateIndexMode(table_options_.index_mode);
+  Status index_mode_status =
+      ValidateIndexMode(table_options_.GetEffectiveIndexMode());
   if (!index_mode_status.ok()) {
     return index_mode_status;
   }
@@ -762,7 +817,7 @@ Status BlockBasedTableFactory::ValidateOptions(
   // builder repeats this check because SstFileWriter and SetOptions never reach
   // ValidateOptions; catching it here fails DB::Open instead of letting the DB
   // open and take writes until the first flush stops it with a fatal error.
-  if (table_options_.index_mode !=
+  if (table_options_.GetEffectiveIndexMode() !=
           BlockBasedTableOptions::IndexMode::kStandardOnly &&
       table_options_.user_defined_index_factory != nullptr &&
       cf_opts.comparator != nullptr &&
@@ -883,16 +938,16 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.index_mode ==
+  if (table_options_.GetEffectiveIndexMode() ==
           BlockBasedTableOptions::IndexMode::kCustomDefault ||
-      table_options_.index_mode ==
+      table_options_.GetEffectiveIndexMode() ==
           BlockBasedTableOptions::IndexMode::kCustomOnly) {
     if (!table_options_.user_defined_index_factory) {
       return Status::InvalidArgument(
           "index_mode kCustomDefault/kCustomOnly requires "
           "user_defined_index_factory");
     }
-    if (table_options_.index_mode ==
+    if (table_options_.GetEffectiveIndexMode() ==
             BlockBasedTableOptions::IndexMode::kCustomOnly &&
         table_options_.format_version < 6) {
       return Status::InvalidArgument(
@@ -1098,7 +1153,7 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
                : table_options_.user_defined_index_factory->Name());
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_mode: %d\n",
-           static_cast<int>(table_options_.index_mode));
+           static_cast<int>(table_options_.GetEffectiveIndexMode()));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);

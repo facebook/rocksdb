@@ -174,6 +174,9 @@ class IndexFactoryBuilder {
   // readers receive only this block, so all reader-required state must be
   // included. The memory backing the returned Slice must remain valid until
   // this builder is destroyed.
+  // An empty buffer with OK status omits usable custom index contents. Modes
+  // that build the standard index preserve a zero-size custom meta block and
+  // fall back to the standard index. kCustomOnly rejects an empty buffer.
   virtual Status Finish(Slice* index_contents) = 0;
 
   // Returns the estimated size in bytes of the index built so far.
