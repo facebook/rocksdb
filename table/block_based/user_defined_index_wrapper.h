@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -166,12 +167,13 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
       const std::string& name,
       std::unique_ptr<BlockBasedTable::IndexReader>&& reader,
       std::unique_ptr<IndexFactoryReader>&& udi_reader, bool udi_is_primary,
-      bool standard_index_is_stub)
+      bool standard_index_is_stub, size_t index_block_size)
       : name_(name),
         reader_(std::move(reader)),
         udi_reader_(std::move(udi_reader)),
         udi_is_primary_(udi_is_primary),
-        standard_index_is_stub_(standard_index_is_stub) {}
+        standard_index_is_stub_(standard_index_is_stub),
+        index_block_size_(index_block_size) {}
 
   InternalIteratorBase<IndexValue>* NewIterator(
       const ReadOptions& read_options, bool disable_prefix_seek,
@@ -247,6 +249,11 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
 
   size_t ApproximateMemoryUsage() const override {
     size_t usage = udi_reader_->ApproximateMemoryUsage();
+    if (udi_reader_->MemoryUsageIncludesIndexBlock()) {
+      // Normalize legacy inclusive estimates before core charges the block to
+      // its owner. Saturate for readers that report zero or an underestimate.
+      usage -= std::min(usage, index_block_size_);
+    }
     usage += reader_->ApproximateMemoryUsage();
     return usage;
   }
@@ -262,6 +269,7 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
   std::unique_ptr<IndexFactoryReader> udi_reader_;
   const bool udi_is_primary_;
   const bool standard_index_is_stub_;
+  const size_t index_block_size_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

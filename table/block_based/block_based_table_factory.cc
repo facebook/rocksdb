@@ -34,6 +34,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "utilities/trie_index/trie_index_factory.h"
@@ -470,6 +471,21 @@ static struct BlockBasedTableTypeInfo {
   }
 } block_based_table_type_info;
 
+Status ValidateIndexMode(BlockBasedTableOptions::IndexMode index_mode) {
+  switch (index_mode) {
+    case BlockBasedTableOptions::IndexMode::kStandardOnly:
+    case BlockBasedTableOptions::IndexMode::kStandardDefault:
+    case BlockBasedTableOptions::IndexMode::kStandardRequired:
+    case BlockBasedTableOptions::IndexMode::kCustomDefault:
+    case BlockBasedTableOptions::IndexMode::kCustomOnly:
+      return Status::OK();
+    default:
+      return Status::InvalidArgument(
+          "Unrecognized index_mode: " +
+          std::to_string(lossless_cast<int>(index_mode)));
+  }
+}
+
 void BlockBasedTableFactory::UpdateIndexMode() {
   if (index_mode_explicit_) {
     // Effective options can be copied into a new factory. Clear ignored legacy
@@ -509,6 +525,28 @@ BlockBasedTableFactory::BlockBasedTableFactory(
             OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}}};
   RegisterOptions("LegacyIndexOptions", &skip_standard_index_,
                   &skip_standard_type_info);
+  // Old OPTIONS files serialized a default index_mode even when the legacy
+  // flags controlled routing. Newly serialized modes are authoritative.
+  static const std::unordered_map<std::string, OptionTypeInfo>
+      index_mode_encoding_type_info = {
+          {"index_mode_explicit",
+           {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+            OptionTypeFlags::kCompareNever,
+            [](const ConfigOptions&, const std::string&,
+               const std::string& value, void*) {
+              if (value == "true" || value == "1") {
+                return Status::OK();
+              }
+              return Status::InvalidArgument(
+                  "index_mode_explicit must be true");
+            },
+            [](const ConfigOptions&, const std::string&, const void*,
+               std::string* value) {
+              *value = "true";
+              return Status::OK();
+            }}}};
+  RegisterOptions("IndexModeEncoding", &index_mode_explicit_,
+                  &index_mode_encoding_type_info);
 
   const auto table_reader_charged =
       table_options_.cache_usage_options.options_overrides
@@ -702,6 +740,10 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
 
 Status BlockBasedTableFactory::ValidateOptions(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  Status index_mode_status = ValidateIndexMode(table_options_.index_mode);
+  if (!index_mode_status.ok()) {
+    return index_mode_status;
+  }
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
     return Status::InvalidArgument(
@@ -841,16 +883,6 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  {
-    std::string ignored;
-    if (!SerializeEnum<BlockBasedTableOptions::IndexMode>(
-            block_base_table_index_mode_string_map, table_options_.index_mode,
-            &ignored)) {
-      return Status::InvalidArgument(
-          "Unrecognized index_mode: " +
-          std::to_string(static_cast<int>(table_options_.index_mode)));
-    }
-  }
   if (table_options_.index_mode ==
           BlockBasedTableOptions::IndexMode::kCustomDefault ||
       table_options_.index_mode ==
@@ -874,21 +906,13 @@ Status BlockBasedTableFactory::ValidateOptions(
     // BlockBasedTableBuilder::Rep::Rep) and silently falls back to
     // single-threaded when any builder doesn't support the parallel
     // protocol. We don't reject the configuration here.
-    if ((table_options_.index_mode ==
-             BlockBasedTableOptions::IndexMode::kCustomDefault ||
-         table_options_.index_mode ==
-             BlockBasedTableOptions::IndexMode::kCustomOnly) &&
-        table_options_.index_type ==
-            BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    if (table_options_.index_type ==
+        BlockBasedTableOptions::kTwoLevelIndexSearch) {
       return Status::InvalidArgument(
           "index_mode kCustomDefault/kCustomOnly is incompatible with "
           "partitioned index (kTwoLevelIndexSearch).");
     }
-    if ((table_options_.index_mode ==
-             BlockBasedTableOptions::IndexMode::kCustomDefault ||
-         table_options_.index_mode ==
-             BlockBasedTableOptions::IndexMode::kCustomOnly) &&
-        table_options_.partition_filters) {
+    if (table_options_.partition_filters) {
       return Status::InvalidArgument(
           "index_mode kCustomDefault/kCustomOnly is incompatible with "
           "partitioned filters.");
@@ -1211,7 +1235,25 @@ Status BlockBasedTableFactory::ConfigureOptions(
   const bool use_as_primary = table_options_.use_udi_as_primary_index;
   const bool fail_if_missing = table_options_.fail_if_no_udi_on_open;
   const BlockBasedTableOptions::IndexMode mode = table_options_.index_mode;
-  Status s = TableFactory::ConfigureOptions(config_options, opts_map, unused);
+  const std::unordered_map<std::string, std::string>::const_iterator mode_iter =
+      opts_map.find("index_mode");
+  const bool legacy_encoding =
+      mode_iter != opts_map.end() && mode_iter->second == "kStandardDefault" &&
+      opts_map.find("index_mode_explicit") == opts_map.end() &&
+      (opts_map.find("use_udi_as_primary_index") != opts_map.end() ||
+       opts_map.find("fail_if_no_udi_on_open") != opts_map.end() ||
+       opts_map.find("skip_standard_index") != opts_map.end());
+  Status s;
+  if (legacy_encoding) {
+    // Drop the old serialized default before parsing, so map iteration order
+    // cannot clear or override the legacy flags.
+    std::unordered_map<std::string, std::string> legacy_opts = opts_map;
+    legacy_opts.erase("index_mode");
+    index_mode_explicit_ = false;
+    s = TableFactory::ConfigureOptions(config_options, legacy_opts, unused);
+  } else {
+    s = TableFactory::ConfigureOptions(config_options, opts_map, unused);
+  }
   if (!s.ok()) {
     // The base rollback serializes the effective mode, not its legacy inputs.
     index_mode_explicit_ = was_explicit;

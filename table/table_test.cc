@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "cache/cache_reservation_manager.h"
 #include "cache/lru_cache.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -59,6 +60,7 @@
 #include "rocksdb/unique_id.h"
 #include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
@@ -249,6 +251,7 @@ TEST(IndexFactoryCompatibilityTest, ConfiguredIndexModeBeatsLegacyBooleans) {
       BlockBasedTableFactory combined{BlockBasedTableOptions()};
       ASSERT_OK(
           combined.ConfigureFromMap(cfg, {{"index_mode", name},
+                                          {"index_mode_explicit", "true"},
                                           {"use_udi_as_primary_index", "true"},
                                           {"fail_if_no_udi_on_open", "true"},
                                           {"skip_standard_index", "true"}}));
@@ -258,7 +261,8 @@ TEST(IndexFactoryCompatibilityTest, ConfiguredIndexModeBeatsLegacyBooleans) {
       ASSERT_OK(GetBlockBasedTableOptionsFromString(
           cfg, BlockBasedTableOptions(),
           std::string("index_mode=") + name +
-              ";use_udi_as_primary_index=true;fail_if_no_udi_on_open=true;"
+              ";index_mode_explicit=true;use_udi_as_primary_index=true;"
+              "fail_if_no_udi_on_open=true;"
               "skip_standard_index=true",
           &parsed));
       BlockBasedTableFactory from_parsed(parsed);
@@ -306,6 +310,58 @@ TEST(IndexFactoryCompatibilityTest, LegacyIndexStateSurvivesFailedMapAndClone) {
     EXPECT_EQ(factory.GetOptions<BlockBasedTableOptions>()->index_mode,
               IndexMode::kCustomOnly);
   }
+}
+
+TEST(IndexFactoryCompatibilityTest, IndexModeOptionsFileRoundTrip) {
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  const struct {
+    const char* option;
+    const char* value;
+    IndexMode expected;
+  } cases[] = {
+      {"index_mode", "kStandardOnly", IndexMode::kStandardOnly},
+      {"index_mode", "kStandardDefault", IndexMode::kStandardDefault},
+      {"index_mode", "kStandardRequired", IndexMode::kStandardRequired},
+      {"index_mode", "kCustomDefault", IndexMode::kCustomDefault},
+      {"index_mode", "kCustomOnly", IndexMode::kCustomOnly},
+      {"use_udi_as_primary_index", "true", IndexMode::kCustomDefault},
+      {"fail_if_no_udi_on_open", "true", IndexMode::kStandardRequired}};
+  ConfigOptions cfg;
+  cfg.ignore_unknown_options = false;
+  DBOptions db_options;
+  const std::string options_path = test::PerThreadDBPath("udi_mode_round_trip");
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.option);
+    SCOPED_TRACE(test_case.value);
+    ColumnFamilyOptions cf_options;
+    ASSERT_OK(cf_options.table_factory->ConfigureOption(cfg, test_case.option,
+                                                        test_case.value));
+    ASSERT_OK(PersistRocksDBOptions(WriteOptions(), cfg, db_options,
+                                    {"default"}, {cf_options}, options_path,
+                                    db_options.env->GetFileSystem().get()));
+    std::string contents;
+    ASSERT_OK(ReadFileToString(db_options.env, options_path, &contents));
+    ASSERT_NE(contents.find("index_mode_explicit=true"), std::string::npos);
+
+    // Stale flags must not override a newly persisted explicit mode, including
+    // kStandardDefault, whose value also appeared in the old encoding.
+    contents +=
+        "use_udi_as_primary_index=true\nfail_if_no_udi_on_open=true\n"
+        "skip_standard_index=true\n";
+    ASSERT_OK(WriteStringToFile(db_options.env, contents, options_path));
+    std::vector<ColumnFamilyDescriptor> descriptors;
+    ASSERT_OK(
+        LoadOptionsFromFile(cfg, options_path, &db_options, &descriptors));
+    ASSERT_EQ(descriptors.size(), 1U);
+    std::shared_ptr<TableFactory> loaded = descriptors[0].options.table_factory;
+    ASSERT_EQ(loaded->GetOptions<BlockBasedTableOptions>()->index_mode,
+              test_case.expected);
+    ASSERT_OK(
+        loaded->ConfigureOption(cfg, "use_udi_as_primary_index", "false"));
+    ASSERT_EQ(loaded->GetOptions<BlockBasedTableOptions>()->index_mode,
+              test_case.expected);
+  }
+  ASSERT_OK(db_options.env->DeleteFile(options_path));
 }
 
 // An index_mode the caller set explicitly must survive a deprecated bool they
@@ -10843,6 +10899,288 @@ TEST_P(UserDefinedIndexTest, ReopenReusesCachedCustomIndex) {
   }
 }
 
+TEST_P(UserDefinedIndexTest, LegacyOptionsFilePreservesIndexMode) {
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  const struct {
+    const char* legacy_options;
+    IndexMode expected;
+  } cases[] = {
+      {"use_udi_as_primary_index=true\n", IndexMode::kCustomDefault},
+      {"fail_if_no_udi_on_open=true\n", IndexMode::kStandardRequired},
+      {"use_udi_as_primary_index=true\nfail_if_no_udi_on_open=true\n",
+       IndexMode::kCustomDefault},
+      {"skip_standard_index=true\n", IndexMode::kCustomOnly},
+      {"use_udi_as_primary_index=false\nfail_if_no_udi_on_open=false\n",
+       IndexMode::kStandardDefault}};
+  Env* env = options_.env;
+  const std::string options_path = test::PerThreadDBPath("udi_legacy_options");
+  const std::string sst_path = options_path + ".sst";
+  {
+    SstFileWriter writer(EnvOptions(), options_);
+    ASSERT_OK(writer.Open(sst_path));
+    ASSERT_OK(writer.Put("key00", "value"));
+    ASSERT_OK(writer.Finish());
+  }
+
+  ConfigOptions cfg;
+  cfg.env = env;
+  cfg.ignore_unknown_options = false;
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.legacy_options);
+    for (bool mode_first : {false, true}) {
+      SCOPED_TRACE(testing::Message() << "mode_first=" << mode_first);
+      const std::string mode = "index_mode=kStandardDefault\n";
+      const std::string legacy = test_case.legacy_options;
+      const std::string contents =
+          "[Version]\nrocksdb_version=11.0.0\noptions_file_version=1.1\n"
+          "[DBOptions]\n[CFOptions \"default\"]\n"
+          "table_factory=BlockBasedTable\n"
+          "[TableOptions/BlockBasedTable \"default\"]\n" +
+          (mode_first ? mode + legacy : legacy + mode);
+      ASSERT_OK(WriteStringToFile(env, contents, options_path));
+      DBOptions db_options;
+      std::vector<ColumnFamilyDescriptor> descriptors;
+      ASSERT_OK(
+          LoadOptionsFromFile(cfg, options_path, &db_options, &descriptors));
+      ASSERT_EQ(descriptors.size(), 1U);
+      BlockBasedTableOptions loaded =
+          *descriptors[0]
+               .options.table_factory->GetOptions<BlockBasedTableOptions>();
+      EXPECT_EQ(loaded.index_mode, test_case.expected);
+
+      // The restored mode must retain the missing-custom-index guard, rather
+      // than silently serving this older, standard-only SST.
+      loaded.user_defined_index_factory = std::make_shared<TestIndexFactory>();
+      Options read_options = options_;
+      read_options.table_factory.reset(NewBlockBasedTableFactory(loaded));
+      SstFileReader reader(read_options);
+      Status s = reader.Open(sst_path);
+      if (test_case.expected == IndexMode::kStandardDefault) {
+        ASSERT_OK(s);
+        std::unique_ptr<Iterator> iter(reader.NewIterator(ReadOptions()));
+        iter->SeekToFirst();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key(), "key00");
+        ASSERT_EQ(iter->value(), "value");
+        ASSERT_OK(iter->status());
+      } else {
+        EXPECT_TRUE(s.IsCorruption()) << s.ToString();
+      }
+    }
+  }
+  ASSERT_OK(env->DeleteFile(options_path));
+  ASSERT_OK(env->DeleteFile(sst_path));
+}
+
+TEST_P(UserDefinedIndexTest, StandaloneSstRejectsUnrecognizedIndexMode) {
+  const std::string sst_path =
+      test::PerThreadDBPath("udi_invalid_index_mode.sst");
+  Options options = options_;
+  options.compression = kNoCompression;
+  {
+    SstFileWriter writer(EnvOptions(), options);
+    ASSERT_OK(writer.Open(sst_path));
+    ASSERT_OK(writer.Put("key00", "value"));
+    ASSERT_OK(writer.Finish());
+  }
+
+  for (bool with_factory : {false, true}) {
+    for (int mode : {-1, 5, 99}) {
+      SCOPED_TRACE(testing::Message()
+                   << "factory=" << with_factory << " mode=" << mode);
+      BlockBasedTableOptions table_options;
+      table_options.index_mode =
+          static_cast<BlockBasedTableOptions::IndexMode>(mode);
+      if (with_factory) {
+        table_options.user_defined_index_factory =
+            std::make_shared<TestIndexFactory>();
+      }
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      Status s = options.table_factory->ValidateOptions(options, options);
+      ASSERT_TRUE(s.IsInvalidArgument()) << s.ToString();
+
+      const std::string invalid_path = sst_path + ".invalid";
+      {
+        SstFileWriter writer(EnvOptions(), options);
+        s = writer.Open(invalid_path);
+        if (s.ok()) {
+          s = writer.Put("key00", "value");
+        }
+        if (s.ok()) {
+          s = writer.Finish();
+        }
+        EXPECT_TRUE(s.IsInvalidArgument()) << s.ToString();
+        EXPECT_NE(s.ToString().find("Unrecognized index_mode"),
+                  std::string::npos);
+      }
+      ASSERT_OK(options.env->DeleteFile(invalid_path));
+
+      SstFileReader reader(options);
+      s = reader.Open(sst_path);
+      EXPECT_TRUE(s.IsInvalidArgument()) << s.ToString();
+      EXPECT_NE(s.ToString().find("Unrecognized index_mode"),
+                std::string::npos);
+    }
+  }
+  ASSERT_OK(options.env->DeleteFile(sst_path));
+}
+
+// Exercise both pre-existing readers that include the serialized block in
+// their estimate and readers that report only their auxiliary allocations.
+class MemoryReportingIndexFactory : public IndexFactory {
+ public:
+  MemoryReportingIndexFactory(std::shared_ptr<IndexFactory> delegate,
+                              bool includes_index_block)
+      : delegate_(std::move(delegate)),
+        includes_index_block_(includes_index_block) {}
+
+  const char* Name() const override { return delegate_->Name(); }
+  using IndexFactory::NewBuilder;
+  using IndexFactory::NewReader;
+  Status NewBuilder(
+      const IndexFactoryOptions& options,
+      std::unique_ptr<IndexFactoryBuilder>& builder) const override {
+    return delegate_->NewBuilder(options, builder);
+  }
+  Status NewReader(const IndexFactoryOptions& options, Slice& contents,
+                   std::unique_ptr<IndexFactoryReader>& reader) const override {
+    const size_t block_size = contents.size();
+    Status s = delegate_->NewReader(options, contents, reader);
+    if (s.ok()) {
+      if (includes_index_block_) {
+        reader = std::make_unique<Reader>(std::move(reader), block_size, true);
+      } else {
+        reader = std::make_unique<AuxiliaryReader>(std::move(reader),
+                                                   block_size, false);
+      }
+    }
+    return s;
+  }
+
+ private:
+  class Reader : public IndexFactoryReader {
+   public:
+    Reader(std::unique_ptr<IndexFactoryReader> delegate, size_t block_size,
+           bool includes_index_block)
+        : delegate_(std::move(delegate)),
+          block_size_(block_size),
+          includes_index_block_(includes_index_block) {}
+    std::unique_ptr<IndexFactoryIterator> NewIterator(
+        const ReadOptions& options) override {
+      return delegate_->NewIterator(options);
+    }
+    size_t ApproximateMemoryUsage() const override {
+      return delegate_->ApproximateMemoryUsage() +
+             (includes_index_block_ ? block_size_ : 0);
+    }
+
+   private:
+    std::unique_ptr<IndexFactoryReader> delegate_;
+    const size_t block_size_;
+    const bool includes_index_block_;
+  };
+  class AuxiliaryReader : public Reader {
+   public:
+    using Reader::Reader;
+    bool MemoryUsageIncludesIndexBlock() const override { return false; }
+  };
+  std::shared_ptr<IndexFactory> delegate_;
+  const bool includes_index_block_;
+};
+
+TEST(IndexFactoryCompatibilityTest, LegacyReaderMemoryWithStrictCache) {
+  std::shared_ptr<IndexFactory> trie_factory;
+  ASSERT_OK(IndexFactory::CreateFromString(ConfigOptions(), "trie_index",
+                                           &trie_factory));
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.block_size = 512;
+  table_options.user_defined_index_factory =
+      std::make_shared<MemoryReportingIndexFactory>(trie_factory, false);
+  Options options;
+  options.compression = kNoCompression;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  const InternalKeyComparator internal_comparator(options.comparator);
+  TableConstructor table(options.comparator, true);
+  Random random(301);
+  for (int i = 0; i < 16384; ++i) {
+    table.Add(test::RandomKey(&random, 512), "value");
+  }
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  table.Finish(options, ImmutableOptions(options), MutableCFOptions(options),
+               table_options, internal_comparator, &keys, &kvmap);
+  const size_t memory = table.GetTableReader()->ApproximateMemoryUsage();
+  table.ResetTableReader();
+
+  const size_t reservation_unit = CacheReservationManagerImpl<
+      CacheEntryRole::kBlockBasedTableReader>::GetDummyEntrySize();
+  LRUCacheOptions cache_options;
+  cache_options.capacity =
+      ((memory + reservation_unit - 1) / reservation_unit) * reservation_unit;
+  cache_options.num_shard_bits = 0;
+  cache_options.strict_capacity_limit = true;
+  cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
+  table_options.block_cache = cache_options.MakeSharedCache();
+  table_options.cache_usage_options
+      .options_overrides[CacheEntryRole::kBlockBasedTableReader]
+      .charged = CacheEntryRoleOptions::Decision::kEnabled;
+  for (bool includes_index_block : {false, true}) {
+    SCOPED_TRACE(includes_index_block);
+    table_options.user_defined_index_factory =
+        std::make_shared<MemoryReportingIndexFactory>(trie_factory,
+                                                      includes_index_block);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    ASSERT_OK(
+        table.Reopen(ImmutableOptions(options), MutableCFOptions(options)));
+    EXPECT_EQ(table.GetTableReader()->ApproximateMemoryUsage(), memory);
+    // An SST that fits the cache must be readable under either convention.
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_index = ReadOptions::ReadIndex::kPreferCustom;
+    std::unique_ptr<InternalIterator> iter(
+        new KeyConvertingIterator(table.GetTableReader()->NewIterator(
+            read_options, nullptr, nullptr, false,
+            TableReaderCaller::kUncategorized)));
+    iter->SeekToFirst();
+    size_t count = 0;
+    while (iter->Valid()) {
+      ASSERT_LT(count, keys.size());
+      EXPECT_EQ(iter->key(), keys[count]);
+      EXPECT_EQ(iter->value(), "value");
+      ++count;
+      iter->Next();
+    }
+    ASSERT_OK(iter->status());
+    EXPECT_EQ(count, keys.size());
+    iter.reset();
+    table.ResetTableReader();
+    EXPECT_EQ(table_options.block_cache->GetUsage(), 0U);
+  }
+
+  // Cached raw bytes are charged to the block cache rather than the reader.
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.block_cache = NewLRUCache(16 << 20);
+  table_options.cache_usage_options.options_overrides.clear();
+  size_t cached_memory = 0;
+  for (bool includes_index_block : {false, true}) {
+    SCOPED_TRACE(includes_index_block);
+    table_options.user_defined_index_factory =
+        std::make_shared<MemoryReportingIndexFactory>(trie_factory,
+                                                      includes_index_block);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    ASSERT_OK(
+        table.Reopen(ImmutableOptions(options), MutableCFOptions(options)));
+    const size_t usage = table.GetTableReader()->ApproximateMemoryUsage();
+    if (!includes_index_block) {
+      cached_memory = usage;
+    }
+    EXPECT_EQ(usage, cached_memory);
+    EXPECT_LT(usage, memory);
+    table.ResetTableReader();
+  }
+}
+
 // Verifies that kStandardOnly truly ignores user_defined_index_factory:
 // even if a factory pointer is set in the table options, the reader must
 // not probe for a UDI block. This matches the kStandardOnly contract
@@ -11437,8 +11775,8 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
       "index=true",
       BlockBasedTableOptions::IndexMode::kCustomOnly);
 
-  // An explicit index_mode always wins over legacy aliases, regardless of the
-  // relative modes they request.
+  // Non-default modes are explicit even in the old encoding. A default mode
+  // needs the origin marker to override legacy aliases in mixed input.
   translates_to("index_mode=kCustomOnly;fail_if_no_udi_on_open=true",
                 BlockBasedTableOptions::IndexMode::kCustomOnly);
   translates_to("index_mode=kStandardOnly;skip_standard_index=true",
@@ -11446,6 +11784,10 @@ TEST_P(UserDefinedIndexTest, DeprecatedUdiBooleansTranslateToIndexMode) {
   translates_to(
       "index_mode=kStandardDefault;use_udi_as_primary_index=true;skip_standard_"
       "index=true",
+      BlockBasedTableOptions::IndexMode::kCustomOnly);
+  translates_to(
+      "index_mode=kStandardDefault;index_mode_explicit=true;"
+      "use_udi_as_primary_index=true;skip_standard_index=true",
       BlockBasedTableOptions::IndexMode::kStandardDefault);
 
   // SetOptions() applies dotted "block_based_table_factory.<name>" keys one at

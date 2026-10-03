@@ -78,10 +78,6 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  private:  // fns
   // Whether to cut a filter block before the next key
   bool DecideCutAFilterBlock();
-  void RequestPartitionCut();
-  bool ShouldCutFilterBlock();
-  const std::string& GetPartitionKey();
-  bool IndexSeparatorIsKeyPlusSeq();
   void CutAFilterBlock(const Slice* next_key, const Slice* next_prefix,
                        const Slice& prev_key);
 

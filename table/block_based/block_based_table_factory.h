@@ -48,6 +48,8 @@ class TailPrefetchStats {
   size_t num_records_ = 0;
 };
 
+Status ValidateIndexMode(BlockBasedTableOptions::IndexMode index_mode);
+
 class BlockBasedTableFactory : public TableFactory {
  public:
   explicit BlockBasedTableFactory(

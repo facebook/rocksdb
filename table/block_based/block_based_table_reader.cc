@@ -735,7 +735,10 @@ Status BlockBasedTable::Open(
     const bool avoid_shared_metadata_cache, BlobSource* blob_source) {
   table_reader->reset();
 
-  Status s;
+  Status s = ValidateIndexMode(table_options.index_mode);
+  if (!s.ok()) {
+    return s;
+  }
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
@@ -1897,6 +1900,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
       if (s.ok()) {
         std::unique_ptr<IndexFactoryReader> udi_reader;
+        // Legacy NewReader implementations can advance the mutable Slice.
+        const size_t index_block_size = rep_->udi_block.GetValue()->data.size();
         IndexFactoryOptions udi_option;
         udi_option.comparator = rep_->internal_comparator.user_comparator();
         s = table_options.user_defined_index_factory->NewReader(
@@ -1917,7 +1922,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
                         BlockBasedTableOptions::IndexMode::kCustomDefault ||
                     table_options.index_mode ==
                         BlockBasedTableOptions::IndexMode::kCustomOnly,
-                requires_custom_reader);
+                requires_custom_reader, index_block_size);
             custom_reader_installed = true;
           } else {
             s = Status::Corruption("Failed to create UDI reader for " +
