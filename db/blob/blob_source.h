@@ -86,6 +86,17 @@ class BlobSource {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
+  // Resolves a stable (origin file, original offset) BlobID through either its
+  // original v1 blob file or a block-based-table GC carrier.
+  Status GetBlobByOrigin(const ReadOptions& read_options, const Slice& user_key,
+                         const BlobFileOpenInfo& carrier_file,
+                         uint64_t carrier_file_size,
+                         uint8_t block_protection_bytes_per_key,
+                         uint64_t origin_file_number, uint64_t origin_offset,
+                         uint64_t value_size, uint32_t checksum,
+                         CompressionType compression_type, PinnableSlice* value,
+                         uint64_t* bytes_read);
+
   // Reads a byte sub-range [range_offset, range_offset + range_length) of an
   // *uncompressed* blob's value, reading only those bytes on a cache miss.
   //
@@ -111,6 +122,13 @@ class BlobSource {
                       CompressionType compression_type, uint64_t range_offset,
                       size_t range_length, PinnableSlice* value,
                       uint64_t* bytes_read);
+
+  Status GetBlobRangeByOrigin(
+      const ReadOptions& read_options, const Slice& user_key,
+      const BlobFileOpenInfo& carrier_file, uint64_t carrier_file_size,
+      uint8_t block_protection_bytes_per_key, uint64_t origin_file_number,
+      uint64_t origin_offset, uint64_t value_size, uint64_t range_offset,
+      size_t range_length, PinnableSlice* value, uint64_t* bytes_read);
 
   // Reads a SimpleGen2Blob payload (see db/blob/blob_gen2_format.h) through the
   // blob value cache and BLOB_DB_* statistics. This is the counterpart to
@@ -217,6 +235,11 @@ class BlobSource {
                     autovector<BlobFileReadRequests>& blob_reqs,
                     uint64_t* bytes_read);
 
+  void MultiGetBlobByOrigin(const ReadOptions& read_options,
+                            autovector<IndirectBlobFileReadRequests>& blob_reqs,
+                            uint8_t block_protection_bytes_per_key,
+                            uint64_t* bytes_read);
+
   // Read multiple blobs from the underlying cache or one blob file.
   //
   // If successful, returns ok and sets "result" in the elements of "blob_reqs"
@@ -250,6 +273,11 @@ class BlobSource {
                          autovector<BlobFileRangeReadRequests>& blob_reqs,
                          uint64_t* bytes_read);
 
+  void MultiGetBlobRangeByOrigin(
+      const ReadOptions& read_options,
+      autovector<IndirectBlobFileRangeReadRequests>& blob_reqs,
+      uint8_t block_protection_bytes_per_key, uint64_t* bytes_read);
+
   // Byte-range (partial) multi-read counterpart of MultiGetBlobFromOneFile for
   // a single blob file. See MultiGetBlobRange.
   void MultiGetBlobRangeFromOneFile(const ReadOptions& read_options,
@@ -260,9 +288,14 @@ class BlobSource {
 
   inline Status GetBlobFileReader(
       const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
-      CacheHandleGuard<BlobFileReader>* blob_file_reader) {
-    return blob_file_cache_->GetBlobFileReader(read_options, blob_file,
-                                               blob_file_reader);
+      CacheHandleGuard<BlobFileReader>* blob_file_reader,
+      uint64_t expected_origin_file_number = 0, uint64_t expected_file_size = 0,
+      uint8_t block_protection_bytes_per_key = 0) {
+    assert(blob_file_cache_ != nullptr);
+    return blob_file_cache_->GetBlobFileReader(
+        read_options, blob_file, blob_file_reader,
+        /*allow_footer_skip_retry=*/false, expected_origin_file_number,
+        expected_file_size, block_protection_bytes_per_key);
   }
 
   inline Cache* GetBlobCache() const { return blob_cache_.get(); }

@@ -69,6 +69,19 @@ TableBuilder* AdaptiveTableFactory::NewTableBuilder(
   return table_factory_to_write_->NewTableBuilder(table_builder_options, file);
 }
 
+const void* AdaptiveTableFactory::GetOptionsPtr(const std::string& name) const {
+  const void* options = TableFactory::GetOptionsPtr(name);
+  if (options != nullptr || name != BlockBasedTableOptions::kName()) {
+    return options;
+  }
+  return table_factory_to_write_->GetOptionsPtr(name);
+}
+
+const BlockBasedTableOptions*
+AdaptiveTableFactory::GetBlockBasedTableReaderOptions() const {
+  return block_based_table_factory_->GetOptions<BlockBasedTableOptions>();
+}
+
 std::string AdaptiveTableFactory::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
