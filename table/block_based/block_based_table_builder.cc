@@ -1844,6 +1844,7 @@ struct BlockBasedTableBuilder::Rep {
     const bool is_custom_default =
         table_options.index_mode ==
         BlockBasedTableOptions::IndexMode::kCustomDefault;
+    SetStatus(ValidateIndexMode(table_options.index_mode));
     const bool is_custom_only = table_options.index_mode ==
                                 BlockBasedTableOptions::IndexMode::kCustomOnly;
     const bool builds_custom_index =

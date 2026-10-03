@@ -316,10 +316,16 @@ class IndexFactoryReader {
   virtual std::unique_ptr<IndexFactoryIterator> NewIterator(
       const ReadOptions& read_options) = 0;
 
-  // Approximate heap memory used by this reader (excluding the raw
-  // index block contents, which are tracked separately by the block
-  // cache or table reader).
+  // Approximate heap memory used by this reader. For compatibility, existing
+  // readers can include the serialized index block's size in this estimate.
+  // Readers reporting only auxiliary allocations must override
+  // MemoryUsageIncludesIndexBlock() to return false. RocksDB accounts for the
+  // raw block separately, in the block cache or the owning table reader.
   virtual size_t ApproximateMemoryUsage() const = 0;
+
+  // Whether ApproximateMemoryUsage() includes the serialized block's size.
+  // The default preserves the accounting convention of legacy UDI readers.
+  virtual bool MemoryUsageIncludesIndexBlock() const { return true; }
 };
 
 // ---------------------------------------------------------------------------

@@ -679,7 +679,9 @@ struct BlockBasedTableOptions {
   // OPTIONS file compatibility: the legacy boolean names
   // use_udi_as_primary_index, skip_standard_index, and
   // fail_if_no_udi_on_open are accepted as parse aliases when index_mode is
-  // absent. An explicit index_mode wins regardless of parse order.
+  // absent, or when an unmarked legacy encoding contains kStandardDefault.
+  // New OPTIONS files also serialize index_mode_explicit=true,
+  // making their mode authoritative regardless of legacy flags or parse order.
   // When constructing a factory from this C++ options struct, the default
   // kStandardDefault value is indistinguishable from an unset mode, so legacy
   // bools still apply. Using ConfigureOption() on the factory to set

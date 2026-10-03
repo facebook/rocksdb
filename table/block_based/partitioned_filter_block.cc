@@ -97,26 +97,10 @@ bool PartitionedFilterBlockBuilder::DecideCutAFilterBlock() {
     if (added >= keys_per_partition_) {
       // Currently only index builder is in charge of cutting a partition. We
       // keep requesting until it is granted.
-      RequestPartitionCut();
+      partitioned_index_builder_->RequestPartitionCut();
     }
-    return ShouldCutFilterBlock();
+    return partitioned_index_builder_->ShouldCutFilterBlock();
   }
-}
-
-void PartitionedFilterBlockBuilder::RequestPartitionCut() {
-  partitioned_index_builder_->RequestPartitionCut();
-}
-
-bool PartitionedFilterBlockBuilder::ShouldCutFilterBlock() {
-  return partitioned_index_builder_->ShouldCutFilterBlock();
-}
-
-const std::string& PartitionedFilterBlockBuilder::GetPartitionKey() {
-  return partitioned_index_builder_->GetPartitionKey();
-}
-
-bool PartitionedFilterBlockBuilder::IndexSeparatorIsKeyPlusSeq() {
-  return partitioned_index_builder_->separator_is_key_plus_seq();
 }
 
 void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
@@ -161,7 +145,7 @@ void PartitionedFilterBlockBuilder::CutAFilterBlock(const Slice* next_key,
     }
     AppendInternalKeyFooter(&ikey, /*seqno*/ 0, ValueType::kTypeDeletion);
   } else {
-    ikey = GetPartitionKey();
+    ikey = partitioned_index_builder_->GetPartitionKey();
   }
   filters_.push_back({std::move(ikey), std::move(filter_data), filter});
   completed_partitions_size_.FetchAddRelaxed(filter.size());
@@ -263,7 +247,7 @@ void PartitionedFilterBlockBuilder::UpdateFilterSizeEstimate(
   size_t filter_estimate = std::max(partitions_size, active_filter_estimate);
 
   // Estimate top-level partition index size
-  if (IndexSeparatorIsKeyPlusSeq()) {
+  if (partitioned_index_builder_->separator_is_key_plus_seq()) {
     filter_estimate += index_on_filter_block_builder_.CurrentSizeEstimate();
   } else {
     filter_estimate +=
@@ -319,7 +303,7 @@ Status PartitionedFilterBlockBuilder::Finish(
     // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
                                        handle_delta_encoding_slice);
-    if (!IndexSeparatorIsKeyPlusSeq()) {
+    if (!partitioned_index_builder_->separator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
           ExtractUserKey(e.ikey), handle_encoding, handle_delta_encoding_slice);
     }
@@ -345,7 +329,7 @@ Status PartitionedFilterBlockBuilder::Finish(
     if (UNLIKELY(filters_.empty())) {
       if (!index_on_filter_block_builder_.empty()) {
         // Simplest to just add them all at the end
-        if (IndexSeparatorIsKeyPlusSeq()) {
+        if (partitioned_index_builder_->separator_is_key_plus_seq()) {
           *filter = index_on_filter_block_builder_.Finish();
         } else {
           *filter = index_on_filter_block_builder_without_seq_.Finish();
