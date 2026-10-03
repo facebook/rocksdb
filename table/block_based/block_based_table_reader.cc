@@ -735,7 +735,7 @@ Status BlockBasedTable::Open(
     const bool avoid_shared_metadata_cache, BlobSource* blob_source) {
   table_reader->reset();
 
-  Status s = ValidateIndexMode(table_options.index_mode);
+  Status s = ValidateIndexMode(table_options.GetEffectiveIndexMode());
   if (!s.ok()) {
     return s;
   }
@@ -842,9 +842,9 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-  if ((table_options.index_mode ==
+  if ((table_options.GetEffectiveIndexMode() ==
            BlockBasedTableOptions::IndexMode::kCustomDefault ||
-       table_options.index_mode ==
+       table_options.GetEffectiveIndexMode() ==
            BlockBasedTableOptions::IndexMode::kCustomOnly) &&
       table_options.user_defined_index_factory == nullptr) {
     return Status::InvalidArgument(
@@ -855,7 +855,7 @@ Status BlockBasedTable::Open(
       footer.HasIncompatibleFeature(kFooterFeatureRequireUserDefinedIndex) ||
       rep->table_properties->standard_index_is_stub != 0;
   if (requires_custom_reader &&
-      (table_options.index_mode ==
+      (table_options.GetEffectiveIndexMode() ==
            BlockBasedTableOptions::IndexMode::kStandardOnly ||
        table_options.user_defined_index_factory == nullptr)) {
     return Status::InvalidArgument(
@@ -1808,7 +1808,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // pointer happens to be set in the table options. This avoids spurious
   // disk reads, log spam, and statistics noise.
   bool custom_reader_installed = false;
-  if (table_options.index_mode !=
+  if (table_options.GetEffectiveIndexMode() !=
           BlockBasedTableOptions::IndexMode::kStandardOnly &&
       table_options.user_defined_index_factory != nullptr) {
     std::string udi_name(table_options.user_defined_index_factory->Name());
@@ -1819,10 +1819,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     // kCustomOnly route reads through it, and a file written in kCustomOnly has
     // no usable standard index to fall back to. kStandardOnly never gets here,
     // which is what lets this compare against kStandardDefault alone.
-    assert(table_options.index_mode !=
+    assert(table_options.GetEffectiveIndexMode() !=
            BlockBasedTableOptions::IndexMode::kStandardOnly);
     const bool custom_index_required =
-        table_options.index_mode !=
+        table_options.GetEffectiveIndexMode() !=
             BlockBasedTableOptions::IndexMode::kStandardDefault ||
         requires_custom_reader;
 
@@ -1920,9 +1920,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             // custom index (see standard_index_is_stub in NewIterator).
             index_reader = std::make_unique<IndexFactoryReaderWrapper>(
                 udi_name, std::move(index_reader), std::move(udi_reader),
-                table_options.index_mode ==
+                table_options.GetEffectiveIndexMode() ==
                         BlockBasedTableOptions::IndexMode::kCustomDefault ||
-                    table_options.index_mode ==
+                    table_options.GetEffectiveIndexMode() ==
                         BlockBasedTableOptions::IndexMode::kCustomOnly,
                 requires_custom_reader, index_block_size);
             custom_reader_installed = true;

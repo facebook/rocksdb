@@ -54,6 +54,7 @@
 #include "rocksdb/wal_filter.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "util/cast_util.h"
 #include "util/stderr_logger.h"
 #include "utilities/merge_operators.h"
 
@@ -475,13 +476,9 @@ struct rocksdb_block_based_table_options_t {
     if (index_mode_explicit) {
       return;
     }
-    if (use_udi_as_primary_index) {
-      rep.index_mode = BlockBasedTableOptions::IndexMode::kCustomDefault;
-    } else if (fail_if_no_udi_on_open) {
-      rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardRequired;
-    } else {
-      rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
-    }
+    rep.index_mode = BlockBasedTableOptions::IndexMode::kStandardDefault;
+    rep.use_udi_as_primary_index = use_udi_as_primary_index;
+    rep.fail_if_no_udi_on_open = fail_if_no_udi_on_open;
   }
 };
 struct rocksdb_block_cache_trace_options_t {
@@ -4456,11 +4453,14 @@ void rocksdb_block_based_options_set_index_mode(
     rocksdb_block_based_table_options_t* opt, int v) {
   opt->rep.index_mode = static_cast<BlockBasedTableOptions::IndexMode>(v);
   opt->index_mode_explicit = true;
+  opt->rep.use_udi_as_primary_index = false;
+  opt->rep.fail_if_no_udi_on_open = false;
 }
 
 int rocksdb_block_based_options_get_index_mode(
     rocksdb_block_based_table_options_t* opt) {
-  return static_cast<int>(opt->rep.index_mode);
+  return ROCKSDB_NAMESPACE::lossless_cast<int>(
+      opt->rep.GetEffectiveIndexMode());
 }
 
 void rocksdb_options_set_block_based_table_factory(
@@ -4469,6 +4469,18 @@ void rocksdb_options_set_block_based_table_factory(
   if (table_options) {
     opt->rep.table_factory.reset(
         ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(table_options->rep));
+    if (table_options->index_mode_explicit &&
+        table_options->rep.index_mode ==
+            BlockBasedTableOptions::IndexMode::kStandardDefault) {
+      // The default struct value cannot carry an explicit selection. Preserve
+      // that selection when transferring the C wrapper into a C++ factory.
+      ConfigOptions config;
+      config.invoke_prepare_options = false;
+      Status s = opt->rep.table_factory->ConfigureOption(config, "index_mode",
+                                                         "kStandardDefault");
+      assert(s.ok());
+      s.PermitUncheckedError();
+    }
   }
 }
 

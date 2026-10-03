@@ -1842,13 +1842,13 @@ struct BlockBasedTableBuilder::Rep {
         table_options, internal_comparator.user_comparator(), ts_sz);
 
     const bool is_custom_default =
-        table_options.index_mode ==
+        table_options.GetEffectiveIndexMode() ==
         BlockBasedTableOptions::IndexMode::kCustomDefault;
-    SetStatus(ValidateIndexMode(table_options.index_mode));
-    const bool is_custom_only = table_options.index_mode ==
+    SetStatus(ValidateIndexMode(table_options.GetEffectiveIndexMode()));
+    const bool is_custom_only = table_options.GetEffectiveIndexMode() ==
                                 BlockBasedTableOptions::IndexMode::kCustomOnly;
     const bool builds_custom_index =
-        table_options.index_mode !=
+        table_options.GetEffectiveIndexMode() !=
         BlockBasedTableOptions::IndexMode::kStandardOnly;
 
     if ((is_custom_default || is_custom_only) &&
@@ -1891,7 +1891,7 @@ struct BlockBasedTableBuilder::Rep {
     // kCustomOnly skips the built-in builder; a minimal empty index
     // block is written by WriteIndexBlock to satisfy the SST footer.
     const bool build_standard_index =
-        table_options.index_mode !=
+        table_options.GetEffectiveIndexMode() !=
         BlockBasedTableOptions::IndexMode::kCustomOnly;
     if (build_standard_index) {
       BuiltinIndexFactoryConfig builtin_config;
@@ -3575,11 +3575,9 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       break;
     }
     const BlockBasedTableOptions::IndexMode mode =
-        rep_->table_options.index_mode;
+        rep_->table_options.GetEffectiveIndexMode();
     if (contents.empty() &&
-        (mode == BlockBasedTableOptions::IndexMode::kStandardRequired ||
-         mode == BlockBasedTableOptions::IndexMode::kCustomDefault ||
-         mode == BlockBasedTableOptions::IndexMode::kCustomOnly)) {
+        mode == BlockBasedTableOptions::IndexMode::kCustomOnly) {
       rep_->SetStatus(Status::InvalidArgument(
           "IndexFactory " + ci.name +
           " returned an empty index in a mode that requires it"));
@@ -3654,7 +3652,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           !rep_->builtin_index_builder->separator_is_key_plus_seq();
       // kCustomOnly takes the else branch below, so kCustomDefault is the
       // only mode here that makes the custom index primary.
-      if (rep_->table_options.index_mode ==
+      if (rep_->table_options.GetEffectiveIndexMode() ==
               BlockBasedTableOptions::IndexMode::kCustomDefault &&
           rep_->table_options.user_defined_index_factory != nullptr) {
         rep_->props.udi_is_primary_index = 1;
@@ -3811,7 +3809,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   }
   FooterBuilder footer;
   uint64_t incompatible_features =
-      r->table_options.index_mode ==
+      r->table_options.GetEffectiveIndexMode() ==
               BlockBasedTableOptions::IndexMode::kCustomOnly
           ? kFooterFeatureRequireUserDefinedIndex
           : 0;
