@@ -1571,6 +1571,37 @@ Status ColumnFamilyData::ValidateOptions(
           "Blob direct write does not support user-defined timestamps.");
     }
   }
+  if (cf_options.enable_blob_indirection) {
+    if (!cf_options.enable_blob_files) {
+      return Status::InvalidArgument(
+          "Blob indirection requires enable_blob_files=true.");
+    }
+    if (cf_options.enable_blob_direct_write) {
+      return Status::NotSupported(
+          "Blob indirection does not support blob direct write.");
+    }
+    if (cf_options.blob_compression_type != kNoCompression) {
+      return Status::NotSupported(
+          "Blob indirection does not support compressed blob files.");
+    }
+    if (db_options.compaction_service != nullptr) {
+      return Status::NotSupported(
+          "Blob indirection does not support remote compaction.");
+    }
+    const BlockBasedTableOptions* const table_options =
+        cf_options.table_factory == nullptr
+            ? nullptr
+            : cf_options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (table_options == nullptr) {
+      return Status::NotSupported(
+          "Blob indirection requires block-based table format.");
+    }
+    if (table_options->format_version < 7) {
+      return Status::NotSupported(
+          "Blob indirection requires block-based table format version 7 or "
+          "newer.");
+    }
+  }
   if (ucmp->timestamp_size() > 0 &&
       !cf_options.persist_user_defined_timestamps) {
     if (db_options.atomic_flush) {

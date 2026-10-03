@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 
 #include "test_util/sync_point.h"
@@ -61,6 +62,104 @@ TEST_F(BlobFileAdditionTest, NonEmpty) {
   ASSERT_EQ(blob_file_addition.GetChecksumValue(), checksum_value);
 
   TestEncodeDecode(blob_file_addition);
+}
+
+TEST_F(BlobFileAdditionTest, IndirectionIdentity) {
+  BlobFileAddition addition(/*blob_file_number=*/123,
+                            /*total_blob_count=*/2,
+                            /*total_blob_bytes=*/456, "", "");
+  addition.SetIndirectionIdentity();
+
+  ASSERT_TRUE(addition.HasIndirectionInfo());
+  ASSERT_TRUE(addition.IsIndirectIdentityFile());
+  ASSERT_FALSE(addition.IsIndirectCarrierFile());
+  ASSERT_EQ(addition.GetOriginFileNumber(), 123U);
+  ASSERT_EQ(addition.GetCarrierFileSize(), 0U);
+  TestEncodeDecode(addition);
+}
+
+TEST_F(BlobFileAdditionTest, IndirectionCarrier) {
+  BlobFileAddition addition(/*blob_file_number=*/456,
+                            /*total_blob_count=*/2,
+                            /*total_blob_bytes=*/789, "", "");
+  ASSERT_OK(addition.SetIndirectionCarrier(/*origin_file_number=*/123,
+                                           /*carrier_file_size=*/1000));
+
+  ASSERT_TRUE(addition.HasIndirectionInfo());
+  ASSERT_FALSE(addition.IsIndirectIdentityFile());
+  ASSERT_TRUE(addition.IsIndirectCarrierFile());
+  ASSERT_EQ(addition.GetOriginFileNumber(), 123U);
+  ASSERT_EQ(addition.GetCarrierFileSize(), 1000U);
+  TestEncodeDecode(addition);
+
+  ASSERT_TRUE(addition
+                  .SetIndirectionCarrier(/*origin_file_number=*/456,
+                                         /*carrier_file_size=*/1000)
+                  .IsInvalidArgument());
+
+  BlobFileAddition invalid_physical_file;
+  ASSERT_TRUE(invalid_physical_file
+                  .SetIndirectionCarrier(/*origin_file_number=*/123,
+                                         /*carrier_file_size=*/1000)
+                  .IsInvalidArgument());
+}
+
+TEST_F(BlobFileAdditionTest, IndirectionCarrierRejectsInvalidSize) {
+  BlobFileAddition addition(/*blob_file_number=*/456,
+                            /*total_blob_count=*/2,
+                            /*total_blob_bytes=*/789, "", "");
+  EXPECT_TRUE(addition
+                  .SetIndirectionCarrier(/*origin_file_number=*/123,
+                                         /*carrier_file_size=*/0)
+                  .IsInvalidArgument());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
+        std::string* output = static_cast<std::string*>(arg);
+        constexpr uint32_t indirection_info_tag = (1 << 6) | 1;
+        PutVarint32(output, indirection_info_tag);
+        std::string value;
+        PutVarint64(&value, /*origin_file_number=*/123);
+        PutVarint64(&value, /*carrier_file_size=*/0);
+        PutLengthPrefixedSlice(output, value);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string encoded;
+  addition.EncodeTo(&encoded);
+  BlobFileAddition decoded;
+  Slice input(encoded);
+  const Status status = decoded.DecodeFrom(&input);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  EXPECT_TRUE(status.IsCorruption());
+}
+
+TEST_F(BlobFileAdditionTest, IndirectionCarrierRejectsInvalidPhysicalFile) {
+  BlobFileAddition addition;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
+        std::string* output = static_cast<std::string*>(arg);
+        constexpr uint32_t indirection_info_tag = (1 << 6) | 1;
+        PutVarint32(output, indirection_info_tag);
+        std::string value;
+        PutVarint64(&value, /*origin_file_number=*/123);
+        PutVarint64(&value, /*carrier_file_size=*/1000);
+        PutLengthPrefixedSlice(output, value);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string encoded;
+  addition.EncodeTo(&encoded);
+  BlobFileAddition decoded;
+  Slice input(encoded);
+  const Status status = decoded.DecodeFrom(&input);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  EXPECT_TRUE(status.IsCorruption());
 }
 
 TEST_F(BlobFileAdditionTest, DecodeErrors) {
@@ -171,7 +270,7 @@ TEST_F(BlobFileAdditionTest, ForwardIncompatibleCustomField) {
       "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
 
-        constexpr uint32_t forward_incompatible_tag = (1 << 6) + 1;
+        constexpr uint32_t forward_incompatible_tag = (1 << 6) + 2;
         PutVarint32(output, forward_incompatible_tag);
 
         PutLengthPrefixedSlice(output, "foobar");
