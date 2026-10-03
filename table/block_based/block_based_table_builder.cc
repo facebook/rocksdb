@@ -1188,6 +1188,7 @@ struct BlockBasedTableBuilder::Rep {
   // the caller (e.g. SstFileWriter::OpenWithEmbeddedBlobs) may free its own
   // copy as soon as the builder is constructed, so we must not alias it.
   std::unique_ptr<const EmbeddedBlobSstBuilderOptions> embedded_blob_options;
+  const uint64_t blob_gc_origin_file_number;
 
   // Mutable state for embedded blob writing, lazily allocated when the first
   // blob record is written. Its presence is the signal that the file contains
@@ -1467,7 +1468,8 @@ struct BlockBasedTableBuilder::Rep {
             tbo.embedded_blob_options
                 ? std::make_unique<EmbeddedBlobSstBuilderOptions>(
                       *tbo.embedded_blob_options)
-                : nullptr) {
+                : nullptr),
+        blob_gc_origin_file_number(tbo.blob_gc_origin_file_number) {
     FilterBuildingContext filter_context(table_options);
 
     filter_context.info_log = ioptions.logger;
@@ -1958,11 +1960,28 @@ struct BlockBasedTableBuilder::Rep {
 BlockBasedTableBuilder::BlockBasedTableBuilder(
     const BlockBasedTableOptions& table_options, const TableBuilderOptions& tbo,
     WritableFileWriter* file) {
+  assert(file != nullptr);
   BlockBasedTableOptions sanitized_table_options(table_options);
   auto ucmp = tbo.internal_comparator.user_comparator();
   assert(ucmp);
   (void)ucmp;  // avoids unused variable error.
   rep_ = std::make_unique<Rep>(sanitized_table_options, tbo, file);
+
+  if (tbo.blob_gc_origin_file_number != 0) {
+    IOOptions io_options;
+    IOStatus io_s =
+        WritableFileWriter::PrepareIOOptions(tbo.write_options, io_options);
+    if (io_s.ok()) {
+      io_s = file->Append(
+          Slice(kBlobGcCarrierFilePrefix, kBlobGcCarrierFilePrefixSize),
+          io_options);
+    }
+    if (io_s.ok()) {
+      rep_->set_offset(kBlobGcCarrierFilePrefixSize);
+    } else {
+      rep_->SetIOStatus(std::move(io_s));
+    }
+  }
 
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
@@ -3280,6 +3299,14 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       EncodeEmbeddedBlobStats(rep_->embedded_blob_state->stats, &encoded_stats);
       rep_->props.user_collected_properties[kEmbeddedBlobSstStatsPropertyName] =
           std::move(encoded_stats);
+    }
+
+    if (rep_->blob_gc_origin_file_number != 0) {
+      std::string encoded_origin;
+      EncodeBlobGcCarrierOrigin(rep_->blob_gc_origin_file_number,
+                                &encoded_origin);
+      rep_->props.user_collected_properties[kBlobGcCarrierOriginPropertyName] =
+          std::move(encoded_origin);
     }
 
     rep_->props.num_data_blocks_compression_rejected =

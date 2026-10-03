@@ -11,6 +11,7 @@
 
 #include "cache/cache_reservation_manager.h"
 #include "cache/charged_cache.h"
+#include "db/blob/blob_constants.h"
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_gen2_format.h"
@@ -21,6 +22,7 @@
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
+#include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -132,6 +134,15 @@ void PinCacheHitSubRange(CacheHandleGuard<BlobContents>* blob_handle,
   constexpr Cleanable* cleanable = nullptr;
   value->PinSlice(sub, cleanable);
   blob_handle->TransferTo(value);
+}
+
+Status VerifyStableBlobChecksum(PinnableSlice* value, uint32_t expected) {
+  assert(value != nullptr);
+  if (crc32c::Value(value->data(), value->size()) != expected) {
+    value->Reset();
+    return Status::Corruption("Indirect blob value checksum mismatch");
+  }
+  return Status::OK();
 }
 
 }  // namespace
@@ -377,6 +388,43 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   return s;
 }
 
+Status BlobSource::GetBlobByOrigin(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobFileOpenInfo& carrier_file, uint64_t carrier_file_size,
+    uint8_t block_protection_bytes_per_key, uint64_t origin_file_number,
+    uint64_t origin_offset, uint64_t value_size, uint32_t checksum,
+    CompressionType compression_type, PinnableSlice* value,
+    uint64_t* bytes_read) {
+  assert(value != nullptr);
+
+  if (carrier_file.file_number == origin_file_number) {
+    Status s = GetBlob(read_options, user_key, carrier_file, origin_offset,
+                       carrier_file_size, value_size, compression_type,
+                       /*prefetch_buffer=*/nullptr, value, bytes_read);
+    if (s.ok() && read_options.verify_checksums) {
+      s = VerifyStableBlobChecksum(value, checksum);
+    }
+    return s;
+  }
+
+  assert(blob_file_cache_ != nullptr);
+  CacheHandleGuard<BlobFileReader> carrier_reader;
+  Status s = blob_file_cache_->GetBlobFileReader(
+      read_options, carrier_file, &carrier_reader,
+      /*allow_footer_skip_retry=*/false, origin_file_number, carrier_file_size,
+      block_protection_bytes_per_key);
+  if (!s.ok()) {
+    return s;
+  }
+  s = carrier_reader.GetValue()->GetBlobFromCarrier(
+      read_options, origin_offset, value_size, compression_type,
+      /*range_offset=*/0, kWholeBlobLength, value, bytes_read);
+  if (s.ok() && read_options.verify_checksums) {
+    s = VerifyStableBlobChecksum(value, checksum);
+  }
+  return s;
+}
+
 Status BlobSource::GetBlobRange(const ReadOptions& read_options,
                                 const Slice& user_key,
                                 const BlobFileOpenInfo& blob_file,
@@ -463,6 +511,34 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
 
   assert(s.ok());
   return s;
+}
+
+Status BlobSource::GetBlobRangeByOrigin(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobFileOpenInfo& carrier_file, uint64_t carrier_file_size,
+    uint8_t block_protection_bytes_per_key, uint64_t origin_file_number,
+    uint64_t origin_offset, uint64_t value_size, uint64_t range_offset,
+    size_t range_length, PinnableSlice* value, uint64_t* bytes_read) {
+  assert(value != nullptr);
+
+  if (carrier_file.file_number == origin_file_number) {
+    return GetBlobRange(read_options, user_key, carrier_file, origin_offset,
+                        carrier_file_size, value_size, kNoCompression,
+                        range_offset, range_length, value, bytes_read);
+  }
+
+  assert(blob_file_cache_ != nullptr);
+  CacheHandleGuard<BlobFileReader> carrier_reader;
+  Status s = blob_file_cache_->GetBlobFileReader(
+      read_options, carrier_file, &carrier_reader,
+      /*allow_footer_skip_retry=*/false, origin_file_number, carrier_file_size,
+      block_protection_bytes_per_key);
+  if (!s.ok()) {
+    return s;
+  }
+  return carrier_reader.GetValue()->GetBlobFromCarrier(
+      read_options, origin_offset, value_size, kNoCompression, range_offset,
+      range_length, value, bytes_read);
 }
 
 Status BlobSource::GetSimpleGen2Blob(
@@ -848,6 +924,58 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
   }
 }
 
+void BlobSource::MultiGetBlobByOrigin(
+    const ReadOptions& read_options,
+    autovector<IndirectBlobFileReadRequests>& blob_reqs,
+    uint8_t block_protection_bytes_per_key, uint64_t* bytes_read) {
+  assert(!blob_reqs.empty());
+
+  uint64_t total_bytes_read = 0;
+  for (auto& [carrier_file, carrier_file_size, origin_file_number, requests] :
+       blob_reqs) {
+    uint64_t file_bytes_read = 0;
+    std::sort(requests.begin(), requests.end(),
+              [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) {
+                return lhs.offset < rhs.offset;
+              });
+    if (carrier_file.file_number == origin_file_number) {
+      MultiGetBlobFromOneFile(read_options, carrier_file, carrier_file_size,
+                              requests, &file_bytes_read);
+    } else {
+      assert(blob_file_cache_ != nullptr);
+      CacheHandleGuard<BlobFileReader> carrier_reader;
+      const Status s = blob_file_cache_->GetBlobFileReader(
+          read_options, carrier_file, &carrier_reader,
+          /*allow_footer_skip_retry=*/false, origin_file_number,
+          carrier_file_size, block_protection_bytes_per_key);
+      if (!s.ok()) {
+        for (BlobReadRequest& req : requests) {
+          assert(req.status != nullptr);
+          *req.status = s;
+        }
+      } else {
+        carrier_reader.GetValue()->MultiGetBlobFromCarrier(
+            read_options, requests, &file_bytes_read);
+      }
+    }
+
+    if (read_options.verify_checksums) {
+      for (BlobReadRequest& req : requests) {
+        assert(req.status != nullptr);
+        assert(req.result != nullptr);
+        if (req.status->ok()) {
+          *req.status = VerifyStableBlobChecksum(req.result, req.checksum);
+        }
+      }
+    }
+    total_bytes_read += file_bytes_read;
+  }
+
+  if (bytes_read != nullptr) {
+    *bytes_read = total_bytes_read;
+  }
+}
+
 void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
                                          const BlobFileOpenInfo& blob_file,
                                          uint64_t /*file_size*/,
@@ -1124,6 +1252,50 @@ void BlobSource::MultiGetBlobRange(
   }
 
   if (bytes_read) {
+    *bytes_read = total_bytes_read;
+  }
+}
+
+void BlobSource::MultiGetBlobRangeByOrigin(
+    const ReadOptions& read_options,
+    autovector<IndirectBlobFileRangeReadRequests>& blob_reqs,
+    uint8_t block_protection_bytes_per_key, uint64_t* bytes_read) {
+  assert(!blob_reqs.empty());
+
+  uint64_t total_bytes_read = 0;
+  for (auto& [carrier_file, carrier_file_size, origin_file_number, requests] :
+       blob_reqs) {
+    uint64_t file_bytes_read = 0;
+    std::sort(
+        requests.begin(), requests.end(),
+        [](const BlobRangeReadRequest& lhs, const BlobRangeReadRequest& rhs) {
+          return lhs.offset + lhs.range_offset < rhs.offset + rhs.range_offset;
+        });
+    if (carrier_file.file_number == origin_file_number) {
+      MultiGetBlobRangeFromOneFile(read_options, carrier_file,
+                                   carrier_file_size, requests,
+                                   &file_bytes_read);
+    } else {
+      assert(blob_file_cache_ != nullptr);
+      CacheHandleGuard<BlobFileReader> carrier_reader;
+      const Status s = blob_file_cache_->GetBlobFileReader(
+          read_options, carrier_file, &carrier_reader,
+          /*allow_footer_skip_retry=*/false, origin_file_number,
+          carrier_file_size, block_protection_bytes_per_key);
+      if (!s.ok()) {
+        for (BlobRangeReadRequest& req : requests) {
+          assert(req.status != nullptr);
+          *req.status = s;
+        }
+      } else {
+        carrier_reader.GetValue()->MultiGetBlobRangeFromCarrier(
+            read_options, requests, &file_bytes_read);
+      }
+    }
+    total_bytes_read += file_bytes_read;
+  }
+
+  if (bytes_read != nullptr) {
     *bytes_read = total_bytes_read;
   }
 }

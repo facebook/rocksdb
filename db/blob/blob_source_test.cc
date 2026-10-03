@@ -24,6 +24,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -107,7 +108,6 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 BlobFileOpenInfo OpenInfoWithoutChecksum(uint64_t file_number) {
   return BlobFileOpenInfo{file_number, Slice(), Slice()};
 }
-
 }  // anonymous namespace
 
 class BlobSourceTest : public DBTestBase {
@@ -457,6 +457,40 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
+  }
+
+  {
+    // A stable checksum failure must not expose the unauthenticated value.
+    read_options.read_tier = ReadTier::kReadAllTier;
+    read_options.fill_cache = true;
+    const uint32_t wrong_checksum =
+        crc32c::Value(blobs[0].data(), blobs[0].size()) ^ 1;
+
+    PinnableSlice value;
+    EXPECT_TRUE(blob_source
+                    .GetBlobByOrigin(
+                        read_options, keys[0],
+                        OpenInfoWithoutChecksum(blob_file_number), file_size,
+                        /*block_protection_bytes_per_key=*/0, blob_file_number,
+                        blob_offsets[0], blob_sizes[0], wrong_checksum,
+                        kNoCompression, &value, /*bytes_read=*/nullptr)
+                    .IsCorruption());
+    EXPECT_TRUE(value.empty());
+    EXPECT_FALSE(value.IsPinned());
+
+    Status status;
+    autovector<BlobReadRequest> requests;
+    requests.emplace_back(keys[0], blob_offsets[0], blob_sizes[0],
+                          kNoCompression, wrong_checksum, &value, &status);
+    autovector<IndirectBlobFileReadRequests> batches;
+    batches.emplace_back(OpenInfoWithoutChecksum(blob_file_number), file_size,
+                         blob_file_number, std::move(requests));
+    blob_source.MultiGetBlobByOrigin(read_options, batches,
+                                     /*block_protection_bytes_per_key=*/0,
+                                     /*bytes_read=*/nullptr);
+    EXPECT_TRUE(status.IsCorruption());
+    EXPECT_TRUE(value.empty());
+    EXPECT_FALSE(value.IsPinned());
   }
 }
 

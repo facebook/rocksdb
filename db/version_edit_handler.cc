@@ -987,6 +987,7 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
     // Trust the MANIFEST: do not open the blob file to classify it.
     return Status::OK();
   }
+  assert(cfd != nullptr);
   BlobSource* blob_source = cfd->blob_source();
   assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;
@@ -994,8 +995,16 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   const BlobFileOpenInfo blob_file{blob_file_num,
                                    blob_addition.GetChecksumValue(),
                                    blob_addition.GetChecksumMethod()};
-  Status s = blob_source->GetBlobFileReader(read_options_, blob_file,
-                                            &blob_file_reader);
+  Status s;
+  if (blob_addition.IsIndirectCarrierFile()) {
+    s = blob_source->GetBlobFileReader(
+        read_options_, blob_file, &blob_file_reader,
+        blob_addition.GetOriginFileNumber(), blob_addition.GetCarrierFileSize(),
+        cfd->GetLatestMutableCFOptions().block_protection_bytes_per_key);
+  } else {
+    s = blob_source->GetBlobFileReader(read_options_, blob_file,
+                                       &blob_file_reader);
+  }
   if (!s.ok()) {
     return s;
   }
