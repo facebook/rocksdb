@@ -10,6 +10,7 @@
 #pragma once
 
 #include <limits>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -245,6 +246,13 @@ struct JobContext {
   // Used for remote compaction. To prevent OPTIONS files from getting
   // purged by PurgeObsoleteFiles() of the primary host
   uint64_t min_options_file_number;
+  // Exact OPTIONS file selected by the current MANIFEST. Unlike
+  // min_options_file_number, this protects one authoritative file even when
+  // higher-numbered orphan OPTIONS files exist.
+  uint64_t manifest_options_file_number = 0;
+  // Canonical OPTIONS files that are durable but whose MANIFEST publication
+  // has not finished yet.
+  std::set<uint64_t> pending_options_file_numbers;
   uint64_t log_number = 0;
   uint64_t prev_log_number = 0;
 

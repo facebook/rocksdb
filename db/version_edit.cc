@@ -134,7 +134,8 @@ bool VersionEdit::ShouldEmitPerColumnFamilyRecoveryEdit(
          HasLastSequence() || !GetCompactCursors().empty() || HasDbId() ||
          IsColumnFamilyManipulation() || IsInAtomicGroup() ||
          HasFullHistoryTsLow() || HasPersistUserDefinedTimestamps() ||
-         HasSubcompactionProgress();
+         HasSubcompactionProgress() || HasEffectiveOptionsFileNumber() ||
+         HasPreparedOptionsFileNumber();
 }
 
 bool VersionEdit::EncodeTo(std::string* dst,
@@ -262,6 +263,20 @@ bool VersionEdit::EncodeTo(std::string* dst,
     std::string varint_size;
     PutVarint64(&varint_size, last_compacted_manifest_file_size_);
     PutLengthPrefixedSlice(dst, Slice(varint_size));
+  }
+
+  if (has_effective_options_file_number_) {
+    PutVarint32(dst, kEffectiveOptionsFileNumber);
+    std::string encoded;
+    PutVarint64(&encoded, effective_options_file_number_);
+    PutLengthPrefixedSlice(dst, encoded);
+  }
+
+  if (has_prepared_options_file_number_) {
+    PutVarint32(dst, kPreparedOptionsFileNumber);
+    std::string encoded;
+    PutVarint64(&encoded, prepared_options_file_number_);
+    PutLengthPrefixedSlice(dst, encoded);
   }
 
   return true;
@@ -925,6 +940,30 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kEffectiveOptionsFileNumber: {
+        Slice encoded;
+        if (GetLengthPrefixedSlice(&input, &encoded) &&
+            GetVarint64(&encoded, &effective_options_file_number_) &&
+            encoded.empty()) {
+          has_effective_options_file_number_ = true;
+        } else {
+          msg = "effective options file number";
+        }
+        break;
+      }
+
+      case kPreparedOptionsFileNumber: {
+        Slice encoded;
+        if (GetLengthPrefixedSlice(&input, &encoded) &&
+            GetVarint64(&encoded, &prepared_options_file_number_) &&
+            encoded.empty()) {
+          has_prepared_options_file_number_ = true;
+        } else {
+          msg = "prepared options file number";
+        }
+        break;
+      }
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -1103,6 +1142,14 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LastCompactedManifestFileSize: ");
     AppendNumberTo(&r, last_compacted_manifest_file_size_);
   }
+  if (has_effective_options_file_number_) {
+    r.append("\n  EffectiveOptionsFileNumber: ");
+    AppendNumberTo(&r, effective_options_file_number_);
+  }
+  if (has_prepared_options_file_number_) {
+    r.append("\n  PreparedOptionsFileNumber: ");
+    AppendNumberTo(&r, prepared_options_file_number_);
+  }
   r.append("\n}\n");
   return r;
 }
@@ -1261,6 +1308,14 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   if (has_last_compacted_manifest_file_size_) {
     jw << "LastCompactedManifestFileSize" << last_compacted_manifest_file_size_;
+  }
+
+  if (has_effective_options_file_number_) {
+    jw << "EffectiveOptionsFileNumber" << effective_options_file_number_;
+  }
+
+  if (has_prepared_options_file_number_) {
+    jw << "PreparedOptionsFileNumber" << prepared_options_file_number_;
   }
 
   jw.EndObject();

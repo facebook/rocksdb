@@ -603,6 +603,30 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
+
+  if (!read_only) {
+    std::vector<std::string> options_files;
+    IOOptions io_opts;
+    io_opts.do_not_recurse = true;
+    s = immutable_db_options_.fs->GetChildren(
+        GetName(), io_opts, &options_files, /*IODebugContext=*/nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    const OptionsFileProtocolState protocol_state =
+        versions_->options_file_protocol_state();
+    bool selected_by_manifest = false;
+    const uint64_t selected_options_file_number =
+        VersionSet::ResolveOptionsFileNumber(protocol_state, options_files,
+                                             &selected_by_manifest);
+    if (!selected_by_manifest) {
+      versions_->ApplyLegacyOptionsFileNumber(selected_options_file_number);
+      // Legacy OPTIONS-only rotations do not persist the allocator in
+      // MANIFEST. Keep subsequent tracked publications above the selected file
+      // or it would continue shadowing their committed pointers.
+      versions_->MarkFileNumberUsed(selected_options_file_number);
+    }
+  }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       const auto& moptions = cfd->GetLatestMutableCFOptions();
@@ -881,10 +905,7 @@ Status DBImpl::Recover(
   }
 
   if (read_only) {
-    // If we are opening as read-only, we need to update options_file_number_
-    // to reflect the most recent OPTIONS file. It does not matter for regular
-    // read-write db instance because options_file_number_ will later be
-    // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
+    TEST_SYNC_POINT("DBImpl::Recover:BeforeReadOnlyLegacyOptionsDirectoryScan");
     std::vector<std::string> filenames;
     if (s.ok()) {
       const std::string normalized_dbname = NormalizePath(dbname_);
@@ -902,19 +923,39 @@ Status DBImpl::Recover(
       }
     }
     if (s.ok()) {
-      uint64_t number = 0;
-      uint64_t options_file_number = 0;
-      FileType type;
-      for (const auto& fname : filenames) {
-        if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
-          options_file_number = std::max(number, options_file_number);
+      const OptionsFileProtocolState recovered_protocol_state =
+          versions_->options_file_protocol_state();
+      OptionsFileProtocolState protocol_state = recovered_protocol_state;
+      // A primary can prepare or commit while this read-only open scans. Do not
+      // combine newer publication state with the already recovered topology.
+      // Best-efforts recovery deliberately selected its own surviving
+      // MANIFEST, so it must not revalidate through CURRENT.
+      if (!immutable_db_options_.best_efforts_recovery) {
+        s = VersionSet::GetOptionsFileProtocolState(
+            GetName(), immutable_db_options_.fs.get(), &protocol_state);
+        if (!s.ok()) {
+          return s;
+        }
+        if (protocol_state != recovered_protocol_state) {
+          return Status::TryAgain(
+              "MANIFEST OPTIONS publication changed during read-only recovery");
         }
       }
-      versions_->options_file_number_ = options_file_number;
+
+      bool selected_by_manifest = false;
+      const uint64_t options_file_number = VersionSet::ResolveOptionsFileNumber(
+          protocol_state, filenames, &selected_by_manifest);
+      if (!selected_by_manifest) {
+        versions_->ApplyLegacyOptionsFileNumber(options_file_number);
+      }
       uint64_t options_file_size = 0;
       if (options_file_number > 0) {
-        s = env_->GetFileSize(OptionsFileName(GetName(), options_file_number),
+        Status size_s =
+            env_->GetFileSize(OptionsFileName(GetName(), options_file_number),
                               &options_file_size);
+        if (!size_s.ok()) {
+          size_s.PermitUncheckedError();
+        }
       }
       versions_->options_file_size_ = options_file_size;
     }

@@ -25,6 +25,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -32,6 +33,7 @@
 #include "util/defer.h"
 #include "util/string_util.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -177,6 +179,35 @@ class ColumnFamilyTestBase : public testing::Test {
     handles_.clear();
     names_.clear();
     db_.reset();
+  }
+
+  void AssertColumnFamilyNames(const std::vector<std::string>& expected) {
+    std::vector<std::string> column_families;
+    ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &column_families));
+    ASSERT_EQ(expected, column_families);
+  }
+
+  void LoadLatestColumnFamilyDescriptors(
+      std::vector<ColumnFamilyDescriptor>* descriptors) {
+    ConfigOptions config_options;
+    config_options.env = db_options_.env;
+    DBOptions loaded_db_options;
+    ASSERT_OK(LoadLatestOptions(config_options, dbname_, &loaded_db_options,
+                                descriptors));
+  }
+
+  size_t CountOptionsFiles() {
+    std::vector<std::string> children;
+    EXPECT_OK(db_options_.env->GetChildren(dbname_, &children));
+    size_t count = 0;
+    for (const auto& child : children) {
+      uint64_t number = 0;
+      FileType type;
+      if (ParseFileName(child, &number, &type) && type == kOptionsFile) {
+        ++count;
+      }
+    }
+    return count;
   }
 
   Status TryOpen(std::vector<std::string> cf,
@@ -2230,7 +2261,252 @@ struct CountOptionsFilesFs : public FileSystemWrapper {
 
   std::atomic<int> options_files_created{};
 };
+
+struct FailOptionsFilesFs : public FileSystemWrapper {
+  explicit FailOptionsFilesFs(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  const char* Name() const override { return "FailOptionsFilesFs"; }
+
+  IOStatus NewWritableFile(const std::string& f, const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* r,
+                           IODebugContext* dbg) override {
+    if (fail_options_writes.load(std::memory_order_relaxed) &&
+        f.find("OPTIONS-") != std::string::npos) {
+      return IOStatus::IOError("injected OPTIONS-file creation failure");
+    }
+    return FileSystemWrapper::NewWritableFile(f, file_opts, r, dbg);
+  }
+
+  std::atomic<bool> fail_options_writes{false};
+};
 }  // namespace
+
+TEST_P(ColumnFamilyTest,
+       TrackedOptionsWriteFailureLeavesPreparedCandidateIgnored) {
+  db_options_.track_options_file_number_in_manifest = true;
+  db_options_.max_manifest_file_size = 1;
+  db_options_.max_manifest_space_amp_pct = 0;
+  auto fail_fs =
+      std::make_shared<FailOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto fail_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, fail_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fail_env.get());
+
+  Open();
+  fail_fs->fail_options_writes.store(true, std::memory_order_relaxed);
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_NOK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  ASSERT_EQ(nullptr, handle);
+  fail_fs->fail_options_writes.store(false, std::memory_order_relaxed);
+
+  OptionsFileProtocolState before_rotation;
+  ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
+      dbname_, db_options_.env->GetFileSystem().get(), &before_rotation));
+  ASSERT_EQ(1U, before_rotation.prepared_options_file_numbers.size());
+  const uint64_t failed_options_number =
+      *before_rotation.prepared_options_file_numbers.begin();
+  ASSERT_TRUE(db_options_.env
+                  ->FileExists(OptionsFileName(dbname_, failed_options_number))
+                  .IsNotFound());
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(1U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs.front().name);
+
+  const uint64_t old_manifest_number =
+      dbfull()->GetVersionSet()->manifest_file_number();
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_NE(old_manifest_number,
+            dbfull()->GetVersionSet()->manifest_file_number());
+
+  OptionsFileProtocolState after_rotation;
+  ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
+      dbname_, db_options_.env->GetFileSystem().get(), &after_rotation));
+  ASSERT_EQ(before_rotation, after_rotation);
+  Close();
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
+
+TEST_P(ColumnFamilyTest, TrackedDropFailsBeforeManifestOnOptionsError) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto fail_fs =
+      std::make_shared<FailOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto fail_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, fail_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fail_env.get());
+
+  Open();
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  ASSERT_NE(nullptr, handle);
+
+  fail_fs->fail_options_writes.store(true, std::memory_order_relaxed);
+  ASSERT_NOK(db_->DropColumnFamily(handle));
+  fail_fs->fail_options_writes.store(false, std::memory_order_relaxed);
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+  Close();
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName, "one"});
+}
+
+TEST_P(ColumnFamilyTest, TrackedManifestFailureKeepsPreviousOptions) {
+  db_options_.track_options_file_number_in_manifest = true;
+  auto fault_fs =
+      std::make_shared<FaultInjectionTestFS>(db_options_.env->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fault_env.get());
+
+  Open();
+  std::string effective_options_before;
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, db_options_.env,
+                                     &effective_options_before));
+
+  std::atomic<bool> inject_error{true};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (inject_error.exchange(false)) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_NOK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  ASSERT_EQ(nullptr, handle);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  std::string effective_options_after;
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, db_options_.env,
+                                     &effective_options_after));
+  ASSERT_EQ(effective_options_before, effective_options_after);
+  Close();
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
+
+TEST_P(ColumnFamilyTest,
+       FirstTrackedCreateFailureKeepsBootstrapOptionsAuthoritative) {
+  // Create a legacy pointer-absent DB, then enable tracking while Open also
+  // needs to create a missing CF. The current topology must be bound before
+  // the proposed topology OPTIONS file can become a durable orphan.
+  Open();
+  Close();
+  db_options_.track_options_file_number_in_manifest = true;
+  db_options_.create_missing_column_families = true;
+
+  auto fault_fs =
+      std::make_shared<FaultInjectionTestFS>(db_options_.env->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fault_env.get());
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::CreateColumnFamilyImpl:AfterPersistOptions", [&](void*) {
+        if (!injected) {
+          injected = true;
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_NOK(TryOpen({kDefaultColumnFamilyName, "one"}));
+  ASSERT_TRUE(injected);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(1U, loaded_cfs.size());
+  ASSERT_EQ(kDefaultColumnFamilyName, loaded_cfs.front().name);
+
+  OptionsFileProtocolState protocol_state;
+  ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
+      dbname_, db_options_.env->GetFileSystem().get(), &protocol_state));
+  ASSERT_TRUE(protocol_state.has_effective_options_file_number);
+  ASSERT_EQ(1U, protocol_state.prepared_options_file_numbers.size());
+  ASSERT_GT(*protocol_state.prepared_options_file_numbers.begin(),
+            protocol_state.effective_options_file_number);
+
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
+
+TEST_P(ColumnFamilyTest, TrackedCreatePersistsEffectiveOptions) {
+  db_options_.track_options_file_number_in_manifest = true;
+  Open();
+
+  ColumnFamilyOptions requested;
+  requested.arena_block_size = 0;
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(requested, "one", &handle));
+  const ColumnFamilyOptions effective = db_->GetOptions(handle);
+  ASSERT_GT(effective.arena_block_size, 0U);
+
+  std::vector<ColumnFamilyDescriptor> loaded_cfs;
+  LoadLatestColumnFamilyDescriptors(&loaded_cfs);
+  ASSERT_EQ(2U, loaded_cfs.size());
+  ASSERT_EQ("one", loaded_cfs[1].name);
+  ASSERT_EQ(effective.arena_block_size, loaded_cfs[1].options.arena_block_size);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+}
+
+TEST_P(ColumnFamilyTest, InvalidTrackedTopologyChangeCreatesNoOptionsOrphan) {
+  db_options_.track_options_file_number_in_manifest = true;
+  Open();
+
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+  const size_t before_duplicate_create = CountOptionsFiles();
+  ColumnFamilyHandle* duplicate = nullptr;
+  ASSERT_TRUE(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &duplicate)
+                  .IsInvalidArgument());
+  ASSERT_EQ(nullptr, duplicate);
+  ASSERT_EQ(before_duplicate_create, CountOptionsFiles());
+
+  ASSERT_OK(db_->DropColumnFamily(handle));
+  const size_t before_duplicate_drop = CountOptionsFiles();
+  ASSERT_TRUE(db_->DropColumnFamily(handle).IsInvalidArgument());
+  ASSERT_EQ(before_duplicate_drop, CountOptionsFiles());
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+}
+
+TEST_P(ColumnFamilyTest,
+       PartialMultiDropConsumesLegacyOptionsPersistenceFailure) {
+  auto fail_fs =
+      std::make_shared<FailOptionsFilesFs>(db_options_.env->GetFileSystem());
+  auto fail_env =
+      std::make_unique<CompositeEnvWrapper>(db_options_.env, fail_fs);
+  SaveAndRestore<Env*> save_restore_env(&db_options_.env, fail_env.get());
+
+  Open();
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(ColumnFamilyOptions(), "one", &handle));
+
+  fail_fs->fail_options_writes.store(true, std::memory_order_relaxed);
+  Status s = db_->DropColumnFamilies({handle, db_->DefaultColumnFamily()});
+  ASSERT_TRUE(s.IsInvalidArgument());
+  fail_fs->fail_options_writes.store(false, std::memory_order_relaxed);
+
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(handle));
+  Close();
+  AssertColumnFamilyNames({kDefaultColumnFamilyName});
+}
 
 TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
   // Can't accidentally add CFs to an existing DB

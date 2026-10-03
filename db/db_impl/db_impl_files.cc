@@ -244,9 +244,18 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // Since job_context->min_pending_output is set, until file scan finishes,
   // mutex_ cannot be released. Otherwise, we might see no min_pending_output
   // here but later find newer generated unfinalized files while scanning.
+  assert(job_context != nullptr);
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
   job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
   job_context->min_options_file_number = MinOptionsFileNumberToKeep();
+  job_context->manifest_options_file_number =
+      versions_->has_manifest_options_file_number()
+          ? versions_->options_file_number()
+          : 0;
+  job_context->pending_options_file_numbers = pending_options_file_numbers_;
+  job_context->pending_options_file_numbers.insert(
+      versions_->prepared_options_file_numbers().begin(),
+      versions_->prepared_options_file_numbers().end());
   job_context->min_blob_file_number_to_keep =
       versions_->current_next_file_number();
   for (auto* cfd : *versions_->GetColumnFamilySet()) {
@@ -730,7 +739,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         }
         break;
       case kOptionsFile:
-        keep = (number >= optsfile_num2);
+        keep = (number >= optsfile_num2) ||
+               (number == state.manifest_options_file_number) ||
+               (state.pending_options_file_numbers.find(number) !=
+                state.pending_options_file_numbers.end());
         break;
       case kCompactionProgressFile:
         // Keep compaction progress files - they are managed
