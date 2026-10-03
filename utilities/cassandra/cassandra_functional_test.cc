@@ -141,6 +141,41 @@ class CassandraFunctionalTest : public testing::Test {
 
 // THE TEST CASES BEGIN HERE
 
+TEST_F(CassandraFunctionalTest, CompactionShouldKeepMalformedRows) {
+  std::string valid_row;
+  CreateTestRowValue({CreateTestColumnSpec(kColumn, 0, 1000)})
+      .Serialize(&valid_row);
+  std::vector<std::string> malformed_rows = {
+      std::string(), valid_row.substr(0, 11),
+      valid_row.substr(0, valid_row.size() - 1)};
+  std::string invalid_mask = valid_row;
+  invalid_mask[12] =
+      ColumnTypeMask::DELETION_MASK | ColumnTypeMask::EXPIRATION_MASK;
+  malformed_rows.push_back(invalid_mask);
+
+  for (bool purge_ttl : {false, true}) {
+    CassandraCompactionFilter filter(purge_ttl, gc_grace_period_in_seconds_);
+    for (CompactionFilter::ValueType value_type :
+         {CompactionFilter::ValueType::kValue,
+          CompactionFilter::ValueType::kMergeOperand}) {
+      for (const std::string& malformed_row : malformed_rows) {
+        SCOPED_TRACE(
+            testing::Message()
+            << "purge_ttl=" << purge_ttl << ", is_merge_operand="
+            << (value_type == CompactionFilter::ValueType::kMergeOperand)
+            << ", size=" << malformed_row.size());
+        std::string new_value = "unchanged";
+        std::string skip_until = "unchanged";
+        EXPECT_EQ(filter.FilterV2(0, "key", value_type, malformed_row,
+                                  &new_value, &skip_until),
+                  CompactionFilter::Decision::kKeep);
+        EXPECT_EQ(new_value, "unchanged");
+        EXPECT_EQ(skip_until, "unchanged");
+      }
+    }
+  }
+}
+
 TEST_F(CassandraFunctionalTest, SimpleMergeTest) {
   auto db = OpenDb();
   CassandraStore store(db.get());

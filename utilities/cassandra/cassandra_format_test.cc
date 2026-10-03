@@ -43,7 +43,8 @@ TEST(ColumnTest, Column) {
 
   // Verify the deserialization.
   std::string saved_dest = dest;
-  std::shared_ptr<Column> c1 = Column::Deserialize(saved_dest.c_str(), 0);
+  std::shared_ptr<Column> c1 =
+      Column::Deserialize(saved_dest.c_str(), saved_dest.size(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), timestamp);
   EXPECT_EQ(c1->Size(), 14 + sizeof(data));
@@ -56,7 +57,7 @@ TEST(ColumnTest, Column) {
   // Verify the ColumnBase::Deserialization.
   saved_dest = dest;
   std::shared_ptr<ColumnBase> c2 =
-      ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
+      ColumnBase::Deserialize(saved_dest.c_str(), saved_dest.size(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
   EXPECT_TRUE(std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2,
@@ -98,7 +99,7 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
   // Verify the deserialization.
   std::string saved_dest = dest;
   std::shared_ptr<ExpiringColumn> c1 =
-      ExpiringColumn::Deserialize(saved_dest.c_str(), 0);
+      ExpiringColumn::Deserialize(saved_dest.c_str(), saved_dest.size(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), timestamp);
   EXPECT_EQ(c1->Size(), 18 + sizeof(data));
@@ -111,7 +112,7 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
   // Verify the ColumnBase::Deserialization.
   saved_dest = dest;
   std::shared_ptr<ColumnBase> c2 =
-      ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
+      ColumnBase::Deserialize(saved_dest.c_str(), saved_dest.size(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
   EXPECT_TRUE(std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2,
@@ -162,7 +163,8 @@ TEST(TombstoneTest, Tombstone) {
   EXPECT_EQ(Deserialize<int64_t>(dest.c_str(), offset), marked_for_delete_at);
 
   // Verify the deserialization.
-  std::shared_ptr<Tombstone> c1 = Tombstone::Deserialize(dest.c_str(), 0);
+  std::shared_ptr<Tombstone> c1 =
+      Tombstone::Deserialize(dest.c_str(), dest.size(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), marked_for_delete_at);
   EXPECT_EQ(c1->Size(), 14);
@@ -174,7 +176,7 @@ TEST(TombstoneTest, Tombstone) {
 
   // Verify the ColumnBase::Deserialization.
   std::shared_ptr<ColumnBase> c2 =
-      ColumnBase::Deserialize(dest.c_str(), c.Size());
+      ColumnBase::Deserialize(dest.c_str(), dest.size(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
   EXPECT_TRUE(std::memcmp(dest.c_str() + c.Size(), dest.c_str() + c.Size() * 2,
@@ -365,6 +367,173 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
 
   compacted.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_FALSE(changed);
+}
+
+TEST(RowValueTest, MalformedPayloads) {
+  RowValue row;
+
+  // 1. Null buffer or truncated row header (< 12 bytes)
+  EXPECT_FALSE(RowValue::Deserialize(nullptr, 0, &row));
+  EXPECT_FALSE(RowValue::Deserialize(nullptr, 12, &row));
+  for (std::size_t sz = 0; sz < 12; ++sz) {
+    char buf[12] = {0};
+    EXPECT_FALSE(RowValue::Deserialize(buf, sz, &row));
+    bool success = true;
+    RowValue r = RowValue::Deserialize(buf, sz, &success);
+    EXPECT_FALSE(success);
+    EXPECT_TRUE(r.Empty());
+    RowValue r2 = RowValue::Deserialize(buf, sz);
+    EXPECT_TRUE(r2.Empty());
+  }
+
+  // 2. Invalid row header when size > 12 (must have default tombstone
+  // timestamps)
+  {
+    std::string buf;
+    Serialize<int32_t>(100, &buf);  // local_deletion_time != kDefault
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    buf.append("trailing");
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(100, &buf);  // marked_for_delete_at != kDefault
+    buf.append("trailing");
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 3. Truncated column header (< 14 bytes for Column)
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    buf.append(5, '\0');
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 4. Oversized value_size in Column (e.g. 0x7fffffff or exceeding remaining
+  // buffer)
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(0, &buf);            // mask
+    Serialize<int8_t>(1, &buf);            // index
+    Serialize<int64_t>(1000, &buf);        // timestamp
+    Serialize<int32_t>(0x7fffffff, &buf);  // huge value_size
+    buf.append("small");
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+    bool success = true;
+    RowValue r = RowValue::Deserialize(buf.data(), buf.size(), &success);
+    EXPECT_FALSE(success);
+    EXPECT_TRUE(r.Empty());
+  }
+
+  // 5. Negative value_size in Column
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(0, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int64_t>(1000, &buf);
+    Serialize<int32_t>(-1, &buf);
+    buf.append("small");
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(0, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int64_t>(1000, &buf);
+    Serialize<int32_t>(std::numeric_limits<int32_t>::min(), &buf);
+    buf.append("small");
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 6. Oversized and negative value_size in ExpiringColumn
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(ColumnTypeMask::EXPIRATION_MASK, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int64_t>(1000, &buf);
+    Serialize<int32_t>(100, &buf);  // claims 100 bytes, buffer smaller
+    buf.append("tiny");
+    Serialize<int32_t>(3600, &buf);
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(ColumnTypeMask::EXPIRATION_MASK, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int64_t>(1000, &buf);
+    Serialize<int32_t>(-10, &buf);
+    Serialize<int32_t>(3600, &buf);
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 7. Truncated ExpiringColumn (< 18 bytes)
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(ColumnTypeMask::EXPIRATION_MASK, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int64_t>(1000, &buf);
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 8. Truncated Tombstone column (< 14 bytes)
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(ColumnTypeMask::DELETION_MASK, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int32_t>(100, &buf);
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 9. Invalid column masks (unexpected bits or both deletion and expiration
+  // set)
+  {
+    std::string buf;
+    Serialize<int32_t>(std::numeric_limits<int32_t>::max(), &buf);
+    Serialize<int64_t>(std::numeric_limits<int64_t>::min(), &buf);
+    Serialize<int8_t>(
+        ColumnTypeMask::DELETION_MASK | ColumnTypeMask::EXPIRATION_MASK, &buf);
+    Serialize<int8_t>(1, &buf);
+    Serialize<int64_t>(1000, &buf);
+    Serialize<int32_t>(0, &buf);
+    EXPECT_FALSE(RowValue::Deserialize(buf.data(), buf.size(), &row));
+  }
+
+  // 10. Standalone deserializers with nullptr or truncated buffers
+  EXPECT_EQ(Column::Deserialize(nullptr, 0), nullptr);
+  EXPECT_EQ(ExpiringColumn::Deserialize(nullptr, 0), nullptr);
+  EXPECT_EQ(Tombstone::Deserialize(nullptr, 0), nullptr);
+  EXPECT_EQ(ColumnBase::Deserialize(nullptr, 0), nullptr);
+
+  std::string dummy(10, 'x');
+  EXPECT_EQ(Column::Deserialize(dummy.data(), dummy.size(), 0), nullptr);
+  EXPECT_EQ(ExpiringColumn::Deserialize(dummy.data(), dummy.size(), 0),
+            nullptr);
+  EXPECT_EQ(Tombstone::Deserialize(dummy.data(), dummy.size(), 0), nullptr);
+  EXPECT_EQ(ColumnBase::Deserialize(dummy.data(), dummy.size(), 0), nullptr);
+
+  // Out of bounds offset
+  EXPECT_EQ(Column::Deserialize(dummy.data(), dummy.size(), 100), nullptr);
+  EXPECT_EQ(ExpiringColumn::Deserialize(dummy.data(), dummy.size(), 100),
+            nullptr);
+  EXPECT_EQ(Tombstone::Deserialize(dummy.data(), dummy.size(), 100), nullptr);
+  EXPECT_EQ(ColumnBase::Deserialize(dummy.data(), dummy.size(), 100), nullptr);
 }
 }  // namespace ROCKSDB_NAMESPACE::cassandra
 
