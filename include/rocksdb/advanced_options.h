@@ -1088,7 +1088,11 @@ struct AdvancedColumnFamilyOptions {
   //
   // This is a format-enabling option. Once indirect metadata is committed to
   // the MANIFEST, binaries that do not understand it cannot open the DB.
-  // Blob direct write and TTL blob files are not supported.
+  // Blob direct write, blob compression, non-block-based tables, table format
+  // versions older than 7, TTL blob files, and remote compaction are not
+  // supported. Column families with a merge operator may use stable identities,
+  // but standalone GC is suppressed because the current census cannot expose
+  // blob-backed merge base values.
   //
   // Default: false
   //

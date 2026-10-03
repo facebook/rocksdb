@@ -59,8 +59,10 @@ uint64_t GetEffectiveMax(const CompactionOptionsFIFO& fifo_opts) {
 
 bool FIFOCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  assert(vstorage != nullptr);
   const int kLevel0 = 0;
-  return vstorage->CompactionScore(kLevel0) >= 1;
+  return vstorage->BlobFileForStandaloneGC() != nullptr ||
+         vstorage->CompactionScore(kLevel0) >= 1;
 }
 
 Compaction* FIFOCompactionPicker::PickTTLCompaction(
