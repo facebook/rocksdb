@@ -25,15 +25,16 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/index_factory.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/table.h"
-#include "rocksdb/user_defined_index.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "utilities/trie_index/trie_index_factory.h"
@@ -360,7 +361,7 @@ static struct BlockBasedTableTypeInfo {
              offsetof(struct BlockBasedTableOptions, filter_policy),
              OptionVerificationType::kByNameAllowFromNull)},
         {"user_defined_index_factory",
-         OptionTypeInfo::AsCustomSharedPtr<UserDefinedIndexFactory>(
+         OptionTypeInfo::AsCustomSharedPtr<IndexFactory>(
              offsetof(struct BlockBasedTableOptions,
                       user_defined_index_factory),
              OptionVerificationType::kByNameAllowFromNull)},
@@ -460,22 +461,92 @@ static struct BlockBasedTableTypeInfo {
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
         {"fail_if_no_udi_on_open",
          {offsetof(struct BlockBasedTableOptions, fail_if_no_udi_on_open),
-          OptionType::kBoolean, OptionVerificationType::kNormal}},
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
         {"use_udi_as_primary_index",
          {offsetof(struct BlockBasedTableOptions, use_udi_as_primary_index),
-          OptionType::kBoolean, OptionVerificationType::kNormal}},
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
     };
   }
 } block_based_table_type_info;
+
+Status ValidateIndexMode(BlockBasedTableOptions::IndexMode index_mode) {
+  switch (index_mode) {
+    case BlockBasedTableOptions::IndexMode::kStandardOnly:
+    case BlockBasedTableOptions::IndexMode::kStandardDefault:
+    case BlockBasedTableOptions::IndexMode::kStandardRequired:
+    case BlockBasedTableOptions::IndexMode::kCustomDefault:
+    case BlockBasedTableOptions::IndexMode::kCustomOnly:
+      return Status::OK();
+    default:
+      return Status::InvalidArgument(
+          "Unrecognized index_mode: " +
+          std::to_string(lossless_cast<int>(index_mode)));
+  }
+}
+
+void BlockBasedTableFactory::UpdateIndexMode() {
+  if (index_mode_explicit_) {
+    // Effective options can be copied into a new factory. Clear ignored legacy
+    // inputs so an explicit kStandardDefault survives that reconstruction.
+    table_options_.use_udi_as_primary_index = false;
+    table_options_.fail_if_no_udi_on_open = false;
+    skip_standard_index_ = false;
+    return;
+  }
+  using IndexMode = BlockBasedTableOptions::IndexMode;
+  if (skip_standard_index_) {
+    table_options_.index_mode = IndexMode::kCustomOnly;
+  } else if (table_options_.use_udi_as_primary_index) {
+    table_options_.index_mode = IndexMode::kCustomDefault;
+  } else if (table_options_.fail_if_no_udi_on_open) {
+    table_options_.index_mode = IndexMode::kStandardRequired;
+  } else {
+    table_options_.index_mode = IndexMode::kStandardDefault;
+  }
+}
 
 // TODO(myabandeh): We should return an error instead of silently changing the
 // options
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options),
+      index_mode_explicit_(_table_options.index_mode !=
+                           BlockBasedTableOptions::IndexMode::kStandardDefault),
       shared_state_(std::make_shared<SharedState>()) {
+  UpdateIndexMode();
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info.info);
+  static const std::unordered_map<std::string, OptionTypeInfo>
+      skip_standard_type_info = {
+          {"skip_standard_index",
+           {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+            OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}}};
+  RegisterOptions("LegacyIndexOptions", &skip_standard_index_,
+                  &skip_standard_type_info);
+  // Old OPTIONS files serialized a default index_mode even when the legacy
+  // flags controlled routing. Newly serialized modes are authoritative.
+  static const std::unordered_map<std::string, OptionTypeInfo>
+      index_mode_encoding_type_info = {
+          {"index_mode_explicit",
+           {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+            OptionTypeFlags::kCompareNever,
+            [](const ConfigOptions&, const std::string&,
+               const std::string& value, void*) {
+              if (value == "true" || value == "1") {
+                return Status::OK();
+              }
+              return Status::InvalidArgument(
+                  "index_mode_explicit must be true");
+            },
+            [](const ConfigOptions&, const std::string&, const void*,
+               std::string* value) {
+              *value = "true";
+              return Status::OK();
+            }}}};
+  RegisterOptions("IndexModeEncoding", &index_mode_explicit_,
+                  &index_mode_encoding_type_info);
 
   const auto table_reader_charged =
       table_options_.cache_usage_options.options_overrides
@@ -669,6 +740,10 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
 
 Status BlockBasedTableFactory::ValidateOptions(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  Status index_mode_status = ValidateIndexMode(table_options_.index_mode);
+  if (!index_mode_status.ok()) {
+    return index_mode_status;
+  }
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
     return Status::InvalidArgument(
@@ -682,6 +757,19 @@ Status BlockBasedTableFactory::ValidateOptions(
       return Status::InvalidArgument(
           "Interpolation search requires BytewiseComparator");
     }
+  }
+  // See IndexFactoryOptions for why the two can't be combined. The table
+  // builder repeats this check because SstFileWriter and SetOptions never reach
+  // ValidateOptions; catching it here fails DB::Open instead of letting the DB
+  // open and take writes until the first flush stops it with a fatal error.
+  if (table_options_.index_mode !=
+          BlockBasedTableOptions::IndexMode::kStandardOnly &&
+      table_options_.user_defined_index_factory != nullptr &&
+      cf_opts.comparator != nullptr &&
+      cf_opts.comparator->timestamp_size() > 0) {
+    return Status::InvalidArgument(
+        "user_defined_index_factory is incompatible with user-defined "
+        "timestamps");
   }
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
@@ -795,30 +883,40 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
-  if (table_options_.user_defined_index_factory) {
-    if (cf_opts.compression_opts.parallel_threads > 1 ||
-        cf_opts.bottommost_compression_opts.parallel_threads > 1) {
+  if (table_options_.index_mode ==
+          BlockBasedTableOptions::IndexMode::kCustomDefault ||
+      table_options_.index_mode ==
+          BlockBasedTableOptions::IndexMode::kCustomOnly) {
+    if (!table_options_.user_defined_index_factory) {
       return Status::InvalidArgument(
-          "user_defined_index_factory not supported with parallel compression");
+          "index_mode kCustomDefault/kCustomOnly requires "
+          "user_defined_index_factory");
     }
-    if (table_options_.use_udi_as_primary_index) {
-      if (table_options_.index_type ==
-          BlockBasedTableOptions::kTwoLevelIndexSearch) {
-        return Status::InvalidArgument(
-            "use_udi_as_primary_index is incompatible with partitioned index "
-            "(kTwoLevelIndexSearch). The UDI wrapper currently only supports "
-            "flat (single-level) index builders.");
-      }
-      if (table_options_.partition_filters) {
-        return Status::InvalidArgument(
-            "use_udi_as_primary_index is incompatible with partitioned "
-            "filters. The UDI wrapper does not support the partitioned "
-            "index/filter layout.");
-      }
+    if (table_options_.index_mode ==
+            BlockBasedTableOptions::IndexMode::kCustomOnly &&
+        table_options_.format_version < 6) {
+      return Status::InvalidArgument(
+          "index_mode kCustomOnly requires format_version >= 6; got " +
+          std::to_string(table_options_.format_version));
     }
-  } else if (table_options_.use_udi_as_primary_index) {
-    return Status::InvalidArgument(
-        "use_udi_as_primary_index requires user_defined_index_factory");
+    // Whether parallel compression is usable with a particular UDI is a
+    // per-implementation property
+    // (IndexFactoryBuilder::SupportsParallelAddEntry). The table builder makes
+    // the actual decision when builders are created (see
+    // BlockBasedTableBuilder::Rep::Rep) and silently falls back to
+    // single-threaded when any builder doesn't support the parallel
+    // protocol. We don't reject the configuration here.
+    if (table_options_.index_type ==
+        BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      return Status::InvalidArgument(
+          "index_mode kCustomDefault/kCustomOnly is incompatible with "
+          "partitioned index (kTwoLevelIndexSearch).");
+    }
+    if (table_options_.partition_filters) {
+      return Status::InvalidArgument(
+          "index_mode kCustomDefault/kCustomOnly is incompatible with "
+          "partitioned filters.");
+    }
   }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it
@@ -999,11 +1097,8 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
                ? "nullptr"
                : table_options_.user_defined_index_factory->Name());
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  use_udi_as_primary_index: %d\n",
-           table_options_.use_udi_as_primary_index);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  fail_if_no_udi_on_open: %d\n",
-           table_options_.fail_if_no_udi_on_open);
+  snprintf(buffer, kBufferSize, "  index_mode: %d\n",
+           static_cast<int>(table_options_.index_mode));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
@@ -1111,6 +1206,16 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
                                            void* opt_ptr) {
   Status status = TableFactory::ParseOption(config_options, opt_info, opt_name,
                                             opt_value, opt_ptr);
+  if (status.ok()) {
+    if (opt_name == "index_mode") {
+      index_mode_explicit_ = true;
+      UpdateIndexMode();
+    } else if (opt_name == "use_udi_as_primary_index" ||
+               opt_name == "fail_if_no_udi_on_open" ||
+               opt_name == "skip_standard_index") {
+      UpdateIndexMode();
+    }
+  }
   if (config_options.input_strings_escaped && !status.ok()) {  // Got an error
     // !input_strings_escaped indicates the old API, where everything is
     // parsable.
@@ -1119,6 +1224,45 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
     }
   }
   return status;
+}
+
+Status BlockBasedTableFactory::ConfigureOptions(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    std::unordered_map<std::string, std::string>* unused) {
+  const bool was_explicit = index_mode_explicit_;
+  const bool skip_standard = skip_standard_index_;
+  const bool use_as_primary = table_options_.use_udi_as_primary_index;
+  const bool fail_if_missing = table_options_.fail_if_no_udi_on_open;
+  const BlockBasedTableOptions::IndexMode mode = table_options_.index_mode;
+  const std::unordered_map<std::string, std::string>::const_iterator mode_iter =
+      opts_map.find("index_mode");
+  const bool legacy_encoding =
+      mode_iter != opts_map.end() && mode_iter->second == "kStandardDefault" &&
+      opts_map.find("index_mode_explicit") == opts_map.end() &&
+      (opts_map.find("use_udi_as_primary_index") != opts_map.end() ||
+       opts_map.find("fail_if_no_udi_on_open") != opts_map.end() ||
+       opts_map.find("skip_standard_index") != opts_map.end());
+  Status s;
+  if (legacy_encoding) {
+    // Drop the old serialized default before parsing, so map iteration order
+    // cannot clear or override the legacy flags.
+    std::unordered_map<std::string, std::string> legacy_opts = opts_map;
+    legacy_opts.erase("index_mode");
+    index_mode_explicit_ = false;
+    s = TableFactory::ConfigureOptions(config_options, legacy_opts, unused);
+  } else {
+    s = TableFactory::ConfigureOptions(config_options, opts_map, unused);
+  }
+  if (!s.ok()) {
+    // The base rollback serializes the effective mode, not its legacy inputs.
+    index_mode_explicit_ = was_explicit;
+    skip_standard_index_ = skip_standard;
+    table_options_.use_udi_as_primary_index = use_as_primary;
+    table_options_.fail_if_no_udi_on_open = fail_if_missing;
+    table_options_.index_mode = mode;
+  }
+  return s;
 }
 
 Status GetBlockBasedTableOptionsFromString(
@@ -1161,16 +1305,15 @@ TableFactory* NewBlockBasedTableFactory(
   return new BlockBasedTableFactory(_table_options);
 }
 
-Status IndexFactory::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value,
-    std::shared_ptr<UserDefinedIndexFactory>* factory) {
+Status IndexFactory::CreateFromString(const ConfigOptions& config_options,
+                                      const std::string& value,
+                                      std::shared_ptr<IndexFactory>* factory) {
   static std::once_flag once;
   std::call_once(once, [&]() {
     trie_index::RegisterBuiltinTrieIndexFactory(
         *(ObjectLibrary::Default().get()), "");
   });
-  return LoadSharedObject<UserDefinedIndexFactory>(config_options, value,
-                                                   factory);
+  return LoadSharedObject<IndexFactory>(config_options, value, factory);
 }
 
 const std::string BlockBasedTablePropertyNames::kIndexType =
