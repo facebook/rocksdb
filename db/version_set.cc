@@ -4185,7 +4185,36 @@ void VersionStorageInfo::AddBlobFile(
          (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
                                     blob_file_meta->GetBlobFileNumber()));
 
+  if (blob_file_meta->HasIndirectionInfo()) {
+    const uint64_t origin_file_number = blob_file_meta->GetOriginFileNumber();
+    const bool inserted =
+        blob_origins_.emplace(origin_file_number, blob_file_meta).second;
+    if (!inserted) {
+      blob_origin_conflict_ = true;
+    }
+  }
+
   blob_files_.emplace_back(std::move(blob_file_meta));
+}
+
+Status VersionStorageInfo::ValidateBlobIndirection() const {
+  if (blob_origin_conflict_) {
+    return Status::Corruption("VersionStorageInfo",
+                              "Multiple blob files for one indirect origin");
+  }
+  for (const auto& entry : blob_origins_) {
+    const std::shared_ptr<BlobFileMetaData>& meta = entry.second;
+    if (!meta || entry.first == kInvalidBlobFileNumber ||
+        entry.first != meta->GetOriginFileNumber()) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection origin metadata");
+    }
+    if (!meta->IsIndirectIdentityFile() && !meta->IsIndirectCarrierFile()) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection carrier metadata");
+    }
+  }
+  return Status::OK();
 }
 
 VersionStorageInfo::BlobFiles::const_iterator
@@ -7631,9 +7660,20 @@ Status VersionSet::WriteCurrentStateToManifest(
 
         const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
-        edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
-                         meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
-                         meta->GetChecksumValue());
+        BlobFileAddition addition(blob_file_number, meta->GetTotalBlobCount(),
+                                  meta->GetTotalBlobBytes(),
+                                  meta->GetChecksumMethod(),
+                                  meta->GetChecksumValue());
+        if (meta->IsIndirectIdentityFile()) {
+          addition.SetIndirectionIdentity();
+        } else if (meta->IsIndirectCarrierFile()) {
+          const Status indirection_status = addition.SetIndirectionCarrier(
+              meta->GetOriginFileNumber(), meta->GetCarrierFileSize());
+          if (!indirection_status.ok()) {
+            return indirection_status;
+          }
+        }
+        edit.AddBlobFile(std::move(addition));
         if (meta->GetGarbageBlobCount() > 0) {
           edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
                                   meta->GetGarbageBlobBytes());

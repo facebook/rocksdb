@@ -40,6 +40,32 @@ class BlobFileAddition {
   const std::string& GetChecksumMethod() const { return checksum_method_; }
   const std::string& GetChecksumValue() const { return checksum_value_; }
 
+  bool HasIndirectionInfo() const {
+    return origin_file_number_ != kInvalidBlobFileNumber;
+  }
+  bool IsIndirectIdentityFile() const {
+    return HasIndirectionInfo() && origin_file_number_ == blob_file_number_ &&
+           carrier_file_size_ == 0;
+  }
+  bool IsIndirectCarrierFile() const {
+    return HasIndirectionInfo() && origin_file_number_ != blob_file_number_ &&
+           carrier_file_size_ > 0;
+  }
+  uint64_t GetOriginFileNumber() const { return origin_file_number_; }
+  uint64_t GetCarrierFileSize() const { return carrier_file_size_; }
+
+  // Marks a v1 physical origin whose indirect BlobIndexes currently resolve
+  // by identity. This is persisted as a forward-incompatible field so an old
+  // binary fails during MANIFEST replay instead of interpreting stable IDs as
+  // terminal physical locations.
+  void SetIndirectionIdentity();
+
+  // Marks a complete block-based table file as the current physical carrier
+  // for `origin_file_number`. Its physical size is ordinary file metadata; no
+  // carrier-internal block handles or checksums are persisted in the MANIFEST.
+  Status SetIndirectionCarrier(uint64_t origin_file_number,
+                               uint64_t carrier_file_size);
+
   void EncodeTo(std::string* output) const;
   Status DecodeFrom(Slice* input);
 
@@ -54,6 +80,8 @@ class BlobFileAddition {
   uint64_t total_blob_bytes_ = 0;
   std::string checksum_method_;
   std::string checksum_value_;
+  uint64_t origin_file_number_ = kInvalidBlobFileNumber;
+  uint64_t carrier_file_size_ = 0;
 };
 
 bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs);

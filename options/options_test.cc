@@ -1562,6 +1562,14 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
   delete new_cf_opts.compaction_filter;
 }
 
+TEST_F(OptionsTest, AdvancedColumnFamilyOptionsFromOptions) {
+  Options options;
+  options.enable_blob_indirection = true;
+
+  const AdvancedColumnFamilyOptions advanced_options(options);
+  EXPECT_TRUE(advanced_options.enable_blob_indirection);
+}
+
 TEST_F(OptionsTest, DBOptionsComposeImmutable) {
   // Build a DBOptions from an Immutable/Mutable one and verify that
   // we get same constituent options.
