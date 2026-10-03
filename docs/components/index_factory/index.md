@@ -47,11 +47,16 @@ tiers an SST is written with and which one reads use by default.
 
 `ReadOptions::read_index` overrides the target for a single read:
 
-- `kDefault` -- follow `index_mode`.
+- `kDefault` -- follow the effective mode. In primary/custom-only mode, the
+  table factory takes precedence over the legacy
+  `ReadOptions::table_index_factory` pointer. In secondary mode that pointer
+  selects the custom reader and must match the table factory's name.
 - `kBuiltin` -- force the standard index. Fails loudly on a `kCustomOnly` file,
   which has no real standard index to read.
 - `kPreferCustom` -- use the custom index when the SST has one, else the
   standard index. Best-effort by design so a migration keeps serving reads.
+  If a legacy factory pointer is also supplied, its name must match.
+  `kBuiltin` ignores that pointer.
 
 The deprecated `fail_if_no_udi_on_open` and `use_udi_as_primary_index` bools map
 onto `kStandardRequired` and `kCustomDefault`. An explicitly set `index_mode`
@@ -65,13 +70,20 @@ another mode. Unmarked input containing that default and legacy flags retains
 the old interpretation. New OPTIONS files serialize `index_mode_explicit=true`
 so even an explicit default overrides stale flags. Include this marker in a
 mixed map or string when the default is intended to be authoritative;
-single-key `ConfigureOption()` remains an explicit selection.
+single-key `ConfigureOption()` remains an explicit selection. New files also
+serialize equivalent legacy booleans for `kStandardDefault`, `kStandardRequired`,
+and `kCustomDefault`, so older binaries preserve routing when loading newer
+OPTIONS files with `ignore_unknown_options=true`. The other modes have no
+legacy equivalent; custom-only files remain protected by the footer feature bit.
 
 Legacy aliases retain their boolean state across configuration calls. Clearing
 an alias recomputes the mode from the remaining enabled aliases unless a mode
 was selected explicitly. Explicit modes clear ignored legacy inputs so a copied
 options struct preserves the selected behavior when used to construct a new
-factory. For a C++ `BlockBasedTableOptions` struct, the default
+factory. Legacy-derived options retain `index_mode=kStandardDefault`; use
+`GetEffectiveIndexMode()` to inspect the resolved policy. Copying those options
+and clearing a legacy bool also clears its policy. For a C++
+`BlockBasedTableOptions` struct, the default
 `kStandardDefault` value cannot distinguish an explicit choice from an unset
 field; configure `index_mode` on the factory to make that choice explicit.
 
@@ -89,7 +101,10 @@ field; configure `index_mode` on the factory to make that choice explicit.
   empty table. `kCustomOnly` therefore requires `format_version >= 6`, enforced
   in the table builder, in `ValidateOptions()`, and in the footer writer.
 - A zero-size custom index block means "no custom index for this SST" and is
-  tolerated in every mode except on a stub file.
+  tolerated in every mode except on a stub file. Builders returning OK with
+  empty output still produce this representation when a full standard index is
+  written. `kCustomOnly` rejects empty output because it has no standard
+  fallback.
 
 ## Open-time behavior
 
@@ -107,6 +122,18 @@ error. Only `Corruption` / `NotSupported` / `InvalidArgument` qualify for the
 fallback; an `IOError` or a block-cache limit is transient or environmental and
 propagates so the normal table-cache retry can re-attempt the open rather than
 baking a degraded reader into a long-lived `Rep`.
+
+## Factory limitations
+
+Custom factories cannot be combined with user-defined timestamps unless
+`kStandardOnly` ignores the factory.
+
+The trie format stores data-block offsets and sizes as 32-bit integers. A block
+with either field above `UINT32_MAX` makes construction return `NotSupported`,
+including in `kStandardDefault`, where trie construction is optional. This can
+fail flushes, compactions, or `SstFileWriter::Finish()`. Total SST size above
+4 GiB alone is not the rejection condition. File-size targets do not split L0
+outputs or `SstFileWriter` outputs; bound those outputs or use `kStandardOnly`.
 
 ## Cache and memory accounting
 
