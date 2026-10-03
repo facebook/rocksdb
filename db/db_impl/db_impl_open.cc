@@ -932,7 +932,9 @@ Status DBImpl::Recover(
       // MANIFEST, so it must not revalidate through CURRENT.
       if (!immutable_db_options_.best_efforts_recovery) {
         s = VersionSet::GetOptionsFileProtocolState(
-            GetName(), immutable_db_options_.fs.get(), &protocol_state);
+            GetName(), immutable_db_options_.fs.get(), &protocol_state,
+            /*next_file_number=*/nullptr,
+            /*last_valid_manifest_record_end=*/nullptr);
         if (!s.ok()) {
           return s;
         }

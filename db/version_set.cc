@@ -7365,10 +7365,17 @@ Status VersionSet::ListColumnFamiliesFromManifest(
 
 Status VersionSet::GetOptionsFileProtocolState(
     const std::string& dbname, FileSystem* fs,
-    OptionsFileProtocolState* protocol_state) {
+    OptionsFileProtocolState* protocol_state, uint64_t* next_file_number,
+    uint64_t* last_valid_manifest_record_end) {
   assert(fs != nullptr);
   assert(protocol_state != nullptr);
   *protocol_state = OptionsFileProtocolState();
+  if (next_file_number != nullptr) {
+    *next_file_number = 0;
+  }
+  if (last_valid_manifest_record_end != nullptr) {
+    *last_valid_manifest_record_end = 0;
+  }
 
   IOStatus io_s = fs->FileExists(CurrentFileName(dbname), IOOptions(), nullptr);
   if (io_s.IsNotFound()) {
@@ -7429,12 +7436,17 @@ Status VersionSet::GetOptionsFileProtocolState(
                        /*checksum=*/true, /*log_number=*/0);
 
     OptionsFileProtocolState found_protocol_state;
+    uint64_t found_next_file_number = 0;
+    uint64_t found_last_valid_record_end = 0;
     auto apply_edit = [&](const VersionEdit& edit) {
       if (edit.HasPreparedOptionsFileNumber()) {
         found_protocol_state.ApplyPrepare(edit.GetPreparedOptionsFileNumber());
       }
       if (edit.HasEffectiveOptionsFileNumber()) {
         found_protocol_state.ApplyCommit(edit.GetEffectiveOptionsFileNumber());
+      }
+      if (edit.HasNextFile()) {
+        found_next_file_number = edit.GetNextFile();
       }
     };
 
@@ -7455,11 +7467,13 @@ Status VersionSet::GetOptionsFileProtocolState(
         if (!atomic_group.IsFull()) {
           continue;
         }
+        found_last_valid_record_end = reader.LastRecordEnd();
         for (const auto& grouped_edit : atomic_group.replay_buffer()) {
           apply_edit(grouped_edit);
         }
         atomic_group.Clear();
       } else {
+        found_last_valid_record_end = reader.LastRecordEnd();
         apply_edit(edit);
       }
     }
@@ -7497,6 +7511,12 @@ Status VersionSet::GetOptionsFileProtocolState(
     }
 
     *protocol_state = std::move(found_protocol_state);
+    if (next_file_number != nullptr) {
+      *next_file_number = found_next_file_number;
+    }
+    if (last_valid_manifest_record_end != nullptr) {
+      *last_valid_manifest_record_end = found_last_valid_record_end;
+    }
     return Status::OK();
   }
   return last_retry_status;

@@ -2301,7 +2301,9 @@ TEST_P(ColumnFamilyTest,
 
   OptionsFileProtocolState before_rotation;
   ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
-      dbname_, db_options_.env->GetFileSystem().get(), &before_rotation));
+      dbname_, db_options_.env->GetFileSystem().get(), &before_rotation,
+      /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr));
   ASSERT_EQ(1U, before_rotation.prepared_options_file_numbers.size());
   const uint64_t failed_options_number =
       *before_rotation.prepared_options_file_numbers.begin();
@@ -2323,7 +2325,9 @@ TEST_P(ColumnFamilyTest,
 
   OptionsFileProtocolState after_rotation;
   ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
-      dbname_, db_options_.env->GetFileSystem().get(), &after_rotation));
+      dbname_, db_options_.env->GetFileSystem().get(), &after_rotation,
+      /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr));
   ASSERT_EQ(before_rotation, after_rotation);
   Close();
 
@@ -2437,7 +2441,9 @@ TEST_P(ColumnFamilyTest,
 
   OptionsFileProtocolState protocol_state;
   ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
-      dbname_, db_options_.env->GetFileSystem().get(), &protocol_state));
+      dbname_, db_options_.env->GetFileSystem().get(), &protocol_state,
+      /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr));
   ASSERT_TRUE(protocol_state.has_effective_options_file_number);
   ASSERT_EQ(1U, protocol_state.prepared_options_file_numbers.size());
   ASSERT_GT(*protocol_state.prepared_options_file_numbers.begin(),

@@ -1469,7 +1469,8 @@ class VersionSet {
   // uncommitted OPTIONS publication records.
   static Status GetOptionsFileProtocolState(
       const std::string& dbname, FileSystem* fs,
-      OptionsFileProtocolState* protocol_state);
+      OptionsFileProtocolState* protocol_state, uint64_t* next_file_number,
+      uint64_t* last_valid_manifest_record_end);
 
   // Resolves a stable MANIFEST protocol state against a DB directory listing.
   // A higher canonical OPTIONS file without a surviving prepare record is

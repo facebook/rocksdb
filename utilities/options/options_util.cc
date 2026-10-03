@@ -75,7 +75,9 @@ Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
   }
   OptionsFileProtocolState protocol_state;
   s = VersionSet::GetOptionsFileProtocolState(
-      dbpath, env->GetFileSystem().get(), &protocol_state);
+      dbpath, env->GetFileSystem().get(), &protocol_state,
+      /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr);
   if (!s.ok()) {
     return s;
   }

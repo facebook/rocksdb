@@ -475,7 +475,9 @@ TEST_F(OptionsUtilTest, LegacyScanRecognizesHigherUnpreparedOptions) {
         writer.reset();
         OptionsFileProtocolState protocol_state;
         ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
-            dbname_, env_->GetFileSystem().get(), &protocol_state));
+            dbname_, env_->GetFileSystem().get(), &protocol_state,
+            /*next_file_number=*/nullptr,
+            /*last_valid_manifest_record_end=*/nullptr));
         ASSERT_TRUE(protocol_state.has_effective_options_file_number);
         ASSERT_EQ(effective_number,
                   protocol_state.effective_options_file_number);
@@ -778,7 +780,9 @@ TEST_F(OptionsUtilTest, DisabledTrackingUsesLegacyWritesAndCanReenable) {
 
   OptionsFileProtocolState protocol_state;
   ASSERT_OK(VersionSet::GetOptionsFileProtocolState(
-      dbname_, env_->GetFileSystem().get(), &protocol_state));
+      dbname_, env_->GetFileSystem().get(), &protocol_state,
+      /*next_file_number=*/nullptr,
+      /*last_valid_manifest_record_end=*/nullptr));
   ASSERT_TRUE(protocol_state.has_effective_options_file_number);
   ASSERT_EQ(initial_committed_number,
             protocol_state.effective_options_file_number);
