@@ -1729,4 +1729,14 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return String value of current offpeak time range, "" if none is set.
    */
   String dailyOffpeakTimeUTC();
+
+  /**
+   * Sets the percentage of a day used for the learned off-peak window. A value
+   * of zero disables dynamic off-peak telemetry; values from 1 through 50
+   * enable it. The learned window does not affect compaction policy.
+   */
+  T setDynamicOffpeakWindowPercent(final int dynamicOffpeakWindowPercent);
+
+  /** Returns the percentage of a day used for the learned off-peak window. */
+  int dynamicOffpeakWindowPercent();
 }
