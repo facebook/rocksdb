@@ -144,12 +144,12 @@ outputs or `SstFileWriter` outputs; bound those outputs or use `kStandardOnly`.
 - The raw block is charged exactly once. When the table reader owns it
   (`cache_index_and_filter_blocks=false`, the default),
   `BlockBasedTable::ApproximateMemoryUsage()` adds it. When it lives in the
-  block cache, the cache charges it and the table reader does not. Legacy
-  `IndexFactoryReader::ApproximateMemoryUsage()` estimates include serialized
-  bytes by default; the wrapper subtracts those bytes before adding auxiliary
-  reader memory. Readers reporting only their own allocations must override
-  `MemoryUsageIncludesIndexBlock()` to return false. `TrieIndexReader` uses this
-  convention and reports just its auxiliary lookup tables.
+  block cache, the cache charges it and the table reader does not.
+  `IndexFactoryReader::ApproximateMemoryUsage()` reports only the reader's own
+  allocations, excluding the serialized block. A reader whose estimate includes
+  the block can override `MemoryUsageIncludesIndexBlock()` to return true; the
+  wrapper then subtracts the block size from that estimate. `TrieIndexReader`
+  reports just its auxiliary lookup tables.
 
 ## Parallel compression
 
