@@ -252,8 +252,8 @@ class IndexFactoryReaderWrapper : public BlockBasedTable::IndexReader {
   size_t ApproximateMemoryUsage() const override {
     size_t usage = udi_reader_->ApproximateMemoryUsage();
     if (udi_reader_->MemoryUsageIncludesIndexBlock()) {
-      // Normalize legacy inclusive estimates before core charges the block to
-      // its owner. Saturate for readers that report zero or an underestimate.
+      // The block's owner charges the serialized bytes, so drop them from an
+      // inclusive estimate. Saturate for readers that underestimate.
       usage -= std::min(usage, index_block_size_);
     }
     usage += reader_->ApproximateMemoryUsage();
