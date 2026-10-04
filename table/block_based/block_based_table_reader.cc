@@ -1900,14 +1900,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
       if (s.ok()) {
         std::unique_ptr<IndexFactoryReader> udi_reader;
-        // Legacy NewReader implementations can advance the mutable Slice.
-        // Keep the cached view immutable, including across concurrent opens.
-        Slice index_contents = rep_->udi_block.GetValue()->data;
-        const size_t index_block_size = index_contents.size();
+        // NewReader() may advance its Slice, or keep a pointer to it for the
+        // reader's lifetime. Give it this table's copy so a cached block
+        // shared with other table readers keeps its full view.
+        rep_->udi_index_contents = rep_->udi_block.GetValue()->data;
+        const size_t index_block_size = rep_->udi_index_contents.size();
         IndexFactoryOptions udi_option;
         udi_option.comparator = rep_->internal_comparator.user_comparator();
         s = table_options.user_defined_index_factory->NewReader(
-            udi_option, index_contents, udi_reader);
+            udi_option, rep_->udi_index_contents, udi_reader);
         if (s.ok()) {
           if (udi_reader) {
             // Primary UDI mode is purely config-driven. The
@@ -1960,6 +1961,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
                         "back to the standard index; %s",
                         udi_name.c_str(), rep_->file->file_name().c_str(),
                         s.ToString().c_str());
+        rep_->udi_index_contents.clear();
         rep_->udi_block.Reset();
         s = Status::OK();
       } else {

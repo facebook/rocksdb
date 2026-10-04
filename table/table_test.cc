@@ -11287,6 +11287,163 @@ TEST_P(UserDefinedIndexTest, StandaloneSstRejectsUnrecognizedIndexMode) {
   ASSERT_OK(options.env->DeleteFile(sst_path));
 }
 
+namespace {
+
+constexpr int kIndexFactoryTestKeyCount = 1000;
+
+std::string IndexFactoryTestKey(int i) {
+  return "key" + std::to_string(1000000 + i);
+}
+
+Options IndexFactoryTestOptions(std::shared_ptr<IndexFactory> factory,
+                                BlockBasedTableOptions::IndexMode mode,
+                                bool cache_index) {
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 512;
+  table_options.block_cache = NewLRUCache(16 << 20);
+  table_options.cache_index_and_filter_blocks = cache_index;
+  table_options.index_mode = mode;
+  table_options.user_defined_index_factory = std::move(factory);
+  Options options;
+  options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  return options;
+}
+
+void WriteIndexFactoryTestSst(const Options& options, const std::string& path) {
+  SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(path));
+  for (int i = 0; i < kIndexFactoryTestKeyCount; ++i) {
+    ASSERT_OK(writer.Put(IndexFactoryTestKey(i), std::string(64, 'v')));
+  }
+  ASSERT_OK(writer.Finish());
+}
+
+// Seeks and scans every key through the custom index.
+void VerifyIndexFactoryTestSst(SstFileReader* reader) {
+  ReadOptions read_options;
+  read_options.read_index = ReadOptions::ReadIndex::kPreferCustom;
+  std::unique_ptr<Iterator> iter(reader->NewIterator(read_options));
+  iter->Seek(IndexFactoryTestKey(kIndexFactoryTestKeyCount / 2));
+  ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+  ASSERT_EQ(iter->key(), IndexFactoryTestKey(kIndexFactoryTestKeyCount / 2));
+  iter->SeekToFirst();
+  for (int i = 0; i < kIndexFactoryTestKeyCount; ++i) {
+    ASSERT_TRUE(iter->Valid()) << iter->status().ToString();
+    ASSERT_EQ(iter->key(), IndexFactoryTestKey(i));
+    ASSERT_EQ(iter->value(), std::string(64, 'v'));
+    iter->Next();
+  }
+  EXPECT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
+void OpenAndVerifyIndexFactoryTestSst(const Options& options,
+                                      const std::string& path) {
+  SstFileReader reader(options);
+  ASSERT_OK(reader.Open(path));
+  VerifyIndexFactoryTestSst(&reader);
+}
+
+// Overwrites the stack below the caller's frame, where a finished table open
+// kept its locals.
+void OverwriteStack() {
+  volatile char buffer[64 << 10];
+  for (size_t i = 0; i < sizeof(buffer); ++i) {
+    buffer[i] = static_cast<char>(0xa5);
+  }
+}
+
+// A reader may keep a pointer to the Slice passed to NewReader() and use it
+// after table open returns.
+class SliceRetainingIndexFactory : public IndexFactory {
+ public:
+  explicit SliceRetainingIndexFactory(std::shared_ptr<IndexFactory> delegate)
+      : delegate_(std::move(delegate)) {}
+  const char* Name() const override { return delegate_->Name(); }
+  using IndexFactory::NewBuilder;
+  using IndexFactory::NewReader;
+  Status NewBuilder(
+      const IndexFactoryOptions& options,
+      std::unique_ptr<IndexFactoryBuilder>& builder) const override {
+    return delegate_->NewBuilder(options, builder);
+  }
+  Status NewReader(const IndexFactoryOptions& options, Slice& contents,
+                   std::unique_ptr<IndexFactoryReader>& reader) const override {
+    Status s = delegate_->NewReader(options, contents, reader);
+    if (s.ok()) {
+      reader = std::make_unique<Reader>(std::move(reader), &contents);
+    }
+    return s;
+  }
+
+ private:
+  class Reader : public IndexFactoryReader {
+   public:
+    Reader(std::unique_ptr<IndexFactoryReader> delegate, const Slice* contents)
+        : delegate_(std::move(delegate)),
+          contents_(contents),
+          data_(contents->data()),
+          size_(contents->size()) {}
+    std::unique_ptr<IndexFactoryIterator> NewIterator(
+        const ReadOptions& options) override {
+      // Compare the fields without reading the bytes; an expired Slice holds
+      // arbitrary values.
+      if (contents_->data() != data_ || contents_->size() != size_) {
+        ADD_FAILURE() << "NewReader() input Slice changed after table open";
+        return nullptr;
+      }
+      return delegate_->NewIterator(options);
+    }
+    size_t ApproximateMemoryUsage() const override {
+      return delegate_->ApproximateMemoryUsage();
+    }
+
+   private:
+    std::unique_ptr<IndexFactoryReader> delegate_;
+    const Slice* const contents_;
+    const char* const data_;
+    const size_t size_;
+  };
+  std::shared_ptr<IndexFactory> delegate_;
+};
+
+}  // namespace
+
+TEST(IndexFactoryCompatibilityTest, RetainedReaderSliceOutlivesTableOpen) {
+  std::shared_ptr<IndexFactory> trie_factory;
+  ASSERT_OK(IndexFactory::CreateFromString(ConfigOptions(), "trie_index",
+                                           &trie_factory));
+  auto factory = std::make_shared<SliceRetainingIndexFactory>(trie_factory);
+  const std::string path = test::PerThreadDBPath("udi_retaining_reader.sst");
+  // Called through a volatile pointer so it gets its own stack frame.
+  void (*volatile overwrite_stack)() = OverwriteStack;
+  for (bool cache_index : {false, true}) {
+    for (auto mode : {BlockBasedTableOptions::IndexMode::kStandardDefault,
+                      BlockBasedTableOptions::IndexMode::kCustomDefault,
+                      BlockBasedTableOptions::IndexMode::kCustomOnly}) {
+      SCOPED_TRACE(testing::Message()
+                   << cache_index << " " << static_cast<int>(mode));
+      const Options options =
+          IndexFactoryTestOptions(factory, mode, cache_index);
+      ASSERT_NO_FATAL_FAILURE(WriteIndexFactoryTestSst(options, path));
+      // The second open reuses the cached block when caching is enabled.
+      for (int open = 0; open < 2; ++open) {
+        SstFileReader reader(options);
+        ASSERT_OK(reader.Open(path));
+        overwrite_stack();
+        ASSERT_NO_FATAL_FAILURE(VerifyIndexFactoryTestSst(&reader));
+      }
+      if (cache_index) {
+        EXPECT_GT(options.statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT),
+                  0U);
+      }
+      ASSERT_OK(options.env->DeleteFile(path));
+    }
+  }
+}
+
 // A legacy reader may consume its Slice, while retaining the backing bytes.
 class ConsumingIndexFactory : public IndexFactory {
  public:
@@ -11331,40 +11488,11 @@ TEST(IndexFactoryCompatibilityTest, ConsumingReaderPreservesCachedContents) {
                       BlockBasedTableOptions::IndexMode::kCustomOnly}) {
       SCOPED_TRACE(testing::Message()
                    << cache_index << " " << static_cast<int>(mode));
-      BlockBasedTableOptions table_options;
-      table_options.block_size = 512;
-      table_options.block_cache = NewLRUCache(16 << 20);
-      table_options.cache_index_and_filter_blocks = cache_index;
-      table_options.index_mode = mode;
-      table_options.user_defined_index_factory = factory;
-      Options options;
-      options.compression = kNoCompression;
-      options.statistics = CreateDBStatistics();
-      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-      {
-        SstFileWriter writer(EnvOptions(), options);
-        ASSERT_OK(writer.Open(path));
-        for (int i = 0; i < 1000; ++i) {
-          ASSERT_OK(writer.Put("key" + std::to_string(1000000 + i),
-                               std::string(64, 'v')));
-        }
-        ASSERT_OK(writer.Finish());
-      }
+      const Options options =
+          IndexFactoryTestOptions(factory, mode, cache_index);
+      ASSERT_NO_FATAL_FAILURE(WriteIndexFactoryTestSst(options, path));
       auto open_and_scan = [&] {
-        SstFileReader reader(options);
-        ASSERT_OK(reader.Open(path));
-        ReadOptions read_options;
-        read_options.read_index = ReadOptions::ReadIndex::kPreferCustom;
-        std::unique_ptr<Iterator> iter(reader.NewIterator(read_options));
-        iter->SeekToFirst();
-        for (int i = 0; i < 1000; ++i) {
-          ASSERT_TRUE(iter->Valid());
-          ASSERT_EQ(iter->key(), "key" + std::to_string(1000000 + i));
-          ASSERT_EQ(iter->value(), std::string(64, 'v'));
-          iter->Next();
-        }
-        EXPECT_FALSE(iter->Valid());
-        ASSERT_OK(iter->status());
+        OpenAndVerifyIndexFactoryTestSst(options, path);
       };
       open_and_scan();
       open_and_scan();
@@ -11400,8 +11528,8 @@ TEST(IndexFactoryCompatibilityTest, ConsumingReaderPreservesCachedContents) {
   }
 }
 
-// Exercise both pre-existing readers that include the serialized block in
-// their estimate and readers that report only their auxiliary allocations.
+// Exercise readers that report only their auxiliary allocations, as documented,
+// and readers that opt in to including the serialized block in their estimate.
 class MemoryReportingIndexFactory : public IndexFactory {
  public:
   MemoryReportingIndexFactory(std::shared_ptr<IndexFactory> delegate,
@@ -11420,153 +11548,259 @@ class MemoryReportingIndexFactory : public IndexFactory {
   Status NewReader(const IndexFactoryOptions& options, Slice& contents,
                    std::unique_ptr<IndexFactoryReader>& reader) const override {
     const size_t block_size = contents.size();
+    index_block_size.store(block_size);
     Status s = delegate_->NewReader(options, contents, reader);
     if (s.ok()) {
+      const size_t extra = extra_bytes.load();
       if (includes_index_block_) {
-        reader = std::make_unique<Reader>(std::move(reader), block_size, true);
+        reader = std::make_unique<InclusiveReader>(std::move(reader),
+                                                   block_size + extra);
       } else {
-        reader = std::make_unique<AuxiliaryReader>(std::move(reader),
-                                                   block_size, false);
+        reader = std::make_unique<Reader>(std::move(reader), extra);
       }
     }
     return s;
   }
 
+  // Added to the estimate of readers created afterwards.
+  std::atomic<size_t> extra_bytes{0};
+  // Size of the serialized block most recently passed to NewReader().
+  mutable std::atomic<size_t> index_block_size{0};
+
  private:
+  // Implements only the reader methods that predate
+  // MemoryUsageIncludesIndexBlock().
   class Reader : public IndexFactoryReader {
    public:
-    Reader(std::unique_ptr<IndexFactoryReader> delegate, size_t block_size,
-           bool includes_index_block)
-        : delegate_(std::move(delegate)),
-          block_size_(block_size),
-          includes_index_block_(includes_index_block) {}
+    Reader(std::unique_ptr<IndexFactoryReader> delegate, size_t extra)
+        : delegate_(std::move(delegate)), extra_(extra) {}
     std::unique_ptr<IndexFactoryIterator> NewIterator(
         const ReadOptions& options) override {
       return delegate_->NewIterator(options);
     }
     size_t ApproximateMemoryUsage() const override {
-      return delegate_->ApproximateMemoryUsage() +
-             (includes_index_block_ ? block_size_ : 0);
+      return delegate_->ApproximateMemoryUsage() + extra_;
     }
 
    private:
     std::unique_ptr<IndexFactoryReader> delegate_;
-    const size_t block_size_;
-    const bool includes_index_block_;
+    const size_t extra_;
   };
-  class AuxiliaryReader : public Reader {
+  class InclusiveReader : public Reader {
    public:
     using Reader::Reader;
-    bool MemoryUsageIncludesIndexBlock() const override { return false; }
+    bool MemoryUsageIncludesIndexBlock() const override { return true; }
   };
   std::shared_ptr<IndexFactory> delegate_;
   const bool includes_index_block_;
 };
 
-TEST(IndexFactoryCompatibilityTest, LegacyReaderMemoryWithStrictCache) {
-  std::shared_ptr<IndexFactory> trie_factory;
-  ASSERT_OK(IndexFactory::CreateFromString(ConfigOptions(), "trie_index",
-                                           &trie_factory));
-  BlockBasedTableOptions table_options;
-  table_options.cache_index_and_filter_blocks = false;
-  table_options.block_size = 512;
-  table_options.user_defined_index_factory =
-      std::make_shared<MemoryReportingIndexFactory>(trie_factory, false);
-  Options options;
-  options.compression = kNoCompression;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  std::unique_ptr<ImmutableOptions> immutable_options =
-      std::make_unique<ImmutableOptions>(options);
-  MutableCFOptions mutable_options(options);
-  const InternalKeyComparator internal_comparator(options.comparator);
-  TableConstructor table(options.comparator, true);
-  Random random(301);
-  for (int i = 0; i < 16384; ++i) {
-    table.Add(test::RandomKey(&random, 512), "value");
-  }
-  std::vector<std::string> keys;
-  stl_wrappers::KVMap kvmap;
-  table.Finish(options, *immutable_options, mutable_options, table_options,
-               internal_comparator, &keys, &kvmap);
-  const size_t memory = table.GetTableReader()->ApproximateMemoryUsage();
-  table.ResetTableReader();
+namespace {
 
-  const size_t reservation_unit = CacheReservationManagerImpl<
+// Separate allocations can have different usable sizes (e.g. with Folly).
+// This allowance is much smaller than the serialized index in these tests, so
+// missing or duplicating a charge still fails their assertions.
+constexpr size_t kIndexMemoryAllocatorAllowance = 1024;
+
+size_t RoundUpToTableReaderReservation(size_t bytes) {
+  const size_t unit = CacheReservationManagerImpl<
       CacheEntryRole::kBlockBasedTableReader>::GetDummyEntrySize();
-  // Separate allocations can have different usable sizes (e.g. with Folly).
-  // This allowance is much smaller than the serialized index in this test,
-  // so either missing or duplicating its charge still fails the assertions.
-  constexpr size_t kAllocatorAllowance = 1024;
+  return (bytes + unit - 1) / unit * unit;
+}
+
+std::shared_ptr<Cache> NewStrictTableReaderCache(size_t capacity) {
   LRUCacheOptions cache_options;
-  cache_options.capacity =
-      ((memory + kAllocatorAllowance + reservation_unit - 1) /
-       reservation_unit) *
-      reservation_unit;
+  cache_options.capacity = capacity;
   cache_options.num_shard_bits = 0;
   cache_options.strict_capacity_limit = true;
   cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
-  table_options.block_cache = cache_options.MakeSharedCache();
-  table_options.cache_usage_options
-      .options_overrides[CacheEntryRole::kBlockBasedTableReader]
-      .charged = CacheEntryRoleOptions::Decision::kEnabled;
-  for (bool includes_index_block : {false, true}) {
-    SCOPED_TRACE(includes_index_block);
-    table_options.user_defined_index_factory =
-        std::make_shared<MemoryReportingIndexFactory>(trie_factory,
-                                                      includes_index_block);
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    immutable_options = std::make_unique<ImmutableOptions>(options);
-    mutable_options = MutableCFOptions(options);
-    ASSERT_OK(table.Reopen(*immutable_options, mutable_options));
-    const size_t usage = table.GetTableReader()->ApproximateMemoryUsage();
-    EXPECT_LE(usage, memory + kAllocatorAllowance);
-    EXPECT_LE(memory, usage + kAllocatorAllowance);
-    // An SST that fits the cache must be readable under either convention.
+  return cache_options.MakeSharedCache();
+}
+
+// Builds one SST with a trie custom index, then reopens it under modified
+// table_options to compare memory estimates.
+class CustomIndexMemoryTable {
+ public:
+  explicit CustomIndexMemoryTable(std::shared_ptr<IndexFactory> factory)
+      : internal_comparator_(BytewiseComparator()),
+        table_(BytewiseComparator(), /*convert_to_internal_key=*/true) {
+    table_options.cache_index_and_filter_blocks = false;
+    table_options.block_size = 512;
+    table_options.user_defined_index_factory = std::move(factory);
+    options_.compression = kNoCompression;
+    UpdateOptions();
+    Random random(301);
+    for (int i = 0; i < 16384; ++i) {
+      table_.Add(test::RandomKey(&random, 512), "value");
+    }
+    stl_wrappers::KVMap kvmap;
+    table_.Finish(options_, *immutable_options_, *mutable_options_,
+                  table_options, internal_comparator_, &keys_, &kvmap);
+  }
+
+  // Closes the current reader before replacing the options it references.
+  Status Reopen() {
+    Close();
+    UpdateOptions();
+    return table_.Reopen(*immutable_options_, *mutable_options_);
+  }
+
+  void Close() { table_.ResetTableReader(); }
+
+  size_t MemoryUsage() {
+    return table_.GetTableReader()->ApproximateMemoryUsage();
+  }
+
+  void VerifyScan() {
     ReadOptions read_options;
     read_options.fill_cache = false;
     read_options.read_index = ReadOptions::ReadIndex::kPreferCustom;
     std::unique_ptr<InternalIterator> iter(
-        new KeyConvertingIterator(table.GetTableReader()->NewIterator(
+        new KeyConvertingIterator(table_.GetTableReader()->NewIterator(
             read_options, nullptr, nullptr, false,
             TableReaderCaller::kUncategorized)));
-    iter->SeekToFirst();
     size_t count = 0;
-    while (iter->Valid()) {
-      ASSERT_LT(count, keys.size());
-      EXPECT_EQ(iter->key(), keys[count]);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_LT(count, keys_.size());
+      EXPECT_EQ(iter->key(), keys_[count]);
       EXPECT_EQ(iter->value(), "value");
       ++count;
-      iter->Next();
     }
     ASSERT_OK(iter->status());
-    EXPECT_EQ(count, keys.size());
-    iter.reset();
-    table.ResetTableReader();
-    EXPECT_EQ(table_options.block_cache->GetUsage(), 0U);
+    EXPECT_EQ(count, keys_.size());
+  }
+
+  BlockBasedTableOptions table_options;
+
+ private:
+  void UpdateOptions() {
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    immutable_options_ = std::make_unique<ImmutableOptions>(options_);
+    mutable_options_ = std::make_unique<MutableCFOptions>(options_);
+  }
+
+  Options options_;
+  const InternalKeyComparator internal_comparator_;
+  std::unique_ptr<ImmutableOptions> immutable_options_;
+  std::unique_ptr<MutableCFOptions> mutable_options_;
+  // Declared after the options so its reader is destroyed first.
+  TableConstructor table_;
+  std::vector<std::string> keys_;
+};
+
+}  // namespace
+
+TEST(IndexFactoryCompatibilityTest, LegacyReaderMemoryWithStrictCache) {
+  std::shared_ptr<IndexFactory> trie_factory;
+  ASSERT_OK(IndexFactory::CreateFromString(ConfigOptions(), "trie_index",
+                                           &trie_factory));
+  CustomIndexMemoryTable table(
+      std::make_shared<MemoryReportingIndexFactory>(trie_factory, false));
+  const size_t memory = table.MemoryUsage();
+  table.Close();
+
+  table.table_options.block_cache = NewStrictTableReaderCache(
+      RoundUpToTableReaderReservation(memory + kIndexMemoryAllocatorAllowance));
+  table.table_options.cache_usage_options
+      .options_overrides[CacheEntryRole::kBlockBasedTableReader]
+      .charged = CacheEntryRoleOptions::Decision::kEnabled;
+  for (bool includes_index_block : {false, true}) {
+    SCOPED_TRACE(includes_index_block);
+    table.table_options.user_defined_index_factory =
+        std::make_shared<MemoryReportingIndexFactory>(trie_factory,
+                                                      includes_index_block);
+    ASSERT_OK(table.Reopen());
+    const size_t usage = table.MemoryUsage();
+    EXPECT_LE(usage, memory + kIndexMemoryAllocatorAllowance);
+    EXPECT_LE(memory, usage + kIndexMemoryAllocatorAllowance);
+    // An SST that fits the cache must be readable under either convention.
+    ASSERT_NO_FATAL_FAILURE(table.VerifyScan());
+    table.Close();
+    EXPECT_EQ(table.table_options.block_cache->GetUsage(), 0U);
   }
 
   // Cached raw bytes are charged to the block cache rather than the reader.
-  table_options.cache_index_and_filter_blocks = true;
-  table_options.block_cache = NewLRUCache(16 << 20);
-  table_options.cache_usage_options.options_overrides.clear();
+  table.table_options.cache_index_and_filter_blocks = true;
+  table.table_options.block_cache = NewLRUCache(16 << 20);
+  table.table_options.cache_usage_options.options_overrides.clear();
   size_t cached_memory = 0;
   for (bool includes_index_block : {false, true}) {
     SCOPED_TRACE(includes_index_block);
-    table_options.user_defined_index_factory =
+    table.table_options.user_defined_index_factory =
         std::make_shared<MemoryReportingIndexFactory>(trie_factory,
                                                       includes_index_block);
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    immutable_options = std::make_unique<ImmutableOptions>(options);
-    mutable_options = MutableCFOptions(options);
-    ASSERT_OK(table.Reopen(*immutable_options, mutable_options));
-    const size_t usage = table.GetTableReader()->ApproximateMemoryUsage();
+    ASSERT_OK(table.Reopen());
+    const size_t usage = table.MemoryUsage();
     if (!includes_index_block) {
       cached_memory = usage;
     }
-    EXPECT_LE(usage, cached_memory + kAllocatorAllowance);
-    EXPECT_LE(cached_memory, usage + kAllocatorAllowance);
-    EXPECT_LT(usage + kAllocatorAllowance, memory);
-    table.ResetTableReader();
+    EXPECT_LE(usage, cached_memory + kIndexMemoryAllocatorAllowance);
+    EXPECT_LE(cached_memory, usage + kIndexMemoryAllocatorAllowance);
+    EXPECT_LT(usage + kIndexMemoryAllocatorAllowance, memory);
+    table.Close();
+  }
+}
+
+// A reader that only implements ApproximateMemoryUsage() reports auxiliary
+// allocations, as documented. All of that allocation must reach the table
+// reader's estimate and its cache reservation, whether it is smaller or larger
+// than the serialized block.
+TEST(IndexFactoryCompatibilityTest, AuxiliaryReaderMemoryIsFullyCharged) {
+  std::shared_ptr<IndexFactory> trie_factory;
+  ASSERT_OK(IndexFactory::CreateFromString(ConfigOptions(), "trie_index",
+                                           &trie_factory));
+  auto factory = std::make_shared<MemoryReportingIndexFactory>(
+      trie_factory, /*includes_index_block=*/false);
+  CustomIndexMemoryTable table(factory);
+  const size_t index_block_size = factory->index_block_size.load();
+  ASSERT_GT(index_block_size, 8 * kIndexMemoryAllocatorAllowance);
+  table.Close();
+  const size_t auxiliary_sizes[] = {index_block_size / 2, index_block_size * 2};
+
+  for (bool cache_index : {false, true}) {
+    SCOPED_TRACE(cache_index);
+    table.table_options.cache_index_and_filter_blocks = cache_index;
+    table.table_options.block_cache = NewLRUCache(64 << 20);
+    factory->extra_bytes.store(0);
+    ASSERT_OK(table.Reopen());
+    const size_t base = table.MemoryUsage();
+    for (size_t auxiliary : auxiliary_sizes) {
+      SCOPED_TRACE(auxiliary);
+      factory->extra_bytes.store(auxiliary);
+      ASSERT_OK(table.Reopen());
+      const size_t usage = table.MemoryUsage();
+      EXPECT_LE(usage, base + auxiliary + kIndexMemoryAllocatorAllowance);
+      EXPECT_LE(base + auxiliary, usage + kIndexMemoryAllocatorAllowance);
+      ASSERT_NO_FATAL_FAILURE(table.VerifyScan());
+    }
+    table.Close();
+  }
+
+  // Pad the estimate to end just below a reservation boundary, and size a
+  // strict cache to that boundary. Any further charged allocation larger than
+  // the allocator allowance must then fail the open.
+  table.table_options.cache_index_and_filter_blocks = false;
+  factory->extra_bytes.store(0);
+  ASSERT_OK(table.Reopen());
+  const size_t base = table.MemoryUsage();
+  table.Close();
+  const size_t capacity = RoundUpToTableReaderReservation(
+      base + 2 * kIndexMemoryAllocatorAllowance);
+  const size_t padding = capacity - kIndexMemoryAllocatorAllowance - base;
+  table.table_options.block_cache = NewStrictTableReaderCache(capacity);
+  table.table_options.cache_usage_options
+      .options_overrides[CacheEntryRole::kBlockBasedTableReader]
+      .charged = CacheEntryRoleOptions::Decision::kEnabled;
+  factory->extra_bytes.store(padding);
+  ASSERT_OK(table.Reopen());
+  table.Close();
+  for (size_t auxiliary : auxiliary_sizes) {
+    SCOPED_TRACE(auxiliary);
+    factory->extra_bytes.store(padding + auxiliary);
+    Status s = table.Reopen();
+    EXPECT_TRUE(s.IsMemoryLimit()) << s.ToString();
+    table.Close();
+    EXPECT_EQ(table.table_options.block_cache->GetUsage(), 0U);
   }
 }
 
