@@ -12,6 +12,8 @@
 #include <string>
 #include <unordered_set>
 
+#include "db/blob/blob_constants.h"
+#include "db/blob/blob_file_addition.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -46,6 +48,27 @@ class SharedBlobFileMetaData {
         deleter);
   }
 
+  template <typename Deleter>
+  static std::shared_ptr<SharedBlobFileMetaData> Create(
+      const BlobFileAddition& addition, Deleter deleter) {
+    return std::shared_ptr<SharedBlobFileMetaData>(
+        new SharedBlobFileMetaData(
+            addition.GetBlobFileNumber(), addition.GetTotalBlobCount(),
+            addition.GetTotalBlobBytes(), addition.GetChecksumMethod(),
+            addition.GetChecksumValue(), addition.GetOriginFileNumber(),
+            addition.GetRelocationFileSize()),
+        deleter);
+  }
+
+  static std::shared_ptr<SharedBlobFileMetaData> Create(
+      const BlobFileAddition& addition) {
+    return std::shared_ptr<SharedBlobFileMetaData>(new SharedBlobFileMetaData(
+        addition.GetBlobFileNumber(), addition.GetTotalBlobCount(),
+        addition.GetTotalBlobBytes(), addition.GetChecksumMethod(),
+        addition.GetChecksumValue(), addition.GetOriginFileNumber(),
+        addition.GetRelocationFileSize()));
+  }
+
   SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
   SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
 
@@ -58,6 +81,19 @@ class SharedBlobFileMetaData {
   uint64_t GetTotalBlobBytes() const { return total_blob_bytes_; }
   const std::string& GetChecksumMethod() const { return checksum_method_; }
   const std::string& GetChecksumValue() const { return checksum_value_; }
+  bool HasIndirectionInfo() const {
+    return origin_file_number_ != kInvalidBlobFileNumber;
+  }
+  bool IsIndirectIdentityFile() const {
+    return HasIndirectionInfo() && origin_file_number_ == blob_file_number_ &&
+           relocation_file_size_ == 0;
+  }
+  bool IsIndirectRelocationFile() const {
+    return HasIndirectionInfo() && origin_file_number_ != blob_file_number_ &&
+           relocation_file_size_ > 0;
+  }
+  uint64_t GetOriginFileNumber() const { return origin_file_number_; }
+  uint64_t GetRelocationFileSize() const { return relocation_file_size_; }
 
   std::string DebugString() const;
 
@@ -73,11 +109,28 @@ class SharedBlobFileMetaData {
     assert(checksum_method_.empty() == checksum_value_.empty());
   }
 
+  SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
+                         uint64_t total_blob_bytes, std::string checksum_method,
+                         std::string checksum_value,
+                         uint64_t origin_file_number,
+                         uint64_t relocation_file_size)
+      : blob_file_number_(blob_file_number),
+        total_blob_count_(total_blob_count),
+        total_blob_bytes_(total_blob_bytes),
+        checksum_method_(std::move(checksum_method)),
+        checksum_value_(std::move(checksum_value)),
+        origin_file_number_(origin_file_number),
+        relocation_file_size_(relocation_file_size) {
+    assert(checksum_method_.empty() == checksum_value_.empty());
+  }
+
   uint64_t blob_file_number_;
   uint64_t total_blob_count_;
   uint64_t total_blob_bytes_;
   std::string checksum_method_;
   std::string checksum_value_;
+  uint64_t origin_file_number_ = kInvalidBlobFileNumber;
+  uint64_t relocation_file_size_ = 0;
 };
 
 std::ostream& operator<<(std::ostream& os,
@@ -138,6 +191,26 @@ class BlobFileMetaData {
   const std::string& GetChecksumValue() const {
     assert(shared_meta_);
     return shared_meta_->GetChecksumValue();
+  }
+  bool HasIndirectionInfo() const {
+    assert(shared_meta_);
+    return shared_meta_->HasIndirectionInfo();
+  }
+  bool IsIndirectIdentityFile() const {
+    assert(shared_meta_);
+    return shared_meta_->IsIndirectIdentityFile();
+  }
+  bool IsIndirectRelocationFile() const {
+    assert(shared_meta_);
+    return shared_meta_->IsIndirectRelocationFile();
+  }
+  uint64_t GetOriginFileNumber() const {
+    assert(shared_meta_);
+    return shared_meta_->GetOriginFileNumber();
+  }
+  uint64_t GetRelocationFileSize() const {
+    assert(shared_meta_);
+    return shared_meta_->GetRelocationFileSize();
   }
 
   const LinkedSsts& GetLinkedSsts() const { return linked_ssts_; }

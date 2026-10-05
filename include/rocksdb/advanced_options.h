@@ -1081,6 +1081,20 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   bool enable_blob_files = false;
 
+  // Experimental: encode new BlobIndexes with a stable logical blob-file
+  // identity. Newly created v1 blob files are registered as identity roots;
+  // standalone blob GC may later replace each root with a block-based-table
+  // relocation file without rewriting the referring SSTs.
+  //
+  // This is a format-enabling option. Once indirect metadata is committed to
+  // the MANIFEST, binaries that do not understand it cannot open the DB.
+  // Blob direct write and TTL blob files are not supported.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  bool enable_blob_indirection = false;
+
   // The size of the smallest value to be stored separately in a blob file.
   // Values which have an uncompressed size smaller than this threshold are
   // stored alongside the keys in SST files in the usual fashion. A value of

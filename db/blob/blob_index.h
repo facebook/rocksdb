@@ -40,6 +40,24 @@ namespace ROCKSDB_NAMESPACE {
 //      | char | varint64   | varint64    | varint64 | varint64 | char        |
 //      +------+------------+-------------+----------+----------+-------------+
 //
+//    kIndirectBlob:
+//      +------+----------------+---------------+----------+----------+-------------+
+//      | type | origin file no | origin offset | size     | checksum |
+//      compression |
+//      +------+----------------+---------------+----------+----------+-------------+
+//      | char | varint64       | varint64      | varint64 | Fixed32  | char |
+//      +------+----------------+---------------+----------+----------+-------------+
+//
+// An indirect blob index names an immutable logical origin. Before the origin
+// is relocated, its origin file and offset are also its physical location.
+// After relocation, Version metadata and the destination blob's embedded map
+// resolve the same origin to its current physical location.
+//
+// The checksum authenticates the immutable logical value independently of that
+// routing. It remains unchanged in the SST when relocation changes the
+// physical record, so it also detects a stale or misdirected origin-to-record
+// mapping even when the destination record's own physical checksum is valid.
+//
 // There isn't a kInlined (without TTL) type since we can store it as a plain
 // value (i.e. ValueType::kTypeValue).
 class BlobIndex {
@@ -48,7 +66,8 @@ class BlobIndex {
     kInlinedTTL = 0,
     kBlob = 1,
     kBlobTTL = 2,
-    kUnknown = 3,
+    kIndirectBlob = 3,
+    kUnknown = 4,
   };
 
   BlobIndex() : type_(Type::kUnknown) {}
@@ -57,6 +76,8 @@ class BlobIndex {
   BlobIndex& operator=(const BlobIndex&) = default;
 
   bool IsInlined() const { return type_ == Type::kInlinedTTL; }
+
+  bool IsIndirect() const { return type_ == Type::kIndirectBlob; }
 
   // True for a blob record stored in the same physical file as the table entry.
   // Only embedded-blob SST reader/writer paths should interpret file number
@@ -100,6 +121,11 @@ class BlobIndex {
     return compression_;
   }
 
+  uint32_t checksum() const {
+    assert(IsIndirect());
+    return checksum_;
+  }
+
   Status DecodeFrom(Slice slice) {
     const char* kErrorMessage = "Error while decoding blob index";
     assert(slice.size() > 0);
@@ -118,12 +144,17 @@ class BlobIndex {
     if (IsInlined()) {
       value_ = slice;
     } else {
-      if (GetVarint64(&slice, &file_number_) && GetVarint64(&slice, &offset_) &&
-          GetVarint64(&slice, &size_) && slice.size() == 1) {
-        compression_ = static_cast<CompressionType>(*slice.data());
-      } else {
+      if (!GetVarint64(&slice, &file_number_) ||
+          !GetVarint64(&slice, &offset_) || !GetVarint64(&slice, &size_)) {
         return Status::Corruption(kErrorMessage, "Corrupted blob offset");
       }
+      if (IsIndirect() && !GetFixed32(&slice, &checksum_)) {
+        return Status::Corruption(kErrorMessage, "Corrupted blob checksum");
+      }
+      if (slice.size() != 1) {
+        return Status::Corruption(kErrorMessage, "Corrupted blob compression");
+      }
+      compression_ = static_cast<CompressionType>(slice[0]);
     }
     return Status::OK();
   }
@@ -134,14 +165,18 @@ class BlobIndex {
     if (IsInlined()) {
       oss << "[inlined blob] value:" << value_.ToString(output_hex);
     } else {
-      oss << "[blob ref] file:";
+      oss << (IsIndirect() ? "[indirect blob ref] origin:"
+                           : "[blob ref] file:");
       if (IsSameFile()) {
         oss << "same";
       } else {
         oss << file_number_;
       }
-      oss << " offset:" << offset_ << " size:" << size_
-          << " compression: " << CompressionTypeToString(compression_);
+      oss << " offset:" << offset_ << " size:" << size_;
+      if (IsIndirect()) {
+        oss << " checksum:" << checksum_;
+      }
+      oss << " compression: " << CompressionTypeToString(compression_);
     }
 
     if (HasTTL()) {
@@ -158,6 +193,9 @@ class BlobIndex {
     } else if (HasTTL()) {
       EncodeBlobTTL(dst, expiration_, file_number_, offset_, size_,
                     compression_);
+    } else if (IsIndirect()) {
+      EncodeIndirectBlob(dst, file_number_, offset_, size_, checksum_,
+                         compression_);
     } else {
       EncodeBlob(dst, file_number_, offset_, size_, compression_);
     }
@@ -200,6 +238,21 @@ class BlobIndex {
     dst->push_back(static_cast<char>(compression));
   }
 
+  static void EncodeIndirectBlob(std::string* dst, uint64_t origin_file_number,
+                                 uint64_t origin_offset, uint64_t size,
+                                 uint32_t checksum,
+                                 CompressionType compression) {
+    assert(dst != nullptr);
+    dst->clear();
+    dst->reserve(kMaxVarint64Length * 3 + sizeof(checksum) + 2);
+    dst->push_back(static_cast<char>(Type::kIndirectBlob));
+    PutVarint64(dst, origin_file_number);
+    PutVarint64(dst, origin_offset);
+    PutVarint64(dst, size);
+    PutFixed32(dst, checksum);
+    dst->push_back(static_cast<char>(compression));
+  }
+
  private:
   Type type_ = Type::kUnknown;
   uint64_t expiration_ = 0;
@@ -207,6 +260,7 @@ class BlobIndex {
   uint64_t file_number_ = 0;
   uint64_t offset_ = 0;
   uint64_t size_ = 0;
+  uint32_t checksum_ = 0;
   CompressionType compression_ = kNoCompression;
 };
 

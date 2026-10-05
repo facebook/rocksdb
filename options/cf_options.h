@@ -82,6 +82,10 @@ struct ImmutableCFOptions {
   std::shared_ptr<Cache> blob_cache;
 
   // Immutable snapshot of
+  // AdvancedColumnFamilyOptions::enable_blob_indirection.
+  bool enable_blob_indirection;
+
+  // Immutable snapshot of
   // AdvancedColumnFamilyOptions::enable_blob_direct_write.
   bool enable_blob_direct_write;
 

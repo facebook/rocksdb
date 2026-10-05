@@ -695,6 +695,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "sample_for_compression=0;"
       "enable_blob_files=true;"
       "enable_blob_direct_write=true;"
+      "enable_blob_indirection=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_file_writable_file_max_buffer_size=131072;"
