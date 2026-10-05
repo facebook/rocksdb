@@ -1035,8 +1035,10 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   // this can release and reacquire the mutex.
-  s = vset->LogAndApply(cfds, read_options, write_options, edit_lists, mu,
-                        db_directory);
+  s = vset->LogAndApply(
+      cfds, read_options, write_options, edit_lists,
+      VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies, mu,
+      db_directory);
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);

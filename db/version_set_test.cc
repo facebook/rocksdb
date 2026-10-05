@@ -1545,11 +1545,81 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s = versions_->LogAndApply(cfds, read_options, write_options,
-                                    edit_lists, &mutex_, nullptr);
+  Status s = versions_->LogAndApply(
+      cfds, read_options, write_options, edit_lists,
+      VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies,
+      &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
+}
+
+TEST_F(VersionSetTest, BlobFinalizationDoesNotHoldDBMutex) {
+  NewDB();
+
+  std::promise<void> finalization_started;
+  std::future<void> finalization_started_future =
+      finalization_started.get_future();
+  std::promise<void> release_finalization;
+  std::future<void> release_finalization_future =
+      release_finalization.get_future();
+  std::promise<void> follower_queued;
+  std::future<void> follower_queued_future = follower_queued.get_future();
+  std::atomic<bool> block_first_finalization{true};
+  std::atomic<bool> expect_follower_queue{false};
+  std::atomic<bool> follower_queue_signaled{false};
+  const auto wait_or_abort = [](std::future<void>* future,
+                                const char* description) {
+    if (future->wait_for(std::chrono::seconds(30)) !=
+        std::future_status::ready) {
+      fprintf(stderr, "Timed out waiting for %s\n", description);
+      abort();
+    }
+  };
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeBlobFinalization", [&](void*) {
+        if (block_first_finalization.exchange(false,
+                                              std::memory_order_relaxed)) {
+          finalization_started.set_value();
+          release_finalization_future.wait();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+        if (expect_follower_queue.load(std::memory_order_relaxed) &&
+            !follower_queue_signaled.exchange(true,
+                                              std::memory_order_relaxed)) {
+          follower_queued.set_value();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status leader_status;
+  Status follower_status;
+  VersionEdit leader_edit;
+  leader_edit.SetDBId("leader");
+  port::Thread leader(
+      [&] { leader_status = LogAndApplyToDefaultCF(leader_edit); });
+  wait_or_abort(&finalization_started_future, "blob finalization");
+  expect_follower_queue.store(true, std::memory_order_relaxed);
+
+  VersionEdit follower_edit;
+  follower_edit.SetDBId("follower");
+  port::Thread follower(
+      [&] { follower_status = LogAndApplyToDefaultCF(follower_edit); });
+  wait_or_abort(&follower_queued_future, "the following MANIFEST writer");
+
+  release_finalization.set_value();
+  leader.join();
+  follower.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(leader_status);
+  ASSERT_OK(follower_status);
 }
 
 namespace {
@@ -1606,8 +1676,10 @@ TEST_F(VersionSetTest, FailedEditReleasesEveryWriterInTheBatch) {
   }
   mutex_.Lock();
   const Status s = versions_->LogAndApply(
-      cfds, read_options_, write_options_, edit_lists, &mutex_,
-      /*dir_contains_current_file=*/nullptr, /*new_descriptor_log=*/false,
+      cfds, read_options_, write_options_, edit_lists,
+      VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies,
+      &mutex_, /*dir_contains_current_file=*/nullptr,
+      /*new_descriptor_log=*/false,
       /*new_cf_options=*/nullptr, manifest_wcbs);
   mutex_.Unlock();
   ASSERT_TRUE(s.IsCorruption()) << s.ToString();
@@ -4016,8 +4088,10 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, read_options, write_options, edit_lists,
-                             &mutex_, nullptr);
+  s = versions_->LogAndApply(
+      cfds, read_options, write_options, edit_lists,
+      VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies,
+      &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
