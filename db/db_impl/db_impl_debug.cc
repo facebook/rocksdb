@@ -144,6 +144,18 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
   return s;
 }
 
+size_t DBImpl::TEST_GetWBMFlushableMemUsage() {
+  InstrumentedMutexLock l(&mutex_);
+  assert(wbm_flush_initiator_ != nullptr);
+  RefreshFlushableMemAccounting();
+  return wbm_flush_initiator_->GetFlushableMemUsage();
+}
+
+bool DBImpl::TEST_IsWBMFlushInitiatorFlushable() const {
+  assert(wbm_flush_initiator_ != nullptr);
+  return wbm_flush_initiator_->IsFlushable();
+}
+
 Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
                                   ColumnFamilyHandle* cfh) {
   FlushOptions fo;
@@ -182,9 +194,31 @@ Status DBImpl::TEST_FlushMemTableWithListenerWait(bool allow_write_stall,
 
 Status DBImpl::TEST_AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& provided_candidate_cfds,
-    const FlushOptions& flush_opts) {
-  return AtomicFlushMemTables(flush_opts, FlushReason::kTest,
-                              provided_candidate_cfds);
+    const FlushOptions& flush_opts, bool non_blocking_write_thread) {
+  const auto join_mode = non_blocking_write_thread
+                             ? WriteThreadJoinMode::kNonBlocking
+                             : WriteThreadJoinMode::kBlocking;
+  return AtomicFlushMemTablesImpl(
+      flush_opts, FlushReason::kTest, provided_candidate_cfds,
+      false /* entered_write_thread */, join_mode, nullptr /* made_progress */);
+}
+
+void DBImpl::TEST_BeginWriteStall() {
+  InstrumentedMutexLock l(&mutex_);
+  write_thread_.BeginWriteStall();
+  if (wbm_flush_initiator_ != nullptr &&
+      write_buffer_manager_->ShouldTrackFlushInitiator()) {
+    wbm_flush_initiator_->SetFlushable(false);
+  }
+}
+
+void DBImpl::TEST_EndWriteStall() {
+  InstrumentedMutexLock l(&mutex_);
+  write_thread_.EndWriteStall();
+  if (wbm_flush_initiator_ != nullptr &&
+      write_buffer_manager_->ShouldTrackFlushInitiator()) {
+    wbm_flush_initiator_->SetFlushable(true);
+  }
 }
 
 Status DBImpl::TEST_WaitForBackgroundWork() {

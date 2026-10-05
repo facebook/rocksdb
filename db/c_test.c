@@ -6716,6 +6716,36 @@ int main(int argc, char** argv) {
         300 == rocksdb_write_buffer_manager_buffer_size(write_buffer_manager));
 
     rocksdb_write_buffer_manager_destroy(write_buffer_manager);
+
+    write_buffer_manager = rocksdb_write_buffer_manager_create_with_policy(
+        200, true,
+        rocksdb_write_buffer_manager_flush_policy_largest_across_dbs);
+    CheckCondition(write_buffer_manager != NULL);
+    CheckCondition(
+        rocksdb_write_buffer_manager_flush_policy_largest_across_dbs ==
+        rocksdb_write_buffer_manager_flush_policy(write_buffer_manager));
+    rocksdb_write_buffer_manager_set_flush_policy(
+        write_buffer_manager,
+        rocksdb_write_buffer_manager_flush_policy_largest);
+    CheckCondition(
+        rocksdb_write_buffer_manager_flush_policy_largest ==
+        rocksdb_write_buffer_manager_flush_policy(write_buffer_manager));
+    rocksdb_write_buffer_manager_set_flush_policy(write_buffer_manager, 999);
+    CheckCondition(
+        rocksdb_write_buffer_manager_flush_policy_largest ==
+        rocksdb_write_buffer_manager_flush_policy(write_buffer_manager));
+    rocksdb_write_buffer_manager_destroy(write_buffer_manager);
+
+    write_buffer_manager =
+        rocksdb_write_buffer_manager_create_with_cache_and_policy(
+            200, lru, true,
+            rocksdb_write_buffer_manager_flush_policy_largest_across_dbs);
+    CheckCondition(write_buffer_manager != NULL);
+    rocksdb_write_buffer_manager_destroy(write_buffer_manager);
+
+    write_buffer_manager =
+        rocksdb_write_buffer_manager_create_with_policy(200, true, 999);
+    CheckCondition(write_buffer_manager == NULL);
     rocksdb_cache_destroy(lru);
   }
 

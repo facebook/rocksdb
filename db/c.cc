@@ -195,6 +195,7 @@ using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
+using ROCKSDB_NAMESPACE::WriteBufferFlushPolicy;
 using ROCKSDB_NAMESPACE::WriteBufferManager;
 using ROCKSDB_NAMESPACE::WriteOptions;
 using ROCKSDB_NAMESPACE::WriteStallCondition;
@@ -7756,11 +7757,54 @@ rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create(
   return wbm;
 }
 
+static bool rocksdb_write_buffer_manager_parse_flush_policy(
+    int value, WriteBufferFlushPolicy* policy) {
+  switch (value) {
+    case rocksdb_write_buffer_manager_flush_policy_oldest:
+      *policy = WriteBufferFlushPolicy::kFlushOldest;
+      return true;
+    case rocksdb_write_buffer_manager_flush_policy_largest:
+      *policy = WriteBufferFlushPolicy::kFlushLargest;
+      return true;
+    case rocksdb_write_buffer_manager_flush_policy_largest_across_dbs:
+      *policy = WriteBufferFlushPolicy::kFlushLargestAcrossDBs;
+      return true;
+    default:
+      return false;
+  }
+}
+
+rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create_with_policy(
+    size_t buffer_size, bool allow_stall, int flush_policy) {
+  WriteBufferFlushPolicy policy;
+  if (!rocksdb_write_buffer_manager_parse_flush_policy(flush_policy, &policy)) {
+    return nullptr;
+  }
+  rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
+  wbm->rep = std::make_shared<WriteBufferManager>(
+      buffer_size, std::shared_ptr<Cache>{}, allow_stall, policy);
+  return wbm;
+}
+
 rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create_with_cache(
     size_t buffer_size, const rocksdb_cache_t* cache, bool allow_stall) {
   rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
   wbm->rep = std::make_shared<WriteBufferManager>(buffer_size, cache->rep,
                                                   allow_stall);
+  return wbm;
+}
+
+rocksdb_write_buffer_manager_t*
+rocksdb_write_buffer_manager_create_with_cache_and_policy(
+    size_t buffer_size, const rocksdb_cache_t* cache, bool allow_stall,
+    int flush_policy) {
+  WriteBufferFlushPolicy policy;
+  if (!rocksdb_write_buffer_manager_parse_flush_policy(flush_policy, &policy)) {
+    return nullptr;
+  }
+  rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
+  wbm->rep = std::make_shared<WriteBufferManager>(buffer_size, cache->rep,
+                                                  allow_stall, policy);
   return wbm;
 }
 
@@ -7802,6 +7846,19 @@ void rocksdb_write_buffer_manager_set_buffer_size(
 ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_allow_stall(
     rocksdb_write_buffer_manager_t* wbm, bool new_allow_stall) {
   wbm->rep->SetAllowStall(new_allow_stall);
+}
+
+int rocksdb_write_buffer_manager_flush_policy(
+    rocksdb_write_buffer_manager_t* wbm) {
+  return static_cast<int>(wbm->rep->flush_policy());
+}
+
+void rocksdb_write_buffer_manager_set_flush_policy(
+    rocksdb_write_buffer_manager_t* wbm, int flush_policy) {
+  WriteBufferFlushPolicy policy;
+  if (rocksdb_write_buffer_manager_parse_flush_policy(flush_policy, &policy)) {
+    wbm->rep->SetFlushPolicy(policy);
+  }
 }
 
 rocksdb_sst_file_manager_t* rocksdb_sst_file_manager_create(

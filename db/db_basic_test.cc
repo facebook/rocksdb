@@ -23,6 +23,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/format.h"
@@ -5767,6 +5768,9 @@ INSTANTIATE_TEST_CASE_P(BestEffortsRecoverIncompleteVersionTest,
 TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
   Options options = CurrentOptions();
   options.env = env_;
+  options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+      64 << 20, nullptr /* cache */, false /* allow_stall */,
+      WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "value0"));
   ASSERT_OK(Flush());
@@ -5788,6 +5792,9 @@ TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
 
   Reopen(options);
   ASSERT_OK(Put("bar", "value"));
+  options.write_buffer_manager->TEST_RefreshFlushInitiatorCandidate();
+  ASSERT_TRUE(
+      options.write_buffer_manager->TEST_ScheduleFlushOnLargestDB(nullptr));
 }
 
 TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {

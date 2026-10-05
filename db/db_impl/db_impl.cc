@@ -276,6 +276,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   SetDbSessionId();
   assert(!db_session_id_.empty());
 
+  if (write_buffer_manager_ != nullptr && !read_only_) {
+    wbm_flush_initiator_ = std::make_unique<WBMFlushInitiator>(
+        this, immutable_db_options_.atomic_flush);
+  }
+
   periodic_task_functions_.emplace(PeriodicTaskType::kDumpStats,
                                    [this]() { this->DumpStats(); });
   periodic_task_functions_.emplace(PeriodicTaskType::kPersistStats,
@@ -294,6 +299,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       table_cache_.get(), write_buffer_manager_, &write_controller_,
       &block_cache_tracer_, io_tracer_, db_id_, db_session_id_,
       options.daily_offpeak_time_utc, &error_handler_, read_only));
+  versions_->GetColumnFamilySet()->SetFlushInitiator(
+      wbm_flush_initiator_.get());
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -736,7 +743,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context,
 void DBImpl::WaitForBackgroundWork() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_pressure_callback_in_progress_ ||
+         bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
+         bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled) {
     bg_cv_.Wait();
   }
@@ -1029,6 +1037,18 @@ Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
                                 /*new_descriptor_log=*/false);
 }
 
+void DBImpl::MaybeRegisterFlushInitiator() {
+  // Register only fully opened read-write DBs. Do not hold mutex_: the lock
+  // order is registry mutex before DB mutex.
+  if (write_buffer_manager_ == nullptr || read_only_ || !opened_successfully_) {
+    return;
+  }
+  if (wbm_flush_initiator_ == nullptr || wbm_flush_initiator_->IsRegistered()) {
+    return;
+  }
+  write_buffer_manager_->RegisterFlushInitiator(wbm_flush_initiator_.get());
+}
+
 Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
@@ -1039,6 +1059,13 @@ Status DBImpl::CloseHelper() {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
+
+  // Deregister before teardown and without mutex_ to preserve registry-to-DB
+  // lock ordering.
+  if (write_buffer_manager_ && wbm_flush_initiator_ &&
+      wbm_flush_initiator_->IsRegistered()) {
+    write_buffer_manager_->DeregisterFlushInitiator(wbm_flush_initiator_.get());
+  }
 
   // Below check is added as recovery_error_ is not checked and it causes crash
   // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is
@@ -1066,8 +1093,8 @@ Status DBImpl::CloseHelper() {
 
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_purge_scheduled_ ||
-         bg_pressure_callback_in_progress_ ||
+         bg_flush_scheduled_ || bg_wbm_flush_scheduled_ ||
+         bg_purge_scheduled_ || bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
          async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled ||
          pending_purge_obsolete_files_ ||
@@ -1256,6 +1283,10 @@ Status DBImpl::CloseHelper() {
 #endif  // !NDEBUG
   table_cache_->EraseUnRefEntries();
 
+  // The flush initiator was deregistered before background-work teardown.
+  // Detach it before ColumnFamilySet destroys its column families one by one;
+  // otherwise each removal rebuilds accounting by scanning all survivors.
+  versions_->GetColumnFamilySet()->SetFlushInitiator(nullptr);
   versions_.reset();
   mutex_.Unlock();
   if (db_lock_ != nullptr) {
@@ -4668,12 +4699,29 @@ Status DBImpl::DropColumnFamilies(
   InstrumentedMutexLock ol(&options_mutex_);
   Status s;
   bool success_once = false;
-  for (auto* handle : column_families) {
-    s = DropColumnFamilyImpl(handle);
-    if (!s.ok()) {
-      break;
+  ColumnFamilySet* const column_family_set = versions_->GetColumnFamilySet();
+  const bool batch_flushable_mem_accounting =
+      write_buffer_manager_ != nullptr &&
+      write_buffer_manager_->ShouldTrackFlushInitiator();
+  if (batch_flushable_mem_accounting) {
+    InstrumentedMutexLock lock(&mutex_);
+    column_family_set->BeginBulkFlushableMemAccountingUpdate();
+  }
+  {
+    Defer finish_bulk_accounting(
+        [this, column_family_set, batch_flushable_mem_accounting] {
+          if (batch_flushable_mem_accounting) {
+            InstrumentedMutexLock lock(&mutex_);
+            column_family_set->EndBulkFlushableMemAccountingUpdate();
+          }
+        });
+    for (auto* handle : column_families) {
+      s = DropColumnFamilyImpl(handle);
+      if (!s.ok()) {
+        break;
+      }
+      success_once = true;
     }
-    success_once = true;
   }
   if (success_once) {
     // TODO: plumb Env::IOActivity, Env::IOPriority
@@ -4718,6 +4766,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
+      WaitForPendingWrites();
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);

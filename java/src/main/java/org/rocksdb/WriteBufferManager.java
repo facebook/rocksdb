@@ -28,12 +28,47 @@ public class WriteBufferManager extends RocksObject {
     this.allowStall_ = allowStall;
   }
 
+  /**
+   * Construct a new instance with an explicit flush policy.
+   *
+   * @param bufferSizeBytes buffer size in bytes
+   * @param cache cache whose memory should be bounded by this manager
+   * @param allowStall whether writes may stall when memory exceeds the limit
+   * @param flushPolicy policy used to choose mutable memtables to flush
+   */
+  public WriteBufferManager(final long bufferSizeBytes, final Cache cache, final boolean allowStall,
+      final WriteBufferManagerFlushPolicy flushPolicy) {
+    super(newWriteBufferManagerWithFlushPolicyInstance(
+        bufferSizeBytes, cache.nativeHandle_, allowStall, flushPolicy.getValue()));
+    this.allowStall_ = allowStall;
+  }
+
   public WriteBufferManager(final long bufferSizeBytes, final Cache cache){
     this(bufferSizeBytes, cache, false);
   }
 
   public boolean allowStall() {
     return allowStall_;
+  }
+
+  /**
+   * Returns the policy used for write-buffer-manager-triggered flushes.
+   *
+   * @return the current flush policy
+   */
+  public WriteBufferManagerFlushPolicy flushPolicy() {
+    assert (isOwningHandle());
+    return WriteBufferManagerFlushPolicy.fromValue(flushPolicy(nativeHandle_));
+  }
+
+  /**
+   * Changes the policy used for write-buffer-manager-triggered flushes.
+   *
+   * @param flushPolicy the new flush policy
+   */
+  public void setFlushPolicy(final WriteBufferManagerFlushPolicy flushPolicy) {
+    assert (isOwningHandle());
+    setFlushPolicy(nativeHandle_, flushPolicy.getValue());
   }
 
   private static long newWriteBufferManagerInstance(
@@ -44,6 +79,17 @@ public class WriteBufferManager extends RocksObject {
   private static native long newWriteBufferManager(
       final long bufferSizeBytes, final long cacheHandle, final boolean allowStall);
 
+  private static long newWriteBufferManagerWithFlushPolicyInstance(final long bufferSizeBytes,
+      final long cacheHandle, final boolean allowStall, final byte flushPolicy) {
+    RocksDB.loadLibrary();
+    return newWriteBufferManagerWithFlushPolicy(
+        bufferSizeBytes, cacheHandle, allowStall, flushPolicy);
+  }
+
+  private static native long newWriteBufferManagerWithFlushPolicy(final long bufferSizeBytes,
+      final long cacheHandle, final boolean allowStall, final byte flushPolicy);
+  private static native byte flushPolicy(final long handle);
+  private static native void setFlushPolicy(final long handle, final byte flushPolicy);
   @Override
   protected void disposeInternal(final long handle) {
     disposeInternalJni(handle);

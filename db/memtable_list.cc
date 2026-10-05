@@ -794,6 +794,24 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
   return total_size;
 }
 
+size_t MemTableList::WBMTrackedUnflushedMemTablesMemoryUsage() const {
+  size_t total_size = 0;
+  for (const ReadOnlyMemTable* memtable : current_->memlist_) {
+    total_size += memtable->WBMTrackedMemoryUsage();
+  }
+  return total_size;
+}
+
+size_t MemTableList::WBMTrackedUnstartedMemTablesMemoryUsage() const {
+  size_t total_size = 0;
+  for (const ReadOnlyMemTable* memtable : current_->memlist_) {
+    if (!memtable->flush_in_progress_) {
+      total_size += memtable->WBMTrackedMemoryUsage();
+    }
+  }
+  return total_size;
+}
+
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
 size_t MemTableList::MemoryAllocatedBytesExcludingLast() const {

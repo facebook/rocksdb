@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -51,6 +52,7 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "logging/event_logger.h"
+#include "memtable/flush_initiator.h"
 #include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
@@ -1342,6 +1344,9 @@ class DBImpl : public DB
 
   Status TEST_SwitchMemtable(ColumnFamilyData* cfd = nullptr);
 
+  size_t TEST_GetWBMFlushableMemUsage();
+  bool TEST_IsWBMFlushInitiatorFlushable() const;
+
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true, bool allow_write_stall = false,
                             ColumnFamilyHandle* cfh = nullptr);
@@ -1362,7 +1367,10 @@ class DBImpl : public DB
   // finishes. For example in CompactRange.
   Status TEST_AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& provided_candidate_cfds,
-      const FlushOptions& flush_opts);
+      const FlushOptions& flush_opts, bool non_blocking_write_thread = false);
+
+  void TEST_BeginWriteStall();
+  void TEST_EndWriteStall();
 
   // Wait for background threads to complete scheduled work.
   Status TEST_WaitForBackgroundWork();
@@ -1555,6 +1563,21 @@ class DBImpl : public DB
       }
     }
 
+    // Returns false when the wait times out while the DB is still blocked.
+    bool BlockFor(uint64_t timeout_micros) {
+      MutexLock lock(&state_mutex_);
+      const std::chrono::microseconds deadline(
+          SystemClock::Default()->NowMicros() + timeout_micros);
+      while (state_ == State::BLOCKED) {
+        TEST_SYNC_POINT("WBMStallInterface::BlockDB");
+        if (SystemClock::Default()->TimedWait(&state_cv_, deadline) &&
+            state_ == State::BLOCKED) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     // Called from WriteBufferManager. This function changes the state_
     // to State::RUNNING indicating the stall is cleared and DB can proceed.
     void Signal() override {
@@ -1575,6 +1598,24 @@ class DBImpl : public DB
     State state_;
   };
 
+  // Adapts DBImpl to the shared WriteBufferManager flush registry.
+  class WBMFlushInitiator : public FlushInitiator {
+   public:
+    WBMFlushInitiator(DBImpl* db, bool atomic_flush)
+        : FlushInitiator(atomic_flush), db_(db) {}
+
+    bool ScheduleFlush() override {
+      return db_->ScheduleWriteBufferManagerFlush();
+    }
+
+    bool TryRefreshMemoryAccounting() override {
+      return db_->TryRefreshFlushableMemAccounting();
+    }
+
+   private:
+    DBImpl* const db_;
+  };
+
   static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
@@ -1592,6 +1633,9 @@ class DBImpl : public DB
   // db_session_id_ is an identifier that gets reset
   // every time the DB is opened
   std::string db_session_id_;
+  // Declared before versions_ so memtables cannot outlive their allocation
+  // accounting target during destruction.
+  std::unique_ptr<FlushInitiator> wbm_flush_initiator_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
@@ -2631,7 +2675,7 @@ class DBImpl : public DB
 
   // Begin stalling of writes when memory usage increases beyond a certain
   // threshold.
-  void WriteBufferManagerStallWrites();
+  Status WriteBufferManagerStallWrites(WriteContext* write_context);
 
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
@@ -2659,6 +2703,16 @@ class DBImpl : public DB
                         ReadOnlyMemTable* new_imm = nullptr,
                         SequenceNumber last_seqno = 0);
 
+  // `refresh_wbm_accounting` can be false when a caller switches a batch of
+  // memtables and refreshes the DB-wide accounting once after the batch.
+  Status SwitchMemtableImpl(ColumnFamilyData* cfd, WriteContext* context,
+                            ReadOnlyMemTable* new_imm,
+                            SequenceNumber last_seqno,
+                            bool refresh_wbm_accounting);
+
+  // REQUIRES: mutex_ is held
+  void UpdateWBMAccountingAfterMemtableSwitch(bool refresh_now);
+
   // Select and output column families qualified for atomic flush in
   // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used
   // as candidate CFs to select qualified ones from. Otherwise, all column
@@ -2682,6 +2736,18 @@ class DBImpl : public DB
       const FlushOptions& options, FlushReason flush_reason,
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {},
       bool entered_write_thread = false);
+
+  enum class WriteThreadJoinMode { kBlocking, kNonBlocking };
+
+  Status FlushMemTableImpl(ColumnFamilyData* cfd, const FlushOptions& options,
+                           FlushReason flush_reason, bool entered_write_thread,
+                           WriteThreadJoinMode join_mode, bool* made_progress);
+
+  Status AtomicFlushMemTablesImpl(
+      const FlushOptions& options, FlushReason flush_reason,
+      const autovector<ColumnFamilyData*>& provided_candidate_cfds,
+      bool entered_write_thread, WriteThreadJoinMode join_mode,
+      bool* made_progress);
 
   // REQUIRES: mutex locked and write queues drained up to the recovery flush
   // fence that is about to switch memtables.
@@ -2769,6 +2835,18 @@ class DBImpl : public DB
     return static_cast<uint8_t*>(static_cast<void*>(this)) + type;
   }
 
+  // Checks DB-local write queues; manager-wide stall state would reject healthy
+  // DBs. REQUIRES: mutex_ held.
+  bool WouldBlockJoiningWriteThread() {
+    mutex_.AssertHeld();
+    return write_thread_.GetBegunCountOfOutstandingStall() != 0 ||
+           (two_write_queues_ &&
+            nonmem_write_thread_.GetBegunCountOfOutstandingStall() != 0);
+  }
+
+  Status EnterWriteThreadForNonBlockingFlush(WriteThread::Writer* w,
+                                             WriteThread::Writer* nonmem_w);
+
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
@@ -2777,6 +2855,33 @@ class DBImpl : public DB
 
   // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferManagerFlush(WriteContext* write_context);
+
+  // Column families and memory eligible for a WriteBufferManager flush.
+  struct FlushableCFs {
+    ColumnFamilyData* largest = nullptr;  // most reclaimable memtable memory
+    ColumnFamilyData* oldest = nullptr;   // smallest memtable creation seq
+    size_t largest_mem = 0;
+    size_t total_mem = 0;
+  };
+
+  // Shared selection for bidding and flushing. REQUIRES: mutex_ held.
+  FlushableCFs CollectFlushableCFs(bool include_waiting_immutable);
+
+  // Registers an opened read-write DB without holding mutex_.
+  void MaybeRegisterFlushInitiator();
+
+  // Refreshes the published mutable-memory counters after memtables change.
+  // REQUIRES: mutex_ held.
+  void RefreshFlushableMemAccounting();
+
+  bool TryRefreshFlushableMemAccounting();
+
+  // Queues one WBM flush; false lets the coordinator try another DB.
+  bool ScheduleWriteBufferManagerFlush();
+
+  static void BGWorkWBMFlush(void* arg);
+  static void UnscheduleWBMFlushCallback(void* arg);
+  void BackgroundCallWBMFlush();
 
   // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options,
@@ -3680,6 +3785,12 @@ class DBImpl : public DB
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_ = 0;
+
+  // LOW avoids consuming a flush worker while joining the target write thread.
+  static constexpr Env::Priority kWBMFlushPriority = Env::Priority::LOW;
+
+  // Outstanding cross-DB WBM flush jobs, drained during shutdown.
+  int bg_wbm_flush_scheduled_ = 0;
 
   // stores the number of flushes are currently running
   int num_running_flushes_ = 0;
