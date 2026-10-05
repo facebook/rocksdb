@@ -246,10 +246,12 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 
   *dbptr = nullptr;
 
-  // Try to first open DB as fully compacted DB
-  s = CompactedDBImpl::Open(options, dbname, dbptr);
-  if (s.ok()) {
-    return s;
+  // CompactedDBImpl does not implement the global row cache read hooks.
+  if (options.global_row_cache == nullptr) {
+    s = CompactedDBImpl::Open(options, dbname, dbptr);
+    if (s.ok()) {
+      return s;
+    }
   }
 
   DBOptions db_options(options);
@@ -293,11 +295,16 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   *dbptr = nullptr;
   handles->clear();
 
+  Status s = ValidateGlobalRowCacheOptionsForOpen(db_options, column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true /* read only */,
-                           error_if_wal_file_exists);
+  s = impl->Recover(column_families, true /* read only */,
+                    error_if_wal_file_exists);
   if (s.ok()) {
     // set column family handles
     for (const auto& cf : column_families) {
