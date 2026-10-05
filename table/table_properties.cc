@@ -262,7 +262,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
       compression_options.empty() ? std::string("N/A") : compression_options,
       prop_delim, kv_delim);
 
-  AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
+  AppendProperty(result, "creation time", oldest_ancestor_time, prop_delim,
+                 kv_delim);
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
@@ -600,9 +601,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct TableProperties, column_family_id),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // Key retains the old field name for serialization compatibility
         {"creation_time",
-         {offsetof(struct TableProperties, creation_time), OptionType::kUInt64T,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+         {offsetof(struct TableProperties, oldest_ancestor_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"oldest_key_time",
          {offsetof(struct TableProperties, oldest_key_time),
           OptionType::kUInt64T, OptionVerificationType::kNormal,

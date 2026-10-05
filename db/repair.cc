@@ -575,7 +575,7 @@ class Repairer {
         status =
             AddColumnFamily(props->column_family_name, t->column_family_id);
       }
-      t->meta.oldest_ancester_time = props->creation_time;
+      t->meta.oldest_ancester_time = props->oldest_ancestor_time;
       t->meta.user_defined_timestamps_persisted =
           static_cast<bool>(props->user_defined_timestamps_persisted);
     }

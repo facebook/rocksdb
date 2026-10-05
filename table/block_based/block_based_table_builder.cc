@@ -3787,7 +3787,7 @@ void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
     const SeqnoToTimeMapping& relevant_mapping, uint64_t oldest_ancestor_time) {
   assert(rep_->props.seqno_to_time_mapping.empty());
   relevant_mapping.EncodeTo(rep_->props.seqno_to_time_mapping);
-  rep_->props.creation_time = oldest_ancestor_time;
+  rep_->props.oldest_ancestor_time = oldest_ancestor_time;
 }
 
 const std::string BlockBasedTable::kObsoleteFilterBlockPrefix = "filter.";

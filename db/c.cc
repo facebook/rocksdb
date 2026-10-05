@@ -5197,6 +5197,11 @@ uint64_t rocksdb_table_properties_column_family_id(
   return props->rep.column_family_id;
 }
 
+uint64_t rocksdb_table_properties_oldest_ancestor_time(
+    const rocksdb_table_properties_t* props) {
+  return props->rep.oldest_ancestor_time;
+}
+
 uint64_t rocksdb_table_properties_creation_time(
     const rocksdb_table_properties_t* props) {
   return props->rep.creation_time;

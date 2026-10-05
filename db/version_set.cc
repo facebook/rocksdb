@@ -3966,7 +3966,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
       if (!f->being_compacted) {
         // Compute a file's modification time in the following order:
         // 1. Use file_creation_time table property if it is > 0.
-        // 2. Use creation_time table property if it is > 0.
+        // 2. Use oldest_ancestor_time table property if it is > 0.
         // 3. Use file's mtime metadata if the above two table properties are 0.
         // Don't consider the file at all if the modification time cannot be
         // correctly determined based on the above conditions.

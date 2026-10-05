@@ -6973,7 +6973,7 @@ class TablePropertiesJni : public JavaClass {
         static_cast<jlong>(table_properties.format_version),
         static_cast<jlong>(table_properties.fixed_key_len),
         static_cast<jlong>(table_properties.column_family_id),
-        static_cast<jlong>(table_properties.creation_time),
+        static_cast<jlong>(table_properties.oldest_ancestor_time),
         static_cast<jlong>(table_properties.oldest_key_time),
         static_cast<jlong>(
             table_properties.slow_compression_estimated_data_size),
