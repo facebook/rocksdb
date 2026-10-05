@@ -632,6 +632,59 @@ TEST_F(DBBlobBasicTest, LegacyBlobGCRemainsEnabledAfterIndirectionOptIn) {
   EXPECT_TRUE(meta->HasIndirectionInfo());
 }
 
+TEST_F(DBBlobBasicTest, SetOptionsPreparesBlobMetadataOutsideDBMutex) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.enable_blob_garbage_collection = true;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  for (const char* work_point :
+       {"VersionSet::ProcessManifestWrites:BeforeBlobFinalization",
+        "VersionStorageInfo::PrepareForcedBlobGCCandidates:Start",
+        "VersionStorageInfo::SelectBlobFilesForStandaloneGC:Start"}) {
+    SCOPED_TRACE(work_point);
+    std::promise<void> work_started;
+    std::future<void> work_started_future = work_started.get_future();
+    std::promise<void> release_work;
+    std::future<void> release_work_future = release_work.get_future();
+    std::promise<void> mutex_acquired;
+    std::future<void> mutex_acquired_future = mutex_acquired.get_future();
+    SyncPoint::GetInstance()->SetCallBack(work_point, [&](void*) {
+      work_started.set_value();
+      release_work_future.wait();
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Status set_options_status;
+    std::thread set_options([&]() {
+      set_options_status =
+          db_->SetOptions({{"blob_garbage_collection_force_threshold", "0.4"}});
+    });
+    ASSERT_EQ(work_started_future.wait_for(std::chrono::seconds(30)),
+              std::future_status::ready);
+    std::thread mutex_probe([&]() {
+      dbfull()->TEST_LockMutex();
+      mutex_acquired.set_value();
+      dbfull()->TEST_UnlockMutex();
+    });
+    if (mutex_acquired_future.wait_for(std::chrono::seconds(30)) !=
+        std::future_status::ready) {
+      fprintf(stderr, "Timed out acquiring DB mutex during SetOptions\n");
+      abort();
+    }
+    release_work.set_value();
+    set_options.join();
+    mutex_probe.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(set_options_status);
+  }
+}
+
 TEST_F(DBBlobBasicTest, StandaloneBlobGCDoesNotRewriteSsts) {
   Options options = GetDefaultOptions();
   auto listener = std::make_shared<BlobGCAccountingListener>();
@@ -1264,6 +1317,90 @@ TEST_F(DBBlobBasicTest, IndirectLazyRangeReadsVerifyChecksums) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   EXPECT_GT(sanitized_lookup_count.load(std::memory_order_relaxed), 0U);
+}
+
+TEST_F(DBBlobBasicTest, StandaloneBlobGCBatchesRootCensus) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.0;
+  options.blob_garbage_collection_force_threshold = 0.3;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1 << 20;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+  constexpr size_t kValueSize = 4096;
+  const std::string first_live(kValueSize, 'a');
+  const std::string second_live(kValueSize, 'b');
+  ASSERT_OK(Put("first-live", first_live));
+  ASSERT_OK(Put("first-dead", std::string(kValueSize, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("second-live", second_live));
+  ASSERT_OK(Put("second-dead", std::string(kValueSize, 'y')));
+  ASSERT_OK(Flush());
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(original_blob_files.size(), 2U);
+
+  ASSERT_OK(Delete("first-dead"));
+  ASSERT_OK(Delete("second-dead"));
+  ASSERT_OK(Flush());
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  ASSERT_OK(db_->CompactRange(compact_options, /*begin=*/nullptr,
+                              /*end=*/nullptr));
+
+  ColumnFamilyData* const cfd =
+      dbfull()->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+  ASSERT_EQ(
+      cfd->current()->storage_info()->BlobFilesForStandaloneGCCensus().size(),
+      2U);
+
+  std::atomic<uint64_t> census_count{0};
+  std::atomic<bool> batched_census_cleanup_offlock{false};
+  std::atomic<bool> shared_meta_release_locked{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunStandaloneBlobGC:CensusStarted",
+      [&](void*) { census_count.fetch_add(1, std::memory_order_relaxed); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunStandaloneBlobGC:AfterBatchedCensusCleanup", [&](void*) {
+        dbfull()->TEST_LockMutex();
+        batched_census_cleanup_offlock.store(true, std::memory_order_release);
+        dbfull()->TEST_UnlockMutex();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunStandaloneBlobGC:BeforeBatchedSourceSharedMetaRelease",
+      [&](void*) {
+        dbfull()->TEST_Mutex()->AssertHeld();
+        shared_meta_release_locked.store(true, std::memory_order_release);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->EnableAutoCompaction({db_->DefaultColumnFamily()}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  EXPECT_EQ(census_count.load(std::memory_order_relaxed), 1U);
+  EXPECT_TRUE(batched_census_cleanup_offlock.load(std::memory_order_acquire));
+  EXPECT_TRUE(shared_meta_release_locked.load(std::memory_order_acquire));
+  const std::vector<uint64_t> relocated_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(relocated_blob_files.size(), 2U);
+  for (uint64_t original : original_blob_files) {
+    EXPECT_EQ(std::find(relocated_blob_files.begin(),
+                        relocated_blob_files.end(), original),
+              relocated_blob_files.end());
+  }
+  EXPECT_EQ(Get("first-live"), first_live);
+  EXPECT_EQ(Get("second-live"), second_live);
+  EXPECT_EQ(Get("first-dead"), "NOT_FOUND");
+  EXPECT_EQ(Get("second-dead"), "NOT_FOUND");
 }
 
 TEST_F(DBBlobBasicTest, StandaloneBlobGCRejectsReservedRouteBeforeCensus) {

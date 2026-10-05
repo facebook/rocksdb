@@ -2936,6 +2936,10 @@ class DBImpl : public DB
       ColumnFamilyData* cfd,
       const std::shared_ptr<BlobFileMetaData>& source_meta, bool* made_progress,
       uint64_t* sfm_reserved_bytes, LogBuffer* log_buffer, int job_id);
+  // Rebuilds standalone Blob GC candidate ranking without holding mutex_ and
+  // publishes it only if the Version, policy options, and suppression set are
+  // unchanged. REQUIRES: mutex_ held on entry and return.
+  void RefreshStandaloneBlobGCCandidates(ColumnFamilyData* cfd);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
                          bool* flush_rescheduled_to_retain_udt,
@@ -3656,6 +3660,21 @@ class DBImpl : public DB
   // DB mutex is released for the copy phase.
   std::set<std::pair<uint32_t, uint64_t>> standalone_blob_gcs_in_progress_;
   std::unordered_map<uint32_t, size_t> standalone_blob_gcs_in_progress_by_cf_;
+
+  struct StandaloneBlobGCLiveReference {
+    std::string user_key;
+    BlobIndex blob_index;
+  };
+  struct StandaloneBlobGCCensus {
+    std::weak_ptr<BlobFileMetaData> source_meta;
+    std::vector<StandaloneBlobGCLiveReference> live_blobs;
+  };
+  // Exact per-origin results collected together in one visible-key scan.
+  // Protected by mutex_. At most one bounded completed batch is retained for
+  // the DB. Entries are consumed once and remain usable only while their
+  // unchanged shared source metadata is present in a Version.
+  std::map<std::pair<uint32_t, uint64_t>, StandaloneBlobGCCensus>
+      standalone_blob_gc_census_cache_;
 
   // Column families whose current blob routes have been exposed to an
   // OnCompactionPreCommit listener and must remain stable until installation.
