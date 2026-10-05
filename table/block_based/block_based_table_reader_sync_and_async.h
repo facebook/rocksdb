@@ -752,6 +752,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     CO_RETURN;
   }
 
+  if (options.read_tier == kBlockCacheTier) {
+    for (size_t i = 0; i < handles->size(); ++i) {
+      if (!(*handles)[i].IsNull()) {
+        statuses[i] = Status::Incomplete("no blocking io");
+      }
+    }
+    CO_RETURN;
+  }
+
   // In direct IO mode, blocks share the direct io buffer.
   // Otherwise, blocks share the scratch buffer.
   const bool use_shared_buffer = file->use_direct_io() || scratch != nullptr;
@@ -1329,6 +1338,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           // Update Saver.state to Found because we are only looking for
           // whether we can guarantee the key is not there with kBlockCacheTier
           get_context->MarkKeyMayExist();
+          s = biter->status();
           break;
         }
         if (!biter->status().ok()) {
