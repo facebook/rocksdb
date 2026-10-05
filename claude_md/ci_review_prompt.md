@@ -28,6 +28,98 @@ A behavior change is not automatically a defect. Report a finding when the
 intent, documentation, downstream-impact analysis, or mitigation has a concrete
 gap or ambiguity that could lead to an unintended compatibility regression.
 
+## DB Mutex Review Perspective
+
+For every non-trivial change, determine whether the changed code, or any
+transitive callee it adds or changes, can run while `DBImpl::mutex_` is held.
+State the result explicitly, including when the DB mutex is not affected.
+
+`DBImpl::mutex_` is the DB-wide metadata and coordination mutex. It protects
+cross-object invariants involving `ColumnFamilyData`, memtable and
+`SuperVersion` publication, `VersionSet`, snapshots, flush/compaction queues,
+background-job state, and file lifetime. It is shared by all column families
+and can be a hot lock. It is not the filesystem `db_lock_`, and it should not
+replace data-path synchronization already provided by `WriteThread`,
+`wal_write_mutex_`, atomics, referenced `SuperVersion`s, or component-local
+synchronization.
+
+When a DB-mutex critical section is affected:
+
+### Locking and correctness
+
+- Trace the full call path and mark the exact lock and unlock boundaries. Do
+  not inspect only the lines that directly acquire the mutex.
+- State the locking contract. Helpers that require the lock should document it
+  and normally use `mutex_.AssertHeld()`. Check whether each caller expects the
+  lock to be held on return.
+- Treat calls that can release and re-acquire the mutex as concurrency
+  boundaries. Examples include `VersionSet::LogAndApply()`, condition-variable
+  waits, write-thread coordination, and notification helpers. Revalidate state
+  inspected before such a call.
+- Keep atomic metadata transitions under the mutex. Examples include moving a
+  memtable between mutable and immutable state, reserving compaction inputs,
+  installing a `Version` or `SuperVersion`, updating scheduling counters and
+  queues, and changing file-lifetime protection.
+- For expensive work, prefer a prepare/run/install structure: reserve and pin
+  the required state while locked, do CPU or I/O work while unlocked, then
+  re-lock, validate, and publish. Before unlocking, copy mutable options and
+  acquire every required object reference or lifetime reservation.
+- Check object lifetime across every unlocked region. Do not use a raw
+  `ColumnFamilyData*`, `Version*`, memtable, file metadata pointer, or DB-owned
+  container element after unlocking unless an explicit reference,
+  `SuperVersion`, job object, or pending-output reservation keeps it alive.
+- Preserve the snapshot/input-selection boundary. Flush and compaction must not
+  miss a snapshot whose visible key versions they may remove. Missing a newly
+  created snapshot is a correctness bug; retaining a recently released
+  snapshot is conservative but safe.
+- Never invoke untrusted or re-entrant code while holding the mutex. The mutex
+  is non-reentrant, so a callback into RocksDB can self-deadlock.
+- Check lock ordering. `options_mutex_` is acquired before the DB mutex. When
+  both the DB mutex and `wal_write_mutex_` are needed, the DB mutex is acquired
+  first. Establish and document the order for other locks.
+- Keep cleanup outside the critical section when possible. File deletion,
+  `JobContext::Clean()`, expensive `SuperVersion` destruction, logging, and
+  listener callbacks should normally run after protected state is detached or
+  snapshotted.
+- Do not add the DB mutex to steady-state point reads or the normal write data
+  phase without strong justification. Reads normally use a referenced
+  `SuperVersion`; writes use `WriteThread` and component-specific
+  synchronization.
+
+### Critical-section performance
+
+- Compare the CPU and I/O performed under the mutex before and after the
+  change. Include call frequency, loop bounds, input-size scaling, hidden work
+  in callees, and worst-case cost.
+- Account for filesystem or network I/O, waits, callbacks, logging and
+  formatting, allocation, container growth, copies, sorting, scans, reference
+  release and destructors, cache misses, and repeated metadata lookups.
+- Do not allow a significant regression in mutex-held work without clear
+  justification, hold-time or contention measurements, and representative
+  benchmarks.
+- Treat unavoidable work under the mutex as hot-path code and keep it highly
+  optimized. Precompute, allocate, copy, and perform I/O outside the lock;
+  remove repeated scans and lookups; cache or batch work where practical; and
+  keep locked operations O(1) or tightly bounded when possible.
+- Treat new blocking I/O, waits, callbacks into user or plugin code, unbounded
+  loops, or work that scales with DB size, files, column families, snapshots,
+  or pending jobs as a blocker unless it is unavoidable and supported by strong
+  measurements and explicit design justification.
+
+### Validation and evidence
+
+- Test unlock windows with sync points rather than sleeps. Cover relevant races
+  with memtable switches, snapshot create/release, column-family drop,
+  flush/compaction install, shutdown, and background errors. Run TSAN where
+  appropriate.
+- Distinguish wait time from hold time. `PerfContext::db_mutex_lock_nanos` and
+  `DB_MUTEX_WAIT_MICROS` primarily expose acquisition wait; use contention
+  profiles or scoped instrumentation to find long critical sections.
+- Report affected critical sections, before/after cost, workload assumptions,
+  optimization choices, and remaining risk. If exact measurement is not
+  practical, provide a conservative static bound and do not claim no regression
+  without evidence.
+
 IMPORTANT — Where the review goes: Your FINAL RESPONSE TEXT is the review.
 The PR comment is generated verbatim from your final response, so the
 complete, polished review MUST appear there in full. Do NOT end your turn with
@@ -307,6 +399,9 @@ in isolation may be a critical bug when you consider the full call chain.
 - **Callee side effects**: Does the change call functions that mutate shared
   state (counters, seqnos, metadata)? Are the mutations correct for the new
   calling context? (Use the callee-chain analysis from context.md)
+- Apply the DB Mutex Review Perspective above to locking contracts, unlocked
+  object lifetimes, stale-state validation, lock ordering, and snapshot
+  boundaries.
 
 #### Agent: Cross-Component & Adversarial Reviewer
 
@@ -410,6 +505,9 @@ Write findings to `findings-caller-audit.md`.
 - Loop optimization opportunities
 - Branch prediction (LIKELY/UNLIKELY)
 - Zero-overhead design verification
+- Apply the DB Mutex Review Perspective above, with special focus on transitive
+  CPU and I/O, before/after cost, critical-section hold time, and benchmark
+  evidence
 
 #### Agent: API & Compatibility Reviewer
 - Public API backwards compatibility
@@ -593,6 +691,8 @@ Rules for this structure:
 - [ ] Multi-component interactions (compaction, recovery, snapshots, iterators)
 - [ ] Configuration dependencies and unexpected option combinations
 - [ ] Potential pitfalls from caller-chain analysis
+- [ ] DB-mutex reachability checked through transitive callees; affected lock
+      and unlock boundaries documented
 
 ### Review Phase (verified by agents)
 - [ ] Database semantics preserved (snapshot isolation, key ordering)
@@ -606,6 +706,10 @@ Rules for this structure:
 - [ ] Code follows RocksDB style conventions
 - [ ] Behavioral contracts with upstream callers preserved
 - [ ] All callers enumerated with parameter range table
+- [ ] Before/after CPU and I/O under the DB mutex compared, with call frequency,
+      scaling, hidden callee work, and worst-case cost included
+- [ ] No significant DB-mutex-held work regression; unavoidable work is highly
+      optimized, bounded, and supported by measurements when material
 
 ## Output Structure
 Your **final response text is the primary output** — it becomes the PR comment
