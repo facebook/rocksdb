@@ -1685,10 +1685,9 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
   ASSERT_OK(Put("x", "x"));
   ASSERT_OK(Flush());
 
-  // In addition to checking manifest file, we want to ensure that SetOptions
-  // is essentially atomic, without releasing the DB mutex between applying
-  // the options to the cfd and installing new Version and SuperVersion. We
-  // probabilistically verify that by attempting to catch an inconsistency.
+  // In addition to checking the manifest file, verify that SetOptions keeps
+  // the old options and Version coherent while preparing the replacement
+  // Version without the DB mutex, then publishes the new state atomically.
   auto* const cfd =
       static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1705,14 +1704,15 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
             cfd->GetCurrentMutableCFOptions().disable_auto_compactions);
         t = std::thread([mu, cfd]() {
           InstrumentedMutexLock l(mu);
-          // Assuming above correctness, we can only acquire the mutex after
-          // options fully installed.
-          ASSERT_TRUE(
-              cfd->GetLatestMutableCFOptions().disable_auto_compactions);
-          ASSERT_TRUE(
+          // Depending on scheduling, this can observe either side of the
+          // publication boundary, but never a mixture of old and new state.
+          const bool disabled =
+              cfd->GetLatestMutableCFOptions().disable_auto_compactions;
+          ASSERT_EQ(
+              disabled,
               cfd->current()->GetMutableCFOptions().disable_auto_compactions);
-          ASSERT_TRUE(
-              cfd->GetCurrentMutableCFOptions().disable_auto_compactions);
+          ASSERT_EQ(disabled,
+                    cfd->GetCurrentMutableCFOptions().disable_auto_compactions);
         });
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1731,6 +1731,9 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
   // Verify that our above check was activated and completed
   ASSERT_TRUE(t.has_value());
   t->join();
+  ASSERT_TRUE(cfd->GetLatestMutableCFOptions().disable_auto_compactions);
+  ASSERT_TRUE(cfd->current()->GetMutableCFOptions().disable_auto_compactions);
+  ASSERT_TRUE(cfd->GetCurrentMutableCFOptions().disable_auto_compactions);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
@@ -1742,6 +1745,55 @@ TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
   ASSERT_EQ(orig_manifest_file_size, new_manifest_file_size);
 
   ASSERT_EQ(Get("x"), "x");
+}
+
+TEST_F(DBOptionsTest, SetOptionsPublishesCompactionPhaseAtomically) {
+  env_->SetMockSleep();
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.periodic_compaction_phase_recovery_percent = 25;
+  Reopen(options);
+
+  auto* const cfd =
+      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  const PeriodicCompactionPhaseParams before =
+      versions->GetPeriodicCompactionPhaseParams(cfd->GetID());
+  ASSERT_EQ(cfd->current()
+                ->storage_info()
+                ->TEST_GetPeriodicCompactionPhaseParams()
+                .anchor_time,
+            before.anchor_time);
+
+  env_->MockSleepForSeconds(60);
+  int callbacks = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeBlobFinalization", [&](void*) {
+        ++callbacks;
+        const PeriodicCompactionPhaseParams during =
+            versions->GetPeriodicCompactionPhaseParams(cfd->GetID());
+        ASSERT_EQ(during.anchor_time, before.anchor_time);
+        ASSERT_EQ(cfd->current()
+                      ->storage_info()
+                      ->TEST_GetPeriodicCompactionPhaseParams()
+                      .anchor_time,
+                  before.anchor_time);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db_->SetOptions({{"periodic_compaction_seconds", "3600"}}));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(callbacks, 1);
+  const PeriodicCompactionPhaseParams after =
+      versions->GetPeriodicCompactionPhaseParams(cfd->GetID());
+  ASSERT_GT(after.anchor_time, before.anchor_time);
+  ASSERT_EQ(cfd->current()
+                ->storage_info()
+                ->TEST_GetPeriodicCompactionPhaseParams()
+                .anchor_time,
+            after.anchor_time);
 }
 
 TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
@@ -1782,6 +1834,19 @@ TEST_F(DBOptionsTest, SetOptionsMultipleColumnFamilies) {
   ASSERT_FALSE(dbfull()->GetOptions(handles_[0]).disable_auto_compactions);
   ASSERT_TRUE(dbfull()->GetOptions(handles_[1]).disable_auto_compactions);
   ASSERT_TRUE(dbfull()->GetOptions(handles_[2]).disable_auto_compactions);
+
+  // Distinct handles can alias one logical column family. All their maps must
+  // be composed into the same atomic replacement instead of creating two
+  // writers that ProcessManifestWrites later coalesces into one Version.
+  auto alias = dbfull()->GetColumnFamilyHandleUnlocked(handles_[1]->GetID());
+  ASSERT_NE(alias, nullptr);
+  options_map.clear();
+  options_map[handles_[1]] = {{"write_buffer_size", "1048576"}};
+  options_map[alias.get()] = {{"max_write_buffer_number", "4"}};
+  ASSERT_OK(dbfull()->SetOptions(options_map));
+  const ColumnFamilyOptions aliased_options = dbfull()->GetOptions(handles_[1]);
+  ASSERT_EQ(aliased_options.write_buffer_size, 1048576U);
+  ASSERT_EQ(aliased_options.max_write_buffer_number, 4);
 }
 
 // Confirms the default value and serialization/parse round-trip of the new

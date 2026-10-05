@@ -2734,7 +2734,9 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const MutableCFOptions& mutable_cf_options,
                  const std::shared_ptr<IOTracer>& io_tracer,
                  uint64_t version_number,
-                 EpochNumberRequirement epoch_number_requirement)
+                 EpochNumberRequirement epoch_number_requirement,
+                 std::optional<PeriodicCompactionPhaseParams>
+                     periodic_compaction_phase_params)
     : env_(vset->env_),
       clock_(vset->clock_),
       cfd_(column_family_data),
@@ -2761,7 +2763,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           vset->offpeak_time_option(),
           cfd_ == nullptr
               ? PeriodicCompactionPhaseParams{}
-              : vset->GetPeriodicCompactionPhaseParams(cfd_->GetID())),
+              : periodic_compaction_phase_params.value_or(
+                    vset->GetPeriodicCompactionPhaseParams(cfd_->GetID()))),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -5421,18 +5424,29 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const autovector<VersionEdit*>& edit_list;
   const std::function<void(const Status&)> manifest_write_callback;
+  const MutableCFOptions* new_mutable_cf_options;
+  std::optional<uint64_t> compaction_phase_anchor_time;
+  // This writer's caller must run a precondition after reaching the head of
+  // the queue, so an earlier writer must not absorb it into a group commit.
+  bool requires_precondition;
   int max_file_opening_threads;
 
   explicit ManifestWriter(
       InstrumentedMutex* mu, ColumnFamilyData* _cfd,
       const autovector<VersionEdit*>& e,
       const std::function<void(const Status&)>& manifest_wcb,
+      bool _requires_precondition,
+      const MutableCFOptions* _new_mutable_cf_options,
+      std::optional<uint64_t> _compaction_phase_anchor_time,
       int _max_file_opening_threads = 1)
       : done(false),
         cv(mu),
         cfd(_cfd),
         edit_list(e),
         manifest_write_callback(manifest_wcb),
+        new_mutable_cf_options(_new_mutable_cf_options),
+        compaction_phase_anchor_time(_compaction_phase_anchor_time),
+        requires_precondition(_requires_precondition),
         max_file_opening_threads(_max_file_opening_threads) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
@@ -5782,16 +5796,7 @@ void VersionSet::UpdatedMutableDbOptions(
       // the current Version) rather than only when the next Version is built.
       // Safe because periodic_compaction_phase_params_ is read only under the
       // DB mutex, which is held here.
-      for (auto* cfd : *column_family_set_) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        Version* v = cfd->current();
-        if (v != nullptr) {
-          v->storage_info_.periodic_compaction_phase_params_ =
-              GetPeriodicCompactionPhaseParams(cfd->GetID());
-        }
-      }
+      RefreshCurrentVersionCompactionPhaseParams();
     }
   }
 
@@ -5803,17 +5808,26 @@ PeriodicCompactionPhaseParams VersionSet::GetPeriodicCompactionPhaseParams(
   return periodic_compaction_phaser_.ParamsForCf(cf_id);
 }
 
-void VersionSet::ReanchorCompactionPhase() {
-  // Caller holds the DB mutex. Move the phasing anchor to now and refresh each
-  // CF's current Version's cached params, mirroring the refresh done for
-  // seed/recovery changes in UpdatedMutableDbOptions(). Used when a CF's
-  // periodic_compaction_seconds changes, so a turn-down's newly past-due cohort
-  // is spread rather than fired at once. Re-anchoring is DB-level and benign to
-  // CFs whose interval did not change (their not-past-due files keep phasing).
+std::optional<uint64_t> VersionSet::PrepareCompactionPhaseReanchor() const {
   int64_t now = 0;
   if (clock_ != nullptr && clock_->GetCurrentTime(&now).ok()) {
-    periodic_compaction_phaser_.Reanchor(static_cast<uint64_t>(now));
+    return static_cast<uint64_t>(now);
   }
+  return std::nullopt;
+}
+
+PeriodicCompactionPhaseParams
+VersionSet::GetPeriodicCompactionPhaseParamsAtAnchor(
+    uint32_t cf_id, uint64_t anchor_time) const {
+  return periodic_compaction_phaser_.ParamsForCfAtAnchor(cf_id, anchor_time);
+}
+
+void VersionSet::CommitCompactionPhaseReanchor(uint64_t anchor_time) {
+  periodic_compaction_phaser_.Reanchor(anchor_time);
+  RefreshCurrentVersionCompactionPhaseParams();
+}
+
+void VersionSet::RefreshCurrentVersionCompactionPhaseParams() {
   for (auto* cfd : *column_family_set_) {
     if (cfd->IsDropped()) {
       continue;
@@ -6010,9 +6024,19 @@ Status VersionSet::ProcessManifestWrites(
           if (!last_writer->IsAllWalEdits()) {
             version = new Version(
                 last_writer->cfd, this, file_options_,
-                last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
-                                 : MutableCFOptions(*new_cf_options),
-                io_tracer_, current_version_number_++);
+                last_writer->new_mutable_cf_options != nullptr
+                    ? *last_writer->new_mutable_cf_options
+                : last_writer->cfd
+                    ? last_writer->cfd->GetLatestMutableCFOptions()
+                    : MutableCFOptions(*new_cf_options),
+                io_tracer_, current_version_number_++,
+                EpochNumberRequirement::kMustPresent,
+                last_writer->compaction_phase_anchor_time.has_value()
+                    ? std::make_optional(
+                          GetPeriodicCompactionPhaseParamsAtAnchor(
+                              last_writer->cfd->GetID(),
+                              *last_writer->compaction_phase_anchor_time))
+                    : std::nullopt);
             versions.push_back(version);
             builder_guards.emplace_back(
                 new BaseReferencedVersionBuilder(last_writer->cfd));
@@ -6051,7 +6075,16 @@ Status VersionSet::ProcessManifestWrites(
         break;
       }
       if (skip_manifest_write) {
-        // no grouping when skipping manifest write
+        // A no-MANIFEST batch can span the writers supplied by one caller,
+        // but must never absorb a later caller.
+        if (last_writer == &writers.back()) {
+          break;
+        }
+        continue;
+      }
+      if ((*it)->requires_precondition) {
+        // Let this writer become the queue head so its caller can validate the
+        // precondition against all Versions committed before it.
         break;
       }
       const auto* next = (*it)->edit_list.front();
@@ -6073,7 +6106,7 @@ Status VersionSet::ProcessManifestWrites(
       assert(!builder_guards.empty() &&
              builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
-      Status s = builder->SaveTo(versions[i]->storage_info());
+      Status s = builder->SaveTableFilesTo(versions[i]->storage_info());
       if (!s.ok()) {
         // free up the allocated memory
         for (auto v : versions) {
@@ -6120,8 +6153,7 @@ Status VersionSet::ProcessManifestWrites(
     k = i;
   }
   if (skip_manifest_write) {
-    // no grouping when skipping manifest write
-    assert(last_writer == &first_writer);
+    assert(last_writer == &writers.back());
   }
 #endif  // NDEBUG
 
@@ -6195,20 +6227,47 @@ Status VersionSet::ProcessManifestWrites(
   // Save before releasing mu
   uint64_t manifest_preallocation_size = manifest_preallocation_size_;
   if (skip_manifest_write) {
+    mu->Unlock();
+    TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeBlobFinalization");
+    if (s.ok()) {
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+        assert(!builder_guards.empty() &&
+               builder_guards.size() == versions.size());
+        s = builder_guards[i]->version_builder()->FinalizeBlobFilesTo(
+            versions[i]->storage_info());
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
+    TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AfterBlobFinalization");
     if (s.ok()) {
       constexpr bool update_stats = true;
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-        // NOTE: normally called with DB mutex released, but we don't
-        // want to release the DB mutex in this mode of LogAndApply
         versions[i]->PrepareAppend(read_options, update_stats);
       }
     }
+    mu->Lock();
   } else {
     FileOptions opt_file_opts = GetFileOptionsForManifestWrite();
     mu->Unlock();
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestStart");
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
+    TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeBlobFinalization");
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+        assert(!builder_guards.empty() &&
+               builder_guards.size() == versions.size());
+        s = builder_guards[i]->version_builder()->FinalizeBlobFilesTo(
+            versions[i]->storage_info());
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
+    TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AfterBlobFinalization");
+    if (s.ok() &&
+        !first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
                builder_guards.size() == versions.size());
@@ -6357,6 +6416,17 @@ Status VersionSet::ProcessManifestWrites(
     LogFlush(db_options_->info_log);
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
+#ifndef NDEBUG
+    assert(!manifest_writers_.empty());
+    assert(manifest_writers_.front() == &first_writer);
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+      assert(builder_guards.size() == versions.size());
+      for (size_t i = 0; i < versions.size(); ++i) {
+        assert(versions[i]->cfd_->current() ==
+               builder_guards[i]->base_version());
+      }
+    }
+#endif
   }
 
   if (s.ok()) {
@@ -6441,6 +6511,18 @@ Status VersionSet::ProcessManifestWrites(
 
       if (last_min_log_number_to_keep != 0) {
         MarkMinLogNumberToKeep(last_min_log_number_to_keep);
+      }
+
+      if (skip_manifest_write &&
+          first_writer.new_mutable_cf_options != nullptr) {
+        if (first_writer.compaction_phase_anchor_time.has_value()) {
+          CommitCompactionPhaseReanchor(
+              *first_writer.compaction_phase_anchor_time);
+        }
+        for (Version* version : versions) {
+          version->cfd_->InstallMutableCFOptions(
+              version->GetMutableCFOptions());
+        }
       }
 
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -6555,7 +6637,9 @@ Status VersionSet::LogAndApply(
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
     const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
-    const std::function<Status()>& pre_cb, int max_file_opening_threads) {
+    const std::function<Status()>& pre_cb, int max_file_opening_threads,
+    const autovector<const MutableCFOptions*>* new_mutable_cf_options,
+    std::optional<uint64_t> compaction_phase_anchor_time) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -6565,10 +6649,12 @@ Status VersionSet::LogAndApply(
     return Status::OK();
   } else if (num_edits > 1) {
 #ifndef NDEBUG
+    const bool no_manifest_batch =
+        edit_lists.front().front()->IsNoManifestWriteDummy();
     for (const auto& edit_list : edit_lists) {
       for (const auto& edit : edit_list) {
         assert(!edit->IsColumnFamilyManipulation());
-        assert(!edit->IsNoManifestWriteDummy());
+        assert(edit->IsNoManifestWriteDummy() == no_manifest_batch);
       }
     }
 #endif /* ! NDEBUG */
@@ -6583,12 +6669,18 @@ Status VersionSet::LogAndApply(
   std::deque<ManifestWriter> writers;
   if (num_cfds > 0) {
     assert(static_cast<size_t>(num_cfds) == edit_lists.size());
+    assert(new_mutable_cf_options == nullptr ||
+           static_cast<size_t>(num_cfds) == new_mutable_cf_options->size());
   }
   for (int i = 0; i < num_cfds; ++i) {
     const auto wcb =
         manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
-    writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb,
-                         max_file_opening_threads);
+    writers.emplace_back(
+        mu, column_family_datas[i], edit_lists[i], wcb,
+        /*requires_precondition=*/i == 0 && !!pre_cb,
+        new_mutable_cf_options == nullptr ? nullptr
+                                          : (*new_mutable_cf_options)[i],
+        compaction_phase_anchor_time, max_file_opening_threads);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());

@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <future>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
@@ -264,6 +266,66 @@ TEST_F(DBFollowerTest, Basic) {
   ASSERT_OK(follower()->Get(ReadOptions(), "k1", &val));
   ASSERT_EQ(val, "v1");
   CheckDirs();
+}
+
+TEST_F(DBFollowerTest, CatchUpCallsAreSerialized) {
+  std::promise<void> follower_catch_up_started;
+  std::future<void> follower_catch_up_started_future =
+      follower_catch_up_started.get_future();
+  std::promise<void> release_follower_catch_up;
+  std::future<void> release_follower_catch_up_future =
+      release_follower_catch_up.get_future();
+  std::atomic<bool> block_once{true};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplFollower::TryCatchupWithLeader:Begin2", [&](void*) {
+        if (block_once.exchange(false, std::memory_order_relaxed)) {
+          follower_catch_up_started.set_value();
+          release_follower_catch_up_future.wait();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status open_status = OpenAsFollower();
+  if (!open_status.ok()) {
+    release_follower_catch_up.set_value();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+  ASSERT_OK(open_status);
+  const std::future_status follower_started_status =
+      follower_catch_up_started_future.wait_for(std::chrono::seconds(30));
+  if (follower_started_status != std::future_status::ready) {
+    release_follower_catch_up.set_value();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+  ASSERT_EQ(follower_started_status, std::future_status::ready);
+
+  std::promise<void> public_catch_up_started;
+  std::future<void> public_catch_up_started_future =
+      public_catch_up_started.get_future();
+  std::promise<void> public_catch_up_done;
+  std::future<void> public_catch_up_done_future =
+      public_catch_up_done.get_future();
+  Status public_catch_up_status;
+  std::thread public_catch_up([&]() {
+    public_catch_up_started.set_value();
+    public_catch_up_status = follower()->TryCatchUpWithPrimary();
+    public_catch_up_done.set_value();
+  });
+  const std::future_status public_started_status =
+      public_catch_up_started_future.wait_for(std::chrono::seconds(30));
+  const std::future_status public_done_status =
+      public_catch_up_done_future.wait_for(std::chrono::milliseconds(100));
+
+  release_follower_catch_up.set_value();
+  public_catch_up.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(public_started_status, std::future_status::ready);
+  ASSERT_EQ(public_done_status, std::future_status::timeout);
+  ASSERT_OK(public_catch_up_status);
 }
 
 TEST_F(DBFollowerTest, NewIteratorsRefreshesAfterCatchUp) {

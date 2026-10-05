@@ -542,6 +542,11 @@ class VersionStorageInfo {
     files_marked_for_periodic_compaction_.emplace_back(level, f);
   }
 
+  const PeriodicCompactionPhaseParams& TEST_GetPeriodicCompactionPhaseParams()
+      const {
+    return periodic_compaction_phase_params_;
+  }
+
   // REQUIRES: PrepareForVersionAppend has been called
   const autovector<std::pair<int, FileMetaData*>>& BottommostFiles() const {
     assert(finalized_);
@@ -1266,7 +1271,9 @@ class Version {
           const std::shared_ptr<IOTracer>& io_tracer,
           uint64_t version_number = 0,
           EpochNumberRequirement epoch_number_requirement =
-              EpochNumberRequirement::kMustPresent);
+              EpochNumberRequirement::kMustPresent,
+          std::optional<PeriodicCompactionPhaseParams>
+              periodic_compaction_phase_params = std::nullopt);
 
   ~Version();
 
@@ -1395,7 +1402,10 @@ class VersionSet {
       const ColumnFamilyOptions* new_cf_options = nullptr,
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs = {},
       const std::function<Status()>& pre_cb = {},
-      int max_file_opening_threads = 1);
+      int max_file_opening_threads = 1,
+      const autovector<const MutableCFOptions*>* new_mutable_cf_options =
+          nullptr,
+      std::optional<uint64_t> compaction_phase_anchor_time = std::nullopt);
 
   void WakeUpWaitingManifestWriters();
 
@@ -1745,12 +1755,17 @@ class VersionSet {
   PeriodicCompactionPhaseParams GetPeriodicCompactionPhaseParams(
       uint32_t cf_id) const;
 
-  // (Re)anchor periodic-compaction phasing to now and refresh the cached phase
-  // params on every column family's current Version. Called when a CF's
-  // periodic_compaction_seconds changes via SetOptions, so a turn-down's newly
-  // past-due cohort is spread (over the phase grid within ~N/4 of now) instead
-  // of firing all at once. Caller must hold the DB mutex.
-  void ReanchorCompactionPhase();
+  // Prepares a new anchor without mutating live phasing state. If the clock is
+  // unavailable, returns no anchor and SetOptions retains the current one.
+  std::optional<uint64_t> PrepareCompactionPhaseReanchor() const;
+
+  PeriodicCompactionPhaseParams GetPeriodicCompactionPhaseParamsAtAnchor(
+      uint32_t cf_id, uint64_t anchor_time) const;
+
+  // Atomically commits an anchor and refreshes every live Version's cached
+  // parameters. Replacement Versions prepared for SetOptions already carry
+  // these parameters. Caller must hold the DB mutex.
+  void CommitCompactionPhaseReanchor(uint64_t anchor_time);
 
   const ImmutableDBOptions* db_options() const { return db_options_; }
 
@@ -1878,6 +1893,8 @@ class VersionSet {
       uint64_t initial_file_size = 0) const;
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
+
+  void RefreshCurrentVersionCompactionPhaseParams();
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const ReadOptions& read_options,
@@ -2132,7 +2149,10 @@ class ReactiveVersionSet : public VersionSet {
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
       const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/,
       const std::function<Status()>& /*pre_cb*/,
-      int /*max_file_opening_threads*/) override {
+      int /*max_file_opening_threads*/,
+      const autovector<const MutableCFOptions*>*
+      /*new_mutable_cf_options*/,
+      std::optional<uint64_t> /*compaction_phase_anchor_time*/) override {
     return Status::NotSupported("not supported in reactive mode");
   }
 
