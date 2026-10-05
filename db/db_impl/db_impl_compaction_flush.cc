@@ -4698,8 +4698,27 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
 
+    SequenceNumber global_row_cache_sequence_floor = 0;
+    bool disable_global_row_cache = false;
     for (const auto& f : *c->inputs(0)) {
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::BackgroundCompaction:BeforeFIFOFileDelete", f);
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+      if (immutable_db_options_.global_row_cache != nullptr) {
+        const bool sequence_bounds_unknown =
+            f->fd.smallest_seqno == kMaxSequenceNumber &&
+            f->fd.largest_seqno == 0;
+        if (sequence_bounds_unknown ||
+            f->fd.largest_seqno == kMaxSequenceNumber) {
+          // There is no trustworthy, representable strict successor for this
+          // file's sequence range. Disable the cache after the MANIFEST
+          // deletion succeeds rather than publishing an unsound floor.
+          disable_global_row_cache = true;
+        } else {
+          global_row_cache_sequence_floor = std::max(
+              global_row_cache_sequence_floor, f->fd.largest_seqno + 1);
+        }
+      }
     }
     NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
                                 compaction_job_stats, job_context->job_id);
@@ -4707,7 +4726,18 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->column_family_data(), read_options, write_options, c->edit(),
         &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
-        [&c, &compaction_released](const Status& s) {
+        [&c, &compaction_released, this, global_row_cache_sequence_floor,
+         disable_global_row_cache](const Status& s) {
+          if (s.ok()) {
+            if (disable_global_row_cache) {
+              DisableGlobalRowCache(Status::NotSupported(
+                  "FIFO deletion has no safe global row cache sequence "
+                  "floor"));
+            } else if (global_row_cache_sequence_floor > 0) {
+              c->column_family_data()->AdvanceGlobalRowCacheSequenceFloor(
+                  global_row_cache_sequence_floor);
+            }
+          }
           c->ReleaseCompactionFiles(s);
           compaction_released = true;
         });

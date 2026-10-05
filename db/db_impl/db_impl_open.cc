@@ -262,9 +262,9 @@ Status DBImpl::ValidateGlobalRowCacheOptions(
     return Status::NotSupported(
         "global_row_cache does not support compaction filters");
   }
-  if (cf_options.compaction_style == kCompactionStyleFIFO) {
+  if (cf_options.merge_operator != nullptr) {
     return Status::NotSupported(
-        "global_row_cache does not support FIFO compaction");
+        "global_row_cache does not support merge operators");
   }
   return Status::OK();
 }

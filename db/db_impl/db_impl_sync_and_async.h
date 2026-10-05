@@ -368,24 +368,50 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
       get_impl_options.value->Reset();
       DisableGlobalRowCache(Status::Corruption(
           "global row cache returned an invalid sequence number"));
-    } else if (cache_result.state ==
-               GlobalRowCacheLookupResult::State::kValue) {
-      s = Status::OK();
-      done = true;
-      result_sequence = cache_result.sequence;
-      if (get_impl_options.value_found != nullptr) {
-        *get_impl_options.value_found = true;
-      }
-    } else if (cache_result.state ==
-               GlobalRowCacheLookupResult::State::kNotFound) {
-      get_impl_options.value->Reset();
-      s = Status::NotFound();
-      done = true;
-      result_sequence = cache_result.sequence;
-    } else {
+    } else if (cache_result.state !=
+                   GlobalRowCacheLookupResult::State::kValue &&
+               cache_result.state !=
+                   GlobalRowCacheLookupResult::State::kNotFound) {
       get_impl_options.value->Reset();
       DisableGlobalRowCache(
           Status::Corruption("global row cache returned an invalid state"));
+    } else {
+      const GlobalRowCacheMutationType type =
+          cache_result.state == GlobalRowCacheLookupResult::State::kValue
+              ? GlobalRowCacheMutationType::kValue
+              : GlobalRowCacheMutationType::kDeletion;
+      const Slice cache_value = type == GlobalRowCacheMutationType::kValue
+                                    ? Slice(*get_impl_options.value)
+                                    : Slice();
+      bool visible =
+          cache_result.sequence >= sv->global_row_cache_sequence_floor;
+      if (visible) {
+        cache_status = immutable_db_options_.global_row_cache->IsEntryVisible(
+            key, cache_result.sequence, cache_result.generation, type,
+            cache_value, sv->global_row_cache_sequence_floor, &visible);
+      }
+      if (!cache_status.ok()) {
+        get_impl_options.value->Reset();
+        DisableGlobalRowCache(cache_status);
+      } else if (!IsGlobalRowCacheEnabled()) {
+        get_impl_options.value->Reset();
+      } else if (!visible) {
+        get_impl_options.value->Reset();
+        global_row_cache_miss = true;
+        global_row_cache_fill_token = cache_result.fill_token;
+      } else if (type == GlobalRowCacheMutationType::kValue) {
+        s = Status::OK();
+        done = true;
+        result_sequence = cache_result.sequence;
+        if (get_impl_options.value_found != nullptr) {
+          *get_impl_options.value_found = true;
+        }
+      } else {
+        get_impl_options.value->Reset();
+        s = Status::NotFound();
+        done = true;
+        result_sequence = cache_result.sequence;
+      }
     }
   }
 
@@ -635,12 +661,16 @@ DEFINE_SYNC_AND_ASYNC(Status, DBImpl::GetImpl)
                    : GlobalRowCacheMutationType::kDeletion;
         const Slice cache_value =
             s.ok() ? Slice(*get_impl_options.value) : Slice();
-        Status cache_status =
-            immutable_db_options_.global_row_cache->InsertReadResult(
-                global_row_cache_id_, cfd->GetID(), key, result_sequence, type,
-                cache_value, global_row_cache_fill_token);
-        if (!cache_status.ok()) {
-          DisableGlobalRowCache(cache_status);
+        uint64_t generation = 0;
+        if (ComputeGlobalRowCacheEntryGeneration(key, result_sequence, type,
+                                                 cache_value, &generation)) {
+          Status cache_status =
+              immutable_db_options_.global_row_cache->InsertReadResult(
+                  global_row_cache_id_, cfd->GetID(), key, result_sequence,
+                  generation, type, cache_value, global_row_cache_fill_token);
+          if (!cache_status.ok()) {
+            DisableGlobalRowCache(cache_status);
+          }
         }
       }
     }

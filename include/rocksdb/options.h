@@ -1521,13 +1521,17 @@ struct DBOptions {
   //
   // This interface currently supports Get() with the bytewise comparator. It
   // does not support MultiGet(), user-defined timestamps, compaction filters,
-  // FIFO compaction, unordered writes, two write queues, or sequence-per-batch
-  // transaction write policies. Two-phase commit (allow_2pc), read-only DBs,
-  // secondary DBs, and follower DBs are also unsupported. Read modes that
-  // change normal Get() semantics bypass the cache. Direct WriteBatchWithIndex
-  // ingestion, external file ingestion, and DeleteFilesInRanges() disable it
-  // for the rest of that DB instance. It cannot be configured together with
-  // row_cache.
+  // merge operators, unordered writes, two write queues, or sequence-per-batch
+  // transaction write policies. FIFO compaction is supported with a
+  // conservative sequence floor that rejects entries from deleted files. A
+  // FIFO deletion whose sequence metadata cannot provide a strict floor
+  // disables the cache for that DB instance, and FIFO file rewrites run
+  // locally rather than through compaction_service. Two-phase commit
+  // (allow_2pc), read-only DBs, secondary DBs, and follower DBs are also
+  // unsupported. Read modes that change normal Get() semantics bypass the
+  // cache. Direct WriteBatchWithIndex ingestion, external file ingestion, and
+  // DeleteFilesInRanges() disable it for the rest of that DB instance. It
+  // cannot be configured together with row_cache.
   //
   // Default: nullptr (disabled)
   std::shared_ptr<GlobalRowCache> global_row_cache = nullptr;

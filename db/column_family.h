@@ -216,6 +216,10 @@ struct SuperVersion {
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;
+  // Entries below this sequence cannot be used by the global row cache. FIFO
+  // deletion compactions advance this floor with the storage view they
+  // install.
+  SequenceNumber global_row_cache_sequence_floor = 0;
   WriteStallCondition write_stall_condition;
   // Each time `full_history_ts_low` collapses history, a new SuperVersion is
   // installed. This field tracks the effective `full_history_ts_low` for that
@@ -602,6 +606,17 @@ class ColumnFamilyData {
   }
 
   // REQUIRES: DB mutex held.
+  SequenceNumber GetGlobalRowCacheSequenceFloor() const {
+    return global_row_cache_sequence_floor_;
+  }
+
+  // REQUIRES: DB mutex held.
+  void AdvanceGlobalRowCacheSequenceFloor(SequenceNumber sequence_floor) {
+    global_row_cache_sequence_floor_ =
+        std::max(global_row_cache_sequence_floor_, sequence_floor);
+  }
+
+  // REQUIRES: DB mutex held.
   // Return true if flushing up to MemTables with ID `max_memtable_id`
   // should be postponed to retain user-defined timestamps according to the
   // user's setting. Called by background flush job.
@@ -727,6 +742,11 @@ class ColumnFamilyData {
   // Column Family. All earlier log files must be ignored and not
   // recovered from
   uint64_t log_number_;
+
+  // Monotonic, in-memory cutoff for entries invalidated by FIFO file deletion.
+  // It does not need to survive reopen because each DB open has a new global
+  // row cache namespace.
+  SequenceNumber global_row_cache_sequence_floor_ = 0;
 
   // An object that keeps all the compaction stats
   // and picks the next compaction

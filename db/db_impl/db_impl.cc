@@ -6336,11 +6336,33 @@ void DBImpl::ApplyGlobalRowCachePointMutation(ColumnFamilyId column_family_id,
   if (!IsGlobalRowCacheEnabled()) {
     return;
   }
+  uint64_t generation = 0;
+  if (type != GlobalRowCacheMutationType::kInvalidate &&
+      !ComputeGlobalRowCacheEntryGeneration(key, sequence, type, value,
+                                            &generation)) {
+    return;
+  }
   Status s = immutable_db_options_.global_row_cache->ApplyPointMutation(
-      global_row_cache_id_, column_family_id, key, sequence, type, value);
+      global_row_cache_id_, column_family_id, key, sequence, generation, type,
+      value);
   if (!s.ok()) {
     DisableGlobalRowCache(s);
   }
+}
+
+bool DBImpl::ComputeGlobalRowCacheEntryGeneration(
+    const Slice& key, SequenceNumber sequence, GlobalRowCacheMutationType type,
+    const Slice& value, uint64_t* generation) {
+  if (!IsGlobalRowCacheEnabled()) {
+    return false;
+  }
+  Status s = immutable_db_options_.global_row_cache->ComputeEntryGeneration(
+      key, sequence, type, value, generation);
+  if (!s.ok()) {
+    DisableGlobalRowCache(s);
+    return false;
+  }
+  return IsGlobalRowCacheEnabled();
 }
 
 void DBImpl::ApplyGlobalRowCacheRangeDeletion(ColumnFamilyId column_family_id,

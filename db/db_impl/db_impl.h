@@ -794,6 +794,11 @@ class DBImpl : public DB
                                         SequenceNumber sequence,
                                         GlobalRowCacheMutationType type,
                                         const Slice& value);
+  bool ComputeGlobalRowCacheEntryGeneration(const Slice& key,
+                                            SequenceNumber sequence,
+                                            GlobalRowCacheMutationType type,
+                                            const Slice& value,
+                                            uint64_t* generation);
   void ApplyGlobalRowCacheRangeDeletion(ColumnFamilyId column_family_id,
                                         const Slice& begin_key,
                                         const Slice& end_key,
