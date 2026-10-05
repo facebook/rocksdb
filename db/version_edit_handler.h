@@ -210,9 +210,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   Status OnNonCfOperation(VersionEdit& edit, ColumnFamilyData** cfd);
 
-  Status OnWalAddition(VersionEdit& edit);
+  virtual Status OnWalAddition(VersionEdit& edit);
 
-  Status OnWalDeletion(VersionEdit& edit);
+  virtual Status OnWalDeletion(VersionEdit& edit);
 
   Status Initialize() override;
 
@@ -237,6 +237,18 @@ class VersionEditHandler : public VersionEditHandlerBase {
   virtual bool MustOpenAllColumnFamilies() const {
     return !version_set_->unchanging();
   }
+
+  virtual uint64_t GetEffectiveLogNumber(ColumnFamilyData* cfd) const;
+  virtual void SetEffectiveLogNumber(ColumnFamilyData* cfd,
+                                     uint64_t log_number);
+  virtual void SetEffectiveFullHistoryTsLow(ColumnFamilyData* cfd,
+                                            const std::string& ts_low);
+  virtual bool IsEffectivelyDropped(ColumnFamilyData* cfd) const;
+  virtual void DropColumnFamilyData(ColumnFamilyData* cfd);
+  virtual void SetEffectiveDbId(const std::string& db_id);
+  virtual void SetEffectiveLastCompactedManifestFileSize(uint64_t file_size);
+  virtual uint64_t GetEffectiveManifestFileNumber() const;
+  virtual void PublishStagedState() {}
 
   const bool read_only_;
   std::vector<ColumnFamilyDescriptor> column_families_;
@@ -350,6 +362,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   struct PointInTimeVersion {
     Version* version = nullptr;
     uint64_t log_number = 0;
+    bool prepared = false;
   };
 
   std::unordered_map<uint32_t, PointInTimeVersion> versions_;
@@ -391,9 +404,11 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   // validating and opening newly discovered SSTs synchronously.
   bool defer_sst_file_opening_ = false;
 
-  // Non-null only while a runtime secondary catch-up owns the DB mutex.
-  // Relocation-file validation can release it around remote file I/O.
+  // Non-null only during runtime secondary catch-up. The handler may release
+  // the DB mutex while preparing unpublished Versions, and moves ownership of
+  // scale-dependent cleanup here for destruction after publication.
   InstrumentedMutex* catch_up_db_mutex_ = nullptr;
+  VersionBuilder::OfflockCleanup* offlock_cleanup_ = nullptr;
 
  private:
   bool AtomicUpdateVersionsCompleted();
@@ -439,16 +454,34 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
   Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
                     const FileMetaData& fmeta) override;
 
-  void PrepareToReadNewManifest() {
-    initialized_ = false;
-    ResetReadState();
-  }
+  void PrepareToReadNewManifest();
 
   std::unordered_set<ColumnFamilyData*>& GetUpdatedColumnFamilies() {
     return cfds_changed_;
   }
 
   std::vector<std::string> GetAndClearIntermediateFiles();
+
+  void StageManifestFileNumber(uint64_t manifest_file_number) {
+    staged_manifest_file_number_ = manifest_file_number;
+  }
+
+  void SetCatchUpContext(InstrumentedMutex* db_mutex,
+                         VersionBuilder::OfflockCleanup* offlock_cleanup) {
+    assert(catch_up_db_mutex_ == nullptr);
+    assert(offlock_cleanup_ == nullptr);
+    assert(db_mutex != nullptr);
+    assert(offlock_cleanup != nullptr);
+    catch_up_db_mutex_ = db_mutex;
+    offlock_cleanup_ = offlock_cleanup;
+  }
+
+  void ClearCatchUpContext() {
+    assert(catch_up_db_mutex_ != nullptr);
+    assert(offlock_cleanup_ != nullptr);
+    catch_up_db_mutex_ = nullptr;
+    offlock_cleanup_ = nullptr;
+  }
 
  protected:
   Status Initialize() override;
@@ -459,7 +492,27 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
+  Status OnWalAddition(VersionEdit& edit) override;
+
+  Status OnWalDeletion(VersionEdit& edit) override;
+
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
+
+  uint64_t GetEffectiveLogNumber(ColumnFamilyData* cfd) const override;
+  void SetEffectiveLogNumber(ColumnFamilyData* cfd,
+                             uint64_t log_number) override;
+  void SetEffectiveFullHistoryTsLow(ColumnFamilyData* cfd,
+                                    const std::string& ts_low) override;
+  bool IsEffectivelyDropped(ColumnFamilyData* cfd) const override;
+  void DropColumnFamilyData(ColumnFamilyData* cfd) override;
+  void SetEffectiveDbId(const std::string& db_id) override;
+  void SetEffectiveLastCompactedManifestFileSize(uint64_t file_size) override;
+  uint64_t GetEffectiveManifestFileNumber() const override;
+  void PublishStagedState() override;
+
+  Status PrepareStagedWals();
+  void RetireStagedColumnFamilyState(bool retain_dropped_cfds);
+  void RetireStagedWalEdits();
 
   enum Mode : uint8_t {
     kRecovery = 0,
@@ -468,6 +521,21 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   Mode mode_;
   std::unordered_set<ColumnFamilyData*> cfds_changed_;
+  std::unordered_map<uint32_t, uint64_t> staged_log_numbers_;
+  std::unordered_map<uint32_t, std::string> staged_full_history_ts_lows_;
+  std::unordered_set<uint32_t> staged_dropped_cfds_;
+  std::optional<std::string> staged_db_id_;
+  std::optional<uint64_t> staged_last_compacted_manifest_file_size_;
+  std::optional<uint64_t> staged_manifest_file_number_;
+  struct StagedWalEdit {
+    WalAdditions additions;
+    std::optional<WalNumber> delete_before;
+  };
+  std::shared_ptr<const WalSet> staged_wal_base_;
+  std::vector<StagedWalEdit> staged_wal_edits_;
+  std::shared_ptr<WalSet> prepared_wals_;
+  WalNumber staged_wal_delete_before_ = 0;
+  bool staged_wal_update_ = false;
 };
 
 class DumpManifestHandler : public VersionEditHandler {

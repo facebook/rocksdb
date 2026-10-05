@@ -1206,6 +1206,10 @@ Status CompactionJob::Run() {
                                           num_input_range_del);
   }
 
+  if (status.ok()) {
+    PrepareCompactionResults();
+  }
+
   FinalizeCompactionRun(status, stats_built_from_input_table_prop,
                         num_input_range_del);
 
@@ -2369,6 +2373,64 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   return true;
 }
 
+void CompactionJob::PrepareCompactionResults() {
+  assert(compact_);
+  TEST_SYNC_POINT("CompactionJob::PrepareCompactionResults:Start");
+  auto* compaction = compact_->compaction;
+  assert(compaction);
+  assert(!compaction_results_prepared_);
+
+  VersionEdit* const edit = compaction->edit();
+  assert(edit);
+
+  compaction->AddInputDeletions(edit);
+
+  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> blob_total_garbage;
+  for (const auto& sub_compact : compact_->sub_compact_states) {
+    sub_compact.AddOutputsEdit(edit);
+
+    for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
+      edit->AddBlobFile(blob);
+    }
+
+    if (sub_compact.Current().GetBlobGarbageMeter()) {
+      const auto& flows = sub_compact.Current().GetBlobGarbageMeter()->flows();
+      for (const auto& pair : flows) {
+        const uint64_t blob_file_number = pair.first;
+        const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
+
+        assert(flow.IsValid());
+        if (flow.HasGarbage()) {
+          blob_total_garbage[blob_file_number].Add(flow.GetGarbageCount(),
+                                                   flow.GetGarbageBytes());
+        }
+      }
+    }
+  }
+
+  for (const auto& pair : blob_total_garbage) {
+    const uint64_t blob_file_number = pair.first;
+    const BlobGarbageMeter::BlobStats& stats = pair.second;
+    edit->AddBlobFileGarbage(blob_file_number, stats.GetCount(),
+                             stats.GetBytes());
+  }
+
+  if ((compaction->compaction_reason() ==
+           CompactionReason::kLevelMaxLevelSize ||
+       compaction->compaction_reason() == CompactionReason::kRoundRobinTtl) &&
+      compaction->immutable_options().compaction_pri == kRoundRobin) {
+    int start_level = compaction->start_level();
+    if (start_level > 0) {
+      auto vstorage = compaction->input_version()->storage_info();
+      edit->AddCompactCursor(start_level,
+                             vstorage->GetNextCompactCursor(
+                                 start_level, compaction->num_input_files(0)));
+    }
+  }
+
+  compaction_results_prepared_ = true;
+}
+
 Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
   assert(compact_);
 
@@ -2379,6 +2441,7 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
 
   auto* compaction = compact_->compaction;
   assert(compaction);
+  assert(compaction_results_prepared_);
 
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
@@ -2403,55 +2466,6 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
 
   VersionEdit* const edit = compaction->edit();
   assert(edit);
-
-  // Add compaction inputs
-  compaction->AddInputDeletions(edit);
-
-  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> blob_total_garbage;
-
-  for (const auto& sub_compact : compact_->sub_compact_states) {
-    sub_compact.AddOutputsEdit(edit);
-
-    for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
-      edit->AddBlobFile(blob);
-    }
-
-    if (sub_compact.Current().GetBlobGarbageMeter()) {
-      const auto& flows = sub_compact.Current().GetBlobGarbageMeter()->flows();
-
-      for (const auto& pair : flows) {
-        const uint64_t blob_file_number = pair.first;
-        const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
-
-        assert(flow.IsValid());
-        if (flow.HasGarbage()) {
-          blob_total_garbage[blob_file_number].Add(flow.GetGarbageCount(),
-                                                   flow.GetGarbageBytes());
-        }
-      }
-    }
-  }
-
-  for (const auto& pair : blob_total_garbage) {
-    const uint64_t blob_file_number = pair.first;
-    const BlobGarbageMeter::BlobStats& stats = pair.second;
-
-    edit->AddBlobFileGarbage(blob_file_number, stats.GetCount(),
-                             stats.GetBytes());
-  }
-
-  if ((compaction->compaction_reason() ==
-           CompactionReason::kLevelMaxLevelSize ||
-       compaction->compaction_reason() == CompactionReason::kRoundRobinTtl) &&
-      compaction->immutable_options().compaction_pri == kRoundRobin) {
-    int start_level = compaction->start_level();
-    if (start_level > 0) {
-      auto vstorage = compaction->input_version()->storage_info();
-      edit->AddCompactCursor(start_level,
-                             vstorage->GetNextCompactCursor(
-                                 start_level, compaction->num_input_files(0)));
-    }
-  }
 
   auto manifest_wcb = [&compaction, &compaction_released](const Status& s) {
     compaction->ReleaseCompactionFiles(s);

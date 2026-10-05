@@ -301,13 +301,56 @@ Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
 
 Status VersionEditHandler::OnWalAddition(VersionEdit& edit) {
   assert(edit.IsWalAddition());
-  return version_set_->wals_.AddWals(edit.GetWalAdditions());
+  return version_set_->wals_->AddWals(edit.GetWalAdditions());
 }
 
 Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
   assert(edit.IsWalDeletion());
-  return version_set_->wals_.DeleteWalsBefore(
+  return version_set_->wals_->DeleteWalsBefore(
       edit.GetWalDeletion().GetLogNumber());
+}
+
+uint64_t VersionEditHandler::GetEffectiveLogNumber(
+    ColumnFamilyData* cfd) const {
+  assert(cfd != nullptr);
+  return cfd->GetLogNumber();
+}
+
+void VersionEditHandler::SetEffectiveLogNumber(ColumnFamilyData* cfd,
+                                               uint64_t log_number) {
+  assert(cfd != nullptr);
+  cfd->SetLogNumber(log_number);
+}
+
+void VersionEditHandler::SetEffectiveFullHistoryTsLow(
+    ColumnFamilyData* cfd, const std::string& ts_low) {
+  assert(cfd != nullptr);
+  cfd->SetFullHistoryTsLow(ts_low);
+}
+
+bool VersionEditHandler::IsEffectivelyDropped(ColumnFamilyData* cfd) const {
+  assert(cfd != nullptr);
+  return cfd->IsDropped();
+}
+
+void VersionEditHandler::DropColumnFamilyData(ColumnFamilyData* cfd) {
+  assert(cfd != nullptr);
+  cfd->SetDropped();
+  cfd->UnrefAndTryDelete();
+}
+
+void VersionEditHandler::SetEffectiveDbId(const std::string& db_id) {
+  version_set_->db_id_ = db_id;
+}
+
+void VersionEditHandler::SetEffectiveLastCompactedManifestFileSize(
+    uint64_t file_size) {
+  version_set_->last_compacted_manifest_file_size_ = file_size;
+  version_set_->TuneMaxManifestFileSize();
+}
+
+uint64_t VersionEditHandler::GetEffectiveManifestFileNumber() const {
+  return version_set_->manifest_file_number_;
 }
 
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
@@ -405,14 +448,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     *s = Status::InvalidArgument("Column families not opened: " + msg);
   }
   if (s->ok()) {
-    version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
-        version_edit_params_.GetMaxColumnFamily());
-    version_set_->MarkMinLogNumberToKeep(
-        version_edit_params_.GetMinLogNumberToKeep());
-    version_set_->MarkFileNumberUsed(version_edit_params_.GetPrevLogNumber());
-    version_set_->MarkFileNumberUsed(version_edit_params_.GetLogNumber());
     for (auto* cfd : *(version_set_->GetColumnFamilySet())) {
-      if (cfd->IsDropped()) {
+      if (IsEffectivelyDropped(cfd)) {
         continue;
       }
       auto builder_iter = builders_.find(cfd->GetID());
@@ -427,7 +464,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   }
   if (s->ok()) {
     for (auto* cfd : *(version_set_->GetColumnFamilySet())) {
-      if (cfd->IsDropped()) {
+      if (IsEffectivelyDropped(cfd)) {
         continue;
       }
       if (version_set_->unchanging()) {
@@ -447,7 +484,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
 
   if (s->ok()) {
     for (auto* cfd : *(version_set_->column_family_set_)) {
-      if (cfd->IsDropped()) {
+      if (IsEffectivelyDropped(cfd)) {
         continue;
       }
       assert(cfd->initialized());
@@ -460,13 +497,22 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     }
   }
   if (s->ok()) {
+    // Publish scalar VersionSet bookkeeping only after every potentially
+    // off-lock point-in-time Version has been prepared. Runtime secondary
+    // catch-up stages the replay-visible inputs until this point too.
+    version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
+        version_edit_params_.GetMaxColumnFamily());
+    version_set_->MarkMinLogNumberToKeep(
+        version_edit_params_.GetMinLogNumberToKeep());
+    version_set_->MarkFileNumberUsed(version_edit_params_.GetPrevLogNumber());
+    version_set_->MarkFileNumberUsed(version_edit_params_.GetLogNumber());
     version_set_->manifest_file_size_ = reader.GetReadOffset();
     assert(version_set_->manifest_file_size_ > 0);
     version_set_->manifest_recovery_last_valid_record_end_ =
         last_valid_record_end_;
     version_set_->manifest_last_valid_record_end_ = last_valid_record_end_;
     version_set_->manifest_last_valid_record_end_file_number_ =
-        version_set_->manifest_file_number_;
+        GetEffectiveManifestFileNumber();
     version_set_->next_file_number_.store(version_edit_params_.GetNextFile() +
                                           1);
     SequenceNumber last_seq = version_edit_params_.GetLastSequence();
@@ -518,8 +564,7 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   ColumnFamilyData* ret =
       version_set_->GetColumnFamilySet()->GetColumnFamily(cf_id);
   assert(ret != nullptr);
-  ret->SetDropped();
-  ret->UnrefAndTryDelete();
+  DropColumnFamilyData(ret);
   ret = nullptr;
   return ret;
 }
@@ -587,18 +632,18 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                                       const VersionEdit& edit) {
   Status s;
   if (edit.HasDbId()) {
-    version_set_->db_id_ = edit.GetDbId();
+    SetEffectiveDbId(edit.GetDbId());
     version_edit_params_.SetDBId(edit.GetDbId());
   }
   if (cfd != nullptr) {
     if (edit.HasLogNumber()) {
-      if (cfd->GetLogNumber() > edit.GetLogNumber()) {
+      if (GetEffectiveLogNumber(cfd) > edit.GetLogNumber()) {
         ROCKS_LOG_WARN(
             version_set_->db_options()->info_log,
             "MANIFEST corruption detected, but ignored - Log numbers in "
             "records NOT monotonically increasing");
       } else {
-        cfd->SetLogNumber(edit.GetLogNumber());
+        SetEffectiveLogNumber(cfd, edit.GetLogNumber());
         version_edit_params_.SetLogNumber(edit.GetLogNumber());
       }
     }
@@ -620,7 +665,7 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
     if (edit.HasFullHistoryTsLow()) {
       const std::string& new_ts = edit.GetFullHistoryTsLow();
-      cfd->SetFullHistoryTsLow(new_ts);
+      SetEffectiveFullHistoryTsLow(cfd, new_ts);
     }
   }
 
@@ -648,9 +693,8 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
       version_edit_params_.SetLastSequence(edit.GetLastSequence());
     }
     if (edit.HasLastCompactedManifestFileSize()) {
-      version_set_->last_compacted_manifest_file_size_ =
-          edit.GetLastCompactedManifestFileSize();
-      version_set_->TuneMaxManifestFileSize();
+      SetEffectiveLastCompactedManifestFileSize(
+          edit.GetLastCompactedManifestFileSize());
     }
     if (!version_edit_params_.HasPrevLogNumber()) {
       version_edit_params_.SetPrevLogNumber(0);
@@ -813,8 +857,9 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
   VersionEditHandler::CheckIterationResult(reader, s);
   assert(s != nullptr);
   if (s->ok()) {
+    PublishStagedState();
     for (auto* cfd : *(version_set_->column_family_set_)) {
-      if (cfd->IsDropped()) {
+      if (IsEffectivelyDropped(cfd)) {
         continue;
       }
       assert(cfd->initialized());
@@ -844,6 +889,12 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
 
 ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
     const VersionEdit& edit) {
+  if (offlock_cleanup_ != nullptr) {
+    auto builder_iter = builders_.find(edit.GetColumnFamily());
+    assert(builder_iter != builders_.end());
+    builder_iter->second->version_builder()->ExtractBlobRouteCleanup(
+        offlock_cleanup_);
+  }
   ColumnFamilyData* cfd = VersionEditHandler::DestroyCfAndCleanup(edit);
   uint32_t cfid = edit.GetColumnFamily();
   if (AtomicUpdateVersionsContains(cfid)) {
@@ -912,7 +963,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     // built reflects: VersionEditHandler::ExtractInfoFromVersionEdit() applies
     // `edit`'s own log number only after this function returns, so on a
     // negative edge it is still the pre-edit value.
-    const uint64_t log_number = cfd->GetLogNumber();
+    const uint64_t log_number = GetEffectiveLogNumber(cfd);
     const auto& mopts = cfd->GetLatestMutableCFOptions();
     auto* version = new Version(
         cfd, version_set_, version_set_->file_options_, mopts, io_tracer_,
@@ -931,31 +982,53 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
           // This point in time cannot be recovered; skip it and continue.
           s = Status::OK();
         }
-        builder->CommitLastApply();
+        builder->CommitLastApply(offlock_cleanup_);
         return s;
       }
     }
-    s = builder->SaveTo(version->storage_info());
+    s = builder->SaveTableFilesTo(version->storage_info());
+    bool prepared = false;
+    if (s.ok()) {
+      if (catch_up_db_mutex_ != nullptr) {
+        catch_up_db_mutex_->Unlock();
+        TEST_SYNC_POINT("VersionEditHandlerPointInTime:BeforeBlobFinalization");
+        s = builder->FinalizeBlobFilesTo(version->storage_info());
+        if (s.ok()) {
+          version->PrepareAppend(
+              read_options_,
+              !version_set_->db_options_->skip_stats_update_on_db_open);
+          prepared = true;
+        }
+        TEST_SYNC_POINT("VersionEditHandlerPointInTime:AfterBlobFinalization");
+        catch_up_db_mutex_->Lock();
+      } else {
+        s = builder->FinalizeBlobFilesTo(version->storage_info());
+      }
+    }
     if (negative_edge) {
       builder->RedoLastApply();
     }
     if (s.ok()) {
       if (AtomicUpdateVersionsContains(cfd->GetID())) {
-        AtomicUpdateVersionsPut(PointInTimeVersion{version, log_number});
+        AtomicUpdateVersionsPut(
+            PointInTimeVersion{version, log_number, prepared});
         if (AtomicUpdateVersionsCompleted()) {
           AtomicUpdateVersionsApply();
         }
       } else {
-        version->PrepareAppend(
-            read_options_,
-            !version_set_->db_options_->skip_stats_update_on_db_open);
+        if (!prepared) {
+          version->PrepareAppend(
+              read_options_,
+              !version_set_->db_options_->skip_stats_update_on_db_open);
+          prepared = true;
+        }
         auto v_iter = versions_.find(cfd->GetID());
         if (v_iter != versions_.end()) {
           delete v_iter->second.version;
-          v_iter->second = PointInTimeVersion{version, log_number};
+          v_iter->second = PointInTimeVersion{version, log_number, prepared};
         } else {
           versions_.emplace(cfd->GetID(),
-                            PointInTimeVersion{version, log_number});
+                            PointInTimeVersion{version, log_number, prepared});
         }
       }
     } else {
@@ -963,7 +1036,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     }
   }
 
-  builder->CommitLastApply();
+  builder->CommitLastApply(offlock_cleanup_);
   return s;
 }
 
@@ -1091,13 +1164,16 @@ void VersionEditHandlerPointInTime::AtomicUpdateVersionsPut(
 
 void VersionEditHandlerPointInTime::AtomicUpdateVersionsApply() {
   assert(AtomicUpdateVersionsCompleted());
-  for (const auto& cfid_and_version : atomic_update_versions_) {
+  for (auto& cfid_and_version : atomic_update_versions_) {
     uint32_t cfid = cfid_and_version.first;
-    const PointInTimeVersion& pit_version = cfid_and_version.second;
+    PointInTimeVersion& pit_version = cfid_and_version.second;
     assert(pit_version.version != nullptr);
-    pit_version.version->PrepareAppend(
-        read_options_,
-        !version_set_->db_options_->skip_stats_update_on_db_open);
+    if (!pit_version.prepared) {
+      pit_version.version->PrepareAppend(
+          read_options_,
+          !version_set_->db_options_->skip_stats_update_on_db_open);
+      pit_version.prepared = true;
+    }
     auto versions_iter = versions_.find(cfid);
     if (versions_iter != versions_.end()) {
       delete versions_iter->second.version;
@@ -1131,11 +1207,77 @@ Status ManifestTailer::Initialize() {
     VersionBuilderUPtr new_builder(new BaseReferencedVersionBuilder(
         default_cfd, base_version, this, track_found_and_missing_files_,
         allow_incomplete_valid_version_));
+    if (offlock_cleanup_ != nullptr) {
+      builder_iter->second->version_builder()->ExtractBlobRouteCleanup(
+          offlock_cleanup_);
+    }
     builder_iter->second = std::move(new_builder);
 
     initialized_ = true;
   }
   return s;
+}
+
+void ManifestTailer::RetireStagedWalEdits() {
+  if (staged_wal_edits_.empty()) {
+    return;
+  }
+  assert(offlock_cleanup_ != nullptr);
+  auto retired_edits = std::make_shared<std::vector<StagedWalEdit>>();
+  retired_edits->swap(staged_wal_edits_);
+  offlock_cleanup_->emplace_back(std::move(retired_edits));
+}
+
+void ManifestTailer::RetireStagedColumnFamilyState(bool retain_dropped_cfds) {
+  assert(offlock_cleanup_ != nullptr);
+  if (!staged_log_numbers_.empty()) {
+    auto retired = std::make_shared<decltype(staged_log_numbers_)>();
+    retired->swap(staged_log_numbers_);
+    offlock_cleanup_->emplace_back(std::move(retired));
+  }
+  if (!staged_full_history_ts_lows_.empty()) {
+    auto retired = std::make_shared<decltype(staged_full_history_ts_lows_)>();
+    retired->swap(staged_full_history_ts_lows_);
+    offlock_cleanup_->emplace_back(std::move(retired));
+  }
+  if (!retain_dropped_cfds && !staged_dropped_cfds_.empty()) {
+    auto retired = std::make_shared<decltype(staged_dropped_cfds_)>();
+    retired->swap(staged_dropped_cfds_);
+    offlock_cleanup_->emplace_back(std::move(retired));
+  }
+}
+
+void ManifestTailer::PrepareToReadNewManifest() {
+  status_ = Status::OK();
+  initialized_ = false;
+  ResetReadState();
+  RetireStagedColumnFamilyState(/*retain_dropped_cfds=*/true);
+  // A drop parsed from the valid prefix of the previous MANIFEST remains
+  // authoritative. Column-family IDs are never reused, and a new MANIFEST
+  // snapshot omits the dropped CF, so retain its tombstone and missing builder
+  // until successful publication.
+  staged_db_id_.reset();
+  staged_last_compacted_manifest_file_size_.reset();
+  staged_manifest_file_number_.reset();
+
+  assert(offlock_cleanup_ != nullptr);
+  if (prepared_wals_ != nullptr) {
+    offlock_cleanup_->emplace_back(std::move(prepared_wals_));
+  }
+  const WalNumber delete_before = std::max(
+      staged_wal_delete_before_, version_set_->wals_->GetMinWalNumberToKeep());
+  RetireStagedWalEdits();
+  // A new MANIFEST is an authoritative snapshot of the surviving WALs. Start
+  // from empty rather than the stale published set; carry forward the
+  // in-memory-only deletion floor so old additions cannot be resurrected.
+  staged_wal_base_ = std::make_shared<WalSet>();
+  staged_wal_delete_before_ = delete_before;
+  staged_wal_update_ = true;
+  if (delete_before > 0) {
+    StagedWalEdit staged_edit;
+    staged_edit.delete_before = delete_before;
+    staged_wal_edits_.emplace_back(std::move(staged_edit));
+  }
 }
 
 Status ManifestTailer::ApplyVersionEdit(VersionEdit& edit,
@@ -1175,6 +1317,10 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
   base_version->Ref();
   VersionBuilderUPtr new_builder(new BaseReferencedVersionBuilder(
       tmp_cfd, base_version, this, track_found_and_missing_files_));
+  if (offlock_cleanup_ != nullptr) {
+    builder_iter->second->version_builder()->ExtractBlobRouteCleanup(
+        offlock_cleanup_);
+  }
   builder_iter->second = std::move(new_builder);
 
 #ifndef NDEBUG
@@ -1184,10 +1330,210 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
   return Status::OK();
 }
 
+Status ManifestTailer::OnWalAddition(VersionEdit& edit) {
+  if (Mode::kRecovery == mode_) {
+    return VersionEditHandler::OnWalAddition(edit);
+  }
+  assert(Mode::kCatchUp == mode_);
+  if (!staged_wal_update_) {
+    staged_wal_base_ = version_set_->wals_;
+    staged_wal_update_ = true;
+  }
+  StagedWalEdit staged_edit;
+  staged_edit.additions = edit.ExtractWalAdditions();
+  staged_wal_edits_.emplace_back(std::move(staged_edit));
+  return Status::OK();
+}
+
+Status ManifestTailer::OnWalDeletion(VersionEdit& edit) {
+  if (Mode::kRecovery == mode_) {
+    return VersionEditHandler::OnWalDeletion(edit);
+  }
+  assert(Mode::kCatchUp == mode_);
+  if (!staged_wal_update_) {
+    staged_wal_base_ = version_set_->wals_;
+    staged_wal_update_ = true;
+  }
+  const WalNumber delete_before = edit.GetWalDeletion().GetLogNumber();
+  staged_wal_delete_before_ =
+      std::max(staged_wal_delete_before_, delete_before);
+  StagedWalEdit staged_edit;
+  staged_edit.delete_before = delete_before;
+  staged_wal_edits_.emplace_back(std::move(staged_edit));
+  return Status::OK();
+}
+
+Status ManifestTailer::PrepareStagedWals() {
+  assert(Mode::kCatchUp == mode_);
+  if (!staged_wal_update_) {
+    return Status::OK();
+  }
+  assert(catch_up_db_mutex_ != nullptr);
+  assert(staged_wal_base_ != nullptr);
+
+  std::shared_ptr<WalSet> old_prepared = std::move(prepared_wals_);
+  const std::shared_ptr<const WalSet> base = staged_wal_base_;
+  catch_up_db_mutex_->Unlock();
+  old_prepared.reset();
+  TEST_SYNC_POINT("ManifestTailer::PrepareStagedWals:Start");
+  auto prepared = std::make_shared<WalSet>(*base);
+  Status s;
+  for (const StagedWalEdit& edit : staged_wal_edits_) {
+    if (edit.delete_before.has_value()) {
+      s = prepared->DeleteWalsBefore(*edit.delete_before);
+    } else {
+      s = prepared->AddWals(edit.additions);
+    }
+    if (!s.ok()) {
+      break;
+    }
+  }
+  if (!s.ok()) {
+    prepared.reset();
+  }
+  catch_up_db_mutex_->Lock();
+  if (s.ok()) {
+    prepared_wals_ = std::move(prepared);
+  }
+  return s;
+}
+
+uint64_t ManifestTailer::GetEffectiveLogNumber(ColumnFamilyData* cfd) const {
+  if (Mode::kRecovery == mode_) {
+    return VersionEditHandler::GetEffectiveLogNumber(cfd);
+  }
+  assert(cfd != nullptr);
+  const auto it = staged_log_numbers_.find(cfd->GetID());
+  return it == staged_log_numbers_.end() ? cfd->GetLogNumber() : it->second;
+}
+
+void ManifestTailer::SetEffectiveLogNumber(ColumnFamilyData* cfd,
+                                           uint64_t log_number) {
+  if (Mode::kRecovery == mode_) {
+    VersionEditHandler::SetEffectiveLogNumber(cfd, log_number);
+    return;
+  }
+  assert(cfd != nullptr);
+  staged_log_numbers_[cfd->GetID()] = log_number;
+}
+
+void ManifestTailer::SetEffectiveFullHistoryTsLow(ColumnFamilyData* cfd,
+                                                  const std::string& ts_low) {
+  if (Mode::kRecovery == mode_) {
+    VersionEditHandler::SetEffectiveFullHistoryTsLow(cfd, ts_low);
+    return;
+  }
+  assert(cfd != nullptr);
+  staged_full_history_ts_lows_[cfd->GetID()] = ts_low;
+}
+
+bool ManifestTailer::IsEffectivelyDropped(ColumnFamilyData* cfd) const {
+  if (VersionEditHandler::IsEffectivelyDropped(cfd)) {
+    return true;
+  }
+  return Mode::kCatchUp == mode_ &&
+         staged_dropped_cfds_.count(cfd->GetID()) != 0;
+}
+
+void ManifestTailer::DropColumnFamilyData(ColumnFamilyData* cfd) {
+  if (Mode::kRecovery == mode_) {
+    VersionEditHandler::DropColumnFamilyData(cfd);
+    return;
+  }
+  assert(cfd != nullptr);
+  const bool inserted = staged_dropped_cfds_.insert(cfd->GetID()).second;
+  assert(inserted);
+}
+
+void ManifestTailer::SetEffectiveDbId(const std::string& db_id) {
+  if (Mode::kRecovery == mode_) {
+    VersionEditHandler::SetEffectiveDbId(db_id);
+    return;
+  }
+  staged_db_id_ = db_id;
+}
+
+void ManifestTailer::SetEffectiveLastCompactedManifestFileSize(
+    uint64_t file_size) {
+  if (Mode::kRecovery == mode_) {
+    VersionEditHandler::SetEffectiveLastCompactedManifestFileSize(file_size);
+    return;
+  }
+  staged_last_compacted_manifest_file_size_ = file_size;
+}
+
+uint64_t ManifestTailer::GetEffectiveManifestFileNumber() const {
+  if (Mode::kCatchUp == mode_ && staged_manifest_file_number_.has_value()) {
+    return *staged_manifest_file_number_;
+  }
+  return VersionEditHandler::GetEffectiveManifestFileNumber();
+}
+
+void ManifestTailer::PublishStagedState() {
+  if (Mode::kRecovery == mode_) {
+    return;
+  }
+  assert(Mode::kCatchUp == mode_);
+  if (staged_db_id_.has_value()) {
+    version_set_->db_id_ = std::move(*staged_db_id_);
+  }
+  if (staged_last_compacted_manifest_file_size_.has_value()) {
+    version_set_->last_compacted_manifest_file_size_ =
+        *staged_last_compacted_manifest_file_size_;
+    version_set_->TuneMaxManifestFileSize();
+  }
+  if (staged_manifest_file_number_.has_value()) {
+    version_set_->manifest_file_number_ = *staged_manifest_file_number_;
+  }
+  if (staged_wal_update_) {
+    assert(prepared_wals_ != nullptr);
+    assert(offlock_cleanup_ != nullptr);
+    offlock_cleanup_->emplace_back(std::move(version_set_->wals_));
+    version_set_->wals_ = std::move(prepared_wals_);
+  }
+  for (const auto& [cf_id, log_number] : staged_log_numbers_) {
+    ColumnFamilyData* cfd =
+        version_set_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+    assert(cfd != nullptr);
+    cfd->SetLogNumber(log_number);
+  }
+  for (auto& [cf_id, ts_low] : staged_full_history_ts_lows_) {
+    ColumnFamilyData* cfd =
+        version_set_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+    assert(cfd != nullptr);
+    cfd->SetFullHistoryTsLow(std::move(ts_low));
+  }
+  for (uint32_t cf_id : staged_dropped_cfds_) {
+    ColumnFamilyData* cfd =
+        version_set_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+    assert(cfd != nullptr);
+    cfd->SetDropped();
+    cfd->UnrefAndTryDelete();
+  }
+
+  RetireStagedColumnFamilyState(/*retain_dropped_cfds=*/false);
+  staged_db_id_.reset();
+  staged_last_compacted_manifest_file_size_.reset();
+  staged_manifest_file_number_.reset();
+  if (staged_wal_update_) {
+    RetireStagedWalEdits();
+    staged_wal_base_.reset();
+    staged_wal_delete_before_ = 0;
+    staged_wal_update_ = false;
+  }
+}
+
 void ManifestTailer::CheckIterationResult(const log::Reader& reader,
                                           Status* s) {
-  VersionEditHandlerPointInTime::CheckIterationResult(reader, s);
   assert(s);
+  if (s->ok() && Mode::kCatchUp == mode_) {
+    *s = PrepareStagedWals();
+  }
+  VersionEditHandlerPointInTime::CheckIterationResult(reader, s);
+  if (!s->ok() && prepared_wals_ != nullptr) {
+    assert(offlock_cleanup_ != nullptr);
+    offlock_cleanup_->emplace_back(std::move(prepared_wals_));
+  }
   if (s->ok()) {
     if (Mode::kRecovery == mode_) {
       if (defer_sst_file_opening_) {

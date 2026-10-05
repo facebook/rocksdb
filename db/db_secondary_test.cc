@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <future>
 #include <mutex>
 #include <thread>
 
@@ -687,6 +688,255 @@ TEST_F(DBSecondaryTest,
     ASSERT_OK(db_secondary_->GetEntity(ReadOptions(), cfh, key, &result));
     ASSERT_EQ(result.columns(), columns);
   }
+}
+
+TEST_F(DBSecondaryTest, CatchUpPreparesBlobMetadataOutsideDBMutex) {
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+  options.track_and_verify_wals_in_manifest = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("seed", std::string(100, 's')));
+  ASSERT_OK(Flush());
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  int iteration = 0;
+  for (const char* work_point :
+       {"ManifestTailer::PrepareStagedWals:Start",
+        "VersionEditHandlerPointInTime:BeforeBlobFinalization",
+        "ReactiveVersionSet::ReadAndApply:BeforeBlobRouteCleanup"}) {
+    SCOPED_TRACE(work_point);
+    const bool expect_published =
+        std::string(work_point) ==
+        "ReactiveVersionSet::ReadAndApply:BeforeBlobRouteCleanup";
+    const std::string key = "key" + std::to_string(iteration++);
+    const std::string value(100, 'v');
+    std::vector<LiveFileMetaData> live_files_before;
+    db_secondary_->GetLiveFilesMetaData(&live_files_before);
+
+    ASSERT_OK(Put(key, value));
+    ASSERT_OK(Flush());
+
+    std::promise<void> work_started;
+    std::future<void> work_started_future = work_started.get_future();
+    std::promise<void> release_work;
+    std::future<void> release_work_future = release_work.get_future();
+    std::promise<void> mutex_acquired;
+    std::future<void> mutex_acquired_future = mutex_acquired.get_future();
+    std::atomic<bool> block_once{true};
+    SyncPoint::GetInstance()->SetCallBack(work_point, [&](void*) {
+      if (block_once.exchange(false, std::memory_order_relaxed)) {
+        work_started.set_value();
+        release_work_future.wait();
+      }
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Status catch_up_status;
+    std::thread catch_up(
+        [&]() { catch_up_status = db_secondary_->TryCatchUpWithPrimary(); });
+    ASSERT_EQ(work_started_future.wait_for(std::chrono::seconds(30)),
+              std::future_status::ready);
+
+    std::vector<LiveFileMetaData> live_files_during;
+    db_secondary_->GetLiveFilesMetaData(&live_files_during);
+    PinnableSlice value_during;
+    const Status get_during =
+        db_secondary_->Get(ReadOptions(), db_secondary_->DefaultColumnFamily(),
+                           key, &value_during);
+    if (expect_published) {
+      ASSERT_GT(live_files_during.size(), live_files_before.size());
+      ASSERT_OK(get_during);
+      ASSERT_EQ(value_during, value);
+    } else {
+      ASSERT_EQ(live_files_during.size(), live_files_before.size());
+      ASSERT_TRUE(get_during.IsNotFound());
+    }
+
+    std::thread mutex_probe([&]() {
+      db_secondary_full()->TEST_LockMutex();
+      mutex_acquired.set_value();
+      db_secondary_full()->TEST_UnlockMutex();
+    });
+    if (mutex_acquired_future.wait_for(std::chrono::seconds(30)) !=
+        std::future_status::ready) {
+      fprintf(stderr, "Timed out acquiring DB mutex during catch-up\n");
+      abort();
+    }
+    release_work.set_value();
+    catch_up.join();
+    mutex_probe.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(catch_up_status);
+  }
+}
+
+TEST_F(DBSecondaryTest, CatchUpOpensColdRelocationOutsideDBMutex) {
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.0;
+  options.blob_garbage_collection_force_threshold = 0.3;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("live", std::string(4096, 'a')));
+  ASSERT_OK(Put("dead", std::string(4096, 'b')));
+  ASSERT_OK(Flush());
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  ASSERT_OK(Delete("dead"));
+  ASSERT_OK(Flush());
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  ASSERT_OK(db_->CompactRange(compact_options, /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  ASSERT_OK(dbfull()->EnableAutoCompaction({db_->DefaultColumnFamily()}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ColumnFamilyData* const primary_cfd =
+      dbfull()->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(primary_cfd, nullptr);
+  bool has_relocation = false;
+  for (const auto& meta :
+       primary_cfd->current()->storage_info()->GetBlobFiles()) {
+    if (meta->IsIndirectRelocationFile()) {
+      has_relocation = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(has_relocation);
+
+  std::promise<void> open_started;
+  std::future<void> open_started_future = open_started.get_future();
+  std::promise<void> release_open;
+  std::future<void> release_open_future = release_open.get_future();
+  std::promise<void> mutex_acquired;
+  std::future<void> mutex_acquired_future = mutex_acquired.get_future();
+  std::atomic<bool> block_once{true};
+  std::atomic<bool> cold_open{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEditHandlerPointInTime::VerifyBlobFile:BeforeRelocationOpen",
+      [&](void*) {
+        if (block_once.exchange(false, std::memory_order_relaxed)) {
+          open_started.set_value();
+          release_open_future.wait();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::CreateRelocationFile:BlockProtectionBytesPerKey",
+      [&](void*) { cold_open.store(true, std::memory_order_release); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status catch_up_status;
+  std::thread catch_up(
+      [&]() { catch_up_status = db_secondary_->TryCatchUpWithPrimary(); });
+  const std::future_status open_started_status =
+      open_started_future.wait_for(std::chrono::seconds(30));
+  if (open_started_status != std::future_status::ready) {
+    release_open.set_value();
+    catch_up.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    FAIL() << "Timed out waiting for relocation verification";
+    return;
+  }
+  std::thread mutex_probe([&]() {
+    db_secondary_full()->TEST_LockMutex();
+    mutex_acquired.set_value();
+    db_secondary_full()->TEST_UnlockMutex();
+  });
+  const std::future_status mutex_status =
+      mutex_acquired_future.wait_for(std::chrono::seconds(30));
+  release_open.set_value();
+  catch_up.join();
+  mutex_probe.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(mutex_status, std::future_status::ready);
+  ASSERT_OK(catch_up_status);
+  ASSERT_TRUE(cold_open.load(std::memory_order_acquire));
+  VerifySecondaryValue("live", std::string(4096, 'a'));
+}
+
+TEST_F(DBSecondaryTest, CloseWaitsForCatchUpPreparation) {
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  Reopen(options);
+  ASSERT_OK(Put("seed", "v1"));
+  ASSERT_OK(Flush());
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  ASSERT_OK(Put("key", "v2"));
+  ASSERT_OK(Flush());
+
+  std::promise<void> preparation_started;
+  std::future<void> preparation_started_future =
+      preparation_started.get_future();
+  std::promise<void> release_preparation;
+  std::future<void> release_preparation_future =
+      release_preparation.get_future();
+  std::atomic<bool> block_once{true};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEditHandlerPointInTime:BeforeBlobFinalization", [&](void*) {
+        if (block_once.exchange(false, std::memory_order_relaxed)) {
+          preparation_started.set_value();
+          release_preparation_future.wait();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status catch_up_status;
+  std::thread catch_up(
+      [&]() { catch_up_status = db_secondary_->TryCatchUpWithPrimary(); });
+  const std::future_status preparation_status =
+      preparation_started_future.wait_for(std::chrono::seconds(30));
+  if (preparation_status != std::future_status::ready) {
+    release_preparation.set_value();
+    catch_up.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    FAIL() << "Timed out waiting for catch-up preparation";
+    return;
+  }
+
+  std::promise<void> close_done;
+  std::future<void> close_done_future = close_done.get_future();
+  Status close_status;
+  std::thread close([&]() {
+    close_status = db_secondary_->Close();
+    close_done.set_value();
+  });
+  const std::future_status close_while_preparing =
+      close_done_future.wait_for(std::chrono::milliseconds(100));
+  release_preparation.set_value();
+  catch_up.join();
+  close.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(close_while_preparing, std::future_status::timeout);
+  ASSERT_OK(catch_up_status);
+  ASSERT_OK(close_status);
 }
 
 TEST_F(DBSecondaryTest, SecondaryDirectWriteMemtableBlobBlockCacheTier) {

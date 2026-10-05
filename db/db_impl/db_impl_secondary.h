@@ -328,6 +328,10 @@ class DBImplSecondary : public DBImpl {
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader_;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter_;
   std::unique_ptr<Status> manifest_reader_status_;
+  // Serializes the whole catch-up transaction while MANIFEST-only Version
+  // preparation temporarily releases mutex_.
+  std::mutex catch_up_mutex_;
+  bool secondary_closing_ = false;
 
   // Publishes a view of every initialized, non-dropped column family while
   // mutex_ protects their SuperVersions. The previous view is retained for

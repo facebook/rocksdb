@@ -367,6 +367,11 @@ bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
     }
   }
 
+  if (expose_wide_column_blob_indexes_) {
+    state.ExposeLazyEntityBlobIndexes();
+    return true;
+  }
+
   // Iterator positions must expose fully prepared values and columns once
   // Valid() becomes true, so resolve and materialize all blob columns here.
   state.BindLazyEntity(saved_key_.GetUserKey());

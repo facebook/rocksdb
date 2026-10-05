@@ -2812,15 +2812,16 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                    blob_file_meta->GetChecksumValue(),
                                    blob_file_meta->GetChecksumMethod()};
-  if (blob_index.IsIndirect() && blob_file_meta->IsIndirectRelocationFile()) {
+  if (blob_index.IsIndirect()) {
+    if (!blob_file_meta->IsIndirectIdentityFile() &&
+        !blob_file_meta->IsIndirectRelocationFile()) {
+      return Status::Corruption("Invalid indirect blob routing metadata");
+    }
     return blob_source_->GetBlobByOrigin(
         read_options, user_key, blob_file, blob_file_meta->GetBlobFileSize(),
         mutable_cf_options_.block_protection_bytes_per_key, blob_file_number,
         blob_index.offset(), blob_index.size(), blob_index.checksum(),
         blob_index.compression(), value, bytes_read);
-  }
-  if (blob_index.IsIndirect() && !blob_file_meta->IsIndirectIdentityFile()) {
-    return Status::Corruption("Invalid indirect blob routing metadata");
   }
   const Status s = blob_source_->GetBlob(
       read_options, user_key, blob_file, blob_index.offset(),
@@ -2932,8 +2933,7 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
           Status::Corruption("Invalid indirect blob routing metadata");
       continue;
     }
-    const bool indirect_relocation_file =
-        blob_index.IsIndirect() && blob_file_meta->IsIndirectRelocationFile();
+    const bool logical_indirect = blob_index.IsIndirect();
     const uint64_t file_size = blob_file_meta->GetBlobFileSize();
     const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                      blob_file_meta->GetChecksumValue(),
@@ -2947,7 +2947,7 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       // MAX_BATCH_SIZE, and BlobSource tracks a batch's cache hits in a 64-bit
       // mask -- while MultiGetEntityLazy does not otherwise bound how many keys
       // can reference a single blob file.
-      if (indirect_relocation_file) {
+      if (logical_indirect) {
         size_t idx;
         auto it = indirect_whole_idx.find(file_number);
         if (it != indirect_whole_idx.end() &&
@@ -2990,7 +2990,7 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       }
       // Same per-file batching and MAX_BATCH_SIZE cap as the whole-value path
       // above.
-      if (indirect_relocation_file) {
+      if (logical_indirect) {
         size_t idx;
         auto it = indirect_range_idx.find(file_number);
         if (it != indirect_range_idx.end() &&
@@ -3106,8 +3106,7 @@ void Version::MultiGetBlob(
         continue;
       }
 
-      if (blob_index.IsIndirect() &&
-          blob_file_meta->IsIndirectRelocationFile()) {
+      if (blob_index.IsIndirect()) {
         indirect_meta = blob_file_meta;
         indirect_blob_reqs_in_file.emplace_back(
             key_context->get_context->ukey_to_get_blob_value(),
@@ -3460,6 +3459,15 @@ void Version::PrepareAppend(const ReadOptions& read_options,
   }
 
   storage_info_.PrepareForVersionAppend(cfd_->ioptions(), mutable_cf_options_);
+  storage_info_.PrepareForcedBlobGCCandidates(
+      mutable_cf_options_.blob_garbage_collection_age_cutoff,
+      mutable_cf_options_.blob_garbage_collection_force_threshold,
+      mutable_cf_options_.enable_blob_garbage_collection);
+  storage_info_.ComputeBlobFileForStandaloneGC(
+      mutable_cf_options_.blob_garbage_collection_force_threshold,
+      cfd_->ioptions().enable_blob_indirection &&
+          cfd_->ioptions().merge_operator == nullptr,
+      mutable_cf_options_.enable_blob_garbage_collection);
 }
 
 bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
@@ -3996,6 +4004,11 @@ void VersionStorageInfo::ComputeCompactionScore(
       mutable_cf_options.blob_garbage_collection_age_cutoff,
       mutable_cf_options.blob_garbage_collection_force_threshold,
       mutable_cf_options.enable_blob_garbage_collection);
+  ComputeBlobFileForStandaloneGC(
+      mutable_cf_options.blob_garbage_collection_force_threshold,
+      immutable_options.enable_blob_indirection &&
+          immutable_options.merge_operator == nullptr,
+      mutable_cf_options.enable_blob_garbage_collection);
   ComputeFilesMarkedForReadTriggeredCompaction(
       mutable_cf_options.read_triggered_compaction_threshold,
       immutable_options.compaction_style);
@@ -4140,7 +4153,50 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     double blob_garbage_collection_age_cutoff,
     double blob_garbage_collection_force_threshold,
     bool enable_blob_garbage_collection) {
+  if (!forced_blob_gc_candidates_prepared_ ||
+      forced_blob_gc_prepared_age_cutoff_ !=
+          blob_garbage_collection_age_cutoff ||
+      forced_blob_gc_prepared_force_threshold_ !=
+          blob_garbage_collection_force_threshold ||
+      forced_blob_gc_prepared_enabled_ != enable_blob_garbage_collection) {
+    PrepareForcedBlobGCCandidates(blob_garbage_collection_age_cutoff,
+                                  blob_garbage_collection_force_threshold,
+                                  enable_blob_garbage_collection);
+  }
+
+  has_file_marked_for_forced_blob_gc_ = false;
+  if (forced_blob_gc_candidates_are_mixed_) {
+    // Mixed candidates are ordered by file number. Preserve the existing
+    // progress rule: an in-flight candidate blocks it and all newer false
+    // positives, so only the oldest candidate determines availability here.
+    has_file_marked_for_forced_blob_gc_ =
+        !files_marked_for_forced_blob_gc_.empty() &&
+        !files_marked_for_forced_blob_gc_.front().second->being_compacted;
+    return;
+  }
+
+  for (const auto& level_file : files_marked_for_forced_blob_gc_) {
+    assert(level_file.second);
+    if (!level_file.second->being_compacted) {
+      has_file_marked_for_forced_blob_gc_ = true;
+      return;
+    }
+  }
+}
+
+void VersionStorageInfo::PrepareForcedBlobGCCandidates(
+    double blob_garbage_collection_age_cutoff,
+    double blob_garbage_collection_force_threshold,
+    bool enable_blob_garbage_collection) {
+  TEST_SYNC_POINT("VersionStorageInfo::PrepareForcedBlobGCCandidates:Start");
   files_marked_for_forced_blob_gc_.clear();
+  forced_blob_gc_candidates_prepared_ = true;
+  forced_blob_gc_prepared_age_cutoff_ = blob_garbage_collection_age_cutoff;
+  forced_blob_gc_prepared_force_threshold_ =
+      blob_garbage_collection_force_threshold;
+  forced_blob_gc_prepared_enabled_ = enable_blob_garbage_collection;
+  forced_blob_gc_candidates_are_mixed_ = false;
+  has_file_marked_for_forced_blob_gc_ = false;
   if (!(enable_blob_garbage_collection &&
         blob_garbage_collection_age_cutoff > 0.0 &&
         blob_garbage_collection_force_threshold < 1.0)) {
@@ -4151,9 +4207,9 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
-  // Number of blob files eligible for GC based on age
+  // Number of legacy direct blob files eligible for GC based on age.
   const size_t cutoff_count = static_cast<size_t>(
-      blob_garbage_collection_age_cutoff * blob_files_.size());
+      blob_garbage_collection_age_cutoff * direct_blob_file_count_);
   if (!cutoff_count) {
     return;
   }
@@ -4186,24 +4242,35 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   //
   // Then, the oldest batch of blob files consists of blob files 10 and 11,
   // and we can get rid of them by forcing the compaction of SSTs 1 and 2.
-  const auto& oldest_meta = blob_files_.front();
+  auto oldest_it = std::find_if(blob_files_.begin(), blob_files_.end(),
+                                [](const auto& meta) {
+                                  assert(meta);
+                                  return !meta->HasIndirectionInfo();
+                                });
+  assert(oldest_it != blob_files_.end());
+  const auto& oldest_meta = *oldest_it;
   assert(oldest_meta);
-
-  const auto& linked_ssts = oldest_meta->GetLinkedSsts();
-  assert(!linked_ssts.empty());
 
   size_t count = 1;
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
+  uint64_t newest_eligible_direct_file_number =
+      oldest_meta->GetBlobFileNumber();
 
-  assert(cutoff_count <= blob_files_.size());
+  assert(cutoff_count <= direct_blob_file_count_);
 
-  for (; count < cutoff_count; ++count) {
-    const auto& meta = blob_files_[count];
+  for (auto it = std::next(oldest_it); count < cutoff_count; ++it) {
+    assert(it != blob_files_.end());
+    const auto& meta = *it;
     assert(meta);
+    if (meta->HasIndirectionInfo()) {
+      continue;
+    }
 
     sum_total_blob_bytes += meta->GetTotalBlobBytes();
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+    newest_eligible_direct_file_number = meta->GetBlobFileNumber();
+    ++count;
   }
 
   if (sum_garbage_blob_bytes <
@@ -4211,23 +4278,102 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
-  for (uint64_t sst_file_number : linked_ssts) {
-    const FileLocation location = GetFileLocation(sst_file_number);
-    assert(location.IsValid());
+  if (direct_blob_file_count_ == blob_files_.size()) {
+    assert(files_ != nullptr);
+    // Preserve legacy forced-GC selection when this Version contains only
+    // direct blob files. In that case the oldest file's linked-SST set is
+    // complete and avoids rewriting SSTs that reference only newer files in
+    // the eligible batch.
+    const auto& linked_ssts = oldest_meta->GetLinkedSsts();
+    assert(!linked_ssts.empty());
+    for (uint64_t sst_file_number : linked_ssts) {
+      const FileLocation location = GetFileLocation(sst_file_number);
+      assert(location.IsValid());
+      const int level = location.GetLevel();
+      assert(level >= 0);
+      FileMetaData* const sst_meta = files_[level][location.GetPosition()];
+      assert(sst_meta);
+      files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
+    }
+    return;
+  }
 
-    const int level = location.GetLevel();
-    assert(level >= 0);
+  // An SST records only its oldest logical blob origin. In a mixed Version,
+  // that lower bound can belong to an indirect origin even when the same SST
+  // also references a newer eligible direct file, so the direct file's
+  // explicit linked-SST set is not sufficient. Conservatively compact every
+  // SST whose lower bound could include the eligible direct range.
+  forced_blob_gc_candidates_are_mixed_ = true;
+  assert(files_ != nullptr);
+  for (int level = 0; level < num_levels(); ++level) {
+    for (FileMetaData* const sst_meta : files_[level]) {
+      assert(sst_meta);
+      if (sst_meta->oldest_blob_file_number == kInvalidBlobFileNumber ||
+          sst_meta->oldest_blob_file_number >
+              newest_eligible_direct_file_number) {
+        continue;
+      }
+      files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
+    }
+  }
+  // Conservative lower-bound selection can include an SST that only refers to
+  // an older indirect origin. If that false positive is rewritten, its output
+  // gets a newer file number. Pick by file number so it moves behind untried
+  // SSTs instead of being selected repeatedly by key order.
+  std::sort(files_marked_for_forced_blob_gc_.begin(),
+            files_marked_for_forced_blob_gc_.end(),
+            [](const auto& lhs, const auto& rhs) {
+              assert(lhs.second);
+              assert(rhs.second);
+              return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
+            });
+}
 
-    const size_t pos = location.GetPosition();
+void VersionStorageInfo::ComputeBlobFileForStandaloneGC(
+    double threshold, bool enable_blob_indirection,
+    bool enable_blob_garbage_collection) {
+  blob_file_for_standalone_gc_.reset();
+  if (!enable_blob_indirection || !enable_blob_garbage_collection ||
+      threshold >= 1.0) {
+    return;
+  }
 
-    FileMetaData* const sst_meta = files_[level][pos];
-    assert(sst_meta);
-
-    if (sst_meta->being_compacted) {
+  double best_reclaimable_score = 0.0;
+  for (const auto& meta : blob_files_) {
+    assert(meta);
+    if (!meta->HasIndirectionInfo() || meta->GetTotalBlobBytes() == 0 ||
+        meta->GetGarbageBlobCount() == 0 ||
+        meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount() ||
+        meta->IsStandaloneBlobGCSuppressed()) {
+      continue;
+    }
+    const double garbage_ratio =
+        static_cast<double>(meta->GetGarbageBlobBytes()) /
+        static_cast<double>(meta->GetTotalBlobBytes());
+    if (garbage_ratio < threshold) {
       continue;
     }
 
-    files_marked_for_forced_blob_gc_.emplace_back(level, sst_meta);
+    const uint64_t live_blob_count =
+        meta->GetTotalBlobCount() - meta->GetGarbageBlobCount();
+    if (!StandaloneBlobGCMetadataFits(live_blob_count)) {
+      continue;
+    }
+    // Rank by physical bytes weighted by the stable logical garbage ratio.
+    // Logical live bytes include original user keys, which relocation files do
+    // not store, so they cannot be subtracted from a relocation file's
+    // physical size. The GC job measures the exact output and suppresses it if
+    // it does not shrink the source file.
+    const double reclaimable_score =
+        static_cast<double>(meta->GetBlobFileSize()) * garbage_ratio;
+    if (!blob_file_for_standalone_gc_ ||
+        reclaimable_score > best_reclaimable_score ||
+        (reclaimable_score == best_reclaimable_score &&
+         meta->GetOriginFileNumber() <
+             blob_file_for_standalone_gc_->GetOriginFileNumber())) {
+      blob_file_for_standalone_gc_ = meta;
+      best_reclaimable_score = reclaimable_score;
+    }
   }
 }
 
@@ -4317,6 +4463,9 @@ void VersionStorageInfo::AddBlobFile(
     std::shared_ptr<BlobFileMetaData> blob_file_meta) {
   assert(blob_file_meta);
   blob_relocation_files_finalized_ = false;
+  if (!blob_file_meta->HasIndirectionInfo()) {
+    ++direct_blob_file_count_;
+  }
 
   assert(blob_files_.empty() ||
          (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
@@ -4327,6 +4476,17 @@ void VersionStorageInfo::AddBlobFile(
     if (blob_file_meta->IsIndirectRelocationFile()) {
       blob_relocation_files_->push_back({blob_file_meta->GetOriginFileNumber(),
                                          blob_file_meta->GetBlobFileNumber()});
+    }
+  }
+
+  if (!blob_file_meta->GetLinkedSsts().empty()) {
+    const uint64_t origin_file_number =
+        blob_file_meta->HasIndirectionInfo()
+            ? blob_file_meta->GetOriginFileNumber()
+            : blob_file_meta->GetBlobFileNumber();
+    if (oldest_blob_origin_with_linked_ssts_ == kInvalidBlobFileNumber ||
+        origin_file_number < oldest_blob_origin_with_linked_ssts_) {
+      oldest_blob_origin_with_linked_ssts_ = origin_file_number;
     }
   }
 
@@ -6037,7 +6197,7 @@ void VersionSet::Reset() {
   TuneMaxManifestFileSize();
   obsolete_files_.clear();
   obsolete_manifests_.clear();
-  wals_.Reset();
+  wals_->Reset();
 }
 
 void VersionSet::UpdatedMutableDbOptions(
@@ -6491,7 +6651,7 @@ Status VersionSet::ProcessManifestWrites(
           MutableCFState(cfd->GetLogNumber(), cfd->GetFullHistoryTsLow()));
     }
 
-    for (const auto& wal : wals_.GetWals()) {
+    for (const auto& wal : wals_->GetWals()) {
       wal_additions.AddWal(wal.first, wal.second);
     }
   }
@@ -6711,9 +6871,9 @@ Status VersionSet::ProcessManifestWrites(
     // Apply WAL edits, DB mutex must be held.
     for (auto& e : batch_edits) {
       if (e->IsWalAddition()) {
-        s = wals_.AddWals(e->GetWalAdditions());
+        s = wals_->AddWals(e->GetWalAdditions());
       } else if (e->IsWalDeletion()) {
-        s = wals_.DeleteWalsBefore(e->GetWalDeletion().GetLogNumber());
+        s = wals_->DeleteWalsBefore(e->GetWalDeletion().GetLogNumber());
       }
       if (!s.ok()) {
         break;
@@ -8802,19 +8962,24 @@ Status ReactiveVersionSet::ReadAndApply(
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
     Status* manifest_read_status,
     std::unordered_set<ColumnFamilyData*>* cfds_changed,
-    std::vector<std::string>* files_to_delete) {
+    std::vector<std::string>* files_to_delete,
+    VersionBuilder::OfflockCleanup* offlock_cleanup) {
   assert(manifest_reader != nullptr);
   assert(cfds_changed != nullptr);
+  assert(offlock_cleanup != nullptr);
   mu->AssertHeld();
 
   Status s;
   log::Reader* reader = manifest_reader->get();
   assert(reader);
+  manifest_tailer_->SetCatchUpContext(mu, offlock_cleanup);
   s = MaybeSwitchManifest(reader->GetReporter(), manifest_reader);
   if (!s.ok()) {
+    manifest_tailer_->ClearCatchUpContext();
     return s;
   }
   manifest_tailer_->Iterate(*(manifest_reader->get()), manifest_read_status);
+  manifest_tailer_->ClearCatchUpContext();
   s = manifest_tailer_->status();
   if (s.ok()) {
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());
@@ -8838,8 +9003,9 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   assert(manifest_reader != nullptr);
   Status s;
   std::string manifest_path;
+  uint64_t current_manifest_file_number = 0;
   s = GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
-                             &manifest_path, &manifest_file_number_);
+                             &manifest_path, &current_manifest_file_number);
   if (!s.ok()) {
     return s;
   }
@@ -8884,6 +9050,9 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
                    manifest_path.c_str());
     if (manifest_tailer_) {
       manifest_tailer_->PrepareToReadNewManifest();
+      manifest_tailer_->StageManifestFileNumber(current_manifest_file_number);
+    } else {
+      manifest_file_number_ = current_manifest_file_number;
     }
   } else if (s.IsPathNotFound()) {
     // This can happen if the primary switches to a new MANIFEST after the

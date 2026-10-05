@@ -251,6 +251,8 @@ void DBImplSecondary::ResetSecondaryReadView() {
 }
 
 Status DBImplSecondary::CloseImpl() {
+  std::lock_guard<std::mutex> catch_up_lock(catch_up_mutex_);
+  secondary_closing_ = true;
   // The view's SuperVersions pin their column families, so release them before
   // DBImpl::CloseImpl() destroys the VersionSet.
   ResetSecondaryReadView();
@@ -1018,20 +1020,25 @@ Status DBImplSecondary::NewIteratorsImpl(
 }
 
 Status DBImplSecondary::TryCatchUpWithPrimary() {
+  std::lock_guard<std::mutex> catch_up_lock(catch_up_mutex_);
+  if (secondary_closing_) {
+    return Status::ShutdownInProgress();
+  }
   assert(versions_.get() != nullptr);
   Status s;
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   JobContext job_context(0, true /*create_superversion*/);
   {
     InstrumentedMutexLock lock_guard(&mutex_);
     assert(manifest_reader_.get() != nullptr);
     auto* reactive_versions =
         static_cast_with_check<ReactiveVersionSet>(versions_.get());
-    s = reactive_versions->ReadAndApply(&mutex_, &manifest_reader_,
-                                        manifest_reader_status_.get(),
-                                        &cfds_changed,
-                                        /*files_to_delete=*/nullptr);
+    s = reactive_versions->ReadAndApply(
+        &mutex_, &manifest_reader_, manifest_reader_status_.get(),
+        &cfds_changed,
+        /*files_to_delete=*/nullptr, &blob_route_cleanup);
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));
@@ -1128,6 +1135,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
       PublishSecondaryReadView();
     }
   }
+  TEST_SYNC_POINT("ReactiveVersionSet::ReadAndApply:BeforeBlobRouteCleanup");
+  blob_route_cleanup.clear();
   CleanupRetiredSecondaryReadViews();
   job_context.Clean();
 

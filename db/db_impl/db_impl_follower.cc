@@ -90,6 +90,10 @@ Status DBImplFollower::Recover(
 //   1. Cleanup obsolete files afterward
 //   2. Add some error notifications and statistics
 Status DBImplFollower::TryCatchUpWithLeader() {
+  std::lock_guard<std::mutex> catch_up_lock(catch_up_mutex_);
+  if (secondary_closing_) {
+    return Status::ShutdownInProgress();
+  }
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
   Status s;
@@ -98,6 +102,7 @@ Status DBImplFollower::TryCatchUpWithLeader() {
   TEST_SYNC_POINT("DBImplFollower::TryCatchupWithLeader:Begin2");
   // read the manifest and apply new changes to the follower instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   JobContext job_context(0, true /*create_superversion*/);
   {
     InstrumentedMutexLock lock_guard(&mutex_);
@@ -105,7 +110,7 @@ Status DBImplFollower::TryCatchUpWithLeader() {
     s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
             ->ReadAndApply(&mutex_, &manifest_reader_,
                            manifest_reader_status_.get(), &cfds_changed,
-                           &files_to_delete);
+                           &files_to_delete, &blob_route_cleanup);
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem_);
     pending_outputs_inserted_elem_.reset(new std::list<uint64_t>::iterator(
         CaptureCurrentFileNumberInPendingOutputs()));
@@ -165,6 +170,7 @@ Status DBImplFollower::TryCatchUpWithLeader() {
       }
     }
   }
+  blob_route_cleanup.clear();
   CleanupRetiredSecondaryReadViews();
   job_context.Clean();
 

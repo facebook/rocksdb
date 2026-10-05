@@ -111,6 +111,25 @@ class VersionBuilderTest : public testing::Test {
     vstorage_.AddBlobFile(std::move(meta));
   }
 
+  void AddIndirectBlob(uint64_t blob_file_number, uint64_t origin_file_number,
+                       uint64_t total_blob_count, uint64_t total_blob_bytes,
+                       BlobFileMetaData::LinkedSsts linked_ssts,
+                       uint64_t garbage_blob_count,
+                       uint64_t garbage_blob_bytes) {
+    BlobFileAddition addition(blob_file_number, total_blob_count,
+                              total_blob_bytes, "", "");
+    if (blob_file_number == origin_file_number) {
+      addition.SetIndirectionIdentity();
+    } else {
+      ASSERT_OK(addition.SetIndirectionRelocationFile(origin_file_number,
+                                                      total_blob_bytes + 512));
+    }
+    auto shared_meta = SharedBlobFileMetaData::Create(addition);
+    vstorage_.AddBlobFile(
+        BlobFileMetaData::Create(std::move(shared_meta), std::move(linked_ssts),
+                                 garbage_blob_count, garbage_blob_bytes));
+  }
+
   void AddDummyFile(uint64_t table_file_number, uint64_t blob_file_number,
                     uint64_t epoch_number) {
     constexpr int level = 0;
@@ -154,6 +173,7 @@ class VersionBuilderTest : public testing::Test {
   void UpdateVersionStorageInfo(VersionStorageInfo* vstorage) {
     assert(vstorage);
 
+    ASSERT_OK(vstorage->ValidateBlobIndirection());
     vstorage->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
     vstorage->SetFinalized();
   }
@@ -937,8 +957,289 @@ TEST_F(VersionBuilderTest, ApplyIndirectBlobRelocationFile) {
   constexpr uint64_t table_file_number = 1;
   AddDummyFileToEdit(&edit, table_file_number, origin_file_number,
                      /*epoch_number=*/1);
-  const Status status = builder.Apply(&edit);
-  EXPECT_TRUE(status.IsNotSupported()) << status.ToString();
+  ASSERT_OK(builder.Apply(&edit));
+
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
+      force_consistency_checks, EpochNumberRequirement::kMightMissing, nullptr,
+      0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  const std::shared_ptr<BlobFileMetaData> relocation_file =
+      new_vstorage.GetBlobFileMetaDataByOrigin(origin_file_number);
+  ASSERT_NE(relocation_file, nullptr);
+  EXPECT_EQ(relocation_file->GetBlobFileNumber(), relocation_file_number);
+  EXPECT_TRUE(relocation_file->IsIndirectRelocationFile());
+  EXPECT_EQ(relocation_file->GetRelocationFileSize(), relocation_file_size);
+  EXPECT_EQ(relocation_file->GetBlobFileSize(), relocation_file_size);
+  EXPECT_EQ(relocation_file->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest,
+       DropsUnlinkedOldOriginWithNewerPhysicalRelocationFile) {
+  constexpr uint64_t old_table_file_number = 1;
+  constexpr uint64_t new_table_file_number = 2;
+  constexpr uint64_t old_origin_file_number = 10;
+  constexpr uint64_t new_origin_file_number = 20;
+  constexpr uint64_t old_relocation_file_number = 30;
+
+  AddDummyFile(new_table_file_number, new_origin_file_number,
+               /*epoch_number=*/2);
+  AddDummyFile(old_table_file_number, old_origin_file_number,
+               /*epoch_number=*/1);
+  AddIndirectBlob(new_origin_file_number, new_origin_file_number,
+                  /*total_blob_count=*/1, /*total_blob_bytes=*/100,
+                  BlobFileMetaData::LinkedSsts{new_table_file_number},
+                  /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+  AddIndirectBlob(old_relocation_file_number, old_origin_file_number,
+                  /*total_blob_count=*/1, /*total_blob_bytes=*/100,
+                  BlobFileMetaData::LinkedSsts{old_table_file_number},
+                  /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+  UpdateVersionStorageInfo();
+
+  VersionEdit edit;
+  edit.DeleteFile(/*level=*/0, old_table_file_number);
+  VersionBuilder builder(EnvOptions(), &ioptions_, /*table_cache=*/nullptr,
+                         &vstorage_, /*version_set=*/nullptr);
+  ASSERT_OK(builder.Apply(&edit));
+
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
+      /*force_consistency_checks=*/true, EpochNumberRequirement::kMightMissing,
+      nullptr, 0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  std::atomic<uint32_t> full_scans{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::ComputeMinOldestBlobOriginNumber:FullScan",
+      [&](void*) { ++full_scans; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Status save_status = builder.SaveTo(&new_vstorage);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(save_status);
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  EXPECT_EQ(full_scans.load(), 1U);
+  EXPECT_EQ(new_vstorage.GetOldestBlobOriginWithLinkedSsts(),
+            new_origin_file_number);
+  EXPECT_EQ(new_vstorage.GetBlobFileMetaDataByOrigin(old_origin_file_number),
+            nullptr);
+  EXPECT_NE(new_vstorage.GetBlobFileMetaDataByOrigin(new_origin_file_number),
+            nullptr);
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, ReusesCachedOldestBlobOriginForUnrelatedEdit) {
+  constexpr uint64_t table_file_number = 1;
+  constexpr uint64_t oldest_origin_file_number = 10;
+  constexpr uint64_t newer_origin_file_number = 20;
+  AddDummyFile(table_file_number, oldest_origin_file_number,
+               /*epoch_number=*/1);
+  AddIndirectBlob(oldest_origin_file_number, oldest_origin_file_number,
+                  /*total_blob_count=*/1, /*total_blob_bytes=*/100,
+                  BlobFileMetaData::LinkedSsts{table_file_number},
+                  /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+  AddIndirectBlob(newer_origin_file_number, newer_origin_file_number,
+                  /*total_blob_count=*/2, /*total_blob_bytes=*/200,
+                  BlobFileMetaData::LinkedSsts{}, /*garbage_blob_count=*/0,
+                  /*garbage_blob_bytes=*/0);
+  UpdateVersionStorageInfo();
+
+  VersionEdit edit;
+  edit.AddBlobFileGarbage(newer_origin_file_number,
+                          /*garbage_blob_count=*/1,
+                          /*garbage_blob_bytes=*/100);
+  VersionBuilder builder(EnvOptions(), &ioptions_, /*table_cache=*/nullptr,
+                         &vstorage_, /*version_set=*/nullptr);
+  ASSERT_OK(builder.Apply(&edit));
+
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
+      /*force_consistency_checks=*/true, EpochNumberRequirement::kMightMissing,
+      nullptr, 0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  std::atomic<uint32_t> full_scans{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::ComputeMinOldestBlobOriginNumber:FullScan",
+      [&](void*) { ++full_scans; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Status save_status = builder.SaveTo(&new_vstorage);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(save_status);
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  EXPECT_EQ(full_scans.load(), 0U);
+  EXPECT_EQ(new_vstorage.GetOldestBlobOriginWithLinkedSsts(),
+            oldest_origin_file_number);
+  EXPECT_NE(new_vstorage.GetBlobFileMetaDataByOrigin(oldest_origin_file_number),
+            nullptr);
+  EXPECT_NE(new_vstorage.GetBlobFileMetaDataByOrigin(newer_origin_file_number),
+            nullptr);
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest,
+       ReplaceIndirectRelocationFileWithoutDroppingNewerOrigins) {
+  constexpr uint64_t table_file_number = 1;
+  constexpr uint64_t origin_file_number = 10;
+  constexpr uint64_t other_origin_file_number = 20;
+  constexpr uint64_t relocation_file_number = 30;
+
+  AddDummyFile(table_file_number, origin_file_number, /*epoch_number=*/1);
+  AddIndirectBlob(origin_file_number, origin_file_number,
+                  /*total_blob_count=*/4, /*total_blob_bytes=*/400,
+                  BlobFileMetaData::LinkedSsts{table_file_number},
+                  /*garbage_blob_count=*/2, /*garbage_blob_bytes=*/200);
+  // This origin is also referenced by the SST, but is not linked explicitly:
+  // linked_ssts tracks only each SST's oldest logical blob file number.
+  AddIndirectBlob(other_origin_file_number, other_origin_file_number,
+                  /*total_blob_count=*/1, /*total_blob_bytes=*/100,
+                  BlobFileMetaData::LinkedSsts{}, /*garbage_blob_count=*/0,
+                  /*garbage_blob_bytes=*/0);
+  UpdateVersionStorageInfo();
+
+  BlobFileAddition relocation_file(relocation_file_number,
+                                   /*total_blob_count=*/2,
+                                   /*total_blob_bytes=*/216, "", "");
+  ASSERT_OK(relocation_file.SetIndirectionRelocationFile(
+      origin_file_number, /*relocation_file_size=*/512));
+  VersionEdit edit;
+  edit.AddBlobFile(std::move(relocation_file));
+
+  VersionBuilder builder(EnvOptions(), &ioptions_, /*table_cache=*/nullptr,
+                         &vstorage_, /*version_set=*/nullptr);
+  ASSERT_OK(builder.Apply(&edit));
+
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
+      /*force_consistency_checks=*/true, EpochNumberRequirement::kMightMissing,
+      nullptr, 0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  EXPECT_EQ(new_vstorage.GetBlobFileMetaData(origin_file_number), nullptr);
+  const auto replacement =
+      new_vstorage.GetBlobFileMetaDataByOrigin(origin_file_number);
+  ASSERT_NE(replacement, nullptr);
+  EXPECT_EQ(replacement->GetBlobFileNumber(), relocation_file_number);
+  EXPECT_EQ(replacement->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
+  EXPECT_NE(new_vstorage.GetBlobFileMetaDataByOrigin(other_origin_file_number),
+            nullptr);
+
+  VersionEdit stale_route_edit;
+  stale_route_edit.AddBlobFileGarbage(origin_file_number,
+                                      /*garbage_blob_count=*/1,
+                                      /*garbage_blob_bytes=*/108);
+  stale_route_edit.GetBlobFileGarbages()[0].SetAppliedBlobFileNumber(
+      origin_file_number);
+  VersionBuilder stale_route_builder(EnvOptions(), &ioptions_,
+                                     /*table_cache=*/nullptr, &new_vstorage,
+                                     /*version_set=*/nullptr);
+  EXPECT_TRUE(stale_route_builder.Apply(&stale_route_edit).IsTryAgain());
+
+  VersionEdit garbage_edit;
+  garbage_edit.AddBlobFileGarbage(origin_file_number,
+                                  /*garbage_blob_count=*/1,
+                                  /*garbage_blob_bytes=*/108);
+  VersionBuilder garbage_builder(EnvOptions(), &ioptions_,
+                                 /*table_cache=*/nullptr, &new_vstorage,
+                                 /*version_set=*/nullptr);
+  ASSERT_OK(garbage_builder.Apply(&garbage_edit));
+  ASSERT_EQ(garbage_edit.GetBlobFileGarbages().size(), 1);
+  EXPECT_TRUE(garbage_edit.GetBlobFileGarbages()[0].HasAppliedBlobFileNumber());
+  EXPECT_EQ(garbage_edit.GetBlobFileGarbages()[0].GetAppliedBlobFileNumber(),
+            relocation_file_number);
+  VersionStorageInfo newer_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &new_vstorage,
+      /*force_consistency_checks=*/true, EpochNumberRequirement::kMightMissing,
+      nullptr, 0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  ASSERT_OK(garbage_builder.SaveTo(&newer_vstorage));
+  UpdateVersionStorageInfo(&newer_vstorage);
+  const auto updated_relocation_file =
+      newer_vstorage.GetBlobFileMetaDataByOrigin(origin_file_number);
+  ASSERT_NE(updated_relocation_file, nullptr);
+  EXPECT_EQ(updated_relocation_file->GetBlobFileNumber(),
+            relocation_file_number);
+  EXPECT_EQ(updated_relocation_file->GetGarbageBlobCount(), 1);
+  EXPECT_EQ(updated_relocation_file->GetGarbageBlobBytes(), 108);
+
+  // Garbage is applied before SST deletions within one VersionEdit. Even when
+  // the garbage update makes the relocation file fully garbage, the following
+  // unlink must still resolve the stable origin to that relocation file so it
+  // can retire.
+  VersionEdit retirement_edit;
+  retirement_edit.AddBlobFileGarbage(origin_file_number,
+                                     /*garbage_blob_count=*/1,
+                                     /*garbage_blob_bytes=*/108);
+  retirement_edit.DeleteFile(/*level=*/0, table_file_number);
+  VersionBuilder retirement_builder(EnvOptions(), &ioptions_,
+                                    /*table_cache=*/nullptr, &newer_vstorage,
+                                    /*version_set=*/nullptr);
+  ASSERT_OK(retirement_builder.Apply(&retirement_edit));
+  VersionStorageInfo retired_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
+      &newer_vstorage, /*force_consistency_checks=*/true,
+      EpochNumberRequirement::kMightMissing, nullptr, 0,
+      OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  ASSERT_OK(retirement_builder.SaveTo(&retired_vstorage));
+  UpdateVersionStorageInfo(&retired_vstorage);
+  EXPECT_EQ(retired_vstorage.GetBlobFileMetaDataByOrigin(origin_file_number),
+            nullptr);
+
+  UnrefFilesInVersion(&retired_vstorage);
+  UnrefFilesInVersion(&newer_vstorage);
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, ApplyIndirectIdentityGarbageUsesPhysicalFallback) {
+  constexpr uint64_t table_file_number = 1;
+  constexpr uint64_t origin_file_number = 10;
+  AddDummyFile(table_file_number, origin_file_number, /*epoch_number=*/1);
+  AddIndirectBlob(origin_file_number, origin_file_number,
+                  /*total_blob_count=*/4, /*total_blob_bytes=*/400,
+                  BlobFileMetaData::LinkedSsts{table_file_number},
+                  /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+  UpdateVersionStorageInfo();
+
+  VersionEdit edit;
+  edit.AddBlobFileGarbage(origin_file_number, /*garbage_blob_count=*/1,
+                          /*garbage_blob_bytes=*/100);
+  VersionBuilder builder(EnvOptions(), &ioptions_, /*table_cache=*/nullptr,
+                         &vstorage_, /*version_set=*/nullptr);
+  ASSERT_OK(builder.Apply(&edit));
+  ASSERT_TRUE(edit.GetBlobFileGarbages()[0].HasAppliedBlobFileNumber());
+  EXPECT_EQ(edit.GetBlobFileGarbages()[0].GetAppliedBlobFileNumber(),
+            origin_file_number);
+
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, &vstorage_,
+      /*force_consistency_checks=*/true, EpochNumberRequirement::kMightMissing,
+      nullptr, 0, OffpeakTimeOption(options_.daily_offpeak_time_utc),
+      PeriodicCompactionPhaseParams{});
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  const auto identity =
+      new_vstorage.GetBlobFileMetaDataByOrigin(origin_file_number);
+  ASSERT_NE(identity, nullptr);
+  EXPECT_TRUE(identity->IsIndirectIdentityFile());
+  EXPECT_EQ(identity->GetGarbageBlobCount(), 1U);
+  EXPECT_EQ(identity->GetGarbageBlobBytes(), 100U);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {

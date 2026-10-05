@@ -32,6 +32,20 @@ class BlobFileGarbage {
   uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
   uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
+  // Transient, non-serialized route selected by VersionBuilder while applying
+  // this edit. Compaction listeners use it to report the exact physical
+  // file whose accounting changed, even when a concurrent standalone GC
+  // replaced that file after the compaction was picked.
+  void SetAppliedBlobFileNumber(uint64_t blob_file_number) const {
+    applied_blob_file_number_ = blob_file_number;
+  }
+  bool HasAppliedBlobFileNumber() const {
+    return applied_blob_file_number_ != kInvalidBlobFileNumber;
+  }
+  uint64_t GetAppliedBlobFileNumber() const {
+    return applied_blob_file_number_;
+  }
+
   void EncodeTo(std::string* output) const;
   Status DecodeFrom(Slice* input);
 
@@ -44,6 +58,7 @@ class BlobFileGarbage {
   uint64_t blob_file_number_ = kInvalidBlobFileNumber;
   uint64_t garbage_blob_count_ = 0;
   uint64_t garbage_blob_bytes_ = 0;
+  mutable uint64_t applied_blob_file_number_ = kInvalidBlobFileNumber;
 };
 
 bool operator==(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs);

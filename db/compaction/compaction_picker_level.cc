@@ -21,6 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  assert(vstorage != nullptr);
   if (!vstorage->ExpiredTtlFiles().empty()) {
     return true;
   }
@@ -33,7 +34,10 @@ bool LevelCompactionPicker::NeedsCompaction(
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
-  if (!vstorage->FilesMarkedForForcedBlobGC().empty()) {
+  if (vstorage->HasFileMarkedForForcedBlobGC()) {
+    return true;
+  }
+  if (vstorage->BlobFileForStandaloneGC()) {
     return true;
   }
   if (!vstorage->ReadTriggeredCompactionFiles().empty()) {
@@ -141,6 +145,8 @@ class LevelCompactionBuilder {
       const autovector<std::pair<int, FileMetaData*>>& level_files,
       CompactToNextLevel compact_to_next_level);
 
+  void PickFileForForcedBlobGC();
+
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
   CompactionPicker* compaction_picker_;
@@ -202,6 +208,29 @@ void LevelCompactionBuilder::PickFileToCompact(
     }
   }
   start_level_inputs_.files.clear();
+}
+
+void LevelCompactionBuilder::PickFileForForcedBlobGC() {
+  if (!vstorage_->HasFileMarkedForForcedBlobGC()) {
+    return;
+  }
+
+  for (const auto& level_file : vstorage_->FilesMarkedForForcedBlobGC()) {
+    assert(level_file.second);
+    if (level_file.second->being_compacted) {
+      if (vstorage_->ForcedBlobGCCandidatesAreMixed()) {
+        return;
+      }
+      continue;
+    }
+
+    autovector<std::pair<int, FileMetaData*>> candidate;
+    candidate.push_back(level_file);
+    PickFileToCompact(candidate, CompactToNextLevel::kNo);
+    if (!start_level_inputs_.empty()) {
+      return;
+    }
+  }
 }
 
 void LevelCompactionBuilder::SetupInitialFiles() {
@@ -322,8 +351,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   }
 
   // Forced blob garbage collection
-  PickFileToCompact(vstorage_->FilesMarkedForForcedBlobGC(),
-                    CompactToNextLevel::kNo);
+  PickFileForForcedBlobGC();
   if (!start_level_inputs_.empty()) {
     compaction_reason_ = CompactionReason::kForcedBlobGC;
     return;

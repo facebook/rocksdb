@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <iosfwd>
@@ -147,10 +148,21 @@ std::ostream& operator<<(std::ostream& os,
 class BlobFileMetaData {
  public:
   using LinkedSsts = std::unordered_set<uint64_t>;
+  using LinkedSstsHandle = std::shared_ptr<const LinkedSsts>;
 
   static std::shared_ptr<BlobFileMetaData> Create(
       std::shared_ptr<SharedBlobFileMetaData> shared_meta,
       LinkedSsts linked_ssts, uint64_t garbage_blob_count,
+      uint64_t garbage_blob_bytes) {
+    return std::shared_ptr<BlobFileMetaData>(new BlobFileMetaData(
+        std::move(shared_meta),
+        std::make_shared<LinkedSsts>(std::move(linked_ssts)),
+        garbage_blob_count, garbage_blob_bytes));
+  }
+
+  static std::shared_ptr<BlobFileMetaData> Create(
+      std::shared_ptr<SharedBlobFileMetaData> shared_meta,
+      LinkedSstsHandle linked_ssts, uint64_t garbage_blob_count,
       uint64_t garbage_blob_bytes) {
     return std::shared_ptr<BlobFileMetaData>(
         new BlobFileMetaData(std::move(shared_meta), std::move(linked_ssts),
@@ -213,30 +225,48 @@ class BlobFileMetaData {
     return shared_meta_->GetRelocationFileSize();
   }
 
-  const LinkedSsts& GetLinkedSsts() const { return linked_ssts_; }
+  const LinkedSsts& GetLinkedSsts() const {
+    assert(linked_ssts_);
+    return *linked_ssts_;
+  }
+  const LinkedSstsHandle& GetLinkedSstsHandle() const { return linked_ssts_; }
 
   uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
   uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
+
+  // Standalone GC suppression belongs to this exact route/garbage/link-state
+  // generation. Untouched metadata is shared by later Versions, while any
+  // relevant change creates a new BlobFileMetaData and makes it eligible
+  // again. The flag is atomic because candidate ranking runs without the DB
+  // mutex and can overlap suppression by the current background job.
+  bool IsStandaloneBlobGCSuppressed() const {
+    return standalone_blob_gc_suppressed_.load(std::memory_order_relaxed);
+  }
+  void SuppressStandaloneBlobGC() const {
+    standalone_blob_gc_suppressed_.store(true, std::memory_order_relaxed);
+  }
 
   std::string DebugString() const;
 
  private:
   BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
-                   LinkedSsts linked_ssts, uint64_t garbage_blob_count,
+                   LinkedSstsHandle linked_ssts, uint64_t garbage_blob_count,
                    uint64_t garbage_blob_bytes)
       : shared_meta_(std::move(shared_meta)),
         linked_ssts_(std::move(linked_ssts)),
         garbage_blob_count_(garbage_blob_count),
         garbage_blob_bytes_(garbage_blob_bytes) {
     assert(shared_meta_);
+    assert(linked_ssts_);
     assert(garbage_blob_count_ <= shared_meta_->GetTotalBlobCount());
     assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
   }
 
   std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
-  LinkedSsts linked_ssts_;
+  LinkedSstsHandle linked_ssts_;
   uint64_t garbage_blob_count_;
   uint64_t garbage_blob_bytes_;
+  mutable std::atomic<bool> standalone_blob_gc_suppressed_{false};
 };
 
 std::ostream& operator<<(std::ostream& os, const BlobFileMetaData& meta);
