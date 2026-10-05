@@ -59,6 +59,7 @@
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/global_row_cache.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
@@ -782,6 +783,22 @@ class DBImpl : public DB
   // ---- End of implementations of the DB interface ----
   SystemClock* GetSystemClock() const;
 
+  // These hooks are called by MemTableInserter after a successful memtable
+  // mutation and before the corresponding sequence number is published.
+  bool IsGlobalRowCacheEnabled() const {
+    return immutable_db_options_.global_row_cache != nullptr &&
+           !global_row_cache_disabled_.load(std::memory_order_acquire);
+  }
+  void ApplyGlobalRowCachePointMutation(ColumnFamilyId column_family_id,
+                                        const Slice& key,
+                                        SequenceNumber sequence,
+                                        GlobalRowCacheMutationType type,
+                                        const Slice& value);
+  void ApplyGlobalRowCacheRangeDeletion(ColumnFamilyId column_family_id,
+                                        const Slice& begin_key,
+                                        const Slice& end_key,
+                                        SequenceNumber sequence);
+
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
@@ -1473,6 +1490,11 @@ class DBImpl : public DB
   static Status TEST_ValidateOptions(const DBOptions& db_options) {
     return ValidateOptions(db_options);
   }
+  static Status TEST_ValidateOptions(
+      const DBOptions& db_options,
+      const std::vector<ColumnFamilyDescriptor>& column_families) {
+    return ValidateOptions(db_options, column_families);
+  }
 #endif  // NDEBUG
 
   // In certain configurations, verify that the table/blob file cache only
@@ -1592,6 +1614,8 @@ class DBImpl : public DB
   // db_session_id_ is an identifier that gets reset
   // every time the DB is opened
   std::string db_session_id_;
+  uint64_t global_row_cache_id_ = 0;
+  std::atomic<bool> global_row_cache_disabled_{false};
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
@@ -2058,6 +2082,8 @@ class DBImpl : public DB
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
   void SetDbSessionId();
+
+  void DisableGlobalRowCache(const Status& reason);
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
@@ -3173,6 +3199,8 @@ class DBImpl : public DB
   static Status ValidateOptions(
       const DBOptions& db_options,
       const std::vector<ColumnFamilyDescriptor>& column_families);
+  static Status ValidateGlobalRowCacheOptions(
+      const DBOptions& db_options, const ColumnFamilyOptions& cf_options);
 
   // Utility function to do some debug validation and sort the given vector
   // of MultiGet keys

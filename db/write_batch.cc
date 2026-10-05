@@ -2286,6 +2286,7 @@ class MemTableInserter : public WriteBatch::Handler {
                    const Slice& value, ValueType value_type,
                    RebuildTxnOp rebuild_txn_op,
                    const ProtectionInfoKVOS64* kv_prot_info) {
+    const SequenceNumber mutation_sequence = sequence_;
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
@@ -2414,6 +2415,16 @@ class MemTableInserter : public WriteBatch::Handler {
       const bool kBatchBoundary = true;
       MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
+      if (db_ != nullptr && recovering_log_number_ == 0 &&
+          db_->IsGlobalRowCacheEnabled()) {
+        const bool cache_has_final_value =
+            value_type == kTypeValue && !moptions->inplace_update_support;
+        db_->ApplyGlobalRowCachePointMutation(
+            column_family_id, key, mutation_sequence,
+            cache_has_final_value ? GlobalRowCacheMutationType::kValue
+                                  : GlobalRowCacheMutationType::kInvalidate,
+            cache_has_final_value ? value : Slice());
+      }
       MaybeAdvanceSeq();
       CheckMemtableFull();
     }
@@ -2528,9 +2539,10 @@ class MemTableInserter : public WriteBatch::Handler {
     return s;
   }
 
-  Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
+  Status DeleteImpl(uint32_t column_family_id, const Slice& key,
                     const Slice& value, ValueType delete_type,
                     const ProtectionInfoKVOS64* kv_prot_info) {
+    const SequenceNumber mutation_sequence = sequence_;
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     if (delete_type == kTypeRangeDeletion &&
@@ -2556,6 +2568,17 @@ class MemTableInserter : public WriteBatch::Handler {
       const bool kBatchBoundary = true;
       MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
+      if (db_ != nullptr && recovering_log_number_ == 0 &&
+          db_->IsGlobalRowCacheEnabled()) {
+        if (delete_type == kTypeRangeDeletion) {
+          db_->ApplyGlobalRowCacheRangeDeletion(column_family_id, key, value,
+                                                mutation_sequence);
+        } else {
+          db_->ApplyGlobalRowCachePointMutation(
+              column_family_id, key, mutation_sequence,
+              GlobalRowCacheMutationType::kDeletion, Slice());
+        }
+      }
       MaybeAdvanceSeq();
       CheckMemtableFull();
     }
@@ -2775,6 +2798,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
+    const SequenceNumber mutation_sequence = sequence_;
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
@@ -2945,6 +2969,12 @@ class MemTableInserter : public WriteBatch::Handler {
       const bool kBatchBoundary = true;
       MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
+      if (db_ != nullptr && recovering_log_number_ == 0 &&
+          db_->IsGlobalRowCacheEnabled()) {
+        db_->ApplyGlobalRowCachePointMutation(
+            column_family_id, key, mutation_sequence,
+            GlobalRowCacheMutationType::kInvalidate, Slice());
+      }
       MaybeAdvanceSeq();
       CheckMemtableFull();
     }

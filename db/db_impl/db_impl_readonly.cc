@@ -234,19 +234,31 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
   }
   return s;
 }
+
+Status RejectGlobalRowCacheForReadOnly(const DBOptions& db_options) {
+  if (db_options.global_row_cache != nullptr) {
+    return Status::NotSupported(
+        "global_row_cache is not supported for read-only DBs");
+  }
+  return Status::OK();
+}
 }  // namespace
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            std::unique_ptr<DB>* dbptr,
                            bool /*error_if_wal_file_exists*/) {
-  Status s = OpenForReadOnlyCheckExistence(options, dbname);
+  *dbptr = nullptr;
+  Status s = RejectGlobalRowCacheForReadOnly(options);
+  if (!s.ok()) {
+    return s;
+  }
+  s = OpenForReadOnlyCheckExistence(options, dbname);
   if (!s.ok()) {
     return s;
   }
 
   *dbptr = nullptr;
 
-  // Try to first open DB as fully compacted DB
   s = CompactedDBImpl::Open(options, dbname, dbptr);
   if (s.ok()) {
     return s;
@@ -274,8 +286,14 @@ Status DB::OpenForReadOnly(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     bool error_if_wal_file_exists) {
+  *dbptr = nullptr;
+  handles->clear();
+  Status s = RejectGlobalRowCacheForReadOnly(db_options);
+  if (!s.ok()) {
+    return s;
+  }
   // If dbname does not exist in the file system, should not do anything
-  Status s = OpenForReadOnlyCheckExistence(db_options, dbname);
+  s = OpenForReadOnlyCheckExistence(db_options, dbname);
   if (!s.ok()) {
     return s;
   }
@@ -293,11 +311,16 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   *dbptr = nullptr;
   handles->clear();
 
+  Status s = RejectGlobalRowCacheForReadOnly(db_options);
+  if (!s.ok()) {
+    return s;
+  }
+
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true /* read only */,
-                           error_if_wal_file_exists);
+  s = impl->Recover(column_families, true /* read only */,
+                    error_if_wal_file_exists);
   if (s.ok()) {
     // set column family handles
     for (const auto& cf : column_families) {

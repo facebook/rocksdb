@@ -300,6 +300,8 @@ Status DBImpl::IngestWBWIAsMemtable(
   assert(assigned_seqno.upper_bound <= last_seqno_after_ingest);
   // Keys in the current memtable have seqno <= LastSequence() < keys in wbwi.
   assert(assigned_seqno.lower_bound > versions_->LastSequence());
+  DisableGlobalRowCache(Status::NotSupported(
+      "WriteBatchWithIndex ingestion bypasses global row cache hooks"));
   autovector<ReadOnlyMemTable*> memtables;
   autovector<ColumnFamilyData*> cfds;
   InstrumentedMutexLock lock(&mutex_);
