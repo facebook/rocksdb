@@ -983,6 +983,29 @@ TEST_F(VersionStorageInfoTest, StandaloneBlobGCSelectsReclaimableBytes) {
   EXPECT_EQ(vstorage_.BlobFileForStandaloneGC(), nullptr);
 }
 
+TEST_F(VersionStorageInfoTest, StandaloneBlobGCCensusBatchIsBoundedAndRanked) {
+  for (uint64_t i = 0; i < 10; ++i) {
+    AddIndirectBlob(/*blob_file_number=*/10 + i,
+                    /*total_blob_count=*/10,
+                    /*total_blob_bytes=*/1000,
+                    /*garbage_blob_count=*/5,
+                    /*garbage_blob_bytes=*/500 + 10 * i);
+  }
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+
+  const auto& census_batch = vstorage_.BlobFilesForStandaloneGCCensus();
+  ASSERT_EQ(census_batch.size(), kStandaloneBlobGCCensusBatchSize);
+  for (size_t i = 0; i < census_batch.size(); ++i) {
+    EXPECT_EQ(census_batch[i]->GetOriginFileNumber(), 19 - i);
+  }
+  ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 19);
+}
+
 TEST_F(VersionStorageInfoTest, StandaloneBlobGCFallsBackAfterSuppression) {
   AddIndirectBlob(/*blob_file_number=*/10, /*total_blob_count=*/10,
                   /*total_blob_bytes=*/1000, /*garbage_blob_count=*/7,
@@ -1004,6 +1027,28 @@ TEST_F(VersionStorageInfoTest, StandaloneBlobGCFallsBackAfterSuppression) {
   vstorage_.ComputeBlobFileForStandaloneGC(
       /*threshold=*/0.5, /*enable_blob_indirection=*/true,
       /*enable_blob_garbage_collection=*/true);
+  ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 20);
+}
+
+TEST_F(VersionStorageInfoTest,
+       StandaloneBlobGCRefiltersSuppressionBeforePublication) {
+  AddIndirectBlob(/*blob_file_number=*/10, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/7,
+                  /*garbage_blob_bytes=*/700);
+  AddIndirectBlob(/*blob_file_number=*/20, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/6,
+                  /*garbage_blob_bytes=*/600);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  const auto suppressed = vstorage_.GetBlobFileMetaDataByOrigin(10);
+  ASSERT_NE(suppressed, nullptr);
+  suppressed->SuppressStandaloneBlobGC();
+
+  vstorage_.FilterSuppressedStandaloneBlobGCCandidates();
   ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
   EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 20);
 }
@@ -1940,20 +1985,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   EXPECT_EQ(kGroupSize - 1, count);
 }
 
-TEST_F(VersionSetTest, BlobFinalizationDoesNotHoldDBMutex) {
+TEST_F(VersionSetTest, BlobMetadataPreparationDoesNotHoldDBMutex) {
   NewDB();
-
-  std::promise<void> finalization_started;
-  std::future<void> finalization_started_future =
-      finalization_started.get_future();
-  std::promise<void> release_finalization;
-  std::future<void> release_finalization_future =
-      release_finalization.get_future();
-  std::promise<void> follower_queued;
-  std::future<void> follower_queued_future = follower_queued.get_future();
-  std::atomic<bool> block_first_finalization{true};
-  std::atomic<bool> expect_follower_queue{false};
-  std::atomic<bool> follower_queue_signaled{false};
   const auto wait_or_abort = [](std::future<void>* future,
                                 const char* description) {
     if (future->wait_for(std::chrono::seconds(30)) !=
@@ -1963,49 +1996,63 @@ TEST_F(VersionSetTest, BlobFinalizationDoesNotHoldDBMutex) {
     }
   };
 
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::ProcessManifestWrites:BeforeBlobFinalization", [&](void*) {
-        if (block_first_finalization.exchange(false,
-                                              std::memory_order_relaxed)) {
-          finalization_started.set_value();
-          release_finalization_future.wait();
-        }
-      });
-  SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
-        if (expect_follower_queue.load(std::memory_order_relaxed) &&
-            !follower_queue_signaled.exchange(true,
-                                              std::memory_order_relaxed)) {
-          follower_queued.set_value();
-        }
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
+  for (const char* work_point :
+       {"VersionSet::ProcessManifestWrites:BeforeBlobFinalization",
+        "VersionStorageInfo::PrepareForcedBlobGCCandidates:Start",
+        "VersionStorageInfo::SelectBlobFilesForStandaloneGC:Start"}) {
+    SCOPED_TRACE(work_point);
+    std::promise<void> work_started;
+    std::future<void> work_started_future = work_started.get_future();
+    std::promise<void> release_work;
+    std::future<void> release_work_future = release_work.get_future();
+    std::promise<void> follower_queued;
+    std::future<void> follower_queued_future = follower_queued.get_future();
+    std::atomic<bool> block_first_work{true};
+    std::atomic<bool> expect_follower_queue{false};
+    std::atomic<bool> follower_queue_signaled{false};
 
-  Status leader_status;
-  Status follower_status;
-  VersionEdit leader_edit;
-  leader_edit.SetDBId("leader");
-  port::Thread leader(
-      [&] { leader_status = LogAndApplyToDefaultCF(leader_edit); });
-  wait_or_abort(&finalization_started_future, "blob finalization");
-  expect_follower_queue.store(true, std::memory_order_relaxed);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->SetCallBack(work_point, [&](void*) {
+      if (block_first_work.exchange(false, std::memory_order_relaxed)) {
+        work_started.set_value();
+        release_work_future.wait();
+      }
+    });
+    SyncPoint::GetInstance()->SetCallBack(
+        "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+          if (expect_follower_queue.load(std::memory_order_relaxed) &&
+              !follower_queue_signaled.exchange(true,
+                                                std::memory_order_relaxed)) {
+            follower_queued.set_value();
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
 
-  VersionEdit follower_edit;
-  follower_edit.SetDBId("follower");
-  port::Thread follower(
-      [&] { follower_status = LogAndApplyToDefaultCF(follower_edit); });
-  wait_or_abort(&follower_queued_future, "the following MANIFEST writer");
+    Status leader_status;
+    Status follower_status;
+    VersionEdit leader_edit;
+    leader_edit.SetDBId("leader");
+    port::Thread leader(
+        [&] { leader_status = LogAndApplyToDefaultCF(leader_edit); });
+    wait_or_abort(&work_started_future, "blob metadata preparation");
+    expect_follower_queue.store(true, std::memory_order_relaxed);
 
-  release_finalization.set_value();
-  leader.join();
-  follower.join();
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
+    VersionEdit follower_edit;
+    follower_edit.SetDBId("follower");
+    port::Thread follower(
+        [&] { follower_status = LogAndApplyToDefaultCF(follower_edit); });
+    wait_or_abort(&follower_queued_future, "the following MANIFEST writer");
 
-  ASSERT_OK(leader_status);
-  ASSERT_OK(follower_status);
+    release_work.set_value();
+    leader.join();
+    follower.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(leader_status);
+    ASSERT_OK(follower_status);
+  }
 }
 
 namespace {

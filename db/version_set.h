@@ -257,9 +257,30 @@ class VersionStorageInfo {
       double blob_garbage_collection_force_threshold,
       bool enable_blob_garbage_collection);
 
-  // Selects the single indirect blob root with the largest reclaimable byte
-  // count whose individual garbage ratio meets `threshold`. Unlike legacy
-  // blob GC, this selection is independent of file age and SST layout.
+  struct StandaloneBlobGCSelection {
+    std::vector<std::shared_ptr<BlobFileMetaData>> census_batch;
+  };
+
+  // Builds a bounded standalone-GC selection without mutating this Version.
+  // The Version must remain referenced, but the DB mutex is not required.
+  StandaloneBlobGCSelection SelectBlobFilesForStandaloneGC(
+      double threshold, bool enable_blob_indirection,
+      bool enable_blob_garbage_collection) const;
+
+  // Publishes a fully built selection. REQUIRES: DB mutex held if this Version
+  // is already visible to readers/background scheduling.
+  void InstallBlobFilesForStandaloneGC(StandaloneBlobGCSelection selection);
+
+  // Rechecks the bounded prepared selection immediately before publication.
+  // REQUIRES: DB mutex held if this Version is already visible.
+  void FilterSuppressedStandaloneBlobGCCandidates();
+
+  bool BlobFilesForStandaloneGCPrepared() const {
+    return blob_files_for_standalone_gc_prepared_;
+  }
+
+  // Convenience wrapper for an unpublished or otherwise exclusively owned
+  // VersionStorageInfo.
   void ComputeBlobFileForStandaloneGC(double threshold,
                                       bool enable_blob_indirection,
                                       bool enable_blob_garbage_collection);
@@ -634,6 +655,12 @@ class VersionStorageInfo {
     return blob_file_for_standalone_gc_;
   }
 
+  const std::vector<std::shared_ptr<BlobFileMetaData>>&
+  BlobFilesForStandaloneGCCensus() const {
+    assert(finalized_);
+    return blob_files_for_standalone_gc_census_;
+  }
+
   // Suppress a candidate generation that the standalone job cannot safely
   // rewrite while allowing a lower-ranked candidate to be selected. A route,
   // garbage, or linked-SST change creates fresh metadata and retries it.
@@ -642,9 +669,7 @@ class VersionStorageInfo {
     assert(finalized_);
     assert(source_meta);
     source_meta->SuppressStandaloneBlobGC();
-    if (blob_file_for_standalone_gc_ == source_meta) {
-      blob_file_for_standalone_gc_.reset();
-    }
+    FilterSuppressedStandaloneBlobGCCandidates();
   }
 
   // REQUIRES: ComputeCompactionScore has been called
@@ -888,6 +913,10 @@ class VersionStorageInfo {
 
   // Highest-value non-prefix indirect root selected for a standalone rewrite.
   std::shared_ptr<BlobFileMetaData> blob_file_for_standalone_gc_;
+  // Bounded set whose exact live references can share one keyspace census.
+  std::vector<std::shared_ptr<BlobFileMetaData>>
+      blob_files_for_standalone_gc_census_;
+  bool blob_files_for_standalone_gc_prepared_ = false;
 
   autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 

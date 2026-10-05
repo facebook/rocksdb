@@ -4004,11 +4004,6 @@ void VersionStorageInfo::ComputeCompactionScore(
       mutable_cf_options.blob_garbage_collection_age_cutoff,
       mutable_cf_options.blob_garbage_collection_force_threshold,
       mutable_cf_options.enable_blob_garbage_collection);
-  ComputeBlobFileForStandaloneGC(
-      mutable_cf_options.blob_garbage_collection_force_threshold,
-      immutable_options.enable_blob_indirection &&
-          immutable_options.merge_operator == nullptr,
-      mutable_cf_options.enable_blob_garbage_collection);
   ComputeFilesMarkedForReadTriggeredCompaction(
       mutable_cf_options.read_triggered_compaction_threshold,
       immutable_options.compaction_style);
@@ -4329,16 +4324,24 @@ void VersionStorageInfo::PrepareForcedBlobGCCandidates(
             });
 }
 
-void VersionStorageInfo::ComputeBlobFileForStandaloneGC(
+VersionStorageInfo::StandaloneBlobGCSelection
+VersionStorageInfo::SelectBlobFilesForStandaloneGC(
     double threshold, bool enable_blob_indirection,
-    bool enable_blob_garbage_collection) {
-  blob_file_for_standalone_gc_.reset();
+    bool enable_blob_garbage_collection) const {
+  TEST_SYNC_POINT("VersionStorageInfo::SelectBlobFilesForStandaloneGC:Start");
+  StandaloneBlobGCSelection selection;
   if (!enable_blob_indirection || !enable_blob_garbage_collection ||
       threshold >= 1.0) {
-    return;
+    return selection;
   }
 
-  double best_reclaimable_score = 0.0;
+  struct RankedCandidate {
+    double reclaimable_score;
+    uint64_t live_blob_count;
+    std::shared_ptr<BlobFileMetaData> meta;
+  };
+  std::vector<RankedCandidate> ranked;
+  ranked.reserve(blob_files_.size());
   for (const auto& meta : blob_files_) {
     assert(meta);
     if (!meta->HasIndirectionInfo() || meta->GetTotalBlobBytes() == 0 ||
@@ -4360,22 +4363,65 @@ void VersionStorageInfo::ComputeBlobFileForStandaloneGC(
                                       /*user_key_bytes=*/0)) {
       continue;
     }
-    // Rank by physical bytes weighted by the stable logical garbage ratio.
-    // Logical live bytes include original user keys, which relocation files do
-    // not store, so they cannot be subtracted from a relocation file's
-    // physical size. The GC job measures the exact output and suppresses it if
-    // it does not shrink the source file.
-    const double reclaimable_score =
-        static_cast<double>(meta->GetBlobFileSize()) * garbage_ratio;
-    if (!blob_file_for_standalone_gc_ ||
-        reclaimable_score > best_reclaimable_score ||
-        (reclaimable_score == best_reclaimable_score &&
-         meta->GetOriginFileNumber() <
-             blob_file_for_standalone_gc_->GetOriginFileNumber())) {
-      blob_file_for_standalone_gc_ = meta;
-      best_reclaimable_score = reclaimable_score;
-    }
+    ranked.push_back(
+        {static_cast<double>(meta->GetBlobFileSize()) * garbage_ratio,
+         live_blob_count, meta});
   }
+
+  std::sort(ranked.begin(), ranked.end(),
+            [](const RankedCandidate& lhs, const RankedCandidate& rhs) {
+              if (lhs.reclaimable_score != rhs.reclaimable_score) {
+                return lhs.reclaimable_score > rhs.reclaimable_score;
+              }
+              return lhs.meta->GetOriginFileNumber() <
+                     rhs.meta->GetOriginFileNumber();
+            });
+
+  uint64_t batched_live_blob_count = 0;
+  for (RankedCandidate& candidate : ranked) {
+    if (selection.census_batch.size() >= kStandaloneBlobGCCensusBatchSize) {
+      break;
+    }
+    if (candidate.live_blob_count >
+            std::numeric_limits<uint64_t>::max() - batched_live_blob_count ||
+        !StandaloneBlobGCMetadataFits(
+            batched_live_blob_count + candidate.live_blob_count,
+            /*user_key_bytes=*/0)) {
+      continue;
+    }
+    batched_live_blob_count += candidate.live_blob_count;
+    selection.census_batch.emplace_back(std::move(candidate.meta));
+  }
+  return selection;
+}
+
+void VersionStorageInfo::InstallBlobFilesForStandaloneGC(
+    StandaloneBlobGCSelection selection) {
+  blob_files_for_standalone_gc_census_ = std::move(selection.census_batch);
+  blob_files_for_standalone_gc_prepared_ = true;
+  FilterSuppressedStandaloneBlobGCCandidates();
+}
+
+void VersionStorageInfo::FilterSuppressedStandaloneBlobGCCandidates() {
+  assert(blob_files_for_standalone_gc_prepared_);
+  blob_files_for_standalone_gc_census_.erase(
+      std::remove_if(blob_files_for_standalone_gc_census_.begin(),
+                     blob_files_for_standalone_gc_census_.end(),
+                     [](const std::shared_ptr<BlobFileMetaData>& meta) {
+                       return meta->IsStandaloneBlobGCSuppressed();
+                     }),
+      blob_files_for_standalone_gc_census_.end());
+  blob_file_for_standalone_gc_ =
+      blob_files_for_standalone_gc_census_.empty()
+          ? std::shared_ptr<BlobFileMetaData>()
+          : blob_files_for_standalone_gc_census_.front();
+}
+
+void VersionStorageInfo::ComputeBlobFileForStandaloneGC(
+    double threshold, bool enable_blob_indirection,
+    bool enable_blob_garbage_collection) {
+  InstallBlobFilesForStandaloneGC(SelectBlobFilesForStandaloneGC(
+      threshold, enable_blob_indirection, enable_blob_garbage_collection));
 }
 
 void VersionStorageInfo::ComputeFilesMarkedForReadTriggeredCompaction(
@@ -6288,6 +6334,18 @@ void VersionSet::TuneMaxManifestFileSize() {
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
+  if (!v->storage_info()->BlobFilesForStandaloneGCPrepared()) {
+    const MutableCFOptions& mutable_options = v->GetMutableCFOptions();
+    v->storage_info()->ComputeBlobFileForStandaloneGC(
+        mutable_options.blob_garbage_collection_force_threshold,
+        column_family_data->ioptions().enable_blob_indirection &&
+            column_family_data->ioptions().merge_operator == nullptr,
+        mutable_options.enable_blob_garbage_collection);
+  }
+  // An older visible Version can suppress shared metadata while this Version
+  // is being prepared without the DB mutex. Recheck the bounded batch after
+  // reacquiring the mutex so the rejected generation cannot be republished.
+  v->storage_info()->FilterSuppressedStandaloneBlobGCCandidates();
   // compute new compaction score
   v->storage_info()->ComputeCompactionScore(
       column_family_data->ioptions(),
