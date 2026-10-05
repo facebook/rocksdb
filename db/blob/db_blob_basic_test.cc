@@ -148,6 +148,25 @@ TEST_F(DBBlobBasicTest, BlobFileChecksumInFileOptions) {
             blob_metadata.checksum_method);
 }
 
+TEST_F(DBBlobBasicTest, IndirectIdentityBlobSurvivesReopen) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+  ASSERT_OK(Put("key1", "blob-value-1"));
+  ASSERT_OK(Put("key2", "blob-value-2"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("key1"), "blob-value-1");
+  ASSERT_EQ(Get("key2"), "blob-value-2");
+
+  Reopen(options);
+  ASSERT_EQ(Get("key1"), "blob-value-1");
+  ASSERT_EQ(Get("key2"), "blob-value-2");
+}
+
 TEST_F(DBBlobBasicTest, BlobFileWritableFileMaxBufferSize) {
   constexpr uint64_t kBlobWriterBufferSize = 128 * 1024;
 

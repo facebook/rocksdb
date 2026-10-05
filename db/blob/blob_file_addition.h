@@ -40,6 +40,34 @@ class BlobFileAddition {
   const std::string& GetChecksumMethod() const { return checksum_method_; }
   const std::string& GetChecksumValue() const { return checksum_value_; }
 
+  bool HasIndirectionInfo() const {
+    return origin_file_number_ != kInvalidBlobFileNumber;
+  }
+  bool IsIndirectIdentityFile() const {
+    return HasIndirectionInfo() && origin_file_number_ == blob_file_number_ &&
+           relocation_file_size_ == 0;
+  }
+  bool IsIndirectRelocationFile() const {
+    return HasIndirectionInfo() && origin_file_number_ != blob_file_number_ &&
+           relocation_file_size_ > 0;
+  }
+  uint64_t GetOriginFileNumber() const { return origin_file_number_; }
+  uint64_t GetRelocationFileSize() const { return relocation_file_size_; }
+
+  // Marks a v1 physical origin whose indirect BlobIndexes currently resolve
+  // by identity. This is persisted as a forward-incompatible field so an old
+  // binary fails during MANIFEST replay instead of interpreting stable IDs as
+  // terminal physical locations.
+  void SetIndirectionIdentity();
+
+  // A relocation file is a block-based-table blob file produced by standalone
+  // Blob GC that stores the surviving values for exactly one stable origin. It
+  // replaces that origin's identity file as physical storage while BlobIndexes
+  // continue to name the origin. No relocation-file-internal block handles or
+  // checksums are persisted in the MANIFEST.
+  Status SetIndirectionRelocationFile(uint64_t origin_file_number,
+                                      uint64_t relocation_file_size);
+
   void EncodeTo(std::string* output) const;
   Status DecodeFrom(Slice* input);
 
@@ -54,6 +82,8 @@ class BlobFileAddition {
   uint64_t total_blob_bytes_ = 0;
   std::string checksum_method_;
   std::string checksum_value_;
+  uint64_t origin_file_number_ = kInvalidBlobFileNumber;
+  uint64_t relocation_file_size_ = 0;
 };
 
 bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs);

@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 
+#include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
@@ -909,6 +910,35 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), 0);
 
   UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, ApplyIndirectBlobRelocationFile) {
+  UpdateVersionStorageInfo();
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  constexpr uint64_t origin_file_number = 1234;
+  constexpr uint64_t relocation_file_number = 2345;
+  constexpr uint64_t total_blob_count = 2;
+  constexpr uint64_t total_blob_bytes = 1000;
+  constexpr uint64_t relocation_file_size = 1536;
+
+  BlobFileAddition addition(relocation_file_number, total_blob_count,
+                            total_blob_bytes, "", "");
+  ASSERT_OK(addition.SetIndirectionRelocationFile(origin_file_number,
+                                                  relocation_file_size));
+
+  VersionEdit edit;
+  edit.AddBlobFile(std::move(addition));
+  constexpr uint64_t table_file_number = 1;
+  AddDummyFileToEdit(&edit, table_file_number, origin_file_number,
+                     /*epoch_number=*/1);
+  const Status status = builder.Apply(&edit);
+  EXPECT_TRUE(status.IsNotSupported()) << status.ToString();
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {

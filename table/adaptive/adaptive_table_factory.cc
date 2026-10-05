@@ -69,6 +69,11 @@ TableBuilder* AdaptiveTableFactory::NewTableBuilder(
   return table_factory_to_write_->NewTableBuilder(table_builder_options, file);
 }
 
+const BlockBasedTableOptions*
+AdaptiveTableFactory::GetBlockBasedTableWriterOptions() const {
+  return table_factory_to_write_->GetOptions<BlockBasedTableOptions>();
+}
+
 std::string AdaptiveTableFactory::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);

@@ -4183,12 +4183,157 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
 void VersionStorageInfo::AddBlobFile(
     std::shared_ptr<BlobFileMetaData> blob_file_meta) {
   assert(blob_file_meta);
+  blob_relocation_files_finalized_ = false;
 
   assert(blob_files_.empty() ||
          (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
                                     blob_file_meta->GetBlobFileNumber()));
 
+  if (blob_file_meta->HasIndirectionInfo()) {
+    has_blob_indirection_ = true;
+    if (blob_file_meta->IsIndirectRelocationFile()) {
+      blob_relocation_files_->push_back({blob_file_meta->GetOriginFileNumber(),
+                                         blob_file_meta->GetBlobFileNumber()});
+    }
+  }
+
   blob_files_.emplace_back(std::move(blob_file_meta));
+}
+
+std::shared_ptr<BlobFileMetaData>
+VersionStorageInfo::GetBlobFileMetaDataByOrigin(
+    uint64_t origin_file_number) const {
+  const std::shared_ptr<BlobFileMetaData> identity =
+      GetBlobFileMetaData(origin_file_number);
+  if (identity && identity->IsIndirectIdentityFile()) {
+    return identity;
+  }
+
+  if (!blob_relocation_files_finalized_) {
+    // Recovery can use an intermediate VersionStorageInfo as a builder base
+    // before its derived index has been sorted and validated.
+    const auto it = std::find_if(
+        blob_relocation_files_->begin(), blob_relocation_files_->end(),
+        [origin_file_number](const BlobRelocationFileIndexEntry& entry) {
+          return entry.origin_file_number == origin_file_number;
+        });
+    if (it == blob_relocation_files_->end()) {
+      return std::shared_ptr<BlobFileMetaData>();
+    }
+    return GetBlobFileMetaData(it->physical_file_number);
+  }
+
+  const auto it = std::lower_bound(
+      blob_relocation_files_->begin(), blob_relocation_files_->end(),
+      origin_file_number,
+      [](const BlobRelocationFileIndexEntry& entry, uint64_t origin) {
+        return entry.origin_file_number < origin;
+      });
+  if (it == blob_relocation_files_->end() ||
+      it->origin_file_number != origin_file_number) {
+    return std::shared_ptr<BlobFileMetaData>();
+  }
+
+  return GetBlobFileMetaData(it->physical_file_number);
+}
+
+uint64_t VersionStorageInfo::ResolveBlobFileNumber(
+    const BlobRelocationFiles& relocation_files, uint64_t origin_file_number) {
+  const auto it = std::lower_bound(
+      relocation_files.begin(), relocation_files.end(), origin_file_number,
+      [](const BlobRelocationFileIndexEntry& entry, uint64_t origin) {
+        return entry.origin_file_number < origin;
+      });
+  return it != relocation_files.end() &&
+                 it->origin_file_number == origin_file_number
+             ? it->physical_file_number
+             : origin_file_number;
+}
+
+Status VersionStorageInfo::ValidateBlobIndirection() {
+  std::sort(blob_relocation_files_->begin(), blob_relocation_files_->end(),
+            [](const BlobRelocationFileIndexEntry& lhs,
+               const BlobRelocationFileIndexEntry& rhs) {
+              return lhs.origin_file_number < rhs.origin_file_number;
+            });
+  blob_relocation_files_finalized_ = true;
+
+  for (size_t i = 0; i < blob_relocation_files_->size(); ++i) {
+    const BlobRelocationFileIndexEntry& entry = (*blob_relocation_files_)[i];
+    if (entry.origin_file_number == kInvalidBlobFileNumber ||
+        entry.physical_file_number == kInvalidBlobFileNumber) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection origin metadata");
+    }
+    if (i > 0 && (*blob_relocation_files_)[i - 1].origin_file_number ==
+                     entry.origin_file_number) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Multiple blob files for one indirect origin");
+    }
+
+    const std::shared_ptr<BlobFileMetaData> meta =
+        GetBlobFileMetaData(entry.physical_file_number);
+    if (!meta || !meta->IsIndirectRelocationFile() ||
+        entry.origin_file_number != meta->GetOriginFileNumber()) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection routing metadata");
+    }
+  }
+
+  const auto find_relocation = [this](uint64_t origin_file_number) {
+    return std::lower_bound(
+        blob_relocation_files_->begin(), blob_relocation_files_->end(),
+        origin_file_number,
+        [](const BlobRelocationFileIndexEntry& entry, uint64_t origin) {
+          return entry.origin_file_number < origin;
+        });
+  };
+
+  bool found_blob_indirection = false;
+  for (const std::shared_ptr<BlobFileMetaData>& meta : blob_files_) {
+    assert(meta);
+    const auto physical_number_collision =
+        find_relocation(meta->GetBlobFileNumber());
+    if (physical_number_collision != blob_relocation_files_->end() &&
+        physical_number_collision->origin_file_number ==
+            meta->GetBlobFileNumber()) {
+      return Status::Corruption(
+          "VersionStorageInfo",
+          "Blob indirection origin conflicts with a physical file number");
+    }
+
+    if (!meta->HasIndirectionInfo()) {
+      continue;
+    }
+    found_blob_indirection = true;
+    const uint64_t origin_file_number = meta->GetOriginFileNumber();
+    if (origin_file_number == kInvalidBlobFileNumber) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection origin metadata");
+    }
+    const auto relocation_it = find_relocation(origin_file_number);
+    const bool has_relocation =
+        relocation_it != blob_relocation_files_->end() &&
+        relocation_it->origin_file_number == origin_file_number;
+    if (meta->IsIndirectIdentityFile()) {
+      if (has_relocation) {
+        return Status::Corruption(
+            "VersionStorageInfo",
+            "Multiple blob files for one indirect origin");
+      }
+    } else if (!meta->IsIndirectRelocationFile() || !has_relocation ||
+               relocation_it->physical_file_number !=
+                   meta->GetBlobFileNumber()) {
+      return Status::Corruption("VersionStorageInfo",
+                                "Invalid blob indirection routing metadata");
+    }
+  }
+  if (found_blob_indirection != has_blob_indirection_) {
+    return Status::Corruption("VersionStorageInfo",
+                              "Invalid blob indirection presence metadata");
+  }
+
+  return Status::OK();
 }
 
 VersionStorageInfo::BlobFiles::const_iterator
@@ -7723,9 +7868,21 @@ Status VersionSet::WriteCurrentStateToManifest(
 
         const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
-        edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
-                         meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
-                         meta->GetChecksumValue());
+        BlobFileAddition addition(blob_file_number, meta->GetTotalBlobCount(),
+                                  meta->GetTotalBlobBytes(),
+                                  meta->GetChecksumMethod(),
+                                  meta->GetChecksumValue());
+        if (meta->IsIndirectIdentityFile()) {
+          addition.SetIndirectionIdentity();
+        } else if (meta->IsIndirectRelocationFile()) {
+          const Status indirection_status =
+              addition.SetIndirectionRelocationFile(
+                  meta->GetOriginFileNumber(), meta->GetRelocationFileSize());
+          if (!indirection_status.ok()) {
+            return indirection_status;
+          }
+        }
+        edit.AddBlobFile(std::move(addition));
         if (meta->GetGarbageBlobCount() > 0) {
           edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
                                   meta->GetGarbageBlobBytes());
