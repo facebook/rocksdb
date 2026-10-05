@@ -126,6 +126,10 @@ class ReadOnlyMemTable {
   // used by MemTableListVersion::MemoryAllocatedBytesExcludingLast
   virtual size_t MemoryAllocatedBytes() const = 0;
 
+  // Returns memory charged to this memtable's WriteBufferManager. Memtable
+  // implementations that do not allocate through a WBM return zero.
+  virtual size_t WBMTrackedMemoryUsage() const = 0;
+
   // Returns a vector of unique random memtable entries of size 'sample_size'.
   //
   // Note: the entries are stored in the unordered_set as length-prefixed keys,
@@ -597,7 +601,8 @@ class MemTable final : public ReadOnlyMemTable {
                     const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id);
+                    SequenceNumber earliest_seq, uint32_t column_family_id,
+                    FlushInitiator* flush_initiator);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -618,6 +623,24 @@ class MemTable final : public ReadOnlyMemTable {
     return table_->ApproximateMemoryUsage() +
            range_del_table_->ApproximateMemoryUsage() +
            arena_.MemoryAllocatedBytes();
+  }
+
+  size_t WBMTrackedMemoryUsage() const override {
+    return mem_tracker_.allocated_bytes();
+  }
+
+  bool IsWBMTrackingActive() const {
+    return mem_tracker_.IsFlushInitiatorActive();
+  }
+
+  void RefreshWBMTracking() {
+    ReadLock rl(&immutable_mutex_);
+    mem_tracker_.RefreshFlushInitiator();
+  }
+
+  void StopWBMTracking() {
+    WriteLock wl(&immutable_mutex_);
+    mem_tracker_.DeactivateFlushInitiator();
   }
 
   void UniqueRandomSample(const uint64_t& target_sample_size,
@@ -739,7 +762,11 @@ class MemTable final : public ReadOnlyMemTable {
   // Used in concurrent memtable inserts.
   void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
     table_->BatchPostProcess();
-    num_entries_.FetchAddRelaxed(update_counters.num_entries);
+    const uint64_t old_num_entries =
+        num_entries_.FetchAddRelaxed(update_counters.num_entries);
+    if (old_num_entries == 0 && update_counters.num_entries != 0) {
+      mem_tracker_.ActivateFlushInitiator();
+    }
     data_size_.FetchAddRelaxed(update_counters.data_size);
     if (update_counters.num_deletes != 0) {
       num_deletes_.FetchAddRelaxed(update_counters.num_deletes);

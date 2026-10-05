@@ -267,7 +267,8 @@ TEST_F(MemTableListTest, GetTest) {
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+                               kMaxSequenceNumber, 0 /* column_family_id */,
+                               nullptr /* flush_initiator */);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -335,7 +336,8 @@ TEST_F(MemTableListTest, GetTest) {
   // Create another memtable and write some keys to it
   WriteBufferManager wb2(options.db_write_buffer_size);
   MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
-                                kMaxSequenceNumber, 0 /* column_family_id */);
+                                kMaxSequenceNumber, 0 /* column_family_id */,
+                                nullptr /* flush_initiator */);
   mem2->SetID(2);
   mem2->Ref();
 
@@ -432,7 +434,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+                               kMaxSequenceNumber, 0 /* column_family_id */,
+                               nullptr /* flush_initiator */);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -536,7 +539,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create another memtable and write some keys to it
   WriteBufferManager wb2(options.db_write_buffer_size);
   MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
-                                kMaxSequenceNumber, 0 /* column_family_id */);
+                                kMaxSequenceNumber, 0 /* column_family_id */,
+                                nullptr /* flush_initiator */);
   mem2->Ref();
 
   ASSERT_OK(
@@ -566,7 +570,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Add a third memtable to push the first memtable out of the history
   WriteBufferManager wb3(options.db_write_buffer_size);
   MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
-                                kMaxSequenceNumber, 0 /* column_family_id */);
+                                kMaxSequenceNumber, 0 /* column_family_id */,
+                                nullptr /* flush_initiator */);
   mem3->Ref();
   // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
   // in MemTableListVersion::GetFromList work.
@@ -660,8 +665,9 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   std::vector<MemTable*> tables;
   MutableCFOptions mutable_cf_options(options);
   for (int i = 0; i < num_tables; i++) {
-    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    MemTable* mem =
+        new MemTable(cmp, ioptions, mutable_cf_options, &wb, kMaxSequenceNumber,
+                     0 /* column_family_id */, nullptr /* flush_initiator */);
     mem->SetID(memtable_id++);
     mem->Ref();
 
@@ -935,8 +941,9 @@ TEST_F(MemTableListTest, FlushRequestPersistsAfterPartialPick) {
                     0 /* max_write_buffer_size_to_maintain */);
 
   for (uint64_t memtable_id = 0; memtable_id < 2; ++memtable_id) {
-    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    MemTable* mem =
+        new MemTable(cmp, ioptions, mutable_cf_options, &wb, kMaxSequenceNumber,
+                     0 /* column_family_id */, nullptr /* flush_initiator */);
     mem->SetID(memtable_id);
     mem->Ref();
     ASSERT_OK(mem->Add(++seq, kTypeValue, "key" + std::to_string(memtable_id),
@@ -991,8 +998,9 @@ TEST_F(MemTableListTest, RemoveOldMemTablesTest) {
   // WAL 20.
   SequenceNumber seq = 1;
   for (uint64_t next_log_number : {10, 20}) {
-    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    MemTable* mem =
+        new MemTable(cmp, ioptions, mutable_cf_options, &wb, kMaxSequenceNumber,
+                     0 /* column_family_id */, nullptr /* flush_initiator */);
     mem->Ref();
     ASSERT_OK(mem->Add(++seq, kTypeValue, "key", "value",
                        nullptr /* kv_prot_info */));
@@ -1065,9 +1073,9 @@ TEST_F(MemTableListTest, AtomicFlushTest) {
     mutable_cf_options_list.emplace_back(new MutableCFOptions(options));
     uint64_t memtable_id = 0;
     for (int i = 0; i != num_tables_per_cf; ++i) {
-      MemTable* mem =
-          new MemTable(cmp, ioptions, *(mutable_cf_options_list.back()), &wb,
-                       kMaxSequenceNumber, cf_id);
+      MemTable* mem = new MemTable(
+          cmp, ioptions, *(mutable_cf_options_list.back()), &wb,
+          kMaxSequenceNumber, cf_id, nullptr /* flush_initiator */);
       mem->SetID(memtable_id++);
       mem->Ref();
 
@@ -1218,8 +1226,9 @@ TEST_F(MemTableListWithTimestampTest, GetTableNewestUDT) {
   std::string key;
   std::string write_ts;
   for (int i = 0; i < num_tables; i++) {
-    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                                 kMaxSequenceNumber, 0 /* column_family_id */);
+    MemTable* mem =
+        new MemTable(cmp, ioptions, mutable_cf_options, &wb, kMaxSequenceNumber,
+                     0 /* column_family_id */, nullptr /* flush_initiator */);
     mem->SetID(memtable_id++);
     mem->Ref();
 
@@ -1271,8 +1280,9 @@ TEST_F(MemTableListWithTimestampTest, ConcurrentGetTableNewestUDT) {
   WriteBufferManager wb(options.db_write_buffer_size);
   MutableCFOptions mutable_cf_options(options);
 
-  MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+  MemTable* mem =
+      new MemTable(cmp, ioptions, mutable_cf_options, &wb, kMaxSequenceNumber,
+                   0 /* column_family_id */, nullptr /* flush_initiator */);
   mem->Ref();
 
   std::atomic<uint64_t> next_seq{1};
