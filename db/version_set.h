@@ -240,14 +240,29 @@ class VersionStorageInfo {
       bool allow_ingest_behind, const Comparator* ucmp,
       const std::string& full_history_ts_low);
 
-  // This computes files_marked_for_forced_blob_gc_ and is called by
-  // ComputeCompactionScore()
+  // Builds the immutable forced-blob-GC candidate order. The Version must
+  // remain referenced, but the DB mutex is not required.
+  void PrepareForcedBlobGCCandidates(
+      double blob_garbage_collection_age_cutoff,
+      double blob_garbage_collection_force_threshold,
+      bool enable_blob_garbage_collection);
+
+  // Refreshes whether one of the prepared candidates is currently available
+  // and is called by ComputeCompactionScore(). A fallback preparation is done
+  // for recovery and other callers that do not use normal MANIFEST writing.
   //
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
       double blob_garbage_collection_age_cutoff,
       double blob_garbage_collection_force_threshold,
       bool enable_blob_garbage_collection);
+
+  // Selects the single indirect blob root with the largest reclaimable byte
+  // count whose individual garbage ratio meets `threshold`. Unlike legacy
+  // blob GC, this selection is independent of file age and SST layout.
+  void ComputeBlobFileForStandaloneGC(double threshold,
+                                      bool enable_blob_indirection,
+                                      bool enable_blob_garbage_collection);
 
   // This computes read_triggered_compaction_files_ and is called by
   // ComputeCompactionScore()
@@ -493,6 +508,12 @@ class VersionStorageInfo {
   // and logical origins cannot be interpreted as two different blobs.
   Status ValidateBlobIndirection();
 
+  // Smallest logical blob origin with an explicit surviving SST link. This is
+  // derived while blob metadata is added and is not persisted in the MANIFEST.
+  uint64_t GetOldestBlobOriginWithLinkedSsts() const {
+    return oldest_blob_origin_with_linked_ssts_;
+  }
+
   size_t TEST_GetBlobRelocationFileCount() const {
     return blob_relocation_files_->size();
   }
@@ -594,6 +615,36 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_forced_blob_gc_;
+  }
+
+  // REQUIRES: ComputeCompactionScore has been called
+  // REQUIRES: DB mutex held during access
+  bool HasFileMarkedForForcedBlobGC() const {
+    assert(finalized_);
+    return has_file_marked_for_forced_blob_gc_;
+  }
+
+  bool ForcedBlobGCCandidatesAreMixed() const {
+    assert(finalized_);
+    return forced_blob_gc_candidates_are_mixed_;
+  }
+
+  const std::shared_ptr<BlobFileMetaData>& BlobFileForStandaloneGC() const {
+    assert(finalized_);
+    return blob_file_for_standalone_gc_;
+  }
+
+  // Suppress a candidate generation that the standalone job cannot safely
+  // rewrite while allowing a lower-ranked candidate to be selected. A route,
+  // garbage, or linked-SST change creates fresh metadata and retries it.
+  void SuppressBlobFileForStandaloneGC(
+      const std::shared_ptr<BlobFileMetaData>& source_meta) {
+    assert(finalized_);
+    assert(source_meta);
+    source_meta->SuppressStandaloneBlobGC();
+    if (blob_file_for_standalone_gc_ == source_meta) {
+      blob_file_for_standalone_gc_.reset();
+    }
   }
 
   // REQUIRES: ComputeCompactionScore has been called
@@ -779,6 +830,8 @@ class VersionStorageInfo {
       std::make_shared<BlobRelocationFiles>();
   bool blob_relocation_files_finalized_ = false;
   bool has_blob_indirection_ = false;
+  size_t direct_blob_file_count_ = 0;
+  uint64_t oldest_blob_origin_with_linked_ssts_ = kInvalidBlobFileNumber;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
@@ -826,6 +879,15 @@ class VersionStorageInfo {
       bottommost_files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
+  bool forced_blob_gc_candidates_prepared_ = false;
+  double forced_blob_gc_prepared_age_cutoff_ = 0.0;
+  double forced_blob_gc_prepared_force_threshold_ = 0.0;
+  bool forced_blob_gc_prepared_enabled_ = false;
+  bool forced_blob_gc_candidates_are_mixed_ = false;
+  bool has_file_marked_for_forced_blob_gc_ = false;
+
+  // Highest-value non-prefix indirect root selected for a standalone rewrite.
+  std::shared_ptr<BlobFileMetaData> blob_file_for_standalone_gc_;
 
   autovector<std::pair<int, FileMetaData*>> read_triggered_compaction_files_;
 
@@ -1832,7 +1894,7 @@ class VersionSet {
   const IOStatus& io_status() const { return io_status_; }
 
   // The returned WalSet needs to be accessed with DB mutex held.
-  const WalSet& GetWalSet() const { return wals_; }
+  const WalSet& GetWalSet() const { return *wals_; }
 
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
@@ -1876,6 +1938,7 @@ class VersionSet {
   friend class Version;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  friend class ManifestTailer;
   friend class DumpManifestHandler;
   friend class DBImpl;
   friend class DBImplReadOnly;
@@ -1964,7 +2027,7 @@ class VersionSet {
   void TuneMaxManifestFileSize();
 
   // Protected by DB mutex.
-  WalSet wals_;
+  std::shared_ptr<WalSet> wals_ = std::make_shared<WalSet>();
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Cache* table_cache_;
@@ -2137,7 +2200,8 @@ class ReactiveVersionSet : public VersionSet {
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
       Status* manifest_read_status,
       std::unordered_set<ColumnFamilyData*>* cfds_changed,
-      std::vector<std::string>* files_to_delete);
+      std::vector<std::string>* files_to_delete,
+      VersionBuilder::OfflockCleanup* offlock_cleanup);
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,

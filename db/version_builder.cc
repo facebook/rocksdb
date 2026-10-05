@@ -220,13 +220,14 @@ class VersionBuilder::Rep : public MutableScalars {
     // To be used for brand new blob files
     explicit MutableBlobFileMetaData(
         std::shared_ptr<SharedBlobFileMetaData>&& shared_meta)
-        : shared_meta_(std::move(shared_meta)) {}
+        : shared_meta_(std::move(shared_meta)),
+          linked_ssts_(std::make_shared<BlobFileMetaData::LinkedSsts>()) {}
 
     // To be used for pre-existing blob files
     explicit MutableBlobFileMetaData(
         const std::shared_ptr<BlobFileMetaData>& meta)
         : shared_meta_(meta->GetSharedMeta()),
-          linked_ssts_(meta->GetLinkedSsts()),
+          linked_ssts_(meta->GetLinkedSstsHandle()),
           garbage_blob_count_(meta->GetGarbageBlobCount()),
           garbage_blob_bytes_(meta->GetGarbageBlobBytes()) {}
 
@@ -239,10 +240,16 @@ class VersionBuilder::Rep : public MutableScalars {
       return shared_meta_->GetBlobFileNumber();
     }
 
-    bool HasDelta() const { return !delta_.IsEmpty(); }
+    bool HasDelta() const { return !delta_.IsEmpty() || linked_ssts_replaced_; }
 
     const std::unordered_set<uint64_t>& GetLinkedSsts() const {
-      return linked_ssts_;
+      return mutable_linked_ssts_ ? *mutable_linked_ssts_ : *linked_ssts_;
+    }
+
+    BlobFileMetaData::LinkedSstsHandle GetLinkedSstsHandle() const {
+      return mutable_linked_ssts_
+                 ? BlobFileMetaData::LinkedSstsHandle(mutable_linked_ssts_)
+                 : linked_ssts_;
     }
 
     uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
@@ -268,25 +275,59 @@ class VersionBuilder::Rep : public MutableScalars {
     void LinkSst(uint64_t sst_file_number) {
       delta_.LinkSst(sst_file_number);
 
-      assert(linked_ssts_.find(sst_file_number) == linked_ssts_.end());
-      linked_ssts_.emplace(sst_file_number);
+      BlobFileMetaData::LinkedSsts& linked_ssts = MutableLinkedSsts();
+      assert(linked_ssts.find(sst_file_number) == linked_ssts.end());
+      linked_ssts.emplace(sst_file_number);
     }
 
     void UnlinkSst(uint64_t sst_file_number) {
       delta_.UnlinkSst(sst_file_number);
 
-      assert(linked_ssts_.find(sst_file_number) != linked_ssts_.end());
-      linked_ssts_.erase(sst_file_number);
+      BlobFileMetaData::LinkedSsts& linked_ssts = MutableLinkedSsts();
+      assert(linked_ssts.find(sst_file_number) != linked_ssts.end());
+      linked_ssts.erase(sst_file_number);
+    }
+
+    BlobFileMetaData::LinkedSstsHandle ReleaseLinkedSsts() {
+      BlobFileMetaData::LinkedSstsHandle result =
+          mutable_linked_ssts_
+              ? BlobFileMetaData::LinkedSstsHandle(mutable_linked_ssts_)
+              : linked_ssts_;
+      mutable_linked_ssts_.reset();
+      linked_ssts_ = std::make_shared<BlobFileMetaData::LinkedSsts>();
+      linked_ssts_replaced_ = true;
+      return result;
+    }
+
+    void SetLinkedSsts(BlobFileMetaData::LinkedSstsHandle linked_ssts) {
+      assert(linked_ssts);
+      assert(GetLinkedSsts().empty());
+      mutable_linked_ssts_.reset();
+      linked_ssts_ = std::move(linked_ssts);
+      linked_ssts_replaced_ = true;
     }
 
    private:
+    BlobFileMetaData::LinkedSsts& MutableLinkedSsts() {
+      if (!mutable_linked_ssts_) {
+        mutable_linked_ssts_ =
+            std::make_shared<BlobFileMetaData::LinkedSsts>(*linked_ssts_);
+      } else if (!mutable_linked_ssts_.unique()) {
+        mutable_linked_ssts_ = std::make_shared<BlobFileMetaData::LinkedSsts>(
+            *mutable_linked_ssts_);
+      }
+      return *mutable_linked_ssts_;
+    }
+
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
     // Accumulated changes
     BlobFileMetaDataDelta delta_;
     // Resulting state after applying the changes
-    BlobFileMetaData::LinkedSsts linked_ssts_;
+    BlobFileMetaData::LinkedSstsHandle linked_ssts_;
+    std::shared_ptr<BlobFileMetaData::LinkedSsts> mutable_linked_ssts_;
     uint64_t garbage_blob_count_ = 0;
     uint64_t garbage_blob_bytes_ = 0;
+    bool linked_ssts_replaced_ = false;
   };
 
   const FileOptions& file_options_;
@@ -313,6 +354,12 @@ class VersionBuilder::Rep : public MutableScalars {
   // version edits.
   std::map<uint64_t, MutableBlobFileMetaData> mutable_blob_file_metas_;
 
+  // Builder-local stable origin -> relocation file overrides. An absent entry
+  // inherits the route from the pinned base Version. This keeps construction
+  // proportional to routes changed by the applied edits, rather than all
+  // carriers in the base Version.
+  std::unordered_map<uint64_t, uint64_t> blob_relocation_file_number_overrides_;
+
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
 
   ColumnFamilyData* cfd_;
@@ -336,7 +383,7 @@ class VersionBuilder::Rep : public MutableScalars {
   std::vector<std::string> intermediate_files_;
   // Missing blob files, useful to check if only the missing L0 files'
   // associated blob files are missing.
-  std::unordered_set<uint64_t> missing_blob_files_;
+  std::set<uint64_t> missing_blob_files_;
 
   // Note: additional scalar/flag state mutated while applying edits
   // (has_invalid_levels_, missing_blob_files_high_, valid_version_available_,
@@ -393,6 +440,8 @@ class VersionBuilder::Rep : public MutableScalars {
     // kept alive here rather than destroyed (which would spuriously mark the
     // blob obsolete).
     UnorderedMap<uint64_t, std::optional<MutableBlobFileMetaData>> blob_metas;
+    // blob_relocation_file_number_overrides_ entries, keyed by logical origin.
+    UnorderedMap<uint64_t, std::optional<uint64_t>> blob_relocations;
     // Membership on the non-live side for each tracking set, keyed by file
     // number (blob file number for `missing_blob_files`).
     UnorderedMap<uint64_t, bool> found_files;
@@ -452,6 +501,8 @@ class VersionBuilder::Rep : public MutableScalars {
       edited_in_atomic_group_ = false;
       version_updated_since_last_check_ = false;
     }
+
+    assert(base_vstorage_ != nullptr);
   }
 
   // Rep is only ever held via std::unique_ptr and is not copied. (The previous
@@ -464,7 +515,7 @@ class VersionBuilder::Rep : public MutableScalars {
     // Release any FileMetaData whose deletion was deferred by an uncommitted
     // Apply(), and ensure the live state is in the forward (post-edit) position
     // so the loop below unrefs exactly the files still owned by added_files.
-    CommitLastApply();
+    CommitLastApply(nullptr);
     for (int level = 0; level < num_levels_; level++) {
       const auto& added = levels_[level].added_files;
       for (auto& pair : added) {
@@ -623,12 +674,29 @@ class VersionBuilder::Rep : public MutableScalars {
       RecordSetMembership(missing_blob_files_, undo_->missing_blob_files,
                           blob_file_number);
     };
+    auto touch_blob_relocation = [&](uint64_t origin_file_number) {
+      if (origin_file_number != kInvalidBlobFileNumber) {
+        RecordMapEntry(blob_relocation_file_number_overrides_,
+                       undo_->blob_relocations, origin_file_number);
+      }
+    };
+    auto touch_blob_reference = [&](uint64_t origin_or_physical_file_number) {
+      if (origin_or_physical_file_number == kInvalidBlobFileNumber) {
+        return;
+      }
+      touch_blob_file(
+          ResolveBlobFileNumberForReference(origin_or_physical_file_number));
+    };
 
     for (const auto& ba : edit->GetBlobFileAdditions()) {
       touch_blob_file(ba.GetBlobFileNumber());
+      if (ba.IsIndirectRelocationFile()) {
+        touch_blob_relocation(ba.GetOriginFileNumber());
+        touch_blob_reference(ba.GetOriginFileNumber());
+      }
     }
     for (const auto& bg : edit->GetBlobFileGarbages()) {
-      touch_blob_file(bg.GetBlobFileNumber());
+      touch_blob_reference(bg.GetBlobFileNumber());
     }
     for (const auto& deleted_file : edit->GetDeletedFiles()) {
       const int level = deleted_file.first;
@@ -637,14 +705,14 @@ class VersionBuilder::Rep : public MutableScalars {
       // Only reachable blob metadata is touched (mirrors ApplyFileDeletion).
       if (level >= 0 && level < num_levels_ &&
           GetCurrentLevelForTableFile(fn) == level) {
-        touch_blob_file(GetOldestBlobFileNumberForTableFile(level, fn));
+        touch_blob_reference(GetOldestBlobFileNumberForTableFile(level, fn));
       }
     }
     for (const auto& new_file : edit->GetNewFiles()) {
       const int level = new_file.first;
       const FileMetaData& meta = new_file.second;
       touch_table_file(level, meta.fd.GetNumber());
-      touch_blob_file(meta.oldest_blob_file_number);
+      touch_blob_reference(meta.oldest_blob_file_number);
     }
     for (const auto& cursor : edit->GetCompactCursors()) {
       const int level = cursor.first;
@@ -693,6 +761,8 @@ class VersionBuilder::Rep : public MutableScalars {
     ToggleMapEntries(invalid_level_sizes_, undo_->invalid_level_sizes);
     ToggleMapEntries(updated_compact_cursors_, undo_->compact_cursors);
     ToggleMapEntries(mutable_blob_file_metas_, undo_->blob_metas);
+    ToggleMapEntries(blob_relocation_file_number_overrides_,
+                     undo_->blob_relocations);
     ToggleSetMembership(found_files_, undo_->found_files);
     ToggleSetMembership(l0_missing_files_, undo_->l0_missing_files);
     ToggleSetMembership(non_l0_missing_files_, undo_->non_l0_missing_files);
@@ -735,7 +805,7 @@ class VersionBuilder::Rep : public MutableScalars {
 
   // Finalizes the most recent Apply(): frees FileMetaData whose deletion was
   // deferred and drops the undo record. Safe to call with no pending edit.
-  void CommitLastApply() {
+  void CommitLastApply(VersionBuilder::BlobRouteCleanup* blob_route_cleanup) {
     if (!undo_) {
       return;
     }
@@ -746,7 +816,30 @@ class VersionBuilder::Rep : public MutableScalars {
     for (FileMetaData* f : undo_->deferred_unref) {
       UnrefFile(f);
     }
+    if (blob_route_cleanup != nullptr && !undo_->blob_relocations.empty()) {
+      using RouteUndo = decltype(undo_->blob_relocations);
+      auto routes = std::make_shared<RouteUndo>();
+      routes->swap(undo_->blob_relocations);
+      blob_route_cleanup->emplace_back(std::move(routes));
+    }
     undo_.reset();
+  }
+
+  void ExtractBlobRouteCleanup(
+      VersionBuilder::BlobRouteCleanup* blob_route_cleanup) {
+    assert(blob_route_cleanup != nullptr);
+    if (!blob_relocation_file_number_overrides_.empty()) {
+      using Routes = decltype(blob_relocation_file_number_overrides_);
+      auto routes = std::make_shared<Routes>();
+      routes->swap(blob_relocation_file_number_overrides_);
+      blob_route_cleanup->emplace_back(std::move(routes));
+    }
+    if (undo_ != nullptr && !undo_->blob_relocations.empty()) {
+      using RouteUndo = decltype(undo_->blob_relocations);
+      auto routes = std::make_shared<RouteUndo>();
+      routes->swap(undo_->blob_relocations);
+      blob_route_cleanup->emplace_back(std::move(routes));
+    }
   }
 
   // Mapping used for checking the consistency of links between SST files and
@@ -1042,58 +1135,81 @@ class VersionBuilder::Rep : public MutableScalars {
     return nullptr;
   }
 
-  MutableBlobFileMetaData* GetOrCreateMutableBlobFileMetaDataForReference(
-      uint64_t origin_or_physical_file_number) {
-    MutableBlobFileMetaData* mutable_meta =
-        GetOrCreateMutableBlobFileMetaData(origin_or_physical_file_number);
-    if (mutable_meta != nullptr) {
-      return mutable_meta;
+  uint64_t ResolveBlobFileNumberForReference(
+      uint64_t origin_or_physical_file_number) const {
+    const auto override_it = blob_relocation_file_number_overrides_.find(
+        origin_or_physical_file_number);
+    if (override_it != blob_relocation_file_number_overrides_.end()) {
+      return override_it->second;
     }
 
-    for (auto& entry : mutable_blob_file_metas_) {
-      const std::shared_ptr<SharedBlobFileMetaData>& shared_meta =
-          entry.second.GetSharedMeta();
-      if (shared_meta->HasIndirectionInfo() &&
-          shared_meta->GetOriginFileNumber() ==
-              origin_or_physical_file_number) {
-        return &entry.second;
-      }
-    }
-
-    assert(base_vstorage_);
-    const std::shared_ptr<BlobFileMetaData> origin_meta =
+    assert(base_vstorage_ != nullptr);
+    const std::shared_ptr<BlobFileMetaData> base_meta =
         base_vstorage_->GetBlobFileMetaDataByOrigin(
             origin_or_physical_file_number);
-    if (!origin_meta) {
-      return nullptr;
+    return base_meta ? base_meta->GetBlobFileNumber()
+                     : origin_or_physical_file_number;
+  }
+
+  MutableBlobFileMetaData* GetOrCreateMutableBlobFileMetaDataForReference(
+      uint64_t origin_or_physical_file_number) {
+    return GetOrCreateMutableBlobFileMetaData(
+        ResolveBlobFileNumberForReference(origin_or_physical_file_number));
+  }
+
+  void ForgetMissingBlobFile(uint64_t blob_file_number) {
+    if (!track_found_and_missing_files_ ||
+        missing_blob_files_.erase(blob_file_number) == 0 ||
+        missing_blob_files_high_ != blob_file_number) {
+      return;
     }
-    const uint64_t physical_file_number = origin_meta->GetBlobFileNumber();
-    auto mutable_it = mutable_blob_file_metas_.find(physical_file_number);
-    if (mutable_it == mutable_blob_file_metas_.end()) {
-      mutable_it = mutable_blob_file_metas_
-                       .emplace(physical_file_number,
-                                MutableBlobFileMetaData(origin_meta))
-                       .first;
-    }
-    return &mutable_it->second;
+
+    missing_blob_files_high_ = missing_blob_files_.empty()
+                                   ? kInvalidBlobFileNumber
+                                   : *missing_blob_files_.rbegin();
   }
 
   Status ApplyBlobFileAddition(const BlobFileAddition& blob_file_addition) {
     const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
-
-    // This stack layer can decode the persisted fields but does not yet
-    // implement relocation-file retention and obsolete-file safety. Refuse to
-    // open such a MANIFEST instead of silently applying incomplete semantics.
-    if (blob_file_addition.IsIndirectRelocationFile()) {
-      return Status::NotSupported(
-          "Blob relocation files require standalone blob GC support");
-    }
 
     if (IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number << " already added";
 
       return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    MutableBlobFileMetaData* replaced_meta = nullptr;
+    BlobFileMetaData::LinkedSstsHandle transferred_ssts;
+    if (blob_file_addition.IsIndirectRelocationFile()) {
+      replaced_meta = GetOrCreateMutableBlobFileMetaDataForReference(
+          blob_file_addition.GetOriginFileNumber());
+      if (replaced_meta != nullptr &&
+          (!replaced_meta->GetSharedMeta()->HasIndirectionInfo() ||
+           replaced_meta->GetSharedMeta()->GetOriginFileNumber() !=
+               blob_file_addition.GetOriginFileNumber())) {
+        return Status::Corruption(
+            "VersionBuilder",
+            "Indirect relocation file does not replace an existing origin");
+      }
+      if (replaced_meta != nullptr) {
+        const uint64_t replaced_file_number =
+            replaced_meta->GetBlobFileNumber();
+        transferred_ssts = replaced_meta->ReleaseLinkedSsts();
+        const auto& replaced_shared = replaced_meta->GetSharedMeta();
+        if (!replaced_meta->AddGarbage(
+                replaced_shared->GetTotalBlobCount() -
+                    replaced_meta->GetGarbageBlobCount(),
+                replaced_shared->GetTotalBlobBytes() -
+                    replaced_meta->GetGarbageBlobBytes())) {
+          return Status::Corruption("VersionBuilder",
+                                    "Invalid replaced blob-file accounting");
+        }
+        // The new relocation file supersedes this physical generation. A
+        // secondary or best-efforts recovery must not keep treating its
+        // absence as a hole in the current Version.
+        ForgetMissingBlobFile(replaced_file_number);
+      }
     }
 
     auto deleter = [vs = version_set_, ioptions = ioptions_,
@@ -1117,8 +1233,17 @@ class VersionBuilder::Rep : public MutableScalars {
     auto shared_meta =
         SharedBlobFileMetaData::Create(blob_file_addition, std::move(deleter));
 
-    mutable_blob_file_metas_.emplace(
+    auto [new_meta_it, inserted] = mutable_blob_file_metas_.emplace(
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));
+    assert(inserted);
+    if (blob_file_addition.IsIndirectRelocationFile()) {
+      blob_relocation_file_number_overrides_[blob_file_addition
+                                                 .GetOriginFileNumber()] =
+          blob_file_number;
+      if (transferred_ssts) {
+        new_meta_it->second.SetLinkedSsts(std::move(transferred_ssts));
+      }
+    }
 
     Status s;
     if (track_found_and_missing_files_) {
@@ -1142,7 +1267,7 @@ class VersionBuilder::Rep : public MutableScalars {
     const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
 
     MutableBlobFileMetaData* const mutable_meta =
-        GetOrCreateMutableBlobFileMetaData(blob_file_number);
+        GetOrCreateMutableBlobFileMetaDataForReference(blob_file_number);
 
     if (!mutable_meta) {
       std::ostringstream oss;
@@ -1151,12 +1276,21 @@ class VersionBuilder::Rep : public MutableScalars {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
+    if (blob_file_garbage.HasAppliedBlobFileNumber() &&
+        blob_file_garbage.GetAppliedBlobFileNumber() !=
+            mutable_meta->GetBlobFileNumber()) {
+      return Status::TryAgain(
+          "Blob file route changed after compaction precommit");
+    }
+
     if (!mutable_meta->AddGarbage(blob_file_garbage.GetGarbageBlobCount(),
                                   blob_file_garbage.GetGarbageBlobBytes())) {
       std::ostringstream oss;
       oss << "Garbage overflow for blob file #" << blob_file_number;
       return Status::Corruption("VersionBuilder", oss.str());
     }
+    blob_file_garbage.SetAppliedBlobFileNumber(
+        mutable_meta->GetBlobFileNumber());
 
     return Status::OK();
   }
@@ -1557,42 +1691,46 @@ class VersionBuilder::Rep : public MutableScalars {
     }
   }
 
-  // Helper function template for finding the first blob file that has linked
-  // SSTs.
-  template <typename Meta>
-  static bool CheckLinkedSsts(const Meta& meta,
-                              uint64_t* min_oldest_blob_file_num) {
-    assert(min_oldest_blob_file_num);
-
-    if (!meta.GetLinkedSsts().empty()) {
-      assert(*min_oldest_blob_file_num == kInvalidBlobFileNumber);
-
-      *min_oldest_blob_file_num = meta.GetBlobFileNumber();
-
-      return false;
-    }
-
-    return true;
-  }
-
-  // Find the oldest blob file that has linked SSTs.
+  // Find the oldest physical blob file that has linked SSTs. This is used by
+  // best-efforts recovery to determine whether missing physical files precede
+  // every live blob reference.
   uint64_t GetMinOldestBlobFileNumber() const {
     uint64_t min_oldest_blob_file_num = kInvalidBlobFileNumber;
 
+    auto check_linked_ssts = [&min_oldest_blob_file_num](const auto& meta) {
+      if (meta.GetLinkedSsts().empty()) {
+        return true;
+      }
+
+      // A relocation file's physical number is newer than its stable logical
+      // origin. In that case the legacy physical-prefix optimization cannot
+      // prove that earlier physical files are unreferenced, so retain the
+      // complete blob metadata set.
+      if (meta.GetSharedMeta()->IsIndirectRelocationFile()) {
+        min_oldest_blob_file_num = 1;
+        return false;
+      }
+
+      if (min_oldest_blob_file_num == kInvalidBlobFileNumber) {
+        min_oldest_blob_file_num = meta.GetBlobFileNumber();
+      }
+      return true;
+    };
+
     auto process_base =
-        [&min_oldest_blob_file_num](
+        [&check_linked_ssts](
             const std::shared_ptr<BlobFileMetaData>& base_meta) {
           assert(base_meta);
 
-          return CheckLinkedSsts(*base_meta, &min_oldest_blob_file_num);
+          return check_linked_ssts(*base_meta);
         };
 
-    auto process_mutable = [&min_oldest_blob_file_num](
-                               const MutableBlobFileMetaData& mutable_meta) {
-      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
-    };
+    auto process_mutable =
+        [&check_linked_ssts](const MutableBlobFileMetaData& mutable_meta) {
+          return check_linked_ssts(mutable_meta);
+        };
 
-    auto process_both = [&min_oldest_blob_file_num](
+    auto process_both = [&check_linked_ssts](
                             const std::shared_ptr<BlobFileMetaData>& base_meta,
                             const MutableBlobFileMetaData& mutable_meta) {
 #ifndef NDEBUG
@@ -1603,7 +1741,7 @@ class VersionBuilder::Rep : public MutableScalars {
 #endif
 
       // Look at mutable_meta since it supersedes *base_meta
-      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
+      return check_linked_ssts(mutable_meta);
     };
 
     MergeBlobFileMetas(kInvalidBlobFileNumber, process_base, process_mutable,
@@ -1612,10 +1750,130 @@ class VersionBuilder::Rep : public MutableScalars {
     return min_oldest_blob_file_num;
   }
 
+  template <typename Meta>
+  bool HasSurvivingBlobLink(const Meta& meta) const {
+    const auto& linked_ssts = meta.GetLinkedSsts();
+    return std::any_of(linked_ssts.begin(), linked_ssts.end(),
+                       [this](uint64_t file_number) {
+                         return !track_found_and_missing_files_ ||
+                                l0_missing_files_.count(file_number) == 0;
+                       });
+  }
+
+  template <typename Meta>
+  static uint64_t GetBlobOriginFileNumber(const Meta& meta) {
+    const auto& shared_meta = meta.GetSharedMeta();
+    return shared_meta->HasIndirectionInfo()
+               ? shared_meta->GetOriginFileNumber()
+               : shared_meta->GetBlobFileNumber();
+  }
+
+  // Recompute the minimum logical origin referenced by an SST that survives
+  // this Version. This fallback runs outside the DB mutex in normal MANIFEST
+  // processing.
+  uint64_t ComputeMinOldestBlobOriginNumber() const {
+    TEST_SYNC_POINT(
+        "VersionBuilder::ComputeMinOldestBlobOriginNumber:FullScan");
+    uint64_t min_origin_file_number = kInvalidBlobFileNumber;
+
+    auto check_linked_ssts = [this, &min_origin_file_number](const auto& meta) {
+      if (!HasSurvivingBlobLink(meta)) {
+        return true;
+      }
+
+      const uint64_t origin_file_number = GetBlobOriginFileNumber(meta);
+      if (min_origin_file_number == kInvalidBlobFileNumber ||
+          origin_file_number < min_origin_file_number) {
+        min_origin_file_number = origin_file_number;
+      }
+      return true;
+    };
+
+    auto process_base =
+        [&check_linked_ssts](
+            const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
+          return check_linked_ssts(*base_meta);
+        };
+    auto process_mutable =
+        [&check_linked_ssts](const MutableBlobFileMetaData& mutable_meta) {
+          return check_linked_ssts(mutable_meta);
+        };
+    auto process_both = [&check_linked_ssts](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+#ifndef NDEBUG
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+#else
+      (void)base_meta;
+#endif
+      return check_linked_ssts(mutable_meta);
+    };
+
+    MergeBlobFileMetas(kInvalidBlobFileNumber, process_base, process_mutable,
+                       process_both);
+    return min_origin_file_number;
+  }
+
+  // Use the base Version's exact cached boundary and the final state of
+  // touched metadata. A full scan is needed only when the old minimum was
+  // removed and no newly linked smaller origin proves the new minimum.
+  uint64_t GetMinOldestBlobOriginNumber() const {
+    if (track_found_and_missing_files_) {
+      // Recovery can discard missing-file links, so use the conservative exact
+      // calculation rather than relying on the normal-version proof.
+      return ComputeMinOldestBlobOriginNumber();
+    }
+
+    uint64_t touched_min = kInvalidBlobFileNumber;
+    for (const auto& entry : mutable_blob_file_metas_) {
+      const MutableBlobFileMetaData& meta = entry.second;
+      if (!HasSurvivingBlobLink(meta)) {
+        continue;
+      }
+      const uint64_t origin_file_number = GetBlobOriginFileNumber(meta);
+      if (touched_min == kInvalidBlobFileNumber ||
+          origin_file_number < touched_min) {
+        touched_min = origin_file_number;
+      }
+    }
+
+    const uint64_t base_min =
+        base_vstorage_->GetOldestBlobOriginWithLinkedSsts();
+    if (base_min == kInvalidBlobFileNumber) {
+      return touched_min;
+    }
+
+    const uint64_t base_min_physical =
+        ResolveBlobFileNumberForReference(base_min);
+    const auto mutable_it = mutable_blob_file_metas_.find(base_min_physical);
+    bool base_min_still_linked = false;
+    if (mutable_it != mutable_blob_file_metas_.end()) {
+      base_min_still_linked = HasSurvivingBlobLink(mutable_it->second);
+    } else {
+      const std::shared_ptr<BlobFileMetaData> base_meta =
+          base_vstorage_->GetBlobFileMetaDataByOrigin(base_min);
+      base_min_still_linked =
+          base_meta != nullptr && HasSurvivingBlobLink(*base_meta);
+    }
+
+    if (base_min_still_linked) {
+      return touched_min == kInvalidBlobFileNumber
+                 ? base_min
+                 : std::min(base_min, touched_min);
+    }
+    if (touched_min != kInvalidBlobFileNumber && touched_min < base_min) {
+      return touched_min;
+    }
+
+    return ComputeMinOldestBlobOriginNumber();
+  }
+
   static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
       const MutableBlobFileMetaData& mutable_meta) {
     return BlobFileMetaData::Create(
-        mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSsts(),
+        mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSstsHandle(),
         mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
   }
 
@@ -1641,9 +1899,26 @@ class VersionBuilder::Rep : public MutableScalars {
           missing_blob_files_.end()) {
         return;
       }
-      // Leave the empty case for the below blob garbage collection logic.
-      if (!linked_ssts.empty() && OnlyLinkedToMissingL0Files(linked_ssts)) {
+      // Direct files can be dropped when every linked SST is missing. An SST
+      // records only its oldest blob origin, so the same link test cannot
+      // prove an indirect root is unreferenced by retained SSTs.
+      if (!meta->HasIndirectionInfo() && !linked_ssts.empty() &&
+          OnlyLinkedToMissingL0Files(linked_ssts)) {
         return;
+      }
+      if (meta->HasIndirectionInfo() && !linked_ssts.empty()) {
+        BlobFileMetaData::LinkedSsts retained_links;
+        for (uint64_t sst_file_number : linked_ssts) {
+          if (l0_missing_files_.count(sst_file_number) == 0) {
+            retained_links.insert(sst_file_number);
+          }
+        }
+        if (retained_links.size() != linked_ssts.size()) {
+          vstorage->AddBlobFile(BlobFileMetaData::Create(
+              meta->GetSharedMeta(), std::move(retained_links),
+              meta->GetGarbageBlobCount(), meta->GetGarbageBlobBytes()));
+          return;
+        }
       }
     }
 
@@ -1665,18 +1940,32 @@ class VersionBuilder::Rep : public MutableScalars {
     vstorage->ReserveBlob(base_vstorage_->GetBlobFiles().size() +
                           mutable_blob_file_metas_.size());
 
-    const uint64_t oldest_blob_file_with_linked_ssts =
-        GetMinOldestBlobFileNumber();
+    const uint64_t oldest_blob_origin_with_linked_ssts =
+        GetMinOldestBlobOriginNumber();
 
     // If there are no blob files with linked SSTs, meaning that there are no
     // valid blob files
-    if (oldest_blob_file_with_linked_ssts == kInvalidBlobFileNumber) {
+    if (oldest_blob_origin_with_linked_ssts == kInvalidBlobFileNumber) {
       return;
     }
 
+    const auto should_retain = [oldest_blob_origin_with_linked_ssts](
+                                   const auto& meta) {
+      const auto& shared_meta = meta.GetSharedMeta();
+      const uint64_t origin_file_number =
+          shared_meta->HasIndirectionInfo() ? shared_meta->GetOriginFileNumber()
+                                            : shared_meta->GetBlobFileNumber();
+      return origin_file_number >= oldest_blob_origin_with_linked_ssts;
+    };
+
     auto process_base =
-        [this, vstorage](const std::shared_ptr<BlobFileMetaData>& base_meta) {
+        [this, vstorage,
+         &should_retain](const std::shared_ptr<BlobFileMetaData>& base_meta) {
           assert(base_meta);
+
+          if (!should_retain(*base_meta)) {
+            return true;
+          }
 
           AddBlobFileIfNeeded(vstorage, base_meta,
                               base_meta->GetBlobFileNumber());
@@ -1684,19 +1973,27 @@ class VersionBuilder::Rep : public MutableScalars {
           return true;
         };
 
-    auto process_mutable =
-        [this, vstorage](const MutableBlobFileMetaData& mutable_meta) {
-          AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta),
-                              mutable_meta.GetBlobFileNumber());
+    auto process_mutable = [this, vstorage, &should_retain](
+                               const MutableBlobFileMetaData& mutable_meta) {
+      if (!should_retain(mutable_meta)) {
+        return true;
+      }
 
-          return true;
-        };
+      AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta),
+                          mutable_meta.GetBlobFileNumber());
 
-    auto process_both = [this, vstorage](
+      return true;
+    };
+
+    auto process_both = [this, vstorage, &should_retain](
                             const std::shared_ptr<BlobFileMetaData>& base_meta,
                             const MutableBlobFileMetaData& mutable_meta) {
       assert(base_meta);
       assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+
+      if (!should_retain(mutable_meta)) {
+        return true;
+      }
 
       if (!mutable_meta.HasDelta()) {
         assert(base_meta->GetGarbageBlobCount() ==
@@ -1717,8 +2014,11 @@ class VersionBuilder::Rep : public MutableScalars {
       return true;
     };
 
-    MergeBlobFileMetas(oldest_blob_file_with_linked_ssts, process_base,
-                       process_mutable, process_both);
+    // Physical relocation-file numbers are unrelated to the order of logical
+    // BlobID origins, so inspect the complete metadata set before applying the
+    // logical-origin retention cutoff.
+    MergeBlobFileMetas(kInvalidBlobFileNumber, process_base, process_mutable,
+                       process_both);
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level,
@@ -1956,8 +2256,17 @@ class VersionBuilder::Rep : public MutableScalars {
       }
       auto iter = mutable_blob_file_metas_.find(missing_blob_file);
       assert(iter != mutable_blob_file_metas_.end());
-      const std::unordered_set<uint64_t>& linked_ssts =
-          iter->second.GetLinkedSsts();
+      const MutableBlobFileMetaData& meta = iter->second;
+      const std::unordered_set<uint64_t>& linked_ssts = meta.GetLinkedSsts();
+      // An SST records only its oldest blob origin. Its explicit link set
+      // therefore cannot prove that a newer indirect origin is referenced
+      // only by missing SSTs. Without inspecting every retained SST, no
+      // missing live indirect identity or relocation file is safe to discard.
+      if (meta.GetSharedMeta()->HasIndirectionInfo() &&
+          meta.GetGarbageBlobCount() <
+              meta.GetSharedMeta()->GetTotalBlobCount()) {
+        return false;
+      }
       // TODO(yuzhangyu): In theory, if no L0 SST files ara missing, and only
       // blob files exclusively linked to a L0 suffix are missing, we can
       // recover to a valid point in time too. We don't recover that type of
@@ -2140,7 +2449,14 @@ void VersionBuilder::RollbackLastApply() { rep_->RollbackLastApply(); }
 
 void VersionBuilder::RedoLastApply() { rep_->RedoLastApply(); }
 
-void VersionBuilder::CommitLastApply() { rep_->CommitLastApply(); }
+void VersionBuilder::CommitLastApply(BlobRouteCleanup* blob_route_cleanup) {
+  rep_->CommitLastApply(blob_route_cleanup);
+}
+
+void VersionBuilder::ExtractBlobRouteCleanup(
+    BlobRouteCleanup* blob_route_cleanup) {
+  rep_->ExtractBlobRouteCleanup(blob_route_cleanup);
+}
 
 bool VersionBuilder::ValidVersionAvailable() {
   return rep_->ValidVersionAvailable();

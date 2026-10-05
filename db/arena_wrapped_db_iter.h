@@ -119,7 +119,20 @@ class ArenaWrappedDBIter : public Iterator {
   const WideColumns& columns() const override { return db_iter_->columns(); }
   Status status() const override { return db_iter_->status(); }
   Slice timestamp() const override { return db_iter_->timestamp(); }
+  // Internal maintenance users can distinguish an exposed raw BlobIndex from
+  // an ordinary value without guessing from its first byte.
   bool IsBlob() const { return db_iter_->IsBlob(); }
+
+  void SetExposeWideColumnBlobIndexes() {
+    assert(db_iter_ != nullptr);
+    db_iter_->SetExposeWideColumnBlobIndexes();
+  }
+
+  const std::vector<std::pair<size_t, BlobIndex>>& GetWideColumnBlobIndexes()
+      const {
+    assert(db_iter_ != nullptr);
+    return db_iter_->GetWideColumnBlobIndexes();
+  }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
 

@@ -929,6 +929,8 @@ class VersionEdit {
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
+  WalAdditions ExtractWalAdditions() { return std::move(wal_additions_); }
+
   bool IsWalAddition() const { return !wal_additions_.empty(); }
 
   // Delete a WAL (either directly deleted or archived).

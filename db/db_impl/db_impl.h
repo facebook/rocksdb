@@ -1762,10 +1762,10 @@ class DBImpl : public DB
   // (i.e. while input files still have being_compacted == true). Idempotent:
   // safe to call from multiple potential release sites; only fires once per
   // compaction, and only if NotifyOnCompactionBegin previously fired.
-  void NotifyOnCompactionPreCommit(ColumnFamilyData* cfd, Compaction* c,
-                                   const Status& st,
-                                   const CompactionJobStats& job_stats,
-                                   int job_id);
+  void NotifyOnCompactionPreCommit(
+      ColumnFamilyData* cfd, Compaction* c, const Status& st,
+      const CompactionJobStats& job_stats, int job_id,
+      std::optional<uint32_t>* blob_gc_precommit_reservation);
   void NotifyOnDBShutdownBegin();
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
@@ -2930,6 +2930,12 @@ class DBImpl : public DB
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
                               Env::Priority thread_pri);
+  // Rewrites one indirect blob root selected by garbage ratio. REQUIRES:
+  // mutex_ held on entry and return; releases it while scanning and writing.
+  Status RunStandaloneBlobGC(
+      ColumnFamilyData* cfd,
+      const std::shared_ptr<BlobFileMetaData>& source_meta, bool* made_progress,
+      uint64_t* sfm_reserved_bytes, LogBuffer* log_buffer, int job_id);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
                          bool* flush_rescheduled_to_retain_udt,
@@ -3644,6 +3650,18 @@ class DBImpl : public DB
   // original AddToCompactionQueue() call.
   std::deque<ColumnFamilyData*> compaction_queue_;
   std::unordered_set<ColumnFamilyData*> parked_compaction_cfds_;
+
+  // Logical blob roots currently being rewritten without an SST compaction.
+  // Protected by mutex_. This prevents duplicate physical outputs while the
+  // DB mutex is released for the copy phase.
+  std::set<std::pair<uint32_t, uint64_t>> standalone_blob_gcs_in_progress_;
+  std::unordered_map<uint32_t, size_t> standalone_blob_gcs_in_progress_by_cf_;
+
+  // Column families whose current blob routes have been exposed to an
+  // OnCompactionPreCommit listener and must remain stable until installation.
+  // A coarse barrier keeps reservation publication and cleanup constant-time;
+  // the count permits overlapping normal compactions in the same CF.
+  std::unordered_map<uint32_t, size_t> blob_gc_precommit_reservations_;
 
   // A map to store file numbers and filenames of the files to be purged
   std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;

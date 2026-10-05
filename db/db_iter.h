@@ -237,6 +237,20 @@ class DBIter final : public Iterator {
     return blob_state_->is_blob;
   }
 
+  // Internal maintenance mode used with expose_blob_index_. Wide-column
+  // entities keep their BlobIndexes unresolved and make them available
+  // through GetWideColumnBlobIndexes().
+  void SetExposeWideColumnBlobIndexes() {
+    assert(expose_blob_index_);
+    expose_wide_column_blob_indexes_ = true;
+  }
+
+  const std::vector<std::pair<size_t, BlobIndex>>& GetWideColumnBlobIndexes()
+      const {
+    assert(valid_);
+    return value_columns_state_->lazy_blob_columns();
+  }
+
   Status GetProperty(std::string prop_name, std::string* prop) override;
 
   void Next() final override;
@@ -392,6 +406,14 @@ class DBIter final : public Iterator {
     void BindLazyEntity(const Slice& user_key) {
       entity_blob_resolver_.Reset(user_key, &lazy_entity_columns_,
                                   &lazy_blob_columns_);
+    }
+
+    // Publishes the raw column set while preserving the decoded BlobIndexes
+    // for an internal caller that needs references instead of payloads.
+    void ExposeLazyEntityBlobIndexes() {
+      assert(wide_columns_.empty());
+      wide_columns_ = lazy_entity_columns_;
+      MaybeSetValueFromMaterializedDefaultColumn();
     }
 
     // Drops the lazy entity metadata and any resolver aliases into it.
@@ -742,6 +764,7 @@ class DBIter final : public Iterator {
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
+  bool expose_wide_column_blob_indexes_ = false;
   bool allow_unprepared_value_;
   bool arena_mode_;
 

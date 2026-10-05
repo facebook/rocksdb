@@ -146,6 +146,20 @@ struct BlobLogRecord {
   Status CheckBlobCRC() const;
 };
 
+// Standalone GC materializes its complete live-reference census. Bound that
+// transient metadata so a file with many small blobs cannot consume unbounded
+// memory. The per-entry estimate is intentionally conservative; the census
+// implementation separately accounts for heap-backed user-key bytes.
+constexpr uint64_t kStandaloneBlobGCMaxMetadataBytes = 64ULL << 20;
+constexpr uint64_t kStandaloneBlobGCMetadataBytesPerBlob = 128;
+
+inline bool StandaloneBlobGCMetadataFits(uint64_t blob_count,
+                                         uint64_t user_key_bytes) {
+  return user_key_bytes <= kStandaloneBlobGCMaxMetadataBytes &&
+         blob_count <= (kStandaloneBlobGCMaxMetadataBytes - user_key_bytes) /
+                           kStandaloneBlobGCMetadataBytesPerBlob;
+}
+
 // Checks whether a blob offset is potentially valid or not.
 inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
                               uint64_t value_size, uint64_t file_size,

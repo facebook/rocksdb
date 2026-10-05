@@ -10,6 +10,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "db/version_edit.h"
 #include "rocksdb/file_system.h"
@@ -35,6 +36,11 @@ class CacheReservationManager;
 // Versions that contain full copies of the intermediate state.
 class VersionBuilder {
  public:
+  // Type-erased ownership detached while the DB mutex is held. Clearing the
+  // vector outside the mutex performs potentially linear destruction.
+  using OfflockCleanup = std::vector<std::shared_ptr<void>>;
+  using BlobRouteCleanup = OfflockCleanup;
+
   VersionBuilder(const FileOptions& file_options,
                  const ImmutableCFOptions* ioptions, TableCache* table_cache,
                  VersionStorageInfo* base_vstorage, VersionSet* version_set,
@@ -104,7 +110,11 @@ class VersionBuilder {
   // whole-Rep save-point copy, which was quadratic over a MANIFEST.
   void RollbackLastApply();
   void RedoLastApply();
-  void CommitLastApply();
+  void CommitLastApply(BlobRouteCleanup* blob_route_cleanup);
+
+  // Detaches route maps that would otherwise be destroyed with this builder.
+  // The builder must not be used after this call.
+  void ExtractBlobRouteCleanup(BlobRouteCleanup* blob_route_cleanup);
 
   //======= End of APIs only used by VersionEditPointInTime==========//
 

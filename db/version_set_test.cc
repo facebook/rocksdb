@@ -199,6 +199,18 @@ class VersionStorageInfoTestBase : public testing::Test {
     vstorage_.AddBlobFile(std::move(meta));
   }
 
+  void AddIndirectBlob(uint64_t blob_file_number, uint64_t total_blob_count,
+                       uint64_t total_blob_bytes, uint64_t garbage_blob_count,
+                       uint64_t garbage_blob_bytes) {
+    BlobFileAddition addition(blob_file_number, total_blob_count,
+                              total_blob_bytes, "", "");
+    addition.SetIndirectionIdentity();
+    auto shared_meta = SharedBlobFileMetaData::Create(addition);
+    vstorage_.AddBlobFile(BlobFileMetaData::Create(
+        std::move(shared_meta), BlobFileMetaData::LinkedSsts{},
+        garbage_blob_count, garbage_blob_bytes));
+  }
+
   void UpdateVersionStorageInfo() {
     vstorage_.PrepareForVersionAppend(ioptions_, mutable_cf_options_);
     vstorage_.SetFinalized();
@@ -814,6 +826,219 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
       age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
 
   ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+}
+
+TEST_F(VersionStorageInfoTest, ForcedBlobGCMixedIndirectLowerBound) {
+  constexpr int level = 0;
+  constexpr uint64_t sst_file_number = 1;
+  constexpr uint64_t indirect_origin_file_number = 10;
+  constexpr uint64_t direct_blob_file_number = 20;
+
+  Add(level, sst_file_number, "bar", "foo", /*file_size=*/1000,
+      indirect_origin_file_number);
+
+  BlobFileAddition identity(indirect_origin_file_number,
+                            /*total_blob_count=*/1,
+                            /*total_blob_bytes=*/100, "", "");
+  identity.SetIndirectionIdentity();
+  auto identity_shared = SharedBlobFileMetaData::Create(identity);
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      std::move(identity_shared), BlobFileMetaData::LinkedSsts{sst_file_number},
+      /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0));
+
+  // This newer direct file is referenced by the same SST, but the SST and the
+  // inverse metadata link only record its oldest logical origin (#10).
+  AddBlob(direct_blob_file_number, /*total_blob_count=*/2,
+          /*total_blob_bytes=*/200, BlobFileMetaData::LinkedSsts{},
+          /*garbage_blob_count=*/1, /*garbage_blob_bytes=*/120);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(
+      /*blob_garbage_collection_age_cutoff=*/1.0,
+      /*blob_garbage_collection_force_threshold=*/0.5,
+      /*enable_blob_garbage_collection=*/true);
+
+  const auto& marked = vstorage_.FilesMarkedForForcedBlobGC();
+  ASSERT_EQ(marked.size(), 1);
+  EXPECT_EQ(marked.front().first, level);
+  EXPECT_EQ(marked.front().second->fd.GetNumber(), sst_file_number);
+}
+
+TEST_F(VersionStorageInfoTest, ForcedBlobGCOrdersFalsePositivesForProgress) {
+  constexpr int level = 1;
+  constexpr uint64_t direct_sst_file_number = 2;
+  constexpr uint64_t rewritten_indirect_sst_file_number = 100;
+  constexpr uint64_t indirect_origin_file_number = 10;
+  constexpr uint64_t direct_blob_file_number = 20;
+
+  Add(level, rewritten_indirect_sst_file_number, "a", "b",
+      /*file_size=*/1000, indirect_origin_file_number);
+  Add(level, direct_sst_file_number, "c", "d", /*file_size=*/1000,
+      direct_blob_file_number);
+
+  BlobFileAddition identity(indirect_origin_file_number,
+                            /*total_blob_count=*/1,
+                            /*total_blob_bytes=*/100, "", "");
+  identity.SetIndirectionIdentity();
+  auto identity_shared = SharedBlobFileMetaData::Create(identity);
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      std::move(identity_shared),
+      BlobFileMetaData::LinkedSsts{rewritten_indirect_sst_file_number},
+      /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0));
+  AddBlob(direct_blob_file_number, /*total_blob_count=*/2,
+          /*total_blob_bytes=*/200,
+          BlobFileMetaData::LinkedSsts{direct_sst_file_number},
+          /*garbage_blob_count=*/1, /*garbage_blob_bytes=*/120);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(
+      /*blob_garbage_collection_age_cutoff=*/1.0,
+      /*blob_garbage_collection_force_threshold=*/0.5,
+      /*enable_blob_garbage_collection=*/true);
+
+  const auto& marked = vstorage_.FilesMarkedForForcedBlobGC();
+  ASSERT_EQ(marked.size(), 2);
+  EXPECT_EQ(marked[0].second->fd.GetNumber(), direct_sst_file_number);
+  EXPECT_EQ(marked[1].second->fd.GetNumber(),
+            rewritten_indirect_sst_file_number);
+
+  FileMetaData* const direct_sst =
+      vstorage_.GetFileMetaDataByNumber(direct_sst_file_number);
+  ASSERT_NE(direct_sst, nullptr);
+  direct_sst->being_compacted = true;
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(
+      /*blob_garbage_collection_age_cutoff=*/1.0,
+      /*blob_garbage_collection_force_threshold=*/0.5,
+      /*enable_blob_garbage_collection=*/true);
+  EXPECT_FALSE(vstorage_.HasFileMarkedForForcedBlobGC());
+  EXPECT_EQ(marked.size(), 2);
+  direct_sst->being_compacted = false;
+}
+
+TEST_F(VersionStorageInfoTest, ForcedBlobGCPreservesDirectLinkedSstSelection) {
+  constexpr int level = 1;
+  constexpr uint64_t oldest_blob_sst_file_number = 100;
+  constexpr uint64_t newer_blob_sst_file_number = 20;
+  constexpr uint64_t oldest_blob_file_number = 10;
+  constexpr uint64_t newer_blob_file_number = 11;
+
+  Add(level, oldest_blob_sst_file_number, "a", "b", /*file_size=*/1000,
+      oldest_blob_file_number);
+  Add(level, newer_blob_sst_file_number, "c", "d", /*file_size=*/1000,
+      newer_blob_file_number);
+  AddBlob(oldest_blob_file_number, /*total_blob_count=*/2,
+          /*total_blob_bytes=*/100,
+          BlobFileMetaData::LinkedSsts{oldest_blob_sst_file_number},
+          /*garbage_blob_count=*/1, /*garbage_blob_bytes=*/80);
+  AddBlob(newer_blob_file_number, /*total_blob_count=*/2,
+          /*total_blob_bytes=*/100,
+          BlobFileMetaData::LinkedSsts{newer_blob_sst_file_number},
+          /*garbage_blob_count=*/1, /*garbage_blob_bytes=*/20);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(
+      /*blob_garbage_collection_age_cutoff=*/1.0,
+      /*blob_garbage_collection_force_threshold=*/0.5,
+      /*enable_blob_garbage_collection=*/true);
+
+  const auto& marked = vstorage_.FilesMarkedForForcedBlobGC();
+  ASSERT_EQ(marked.size(), 1);
+  EXPECT_EQ(marked[0].second->fd.GetNumber(), oldest_blob_sst_file_number);
+}
+
+TEST_F(VersionStorageInfoTest, StandaloneBlobGCSelectsReclaimableBytes) {
+  AddIndirectBlob(/*blob_file_number=*/10, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/4,
+                  /*garbage_blob_bytes=*/400);
+  AddIndirectBlob(/*blob_file_number=*/20, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/100, /*garbage_blob_count=*/6,
+                  /*garbage_blob_bytes=*/60);
+  AddIndirectBlob(/*blob_file_number=*/30, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/7,
+                  /*garbage_blob_bytes=*/700);
+  AddIndirectBlob(/*blob_file_number=*/40, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/10,
+                  /*garbage_blob_bytes=*/1000);
+  // More logical garbage than #30, but enough live records that its larger v2
+  // metadata leaves less net reclaimable space.
+  AddIndirectBlob(/*blob_file_number=*/50, /*total_blob_count=*/30,
+                  /*total_blob_bytes=*/2000, /*garbage_blob_count=*/10,
+                  /*garbage_blob_bytes=*/800);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 30);
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.8, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC(), nullptr);
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.0, /*enable_blob_indirection=*/false,
+      /*enable_blob_garbage_collection=*/true);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC(), nullptr);
+}
+
+TEST_F(VersionStorageInfoTest, StandaloneBlobGCFallsBackAfterSuppression) {
+  AddIndirectBlob(/*blob_file_number=*/10, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/7,
+                  /*garbage_blob_bytes=*/700);
+  AddIndirectBlob(/*blob_file_number=*/20, /*total_blob_count=*/10,
+                  /*total_blob_bytes=*/1000, /*garbage_blob_count=*/6,
+                  /*garbage_blob_bytes=*/600);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 10);
+
+  const auto suppressed = vstorage_.GetBlobFileMetaDataByOrigin(10);
+  ASSERT_NE(suppressed, nullptr);
+  vstorage_.SuppressBlobFileForStandaloneGC(suppressed);
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  ASSERT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC()->GetOriginFileNumber(), 20);
+}
+
+TEST_F(VersionStorageInfoTest, StandaloneBlobGCSkipsMetadataOverBudget) {
+  constexpr uint64_t max_live_count =
+      kStandaloneBlobGCMaxMetadataBytes / kStandaloneBlobGCMetadataBytesPerBlob;
+  constexpr uint64_t live_count = max_live_count + 1;
+  constexpr uint64_t total_count = live_count + 1;
+  constexpr uint64_t total_bytes = total_count * 256;
+  AddIndirectBlob(/*blob_file_number=*/10, total_count, total_bytes,
+                  /*garbage_blob_count=*/1,
+                  /*garbage_blob_bytes=*/total_bytes / 2);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  EXPECT_EQ(vstorage_.BlobFileForStandaloneGC(), nullptr);
+}
+
+TEST_F(VersionStorageInfoTest,
+       StandaloneBlobGCDefersExactPhysicalSizeCheckToBuilder) {
+  // Selection uses reclaimable logical payload bytes. The table builder later
+  // measures exact relocation-file overhead and suppresses a non-shrinking
+  // output.
+  AddIndirectBlob(/*blob_file_number=*/10, /*total_blob_count=*/2,
+                  /*total_blob_bytes=*/80, /*garbage_blob_count=*/1,
+                  /*garbage_blob_bytes=*/40);
+  UpdateVersionStorageInfo();
+
+  vstorage_.ComputeBlobFileForStandaloneGC(
+      /*threshold=*/0.5, /*enable_blob_indirection=*/true,
+      /*enable_blob_garbage_collection=*/true);
+  EXPECT_NE(vstorage_.BlobFileForStandaloneGC(), nullptr);
 }
 
 TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
@@ -3397,6 +3622,60 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
     }
   }
 
+  void AddEditToLog(const VersionEdit& edit) {
+    std::string record;
+    ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
+    ASSERT_OK(log_writer_->AddRecord(WriteOptions(), record));
+  }
+
+  void SwitchToSnapshotManifest(uint64_t manifest_file_number,
+                                const std::vector<uint32_t>& active_cf_ids,
+                                const WalAdditions& wals) {
+    log_writer_.reset();
+    const std::string manifest_path =
+        DescriptorFileName(dbname_, manifest_file_number);
+    std::unique_ptr<WritableFileWriter> file_writer;
+    ASSERT_OK(WritableFileWriter::Create(
+        fs_, manifest_path, fs_->OptimizeForManifestWrite(env_options_),
+        &file_writer, nullptr));
+    log::Writer manifest_writer(std::move(file_writer), /*log_number=*/0,
+                                /*recycle_log_files=*/false);
+    auto add_record = [&](const VersionEdit& edit) {
+      std::string record;
+      ASSERT_TRUE(edit.EncodeTo(&record, 0 /* ts_sz */));
+      ASSERT_OK(manifest_writer.AddRecord(WriteOptions(), record));
+    };
+
+    VersionEdit snapshot;
+    snapshot.SetLogNumber(0);
+    snapshot.SetNextFile(manifest_file_number + 1);
+    snapshot.SetLastSequence(last_seqno_++);
+    snapshot.SetMaxColumnFamily(3);
+    add_record(snapshot);
+    for (uint32_t cf_id : active_cf_ids) {
+      ASSERT_GT(cf_id, 0U);
+      ASSERT_LT(cf_id, column_families_.size());
+      VersionEdit add_cf;
+      add_cf.AddColumnFamily(column_families_[cf_id].name);
+      add_cf.SetColumnFamily(cf_id);
+      add_cf.SetLogNumber(0);
+      add_cf.SetNextFile(manifest_file_number + 1);
+      add_cf.SetLastSequence(last_seqno_++);
+      add_record(add_cf);
+    }
+    if (!wals.empty()) {
+      VersionEdit wal_snapshot;
+      for (const WalAddition& wal : wals) {
+        wal_snapshot.AddWal(wal.GetLogNumber(), wal.GetMetadata());
+      }
+      add_record(wal_snapshot);
+    }
+    ASSERT_OK(manifest_writer.Close(WriteOptions()));
+    ASSERT_OK(SetCurrentFile(WriteOptions(), fs_.get(), dbname_,
+                             manifest_file_number, Temperature::kUnknown,
+                             /*dir_contains_current_file=*/nullptr));
+  }
+
   void TearDown() override {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -3463,11 +3742,13 @@ TEST_F(VersionSetAtomicGroupTest,
   AddNewEditsToLog(kAtomicGroupSize);
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   mu.Lock();
   EXPECT_OK(reactive_versions_->ReadAndApply(
       &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
-      /*files_to_delete=*/nullptr));
+      /*files_to_delete=*/nullptr, &blob_route_cleanup));
   mu.Unlock();
+  blob_route_cleanup.clear();
   EXPECT_TRUE(first_in_atomic_group_);
   EXPECT_TRUE(last_in_atomic_group_);
   // The recover should clean up the replay buffer.
@@ -3523,21 +3804,148 @@ TEST_F(VersionSetAtomicGroupTest,
 
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   uint64_t new_manifest_end = 0;
   Status boundary_status;
   mu.Lock();
   Status read_status = reactive_versions_->ReadAndApply(
       &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
-      /*files_to_delete=*/nullptr);
+      /*files_to_delete=*/nullptr, &blob_route_cleanup);
   if (read_status.ok()) {
     boundary_status =
         reactive_versions_->GetManifestAppendBoundary(&new_manifest_end);
   }
   mu.Unlock();
+  blob_route_cleanup.clear();
 
   ASSERT_OK(read_status);
   ASSERT_EQ(1, reactive_versions_->TEST_read_edits_in_atomic_group());
   ASSERT_TRUE(boundary_status.IsCorruption()) << boundary_status.ToString();
+}
+
+TEST_F(VersionSetAtomicGroupTest,
+       ReactiveVersionSetRetainsStagedDropAcrossManifestSwitch) {
+  CreateCurrentFile();
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+  std::unique_ptr<Status> manifest_reader_status;
+  ASSERT_OK(reactive_versions_->Recover(column_families_, &manifest_reader,
+                                        &manifest_reporter,
+                                        &manifest_reader_status));
+
+  VersionEdit drop_cf;
+  drop_cf.DropColumnFamily();
+  drop_cf.SetColumnFamily(1);
+  drop_cf.SetLogNumber(0);
+  drop_cf.SetNextFile(3);
+  drop_cf.SetLastSequence(last_seqno_++);
+  AddEditToLog(drop_cf);
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        if (!injected) {
+          *static_cast<Status*>(arg) =
+              Status::Corruption("injected catch-up failure");
+          injected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  InstrumentedMutex mu;
+  std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::OfflockCleanup offlock_cleanup;
+  mu.Lock();
+  Status s = reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
+      /*files_to_delete=*/nullptr, &offlock_cleanup);
+  mu.Unlock();
+  offlock_cleanup.clear();
+  ASSERT_TRUE(injected);
+  ASSERT_NOK(s);
+  ColumnFamilyData* const dropped_cfd =
+      reactive_versions_->GetColumnFamilySet()->GetColumnFamily(1);
+  ASSERT_NE(dropped_cfd, nullptr);
+  ASSERT_FALSE(dropped_cfd->IsDropped());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SwitchToSnapshotManifest(/*manifest_file_number=*/2,
+                           /*active_cf_ids=*/{2, 3}, /*wals=*/{});
+  cfds_changed.clear();
+  mu.Lock();
+  s = reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
+      /*files_to_delete=*/nullptr, &offlock_cleanup);
+  mu.Unlock();
+  offlock_cleanup.clear();
+
+  ASSERT_OK(s);
+  ASSERT_EQ(reactive_versions_->GetColumnFamilySet()->GetColumnFamily(1),
+            nullptr);
+}
+
+TEST_F(VersionSetAtomicGroupTest,
+       ReactiveVersionSetRebuildsWalsAcrossFailedManifestSwitch) {
+  CreateCurrentFile();
+  std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
+  std::unique_ptr<log::Reader::Reporter> manifest_reporter;
+  std::unique_ptr<Status> manifest_reader_status;
+  ASSERT_OK(reactive_versions_->Recover(column_families_, &manifest_reader,
+                                        &manifest_reporter,
+                                        &manifest_reader_status));
+
+  VersionEdit add_wals;
+  for (uint64_t wal_number : {1U, 2U, 3U}) {
+    add_wals.AddWal(wal_number, WalMetadata(wal_number));
+  }
+  AddEditToLog(add_wals);
+  VersionEdit delete_wals;
+  delete_wals.DeleteWalsBefore(3);
+  AddEditToLog(delete_wals);
+
+  bool injected = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        if (!injected) {
+          *static_cast<Status*>(arg) =
+              Status::Corruption("injected catch-up failure");
+          injected = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  InstrumentedMutex mu;
+  std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::OfflockCleanup offlock_cleanup;
+  mu.Lock();
+  Status s = reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
+      /*files_to_delete=*/nullptr, &offlock_cleanup);
+  mu.Unlock();
+  offlock_cleanup.clear();
+  ASSERT_TRUE(injected);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(reactive_versions_->GetWalSet().GetWals().empty());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SwitchToSnapshotManifest(
+      /*manifest_file_number=*/2, /*active_cf_ids=*/{1, 2, 3},
+      /*wals=*/{WalAddition(4, WalMetadata(4))});
+  cfds_changed.clear();
+  mu.Lock();
+  s = reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
+      /*files_to_delete=*/nullptr, &offlock_cleanup);
+  mu.Unlock();
+  offlock_cleanup.clear();
+
+  ASSERT_OK(s);
+  const WalSet& wals = reactive_versions_->GetWalSet();
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), 3U);
+  ASSERT_EQ(wals.GetWals().size(), 1U);
+  ASSERT_EQ(wals.GetWals().begin()->first, 4U);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
@@ -3583,11 +3991,13 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_OK(log_writer_->AddRecord(WriteOptions(), last_record));
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   mu.Lock();
   EXPECT_OK(reactive_versions_->ReadAndApply(
       &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
-      /*files_to_delete=*/nullptr));
+      /*files_to_delete=*/nullptr, &blob_route_cleanup));
   mu.Unlock();
+  blob_route_cleanup.clear();
   // Reactive version set should be empty now.
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
@@ -3613,11 +4023,13 @@ TEST_F(VersionSetAtomicGroupTest,
   AddNewEditsToLog(kNumberOfPersistedVersionEdits);
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   mu.Lock();
   EXPECT_OK(reactive_versions_->ReadAndApply(
       &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
-      /*files_to_delete=*/nullptr));
+      /*files_to_delete=*/nullptr, &blob_route_cleanup));
   mu.Unlock();
+  blob_route_cleanup.clear();
   EXPECT_TRUE(first_in_atomic_group_);
   EXPECT_FALSE(last_in_atomic_group_);
   EXPECT_EQ(kNumberOfPersistedVersionEdits, num_edits_in_atomic_group_);
@@ -3662,6 +4074,7 @@ TEST_F(VersionSetAtomicGroupTest,
   SetupCorruptedAtomicGroup(kAtomicGroupSize);
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter;
   std::unique_ptr<Status> manifest_reader_status;
@@ -3673,8 +4086,9 @@ TEST_F(VersionSetAtomicGroupTest,
   mu.Lock();
   EXPECT_NOK(reactive_versions_->ReadAndApply(
       &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
-      /*files_to_delete=*/nullptr));
+      /*files_to_delete=*/nullptr, &blob_route_cleanup));
   mu.Unlock();
+  blob_route_cleanup.clear();
   EXPECT_EQ(edits_[kAtomicGroupSize / 2].DebugString(),
             corrupted_edit_.DebugString());
 }
@@ -3714,6 +4128,7 @@ TEST_F(VersionSetAtomicGroupTest,
   SetupIncorrectAtomicGroup(kAtomicGroupSize);
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
+  VersionBuilder::BlobRouteCleanup blob_route_cleanup;
   std::unique_ptr<log::FragmentBufferedReader> manifest_reader;
   std::unique_ptr<log::Reader::Reporter> manifest_reporter;
   std::unique_ptr<Status> manifest_reader_status;
@@ -3724,8 +4139,9 @@ TEST_F(VersionSetAtomicGroupTest,
   mu.Lock();
   EXPECT_NOK(reactive_versions_->ReadAndApply(
       &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed,
-      /*files_to_delete=*/nullptr));
+      /*files_to_delete=*/nullptr, &blob_route_cleanup));
   mu.Unlock();
+  blob_route_cleanup.clear();
   EXPECT_EQ(edits_[1].DebugString(),
             edit_with_incorrect_group_size_.DebugString());
 }
@@ -5127,6 +5543,70 @@ TEST_F(BestEffortsRecoverIncompleteVersionTest, MissingBlobFiles) {
   std::vector<uint64_t> all_blob_files;
   versions_->AddLiveFiles(&all_table_files, &all_blob_files);
   ASSERT_TRUE(all_table_files.empty());
+}
+
+TEST_F(BestEffortsRecoverIncompleteVersionTest,
+       MissingIndirectRelocationFileWithIncompleteLinksFallsBack) {
+  constexpr uint64_t table_file_number = 100;
+  constexpr uint64_t missing_table_file_number = 101;
+  constexpr uint64_t oldest_origin_file_number = 102;
+  constexpr uint64_t newer_origin_file_number = 103;
+  constexpr uint64_t missing_relocation_file_number = 104;
+
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(
+      {SstInfo(table_file_number, kDefaultColumnFamilyName, "a",
+               /*lvl=*/0, /*epoch_number=*/100, /*file_missing=*/false,
+               oldest_origin_file_number),
+       SstInfo(missing_table_file_number, kDefaultColumnFamilyName, "b",
+               /*lvl=*/0, /*epoch_number=*/101, /*file_missing=*/true,
+               newer_origin_file_number)},
+      &file_metas);
+
+  std::vector<BlobFileAddition> identities;
+  CreateDummyBlobFiles({BlobInfo(oldest_origin_file_number,
+                                 /*file_missing=*/false, "a", "blob1"),
+                        BlobInfo(newer_origin_file_number,
+                                 /*file_missing=*/false, "b", "blob2")},
+                       &identities);
+  for (BlobFileAddition& identity : identities) {
+    identity.SetIndirectionIdentity();
+  }
+
+  PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0,
+      {{/*level=*/0, file_metas.front()}, {/*level=*/0, file_metas.back()}},
+      std::vector<std::pair<int, uint64_t>>(), identities);
+
+  BlobFileAddition missing_relocation_file(
+      missing_relocation_file_number, /*total_blob_count=*/1,
+      /*total_blob_bytes=*/6, /*checksum_method=*/"", /*checksum_value=*/"");
+  ASSERT_OK(missing_relocation_file.SetIndirectionRelocationFile(
+      newer_origin_file_number,
+      /*relocation_file_size=*/140));
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(),
+      std::vector<std::pair<int, uint64_t>>(), {missing_relocation_file});
+
+  log_writer_.reset();
+  CreateCurrentFile();
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+  std::string db_id;
+  bool has_missing_table_file = false;
+  ASSERT_OK(versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families_, /*read_only=*/false, &db_id,
+      &has_missing_table_file));
+  ASSERT_TRUE(has_missing_table_file);
+
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+  ASSERT_EQ(all_table_files, std::vector<uint64_t>{table_file_number});
+  std::sort(all_blob_files.begin(), all_blob_files.end());
+  ASSERT_EQ(all_blob_files, (std::vector<uint64_t>{oldest_origin_file_number,
+                                                   newer_origin_file_number}));
 }
 
 TEST_F(BestEffortsRecoverIncompleteVersionTest, MissingL0SuffixOnly) {

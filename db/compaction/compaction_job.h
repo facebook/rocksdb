@@ -224,6 +224,7 @@ class CompactionJob {
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
   CompactionState* compact_;
+  bool compaction_results_prepared_ = false;
   InternalStats::CompactionStatsFull internal_stats_;
   const ImmutableDBOptions& db_options_;
   const MutableDBOptions mutable_db_options_copy_;
@@ -439,6 +440,10 @@ class CompactionJob {
       const Slice& next_table_min_key, const Slice* comp_start_user_key,
       const Slice* comp_end_user_key, const CompactionIterator* c_iter,
       SubcompactionState* sub_compact, CompactionOutputs& outputs);
+  // Builds the VersionEdit from immutable compaction results. Run after all
+  // subcompactions finish and while the DB mutex is not held, so pre-commit
+  // listeners can inspect the complete edit before Install() publishes it.
+  void PrepareCompactionResults();
   Status InstallCompactionResults(bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
