@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -13,6 +14,7 @@
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_read_request.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/table.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,13 +26,16 @@ class HistogramImpl;
 class Status;
 class Slice;
 class IOTracer;
+class BlobSource;
 
 class BlobFileCache {
  public:
-  BlobFileCache(Cache* cache, const ImmutableOptions* immutable_options,
-                const FileOptions* file_options, uint32_t column_family_id,
-                HistogramImpl* blob_file_read_hist,
-                const std::shared_ptr<IOTracer>& io_tracer);
+  BlobFileCache(
+      Cache* cache, const ImmutableOptions* immutable_options,
+      const FileOptions* file_options, uint32_t column_family_id,
+      HistogramImpl* blob_file_read_hist,
+      const std::shared_ptr<IOTracer>& io_tracer,
+      const BlockBasedTableOptions* relocation_file_table_options = nullptr);
 
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
@@ -42,7 +47,15 @@ class BlobFileCache {
   Status GetBlobFileReader(const ReadOptions& read_options,
                            const BlobFileOpenInfo& blob_file,
                            CacheHandleGuard<BlobFileReader>* blob_file_reader,
-                           bool allow_footer_skip_retry = false);
+                           bool allow_footer_skip_retry = false,
+                           uint64_t expected_origin_file_number = 0,
+                           uint64_t expected_file_size = 0,
+                           uint8_t block_protection_bytes_per_key = 0);
+
+  // Both objects are owned by one ColumnFamilyData. Relocation-file table
+  // readers use this pointer for existing embedded-blob cache/statistics
+  // integration.
+  void SetBlobSource(BlobSource* blob_source) { blob_source_ = blob_source; }
 
   // Opens a blob file reader without inserting it into the cache.
   Status OpenBlobFileReaderUncached(
@@ -88,6 +101,9 @@ class BlobFileCache {
   Status OpenBlobFileReader(const ReadOptions& read_options,
                             const BlobFileOpenInfo& blob_file,
                             bool allow_footer_skip_retry,
+                            uint64_t expected_origin_file_number,
+                            uint64_t expected_file_size,
+                            uint8_t block_protection_bytes_per_key,
                             std::unique_ptr<BlobFileReader>* blob_file_reader);
 
   using CacheInterface =
@@ -102,6 +118,8 @@ class BlobFileCache {
   uint32_t column_family_id_;
   HistogramImpl* blob_file_read_hist_;
   std::shared_ptr<IOTracer> io_tracer_;
+  std::unique_ptr<BlockBasedTableOptions> relocation_file_table_options_;
+  BlobSource* blob_source_ = nullptr;
 
   struct BlobFileChecksum {
     std::string value;

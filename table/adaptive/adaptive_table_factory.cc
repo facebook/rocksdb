@@ -70,6 +70,20 @@ TableBuilder* AdaptiveTableFactory::NewTableBuilder(
 }
 
 const BlockBasedTableOptions*
+AdaptiveTableFactory::GetBlockBasedTableReaderOptions() const {
+  const BlockBasedTableOptions* options =
+      block_based_table_factory_->GetOptions<BlockBasedTableOptions>();
+  if (options != nullptr) {
+    return options;
+  }
+  const AdaptiveTableFactory* const adaptive_table_factory =
+      block_based_table_factory_->CheckedCast<AdaptiveTableFactory>();
+  return adaptive_table_factory == nullptr
+             ? nullptr
+             : adaptive_table_factory->GetBlockBasedTableReaderOptions();
+}
+
+const BlockBasedTableOptions*
 AdaptiveTableFactory::GetBlockBasedTableWriterOptions() const {
   return table_factory_to_write_->GetOptions<BlockBasedTableOptions>();
 }

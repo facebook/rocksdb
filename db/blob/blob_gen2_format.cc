@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "table/format.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -38,14 +40,29 @@ Status VerifySimpleGen2BlobChecksum(ChecksumType checksum_type,
                                     uint32_t base_context_checksum,
                                     const char* record, size_t payload_size,
                                     uint64_t record_offset,
-                                    const std::string& file_name) {
+                                    const std::string& file_name,
+                                    std::optional<uint32_t>* value_crc32c) {
+  if (value_crc32c != nullptr) {
+    value_crc32c->reset();
+  }
   uint32_t stored = DecodeFixed32(record + payload_size + 1);
   const uint32_t modifier =
       ChecksumModifierForContext(base_context_checksum, record_offset);
   stored -= modifier;
-  const uint32_t computed = ComputeBuiltinChecksumWithLastByte(
-      checksum_type, record, payload_size, record[payload_size]);
+  uint32_t computed = 0;
+  std::optional<uint32_t> computed_value_crc32c;
+  if (checksum_type == kCRC32c) {
+    computed_value_crc32c = crc32c::Value(record, payload_size);
+    computed = crc32c::Mask(
+        crc32c::Extend(*computed_value_crc32c, record + payload_size, /*n=*/1));
+  } else {
+    computed = ComputeBuiltinChecksumWithLastByte(
+        checksum_type, record, payload_size, record[payload_size]);
+  }
   if (stored == computed) {
+    if (value_crc32c != nullptr) {
+      *value_crc32c = computed_value_crc32c;
+    }
     return Status::OK();
   }
   // Unmask CRC values (as VerifyBlockChecksum does) so a reader of the error
@@ -72,10 +89,14 @@ Status ReadAndVerifySimpleGen2BlobRecord(
     const ReadOptions& read_options, RandomAccessFileReader* file,
     uint64_t record_offset, size_t payload_size, size_t record_size,
     ChecksumType checksum_type, uint32_t base_context_checksum,
-    CompressionType expected_compression, char* buf) {
+    CompressionType expected_compression, char* buf,
+    std::optional<uint32_t>* value_crc32c) {
   assert(file != nullptr);
   assert(buf != nullptr);
   assert(record_size == payload_size + kSimpleGen2BlobTrailerSize);
+  if (value_crc32c != nullptr) {
+    value_crc32c->reset();
+  }
 
   Slice result;
   IOOptions opts;
@@ -101,6 +122,10 @@ Status ReadAndVerifySimpleGen2BlobRecord(
     memcpy(buf, result.data(), record_size);
   }
 
+  Slice record_slice(buf, record_size);
+  TEST_SYNC_POINT_CALLBACK("ReadAndVerifySimpleGen2BlobRecord:TamperWithResult",
+                           &record_slice);
+
   const char* record = buf;
   const CompressionType compression =
       static_cast<CompressionType>(record[payload_size]);
@@ -113,11 +138,15 @@ Status ReadAndVerifySimpleGen2BlobRecord(
   }
 
   if (read_options.verify_checksums) {
+    std::optional<uint32_t> verified_value_crc32c;
     const Status checksum_status = VerifySimpleGen2BlobChecksum(
         checksum_type, base_context_checksum, record, payload_size,
-        record_offset, file->file_name());
+        record_offset, file->file_name(), &verified_value_crc32c);
     if (!checksum_status.ok()) {
       return checksum_status;
+    }
+    if (compression == kNoCompression && value_crc32c != nullptr) {
+      *value_crc32c = verified_value_crc32c;
     }
   }
 
@@ -309,6 +338,9 @@ void ReadAndVerifySimpleGen2BlobRecords(const ReadOptions& read_options,
     assert(reqs[i].status != nullptr);
     assert(reqs[i].record_size ==
            reqs[i].payload_size + kSimpleGen2BlobTrailerSize);
+    if (reqs[i].value_crc32c != nullptr) {
+      reqs[i].value_crc32c->reset();
+    }
     slots.push_back({reqs[i].record_offset, reqs[i].record_size, reqs[i].buf,
                      reqs[i].status});
   }
@@ -333,11 +365,15 @@ void ReadAndVerifySimpleGen2BlobRecords(const ReadOptions& read_options,
       continue;
     }
     if (read_options.verify_checksums) {
+      std::optional<uint32_t> verified_value_crc32c;
       *reqs[i].status = VerifySimpleGen2BlobChecksum(
           checksum_type, base_context_checksum, record, payload_size,
-          reqs[i].record_offset, file->file_name());
+          reqs[i].record_offset, file->file_name(), &verified_value_crc32c);
       if (!reqs[i].status->ok()) {
         continue;
+      }
+      if (compression == kNoCompression && reqs[i].value_crc32c != nullptr) {
+        *reqs[i].value_crc32c = verified_value_crc32c;
       }
     }
     // See ReadAndVerifySimpleGen2BlobRecord: the marker matched the index, but

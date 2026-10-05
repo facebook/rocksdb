@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "db/blob/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -28,6 +29,9 @@ struct SameFileBlobReadRequest {
   BlobVerifyPolicy verify_policy = BlobVerifyPolicy::kVerifyIfNoAmplification;
   PinnableSlice* result = nullptr;
   Status* status = nullptr;
+  // Optional propagation of the verified payload CRC described by
+  // GetSameFileBlob.
+  std::optional<uint32_t>* value_crc32c = nullptr;
 };
 
 // Narrow interface for resolving a same-file ("embedded") blob reference
@@ -59,12 +63,14 @@ class SameFileBlobReader {
   // BlobVerifyPolicy); a whole read under kVerifyIfPresent verifies even when
   // ReadOptions::verify_checksums is off. read_tier == kBlockCacheTier without
   // a cached record yields Status::Incomplete; a bad record yields
-  // Status::Corruption.
-  virtual Status GetSameFileBlob(const ReadOptions& read_options,
-                                 const BlobIndex& blob_index,
-                                 uint64_t range_offset, size_t range_length,
-                                 BlobVerifyPolicy verify_policy,
-                                 PinnableSlice* value) const = 0;
+  // Status::Corruption. When `value_crc32c` is non-null, a successful whole
+  // uncompressed CRC32C disk read returns its already-computed payload CRC;
+  // cache hits and paths that do not compute it reset the output.
+  virtual Status GetSameFileBlob(
+      const ReadOptions& read_options, const BlobIndex& blob_index,
+      uint64_t range_offset, size_t range_length,
+      BlobVerifyPolicy verify_policy, PinnableSlice* value,
+      std::optional<uint32_t>* value_crc32c = nullptr) const = 0;
 
   // Batched counterpart of GetSameFileBlob: resolves `num_reads` same-file blob
   // references (whole or sub-range, mixed) against this reader, writing each
@@ -77,9 +83,9 @@ class SameFileBlobReader {
                                     SameFileBlobReadRequest* reqs) const {
     for (size_t i = 0; i < num_reads; ++i) {
       SameFileBlobReadRequest& req = reqs[i];
-      const Status s =
-          GetSameFileBlob(read_options, *req.blob_index, req.range_offset,
-                          req.range_length, req.verify_policy, req.result);
+      const Status s = GetSameFileBlob(
+          read_options, *req.blob_index, req.range_offset, req.range_length,
+          req.verify_policy, req.result, req.value_crc32c);
       if (req.status) {
         *req.status = s;
       }
