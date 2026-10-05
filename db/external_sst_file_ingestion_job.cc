@@ -114,11 +114,8 @@ Status ExternalSstFileIngestionJob::PrepareAtomicReplaceRangeTombstone(
       super_version->mutable_cf_options.default_write_temperature;
   tombstone.prefetch_lmax_index_and_filter_blocks =
       ingestion_options_.prefetch_lmax_index_and_filter_blocks;
-  const PreparedFileInfo* prepared_file_info =
-      ingestion_options_.write_global_seqno
-          ? nullptr
-          : external_file_info.prepared_file_info.get();
-  status = GetIngestedFileInfo(file_path, file_number, prepared_file_info,
+  status = GetIngestedFileInfo(file_path, file_number,
+                               external_file_info.prepared_file_info.get(),
                                &tombstone, super_version);
   if (!status.ok()) {
     fs_->DeleteFile(file_path, IOOptions(), nullptr).PermitUncheckedError();
@@ -392,28 +389,23 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
 
-  // Generate and check the sst file checksum. Note that, if
-  // IngestExternalFileOptions::write_global_seqno is true, we will not update
-  // the checksum information in the files_to_ingests_ here, since the file is
-  // updated with the new global_seqno. After global_seqno is updated, DB will
-  // generate the new checksum and store it in the Manifest. In all other cases
-  // if ingestion_options_.write_global_seqno == true and
-  // verify_file_checksum is false, we only check the checksum function name.
+  // Generate and check the SST file checksum.
   if (status.ok() && db_options_.file_checksum_gen_factory != nullptr) {
+    bool need_generate_file_checksum;
     if (ingestion_options_.verify_file_checksum == false &&
         files_checksums.size() == files_to_ingest_.size() &&
         files_checksum_func_names.size() == files_to_ingest_.size()) {
       // Only when verify_file_checksum == false and the checksum for ingested
       // files are provided, DB will use the provided checksum and does not
       // generate the checksum for ingested files.
-      need_generate_file_checksum_ = false;
+      need_generate_file_checksum = false;
     } else {
-      need_generate_file_checksum_ = true;
+      need_generate_file_checksum = true;
     }
     std::vector<std::string> generated_checksums;
     std::vector<std::string> generated_checksum_func_names;
     // Step 1: generate the checksum for ingested sst file.
-    if (need_generate_file_checksum_) {
+    if (need_generate_file_checksum) {
       for (size_t i = 0; i < files_to_ingest_.size(); i++) {
         std::string generated_checksum;
         std::string generated_checksum_func_name;
@@ -453,11 +445,9 @@ Status ExternalSstFileIngestionJob::Prepare(
                          status.ToString().c_str());
           break;
         }
-        if (ingestion_options_.write_global_seqno == false) {
-          files_to_ingest_[i].file_checksum = generated_checksum;
-          files_to_ingest_[i].file_checksum_func_name =
-              generated_checksum_func_name;
-        }
+        files_to_ingest_[i].file_checksum = generated_checksum;
+        files_to_ingest_[i].file_checksum_func_name =
+            generated_checksum_func_name;
         generated_checksums.push_back(generated_checksum);
         generated_checksum_func_names.push_back(generated_checksum_func_name);
       }
@@ -864,14 +854,6 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     }
     max_assigned_seqno_ = std::max(max_assigned_seqno_, assigned_seqno);
 
-    status = GenerateChecksumForIngestedFile(file);
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Failed to generate checksum for ingested file: %s",
-                     status.ToString().c_str());
-      return status;
-    }
-
     // We use the import time as the ancester time. This is the time the data
     // is written to the database.
     int64_t temp_current_time = 0;
@@ -1229,17 +1211,6 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
 
     // Set the global sequence number
     file_to_ingest->original_seqno = DecodeFixed64(seqno_iter->second.c_str());
-    file_to_ingest->global_seqno_offset =
-        static_cast<size_t>(props.external_sst_file_global_seqno_offset);
-    // The on-disk offset is only needed if we will write the global seqno back
-    // into the file (write_global_seqno). The metadata fast-path does not open
-    // the file, and its in-memory table properties do not carry the offset
-    // (it is only computed while reading the file back); that is fine as long
-    // as write_global_seqno is not requested.
-    if (ingestion_options_.write_global_seqno &&
-        file_to_ingest->global_seqno_offset == 0) {
-      return Status::Corruption("Was not able to find file global seqno field");
-    }
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());
@@ -1253,7 +1224,6 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
     // allow_db_generated_files is true
     assert(seqno_iter == uprops.end());
     file_to_ingest->original_seqno = 0;
-    file_to_ingest->global_seqno_offset = 0;
   } else {
     return Status::InvalidArgument("External file version " +
                                    std::to_string(file_to_ingest->version) +
@@ -1819,105 +1789,18 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     assert(seqno == 0);
     assert(file_to_ingest->original_seqno == 0);
   }
-  if (file_to_ingest->original_seqno == seqno) {
-    // This file already has the correct global seqno.
-    return Status::OK();
-  } else if (!ingestion_options_.allow_global_seqno) {
-    return Status::InvalidArgument("Global seqno is required, but disabled");
-  } else if (ingestion_options_.write_global_seqno &&
-             file_to_ingest->global_seqno_offset == 0) {
-    return Status::InvalidArgument(
-        "Trying to set global seqno for a file that don't have a global seqno "
-        "field");
-  }
-
-  if (ingestion_options_.write_global_seqno) {
-    // Determine if we can write global_seqno to a given offset of file.
-    // If the file system does not support random write, then we should not.
-    // Otherwise we should.
-    std::unique_ptr<FSRandomRWFile> rwfile;
-    Status status = fs_->NewRandomRWFile(file_to_ingest->internal_file_path,
-                                         env_options_, &rwfile, nullptr);
-    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::NewRandomRWFile",
-                             &status);
-    if (status.ok()) {
-      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_,
-                              file_to_ingest->internal_file_path);
-      std::string seqno_val;
-      PutFixed64(&seqno_val, seqno);
-      status = fsptr->Write(file_to_ingest->global_seqno_offset, seqno_val,
-                            IOOptions(), nullptr);
-      if (!status.ok()) {
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "Failed to write global seqno to %s: %s",
-                       file_to_ingest->internal_file_path.c_str(),
-                       status.ToString().c_str());
-        return status;
-      }
-
-      if (status.ok()) {
-        TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
-        status = SyncIngestedFile(fsptr.get());
-        TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncGlobalSeqno");
-        if (!status.ok()) {
-          ROCKS_LOG_WARN(db_options_.info_log,
-                         "Failed to sync ingested file %s after writing global "
-                         "sequence number: %s",
-                         file_to_ingest->internal_file_path.c_str(),
-                         status.ToString().c_str());
-        }
-      }
-      if (!status.ok()) {
-        return status;
-      }
-    } else if (!status.IsNotSupported()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log,
-          "Failed to open ingested file %s for random read/write: %s",
-          file_to_ingest->internal_file_path.c_str(),
-          status.ToString().c_str());
-      return status;
+  if (file_to_ingest->original_seqno != seqno) {
+    if (!ingestion_options_.allow_global_seqno) {
+      return Status::InvalidArgument("Global seqno is required, but disabled");
+    }
+    if (file_to_ingest->original_seqno != 0) {
+      return Status::InvalidArgument(
+          "External file global seqno does not match assigned seqno");
     }
   }
 
   file_to_ingest->assigned_seqno = seqno;
   return Status::OK();
-}
-
-IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
-    IngestedFileInfo* file_to_ingest) {
-  if (db_options_.file_checksum_gen_factory == nullptr ||
-      need_generate_file_checksum_ == false ||
-      ingestion_options_.write_global_seqno == false) {
-    // If file_checksum_gen_factory is not set, we are not able to generate
-    // the checksum. if write_global_seqno is false, it means we will use
-    // file checksum generated during Prepare(). This step will be skipped.
-    return IOStatus::OK();
-  }
-  std::string file_checksum;
-  std::string file_checksum_func_name;
-  std::string requested_checksum_func_name;
-  // TODO: rate limit file reads for checksum calculation during file ingestion.
-  // TODO: plumb Env::IOActivity
-  ReadOptions ro;
-  FileOptions gen_fopts;
-  gen_fopts.file_checksum_func_name = kNoFileChecksumFuncName;
-  IOStatus io_s = GenerateOneFileChecksum(
-      fs_.get(), file_to_ingest->internal_file_path,
-      db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
-      &file_checksum, &file_checksum_func_name,
-      ingestion_options_.verify_checksums_readahead_size,
-      db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
-      ro, db_options_.stats, db_options_.clock, gen_fopts);
-  if (!io_s.ok()) {
-    ROCKS_LOG_WARN(
-        db_options_.info_log, "Failed to generate checksum for %s: %s",
-        file_to_ingest->internal_file_path.c_str(), io_s.ToString().c_str());
-    return io_s;
-  }
-  file_to_ingest->file_checksum = std::move(file_checksum);
-  file_to_ingest->file_checksum_func_name = std::move(file_checksum_func_name);
-  return IOStatus::OK();
 }
 
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
@@ -1940,16 +1823,6 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
   // File did not overlap with level files, nor compaction output
   return true;
-}
-
-template <typename TWritableFile>
-Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
-  assert(file != nullptr);
-  if (db_options_.use_fsync) {
-    return file->Fsync(IOOptions(), nullptr);
-  } else {
-    return file->Sync(IOOptions(), nullptr);
-  }
 }
 
 Status ExternalSstFileIngestionJob::GetSeqnoBoundaryForFile(

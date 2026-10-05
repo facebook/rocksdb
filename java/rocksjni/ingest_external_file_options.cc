@@ -161,32 +161,6 @@ void Java_org_rocksdb_IngestExternalFileOptions_setIngestBehind(
 
 /*
  * Class:     org_rocksdb_IngestExternalFileOptions
- * Method:    writeGlobalSeqno
- * Signature: (J)Z
- */
-JNIEXPORT jboolean JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_writeGlobalSeqno(JNIEnv*, jclass,
-                                                            jlong jhandle) {
-  auto* options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
-  return options->write_global_seqno == JNI_TRUE;
-}
-
-/*
- * Class:     org_rocksdb_IngestExternalFileOptions
- * Method:    setWriteGlobalSeqno
- * Signature: (JZ)V
- */
-JNIEXPORT void JNICALL
-Java_org_rocksdb_IngestExternalFileOptions_setWriteGlobalSeqno(
-    JNIEnv*, jclass, jlong jhandle, jboolean jwrite_global_seqno) {
-  auto* options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(jhandle);
-  options->write_global_seqno = jwrite_global_seqno == JNI_TRUE;
-}
-
-/*
- * Class:     org_rocksdb_IngestExternalFileOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */

@@ -6844,7 +6844,7 @@ class TablePropertiesJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "(JJJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "(JJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
         "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
         "String;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
@@ -6979,8 +6979,6 @@ class TablePropertiesJni : public JavaClass {
             table_properties.slow_compression_estimated_data_size),
         static_cast<jlong>(
             table_properties.fast_compression_estimated_data_size),
-        static_cast<jlong>(
-            table_properties.external_sst_file_global_seqno_offset),
         jcolumn_family_name, jfilter_policy_name, jcomparator_name,
         jmerge_operator_name, jprefix_extractor_name,
         jproperty_collectors_names, jcompression_name,

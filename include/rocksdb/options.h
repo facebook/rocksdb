@@ -3027,14 +3027,6 @@ struct IngestExternalFileOptions {
   // with cf_allow_ingest_behind=true since CF creation (or before any write).
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
-  // DEPRECATED - Set to true if you would like to write global_seqno to
-  // the external SST file on ingestion for backward compatibility before
-  // RocksDB 5.16.0. Such old versions of RocksDB expect any global_seqno to
-  // be written to the SST file rather than recorded in the DB manifest.
-  // This functionality was deprecated because (a) random writes might be
-  // costly or unsupported on some FileSystems, and (b) the file checksum
-  // changes with such a write.
-  bool write_global_seqno = false;
   // Set to true if you would like to verify the checksums of each block of the
   // external SST file before ingestion.
   // Warning: setting this to true causes slowdown in file ingestion because
@@ -3122,8 +3114,6 @@ struct IngestExternalFileOptions {
   //   with each other, you can set `fail_if_not_bottommost_level` to true.
   //   If ingested files overlap with each other, some file will be placed
   //   above Lmax, failing the ingestion if the option is set.
-  // - `write_global_seqno` must be false (sequence numbers cannot be
-  //    reassigned).
   bool allow_db_generated_files = false;
 
   // Controls whether data and metadata blocks (e.g. index, filter) read during
@@ -3198,10 +3188,8 @@ struct IngestExternalFileArg {
 
   // Optimizes for prepare performance, see `PreparedFileInfo` for details.
   // The owning handle must stay alive until ingestion completes.
-  // Not compatible with options.write_global_seqno (the file is not opened, so
-  // a global seqno cannot be written back into it). Because the file is not
-  // opened, ingestion does not read its storage temperature and trusts the
-  // caller-supplied `file_temperature` hint as-is.
+  // Because the file is not opened, ingestion does not read its storage
+  // temperature and trusts the caller-supplied `file_temperature` hint as-is.
   std::vector<const PreparedFileInfo*> file_infos;
 };
 
