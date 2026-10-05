@@ -7792,6 +7792,48 @@ TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
   ASSERT_EQ(orig_num_file_opens, TestGetTickerCount(options, NO_FILE_OPENS));
 }
 
+TEST_F(DBTest2, MultiGetBlockCacheTierSkipsColdSstData) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  // Use buffered reads to reach the non-mmap RetrieveMultipleBlocks path.
+  options.allow_mmap_reads = false;
+  BlockBasedTableOptions table_options;
+  // Data blocks use the block cache. Index and filter blocks stay in the table
+  // reader (cache_index_and_filter_blocks is false by default), so a
+  // kBlockCacheTier read gets to the data block without metadata I/O.
+  table_options.block_cache = NewLRUCache(1 << 20);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+
+  // Open the table reader so that kBlockCacheTier does not fail at table
+  // open. Do not add the data block to the block cache.
+  ReadOptions warm_ro;
+  warm_ro.fill_cache = false;
+  std::string value;
+  ASSERT_OK(db_->Get(warm_ro, "k1", &value));
+  ASSERT_EQ(value, "v1");
+  // Make sure the data block is not in the block cache.
+  table_options.block_cache->EraseUnRefEntries();
+
+  ReadOptions no_io_ro;
+  no_io_ro.read_tier = kBlockCacheTier;
+
+  ASSERT_TRUE(db_->Get(no_io_ro, "k1", &value).IsIncomplete());
+  ASSERT_TRUE(db_->Get(no_io_ro, "k2", &value).IsIncomplete());
+
+  Slice keys[2] = {Slice("k1"), Slice("k2")};
+  PinnableSlice values[2];
+  Status statuses[2];
+  db_->MultiGet(no_io_ro, db_->DefaultColumnFamily(), 2, keys, values,
+                statuses);
+  ASSERT_TRUE(statuses[0].IsIncomplete());
+  ASSERT_TRUE(statuses[1].IsIncomplete());
+}
+
 TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   Options opts = CurrentOptions();
   opts.create_if_missing = true;

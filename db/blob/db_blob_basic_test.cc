@@ -837,6 +837,15 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
     ASSERT_EQ(values[2], third_value);
   }
 
+  // Load the SST blocks into the block cache. The inlined key does not read
+  // the blob file, so the blob cache stays empty.
+  {
+    ReadOptions fill_block_cache_options;
+    std::string value;
+    ASSERT_OK(db_->Get(fill_block_cache_options, first_key, &value));
+    ASSERT_EQ(value, first_value);
+  }
+
   // Try again with no I/O allowed. The first (inlined) value should be
   // successfully read; however, the two blob values could only be read from the
   // blob file, so for those the read should return Incomplete.
