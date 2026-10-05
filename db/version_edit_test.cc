@@ -392,6 +392,25 @@ TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, IndirectBlobFileAddition) {
+  VersionEdit edit;
+
+  BlobFileAddition identity(/*blob_file_number=*/100,
+                            /*total_blob_count=*/2,
+                            /*total_blob_bytes=*/200, "", "");
+  identity.SetIndirectionIdentity();
+  edit.AddBlobFile(std::move(identity));
+
+  BlobFileAddition relocation_file(/*blob_file_number=*/200,
+                                   /*total_blob_count=*/1,
+                                   /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(relocation_file.SetIndirectionRelocationFile(
+      /*origin_file_number=*/100, /*relocation_file_size=*/1000));
+  edit.AddBlobFile(std::move(relocation_file));
+
+  TestEncodeDecode(edit);
+}
+
 TEST_F(VersionEditTest, AddWalEncodeDecode) {
   VersionEdit edit;
   for (uint64_t log_number = 1; log_number <= 20; log_number++) {

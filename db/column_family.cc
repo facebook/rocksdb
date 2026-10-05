@@ -38,6 +38,7 @@
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
+#include "table/adaptive/adaptive_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
@@ -1569,6 +1570,45 @@ Status ColumnFamilyData::ValidateOptions(
     if (ucmp->timestamp_size() > 0) {
       return Status::NotSupported(
           "Blob direct write does not support user-defined timestamps.");
+    }
+  }
+  if (cf_options.enable_blob_indirection) {
+    if (!cf_options.enable_blob_files) {
+      return Status::InvalidArgument(
+          "Blob indirection requires enable_blob_files=true.");
+    }
+    if (cf_options.enable_blob_direct_write) {
+      return Status::NotSupported(
+          "Blob indirection does not support blob direct write.");
+    }
+    if (cf_options.blob_compression_type != kNoCompression) {
+      return Status::NotSupported(
+          "Blob indirection does not support compressed blob files.");
+    }
+    if (db_options.compaction_service != nullptr) {
+      return Status::NotSupported(
+          "Blob indirection does not support remote compaction.");
+    }
+    const BlockBasedTableOptions* table_options =
+        cf_options.table_factory == nullptr
+            ? nullptr
+            : cf_options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (cf_options.table_factory != nullptr) {
+      const AdaptiveTableFactory* const adaptive_table_factory =
+          cf_options.table_factory->CheckedCast<AdaptiveTableFactory>();
+      if (adaptive_table_factory != nullptr) {
+        table_options =
+            adaptive_table_factory->GetBlockBasedTableWriterOptions();
+      }
+    }
+    if (table_options == nullptr) {
+      return Status::NotSupported(
+          "Blob indirection requires block-based table format.");
+    }
+    if (table_options->format_version < 7) {
+      return Status::NotSupported(
+          "Blob indirection requires block-based table format version 7 or "
+          "newer.");
     }
   }
   if (ucmp->timestamp_size() > 0 &&
