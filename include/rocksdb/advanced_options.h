@@ -674,11 +674,12 @@ struct AdvancedColumnFamilyOptions {
   // Maximum relative increase in the effective per-level fanout used to avoid
   // an extra level with a small target size. For example, a multiplier of 10
   // and slack of 0.1 allow an effective fanout up to 11. The policy tries to
-  // eliminate one level relative to the nominal fanout, using the smallest
-  // increase that fits; it does not minimize the number of levels for a large
-  // slack. A larger fanout can increase write amplification while fewer levels
-  // can reduce read amplification. Existing shallow levels are drained before
-  // the base level moves down.
+  // eliminate one level relative to the nominal fanout. It uses the smallest
+  // continuous multiplier that fits when it is within the cap; integer
+  // truncation can instead make the cap eligible. It does not minimize the
+  // number of levels for a large slack. A larger fanout can increase write
+  // amplification, while fewer levels can reduce read amplification. Existing
+  // shallow levels are drained before the base level moves down.
   //
   // Only applies to leveled compaction with
   // level_compaction_dynamic_level_bytes enabled and
