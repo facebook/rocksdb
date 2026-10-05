@@ -817,14 +817,6 @@ rocksdb_ingestexternalfileoptions_get_ingest_behind(
     rocksdb_ingestexternalfileoptions_t* opt);
 
 extern ROCKSDB_LIBRARY_API void
-rocksdb_ingestexternalfileoptions_set_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt, unsigned char v);
-
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_ingestexternalfileoptions_get_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt);
-
-extern ROCKSDB_LIBRARY_API void
 rocksdb_ingestexternalfileoptions_set_verify_checksums_before_ingest(
     rocksdb_ingestexternalfileoptions_t* opt, unsigned char v);
 

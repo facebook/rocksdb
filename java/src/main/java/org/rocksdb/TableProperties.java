@@ -31,7 +31,6 @@ public class TableProperties {
   private final long oldestKeyTime;
   private final long slowCompressionEstimatedDataSize;
   private final long fastCompressionEstimatedDataSize;
-  private final long externalSstFileGlobalSeqnoOffset;
   private final byte[] columnFamilyName;
   private final String filterPolicyName;
   private final String comparatorName;
@@ -55,10 +54,10 @@ public class TableProperties {
       final long formatVersion, final long fixedKeyLen, final long columnFamilyId,
       final long creationTime, final long oldestKeyTime,
       final long slowCompressionEstimatedDataSize, final long fastCompressionEstimatedDataSize,
-      final long externalSstFileGlobalSeqnoOffset, final byte[] columnFamilyName,
-      final String filterPolicyName, final String comparatorName, final String mergeOperatorName,
-      final String prefixExtractorName, final String propertyCollectorsNames,
-      final String compressionName, final Map<String, String> userCollectedProperties,
+      final byte[] columnFamilyName, final String filterPolicyName, final String comparatorName,
+      final String mergeOperatorName, final String prefixExtractorName,
+      final String propertyCollectorsNames, final String compressionName,
+      final Map<String, String> userCollectedProperties,
       final Map<String, String> readableProperties) {
     this.dataSize = dataSize;
     this.indexSize = indexSize;
@@ -81,7 +80,6 @@ public class TableProperties {
     this.oldestKeyTime = oldestKeyTime;
     this.slowCompressionEstimatedDataSize = slowCompressionEstimatedDataSize;
     this.fastCompressionEstimatedDataSize = fastCompressionEstimatedDataSize;
-    this.externalSstFileGlobalSeqnoOffset = externalSstFileGlobalSeqnoOffset;
     this.columnFamilyName = columnFamilyName;
     this.filterPolicyName = filterPolicyName;
     this.comparatorName = comparatorName;
@@ -402,7 +400,6 @@ public class TableProperties {
         && oldestKeyTime == that.oldestKeyTime
         && slowCompressionEstimatedDataSize == that.slowCompressionEstimatedDataSize
         && fastCompressionEstimatedDataSize == that.fastCompressionEstimatedDataSize
-        && externalSstFileGlobalSeqnoOffset == that.externalSstFileGlobalSeqnoOffset
         && Arrays.equals(columnFamilyName, that.columnFamilyName)
         && Objects.equals(filterPolicyName, that.filterPolicyName)
         && Objects.equals(comparatorName, that.comparatorName)
@@ -420,9 +417,9 @@ public class TableProperties {
         indexKeyIsUserKey, indexValueIsDeltaEncoded, filterSize, rawKeySize, rawValueSize,
         numDataBlocks, numEntries, numDeletions, numMergeOperands, numRangeDeletions, formatVersion,
         fixedKeyLen, columnFamilyId, creationTime, oldestKeyTime, slowCompressionEstimatedDataSize,
-        fastCompressionEstimatedDataSize, externalSstFileGlobalSeqnoOffset, filterPolicyName,
-        comparatorName, mergeOperatorName, prefixExtractorName, propertyCollectorsNames,
-        compressionName, userCollectedProperties, readableProperties);
+        fastCompressionEstimatedDataSize, filterPolicyName, comparatorName, mergeOperatorName,
+        prefixExtractorName, propertyCollectorsNames, compressionName, userCollectedProperties,
+        readableProperties);
     result = 31 * result + Arrays.hashCode(columnFamilyName);
     return result;
   }

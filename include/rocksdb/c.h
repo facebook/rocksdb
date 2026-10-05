@@ -1804,10 +1804,6 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_table_properties_fast_compression_estimated_data_size(
     const rocksdb_table_properties_t* props);
 
-extern ROCKSDB_LIBRARY_API uint64_t
-rocksdb_table_properties_external_sst_file_global_seqno_offset(
-    const rocksdb_table_properties_t* props);
-
 extern ROCKSDB_LIBRARY_API uint64_t rocksdb_table_properties_tail_start_offset(
     const rocksdb_table_properties_t* props);
 
@@ -5830,14 +5826,6 @@ rocksdb_ingestexternalfileoptions_get_allow_blocking_flush(
 
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_ingestexternalfileoptions_get_ingest_behind(
-    rocksdb_ingestexternalfileoptions_t* opt);
-
-extern ROCKSDB_LIBRARY_API void
-rocksdb_ingestexternalfileoptions_set_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt, unsigned char v);
-
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_ingestexternalfileoptions_get_write_global_seqno(
     rocksdb_ingestexternalfileoptions_t* opt);
 
 extern ROCKSDB_LIBRARY_API void

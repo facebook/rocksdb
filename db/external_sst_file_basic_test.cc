@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <functional>
+#include <memory>
+#include <utility>
 
 #include "db/db_test_util.h"
 #include "db/version_edit.h"
@@ -22,9 +24,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class ExternalSSTFileBasicTest
-    : public DBTestBase,
-      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+class ExternalSSTFileBasicTest : public DBTestBase,
+                                 public ::testing::WithParamInterface<bool> {
  public:
   ExternalSSTFileBasicTest()
       : DBTestBase("external_sst_file_basic_test", /*env_do_fsync=*/true) {
@@ -70,13 +71,12 @@ class ExternalSSTFileBasicTest
       const std::vector<std::string>& files_checksums,
       const std::vector<std::string>& files_checksum_func_names,
       bool verify_file_checksum = true, bool move_files = false,
-      bool skip_snapshot_check = false, bool write_global_seqno = true) {
+      bool skip_snapshot_check = false, bool allow_global_seqno = false) {
     IngestExternalFileOptions opts;
     opts.move_files = move_files;
     opts.snapshot_consistency = !skip_snapshot_check;
-    opts.allow_global_seqno = false;
+    opts.allow_global_seqno = allow_global_seqno;
     opts.allow_blocking_flush = false;
-    opts.write_global_seqno = write_global_seqno;
     opts.verify_file_checksum = verify_file_checksum;
 
     IngestExternalFileArg arg;
@@ -89,10 +89,10 @@ class ExternalSSTFileBasicTest
   }
 
   Status GenerateAndAddExternalFile(
-      const Options options, std::vector<int> keys,
+      const Options& options, std::vector<int> keys,
       const std::vector<ValueType>& value_types,
       std::vector<std::pair<int, int>> range_deletions, int file_id,
-      bool write_global_seqno, bool verify_checksums_before_ingest,
+      bool verify_checksums_before_ingest,
       std::map<std::string, std::string>* true_data) {
     assert(value_types.size() == 1 || keys.size() == value_types.size());
     std::string file_path = sst_files_dir_ + std::to_string(file_id);
@@ -131,22 +131,18 @@ class ExternalSSTFileBasicTest
       std::string value = Key(keys[i]) + std::to_string(file_id);
       ValueType value_type =
           (value_types.size() == 1 ? value_types[0] : value_types[i]);
-      switch (value_type) {
-        case ValueType::kTypeValue:
-          s = sst_file_writer.Put(key, value);
-          (*true_data)[key] = value;
-          break;
-        case ValueType::kTypeMerge:
-          s = sst_file_writer.Merge(key, value);
-          // we only use TestPutOperator in this test
-          (*true_data)[key] = value;
-          break;
-        case ValueType::kTypeDeletion:
-          s = sst_file_writer.Delete(key);
-          true_data->erase(key);
-          break;
-        default:
-          return Status::InvalidArgument("Value type is not supported");
+      if (value_type == ValueType::kTypeValue) {
+        s = sst_file_writer.Put(key, value);
+        (*true_data)[key] = value;
+      } else if (value_type == ValueType::kTypeMerge) {
+        s = sst_file_writer.Merge(key, value);
+        // we only use TestPutOperator in this test
+        (*true_data)[key] = value;
+      } else if (value_type == ValueType::kTypeDeletion) {
+        s = sst_file_writer.Delete(key);
+        true_data->erase(key);
+      } else {
+        return Status::InvalidArgument("Value type is not supported");
       }
       if (!s.ok()) {
         sst_file_writer.Finish();
@@ -158,7 +154,6 @@ class ExternalSSTFileBasicTest
     if (s.ok()) {
       IngestExternalFileOptions ifo;
       ifo.allow_global_seqno = true;
-      ifo.write_global_seqno = write_global_seqno;
       ifo.verify_checksums_before_ingest = verify_checksums_before_ingest;
       s = db_->IngestExternalFile({file_path}, ifo);
     }
@@ -166,22 +161,22 @@ class ExternalSSTFileBasicTest
   }
 
   Status GenerateAndAddExternalFile(
-      const Options options, std::vector<int> keys,
+      const Options& options, std::vector<int> keys,
       const std::vector<ValueType>& value_types, int file_id,
-      bool write_global_seqno, bool verify_checksums_before_ingest,
+      bool verify_checksums_before_ingest,
       std::map<std::string, std::string>* true_data) {
-    return GenerateAndAddExternalFile(
-        options, keys, value_types, {}, file_id, write_global_seqno,
-        verify_checksums_before_ingest, true_data);
+    return GenerateAndAddExternalFile(options, std::move(keys), value_types, {},
+                                      file_id, verify_checksums_before_ingest,
+                                      true_data);
   }
 
   Status GenerateAndAddExternalFile(
-      const Options options, std::vector<int> keys, const ValueType value_type,
-      int file_id, bool write_global_seqno, bool verify_checksums_before_ingest,
+      const Options& options, std::vector<int> keys, const ValueType value_type,
+      int file_id, bool verify_checksums_before_ingest,
       std::map<std::string, std::string>* true_data) {
     return GenerateAndAddExternalFile(
-        options, keys, std::vector<ValueType>(1, value_type), file_id,
-        write_global_seqno, verify_checksums_before_ingest, true_data);
+        options, std::move(keys), std::vector<ValueType>(1, value_type),
+        file_id, verify_checksums_before_ingest, true_data);
   }
 
   void VerifyInputFilesInternalStatsForOutputLevel(
@@ -295,7 +290,7 @@ TEST_F(ExternalSSTFileBasicTest, AlignedBufferedWrite) {
                              IODebugContext* dbg) override {
       class AlignedWritableFile : public FSWritableFileOwnerWrapper {
        public:
-        AlignedWritableFile(std::unique_ptr<FSWritableFile>& file)
+        explicit AlignedWritableFile(std::unique_ptr<FSWritableFile>& file)
             : FSWritableFileOwnerWrapper(std::move(file)), last_write_(false) {}
 
         using FSWritableFileOwnerWrapper::Append;
@@ -360,7 +355,7 @@ class ChecksumVerifyHelper {
   Options options_;
 
  public:
-  ChecksumVerifyHelper(Options& options) : options_(options) {}
+  explicit ChecksumVerifyHelper(Options& options) : options_(options) {}
   ~ChecksumVerifyHelper() = default;
 
   Status GetSingleFileChecksumAndFuncName(
@@ -427,7 +422,8 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
   ExternalSstFileInfo file1_info;
   Status s = sst_file_writer.Finish(&file1_info);
   ASSERT_OK(s) << s.ToString();
-  std::string file_checksum, file_checksum_func_name;
+  std::string file_checksum;
+  std::string file_checksum_func_name;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file1, &file_checksum, &file_checksum_func_name));
 
@@ -523,7 +519,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file1_info.num_entries, 100);
   ASSERT_EQ(file1_info.smallest_key, Key(1000));
   ASSERT_EQ(file1_info.largest_key, Key(1099));
-  std::string file_checksum1, file_checksum_func_name1;
+  std::string file_checksum1;
+  std::string file_checksum_func_name1;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file1, &file_checksum1, &file_checksum_func_name1,
       file1_info.file_checksum_func_name));
@@ -543,7 +540,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file2_info.num_entries, 200);
   ASSERT_EQ(file2_info.smallest_key, Key(1100));
   ASSERT_EQ(file2_info.largest_key, Key(1299));
-  std::string file_checksum2, file_checksum_func_name2;
+  std::string file_checksum2;
+  std::string file_checksum_func_name2;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file2, &file_checksum2, &file_checksum_func_name2,
       file2_info.file_checksum_func_name));
@@ -563,7 +561,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file3_info.num_entries, 200);
   ASSERT_EQ(file3_info.smallest_key, Key(1300));
   ASSERT_EQ(file3_info.largest_key, Key(1499));
-  std::string file_checksum3, file_checksum_func_name3;
+  std::string file_checksum3;
+  std::string file_checksum_func_name3;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file3, &file_checksum3, &file_checksum_func_name3,
       file3_info.file_checksum_func_name));
@@ -583,14 +582,15 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file4_info.num_entries, 300);
   ASSERT_EQ(file4_info.smallest_key, Key(1500));
   ASSERT_EQ(file4_info.largest_key, Key(1799));
-  std::string file_checksum4, file_checksum_func_name4;
+  std::string file_checksum4;
+  std::string file_checksum_func_name4;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file4, &file_checksum4, &file_checksum_func_name4,
       file4_info.file_checksum_func_name));
   ASSERT_EQ(file4_info.file_checksum, file_checksum4);
   ASSERT_EQ(file4_info.file_checksum_func_name, file_checksum_func_name4);
 
-  // file05.sst (1800 => 1899)
+  // file05.sst (1800 => 1999)
   std::string file5 = sst_files_dir_ + "file05.sst";
   ASSERT_OK(sst_file_writer.Open(file5));
   for (int k = 1800; k < 2000; k++) {
@@ -603,7 +603,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file5_info.num_entries, 200);
   ASSERT_EQ(file5_info.smallest_key, Key(1800));
   ASSERT_EQ(file5_info.largest_key, Key(1999));
-  std::string file_checksum5, file_checksum_func_name5;
+  std::string file_checksum5;
+  std::string file_checksum_func_name5;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file5, &file_checksum5, &file_checksum_func_name5,
       file5_info.file_checksum_func_name));
@@ -623,7 +624,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file6_info.num_entries, 200);
   ASSERT_EQ(file6_info.smallest_key, Key(2000));
   ASSERT_EQ(file6_info.largest_key, Key(2199));
-  std::string file_checksum6, file_checksum_func_name6;
+  std::string file_checksum6;
+  std::string file_checksum_func_name6;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
       file6, &file_checksum6, &file_checksum_func_name6,
       file6_info.file_checksum_func_name));
@@ -631,7 +633,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file6_info.file_checksum_func_name, file_checksum_func_name6);
 
   s = AddFileWithFileChecksum({file1}, {file_checksum1, "xyz"},
-                              {file_checksum1}, true, false, false, false);
+                              {file_checksum1}, true, false, false);
   // does not care the checksum input since db does not enable file checksum
   ASSERT_OK(s) << s.ToString();
   ASSERT_OK(env_->FileExists(file1));
@@ -663,27 +665,25 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   // Enable verify_file_checksum option
   // The checksum vector does not match, fail the ingestion
   s = AddFileWithFileChecksum({file2}, {file_checksum2, "xyz"},
-                              {file_checksum_func_name2}, true, false, false,
-                              false);
+                              {file_checksum_func_name2}, true, false, false);
   ASSERT_NOK(s) << s.ToString();
 
   // Enable verify_file_checksum option
   // The checksum name does not match, fail the ingestion
   s = AddFileWithFileChecksum({file2}, {file_checksum2}, {"xyz"}, true, false,
-                              false, false);
+                              false);
   ASSERT_NOK(s) << s.ToString();
 
   // Enable verify_file_checksum option
   // The checksum itself does not match, fail the ingestion
   s = AddFileWithFileChecksum({file2}, {"xyz"}, {file_checksum_func_name2},
-                              true, false, false, false);
+                              true, false, false);
   ASSERT_NOK(s) << s.ToString();
 
   // Enable verify_file_checksum option
   // All matches, ingestion is successful
   s = AddFileWithFileChecksum({file2}, {file_checksum2},
-                              {file_checksum_func_name2}, true, false, false,
-                              false);
+                              {file_checksum_func_name2}, true, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files1;
   dbfull()->GetLiveFilesMetaData(&live_files1);
@@ -699,7 +699,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   // Enable verify_file_checksum option. No checksum information is provided,
   // so it is generated when ingesting. The configured checksum factory will
   // use a different function than before.
-  s = AddFileWithFileChecksum({file3}, {}, {}, true, false, false, false);
+  s = AddFileWithFileChecksum({file3}, {}, {}, true, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files2;
   dbfull()->GetLiveFilesMetaData(&live_files2);
@@ -707,7 +707,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
     if (set1.find(f.name) == set1.end()) {
       // Recomputed checksum, different function
       EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name3);
-      std::string cur_checksum3, cur_checksum_func_name3;
+      std::string cur_checksum3;
+      std::string cur_checksum_func_name3;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
           dbname_ + f.name, &cur_checksum3, &cur_checksum_func_name3,
           f.file_checksum_func_name));
@@ -722,14 +723,14 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   // Does not enable verify_file_checksum options
   // The checksum name does not match, fail the ingestion
   s = AddFileWithFileChecksum({file4}, {file_checksum4}, {"xyz"}, false, false,
-                              false, false);
+                              false);
   ASSERT_NOK(s) << s.ToString();
 
   // Does not enable verify_file_checksum options
   // Checksum function name is recognized, so store the checksum being ingested.
   std::string file_checksum_func_name4alt = "VariousABCD";
   s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4alt},
-                              false, false, false, false);
+                              false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files3;
   dbfull()->GetLiveFilesMetaData(&live_files3);
@@ -744,21 +745,25 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(s) << s.ToString();
   ASSERT_OK(env_->FileExists(file4));
 
-  // enable verify_file_checksum options, DB enable checksum, and enable
-  // write_global_seq. So the checksum stored is different from the one
-  // ingested due to the sequence number changes. The checksum function name
-  // may also change since the checksum is recomputed.
+  // Assign a global sequence number through the MANIFEST without changing the
+  // ingested SST or its checksum.
+  const Snapshot* snapshot = db_->GetSnapshot();
   s = AddFileWithFileChecksum({file5}, {file_checksum5},
                               {file_checksum_func_name5}, true, false, false,
                               true);
   ASSERT_OK(s) << s.ToString();
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_GT(db_->GetLatestSequenceNumber(), 0);
+  Reopen(options);
+  ASSERT_EQ(Get(Key(1800)), Key(1800) + "_val_overlap");
   std::vector<LiveFileMetaData> live_files4;
   dbfull()->GetLiveFilesMetaData(&live_files4);
   for (const auto& f : live_files4) {
     if (set1.find(f.name) == set1.end()) {
-      // Recomputed checksum, different function
-      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name5);
-      std::string cur_checksum5, cur_checksum_func_name5;
+      ASSERT_EQ(f.file_checksum, file_checksum5);
+      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name5);
+      std::string cur_checksum5;
+      std::string cur_checksum_func_name5;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
           dbname_ + f.name, &cur_checksum5, &cur_checksum_func_name5,
           f.file_checksum_func_name));
@@ -767,13 +772,12 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
       set1.insert(f.name);
     }
   }
-  ASSERT_OK(s) << s.ToString();
   ASSERT_OK(env_->FileExists(file5));
 
   // Does not enable verify_file_checksum options and also the ingested file
   // checksum information is empty. DB will generate and store file checksum
   // in Manifest, which could be different from the previous invocation.
-  s = AddFileWithFileChecksum({file6}, {}, {}, false, false, false, false);
+  s = AddFileWithFileChecksum({file6}, {}, {}, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files6;
   dbfull()->GetLiveFilesMetaData(&live_files6);
@@ -781,7 +785,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
     if (set1.find(f.name) == set1.end()) {
       // Recomputed checksum, different function
       EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name6);
-      std::string cur_checksum6, cur_checksum_func_name6;
+      std::string cur_checksum6;
+      std::string cur_checksum_func_name6;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
           dbname_ + f.name, &cur_checksum6, &cur_checksum_func_name6,
           f.file_checksum_func_name));
@@ -870,8 +875,7 @@ TEST_F(ExternalSSTFileBasicTest, NoCopy) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
-  bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool verify_checksums_before_ingest = GetParam();
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
@@ -882,36 +886,36 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 2, 3, 4, 5, 6}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {10, 11, 12, 13}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 4, 6}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {11, 15, 19}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120, 130}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
-        options, {1, 130}, ValueType::kTypeValue, file_id++, write_global_seqno,
+        options, {1, 130}, ValueType::kTypeValue, file_id++,
         verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
@@ -925,19 +929,19 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {60, 61, 62}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {40, 41, 42}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {20, 30, 40}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
 
@@ -947,19 +951,19 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
     // keys in the DB or not because we have a snapshot
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1000, 1002}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {2000, 3002}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 4);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 20, 40, 100, 150}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
@@ -967,7 +971,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {5000, 5001}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // No snapshot anymore, no need to assign a seqno
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
@@ -977,12 +981,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
-  bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool verify_checksums_before_ingest = GetParam();
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    options.merge_operator.reset(new TestPutOperator());
+    options.merge_operator = std::make_shared<TestPutOperator>();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
 
@@ -990,57 +993,57 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 2, 3, 4, 5, 6}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {10, 11, 12, 13}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 4, 6}, ValueType::kTypeMerge, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {11, 15, 19}, ValueType::kTypeDeletion, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120, 130}, ValueType::kTypeMerge, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 130}, ValueType::kTypeDeletion, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120}, {ValueType::kTypeValue}, {{120, 135}}, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4);
 
-    ASSERT_OK(GenerateAndAddExternalFile(
-        options, {}, {}, {{110, 120}}, file_id++, write_global_seqno,
-        verify_checksums_before_ingest, &true_data));
+    ASSERT_OK(
+        GenerateAndAddExternalFile(options, {}, {}, {{110, 120}}, file_id++,
+                                   verify_checksums_before_ingest, &true_data));
     // The range deletion ends on a key, but it doesn't actually delete
     // this key because the largest key in the range is exclusive. Still,
     // it counts as an overlap so a new seqno will be assigned.
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 5);
 
-    ASSERT_OK(GenerateAndAddExternalFile(
-        options, {}, {}, {{100, 109}}, file_id++, write_global_seqno,
-        verify_checksums_before_ingest, &true_data));
+    ASSERT_OK(
+        GenerateAndAddExternalFile(options, {}, {}, {{100, 109}}, file_id++,
+                                   verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 5);
 
@@ -1053,19 +1056,19 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {60, 61, 62}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {40, 41, 42}, ValueType::kTypeMerge, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {20, 30, 40}, ValueType::kTypeDeletion, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
 
@@ -1075,19 +1078,19 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
     // keys in the DB or not because we have a snapshot
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1000, 1002}, ValueType::kTypeMerge, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {2000, 3002}, ValueType::kTypeMerge, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 4);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 20, 40, 100, 150}, ValueType::kTypeMerge, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
@@ -1095,7 +1098,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {5000, 5001}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, verify_checksums_before_ingest, &true_data));
+        verify_checksums_before_ingest, &true_data));
     // No snapshot anymore, no need to assign a seqno
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
@@ -1105,12 +1108,11 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
-  bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool verify_checksums_before_ingest = GetParam();
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    options.merge_operator.reset(new TestPutOperator());
+    options.merge_operator = std::make_shared<TestPutOperator>();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
 
@@ -1120,8 +1122,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {1, 2, 3, 4, 5, 6},
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue,
          ValueType::kTypeMerge, ValueType::kTypeValue, ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
@@ -1129,8 +1130,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {10, 11, 12, 13},
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue,
          ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
 
@@ -1138,8 +1138,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {1, 4, 6},
         {ValueType::kTypeDeletion, ValueType::kTypeValue,
          ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
 
@@ -1147,22 +1146,19 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {11, 15, 19},
         {ValueType::kTypeDeletion, ValueType::kTypeMerge,
          ValueType::kTypeValue},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {120, 130}, {ValueType::kTypeValue, ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1, 130}, {ValueType::kTypeMerge, ValueType::kTypeDeletion},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
@@ -1170,16 +1166,15 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {150, 151, 152},
         {ValueType::kTypeValue, ValueType::kTypeMerge,
          ValueType::kTypeDeletion},
-        {{150, 160}, {180, 190}}, file_id++, write_global_seqno,
-        verify_checksums_before_ingest, &true_data));
+        {{150, 160}, {180, 190}}, file_id++, verify_checksums_before_ingest,
+        &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {150, 151, 152},
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue},
-        {{200, 250}}, file_id++, write_global_seqno,
-        verify_checksums_before_ingest, &true_data));
+        {{200, 250}}, file_id++, verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4);
 
@@ -1187,8 +1182,8 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {300, 301, 302},
         {ValueType::kTypeValue, ValueType::kTypeMerge,
          ValueType::kTypeDeletion},
-        {{1, 2}, {152, 154}}, file_id++, write_global_seqno,
-        verify_checksums_before_ingest, &true_data));
+        {{1, 2}, {152, 154}}, file_id++, verify_checksums_before_ingest,
+        &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 5);
 
@@ -1202,8 +1197,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {60, 61, 62},
         {ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeValue},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File doesn't overwrite any keys, no seqno needed
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
 
@@ -1211,8 +1205,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {40, 41, 42},
         {ValueType::kTypeValue, ValueType::kTypeDeletion,
          ValueType::kTypeDeletion},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
 
@@ -1220,8 +1213,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {20, 30, 40},
         {ValueType::kTypeDeletion, ValueType::kTypeDeletion,
          ValueType::kTypeDeletion},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // File overwrites some keys, a seqno will be assigned
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
 
@@ -1231,15 +1223,13 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
     // keys in the DB or not because we have a snapshot
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {1000, 1002}, {ValueType::kTypeValue, ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 3);
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {2000, 3002}, {ValueType::kTypeValue, ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 4);
 
@@ -1247,8 +1237,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
         options, {1, 20, 40, 100, 150},
         {ValueType::kTypeDeletion, ValueType::kTypeDeletion,
          ValueType::kTypeValue, ValueType::kTypeMerge, ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // A global seqno will be assigned anyway because of the snapshot
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
@@ -1256,8 +1245,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
 
     ASSERT_OK(GenerateAndAddExternalFile(
         options, {5000, 5001}, {ValueType::kTypeValue, ValueType::kTypeMerge},
-        file_id++, write_global_seqno, verify_checksums_before_ingest,
-        &true_data));
+        file_id++, verify_checksums_before_ingest, &true_data));
     // No snapshot anymore, no need to assign a seqno
     ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
@@ -1315,9 +1303,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
       {"ExternalSstFileIngestionJob::BeforeSyncIngestedFile",
        "ExternalSstFileIngestionJob::AfterSyncIngestedFile"},
       {"ExternalSstFileIngestionJob::BeforeSyncDir",
-       "ExternalSstFileIngestionJob::AfterSyncDir"},
-      {"ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno",
-       "ExternalSstFileIngestionJob::AfterSyncGlobalSeqno"}};
+       "ExternalSstFileIngestionJob::AfterSyncDir"}};
 
   for (size_t i = 0; i < test_cases.size(); i++) {
     bool no_sync = false;
@@ -1336,21 +1322,9 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
             }
           });
     }
-    if (i == 2) {
-      SyncPoint::GetInstance()->SetCallBack(
-          "ExternalSstFileIngestionJob::NewRandomRWFile", [&](void* s) {
-            Status* status = static_cast<Status*>(s);
-            if (status->IsNotSupported()) {
-              no_sync = true;
-            }
-          });
-    }
     SyncPoint::GetInstance()->EnableProcessing();
 
     DestroyAndReopen(options);
-    if (i == 2) {
-      ASSERT_OK(Put("foo", "v1"));
-    }
 
     Options sst_file_writer_options;
     sst_file_writer_options.env = fault_injection_test_env_.get();
@@ -1363,14 +1337,10 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     ASSERT_OK(sst_file_writer->Finish());
 
     IngestExternalFileOptions ingest_opt;
-    ASSERT_FALSE(ingest_opt.write_global_seqno);  // new default
     if (i == 0) {
       ingest_opt.move_files = true;
     }
     const Snapshot* snapshot = db_->GetSnapshot();
-    if (i == 2) {
-      ingest_opt.write_global_seqno = true;
-    }
     Status s = db_->IngestExternalFile({file_name}, ingest_opt);
     if (no_sync) {
       ASSERT_OK(s);
@@ -1575,7 +1545,6 @@ TEST_F(ExternalSSTFileBasicTest, IngestRangeDeletionTombstoneWithGlobalSeqno) {
   ifo.move_files = true;
   ifo.snapshot_consistency = true;
   ifo.allow_global_seqno = true;
-  ifo.write_global_seqno = true;
   ifo.verify_checksums_before_ingest = false;
   ASSERT_OK(db_->IngestExternalFile({file}, ifo));
 
@@ -1612,15 +1581,14 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(0, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
 
-  bool write_global_seqno = std::get<0>(GetParam());
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool verify_checksums_before_ingest = GetParam();
   // overlaps with L0 file but not memtable, so flush is skipped and file is
   // ingested into L0
   SequenceNumber last_seqno = dbfull()->GetLatestSequenceNumber();
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {60, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
-      {{65, 70}, {70, 85}}, file_id++, write_global_seqno,
-      verify_checksums_before_ingest, &true_data));
+      {{65, 70}, {70, 85}}, file_id++, verify_checksums_before_ingest,
+      &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
   ASSERT_EQ(0, NumTableFilesAtLevel(kNumLevels - 2));
@@ -1630,8 +1598,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   // file is ingested into L5
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {10, 40}, {ValueType::kTypeValue, ValueType::kTypeValue},
-      file_id++, write_global_seqno, verify_checksums_before_ingest,
-      &true_data));
+      file_id++, verify_checksums_before_ingest, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
@@ -1639,9 +1606,9 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
 
   // overlaps with L5 file but not memtable or L0 file, so flush is skipped and
   // file is ingested into L4
-  ASSERT_OK(GenerateAndAddExternalFile(
-      options, {}, {}, {{5, 15}}, file_id++, write_global_seqno,
-      verify_checksums_before_ingest, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(options, {}, {}, {{5, 15}}, file_id++,
+                                       verify_checksums_before_ingest,
+                                       &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
@@ -1653,8 +1620,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   // count increases by two.
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {100, 140}, {ValueType::kTypeValue, ValueType::kTypeValue},
-      file_id++, write_global_seqno, verify_checksums_before_ingest,
-      &true_data));
+      file_id++, verify_checksums_before_ingest, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
@@ -1667,8 +1633,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   // seqnum.
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {151, 175}, {ValueType::kTypeValue, ValueType::kTypeValue},
-      {{160, 200}}, file_id++, write_global_seqno,
-      verify_checksums_before_ingest, &true_data));
+      {{160, 200}}, file_id++, verify_checksums_before_ingest, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
@@ -1739,7 +1704,7 @@ TEST_F(ExternalSSTFileBasicTest, UnorderedRangeDeletions) {
   // is ingested into L0
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {60, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
-      {{65, 70}, {45, 50}}, file_id++, true /* write_global_seqno */,
+      {{65, 70}, {45, 50}}, file_id++,
       true /* verify_checksums_before_ingest */, &true_data));
   ASSERT_EQ(2, true_data.size());
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
@@ -1755,7 +1720,7 @@ TEST_F(ExternalSSTFileBasicTest, UnorderedRangeDeletions) {
   // Ingest a file containing out of order range dels that cover nothing
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {151, 175}, {ValueType::kTypeValue, ValueType::kTypeValue},
-      {{160, 200}, {120, 180}}, file_id++, true /* write_global_seqno */,
+      {{160, 200}, {120, 180}}, file_id++,
       true /* verify_checksums_before_ingest */, &true_data));
   ASSERT_EQ(4, true_data.size());
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
@@ -1765,8 +1730,7 @@ TEST_F(ExternalSSTFileBasicTest, UnorderedRangeDeletions) {
   // Ingest a file containing out of order range dels that cover keys in L6
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {}, {}, {{190, 200}, {170, 180}, {55, 65}}, file_id++,
-      true /* write_global_seqno */, true /* verify_checksums_before_ingest */,
-      &true_data));
+      true /* verify_checksums_before_ingest */, &true_data));
   ASSERT_EQ(2, true_data.size());
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(2, NumTableFilesAtLevel(kNumLevels - 1));
@@ -1802,7 +1766,7 @@ TEST_F(ExternalSSTFileBasicTest, RangeDeletionEndComesBeforeStart) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool verify_checksums_before_ingest = GetParam();
   if (!verify_checksums_before_ingest) {
     ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
     return;
@@ -1823,15 +1787,13 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
       change_checksum);
   SyncPoint::GetInstance()->EnableProcessing();
   int file_id = 0;
-  bool write_global_seqno = std::get<0>(GetParam());
   do {
     Options options = CurrentOptions();
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
     Status s = GenerateAndAddExternalFile(
         options, {1, 2, 3, 4, 5, 6}, ValueType::kTypeValue, file_id++,
-        write_global_seqno, /*verify_checksums_before_ingest=*/true,
-        &true_data);
+        /*verify_checksums_before_ingest=*/true, &true_data);
     ASSERT_NOK(s);
     change_checksum_called = false;
   } while (ChangeOptionsForFileIngestionTest());
@@ -1883,8 +1845,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithCorruptedDataBlock) {
     }
     // Ingest file.
     IngestExternalFileOptions ifo;
-    ifo.write_global_seqno = std::get<0>(GetParam());
-    ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+    ifo.verify_checksums_before_ingest = GetParam();
     s = db_->IngestExternalFile({file_path}, ifo);
     if (ifo.verify_checksums_before_ingest) {
       ASSERT_NOK(s);
@@ -1895,7 +1856,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithCorruptedDataBlock) {
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
-  bool verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool verify_checksums_before_ingest = GetParam();
   if (!verify_checksums_before_ingest) {
     ROCKSDB_GTEST_BYPASS("Bypassing test when !verify_checksums_before_ingest");
     return;
@@ -1952,7 +1913,6 @@ TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
 
     // Ingest file.
     IngestExternalFileOptions ifo;
-    ifo.write_global_seqno = std::get<0>(GetParam());
     ifo.verify_checksums_before_ingest = true;
     s = db_->IngestExternalFile({file_path}, ifo);
     ASSERT_NOK(s);
@@ -2737,7 +2697,6 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     in_opts.snapshot_consistency = true;
     in_opts.allow_global_seqno = false;
     in_opts.allow_blocking_flush = false;
-    in_opts.write_global_seqno = true;
     in_opts.verify_file_checksum = false;
     in_opts.ingest_behind = (mode == "ingest_behind");
     in_opts.fail_if_not_bottommost_level = (mode == "fail_if_not");
@@ -3213,7 +3172,8 @@ TEST_F(ExternalSSTFileBasicTest, VerifySstUniqueId) {
         props->db_session_id = "";
         props->db_id = "";
       });
-  std::atomic_int skipped = 0, passed = 0;
+  std::atomic_int skipped = 0;
+  std::atomic_int passed = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTable::Open::SkippedVerifyUniqueId",
       [&](void* /*arg*/) { skipped++; });
@@ -3360,10 +3320,7 @@ TEST_F(ExternalSSTFileBasicTest, ConcurrentIngestionAndDropColumnFamily) {
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
-                        testing::Values(std::make_tuple(true, true),
-                                        std::make_tuple(true, false),
-                                        std::make_tuple(false, true),
-                                        std::make_tuple(false, false)));
+                        testing::Bool());
 
 namespace {
 

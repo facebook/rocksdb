@@ -556,12 +556,6 @@ static void rocksdb_roundtrip_test_rocksdb_ingestexternalfileoptions(void) {
   rocksdb_ingestexternalfileoptions_set_verify_file_checksum(obj, 0);
   CheckCondition(
       rocksdb_ingestexternalfileoptions_get_verify_file_checksum(obj) == 0);
-  rocksdb_ingestexternalfileoptions_set_write_global_seqno(obj, 1);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_write_global_seqno(obj) == 1);
-  rocksdb_ingestexternalfileoptions_set_write_global_seqno(obj, 0);
-  CheckCondition(
-      rocksdb_ingestexternalfileoptions_get_write_global_seqno(obj) == 0);
   rocksdb_ingestexternalfileoptions_destroy(obj);
 }
 

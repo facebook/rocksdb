@@ -2057,16 +2057,6 @@ unsigned char rocksdb_ingestexternalfileoptions_get_ingest_behind(
   return opt->rep.ingest_behind;
 }
 
-void rocksdb_ingestexternalfileoptions_set_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt, unsigned char v) {
-  opt->rep.write_global_seqno = v;
-}
-
-unsigned char rocksdb_ingestexternalfileoptions_get_write_global_seqno(
-    rocksdb_ingestexternalfileoptions_t* opt) {
-  return opt->rep.write_global_seqno;
-}
-
 void rocksdb_ingestexternalfileoptions_set_verify_checksums_before_ingest(
     rocksdb_ingestexternalfileoptions_t* opt, unsigned char v) {
   opt->rep.verify_checksums_before_ingest = v;
