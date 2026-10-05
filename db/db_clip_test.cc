@@ -192,6 +192,28 @@ TEST_F(DBClipTest, TestClipRange) {
     ASSERT_TRUE(in_range);
   }
 }
+
+TEST_F(DBClipTest, KeepFileEndingAtBeginKey) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("b", "vb"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Put("d", "vd"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,2", FilesPerLevel(0));
+
+  ASSERT_OK(db_->ClipColumnFamily(db_->DefaultColumnFamily(), "b", "d"));
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("vb", Get("b"));
+  ASSERT_EQ("vc", Get("c"));
+  ASSERT_EQ("NOT_FOUND", Get("d"));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
