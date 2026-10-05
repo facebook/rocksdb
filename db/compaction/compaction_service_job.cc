@@ -271,7 +271,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                              file.smallest_seqno, file.largest_seqno);
     meta.smallest.DecodeFrom(file.smallest_internal_key);
     meta.largest.DecodeFrom(file.largest_internal_key);
-    meta.oldest_ancester_time = file.oldest_ancester_time;
+    meta.oldest_ancestor_time = file.oldest_ancestor_time;
     meta.file_creation_time = file.file_creation_time;
     meta.epoch_number = file.epoch_number;
     meta.file_checksum = file.file_checksum;
@@ -469,7 +469,7 @@ Status CompactionServiceCompactionJob::Run() {
           MakeTableFileName(meta.fd.GetNumber()), meta.fd.GetFileSize(),
           meta.fd.smallest_seqno, meta.fd.largest_seqno,
           meta.smallest.Encode().ToString(), meta.largest.Encode().ToString(),
-          meta.oldest_ancester_time, meta.file_creation_time, meta.epoch_number,
+          meta.oldest_ancestor_time, meta.file_creation_time, meta.epoch_number,
           meta.file_checksum, meta.file_checksum_func_name,
           output_file.validator.GetHash(), meta.marked_for_compaction,
           meta.unique_id, *output_file.table_properties,
@@ -601,8 +601,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionServiceOutputFile, largest_internal_key),
           OptionType::kEncodedString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // Misspelled key kept for compatibility with other versions
         {"oldest_ancester_time",
-         {offsetof(struct CompactionServiceOutputFile, oldest_ancester_time),
+         {offsetof(struct CompactionServiceOutputFile, oldest_ancestor_time),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"file_creation_time",

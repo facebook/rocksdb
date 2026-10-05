@@ -101,7 +101,7 @@ enum NewFileCustomTag : uint32_t {
   // when manifest becomes forward-compatible.
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
-  kOldestAncesterTime = 5,
+  kOldestAncestorTime = 5,
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
@@ -126,7 +126,7 @@ enum NewFileCustomTag : uint32_t {
 class VersionSet;
 
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
-constexpr uint64_t kUnknownOldestAncesterTime = 0;
+constexpr uint64_t kUnknownOldestAncestorTime = 0;
 constexpr uint64_t kUnknownNewestKeyTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 constexpr uint64_t kUnknownEpochNumber = 0;
@@ -295,7 +295,7 @@ struct FileMetaData {
   // compaction output file is used.
   //
   // 0 means the information is not available.
-  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+  uint64_t oldest_ancestor_time = kUnknownOldestAncestorTime;
 
   // Unix time when the SST file is created.
   uint64_t file_creation_time = kUnknownFileCreationTime;
@@ -349,7 +349,7 @@ struct FileMetaData {
                const SequenceNumber& smallest_seq,
                const SequenceNumber& largest_seq, bool marked_for_compact,
                Temperature _temperature, uint64_t oldest_blob_file,
-               uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
+               uint64_t _oldest_ancestor_time, uint64_t _file_creation_time,
                uint64_t _epoch_number, const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id,
@@ -364,7 +364,7 @@ struct FileMetaData {
         marked_for_compaction(marked_for_compact),
         temperature(_temperature),
         oldest_blob_file_number(oldest_blob_file),
-        oldest_ancester_time(_oldest_ancester_time),
+        oldest_ancestor_time(_oldest_ancestor_time),
         file_creation_time(_file_creation_time),
         epoch_number(_epoch_number),
         file_checksum(_file_checksum),
@@ -398,18 +398,18 @@ struct FileMetaData {
     fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
 
-  // Try to get oldest ancester time from the class itself or table properties
+  // Try to get oldest ancestor time from the class itself or table properties
   // if table reader is already pinned.
   // 0 means the information is not available.
-  uint64_t TryGetOldestAncesterTime() {
-    if (oldest_ancester_time != kUnknownOldestAncesterTime) {
-      return oldest_ancester_time;
+  uint64_t TryGetOldestAncestorTime() {
+    if (oldest_ancestor_time != kUnknownOldestAncestorTime) {
+      return oldest_ancestor_time;
     }
     TableReader* reader = fd.pinned_reader.Get();
     if (reader != nullptr && reader->GetTableProperties() != nullptr) {
       return reader->GetTableProperties()->oldest_ancestor_time;
     }
-    return kUnknownOldestAncesterTime;
+    return kUnknownOldestAncestorTime;
   }
 
   uint64_t TryGetFileCreationTime() {
@@ -435,8 +435,8 @@ struct FileMetaData {
     }
     if (prev_file != nullptr) {
       uint64_t prev_oldest_ancestor_time =
-          prev_file->TryGetOldestAncesterTime();
-      if (prev_oldest_ancestor_time != kUnknownOldestAncesterTime) {
+          prev_file->TryGetOldestAncestorTime();
+      if (prev_oldest_ancestor_time != kUnknownOldestAncestorTime) {
         return prev_oldest_ancestor_time;
       }
     }
@@ -804,7 +804,7 @@ class VersionEdit {
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
                Temperature temperature, uint64_t oldest_blob_file_number,
-               uint64_t oldest_ancester_time, uint64_t file_creation_time,
+               uint64_t oldest_ancestor_time, uint64_t file_creation_time,
                uint64_t epoch_number, const std::string& file_checksum,
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id,
@@ -819,7 +819,7 @@ class VersionEdit {
         FileMetaData(
             file, file_path_id, file_size, smallest, largest, smallest_seqno,
             largest_seqno, marked_for_compaction, temperature,
-            oldest_blob_file_number, oldest_ancester_time, file_creation_time,
+            oldest_blob_file_number, oldest_ancestor_time, file_creation_time,
             epoch_number, file_checksum, file_checksum_func_name, unique_id,
             compensated_range_deletion_size, tail_size,
             user_defined_timestamps_persisted, min_timestamp, max_timestamp));

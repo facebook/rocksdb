@@ -32,7 +32,7 @@ Status CompactionOutputs::Finish(
         meta->fd.largest_seqno);
     relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
     builder_->SetSeqnoTimeTableProperties(relevant_mapping,
-                                          meta->oldest_ancester_time);
+                                          meta->oldest_ancestor_time);
     s = builder_->Finish();
 
   } else {
@@ -817,10 +817,10 @@ void CompactionOutputs::FillFilesToCutForTtl() {
       *(compaction_->inputs(compaction_->num_input_levels() - 1));
   for (FileMetaData* file : olevel) {
     // Worth filtering out by start and end?
-    uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+    uint64_t oldest_ancestor_time = file->TryGetOldestAncestorTime();
     // We put old files if they are not too small to prevent a flood
     // of small files.
-    if (oldest_ancester_time < old_age_thres &&
+    if (oldest_ancestor_time < old_age_thres &&
         file->fd.GetFileSize() >
             compaction_->mutable_cf_options().target_file_size_base / 2) {
       files_to_cut_for_ttl_.push_back(file);

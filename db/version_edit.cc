@@ -304,12 +304,12 @@ void VersionEdit::EncodeToNewFile4(const FileMetaData& f, int level,
   //   tag kNeedCompaction:
   //        now only can take one char value 1 indicating need-compaction
   //
-  PutVarint32(dst, NewFileCustomTag::kOldestAncesterTime);
-  std::string varint_oldest_ancester_time;
-  PutVarint64(&varint_oldest_ancester_time, f.oldest_ancester_time);
-  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
-                           &varint_oldest_ancester_time);
-  PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
+  PutVarint32(dst, NewFileCustomTag::kOldestAncestorTime);
+  std::string varint_oldest_ancestor_time;
+  PutVarint64(&varint_oldest_ancestor_time, f.oldest_ancestor_time);
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncestorTime",
+                           &varint_oldest_ancestor_time);
+  PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancestor_time));
 
   PutVarint32(dst, NewFileCustomTag::kFileCreationTime);
   std::string varint_file_creation_time;
@@ -467,9 +467,9 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input, int& max_level,
             return "path_id wrong vaue";
           }
           break;
-        case kOldestAncesterTime:
-          if (!GetVarint64(&field, &f.oldest_ancester_time)) {
-            return "invalid oldest ancester time";
+        case kOldestAncestorTime:
+          if (!GetVarint64(&field, &f.oldest_ancestor_time)) {
+            return "invalid oldest ancestor time";
           }
           break;
         case kFileCreationTime:
@@ -1023,8 +1023,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" blob_file:");
       AppendNumberTo(&r, f.oldest_blob_file_number);
     }
+    // Misspelled label kept for compatibility with tools parsing this output
     r.append(" oldest_ancester_time:");
-    AppendNumberTo(&r, f.oldest_ancester_time);
+    AppendNumberTo(&r, f.oldest_ancestor_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" epoch_number:");
@@ -1162,7 +1163,8 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
-      jw << "OldestAncesterTime" << f.oldest_ancester_time;
+      // Misspelled key kept for compatibility with tools parsing this output
+      jw << "OldestAncesterTime" << f.oldest_ancestor_time;
       jw << "FileCreationTime" << f.file_creation_time;
       jw << "EpochNumber" << f.epoch_number;
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);

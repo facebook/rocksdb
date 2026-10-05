@@ -72,13 +72,13 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                300 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
                kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                301 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, false);
   edit.AddFile(5, 302, 0, 100, InternalKey("foo", kBig + 502, kTypeValue),
@@ -89,7 +89,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.AddFile(5, 303, 0, 100, InternalKey("foo", kBig + 503, kTypeBlobIndex),
                InternalKey("zoo", kBig + 603, kTypeBlobIndex), kBig + 503,
                kBig + 603, true, Temperature::kUnknown, 1001,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                303 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
 
@@ -145,7 +145,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4HandleFileBoundary) {
       3, 300, 3, 100, InternalKey(smallest + min_ts, kBig + 500, kTypeValue),
       InternalKey(largest + min_ts, kBig + 600, kTypeDeletion), kBig + 500,
       kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
-      kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+      kUnknownOldestAncestorTime, kUnknownFileCreationTime,
       300 /* epoch_number */, kUnknownFileChecksum,
       kUnknownFileChecksumFuncName, kNullUniqueId64x2,
       0 /* compensated_range_deletion_size */, 0 /* tail_size */,
@@ -154,7 +154,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4HandleFileBoundary) {
                InternalKey(smallest + min_ts, kBig + 500, kTypeValue),
                InternalKey(largest + min_ts, kBig + 600, kTypeDeletion),
                kBig + 500, kBig + 600, true, Temperature::kUnknown,
-               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+               kInvalidBlobFileNumber, kUnknownOldestAncestorTime,
                kUnknownFileCreationTime, 300 /* epoch_number */,
                kUnknownFileChecksum, kUnknownFileChecksumFuncName,
                kNullUniqueId64x2, 0 /* compensated_range_deletion_size */,
@@ -187,7 +187,7 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                300 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
@@ -243,7 +243,7 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                300 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, false);
 
@@ -275,7 +275,7 @@ TEST_F(VersionEditTest, EncodeEmptyFile) {
   VersionEdit edit;
   edit.AddFile(0, 0, 0, 0, InternalKey(), InternalKey(), 0, 0, false,
                Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                1 /*epoch_number*/, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
   std::string buffer;
@@ -799,7 +799,7 @@ class SubcompactionProgressTest : public VersionEditTest {
   static constexpr uint64_t kTestFileSize = 1024;
   static constexpr SequenceNumber kTestSmallestSeq = 50;
   static constexpr SequenceNumber kTestLargestSeq = 150;
-  static constexpr uint64_t kTestOldestAncesterTime = 12345;
+  static constexpr uint64_t kTestOldestAncestorTime = 12345;
   static constexpr uint64_t kTestFileCreationTime = 67890;
   static constexpr uint64_t kTestEpochNumber = 10;
   static const std::string kTestChecksumFuncName;
@@ -810,7 +810,7 @@ class SubcompactionProgressTest : public VersionEditTest {
                              kTestLargestSeq);
     file.smallest = InternalKey(prefix + "a", kTestSmallestSeq, kTypeValue);
     file.largest = InternalKey(prefix + "z", kTestLargestSeq, kTypeValue);
-    file.oldest_ancester_time = kTestOldestAncesterTime;
+    file.oldest_ancestor_time = kTestOldestAncestorTime;
     file.file_creation_time = kTestFileCreationTime;
     file.epoch_number = kTestEpochNumber;
     file.file_checksum = "checksum_" + std::to_string(file_number);
@@ -878,7 +878,7 @@ class SubcompactionProgressTest : public VersionEditTest {
     ASSERT_EQ(actual.fd.GetFileSize(), expected.fd.GetFileSize());
     ASSERT_EQ(actual.smallest.Encode(), expected.smallest.Encode());
     ASSERT_EQ(actual.largest.Encode(), expected.largest.Encode());
-    ASSERT_EQ(actual.oldest_ancester_time, expected.oldest_ancester_time);
+    ASSERT_EQ(actual.oldest_ancestor_time, expected.oldest_ancestor_time);
     ASSERT_EQ(actual.file_creation_time, expected.file_creation_time);
     ASSERT_EQ(actual.epoch_number, expected.epoch_number);
     ASSERT_EQ(actual.file_checksum, expected.file_checksum);
@@ -1135,7 +1135,7 @@ TEST_F(VersionEditTest, FileOpenMetadataEncodeDecode) {
   edit.AddFile(3, 300, 0, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, false, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                300 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
   // Set file_open_metadata on the added file
@@ -1147,7 +1147,7 @@ TEST_F(VersionEditTest, FileOpenMetadataEncodeDecode) {
   edit.AddFile(4, 301, 0, 200, InternalKey("bar", kBig + 501, kTypeValue),
                InternalKey("zap", kBig + 601, kTypeDeletion), kBig + 501,
                kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                301 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
 
@@ -1179,7 +1179,7 @@ TEST_F(VersionEditTest, FileOpenMetadataForwardCompatibility) {
   edit.AddFile(3, 300, 0, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, false, Temperature::kUnknown, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownOldestAncestorTime, kUnknownFileCreationTime,
                300 /* epoch_number */, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0, 0, true);
   auto& new_files = edit.GetMutableNewFiles();

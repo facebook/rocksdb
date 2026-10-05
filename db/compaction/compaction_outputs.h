@@ -371,7 +371,7 @@ class CompactionOutputs {
   // repetitive comparison in ShouldStopBefore()
   const InternalKey* local_output_split_key_ = nullptr;
 
-  // Some identified files with old oldest ancester time and the range should be
+  // Some identified files with old oldest ancestor time and the range should be
   // isolated out so that the output file(s) in that range can be merged down
   // for TTL and clear the timestamps for the range.
   std::vector<FileMetaData*> files_to_cut_for_ttl_;

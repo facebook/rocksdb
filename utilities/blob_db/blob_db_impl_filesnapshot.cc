@@ -88,7 +88,7 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     filemetadata.name = BlobFileName("", kBlobDirName, file_number);
     filemetadata.file_number = file_number;
     if (blob_file->HasTTL()) {
-      filemetadata.oldest_ancester_time = blob_file->GetExpirationRange().first;
+      filemetadata.oldest_ancestor_time = blob_file->GetExpirationRange().first;
     }
     auto cfh =
         static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily());

@@ -68,11 +68,11 @@ class FileTtlBooster {
     if (!enabled_) {
       return 1;
     }
-    uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
-    if (oldest_ancester_time >= current_time_) {
+    uint64_t oldest_ancestor_time = f->TryGetOldestAncestorTime();
+    if (oldest_ancestor_time >= current_time_) {
       return 1;
     }
-    uint64_t age = current_time_ - oldest_ancester_time;
+    uint64_t age = current_time_ - oldest_ancestor_time;
     if (age > boost_age_start_) {
       // Use integer just for convenience.
       // We could make all file_to_order double if we want.

@@ -986,9 +986,9 @@ uint64_t Compaction::MaxInputFileNewestKeyTime(const InternalKey* start,
   return newest_key_time;
 }
 
-uint64_t Compaction::MinInputFileOldestAncesterTime(
+uint64_t Compaction::MinInputFileOldestAncestorTime(
     const InternalKey* start, const InternalKey* end) const {
-  uint64_t min_oldest_ancester_time = std::numeric_limits<uint64_t>::max();
+  uint64_t min_oldest_ancestor_time = std::numeric_limits<uint64_t>::max();
   const InternalKeyComparator& icmp =
       column_family_data()->internal_comparator();
   for (const auto& level_files : inputs_) {
@@ -999,14 +999,14 @@ uint64_t Compaction::MinInputFileOldestAncesterTime(
       if (end != nullptr && icmp.Compare(file->smallest, *end) > 0) {
         continue;
       }
-      uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
-      if (oldest_ancester_time != 0) {
-        min_oldest_ancester_time =
-            std::min(min_oldest_ancester_time, oldest_ancester_time);
+      uint64_t oldest_ancestor_time = file->TryGetOldestAncestorTime();
+      if (oldest_ancestor_time != 0) {
+        min_oldest_ancestor_time =
+            std::min(min_oldest_ancestor_time, oldest_ancestor_time);
       }
     }
   }
-  return min_oldest_ancester_time;
+  return min_oldest_ancestor_time;
 }
 
 uint64_t Compaction::MinInputFileEpochNumber() const {

@@ -831,7 +831,9 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
                 and "name" not in child
             ):
                 anon_union_fields = [
-                    c for c in child.get("inner", []) if c.get("kind") == "FieldDecl"
+                    c
+                    for c in child.get("inner", [])
+                    if c.get("kind") == "FieldDecl" and "name" in c
                 ]
                 continue
             if kind != "FieldDecl":
@@ -840,6 +842,7 @@ def discover_fields(family: FamilyConfig) -> list[tuple[str, str]]:
                 members = [child]
             elif child.get("isImplicit"):
                 members = anon_union_fields
+                anon_union_fields = []
             else:
                 members = []
             for member in members:

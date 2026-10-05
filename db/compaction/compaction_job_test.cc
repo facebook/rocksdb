@@ -387,7 +387,7 @@ class CompactionJobTestBase : public testing::Test {
     edit.AddFile(
         level, file_number, 0, file_size, smallest_key, largest_key,
         smallest_seqno, largest_seqno, false, Temperature::kUnknown,
-        oldest_blob_file_number, kUnknownOldestAncesterTime,
+        oldest_blob_file_number, kUnknownOldestAncestorTime,
         kUnknownFileCreationTime,
         versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
         kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
@@ -1702,7 +1702,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
             rnd.Uniform(kStrMaxLen)) /* smallest_internal_key */,
         rnd.RandomBinaryString(
             rnd.Uniform(kStrMaxLen)) /* largest_internal_key */,
-        rnd64.Uniform(UINT64_MAX) /* oldest_ancester_time */,
+        rnd64.Uniform(UINT64_MAX) /* oldest_ancestor_time */,
         rnd64.Uniform(UINT64_MAX) /* file_creation_time */,
         rnd64.Uniform(UINT64_MAX) /* epoch_number */,
         file_checksum /* file_checksum */,

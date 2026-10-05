@@ -36,6 +36,10 @@ class CompressionManager;
 using UserCollectedProperties = std::map<std::string, std::string>;
 
 // table properties' human-readable names in the property block.
+//
+// DEPRECATED: intended for internal use only and will be removed from the
+// public API in a future release. Use the corresponding TableProperties
+// fields instead.
 struct TablePropertiesNames {
   static const std::string kDbId;
   static const std::string kDbSessionId;
@@ -71,7 +75,12 @@ struct TablePropertiesNames {
   static const std::string kPropertyCollectors;
   static const std::string kCompression;
   static const std::string kCompressionOptions;
-  static const std::string kCreationTime;
+  // NOTE: set to "rocksdb.creation.time" because of unfortunate initial
+  // mis-naming of the property. See kFileCreationTime and file_creation_time.
+  static const std::string kOldestAncestorTime;
+  // DEPRECATED: old name for kOldestAncestorTime. Will be removed in a future
+  // release.
+  static const std::string& kCreationTime;
   static const std::string kOldestKeyTime;
   static const std::string kNewestKeyTime;
   static const std::string kFileCreationTime;

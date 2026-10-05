@@ -2160,20 +2160,20 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   if (s.ok()) {
     // With accurate smallest and largest key, we can get a slightly more
-    // accurate oldest ancester time.
-    // This makes oldest ancester time in manifest more accurate than in
+    // accurate oldest ancestor time.
+    // This makes oldest ancestor time in manifest more accurate than in
     // table properties. Not sure how to resolve it.
     if (meta->smallest.size() > 0 && meta->largest.size() > 0) {
-      uint64_t refined_oldest_ancester_time;
+      uint64_t refined_oldest_ancestor_time;
       Slice new_smallest = meta->smallest.user_key();
       Slice new_largest = meta->largest.user_key();
       if (!new_largest.empty() && !new_smallest.empty()) {
-        refined_oldest_ancester_time =
-            sub_compact->compaction->MinInputFileOldestAncesterTime(
+        refined_oldest_ancestor_time =
+            sub_compact->compaction->MinInputFileOldestAncestorTime(
                 &(meta->smallest), &(meta->largest));
-        if (refined_oldest_ancester_time !=
+        if (refined_oldest_ancestor_time !=
             std::numeric_limits<uint64_t>::max()) {
-          meta->oldest_ancester_time = refined_oldest_ancester_time;
+          meta->oldest_ancestor_time = refined_oldest_ancestor_time;
         }
       }
     }
@@ -2555,7 +2555,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     return s;
   }
 
-  // Try to figure out the output file's oldest ancester time.
+  // Try to figure out the output file's oldest ancestor time.
   int64_t temp_current_time = 0;
   auto get_time_status = db_options_.clock->GetCurrentTime(&temp_current_time);
   // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
@@ -2572,14 +2572,14 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   if (sub_compact->end.has_value()) {
     tmp_end.SetMinPossibleForUserKey(*(sub_compact->end));
   }
-  uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime(
+  uint64_t oldest_ancestor_time =
+      sub_compact->compaction->MinInputFileOldestAncestorTime(
           sub_compact->start.has_value() ? &tmp_start : nullptr,
           sub_compact->end.has_value() ? &tmp_end : nullptr);
-  if (oldest_ancester_time == std::numeric_limits<uint64_t>::max()) {
+  if (oldest_ancestor_time == std::numeric_limits<uint64_t>::max()) {
     // TODO: fix DBSSTTest.GetTotalSstFilesSize and use
-    //  kUnknownOldestAncesterTime
-    oldest_ancester_time = current_time;
+    //  kUnknownOldestAncestorTime
+    oldest_ancestor_time = current_time;
   }
 
   uint64_t newest_key_time = sub_compact->compaction->MaxInputFileNewestKeyTime(
@@ -2592,7 +2592,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     FileMetaData meta;
     meta.fd = FileDescriptor(file_number,
                              sub_compact->compaction->output_path_id(), 0);
-    meta.oldest_ancester_time = oldest_ancester_time;
+    meta.oldest_ancestor_time = oldest_ancestor_time;
     meta.file_creation_time = current_time;
     meta.epoch_number = epoch_number;
     meta.temperature = temperature;

@@ -902,6 +902,16 @@ TEST_F(DBTablePropertiesTest, CreationTimeAliasesOldestAncestorTime) {
   ASSERT_EQ(&props.creation_time, &props.oldest_ancestor_time);
   props.creation_time = 12345;
   ASSERT_EQ(props.oldest_ancestor_time, 12345U);
+  ASSERT_EQ(&TablePropertiesNames::kCreationTime,
+            &TablePropertiesNames::kOldestAncestorTime);
+}
+
+TEST_F(DBTablePropertiesTest, SstFileMetaDataOldestAncesterTimeAlias) {
+  // Intentionally uses the deprecated misspelled alias
+  LiveFileMetaData meta;
+  ASSERT_EQ(&meta.oldest_ancester_time, &meta.oldest_ancestor_time);
+  meta.oldest_ancester_time = 12345;
+  ASSERT_EQ(meta.oldest_ancestor_time, 12345U);
 }
 
 TEST_F(DBTablePropertiesTest, UncompressedDataSizeAndLsmInfoPersisted) {
