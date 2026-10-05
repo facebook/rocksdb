@@ -1024,9 +1024,12 @@ Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
   if (cfds.empty()) {
     return Status::OK();
   }
-  return versions_->LogAndApply(cfds, read_options, write_options, edit_lists,
-                                &mutex_, directories_.GetDbDir(),
-                                /*new_descriptor_log=*/false);
+  return versions_->LogAndApply(
+      cfds, read_options, write_options, edit_lists,
+      VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies,
+      /*new_mutable_cf_options=*/nullptr,
+      /*compaction_phase_anchor_time=*/std::nullopt, &mutex_,
+      directories_.GetDbDir(), /*new_descriptor_log=*/false);
 }
 
 Status DBImpl::CloseHelper() {
@@ -1861,6 +1864,22 @@ Status DBImpl::SetOptions(
         {static_cast_with_check<ColumnFamilyHandleImpl>(cf_opts.first)->cfd(),
          &cf_opts.second});
   }
+  struct ColumnFamilyOptionsUpdate {
+    ColumnFamilyData* cfd{};
+    autovector<const std::unordered_map<std::string, std::string>*>
+        options_maps;
+  };
+  autovector<ColumnFamilyOptionsUpdate> column_family_updates;
+  std::unordered_map<ColumnFamilyData*, size_t> update_index_by_cfd;
+  for (const auto& cfd_opts : column_family_datas) {
+    const auto [it, inserted] = update_index_by_cfd.emplace(
+        cfd_opts.first, column_family_updates.size());
+    if (inserted) {
+      column_family_updates.push_back({cfd_opts.first, {cfd_opts.second}});
+    } else {
+      column_family_updates[it->second].options_maps.push_back(cfd_opts.second);
+    }
+  }
 
   InstrumentedMutexLock ol(&options_mutex_);
   autovector<MutableCFOptions>
@@ -1879,54 +1898,95 @@ Status DBImpl::SetOptions(
     // temporarily roll back option changes. Thus, we use a special call to
     // LogAndApply that allows us to
     //
-    // (a) Apply the options update when we know we are the exclusive version
+    // (a) Prepare the options update when we know we are the exclusive version
     // appender + (fake) manifest writer, and
     //
-    // (b) Append a new Version without manifest write nor DB mutex release
+    // (b) Build the replacement Versions without a manifest write. Blob
+    // metadata finalization and candidate ranking run with the DB mutex
+    // released; the options and Versions are published together after it is
+    // reacquired.
     //
-    // Thus aren't releasing the DB mutex from LogAndApply calling pre_cb,
-    // through installing the new Version until the end of this block, after
-    // installing the new SuperVersion.
-    VersionEdit dummy_edit;
-    dummy_edit.MarkNoManifestWriteDummy();
-    TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
-    // If any CF is changing periodic_compaction_seconds, (re)anchor phasing to
-    // now BEFORE the new Version is built below, so the new Version's scoring
-    // spreads a turn-down's newly past-due cohort over the phase grid (within
-    // ~N/4 of now) instead of firing it all at once (a herd). Anchoring is
-    // DB-level and benign to CFs that are not changing their interval.
+    // The DB mutex remains held from publication through installing every new
+    // SuperVersion, so readers cannot observe a mixed options/Version view.
+    // If any CF is changing periodic_compaction_seconds, prepare a new phasing
+    // anchor for the unpublished Versions so a turn-down's newly past-due
+    // cohort is spread over the phase grid (within ~N/4 of now). The live
+    // phaser and current Versions retain the old anchor until the options and
+    // replacement Versions are published under the DB mutex.
     bool changing_periodic_compaction_seconds = false;
-    for (const auto& cfd_opts : column_family_datas) {
-      if (cfd_opts.second->count("periodic_compaction_seconds") > 0) {
-        changing_periodic_compaction_seconds = true;
-        break;
-      }
-    }
-    if (changing_periodic_compaction_seconds) {
-      versions_->ReanchorCompactionPhase();
-    }
-    for (const auto& cfd_opts : column_family_datas) {
-      auto* cfd = cfd_opts.first;
-      const auto* options_map_ptr = cfd_opts.second;
-      auto pre_cb = [&]() -> Status {
-        Status cb_s = cfd->SetOptions(db_options, *options_map_ptr);
-        if (cb_s.ok()) {
-          new_options_copy.emplace_back(cfd->GetLatestMutableCFOptions());
+    for (const auto& update : column_family_updates) {
+      for (const auto* options_map : update.options_maps) {
+        if (options_map->count("periodic_compaction_seconds") > 0) {
+          changing_periodic_compaction_seconds = true;
+          break;
         }
-        return cb_s;
-      };
-
-      s = versions_->LogAndApply(
-          cfd, read_options, write_options, &dummy_edit, &mutex_,
-          directories_.GetDbDir(), false /*new_descriptor_log=*/,
-          nullptr /*new_opts*/, {} /*manifest_wcb*/, pre_cb);
-      if (!versions_->io_status().ok()) {
-        assert(!s.ok());
-        error_handler_.SetBGError(versions_->io_status(),
-                                  BackgroundErrorReason::kManifestWrite);
       }
-      if (!s.ok()) {
+      if (changing_periodic_compaction_seconds) {
         break;
+      }
+    }
+    const std::optional<uint64_t> compaction_phase_anchor_time =
+        changing_periodic_compaction_seconds
+            ? versions_->PrepareCompactionPhaseReanchor()
+            : std::nullopt;
+
+    autovector<ColumnFamilyData*> cfds;
+    autovector<autovector<VersionEdit*>> edit_lists;
+    std::vector<std::unique_ptr<VersionEdit>> dummy_edits;
+    autovector<MutableCFOptions> prepared_options;
+    autovector<const MutableCFOptions*> prepared_option_ptrs;
+    const size_t num_cfds = column_family_updates.size();
+    cfds.reserve(num_cfds);
+    edit_lists.reserve(num_cfds);
+    dummy_edits.reserve(num_cfds);
+    prepared_options.reserve(num_cfds);
+    prepared_option_ptrs.reserve(num_cfds);
+    for (const auto& update : column_family_updates) {
+      cfds.push_back(update.cfd);
+      dummy_edits.emplace_back(new VersionEdit());
+      dummy_edits.back()->MarkNoManifestWriteDummy();
+      TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit",
+                               dummy_edits.back().get());
+      edit_lists.emplace_back();
+      edit_lists.back().push_back(dummy_edits.back().get());
+      prepared_options.emplace_back(update.cfd->GetLatestMutableCFOptions());
+    }
+    for (const auto& prepared_option : prepared_options) {
+      prepared_option_ptrs.push_back(&prepared_option);
+    }
+
+    auto pre_cb = [&]() -> Status {
+      for (size_t i = 0; i < num_cfds; ++i) {
+        auto* cfd = column_family_updates[i].cfd;
+        if (cfd->IsDropped()) {
+          return Status::ColumnFamilyDropped();
+        }
+        for (const auto* options_map : column_family_updates[i].options_maps) {
+          Status cb_s = cfd->PrepareMutableCFOptions(db_options, *options_map,
+                                                     &prepared_options[i]);
+          if (!cb_s.ok()) {
+            return cb_s;
+          }
+        }
+      }
+      return Status::OK();
+    };
+
+    s = versions_->LogAndApply(
+        cfds, read_options, write_options, edit_lists,
+        VersionSet::LogAndApplyColumnFamilyMode::kUniqueColumnFamilies,
+        &prepared_option_ptrs, compaction_phase_anchor_time, &mutex_,
+        directories_.GetDbDir(), /*new_descriptor_log=*/false,
+        /*new_cf_options=*/nullptr, /*manifest_wcbs=*/{}, pre_cb,
+        /*max_file_opening_threads=*/1);
+    if (!versions_->io_status().ok()) {
+      assert(!s.ok());
+      error_handler_.SetBGError(versions_->io_status(),
+                                BackgroundErrorReason::kManifestWrite);
+    }
+    if (s.ok()) {
+      for (const auto& prepared_option : prepared_options) {
+        new_options_copy.emplace_back(prepared_option);
       }
     }
 
@@ -1934,8 +1994,8 @@ Status DBImpl::SetOptions(
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      for (const auto& cfd_opts : column_family_datas) {
-        auto* cfd = cfd_opts.first;
+      for (const auto& update : column_family_updates) {
+        auto* cfd = update.cfd;
         InstallSuperVersionForConfigChange(cfd, &sv_context);
         if (auto* blob_partition_manager = cfd->blob_partition_manager()) {
           blob_partition_manager->SetBlobWriterMaxBufferSize(
@@ -1949,8 +2009,8 @@ Status DBImpl::SetOptions(
       bg_cv_.SignalAll();
 
 #ifndef NDEBUG
-      for (size_t i = 0; i < column_family_datas.size(); ++i) {
-        auto* cfd = column_family_datas[i].first;
+      for (size_t i = 0; i < column_family_updates.size(); ++i) {
+        auto* cfd = column_family_updates[i].cfd;
         assert(new_options_copy[i] == cfd->GetLatestMutableCFOptions());
         assert(cfd->GetLatestMutableCFOptions() ==
                cfd->GetCurrentMutableCFOptions());
@@ -1991,12 +2051,12 @@ Status DBImpl::SetOptions(
     }
   }
   if (s.ok()) {
-    for (size_t i = 0; i < column_family_datas.size(); ++i) {
-      const auto* cfd = column_family_datas[i].first;
+    for (size_t i = 0; i < column_family_updates.size(); ++i) {
+      const auto* cfd = column_family_updates[i].cfd;
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Set options on column family [%s] (%zu/%zu) succeeded, "
                      "updated CF options:",
-                     cfd->GetName().c_str(), i, column_family_datas.size());
+                     cfd->GetName().c_str(), i, column_family_updates.size());
       new_options_copy[i].Dump(immutable_db_options_.info_log.get());
     }
     if (!persist_options_status.ok()) {
@@ -7480,9 +7540,12 @@ Status DBImpl::CommitFileIngestionHandles(
         assert(0 == num_entries);
       }
       status = versions_->LogAndApply(
-          cfds_to_commit, read_options, write_options, edit_lists, &mutex_,
-          directories_.GetDbDir(), false /* new_descriptor_log */,
-          nullptr /* new_cf_options */, {} /* manifest_wcbs */, {} /* pre_cb */,
+          cfds_to_commit, read_options, write_options, edit_lists,
+          VersionSet::LogAndApplyColumnFamilyMode::kMayRepeatColumnFamilies,
+          /*new_mutable_cf_options=*/nullptr,
+          /*compaction_phase_anchor_time=*/std::nullopt, &mutex_,
+          directories_.GetDbDir(), /*new_descriptor_log=*/false,
+          /*new_cf_options=*/nullptr, /*manifest_wcbs=*/{}, /*pre_cb=*/{},
           max_file_opening_threads);
       // It is safe to update VersionSet last seqno here after LogAndApply since
       // LogAndApply persists last sequence number from VersionEdits,
