@@ -227,6 +227,166 @@ class VersionStorageInfoTest : public VersionStorageInfoTestBase {
   ~VersionStorageInfoTest() override = default;
 };
 
+TEST_F(VersionStorageInfoTest, BlobOriginIndexStoresRelocationsOnly) {
+  AddBlob(/*blob_file_number=*/5, /*total_blob_count=*/1,
+          /*total_blob_bytes=*/100, BlobFileMetaData::LinkedSsts{},
+          /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+
+  BlobFileAddition identity(/*blob_file_number=*/10,
+                            /*total_blob_count=*/1,
+                            /*total_blob_bytes=*/100, "", "");
+  identity.SetIndirectionIdentity();
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(identity), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  BlobFileAddition relocation(/*blob_file_number=*/30,
+                              /*total_blob_count=*/1,
+                              /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(relocation.SetIndirectionRelocationFile(
+      /*origin_file_number=*/20, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(relocation),
+      BlobFileMetaData::LinkedSsts{}, /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  ASSERT_OK(vstorage_.ValidateBlobIndirection());
+  EXPECT_EQ(vstorage_.TEST_GetBlobRelocationFileCount(), 1U);
+  ASSERT_NE(vstorage_.GetBlobFileMetaDataByOrigin(10), nullptr);
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(10)->GetBlobFileNumber(),
+            10U);
+  ASSERT_NE(vstorage_.GetBlobFileMetaDataByOrigin(20), nullptr);
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(20)->GetBlobFileNumber(),
+            30U);
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(5), nullptr);
+}
+
+TEST_F(VersionStorageInfoTest, BlobOriginIndexSupportsIncrementalConstruction) {
+  BlobFileAddition first(/*blob_file_number=*/30,
+                         /*total_blob_count=*/1,
+                         /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(first.SetIndirectionRelocationFile(
+      /*origin_file_number=*/20, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(first), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0));
+  ASSERT_OK(vstorage_.ValidateBlobIndirection());
+
+  // A builder can append to a previously finalized base. The second entry is
+  // deliberately out of origin order, so lookup must not binary-search until
+  // the derived index is finalized again.
+  BlobFileAddition second(/*blob_file_number=*/40,
+                          /*total_blob_count=*/1,
+                          /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(second.SetIndirectionRelocationFile(
+      /*origin_file_number=*/10, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(second), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0));
+
+  ASSERT_NE(vstorage_.GetBlobFileMetaDataByOrigin(10), nullptr);
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(10)->GetBlobFileNumber(),
+            40U);
+  ASSERT_NE(vstorage_.GetBlobFileMetaDataByOrigin(20), nullptr);
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(20)->GetBlobFileNumber(),
+            30U);
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(15), nullptr);
+
+  ASSERT_OK(vstorage_.ValidateBlobIndirection());
+  EXPECT_EQ(vstorage_.GetBlobFileMetaDataByOrigin(10)->GetBlobFileNumber(),
+            40U);
+}
+
+TEST_F(VersionStorageInfoTest, BlobOriginIndexRejectsIdentityAndRelocation) {
+  BlobFileAddition identity(/*blob_file_number=*/10,
+                            /*total_blob_count=*/1,
+                            /*total_blob_bytes=*/100, "", "");
+  identity.SetIndirectionIdentity();
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(identity), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  BlobFileAddition relocation(/*blob_file_number=*/20,
+                              /*total_blob_count=*/1,
+                              /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(relocation.SetIndirectionRelocationFile(
+      /*origin_file_number=*/10, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(relocation),
+      BlobFileMetaData::LinkedSsts{}, /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  EXPECT_TRUE(vstorage_.ValidateBlobIndirection().IsCorruption());
+}
+
+TEST_F(VersionStorageInfoTest, BlobOriginIndexRejectsDuplicateRelocations) {
+  BlobFileAddition first(/*blob_file_number=*/20,
+                         /*total_blob_count=*/1,
+                         /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(first.SetIndirectionRelocationFile(
+      /*origin_file_number=*/10, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(first), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  BlobFileAddition second(/*blob_file_number=*/30,
+                          /*total_blob_count=*/1,
+                          /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(second.SetIndirectionRelocationFile(
+      /*origin_file_number=*/10, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(second), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  EXPECT_TRUE(vstorage_.ValidateBlobIndirection().IsCorruption());
+}
+
+TEST_F(VersionStorageInfoTest, BlobOriginIndexRejectsDirectFileCollision) {
+  AddBlob(/*blob_file_number=*/10, /*total_blob_count=*/1,
+          /*total_blob_bytes=*/100, BlobFileMetaData::LinkedSsts{},
+          /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+
+  BlobFileAddition relocation(/*blob_file_number=*/20,
+                              /*total_blob_count=*/1,
+                              /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(relocation.SetIndirectionRelocationFile(
+      /*origin_file_number=*/10, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(relocation),
+      BlobFileMetaData::LinkedSsts{}, /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  EXPECT_TRUE(vstorage_.ValidateBlobIndirection().IsCorruption());
+}
+
+TEST_F(VersionStorageInfoTest, BlobOriginIndexRejectsCarrierFileCollision) {
+  BlobFileAddition first(/*blob_file_number=*/20,
+                         /*total_blob_count=*/1,
+                         /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(first.SetIndirectionRelocationFile(
+      /*origin_file_number=*/10, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(first), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  BlobFileAddition second(/*blob_file_number=*/30,
+                          /*total_blob_count=*/1,
+                          /*total_blob_bytes=*/100, "", "");
+  ASSERT_OK(second.SetIndirectionRelocationFile(
+      /*origin_file_number=*/20, /*relocation_file_size=*/128));
+  vstorage_.AddBlobFile(BlobFileMetaData::Create(
+      SharedBlobFileMetaData::Create(second), BlobFileMetaData::LinkedSsts{},
+      /*garbage_blob_count=*/0,
+      /*garbage_blob_bytes=*/0));
+
+  EXPECT_TRUE(vstorage_.ValidateBlobIndirection().IsCorruption());
+}
+
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.max_bytes_for_level_base = 10;

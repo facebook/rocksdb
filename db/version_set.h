@@ -449,6 +449,12 @@ class VersionStorageInfo {
 
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   using BlobFiles = std::vector<std::shared_ptr<BlobFileMetaData>>;
+  struct BlobRelocationFileIndexEntry {
+    uint64_t origin_file_number;
+    uint64_t physical_file_number;
+  };
+  using BlobRelocationFiles = std::vector<BlobRelocationFileIndexEntry>;
+  using BlobRelocationFilesHandle = std::shared_ptr<const BlobRelocationFiles>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
@@ -468,6 +474,27 @@ class VersionStorageInfo {
     }
 
     return std::shared_ptr<BlobFileMetaData>();
+  }
+
+  // Returns the physical identity file or current mapped relocation file for an
+  // indirect BlobID origin. Legacy blob files are intentionally absent.
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaDataByOrigin(
+      uint64_t origin_file_number) const;
+
+  BlobRelocationFilesHandle GetBlobRelocationFiles() const {
+    assert(blob_relocation_files_finalized_);
+    return blob_relocation_files_;
+  }
+
+  static uint64_t ResolveBlobFileNumber(
+      const BlobRelocationFiles& relocation_files, uint64_t origin_file_number);
+
+  // Finalizes the relocation index and validates that physical file numbers
+  // and logical origins cannot be interpreted as two different blobs.
+  Status ValidateBlobIndirection();
+
+  size_t TEST_GetBlobRelocationFileCount() const {
+    return blob_relocation_files_->size();
   }
 
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
@@ -742,6 +769,16 @@ class VersionStorageInfo {
 
   // Vector of blob files in version sorted by blob file number.
   BlobFiles blob_files_;
+
+  // Relocation overrides keyed by stable indirect BlobID origin. Identity
+  // routes are represented by blob_files_ itself and use its binary lookup.
+  // A flat index avoids one allocation and shared_ptr destruction per route
+  // when a Version is released while the DB mutex is held. The index is built
+  // and sorted during blob finalization, before the Version is published.
+  std::shared_ptr<BlobRelocationFiles> blob_relocation_files_ =
+      std::make_shared<BlobRelocationFiles>();
+  bool blob_relocation_files_finalized_ = false;
+  bool has_blob_indirection_ = false;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
