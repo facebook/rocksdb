@@ -539,6 +539,23 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
+  // A service that supports blob indirection must return true from
+  // IsInstanceOf(BlobIndirectionCapabilityName()). Every worker that can
+  // receive a scheduled job must preserve indirect references and their SST
+  // metadata, report logical blob garbage in CompactionServiceResult, and keep
+  // newly materialized values inline instead of creating remote blob files.
+  //
+  // The default is false. When false, compactions using blob indirection run
+  // locally and Schedule() is not called. This uses Customizable's existing
+  // capability query so adding the capability does not change the public
+  // CompactionService vtable.
+  static const char* BlobIndirectionCapabilityName() {
+    return "rocksdb.compaction_service.blob_indirection.v1";
+  }
+  bool SupportsBlobIndirection() const {
+    return IsInstanceOf(BlobIndirectionCapabilityName());
+  }
+
   // Schedule compaction to be processed remotely.
   virtual CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& /*info*/,

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -1163,6 +1164,15 @@ Status CompactionJob::Run() {
 
   const uint64_t start_micros = db_options_.clock->NowMicros();
 
+  if (db_options_.compaction_service != nullptr &&
+      // @lint-ignore NULLSAFECLANG nullable-dereference
+      compact_->compaction->UsesBlobIndirection()) {
+    compaction_service_supports_blob_indirection_ =
+        db_options_.compaction_service->SupportsBlobIndirection();
+    // @lint-ignore NULLSAFECLANG nullable-dereference
+    TEST_SYNC_POINT("CompactionJob::Run:BlobIndirectionCapabilityQueried");
+  }
+
   RunSubcompactions();
 
   UpdateTimingStats(start_micros);
@@ -1206,6 +1216,7 @@ Status CompactionJob::Run() {
                                           num_input_range_del);
   }
 
+  PrepareBlobFileGarbage(status.ok());
   if (status.ok()) {
     PrepareCompactionResults();
   }
@@ -1624,10 +1635,16 @@ void CompactionJob::CreateBlobFileBuilder(
     const WriteOptions& write_options) {
   const auto& mutable_cf_options =
       sub_compact->compaction->mutable_cf_options();
+  // The CompactionService result protocol imports SSTs only. Indirection
+  // workers materialize values inline instead of returning external blobs.
+  const bool suppress_remote_blob_files =
+      IsRemoteCompaction() &&
+      // @lint-ignore NULLSAFECLANG nullable-dereference
+      sub_compact->compaction->UsesBlobIndirection();
 
   // TODO: BlobDB to support output_to_proximal_level compaction, which needs
   //  2 builders, so may need to move to `CompactionOutputs`
-  if (mutable_cf_options.enable_blob_files &&
+  if (!suppress_remote_blob_files && mutable_cf_options.enable_blob_files &&
       sub_compact->compaction->output_level() >=
           mutable_cf_options.blob_file_starting_level) {
     blob_file_builder = std::make_unique<BlobFileBuilder>(
@@ -2373,6 +2390,54 @@ bool CompactionJob::ShouldUpdateSubcompactionProgress(
   return true;
 }
 
+void CompactionJob::PrepareBlobFileGarbage(bool compaction_succeeded) {
+  assert(compact_ != nullptr);
+  assert(blob_file_garbages_.empty());
+
+  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> coordinated_garbage;
+  {
+    std::lock_guard<std::mutex> lock(blob_indirection_result_mutex_);
+    coordinated_garbage.swap(blob_indirection_garbage_);
+  }
+  if (!compaction_succeeded) {
+    return;
+  }
+
+  if (!blob_indirection_results_valid_ ||
+      blob_indirection_results_arrived_ !=
+          compact_->sub_compact_states.size()) {
+    coordinated_garbage.clear();
+    for (const auto& sub_compact : compact_->sub_compact_states) {
+      const BlobGarbageMeter* const meter =
+          sub_compact.Current().GetBlobGarbageMeter();
+      if (meter == nullptr) {
+        continue;
+      }
+
+      for (const auto& pair : meter->flows()) {
+        const uint64_t blob_file_number = pair.first;
+        const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
+
+        assert(flow.IsValid());
+        if (flow.HasGarbage()) {
+          coordinated_garbage[blob_file_number].Add(flow.GetGarbageCount(),
+                                                    flow.GetGarbageBytes());
+        }
+      }
+    }
+  }
+
+  blob_file_garbages_.reserve(coordinated_garbage.size());
+  for (const auto& pair : coordinated_garbage) {
+    blob_file_garbages_.emplace_back(pair.first, pair.second.GetCount(),
+                                     pair.second.GetBytes());
+  }
+  std::sort(blob_file_garbages_.begin(), blob_file_garbages_.end(),
+            [](const BlobFileGarbage& lhs, const BlobFileGarbage& rhs) {
+              return lhs.GetBlobFileNumber() < rhs.GetBlobFileNumber();
+            });
+}
+
 void CompactionJob::PrepareCompactionResults() {
   assert(compact_);
   TEST_SYNC_POINT("CompactionJob::PrepareCompactionResults:Start");
@@ -2385,35 +2450,15 @@ void CompactionJob::PrepareCompactionResults() {
 
   compaction->AddInputDeletions(edit);
 
-  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> blob_total_garbage;
   for (const auto& sub_compact : compact_->sub_compact_states) {
     sub_compact.AddOutputsEdit(edit);
 
     for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
       edit->AddBlobFile(blob);
     }
-
-    if (sub_compact.Current().GetBlobGarbageMeter()) {
-      const auto& flows = sub_compact.Current().GetBlobGarbageMeter()->flows();
-      for (const auto& pair : flows) {
-        const uint64_t blob_file_number = pair.first;
-        const BlobGarbageMeter::BlobInOutFlow& flow = pair.second;
-
-        assert(flow.IsValid());
-        if (flow.HasGarbage()) {
-          blob_total_garbage[blob_file_number].Add(flow.GetGarbageCount(),
-                                                   flow.GetGarbageBytes());
-        }
-      }
-    }
   }
 
-  for (const auto& pair : blob_total_garbage) {
-    const uint64_t blob_file_number = pair.first;
-    const BlobGarbageMeter::BlobStats& stats = pair.second;
-    edit->AddBlobFileGarbage(blob_file_number, stats.GetCount(),
-                             stats.GetBytes());
-  }
+  edit->SetBlobFileGarbages(std::move(blob_file_garbages_));
 
   if ((compaction->compaction_reason() ==
            CompactionReason::kLevelMaxLevelSize ||

@@ -527,6 +527,8 @@ class VersionStorageInfo {
 
   // Finalizes the relocation index and validates that physical file numbers
   // and logical origins cannot be interpreted as two different blobs.
+  bool HasBlobIndirection() const { return has_blob_indirection_; }
+
   Status ValidateBlobIndirection();
 
   // Smallest logical blob origin with an explicit surviving SST link. This is

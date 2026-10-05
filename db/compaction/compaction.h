@@ -345,6 +345,12 @@ class Compaction {
   // PRE: input version has been set.
   bool DoesInputReferenceBlobFiles() const;
 
+  // Returns true when new writes use stable blob identities or the input
+  // Version already contains persisted blob-indirection metadata.
+  //
+  // PRE: input version has been set.
+  bool UsesBlobIndirection() const;
+
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost
   static bool TEST_IsBottommostLevel(

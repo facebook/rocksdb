@@ -1702,6 +1702,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
             rnd.Uniform(kStrMaxLen)) /* smallest_internal_key */,
         rnd.RandomBinaryString(
             rnd.Uniform(kStrMaxLen)) /* largest_internal_key */,
+        rnd64.Uniform(UINT64_MAX) /* oldest_blob_file_number */,
         rnd64.Uniform(UINT64_MAX) /* oldest_ancester_time */,
         rnd64.Uniform(UINT64_MAX) /* file_creation_time */,
         rnd64.Uniform(UINT64_MAX) /* epoch_number */,
@@ -1716,6 +1717,9 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   result.stats.num_output_records = rnd64.Uniform(UINT64_MAX);
   result.bytes_read = 123;
   result.bytes_written = rnd64.Uniform(UINT64_MAX);
+  result.has_blob_file_garbage_info = true;
+  result.blob_file_garbages.emplace_back(101, 3, 4096);
+  result.blob_file_garbages.emplace_back(202, 7, 8192);
   result.stats.elapsed_micros = rnd64.Uniform(UINT64_MAX);
   result.stats.num_output_files = rnd.Uniform(1000);
   result.stats.is_full_compaction = rnd.OneIn(2);

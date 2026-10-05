@@ -1607,10 +1607,6 @@ Status ColumnFamilyData::ValidateOptions(
       return Status::NotSupported(
           "Blob indirection does not support compressed blob files.");
     }
-    if (db_options.compaction_service != nullptr) {
-      return Status::NotSupported(
-          "Blob indirection does not support remote compaction.");
-    }
     const BlockBasedTableOptions* table_options =
         cf_options.table_factory == nullptr
             ? nullptr

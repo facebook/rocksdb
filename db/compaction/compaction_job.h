@@ -9,11 +9,14 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -48,6 +51,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Arena;
+struct CompactionServiceResult;
 class CompactionState;
 class ErrorHandler;
 class MemTable;
@@ -223,6 +227,11 @@ class CompactionJob {
   // Iterate through input and compact the kv-pairs.
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
+  // Aggregate the additional garbage after all subcompactions have joined.
+  // The primary reuses the already validated coordinated remote aggregate.
+  // Passing false only drains remote coordination state after a failed job.
+  void PrepareBlobFileGarbage(bool compaction_succeeded);
+
   CompactionState* compact_;
   bool compaction_results_prepared_ = false;
   InternalStats::CompactionStatsFull internal_stats_;
@@ -239,6 +248,8 @@ class CompactionJob {
   IOStatus io_status_;
 
   CompactionJobStats* job_stats_;
+
+  std::vector<BlobFileGarbage> blob_file_garbages_;
 
  private:
   friend class CompactionJobTestBase;
@@ -327,6 +338,12 @@ class CompactionJob {
 
   CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
+
+  // All indirect-blob remote subcompactions rendezvous here before importing
+  // output files. This validates their aggregate garbage against the input
+  // Version and makes every subcompaction fall back if any result is invalid.
+  bool CoordinateBlobIndirectionResults(
+      const CompactionServiceResult* compaction_result);
 
   struct CompactionIOStatsSnapshot {
     PerfLevel prev_perf_level = PerfLevel::kEnableTime;
@@ -512,6 +529,17 @@ class CompactionJob {
   // Updated without the DB mutex held.
   std::atomic<int>* num_running_remote_compactions_;
 
+  std::mutex blob_indirection_result_mutex_;
+  std::condition_variable blob_indirection_result_cv_;
+  size_t blob_indirection_results_arrived_ = 0;
+  bool blob_indirection_results_valid_ = true;
+  std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats>
+      blob_indirection_garbage_;
+  // Computed once per job, before subcompaction threads start. Capability
+  // callbacks may invoke arbitrary service code and must not run concurrently
+  // from every remote subcompaction.
+  bool compaction_service_supports_blob_indirection_ = false;
+
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
   SeqnoToTimeMapping seqno_to_time_mapping_;
@@ -546,6 +574,7 @@ class CompactionJob {
   // True if this job builds output files as a remote (offloaded)
   // CompactionService worker. Overridden by CompactionServiceCompactionJob.
   virtual bool IsRemoteCompaction() const { return false; }
+
   // The rate limiter priority (io_priority) is determined dynamically here.
   // The Compaction Read and Write priorities are the same for different
   // scenarios, such as write stalled.
@@ -646,6 +675,8 @@ struct CompactionServiceOutputFile {
   SequenceNumber largest_seqno{};
   std::string smallest_internal_key;
   std::string largest_internal_key;
+  bool has_oldest_blob_file_number = false;
+  uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
   uint64_t file_creation_time = kUnknownFileCreationTime;
   uint64_t epoch_number = kUnknownEpochNumber;
@@ -662,9 +693,9 @@ struct CompactionServiceOutputFile {
   CompactionServiceOutputFile(
       const std::string& name, uint64_t size, SequenceNumber smallest,
       SequenceNumber largest, std::string _smallest_internal_key,
-      std::string _largest_internal_key, uint64_t _oldest_ancester_time,
-      uint64_t _file_creation_time, uint64_t _epoch_number,
-      const std::string& _file_checksum,
+      std::string _largest_internal_key, uint64_t _oldest_blob_file_number,
+      uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
+      uint64_t _epoch_number, const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
       const TableProperties& _table_properties, bool _is_proximal_level_output,
@@ -675,6 +706,8 @@ struct CompactionServiceOutputFile {
         largest_seqno(largest),
         smallest_internal_key(std::move(_smallest_internal_key)),
         largest_internal_key(std::move(_largest_internal_key)),
+        has_oldest_blob_file_number(true),
+        oldest_blob_file_number(_oldest_blob_file_number),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
         epoch_number(_epoch_number),
@@ -686,6 +719,21 @@ struct CompactionServiceOutputFile {
         table_properties(_table_properties),
         is_proximal_level_output(_is_proximal_level_output),
         file_temperature(_file_temperature) {}
+};
+
+// Additional logical blob garbage measured by a remote compaction. The
+// primary applies it to the current physical route during MANIFEST install.
+struct CompactionServiceBlobGarbage {
+  uint64_t blob_file_number = kInvalidBlobFileNumber;
+  uint64_t garbage_blob_count = 0;
+  uint64_t garbage_blob_bytes = 0;
+
+  CompactionServiceBlobGarbage() = default;
+  CompactionServiceBlobGarbage(uint64_t file_number, uint64_t count,
+                               uint64_t bytes)
+      : blob_file_number(file_number),
+        garbage_blob_count(count),
+        garbage_blob_bytes(bytes) {}
 };
 
 // CompactionServiceResult contains the compaction result from a different db
@@ -715,6 +763,12 @@ struct CompactionServiceResult {
   // Per-level Compaction Stats for both output_level_stats and
   // proximal_level_stats
   InternalStats::CompactionStatsFull internal_stats;
+
+  // True when the worker measured blob-reference inflow and outflow. A primary
+  // requiring blob-indirection support falls back locally when this is false,
+  // which makes successful results from older workers safe to reject.
+  bool has_blob_file_garbage_info = false;
+  std::vector<CompactionServiceBlobGarbage> blob_file_garbages;
 
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceResult* obj);

@@ -4,7 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -185,6 +187,15 @@ class MyTestCompactionService : public CompactionService {
 
   const char* Name() const override { return kClassName(); }
 
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == CompactionService::BlobIndirectionCapabilityName()) {
+      blob_indirection_capability_queries_.fetch_add(1,
+                                                     std::memory_order_relaxed);
+      return supports_blob_indirection_.load(std::memory_order_relaxed);
+    }
+    return CompactionService::IsInstanceOf(name);
+  }
+
   CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
@@ -229,6 +240,7 @@ class MyTestCompactionService : public CompactionService {
 
     OpenAndCompactOptions options;
     options.canceled = &canceled_;
+    options.allow_resumption = allow_resumption_;
     options.max_secondary_open_retries = max_secondary_open_retries_;
 
     Status s = DB::OpenAndCompact(options, db_path_, scheduled_job_id,
@@ -286,11 +298,40 @@ class MyTestCompactionService : public CompactionService {
 
   void OnInstallation(const std::string& /*scheduled_job_id*/,
                       CompactionServiceJobStatus status) override {
-    installation_callback_count_.fetch_add(1);
+    installation_callback_count_.fetch_add(1, std::memory_order_relaxed);
+    if (status == CompactionServiceJobStatus::kUseLocal) {
+      const int use_local_callback_count =
+          use_local_installation_callback_count_.fetch_add(
+              1, std::memory_order_acq_rel) +
+          1;
+      {
+        std::unique_lock<std::mutex> lock(installation_barrier_mutex_);
+        if (use_local_installation_barrier_size_ > 0) {
+          if (use_local_callback_count >=
+              use_local_installation_barrier_size_) {
+            installation_barrier_cv_.notify_all();
+          } else {
+            installation_barrier_cv_.wait(lock, [&] {
+              return use_local_installation_callback_count_.load(
+                         std::memory_order_acquire) >=
+                     use_local_installation_barrier_size_;
+            });
+          }
+        }
+      }
+    }
     final_updated_status_ = status;
   }
 
   int GetCompactionNum() { return compaction_num_.load(); }
+
+  int GetBlobIndirectionCapabilityQueryCount() const {
+    return blob_indirection_capability_queries_.load(std::memory_order_relaxed);
+  }
+
+  void ResetBlobIndirectionCapabilityQueryCount() {
+    blob_indirection_capability_queries_.store(0, std::memory_order_relaxed);
+  }
 
   std::string GetLastOutputDirectoryName() {
     InstrumentedMutexLock l(&mutex_);
@@ -328,6 +369,15 @@ class MyTestCompactionService : public CompactionService {
     max_secondary_open_retries_ = retries;
   }
 
+  void SetAllowResumption(bool allow_resumption) {
+    allow_resumption_ = allow_resumption;
+  }
+
+  void SetSupportsBlobIndirection(bool supports_blob_indirection) {
+    supports_blob_indirection_.store(supports_blob_indirection,
+                                     std::memory_order_relaxed);
+  }
+
   void GetResult(CompactionServiceResult* deserialized) {
     CompactionServiceResult::Read(result_, deserialized).PermitUncheckedError();
   }
@@ -337,6 +387,17 @@ class MyTestCompactionService : public CompactionService {
   }
 
   int GetOnInstallationCount() { return installation_callback_count_.load(); }
+
+  int GetUseLocalOnInstallationCount() {
+    return use_local_installation_callback_count_.load(
+        std::memory_order_relaxed);
+  }
+
+  void SetUseLocalInstallationBarrier(int expected_callbacks) {
+    assert(expected_callbacks > 0);
+    std::lock_guard<std::mutex> lock(installation_barrier_mutex_);
+    use_local_installation_barrier_size_ = expected_callbacks;
+  }
 
  protected:
   InstrumentedMutex mutex_;
@@ -370,10 +431,17 @@ class MyTestCompactionService : public CompactionService {
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories_;
   std::atomic_int installation_callback_count_{0};
+  std::atomic_int use_local_installation_callback_count_{0};
+  std::mutex installation_barrier_mutex_;
+  std::condition_variable installation_barrier_cv_;
+  int use_local_installation_barrier_size_ = 0;
   std::atomic<CompactionServiceJobStatus> final_updated_status_{
       CompactionServiceJobStatus::kUseLocal};
   uint32_t max_secondary_open_retries_ =
       OpenAndCompactOptions().max_secondary_open_retries;
+  bool allow_resumption_ = false;
+  std::atomic<bool> supports_blob_indirection_{true};
+  mutable std::atomic<int> blob_indirection_capability_queries_{0};
 
  protected:
   std::atomic_bool canceled_{false};
@@ -452,6 +520,79 @@ class CompactionServiceTest : public DBTestBase {
         }
       }
     }
+  }
+
+  enum class BlobWorkerResultMutation {
+    kLegacy,
+    kMalformedGarbage,
+    kMissingOutputMetadata,
+  };
+
+  void VerifyBlobIndirectionWorkerFallback(BlobWorkerResultMutation mutation) {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.enable_blob_files = true;
+    options.enable_blob_indirection = true;
+    options.min_blob_size = 0;
+    ReopenWithCompactionService(&options);
+
+    ASSERT_OK(Put("live", "live-value"));
+    ASSERT_OK(Put("dead", "dead-value"));
+    ASSERT_OK(Flush());
+    const std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+    ASSERT_EQ(blob_files.size(), 1U);
+    ASSERT_OK(Delete("dead"));
+    ASSERT_OK(Flush());
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+          CompactionServiceResult* result =
+              *(static_cast<CompactionServiceResult**>(arg));
+          assert(result != nullptr);
+          switch (mutation) {
+            case BlobWorkerResultMutation::kLegacy:
+              result->has_blob_file_garbage_info = false;
+              result->blob_file_garbages.clear();
+              break;
+            case BlobWorkerResultMutation::kMalformedGarbage:
+              result->has_blob_file_garbage_info = true;
+              result->blob_file_garbages.clear();
+              result->blob_file_garbages.emplace_back(kInvalidBlobFileNumber, 1,
+                                                      1);
+              break;
+            case BlobWorkerResultMutation::kMissingOutputMetadata:
+              assert(!result->output_files.empty());
+              for (CompactionServiceOutputFile& output : result->output_files) {
+                output.has_oldest_blob_file_number = false;
+              }
+              break;
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    CompactRangeOptions compact_options;
+    compact_options.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    compact_options.blob_garbage_collection_policy =
+        BlobGarbageCollectionPolicy::kDisable;
+    const Status compact_status =
+        db_->CompactRange(compact_options, nullptr, nullptr);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    ASSERT_OK(compact_status);
+
+    EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+              CompactionServiceJobStatus::kUseLocal);
+    EXPECT_EQ(Get("live"), "live-value");
+    EXPECT_EQ(Get("dead"), "NOT_FOUND");
+
+    ColumnFamilyData* const cfd =
+        dbfull()->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+    ASSERT_NE(cfd, nullptr);
+    const auto blob_meta =
+        cfd->current()->storage_info()->GetBlobFileMetaDataByOrigin(
+            blob_files.front());
+    ASSERT_NE(blob_meta, nullptr);
+    EXPECT_EQ(blob_meta->GetGarbageBlobCount(), 1U);
   }
 
   std::vector<std::shared_ptr<EventListener>> remote_listeners;
@@ -2101,6 +2242,74 @@ class PartialDeleteCompactionFilter : public CompactionFilter {
   const char* Name() const override { return "PartialDeleteCompactionFilter"; }
 };
 
+class BlobValueObservingFilter : public CompactionFilter {
+ public:
+  BlobValueObservingFilter(std::string key, std::string value)
+      : key_(std::move(key)), value_(std::move(value)) {}
+
+  CompactionFilter::Decision FilterBlobByKey(
+      int /*level*/, const Slice& /*key*/, std::string* /*new_value*/,
+      std::string* /*skip_until*/) const override {
+    return CompactionFilter::Decision::kUndetermined;
+  }
+
+  CompactionFilter::Decision FilterV2(
+      int /*level*/, const Slice& key, ValueType value_type,
+      const Slice& existing_value, std::string* /*new_value*/,
+      std::string* /*skip_until*/) const override {
+    if (key == key_) {
+      EXPECT_EQ(value_type, ValueType::kValue);
+      EXPECT_EQ(existing_value, value_);
+      observations_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return CompactionFilter::Decision::kKeep;
+  }
+
+  const char* Name() const override { return "BlobValueObservingFilter"; }
+
+  void Reset() { observations_.store(0, std::memory_order_relaxed); }
+  uint64_t observations() const {
+    return observations_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  const std::string key_;
+  const std::string value_;
+  mutable std::atomic<uint64_t> observations_{0};
+};
+
+class BlobValueReplacingFilter : public CompactionFilter {
+ public:
+  explicit BlobValueReplacingFilter(std::string replacement)
+      : replacement_(std::move(replacement)) {}
+
+  CompactionFilter::Decision FilterBlobByKey(
+      int /*level*/, const Slice& /*key*/, std::string* /*new_value*/,
+      std::string* /*skip_until*/) const override {
+    return CompactionFilter::Decision::kUndetermined;
+  }
+
+  CompactionFilter::Decision FilterV2(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice& /*existing_value*/, std::string* new_value,
+      std::string* /*skip_until*/) const override {
+    EXPECT_EQ(value_type, ValueType::kValue);
+    *new_value = replacement_;
+    observations_.fetch_add(1, std::memory_order_relaxed);
+    return CompactionFilter::Decision::kChangeValue;
+  }
+
+  const char* Name() const override { return "BlobValueReplacingFilter"; }
+
+  uint64_t observations() const {
+    return observations_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  const std::string replacement_;
+  mutable std::atomic<uint64_t> observations_{0};
+};
+
 TEST_F(CompactionServiceTest, CompactionFilter) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -2124,6 +2333,367 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   }
   auto my_cs = GetCompactionService();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
+}
+
+TEST_F(CompactionServiceTest, BlobIndirection) {
+  const std::string live_value(4096, 'l');
+  BlobValueObservingFilter compaction_filter("live", live_value);
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.0;
+  options.blob_garbage_collection_force_threshold = 0.3;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1 << 20;
+  options.compaction_filter = &compaction_filter;
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("live", live_value));
+  ASSERT_OK(Put("dead", std::string(4096, 'd')));
+  ASSERT_OK(Flush());
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(original_blob_files.size(), 1U);
+  const uint64_t origin_file_number = original_blob_files.front();
+
+  ASSERT_OK(Delete("dead"));
+  ASSERT_OK(Flush());
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  std::atomic<uint64_t> resumption_checks{0};
+  std::atomic<bool> resumption_remained_enabled{false};
+  GetCompactionService()->SetAllowResumption(true);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CompactWithoutInstallation::AllowResumption",
+      [&](void* arg) {
+        resumption_checks.fetch_add(1, std::memory_order_relaxed);
+        if (*static_cast<bool*>(arg)) {
+          resumption_remained_enabled.store(true, std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Status first_compaction =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(first_compaction);
+  EXPECT_GT(resumption_checks.load(std::memory_order_relaxed), 0U);
+  EXPECT_FALSE(resumption_remained_enabled.load(std::memory_order_relaxed));
+
+  ColumnFamilyData* const cfd =
+      dbfull()->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+  auto blob_meta = cfd->current()->storage_info()->GetBlobFileMetaDataByOrigin(
+      origin_file_number);
+  ASSERT_NE(blob_meta, nullptr);
+  EXPECT_EQ(blob_meta->GetGarbageBlobCount(), 1U);
+
+  ASSERT_OK(db_->EnableAutoCompaction({db_->DefaultColumnFamily()}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  ASSERT_OK(db_->SetOptions({{"disable_auto_compactions", "true"}}));
+
+  blob_meta = cfd->current()->storage_info()->GetBlobFileMetaDataByOrigin(
+      origin_file_number);
+  ASSERT_NE(blob_meta, nullptr);
+  ASSERT_TRUE(blob_meta->IsIndirectRelocationFile());
+  EXPECT_NE(blob_meta->GetBlobFileNumber(), origin_file_number);
+
+  compaction_filter.Reset();
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  EXPECT_GT(compaction_filter.observations(), 0U);
+  EXPECT_EQ(Get("live"), live_value);
+  EXPECT_EQ(Get("dead"), "NOT_FOUND");
+  EXPECT_GE(GetCompactionService()->GetCompactionNum(), 2);
+}
+
+TEST_F(CompactionServiceTest, BlobIndirectionChangedValueStaysInline) {
+  const std::string replacement(4096, 'r');
+  BlobValueReplacingFilter compaction_filter(replacement);
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  options.compaction_filter = &compaction_filter;
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("key", std::string(4096, 'a')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key", std::string(4096, 'b')));
+  ASSERT_OK(Flush());
+  ASSERT_FALSE(GetBlobFileNumbers().empty());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  EXPECT_GT(compaction_filter.observations(), 0U);
+  EXPECT_EQ(Get("key"), replacement);
+  EXPECT_TRUE(GetBlobFileNumbers().empty());
+  EXPECT_GT(GetCompactionService()->GetCompactionNum(), 0);
+}
+
+TEST_F(CompactionServiceTest, BlobIndirectionMultiSubcompactionGarbage) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  ReopenWithCompactionService(&options);
+  GenerateTestData(true /* move_files_manually */);
+
+  std::atomic<uint64_t> workers_with_garbage{0};
+  std::atomic<uint64_t> jobs_with_capability_query{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run:BlobIndirectionCapabilityQueried", [&](void*) {
+        jobs_with_capability_query.fetch_add(1, std::memory_order_relaxed);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        CompactionServiceResult* result =
+            *(static_cast<CompactionServiceResult**>(arg));
+        assert(result != nullptr);
+        if (!result->blob_file_garbages.empty()) {
+          workers_with_garbage.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions compact_options;
+  compact_options.max_subcompactions = 10;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  GetCompactionService()->ResetBlobIndirectionCapabilityQueryCount();
+  const Status compact_status =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(compact_status);
+
+  EXPECT_GT(jobs_with_capability_query.load(std::memory_order_relaxed), 0U);
+  EXPECT_EQ(GetCompactionService()->GetBlobIndirectionCapabilityQueryCount(),
+            jobs_with_capability_query.load(std::memory_order_relaxed));
+  EXPECT_GE(workers_with_garbage.load(std::memory_order_relaxed), 2U);
+  VerifyTestData();
+  ColumnFamilyData* const cfd =
+      dbfull()->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+  uint64_t garbage_blob_count = 0;
+  for (const auto& blob_meta : cfd->current()->storage_info()->GetBlobFiles()) {
+    garbage_blob_count += blob_meta->GetGarbageBlobCount();
+  }
+  EXPECT_EQ(garbage_blob_count, 100U);
+}
+
+TEST_F(CompactionServiceTest,
+       BlobIndirectionFallbackCoordinatesBeforeInstallation) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  ReopenWithCompactionService(&options);
+  GenerateTestData(true /* move_files_manually */);
+
+  // The first callback waits for a sibling. A malformed subcompaction must
+  // contribute its failure to the all-subcompaction rendezvous before calling
+  // OnInstallation(), or a valid sibling and this callback deadlock.
+  GetCompactionService()->SetUseLocalInstallationBarrier(2);
+  std::atomic<bool> invalidate_one_result{true};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        CompactionServiceResult* result =
+            *(static_cast<CompactionServiceResult**>(arg));
+        assert(result != nullptr);
+        if (invalidate_one_result.exchange(false, std::memory_order_acq_rel)) {
+          result->has_blob_file_garbage_info = false;
+          result->blob_file_garbages.clear();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions compact_options;
+  compact_options.max_subcompactions = 10;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  const Status compact_status =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(compact_status);
+
+  EXPECT_FALSE(invalidate_one_result.load(std::memory_order_acquire));
+  EXPECT_GE(GetCompactionService()->GetOnInstallationCount(), 2);
+  EXPECT_GE(GetCompactionService()->GetUseLocalOnInstallationCount(), 2);
+  VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest,
+       BlobIndirectionAggregateGarbageOverflowFallsBack) {
+  constexpr int kNumKeys = 200;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  options.blob_file_size = 1 << 30;
+  ReopenWithCompactionService(&options);
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "old-value-" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(original_blob_files.size(), 1U);
+  const uint64_t origin_file_number = original_blob_files.front();
+
+  for (int i = 0; i < kNumKeys; i += 2) {
+    ASSERT_OK(Put(Key(i), "new-value-" + std::to_string(i)));
+  }
+  ASSERT_OK(Flush());
+
+  ColumnFamilyData* const cfd =
+      dbfull()->GetVersionSet()->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+  const auto original_blob_meta =
+      cfd->current()->storage_info()->GetBlobFileMetaDataByOrigin(
+          origin_file_number);
+  ASSERT_NE(original_blob_meta, nullptr);
+  ASSERT_EQ(original_blob_meta->GetTotalBlobCount(),
+            static_cast<uint64_t>(kNumKeys));
+  const uint64_t individually_valid_but_collectively_invalid_count =
+      original_blob_meta->GetTotalBlobCount() / 2 + 1;
+
+  std::atomic<uint64_t> mutated_workers{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        CompactionServiceResult* result =
+            *(static_cast<CompactionServiceResult**>(arg));
+        assert(result != nullptr);
+        result->has_blob_file_garbage_info = true;
+        result->blob_file_garbages.clear();
+        result->blob_file_garbages.emplace_back(
+            origin_file_number,
+            individually_valid_but_collectively_invalid_count, 1);
+        mutated_workers.fetch_add(1, std::memory_order_relaxed);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions compact_options;
+  compact_options.max_subcompactions = 10;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  const Status compact_status =
+      db_->CompactRange(compact_options, nullptr, nullptr);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(compact_status);
+
+  EXPECT_GE(mutated_workers.load(std::memory_order_relaxed), 2U);
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kUseLocal);
+  for (int i = 0; i < kNumKeys; ++i) {
+    const std::string expected =
+        (i % 2 == 0 ? "new-value-" : "old-value-") + std::to_string(i);
+    EXPECT_EQ(Get(Key(i)), expected);
+  }
+
+  const auto installed_blob_meta =
+      cfd->current()->storage_info()->GetBlobFileMetaDataByOrigin(
+          origin_file_number);
+  ASSERT_NE(installed_blob_meta, nullptr);
+  EXPECT_EQ(installed_blob_meta->GetGarbageBlobCount(),
+            static_cast<uint64_t>(kNumKeys / 2));
+}
+
+TEST_F(CompactionServiceTest,
+       LegacyDirectBlobReferencesRemainRemoteAfterOptIn) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  ReopenWithCompactionService(&options);
+
+  ASSERT_OK(Put("live", "live-value"));
+  ASSERT_OK(Put("dead", "dead-value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("dead"));
+  ASSERT_OK(Flush());
+  options.enable_blob_indirection = true;
+  ReopenWithColumnFamilies({"default", "cf_1", "cf_2", "cf_3"}, options);
+  GetCompactionService()->SetCanceled(false);
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  EXPECT_EQ(GetCompactionService()->GetFinalCompactionServiceJobStatus(),
+            CompactionServiceJobStatus::kSuccess);
+  EXPECT_GT(GetCompactionService()->GetCompactionNum(), 0);
+  EXPECT_EQ(Get("live"), "live-value");
+  EXPECT_EQ(Get("dead"), "NOT_FOUND");
+}
+
+TEST_F(CompactionServiceTest, BlobIndirectionUnsupportedServiceStaysLocal) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_indirection = true;
+  options.min_blob_size = 0;
+  ReopenWithCompactionService(&options);
+  GetCompactionService()->SetSupportsBlobIndirection(false);
+
+  ASSERT_OK(Put("key", "old-value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key", "new-value"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  compact_options.blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kDisable;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  EXPECT_EQ(GetCompactionService()->GetCompactionNum(), 0);
+  EXPECT_EQ(Get("key"), "new-value");
+}
+
+TEST_F(CompactionServiceTest, BlobIndirectionLegacyWorkerFallsBack) {
+  VerifyBlobIndirectionWorkerFallback(BlobWorkerResultMutation::kLegacy);
+}
+
+TEST_F(CompactionServiceTest, BlobIndirectionMalformedWorkerFallsBack) {
+  VerifyBlobIndirectionWorkerFallback(
+      BlobWorkerResultMutation::kMalformedGarbage);
+}
+
+TEST_F(CompactionServiceTest, BlobIndirectionMissingMetadataFallsBack) {
+  VerifyBlobIndirectionWorkerFallback(
+      BlobWorkerResultMutation::kMissingOutputMetadata);
 }
 
 TEST_F(CompactionServiceTest, MergeOperator) {

@@ -1089,9 +1089,15 @@ struct AdvancedColumnFamilyOptions {
   // This is a format-enabling option. Once indirect metadata is committed to
   // the MANIFEST, binaries that do not understand it cannot open the DB.
   // Blob direct write, blob compression, non-block-based tables, table format
-  // versions older than 7, TTL blob files, and remote compaction are not
-  // supported. Column families with a merge operator may use stable identities,
-  // but standalone GC is suppressed because the current census cannot expose
+  // versions older than 7, and TTL blob files are not supported. Remote
+  // compaction can preserve and resolve indirect references, but newly
+  // materialized values remain inline in its output SST because the remote
+  // result protocol does not transfer new blob files. Remote compactions that
+  // reference indirect blobs always start fresh rather than resuming. The
+  // CompactionService must explicitly advertise blob-indirection support;
+  // otherwise these compactions fall back locally without scheduling a remote
+  // job. Column families with a merge operator may use stable identities, but
+  // standalone GC is suppressed because the current census cannot expose
   // blob-backed merge base values.
   //
   // Default: false

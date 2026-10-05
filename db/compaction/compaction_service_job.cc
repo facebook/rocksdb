@@ -8,6 +8,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <unordered_set>
+
 #include "db/compaction/compaction_job.h"
 #include "db/compaction/compaction_state.h"
 #include "logging/logging.h"
@@ -20,14 +22,131 @@
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
 
+namespace {
+
+std::shared_ptr<BlobFileMetaData> GetBlobMetaForCompactionServiceReference(
+    const VersionStorageInfo* storage, uint64_t blob_file_number) {
+  assert(storage != nullptr);
+  auto meta = storage->GetBlobFileMetaDataByOrigin(blob_file_number);
+  if (meta != nullptr) {
+    return meta;
+  }
+
+  // A DB can opt into indirection while SSTs still contain legacy physical
+  // blob references. Accept those exact direct files, but never interpret a
+  // relocation file's physical number as a logical origin.
+  meta = storage->GetBlobFileMetaData(blob_file_number);
+  if (meta != nullptr && !meta->HasIndirectionInfo()) {
+    return meta;
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+bool CompactionJob::CoordinateBlobIndirectionResults(
+    const CompactionServiceResult* compaction_result) {
+  assert(compact_ != nullptr);
+  const Compaction* const compaction = compact_->compaction;
+  assert(compaction != nullptr);
+  Version* const input_version = compaction->input_version();
+  assert(input_version != nullptr);
+  const VersionStorageInfo* const input_storage = input_version->storage_info();
+  assert(input_storage != nullptr);
+  ColumnFamilyData* const cfd = compaction->column_family_data();
+  assert(cfd != nullptr);
+
+  std::unique_lock<std::mutex> lock(blob_indirection_result_mutex_);
+
+  bool result_valid = compaction_result != nullptr &&
+                      compaction_result->status.ok() &&
+                      compaction_result->has_blob_file_garbage_info;
+  if (result_valid) {
+    for (const CompactionServiceBlobGarbage& garbage :
+         compaction_result->blob_file_garbages) {
+      const auto blob_meta = GetBlobMetaForCompactionServiceReference(
+          input_storage, garbage.blob_file_number);
+      BlobGarbageMeter::BlobStats& accepted =
+          blob_indirection_garbage_[garbage.blob_file_number];
+      if (blob_meta == nullptr ||
+          blob_meta->GetGarbageBlobCount() > blob_meta->GetTotalBlobCount() ||
+          blob_meta->GetGarbageBlobBytes() > blob_meta->GetTotalBlobBytes() ||
+          accepted.GetCount() > blob_meta->GetTotalBlobCount() -
+                                    blob_meta->GetGarbageBlobCount() ||
+          accepted.GetBytes() > blob_meta->GetTotalBlobBytes() -
+                                    blob_meta->GetGarbageBlobBytes() ||
+          garbage.garbage_blob_count > blob_meta->GetTotalBlobCount() -
+                                           blob_meta->GetGarbageBlobCount() -
+                                           accepted.GetCount() ||
+          garbage.garbage_blob_bytes > blob_meta->GetTotalBlobBytes() -
+                                           blob_meta->GetGarbageBlobBytes() -
+                                           accepted.GetBytes()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "[%s] [JOB %d] Remote subcompactions returned invalid aggregate "
+            "blob garbage for origin file %" PRIu64,
+            cfd->GetName().c_str(), job_id_, garbage.blob_file_number);
+        result_valid = false;
+        break;
+      }
+    }
+
+    if (result_valid) {
+      for (const CompactionServiceBlobGarbage& garbage :
+           compaction_result->blob_file_garbages) {
+        blob_indirection_garbage_[garbage.blob_file_number].Add(
+            garbage.garbage_blob_count, garbage.garbage_blob_bytes);
+      }
+    }
+  }
+
+  if (!result_valid) {
+    blob_indirection_results_valid_ = false;
+  }
+
+  ++blob_indirection_results_arrived_;
+  const size_t expected_results = compact_->sub_compact_states.size();
+  assert(blob_indirection_results_arrived_ <= expected_results);
+  if (blob_indirection_results_arrived_ == expected_results) {
+    blob_indirection_result_cv_.notify_all();
+  } else {
+    blob_indirection_result_cv_.wait(lock, [&] {
+      return blob_indirection_results_arrived_ == expected_results;
+    });
+  }
+  return blob_indirection_results_valid_;
+}
+
 CompactionServiceJobStatus
 CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
   assert(db_options_.compaction_service);
+  assert(compact_ != nullptr);
 
-  const Compaction* compaction = sub_compact->compaction;
+  const Compaction* const compaction = sub_compact->compaction;
+  ColumnFamilyData* const cfd = compaction->column_family_data();
+  assert(cfd != nullptr);
+  Version* const input_version = compaction->input_version();
+  assert(input_version != nullptr);
+  const bool uses_blob_indirection = compaction->UsesBlobIndirection();
+  if (uses_blob_indirection && !compaction_service_supports_blob_indirection_) {
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
+        "[%s] [JOB %d] CompactionService does not support blob indirection; "
+        "falling back to local compaction",
+        cfd->GetName().c_str(), job_id_);
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  bool blob_indirection_result_coordinated = !uses_blob_indirection;
+  Defer coordinate_blob_indirection_failure([&] {
+    if (!blob_indirection_result_coordinated) {
+      CoordinateBlobIndirectionResults(nullptr);
+    }
+  });
+
   CompactionServiceInput compaction_input;
   compaction_input.output_level = compaction->output_level();
   compaction_input.db_id = db_id_;
@@ -41,7 +160,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     }
   }
 
-  compaction_input.cf_name = compaction->column_family_data()->GetName();
+  compaction_input.cf_name = cfd->GetName();
   compaction_input.snapshots = job_context_->snapshot_seqs;
   compaction_input.has_begin = sub_compact->start.has_value();
   compaction_input.begin =
@@ -74,16 +193,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "[%s] [JOB %d] Starting remote compaction (output level: %d): %s",
-      compaction->column_family_data()->GetName().c_str(), job_id_,
-      compaction_input.output_level, input_files_oss.str().c_str());
+      cfd->GetName().c_str(), job_id_, compaction_input.output_level,
+      input_files_oss.str().c_str());
   CompactionServiceJobInfo info(
-      dbname_, db_id_, db_session_id_,
-      compaction->column_family_data()->GetID(),
-      compaction->column_family_data()->GetName(), GetCompactionId(sub_compact),
-      thread_pri_, compaction->compaction_reason(),
-      compaction->is_full_compaction(), compaction->is_manual_compaction(),
-      compaction->bottommost_level(), compaction->start_level(),
-      compaction->output_level());
+      dbname_, db_id_, db_session_id_, cfd->GetID(), cfd->GetName(),
+      GetCompactionId(sub_compact), thread_pri_,
+      compaction->compaction_reason(), compaction->is_full_compaction(),
+      compaction->is_manual_compaction(), compaction->bottommost_level(),
+      compaction->start_level(), compaction->output_level());
   CompactionServiceScheduleResponse response =
       db_options_.compaction_service->Schedule(info, compaction_input_binary);
   switch (response.status) {
@@ -95,26 +212,37 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       ROCKS_LOG_WARN(
           db_options_.info_log,
           "[%s] [JOB %d] Remote compaction was aborted at Schedule()",
-          compaction->column_family_data()->GetName().c_str(), job_id_);
+          cfd->GetName().c_str(), job_id_);
       return response.status;
     case CompactionServiceJobStatus::kFailure:
       sub_compact->status = Status::Incomplete(
           "CompactionService failed to schedule a remote compaction job.");
       ROCKS_LOG_WARN(db_options_.info_log,
                      "[%s] [JOB %d] Remote compaction failed to start.",
-                     compaction->column_family_data()->GetName().c_str(),
-                     job_id_);
+                     cfd->GetName().c_str(), job_id_);
       return response.status;
     case CompactionServiceJobStatus::kUseLocal:
       ROCKS_LOG_INFO(
           db_options_.info_log,
           "[%s] [JOB %d] Remote compaction fallback to local by API (Schedule)",
-          compaction->column_family_data()->GetName().c_str(), job_id_);
+          cfd->GetName().c_str(), job_id_);
       return response.status;
     default:
       assert(false);  // unknown status
       break;
   }
+
+  const auto notify_installation = [&](CompactionServiceJobStatus status) {
+    // All blob-indirection subcompactions must reach the rendezvous before an
+    // installation callback can block. CompactionService implementations are
+    // allowed to coordinate sibling notifications in OnInstallation().
+    if (!blob_indirection_result_coordinated) {
+      blob_indirection_result_coordinated = true;
+      CoordinateBlobIndirectionResults(nullptr);
+    }
+    db_options_.compaction_service->OnInstallation(response.scheduled_job_id,
+                                                   status);
+  };
 
   // TODO: Update CompactionService API to support abort and resume
   // functionality. Currently, remote compaction jobs cannot be aborted via
@@ -126,7 +254,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Waiting for remote compaction...",
-                 compaction->column_family_data()->GetName().c_str(), job_id_);
+                 cfd->GetName().c_str(), job_id_);
   std::string compaction_result_binary;
   CompactionServiceJobStatus compaction_status;
   {
@@ -146,19 +274,18 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   }
 
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
-    ROCKS_LOG_ERROR(
-        db_options_.info_log,
-        "[%s] [JOB %d] Wait() status is not kSuccess. "
-        "\nDebugString After Wait():\n%s",
-        compaction->column_family_data()->GetName().c_str(), job_id_,
-        compaction->input_version()->DebugString(/*hex=*/true).c_str());
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "[%s] [JOB %d] Wait() status is not kSuccess. "
+                    "\nDebugString After Wait():\n%s",
+                    cfd->GetName().c_str(), job_id_,
+                    input_version->DebugString(/*hex=*/true).c_str());
   }
 
   if (compaction_status == CompactionServiceJobStatus::kUseLocal) {
     ROCKS_LOG_INFO(
         db_options_.info_log,
         "[%s] [JOB %d] Remote compaction fallback to local by API (Wait)",
-        compaction->column_family_data()->GetName().c_str(), job_id_);
+        cfd->GetName().c_str(), job_id_);
     return compaction_status;
   }
 
@@ -167,8 +294,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
         Status::Aborted("Waiting a remote compaction job was aborted");
     ROCKS_LOG_INFO(db_options_.info_log,
                    "[%s] [JOB %d] Remote compaction was aborted during Wait()",
-                   compaction->column_family_data()->GetName().c_str(),
-                   job_id_);
+                   cfd->GetName().c_str(), job_id_);
     return compaction_status;
   }
 
@@ -193,9 +319,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
           "result is returned).");
       compaction_result.status.PermitUncheckedError();
     }
-    ROCKS_LOG_WARN(
-        db_options_.info_log, "[%s] [JOB %d] Remote compaction failed.",
-        compaction->column_family_data()->GetName().c_str(), job_id_);
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction failed.",
+                   cfd->GetName().c_str(), job_id_);
     return compaction_status;
   }
 
@@ -211,14 +337,73 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     ROCKS_LOG_WARN(db_options_.info_log,
                    "[%s] [JOB %d] Failed to parse remote compaction result "
                    "(%s), falling back to local compaction",
-                   compaction->column_family_data()->GetName().c_str(), job_id_,
-                   s.ToString().c_str());
+                   cfd->GetName().c_str(), job_id_, s.ToString().c_str());
     compaction_result.status.PermitUncheckedError();
-    db_options_.compaction_service->OnInstallation(
-        response.scheduled_job_id, CompactionServiceJobStatus::kUseLocal);
+    notify_installation(CompactionServiceJobStatus::kUseLocal);
     return CompactionServiceJobStatus::kUseLocal;
   }
   sub_compact->status = compaction_result.status;
+
+  const bool requires_blob_indirection_info = uses_blob_indirection;
+  if (sub_compact->status.ok() && requires_blob_indirection_info &&
+      !compaction_result.has_blob_file_garbage_info) {
+    ROCKS_LOG_WARN(
+        db_options_.info_log,
+        "[%s] [JOB %d] Remote compaction result does not contain blob "
+        "garbage information required for blob indirection; falling back "
+        "to local compaction",
+        cfd->GetName().c_str(), job_id_);
+    notify_installation(CompactionServiceJobStatus::kUseLocal);
+    return CompactionServiceJobStatus::kUseLocal;
+  }
+
+  if (sub_compact->status.ok() && requires_blob_indirection_info &&
+      compaction_result.has_blob_file_garbage_info) {
+    const VersionStorageInfo* const input_storage =
+        input_version->storage_info();
+    assert(input_storage != nullptr);
+    for (const CompactionServiceOutputFile& file :
+         compaction_result.output_files) {
+      if (!file.has_oldest_blob_file_number) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "[%s] [JOB %d] Remote compaction output is missing blob "
+                       "reference metadata; falling back to local compaction",
+                       cfd->GetName().c_str(), job_id_);
+        notify_installation(CompactionServiceJobStatus::kUseLocal);
+        return CompactionServiceJobStatus::kUseLocal;
+      }
+      if (file.oldest_blob_file_number != kInvalidBlobFileNumber &&
+          GetBlobMetaForCompactionServiceReference(
+              input_storage, file.oldest_blob_file_number) == nullptr) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "[%s] [JOB %d] Remote compaction output references unknown blob "
+            "origin file %" PRIu64 "; falling back to local compaction",
+            cfd->GetName().c_str(), job_id_, file.oldest_blob_file_number);
+        notify_installation(CompactionServiceJobStatus::kUseLocal);
+        return CompactionServiceJobStatus::kUseLocal;
+      }
+    }
+  }
+
+  if (requires_blob_indirection_info) {
+    blob_indirection_result_coordinated = true;
+    if (!sub_compact->status.ok()) {
+      CoordinateBlobIndirectionResults(nullptr);
+      notify_installation(CompactionServiceJobStatus::kFailure);
+      return CompactionServiceJobStatus::kFailure;
+    }
+    if (!CoordinateBlobIndirectionResults(&compaction_result)) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] One or more remote subcompaction results failed "
+          "coordinated blob-indirection validation; falling back to local "
+          "compaction",
+          cfd->GetName().c_str(), job_id_);
+      notify_installation(CompactionServiceJobStatus::kUseLocal);
+      return CompactionServiceJobStatus::kUseLocal;
+    }
+  }
 
   std::ostringstream output_files_oss;
   is_first_one = true;
@@ -231,8 +416,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       db_options_.info_log,
       "[%s] [JOB %d] Received remote compaction result, output path: "
       "%s, files: %s",
-      compaction->column_family_data()->GetName().c_str(), job_id_,
-      compaction_result.output_path.c_str(), output_files_oss.str().c_str());
+      cfd->GetName().c_str(), job_id_, compaction_result.output_path.c_str(),
+      output_files_oss.str().c_str());
 
   // Installation Starts
   for (const auto& file : compaction_result.output_files) {
@@ -243,8 +428,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
-      db_options_.compaction_service->OnInstallation(
-          response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
+      notify_installation(CompactionServiceJobStatus::kFailure);
       return CompactionServiceJobStatus::kFailure;
     }
 
@@ -261,8 +445,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
     if (!s.ok()) {
       sub_compact->status = s;
-      db_options_.compaction_service->OnInstallation(
-          response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
+      notify_installation(CompactionServiceJobStatus::kFailure);
       return CompactionServiceJobStatus::kFailure;
     }
     assert(file_size > 0);
@@ -271,6 +454,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                              file.smallest_seqno, file.largest_seqno);
     meta.smallest.DecodeFrom(file.smallest_internal_key);
     meta.largest.DecodeFrom(file.largest_internal_key);
+    meta.oldest_blob_file_number = file.oldest_blob_file_number;
     meta.oldest_ancester_time = file.oldest_ancester_time;
     meta.file_creation_time = file.file_creation_time;
     meta.epoch_number = file.epoch_number;
@@ -281,7 +465,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.temperature = file.file_temperature;
     meta.tail_size =
         FileMetaData::CalculateTailSize(file_size, file.table_properties);
-    auto cfd = compaction->column_family_data();
     CompactionOutputs* compaction_outputs =
         sub_compact->Outputs(file.is_proximal_level_output);
     assert(compaction_outputs);
@@ -310,8 +493,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   RecordTick(stats_, REMOTE_COMPACT_READ_BYTES, compaction_result.bytes_read);
   RecordTick(stats_, REMOTE_COMPACT_WRITE_BYTES,
              compaction_result.bytes_written);
-  db_options_.compaction_service->OnInstallation(
-      response.scheduled_job_id, CompactionServiceJobStatus::kSuccess);
+  notify_installation(CompactionServiceJobStatus::kSuccess);
   return CompactionServiceJobStatus::kSuccess;
 }
 
@@ -374,12 +556,17 @@ Status CompactionServiceCompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
 
+  assert(compact_ != nullptr);
+  assert(compact_->compaction != nullptr);
+  assert(compaction_result_ != nullptr);
   auto* c = compact_->compaction;
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();
 
   compaction_result_->stats.Reset();
+  compaction_result_->has_blob_file_garbage_info = false;
+  compaction_result_->blob_file_garbages.clear();
 
   const uint64_t start_micros = db_options_.clock->NowMicros();
   c->GetOrInitInputTableProperties();
@@ -460,20 +647,28 @@ Status CompactionServiceCompactionJob::Run() {
 
   // Build Output
   compaction_result_->internal_stats = internal_stats_;
-  compaction_result_->output_level = compact_->compaction->output_level();
+  compaction_result_->output_level = c->output_level();
   compaction_result_->output_path = output_path_;
   if (status.ok()) {
+    PrepareBlobFileGarbage(/*compaction_succeeded=*/true);
+    compaction_result_->has_blob_file_garbage_info = true;
+    for (const BlobFileGarbage& garbage : blob_file_garbages_) {
+      compaction_result_->blob_file_garbages.emplace_back(
+          garbage.GetBlobFileNumber(), garbage.GetGarbageBlobCount(),
+          garbage.GetGarbageBlobBytes());
+    }
     for (const auto& output_file : sub_compact->GetOutputs()) {
       auto& meta = output_file.meta;
       compaction_result_->output_files.emplace_back(
           MakeTableFileName(meta.fd.GetNumber()), meta.fd.GetFileSize(),
           meta.fd.smallest_seqno, meta.fd.largest_seqno,
           meta.smallest.Encode().ToString(), meta.largest.Encode().ToString(),
-          meta.oldest_ancester_time, meta.file_creation_time, meta.epoch_number,
-          meta.file_checksum, meta.file_checksum_func_name,
-          output_file.validator.GetHash(), meta.marked_for_compaction,
-          meta.unique_id, *output_file.table_properties,
-          output_file.is_proximal_level, meta.temperature);
+          meta.oldest_blob_file_number, meta.oldest_ancester_time,
+          meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+          meta.file_checksum_func_name, output_file.validator.GetHash(),
+          meta.marked_for_compaction, meta.unique_id,
+          *output_file.table_properties, output_file.is_proximal_level,
+          meta.temperature);
     }
   }
 
@@ -601,6 +796,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionServiceOutputFile, largest_internal_key),
           OptionType::kEncodedString, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"has_oldest_blob_file_number",
+         {offsetof(struct CompactionServiceOutputFile,
+                   has_oldest_blob_file_number),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"oldest_blob_file_number",
+         {offsetof(struct CompactionServiceOutputFile, oldest_blob_file_number),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"oldest_ancester_time",
          {offsetof(struct CompactionServiceOutputFile, oldest_ancester_time),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -667,6 +871,25 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionServiceOutputFile, file_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}}};
+
+static const std::unordered_map<std::string, OptionTypeInfo>*
+GetCompactionServiceBlobGarbageTypeInfo() {
+  static const std::unordered_map<std::string, OptionTypeInfo> type_info = {
+      {"blob_file_number",
+       {offsetof(struct CompactionServiceBlobGarbage, blob_file_number),
+        OptionType::kUInt64T, OptionVerificationType::kNormal,
+        OptionTypeFlags::kNone}},
+      {"garbage_blob_count",
+       {offsetof(struct CompactionServiceBlobGarbage, garbage_blob_count),
+        OptionType::kUInt64T, OptionVerificationType::kNormal,
+        OptionTypeFlags::kNone}},
+      {"garbage_blob_bytes",
+       {offsetof(struct CompactionServiceBlobGarbage, garbage_blob_bytes),
+        OptionType::kUInt64T, OptionVerificationType::kNormal,
+        OptionTypeFlags::kNone}},
+  };
+  return &type_info;
+}
 
 static std::unordered_map<std::string, OptionTypeInfo>
     compaction_job_stats_type_info = {
@@ -1059,6 +1282,17 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
          "internal_stats", &compaction_internal_stats_type_info,
          offsetof(struct CompactionServiceResult, internal_stats),
          OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+    {"has_blob_file_garbage_info",
+     {offsetof(struct CompactionServiceResult, has_blob_file_garbage_info),
+      OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+    {"blob_file_garbages",
+     OptionTypeInfo::Vector<CompactionServiceBlobGarbage>(
+         offsetof(struct CompactionServiceResult, blob_file_garbages),
+         OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+         OptionTypeInfo::Struct(
+             "blob_file_garbages", GetCompactionServiceBlobGarbageTypeInfo(), 0,
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone))},
 };
 
 Status CompactionServiceInput::Read(const std::string& data_str,
@@ -1102,6 +1336,7 @@ Status CompactionServiceInput::Write(std::string* output) {
 
 Status CompactionServiceResult::Read(const std::string& data_str,
                                      CompactionServiceResult* obj) {
+  assert(obj != nullptr);
   if (data_str.size() <= sizeof(BinaryFormatVersion)) {
     return Status::InvalidArgument("Invalid CompactionServiceResult string");
   }
@@ -1110,9 +1345,30 @@ Status CompactionServiceResult::Read(const std::string& data_str,
     ConfigOptions cf;
     cf.invoke_prepare_options = false;
     cf.ignore_unknown_options = true;
-    return OptionTypeInfo::ParseType(
+    Status s = OptionTypeInfo::ParseType(
         cf, data_str.substr(sizeof(BinaryFormatVersion)), cs_result_type_info,
         obj);
+    if (!s.ok()) {
+      return s;
+    }
+    if (!obj->has_blob_file_garbage_info && !obj->blob_file_garbages.empty()) {
+      return Status::InvalidArgument(
+          "CompactionServiceResult has blob garbage without capability");
+    }
+    std::unordered_set<uint64_t> blob_file_numbers;
+    for (const CompactionServiceBlobGarbage& garbage :
+         obj->blob_file_garbages) {
+      if (garbage.blob_file_number == kInvalidBlobFileNumber ||
+          garbage.garbage_blob_count == 0 || garbage.garbage_blob_bytes == 0) {
+        return Status::InvalidArgument(
+            "CompactionServiceResult has invalid blob garbage");
+      }
+      if (!blob_file_numbers.emplace(garbage.blob_file_number).second) {
+        return Status::InvalidArgument(
+            "CompactionServiceResult has duplicate blob garbage");
+      }
+    }
+    return Status::OK();
   } else {
     return Status::NotSupported(
         "Compaction Service Result data version not supported: " +

@@ -185,11 +185,6 @@ class BlobGCAccountingListener : public EventListener {
   std::atomic<uint64_t> garbage_blob_bytes_{0};
 };
 
-class BlobGCTestCompactionService : public CompactionService {
- public:
-  const char* Name() const override { return "BlobGCTestCompactionService"; }
-};
-
 TEST_F(DBBlobBasicTest, GetBlob) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -455,23 +450,6 @@ TEST_F(DBBlobBasicTest, IndirectIdentityPrepopulationRespectsCacheCapacity) {
   EXPECT_LE(options.blob_cache->GetUsage(), cache_options.capacity);
   EXPECT_EQ(options.statistics->getTickerCount(BLOB_DB_CACHE_ADD), 1U);
   EXPECT_EQ(options.statistics->getTickerCount(BLOB_DB_CACHE_ADD_FAILURES), 0U);
-}
-
-TEST_F(DBBlobBasicTest, PersistedIndirectionRejectsCompactionService) {
-  Options options = GetDefaultOptions();
-  options.enable_blob_files = true;
-  options.enable_blob_indirection = true;
-  options.min_blob_size = 0;
-  options.disable_auto_compactions = true;
-
-  Reopen(options);
-  ASSERT_OK(Put("key", "blob-value"));
-  ASSERT_OK(Flush());
-
-  options.enable_blob_indirection = false;
-  options.compaction_service = std::make_shared<BlobGCTestCompactionService>();
-  const Status status = TryReopen(options);
-  EXPECT_TRUE(status.IsNotSupported()) << status.ToString();
 }
 
 TEST_F(DBBlobBasicTest, PersistedIndirectionRejectsBlobDirectWrite) {

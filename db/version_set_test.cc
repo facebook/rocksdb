@@ -243,6 +243,7 @@ TEST_F(VersionStorageInfoTest, BlobOriginIndexStoresRelocationsOnly) {
   AddBlob(/*blob_file_number=*/5, /*total_blob_count=*/1,
           /*total_blob_bytes=*/100, BlobFileMetaData::LinkedSsts{},
           /*garbage_blob_count=*/0, /*garbage_blob_bytes=*/0);
+  EXPECT_FALSE(vstorage_.HasBlobIndirection());
 
   BlobFileAddition identity(/*blob_file_number=*/10,
                             /*total_blob_count=*/1,
@@ -252,6 +253,7 @@ TEST_F(VersionStorageInfoTest, BlobOriginIndexStoresRelocationsOnly) {
       SharedBlobFileMetaData::Create(identity), BlobFileMetaData::LinkedSsts{},
       /*garbage_blob_count=*/0,
       /*garbage_blob_bytes=*/0));
+  EXPECT_TRUE(vstorage_.HasBlobIndirection());
 
   BlobFileAddition relocation(/*blob_file_number=*/30,
                               /*total_blob_count=*/1,
@@ -262,6 +264,7 @@ TEST_F(VersionStorageInfoTest, BlobOriginIndexStoresRelocationsOnly) {
       SharedBlobFileMetaData::Create(relocation),
       BlobFileMetaData::LinkedSsts{}, /*garbage_blob_count=*/0,
       /*garbage_blob_bytes=*/0));
+  EXPECT_TRUE(vstorage_.HasBlobIndirection());
 
   ASSERT_OK(vstorage_.ValidateBlobIndirection());
   EXPECT_EQ(vstorage_.TEST_GetBlobRelocationFileCount(), 1U);

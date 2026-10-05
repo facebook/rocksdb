@@ -967,6 +967,18 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
   return false;
 }
 
+bool Compaction::UsesBlobIndirection() const {
+  assert(input_version_);
+
+  if (immutable_options().enable_blob_indirection) {
+    return true;
+  }
+
+  const VersionStorageInfo* const storage_info = input_version_->storage_info();
+  assert(storage_info);
+  return storage_info->HasBlobIndirection();
+}
+
 uint64_t Compaction::MaxInputFileNewestKeyTime(const InternalKey* start,
                                                const InternalKey* end) const {
   uint64_t newest_key_time = kUnknownNewestKeyTime;

@@ -1847,18 +1847,6 @@ Status DBImplSecondary::CompactWithoutInstallation(
                    "containing kVerifyIteration)");
   }
 
-  mutex_.Unlock();
-
-  s = InitializeCompactionWorkspace(
-      allow_resumption, /*resumption_requested=*/options.allow_resumption,
-      &output_dir, &compaction_progress_writer);
-
-  mutex_.Lock();
-
-  if (!s.ok()) {
-    return s;
-  }
-
   std::unordered_set<uint64_t> input_set;
   for (const auto& file_name : input.input_files) {
     input_set.insert(TableFileNameToNumber(file_name));
@@ -1933,6 +1921,31 @@ Status DBImplSecondary::CompactWithoutInstallation(
       job_context.snapshot_checker));
   assert(c != nullptr);
   c->FinalizeInputInfo(version);
+
+  if (allow_resumption && c->UsesBlobIndirection() &&
+      c->DoesInputReferenceBlobFiles()) {
+    allow_resumption = false;
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Resume compaction configured but disabled because blob "
+                   "garbage accounting is not resumable");
+  }
+#ifndef NDEBUG
+  SyncPoint* const sync_point = SyncPoint::GetInstance();
+  assert(sync_point != nullptr);
+  sync_point->Process(
+      "DBImplSecondary::CompactWithoutInstallation::AllowResumption",
+      &allow_resumption);
+#endif
+
+  mutex_.Unlock();
+  s = InitializeCompactionWorkspace(
+      allow_resumption, /*resumption_requested=*/options.allow_resumption,
+      &output_dir, &compaction_progress_writer);
+  mutex_.Lock();
+  if (!s.ok()) {
+    c->ReleaseCompactionFiles(s);
+    return s;
+  }
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());

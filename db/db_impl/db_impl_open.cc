@@ -617,11 +617,6 @@ Status DBImpl::Recover(
               "Blob direct write cannot be used with persisted blob "
               "indirection metadata");
         }
-        if (!read_only && immutable_db_options_.compaction_service != nullptr) {
-          return Status::NotSupported(
-              "CompactionService cannot be used with persisted blob "
-              "indirection metadata");
-        }
       }
     }
   }
