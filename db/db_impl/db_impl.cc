@@ -7765,7 +7765,9 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
     std::vector<RangeOpt> ranges;
     ranges.emplace_back(OptSlice{}, begin_key);
     ranges.emplace_back(end_key, OptSlice{});
-    status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size());
+    // begin_key is kept, so a file whose largest key is begin_key must stay.
+    status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size(),
+                                 false /* include_end */);
   }
 
   // DeleteRange the remaining overlapping keys
