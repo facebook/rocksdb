@@ -65,7 +65,8 @@ Status ReadPathBlobResolver::FetchBlobRef(const BlobIndex& blob_index,
     }
     return same_file_reader_->GetSameFileBlob(blob_fetcher_.read_options(),
                                               blob_index, range_offset,
-                                              range_length, policy, out);
+                                              range_length, policy, out,
+                                              /*value_crc32c=*/nullptr);
   }
   return blob_fetcher_.FetchBlobRange(user_key_, blob_index, range_offset,
                                       range_length, policy, out,

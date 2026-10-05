@@ -199,6 +199,10 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   // same-file ("embedded") blob records. Currently only honored by
   // BlockBasedTableBuilder.
   const EmbeddedBlobSstBuilderOptions* embedded_blob_options;
+
+  // Nonzero only for a lineage-pure standalone Blob GC relocation file. The
+  // block-based builder persists it in the checksummed properties block.
+  uint64_t blob_gc_origin_file_number = 0;
 };
 
 // TableBuilder provides the interface used to build a Table

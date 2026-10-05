@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <optional>
 
 #include "rocksdb/compression_type.h"
 #include "rocksdb/slice.h"
@@ -40,6 +41,14 @@ struct BlobReadRequest {
   // Blob compression type
   CompressionType compression = kNoCompression;
 
+  // Stable checksum stored in an indirect BlobIndex. It is zero for direct
+  // reads, whose blob-record checksum is verified by BlobFileReader.
+  uint32_t checksum = 0;
+
+  // Unmasked CRC32C produced while verifying an uncompressed relocation-file
+  // record. Empty when the physical read could not provide a reusable CRC.
+  std::optional<uint32_t> verified_value_crc32c;
+
   // Output parameter set by MultiGetBlob() to point to the data buffer, and
   // the number of valid bytes
   PinnableSlice* result = nullptr;
@@ -57,6 +66,17 @@ struct BlobReadRequest {
         result(_result),
         status(_status) {}
 
+  BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
+                  CompressionType _compression, uint32_t _checksum,
+                  PinnableSlice* _result, Status* _status)
+      : user_key(&_user_key),
+        offset(_offset),
+        len(_len),
+        compression(_compression),
+        checksum(_checksum),
+        result(_result),
+        status(_status) {}
+
   BlobReadRequest() = default;
   BlobReadRequest(const BlobReadRequest& other) = default;
   BlobReadRequest& operator=(const BlobReadRequest& other) = default;
@@ -65,6 +85,11 @@ struct BlobReadRequest {
 using BlobFileReadRequests =
     std::tuple<BlobFileOpenInfo, uint64_t /* file_size */,
                autovector<BlobReadRequest>>;
+
+using IndirectBlobFileReadRequests =
+    std::tuple<BlobFileOpenInfo /* physical_file */,
+               uint64_t /* physical_file_size */,
+               uint64_t /* origin_file_number */, autovector<BlobReadRequest>>;
 
 // A byte-range (partial) blob read request for the lazy blob-read multi
 // primitives (BlobFileReader::MultiGetBlobRange /
@@ -109,5 +134,9 @@ struct BlobRangeReadRequest {
 using BlobFileRangeReadRequests =
     std::tuple<BlobFileOpenInfo, uint64_t /* file_size */,
                autovector<BlobRangeReadRequest>>;
+
+using IndirectBlobFileRangeReadRequests = std::tuple<
+    BlobFileOpenInfo /* physical_file */, uint64_t /* physical_file_size */,
+    uint64_t /* origin_file_number */, autovector<BlobRangeReadRequest>>;
 
 }  // namespace ROCKSDB_NAMESPACE

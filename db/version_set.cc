@@ -2793,8 +2793,10 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   }
 
   const uint64_t blob_file_number = blob_index.file_number();
-
-  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  auto blob_file_meta =
+      blob_index.IsIndirect()
+          ? storage_info_.GetBlobFileMetaDataByOrigin(blob_file_number)
+          : storage_info_.GetBlobFileMetaData(blob_file_number);
   if (!blob_file_meta) {
     // INTEGRITY CHECK -- do not weaken. The blob index must reference a known
     // external blob file. No metadata (including file_number 0, the
@@ -2807,9 +2809,19 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   assert(blob_source_);
   value->Reset();
-  const BlobFileOpenInfo blob_file{blob_file_number,
+  const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                    blob_file_meta->GetChecksumValue(),
                                    blob_file_meta->GetChecksumMethod()};
+  if (blob_index.IsIndirect() && blob_file_meta->IsIndirectRelocationFile()) {
+    return blob_source_->GetBlobByOrigin(
+        read_options, user_key, blob_file, blob_file_meta->GetBlobFileSize(),
+        mutable_cf_options_.block_protection_bytes_per_key, blob_file_number,
+        blob_index.offset(), blob_index.size(), blob_index.checksum(),
+        blob_index.compression(), value, bytes_read);
+  }
+  if (blob_index.IsIndirect() && !blob_file_meta->IsIndirectIdentityFile()) {
+    return Status::Corruption("Invalid indirect blob routing metadata");
+  }
   const Status s = blob_source_->GetBlob(
       read_options, user_key, blob_file, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
@@ -2835,8 +2847,10 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
   }
 
   const uint64_t blob_file_number = blob_index.file_number();
-
-  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  auto blob_file_meta =
+      blob_index.IsIndirect()
+          ? storage_info_.GetBlobFileMetaDataByOrigin(blob_file_number)
+          : storage_info_.GetBlobFileMetaData(blob_file_number);
   if (!blob_file_meta) {
     // INTEGRITY CHECK -- see Version::GetBlob. No metadata (including
     // file_number 0, the same-file "embedded" sentinel) means a corrupt index
@@ -2846,9 +2860,20 @@ Status Version::GetBlobRange(const ReadOptions& read_options,
 
   assert(blob_source_);
   value->Reset();
-  const BlobFileOpenInfo blob_file{blob_file_number,
+  const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                    blob_file_meta->GetChecksumValue(),
                                    blob_file_meta->GetChecksumMethod()};
+  if (blob_index.IsIndirect()) {
+    if (!blob_file_meta->IsIndirectIdentityFile() &&
+        !blob_file_meta->IsIndirectRelocationFile()) {
+      return Status::Corruption("Invalid indirect blob routing metadata");
+    }
+    return blob_source_->GetBlobRangeByOrigin(
+        read_options, user_key, blob_file, blob_file_meta->GetBlobFileSize(),
+        mutable_cf_options_.block_protection_bytes_per_key, blob_file_number,
+        blob_index.offset(), blob_index.size(), range_offset, range_length,
+        value, bytes_read);
+  }
   return blob_source_->GetBlobRange(
       read_options, user_key, blob_file, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
@@ -2871,8 +2896,12 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
   // of that file's current (most recently started, still fillable) batch.
   autovector<BlobFileReadRequests> whole_reqs;
   autovector<BlobFileRangeReadRequests> range_reqs;
+  autovector<IndirectBlobFileReadRequests> indirect_whole_reqs;
+  autovector<IndirectBlobFileRangeReadRequests> indirect_range_reqs;
   std::unordered_map<uint64_t, size_t> whole_idx;
   std::unordered_map<uint64_t, size_t> range_idx;
+  std::unordered_map<uint64_t, size_t> indirect_whole_idx;
+  std::unordered_map<uint64_t, size_t> indirect_range_idx;
 
   for (auto& req : reqs) {
     assert(req.user_key);
@@ -2887,15 +2916,26 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
     }
 
     const uint64_t file_number = blob_index.file_number();
-    auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
+    auto blob_file_meta =
+        blob_index.IsIndirect()
+            ? storage_info_.GetBlobFileMetaDataByOrigin(file_number)
+            : storage_info_.GetBlobFileMetaData(file_number);
     if (!blob_file_meta) {
       // INTEGRITY CHECK -- see Version::GetBlob. A same-file/embedded reference
       // (file_number 0) must be resolved via SameFileBlobReader, not here.
       *req.status = Status::Corruption("Invalid blob file number");
       continue;
     }
+    if (blob_index.IsIndirect() && !blob_file_meta->IsIndirectIdentityFile() &&
+        !blob_file_meta->IsIndirectRelocationFile()) {
+      *req.status =
+          Status::Corruption("Invalid indirect blob routing metadata");
+      continue;
+    }
+    const bool indirect_relocation_file =
+        blob_index.IsIndirect() && blob_file_meta->IsIndirectRelocationFile();
     const uint64_t file_size = blob_file_meta->GetBlobFileSize();
-    const BlobFileOpenInfo blob_file{file_number,
+    const BlobFileOpenInfo blob_file{blob_file_meta->GetBlobFileNumber(),
                                      blob_file_meta->GetChecksumValue(),
                                      blob_file_meta->GetChecksumMethod()};
 
@@ -2907,20 +2947,40 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       // MAX_BATCH_SIZE, and BlobSource tracks a batch's cache hits in a 64-bit
       // mask -- while MultiGetEntityLazy does not otherwise bound how many keys
       // can reference a single blob file.
-      size_t idx;
-      auto it = whole_idx.find(file_number);
-      if (it != whole_idx.end() && std::get<2>(whole_reqs[it->second]).size() <
-                                       MultiGetContext::MAX_BATCH_SIZE) {
-        idx = it->second;  // this file's current batch still has room
+      if (indirect_relocation_file) {
+        size_t idx;
+        auto it = indirect_whole_idx.find(file_number);
+        if (it != indirect_whole_idx.end() &&
+            std::get<3>(indirect_whole_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = indirect_whole_reqs.size();
+          indirect_whole_idx[file_number] = idx;
+          indirect_whole_reqs.emplace_back(blob_file, file_size, file_number,
+                                           autovector<BlobReadRequest>());
+        }
+        std::get<3>(indirect_whole_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          blob_index.compression(), blob_index.checksum(),
+                          req.result, req.status);
       } else {
-        idx = whole_reqs.size();  // no batch yet for this file, or it is full
-        whole_idx[file_number] = idx;
-        whole_reqs.emplace_back(blob_file, file_size,
-                                autovector<BlobReadRequest>());
+        size_t idx;
+        auto it = whole_idx.find(file_number);
+        if (it != whole_idx.end() &&
+            std::get<2>(whole_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = whole_reqs.size();
+          whole_idx[file_number] = idx;
+          whole_reqs.emplace_back(blob_file, file_size,
+                                  autovector<BlobReadRequest>());
+        }
+        std::get<2>(whole_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          blob_index.compression(), req.result, req.status);
       }
-      std::get<2>(whole_reqs[idx])
-          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
-                        blob_index.compression(), req.result, req.status);
     } else {
       // A strict sub-range of a compressed blob cannot be decompressed in
       // isolation; the caller resolves such columns whole and slices instead.
@@ -2930,21 +2990,41 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
       }
       // Same per-file batching and MAX_BATCH_SIZE cap as the whole-value path
       // above.
-      size_t idx;
-      auto it = range_idx.find(file_number);
-      if (it != range_idx.end() && std::get<2>(range_reqs[it->second]).size() <
-                                       MultiGetContext::MAX_BATCH_SIZE) {
-        idx = it->second;  // this file's current batch still has room
+      if (indirect_relocation_file) {
+        size_t idx;
+        auto it = indirect_range_idx.find(file_number);
+        if (it != indirect_range_idx.end() &&
+            std::get<3>(indirect_range_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = indirect_range_reqs.size();
+          indirect_range_idx[file_number] = idx;
+          indirect_range_reqs.emplace_back(blob_file, file_size, file_number,
+                                           autovector<BlobRangeReadRequest>());
+        }
+        std::get<3>(indirect_range_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          req.range_offset, req.range_length, req.result,
+                          req.status);
       } else {
-        idx = range_reqs.size();  // no batch yet for this file, or it is full
-        range_idx[file_number] = idx;
-        range_reqs.emplace_back(blob_file, file_size,
-                                autovector<BlobRangeReadRequest>());
+        size_t idx;
+        auto it = range_idx.find(file_number);
+        if (it != range_idx.end() &&
+            std::get<2>(range_reqs[it->second]).size() <
+                MultiGetContext::MAX_BATCH_SIZE) {
+          idx = it->second;
+        } else {
+          idx = range_reqs.size();
+          range_idx[file_number] = idx;
+          range_reqs.emplace_back(blob_file, file_size,
+                                  autovector<BlobRangeReadRequest>());
+        }
+        std::get<2>(range_reqs[idx])
+            .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
+                          req.range_offset, req.range_length, req.result,
+                          req.status);
       }
-      std::get<2>(range_reqs[idx])
-          .emplace_back(*req.user_key, blob_index.offset(), blob_index.size(),
-                        req.range_offset, req.range_length, req.result,
-                        req.status);
     }
   }
 
@@ -2957,6 +3037,18 @@ void Version::MultiGetBlobLazy(const ReadOptions& read_options,
     blob_source_->MultiGetBlobRange(read_options, range_reqs,
                                     /*bytes_read=*/nullptr);
   }
+  if (!indirect_whole_reqs.empty()) {
+    blob_source_->MultiGetBlobByOrigin(
+        read_options, indirect_whole_reqs,
+        mutable_cf_options_.block_protection_bytes_per_key,
+        /*bytes_read=*/nullptr);
+  }
+  if (!indirect_range_reqs.empty()) {
+    blob_source_->MultiGetBlobRangeByOrigin(
+        read_options, indirect_range_reqs,
+        mutable_cf_options_.block_protection_bytes_per_key,
+        /*bytes_read=*/nullptr);
+  }
 }
 
 void Version::MultiGetBlob(
@@ -2965,12 +3057,14 @@ void Version::MultiGetBlob(
   assert(!blob_ctxs.empty());
 
   autovector<BlobFileReadRequests> blob_reqs;
+  autovector<IndirectBlobFileReadRequests> indirect_blob_reqs;
 
   for (auto& ctx : blob_ctxs) {
     const auto file_number = ctx.first;
-    const auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
-
     autovector<BlobReadRequest> blob_reqs_in_file;
+    autovector<BlobReadRequest> indirect_blob_reqs_in_file;
+    std::shared_ptr<BlobFileMetaData> direct_meta;
+    std::shared_ptr<BlobFileMetaData> indirect_meta;
     BlobReadContexts& blobs_in_file = ctx.second;
     for (auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.blob_index;
@@ -2986,6 +3080,10 @@ void Version::MultiGetBlob(
         key_context->columns->Reset();
       }
 
+      const auto blob_file_meta =
+          blob_index.IsIndirect()
+              ? storage_info_.GetBlobFileMetaDataByOrigin(file_number)
+              : storage_info_.GetBlobFileMetaData(file_number);
       if (!blob_file_meta) {
         // INTEGRITY CHECK -- do not weaken; see Version::GetBlob and
         // FileMetaData::UpdateBoundaries. A same-file/embedded reference must
@@ -3000,23 +3098,58 @@ void Version::MultiGetBlob(
         continue;
       }
 
-      blob_reqs_in_file.emplace_back(
-          key_context->get_context->ukey_to_get_blob_value(),
-          blob_index.offset(), blob_index.size(), blob_index.compression(),
-          &blob.result, key_context->s);
+      if (blob_index.IsIndirect() &&
+          !blob_file_meta->IsIndirectIdentityFile() &&
+          !blob_file_meta->IsIndirectRelocationFile()) {
+        *key_context->s =
+            Status::Corruption("Invalid indirect blob routing metadata");
+        continue;
+      }
+
+      if (blob_index.IsIndirect() &&
+          blob_file_meta->IsIndirectRelocationFile()) {
+        indirect_meta = blob_file_meta;
+        indirect_blob_reqs_in_file.emplace_back(
+            key_context->get_context->ukey_to_get_blob_value(),
+            blob_index.offset(), blob_index.size(), blob_index.compression(),
+            blob_index.checksum(), &blob.result, key_context->s);
+      } else {
+        direct_meta = blob_file_meta;
+        blob_reqs_in_file.emplace_back(
+            key_context->get_context->ukey_to_get_blob_value(),
+            blob_index.offset(), blob_index.size(), blob_index.compression(),
+            &blob.result, key_context->s);
+      }
     }
-    if (blob_reqs_in_file.size() > 0) {
-      const auto file_size = blob_file_meta->GetBlobFileSize();
-      const BlobFileOpenInfo blob_file{file_number,
-                                       blob_file_meta->GetChecksumValue(),
-                                       blob_file_meta->GetChecksumMethod()};
-      blob_reqs.emplace_back(blob_file, file_size, blob_reqs_in_file);
+    if (!blob_reqs_in_file.empty()) {
+      assert(direct_meta);
+      const BlobFileOpenInfo blob_file{direct_meta->GetBlobFileNumber(),
+                                       direct_meta->GetChecksumValue(),
+                                       direct_meta->GetChecksumMethod()};
+      blob_reqs.emplace_back(blob_file, direct_meta->GetBlobFileSize(),
+                             std::move(blob_reqs_in_file));
+    }
+    if (!indirect_blob_reqs_in_file.empty()) {
+      assert(indirect_meta);
+      const BlobFileOpenInfo physical_file{indirect_meta->GetBlobFileNumber(),
+                                           indirect_meta->GetChecksumValue(),
+                                           indirect_meta->GetChecksumMethod()};
+      indirect_blob_reqs.emplace_back(
+          physical_file, indirect_meta->GetBlobFileSize(), file_number,
+          std::move(indirect_blob_reqs_in_file));
     }
   }
 
   if (blob_reqs.size() > 0) {
     blob_source_->MultiGetBlob(read_options, blob_reqs,
                                /*bytes_read=*/nullptr);
+  }
+  if (!indirect_blob_reqs.empty()) {
+    assert(blob_source_ != nullptr);
+    blob_source_->MultiGetBlobByOrigin(
+        read_options, indirect_blob_reqs,
+        mutable_cf_options_.block_protection_bytes_per_key,
+        /*bytes_read=*/nullptr);
   }
 
   for (auto& ctx : blob_ctxs) {

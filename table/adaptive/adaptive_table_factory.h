@@ -45,6 +45,10 @@ class AdaptiveTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const override;
 
+  // Callers opening an existing file known to use block-based format need the
+  // nested reader's cache and read settings instead of the write factory.
+  const BlockBasedTableOptions* GetBlockBasedTableReaderOptions() const;
+
   // Callers creating a file that must use block-based format need the options
   // of the nested write factory. Keep this explicit so generic option
   // discovery continues to describe AdaptiveTableFactory itself.

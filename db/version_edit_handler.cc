@@ -989,15 +989,41 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
     // Trust the MANIFEST: do not open the blob file to classify it.
     return Status::OK();
   }
+  assert(cfd != nullptr);
   BlobSource* blob_source = cfd->blob_source();
   assert(blob_source);
-  CacheHandleGuard<BlobFileReader> blob_file_reader;
 
   const BlobFileOpenInfo blob_file{blob_file_num,
                                    blob_addition.GetChecksumValue(),
                                    blob_addition.GetChecksumMethod()};
-  Status s = blob_source->GetBlobFileReader(read_options_, blob_file,
-                                            &blob_file_reader);
+  const uint8_t block_protection_bytes_per_key =
+      cfd->GetLatestMutableCFOptions().block_protection_bytes_per_key;
+  const auto open_blob_file = [&]() {
+    CacheHandleGuard<BlobFileReader> blob_file_reader;
+    if (blob_addition.IsIndirectRelocationFile()) {
+      return blob_source->GetRelocationFileReader(
+          read_options_, blob_file, &blob_file_reader,
+          blob_addition.GetOriginFileNumber(),
+          blob_addition.GetRelocationFileSize(),
+          block_protection_bytes_per_key);
+    }
+    return blob_source->GetBlobFileReader(read_options_, blob_file,
+                                          &blob_file_reader);
+  };
+
+  Status s;
+  if (catch_up_db_mutex_ != nullptr &&
+      blob_addition.IsIndirectRelocationFile()) {
+    catch_up_db_mutex_->Unlock();
+    TEST_SYNC_POINT(
+        "VersionEditHandlerPointInTime::VerifyBlobFile:BeforeRelocationOpen");
+    s = open_blob_file();
+    TEST_SYNC_POINT(
+        "VersionEditHandlerPointInTime::VerifyBlobFile:AfterRelocationOpen");
+    catch_up_db_mutex_->Lock();
+  } else {
+    s = open_blob_file();
+  }
   if (!s.ok()) {
     return s;
   }

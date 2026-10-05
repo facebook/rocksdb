@@ -101,7 +101,8 @@ Status EmbeddedAwareBlobFetcher::FetchBlob(const Slice& user_key,
             : BlobVerifyPolicy::kSkip;
     return same_file_reader_->GetSameFileBlob(
         read_options(), blob_index,
-        /*range_offset=*/0, kWholeBlobLength, verify_policy, blob_value);
+        /*range_offset=*/0, kWholeBlobLength, verify_policy, blob_value,
+        /*value_crc32c=*/nullptr);
   }
 
   if (base_ == nullptr) {

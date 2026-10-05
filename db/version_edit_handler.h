@@ -391,6 +391,10 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   // validating and opening newly discovered SSTs synchronously.
   bool defer_sst_file_opening_ = false;
 
+  // Non-null only while a runtime secondary catch-up owns the DB mutex.
+  // Relocation-file validation can release it around remote file I/O.
+  InstrumentedMutex* catch_up_db_mutex_ = nullptr;
+
  private:
   bool AtomicUpdateVersionsCompleted();
   bool AtomicUpdateVersionsContains(uint32_t cfid);

@@ -16,14 +16,19 @@
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_gen2_format.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
 #include "db/db_test_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
+#include "file/writable_file_writer.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
+#include "table/format.h"
+#include "test_util/sync_point.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -108,6 +113,29 @@ BlobFileOpenInfo OpenInfoWithoutChecksum(uint64_t file_number) {
   return BlobFileOpenInfo{file_number, Slice(), Slice()};
 }
 
+void WriteSimpleGen2File(const ImmutableOptions& immutable_options,
+                         const std::string& file_path,
+                         ChecksumType checksum_type,
+                         uint32_t base_context_checksum,
+                         const std::vector<Slice>& payloads,
+                         std::vector<uint64_t>* offsets) {
+  assert(offsets != nullptr);
+  offsets->clear();
+  std::unique_ptr<FSWritableFile> file;
+  ASSERT_OK(immutable_options.fs->NewWritableFile(file_path, FileOptions(),
+                                                  &file, /*dbg=*/nullptr));
+  WritableFileWriter writer(std::move(file), file_path, FileOptions(),
+                            immutable_options.clock);
+  uint64_t offset = 0;
+  for (const Slice& payload : payloads) {
+    offsets->push_back(offset);
+    ASSERT_OK(WriteSimpleGen2BlobRecord(&writer, WriteOptions(), checksum_type,
+                                        base_context_checksum, offset, payload,
+                                        kNoCompression));
+    offset += payload.size() + kSimpleGen2BlobTrailerSize;
+  }
+  ASSERT_OK(writer.Close(IOOptions(), /*dbg=*/nullptr));
+}
 }  // anonymous namespace
 
 class BlobSourceTest : public DBTestBase {
@@ -136,6 +164,132 @@ class BlobSourceTest : public DBTestBase {
   std::string db_id_;
   std::string db_session_id_;
 };
+
+TEST_F(BlobSourceTest, SimpleGen2BlobReturnsVerifiedValueCrc32c) {
+  DestroyAndReopen(options_);
+  ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, /*blob_file_cache=*/nullptr);
+
+  constexpr uint32_t base_context_checksum = 0x12345678;
+  const std::string first_payload(4096, 'a');
+  const std::string second_payload(6144, 'b');
+  const std::vector<Slice> payloads{first_payload, second_payload};
+  const std::string crc_file_path = dbname_ + "/simple-gen2-crc";
+  std::vector<uint64_t> offsets;
+  WriteSimpleGen2File(immutable_options, crc_file_path, kCRC32c,
+                      base_context_checksum, payloads, &offsets);
+
+  std::unique_ptr<FSRandomAccessFile> crc_file;
+  ASSERT_OK(immutable_options.fs->NewRandomAccessFile(
+      crc_file_path, FileOptions(), &crc_file, /*dbg=*/nullptr));
+  RandomAccessFileReader crc_reader(std::move(crc_file), crc_file_path);
+  const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
+                                          /*file_number=*/100);
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  read_options.fill_cache = false;
+
+  PinnableSlice value;
+  std::optional<uint32_t> value_crc32c;
+  ASSERT_OK(blob_source.GetSimpleGen2Blob(
+      read_options, base_cache_key, &crc_reader, offsets[0],
+      first_payload.size(), kCRC32c, base_context_checksum, kNoCompression,
+      &value, /*bytes_read=*/nullptr, &value_crc32c));
+  ASSERT_EQ(value, first_payload);
+  ASSERT_TRUE(value_crc32c.has_value());
+  EXPECT_EQ(*value_crc32c,
+            crc32c::Value(first_payload.data(), first_payload.size()));
+
+  std::array<PinnableSlice, 2> values;
+  std::array<Status, 2> statuses;
+  std::array<std::optional<uint32_t>, 2> value_crc32cs;
+  std::array<SimpleGen2BlobReadRequest, 2> requests;
+  for (size_t i = 0; i < requests.size(); ++i) {
+    requests[i].record_offset = offsets[i];
+    requests[i].payload_size = payloads[i].size();
+    requests[i].expected_compression = kNoCompression;
+    requests[i].result = &values[i];
+    requests[i].status = &statuses[i];
+    requests[i].value_crc32c = &value_crc32cs[i];
+  }
+  blob_source.MultiGetSimpleGen2Blob(read_options, base_cache_key, &crc_reader,
+                                     kCRC32c, base_context_checksum,
+                                     requests.size(), requests.data());
+  for (size_t i = 0; i < requests.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    EXPECT_EQ(values[i], payloads[i]);
+    ASSERT_TRUE(value_crc32cs[i].has_value());
+    EXPECT_EQ(*value_crc32cs[i],
+              crc32c::Value(payloads[i].data(), payloads[i].size()));
+  }
+
+  value.Reset();
+  read_options.fill_cache = true;
+  ASSERT_OK(blob_source.GetSimpleGen2Blob(
+      read_options, base_cache_key, &crc_reader, offsets[0],
+      first_payload.size(), kCRC32c, base_context_checksum, kNoCompression,
+      &value, /*bytes_read=*/nullptr, &value_crc32c));
+  ASSERT_TRUE(value_crc32c.has_value());
+  value.Reset();
+  ASSERT_OK(blob_source.GetSimpleGen2Blob(
+      read_options, base_cache_key, &crc_reader, offsets[0],
+      first_payload.size(), kCRC32c, base_context_checksum, kNoCompression,
+      &value, /*bytes_read=*/nullptr, &value_crc32c));
+  EXPECT_FALSE(value_crc32c.has_value());
+
+  value.Reset();
+  read_options.fill_cache = false;
+  read_options.verify_checksums = false;
+  ASSERT_OK(blob_source.GetSimpleGen2Blob(
+      read_options, base_cache_key, &crc_reader, offsets[1],
+      second_payload.size(), kCRC32c, base_context_checksum, kNoCompression,
+      &value, /*bytes_read=*/nullptr, &value_crc32c));
+  EXPECT_FALSE(value_crc32c.has_value());
+
+  const std::string hash_file_path = dbname_ + "/simple-gen2-xxhash";
+  std::vector<uint64_t> hash_offsets;
+  WriteSimpleGen2File(immutable_options, hash_file_path, kxxHash,
+                      base_context_checksum, {Slice(first_payload)},
+                      &hash_offsets);
+  std::unique_ptr<FSRandomAccessFile> hash_file;
+  ASSERT_OK(immutable_options.fs->NewRandomAccessFile(
+      hash_file_path, FileOptions(), &hash_file, /*dbg=*/nullptr));
+  RandomAccessFileReader hash_reader(std::move(hash_file), hash_file_path);
+  const OffsetableCacheKey hash_base_cache_key(db_id_, db_session_id_,
+                                               /*file_number=*/101);
+  value.Reset();
+  read_options.verify_checksums = true;
+  ASSERT_OK(blob_source.GetSimpleGen2Blob(
+      read_options, hash_base_cache_key, &hash_reader, hash_offsets[0],
+      first_payload.size(), kxxHash, base_context_checksum, kNoCompression,
+      &value, /*bytes_read=*/nullptr, &value_crc32c));
+  EXPECT_FALSE(value_crc32c.has_value());
+
+  value.Reset();
+  SyncPoint::GetInstance()->SetCallBack(
+      "ReadAndVerifySimpleGen2BlobRecord:TamperWithResult", [](void* arg) {
+        Slice* const record = static_cast<Slice*>(arg);
+        assert(record != nullptr);
+        assert(!record->empty());
+        char* const mutable_data = const_cast<char*>(record->data());
+        mutable_data[0] ^= 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  const Status corruption = blob_source.GetSimpleGen2Blob(
+      read_options, base_cache_key, &crc_reader, offsets[1],
+      second_payload.size(), kCRC32c, base_context_checksum, kNoCompression,
+      &value, /*bytes_read=*/nullptr, &value_crc32c);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  EXPECT_TRUE(corruption.IsCorruption()) << corruption.ToString();
+  EXPECT_NE(corruption.ToString().find("record checksum mismatch"),
+            std::string::npos);
+  EXPECT_TRUE(value.empty());
+  EXPECT_FALSE(value_crc32c.has_value());
+}
 
 TEST_F(BlobSourceTest, GetBlobsFromCache) {
   options_.cf_paths.emplace_back(
@@ -192,7 +346,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -458,6 +613,40 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
   }
+
+  {
+    // A stable checksum failure must not expose the unauthenticated value.
+    read_options.read_tier = ReadTier::kReadAllTier;
+    read_options.fill_cache = true;
+    const uint32_t wrong_checksum =
+        crc32c::Value(blobs[0].data(), blobs[0].size()) ^ 1;
+
+    PinnableSlice value;
+    EXPECT_TRUE(blob_source
+                    .GetBlobByOrigin(
+                        read_options, keys[0],
+                        OpenInfoWithoutChecksum(blob_file_number), file_size,
+                        /*block_protection_bytes_per_key=*/0, blob_file_number,
+                        blob_offsets[0], blob_sizes[0], wrong_checksum,
+                        kNoCompression, &value, /*bytes_read=*/nullptr)
+                    .IsCorruption());
+    EXPECT_TRUE(value.empty());
+    EXPECT_FALSE(value.IsPinned());
+
+    Status status;
+    autovector<BlobReadRequest> requests;
+    requests.emplace_back(keys[0], blob_offsets[0], blob_sizes[0],
+                          kNoCompression, wrong_checksum, &value, &status);
+    autovector<IndirectBlobFileReadRequests> batches;
+    batches.emplace_back(OpenInfoWithoutChecksum(blob_file_number), file_size,
+                         blob_file_number, std::move(requests));
+    blob_source.MultiGetBlobByOrigin(read_options, batches,
+                                     /*block_protection_bytes_per_key=*/0,
+                                     /*bytes_read=*/nullptr);
+    EXPECT_TRUE(status.IsCorruption());
+    EXPECT_TRUE(value.empty());
+    EXPECT_FALSE(value.IsPinned());
+  }
 }
 
 TEST_F(BlobSourceTest, GetCompressedBlobs) {
@@ -506,7 +695,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -653,7 +843,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -843,7 +1034,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1104,7 +1296,8 @@ TEST_F(BlobSourceTest, GetBlobPreservesCorruptionDetailsWhenRefreshOpenFails) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1179,7 +1372,8 @@ TEST_F(BlobSourceTest,
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1311,7 +1505,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
   std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+      blob_file_read_hist, nullptr /*IOTracer*/,
+      /*relocation_file_table_options=*/nullptr));
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1604,7 +1799,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
+          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
@@ -1726,7 +1922,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
+          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/,
+          /*relocation_file_table_options=*/nullptr);
 
   BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
                          db_session_id_, blob_file_cache.get());
