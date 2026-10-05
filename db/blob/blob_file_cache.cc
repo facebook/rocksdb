@@ -19,12 +19,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlobFileCache::BlobFileCache(Cache* cache,
-                             const ImmutableOptions* immutable_options,
-                             const FileOptions* file_options,
-                             uint32_t column_family_id,
-                             HistogramImpl* blob_file_read_hist,
-                             const std::shared_ptr<IOTracer>& io_tracer)
+BlobFileCache::BlobFileCache(
+    Cache* cache, const ImmutableOptions* immutable_options,
+    const FileOptions* file_options, uint32_t column_family_id,
+    HistogramImpl* blob_file_read_hist,
+    const std::shared_ptr<IOTracer>& io_tracer,
+    const BlockBasedTableOptions* relocation_file_table_options)
     : cache_(cache),
       mutex_(kNumberOfMutexStripes),
       immutable_options_(immutable_options),
@@ -35,12 +35,17 @@ BlobFileCache::BlobFileCache(Cache* cache,
   assert(cache_);
   assert(immutable_options_);
   assert(file_options_);
+  if (relocation_file_table_options != nullptr) {
+    relocation_file_table_options_ = std::make_unique<BlockBasedTableOptions>(
+        *relocation_file_table_options);
+  }
 }
 
 Status BlobFileCache::GetBlobFileReader(
     const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
     CacheHandleGuard<BlobFileReader>* blob_file_reader,
-    bool allow_footer_skip_retry) {
+    bool allow_footer_skip_retry, uint64_t expected_origin_file_number,
+    uint64_t expected_file_size, uint8_t block_protection_bytes_per_key) {
   assert(blob_file_reader);
   assert(blob_file_reader->IsEmpty());
 
@@ -51,10 +56,24 @@ Status BlobFileCache::GetBlobFileReader(
 
   assert(cache_);
 
+  const auto validate_cache_hit = [&](TypedHandle* cached_handle) -> Status {
+    assert(cached_handle != nullptr);
+    assert(blob_file_reader != nullptr);
+    BlobFileReader* const reader = cache_.Value(cached_handle);
+    if ((expected_origin_file_number == 0 && reader->IsRelocationFile()) ||
+        (expected_origin_file_number != 0 &&
+         (reader->GetRelocationFileOrigin() != expected_origin_file_number ||
+          reader->GetFileSize() != expected_file_size))) {
+      cache_.Release(cached_handle);
+      return Status::Corruption("Blob file reader route mismatch");
+    }
+    *blob_file_reader = cache_.Guard(cached_handle);
+    return Status::OK();
+  };
+
   TypedHandle* handle = cache_.Lookup(key);
   if (handle) {
-    *blob_file_reader = cache_.Guard(handle);
-    return Status::OK();
+    return validate_cache_hit(handle);
   }
 
   TEST_SYNC_POINT("BlobFileCache::GetBlobFileReader:DoubleCheck");
@@ -64,8 +83,12 @@ Status BlobFileCache::GetBlobFileReader(
 
   handle = cache_.Lookup(key);
   if (handle) {
-    *blob_file_reader = cache_.Guard(handle);
-    return Status::OK();
+    return validate_cache_hit(handle);
+  }
+
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete(
+        "Cannot open blob file reader: no disk I/O allowed");
   }
 
   assert(immutable_options_);
@@ -76,8 +99,10 @@ Status BlobFileCache::GetBlobFileReader(
   std::unique_ptr<BlobFileReader> reader;
 
   {
-    Status s = OpenBlobFileReader(read_options, blob_file,
-                                  allow_footer_skip_retry, &reader);
+    Status s =
+        OpenBlobFileReader(read_options, blob_file, allow_footer_skip_retry,
+                           expected_origin_file_number, expected_file_size,
+                           block_protection_bytes_per_key, &reader);
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_options_->logger,
                      "BlobFileCache open failed for blob file %" PRIu64
@@ -115,8 +140,11 @@ Status BlobFileCache::OpenBlobFileReaderUncached(
   Statistics* const statistics = immutable_options_->stats;
   RecordTick(statistics, NO_FILE_OPENS);
 
-  Status s = OpenBlobFileReader(read_options, blob_file,
-                                allow_footer_skip_retry, blob_file_reader);
+  Status s = OpenBlobFileReader(
+      read_options, blob_file, allow_footer_skip_retry,
+      /*expected_origin_file_number=*/0,
+      /*expected_file_size=*/0,
+      /*block_protection_bytes_per_key=*/0, blob_file_reader);
   if (!s.ok()) {
     RecordTick(statistics, NO_FILE_ERRORS);
   }
@@ -152,7 +180,8 @@ void BlobFileCache::UnregisterBlobFileChecksum(uint64_t blob_file_number) {
 
 Status BlobFileCache::OpenBlobFileReader(
     const ReadOptions& read_options, const BlobFileOpenInfo& blob_file,
-    bool allow_footer_skip_retry,
+    bool allow_footer_skip_retry, uint64_t expected_origin_file_number,
+    uint64_t expected_file_size, uint8_t block_protection_bytes_per_key,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(file_options_);
   assert(blob_file.file_checksum.empty() ==
@@ -173,6 +202,19 @@ Status BlobFileCache::OpenBlobFileReader(
       file_options.file_checksum.clear();
       file_options.file_checksum_func_name.clear();
     }
+  }
+
+  if (expected_origin_file_number != 0) {
+    assert(immutable_options_ != nullptr);
+    if (!relocation_file_table_options_) {
+      return Status::Corruption(
+          "Blob GC relocation file requires block-based table format");
+    }
+    return BlobFileReader::CreateRelocationFile(
+        *immutable_options_, read_options, file_options, blob_file_read_hist_,
+        blob_file.file_number, expected_file_size, expected_origin_file_number,
+        *relocation_file_table_options_, block_protection_bytes_per_key,
+        io_tracer_, blob_source_, blob_file_reader);
   }
 
   Status s = BlobFileReader::Create(

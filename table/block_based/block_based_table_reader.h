@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "cache/cache_entry_roles.h"
@@ -233,9 +234,10 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
   // data blocks; see GetSimpleGen2BlobCacheKey), so embedded blob records stay
   // collision-free with data blocks even when the blob cache and block cache
   // are shared. Must only be called when rep_->blob_source_ is non-null.
-  Status ResolveEmbeddedBlobCached(const ReadOptions& read_options,
-                                   const BlobIndex& blob_index,
-                                   PinnableSlice* value) const;
+  Status ResolveEmbeddedBlobCached(
+      const ReadOptions& read_options, const BlobIndex& blob_index,
+      PinnableSlice* value,
+      std::optional<uint32_t>* value_crc32c = nullptr) const;
 
   // Range-read counterpart of ResolveEmbeddedBlobCached: resolve only
   // [range_offset, range_offset + range_length) of an uncompressed same-file
@@ -257,10 +259,11 @@ class BlockBasedTable : public TableReader, public SameFileBlobReader {
   // wired, else a direct pinned read (ResolveEmbeddedBlobPinned); a sub-range
   // read routes through ResolveEmbeddedBlobRangeCached (requires a BlobSource).
   // See BlobVerifyPolicy / kWholeBlobLength for the range + verify semantics.
-  Status GetSameFileBlob(const ReadOptions& read_options,
-                         const BlobIndex& blob_index, uint64_t range_offset,
-                         size_t range_length, BlobVerifyPolicy verify_policy,
-                         PinnableSlice* value) const override;
+  Status GetSameFileBlob(
+      const ReadOptions& read_options, const BlobIndex& blob_index,
+      uint64_t range_offset, size_t range_length,
+      BlobVerifyPolicy verify_policy, PinnableSlice* value,
+      std::optional<uint32_t>* value_crc32c = nullptr) const override;
 
   // Batched counterpart of GetSameFileBlob: coalesces the cache-miss reads of
   // multiple embedded (same-file) records in this SST into a single MultiRead

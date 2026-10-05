@@ -674,11 +674,33 @@ ColumnFamilyData::ColumnFamilyData(
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer,
                                       db_session_id, fast_sst_open, name_));
+    const BlockBasedTableOptions* relocation_file_table_options =
+        mutable_cf_options_.table_factory == nullptr
+            ? nullptr
+            : mutable_cf_options_.table_factory
+                  ->GetOptions<BlockBasedTableOptions>();
+    if (mutable_cf_options_.table_factory != nullptr) {
+      const AdaptiveTableFactory* const adaptive_table_factory =
+          mutable_cf_options_.table_factory
+              ->CheckedCast<AdaptiveTableFactory>();
+      if (adaptive_table_factory != nullptr) {
+        relocation_file_table_options =
+            adaptive_table_factory->GetBlockBasedTableReaderOptions();
+        if (relocation_file_table_options == nullptr) {
+          // Relocation files are created with the block writer's options. Use
+          // those options when an opaque nested reader cannot expose its own.
+          relocation_file_table_options =
+              adaptive_table_factory->GetBlockBasedTableWriterOptions();
+        }
+      }
+    }
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, &ioptions(), soptions(), id_,
-                          internal_stats_->GetBlobFileReadHist(), io_tracer));
+                          internal_stats_->GetBlobFileReadHist(), io_tracer,
+                          relocation_file_table_options));
     blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
                                       db_session_id, blob_file_cache_.get()));
+    blob_file_cache_->SetBlobSource(blob_source_.get());
     // Let the table cache route same-file ("embedded") blob reads through the
     // blob value cache + stats. Both objects share this CFD's lifetime.
     table_cache_->SetBlobSource(blob_source_.get());

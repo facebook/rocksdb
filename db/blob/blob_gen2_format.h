@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "cache/cache_key.h"
 #include "rocksdb/compression_type.h"
@@ -66,12 +67,16 @@ inline CacheKey GetSimpleGen2BlobCacheKey(
 // the record's marker, and currently must be kNoCompression.
 //
 // On success, buf[0, payload_size) holds the verified, uncompressed payload
-// (the trailer remains at the tail of `buf` and can be ignored).
+// (the trailer remains at the tail of `buf` and can be ignored). When
+// `value_crc32c` is non-null, it is set to the unmasked CRC32C of the payload
+// only when checksum verification computed it as part of validating an
+// uncompressed CRC32C record; otherwise it is reset.
 Status ReadAndVerifySimpleGen2BlobRecord(
     const ReadOptions& read_options, RandomAccessFileReader* file,
     uint64_t record_offset, size_t payload_size, size_t record_size,
     ChecksumType checksum_type, uint32_t base_context_checksum,
-    CompressionType expected_compression, char* buf);
+    CompressionType expected_compression, char* buf,
+    std::optional<uint32_t>* value_crc32c = nullptr);
 
 // Reads a byte sub-range [range_offset, range_offset + range_length) of an
 // *uncompressed* SimpleGen2Blob payload directly into `buf` (capacity >=
@@ -103,6 +108,7 @@ struct SimpleGen2RecordReadRequest {
   CompressionType expected_compression = kNoCompression;
   char* buf = nullptr;
   Status* status = nullptr;
+  std::optional<uint32_t>* value_crc32c = nullptr;
 };
 
 // One sub-range request in a batched SimpleGen2Blob range read (see

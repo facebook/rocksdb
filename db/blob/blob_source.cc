@@ -6,11 +6,13 @@
 #include "db/blob/blob_source.h"
 
 #include <cassert>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "cache/cache_reservation_manager.h"
 #include "cache/charged_cache.h"
+#include "db/blob/blob_constants.h"
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_gen2_format.h"
@@ -21,6 +23,8 @@
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
+#include "test_util/sync_point.h"
+#include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -132,6 +136,24 @@ void PinCacheHitSubRange(CacheHandleGuard<BlobContents>* blob_handle,
   constexpr Cleanable* cleanable = nullptr;
   value->PinSlice(sub, cleanable);
   blob_handle->TransferTo(value);
+}
+
+Status VerifyStableBlobChecksum(
+    PinnableSlice* value, uint32_t expected,
+    const std::optional<uint32_t>& verified_value_crc32c = std::nullopt) {
+  assert(value != nullptr);
+  bool reused_physical_crc32c = verified_value_crc32c.has_value();
+  TEST_SYNC_POINT_CALLBACK(
+      "BlobSource::VerifyStableBlobChecksum:ReusedPhysicalCrc32c",
+      &reused_physical_crc32c);
+  const uint32_t actual = verified_value_crc32c.has_value()
+                              ? *verified_value_crc32c
+                              : crc32c::Value(value->data(), value->size());
+  if (actual != expected) {
+    value->Reset();
+    return Status::Corruption("Indirect blob value checksum mismatch");
+  }
+  return Status::OK();
 }
 
 }  // namespace
@@ -377,6 +399,45 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   return s;
 }
 
+Status BlobSource::GetBlobByOrigin(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobFileOpenInfo& physical_file, uint64_t physical_file_size,
+    uint8_t block_protection_bytes_per_key, uint64_t origin_file_number,
+    uint64_t origin_offset, uint64_t value_size, uint32_t checksum,
+    CompressionType compression_type, PinnableSlice* value,
+    uint64_t* bytes_read) {
+  assert(value != nullptr);
+
+  if (physical_file.file_number == origin_file_number) {
+    Status s = GetBlob(read_options, user_key, physical_file, origin_offset,
+                       physical_file_size, value_size, compression_type,
+                       /*prefetch_buffer=*/nullptr, value, bytes_read);
+    if (s.ok() && read_options.verify_checksums) {
+      s = VerifyStableBlobChecksum(value, checksum);
+    }
+    return s;
+  }
+
+  assert(blob_file_cache_ != nullptr);
+  CacheHandleGuard<BlobFileReader> relocation_file_reader;
+  Status s = blob_file_cache_->GetBlobFileReader(
+      read_options, physical_file, &relocation_file_reader,
+      /*allow_footer_skip_retry=*/false, origin_file_number, physical_file_size,
+      block_protection_bytes_per_key);
+  if (!s.ok()) {
+    return s;
+  }
+  std::optional<uint32_t> verified_value_crc32c;
+  s = relocation_file_reader.GetValue()->GetBlobFromRelocationFile(
+      read_options, origin_offset, value_size, compression_type,
+      /*range_offset=*/0, kWholeBlobLength, value, bytes_read,
+      &verified_value_crc32c);
+  if (s.ok() && read_options.verify_checksums) {
+    s = VerifyStableBlobChecksum(value, checksum, verified_value_crc32c);
+  }
+  return s;
+}
+
 Status BlobSource::GetBlobRange(const ReadOptions& read_options,
                                 const Slice& user_key,
                                 const BlobFileOpenInfo& blob_file,
@@ -465,14 +526,45 @@ Status BlobSource::GetBlobRange(const ReadOptions& read_options,
   return s;
 }
 
+Status BlobSource::GetBlobRangeByOrigin(
+    const ReadOptions& read_options, const Slice& user_key,
+    const BlobFileOpenInfo& physical_file, uint64_t physical_file_size,
+    uint8_t block_protection_bytes_per_key, uint64_t origin_file_number,
+    uint64_t origin_offset, uint64_t value_size, uint64_t range_offset,
+    size_t range_length, PinnableSlice* value, uint64_t* bytes_read) {
+  assert(value != nullptr);
+
+  if (physical_file.file_number == origin_file_number) {
+    return GetBlobRange(read_options, user_key, physical_file, origin_offset,
+                        physical_file_size, value_size, kNoCompression,
+                        range_offset, range_length, value, bytes_read);
+  }
+
+  assert(blob_file_cache_ != nullptr);
+  CacheHandleGuard<BlobFileReader> relocation_file_reader;
+  Status s = blob_file_cache_->GetBlobFileReader(
+      read_options, physical_file, &relocation_file_reader,
+      /*allow_footer_skip_retry=*/false, origin_file_number, physical_file_size,
+      block_protection_bytes_per_key);
+  if (!s.ok()) {
+    return s;
+  }
+  return relocation_file_reader.GetValue()->GetBlobFromRelocationFile(
+      read_options, origin_offset, value_size, kNoCompression, range_offset,
+      range_length, value, bytes_read);
+}
+
 Status BlobSource::GetSimpleGen2Blob(
     const ReadOptions& read_options, const OffsetableCacheKey& base_cache_key,
     RandomAccessFileReader* file, uint64_t record_offset, uint64_t payload_size,
     ChecksumType checksum_type, uint32_t base_context_checksum,
     CompressionType expected_compression, PinnableSlice* value,
-    uint64_t* bytes_read) {
+    uint64_t* bytes_read, std::optional<uint32_t>* value_crc32c) {
   assert(value);
   assert(file);
+  if (value_crc32c != nullptr) {
+    value_crc32c->reset();
+  }
 
   const uint64_t record_size = payload_size + kSimpleGen2BlobTrailerSize;
 
@@ -522,7 +614,7 @@ Status BlobSource::GetSimpleGen2Blob(
   s = ReadAndVerifySimpleGen2BlobRecord(
       read_options, file, record_offset, static_cast<size_t>(payload_size),
       static_cast<size_t>(record_size), checksum_type, base_context_checksum,
-      expected_compression, buf.get());
+      expected_compression, buf.get(), value_crc32c);
   if (!s.ok()) {
     return s;
   }
@@ -549,6 +641,9 @@ Status BlobSource::GetSimpleGen2Blob(
     Slice key = cache_key.AsSlice();
     s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
     if (!s.ok()) {
+      if (value_crc32c != nullptr) {
+        value_crc32c->reset();
+      }
       return s;
     }
 
@@ -668,6 +763,9 @@ void BlobSource::MultiGetSimpleGen2Blob(
     SimpleGen2BlobReadRequest& req = reqs[i];
     assert(req.result);
     assert(req.status);
+    if (req.value_crc32c != nullptr) {
+      req.value_crc32c->reset();
+    }
 
     const uint64_t record_size = req.payload_size + kSimpleGen2BlobTrailerSize;
     const CacheKey cache_key =
@@ -694,7 +792,7 @@ void BlobSource::MultiGetSimpleGen2Blob(
     read_reqs.push_back(SimpleGen2RecordReadRequest{
         req.record_offset, static_cast<size_t>(req.payload_size),
         static_cast<size_t>(record_size), req.expected_compression, buf.get(),
-        req.status});
+        req.status, req.value_crc32c});
     pending.push_back(Pending{i, std::move(buf), record_size});
   }
 
@@ -730,6 +828,9 @@ void BlobSource::MultiGetSimpleGen2Blob(
           PutBlobIntoCache(cache_key.AsSlice(), &blob_contents, &blob_handle);
       if (!ps.ok()) {
         *req.status = ps;
+        if (req.value_crc32c != nullptr) {
+          req.value_crc32c->reset();
+        }
       } else {
         PinCachedBlob(&blob_handle, req.result);
       }
@@ -844,6 +945,62 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
   }
 
   if (bytes_read) {
+    *bytes_read = total_bytes_read;
+  }
+}
+
+void BlobSource::MultiGetBlobByOrigin(
+    const ReadOptions& read_options,
+    autovector<IndirectBlobFileReadRequests>& blob_reqs,
+    uint8_t block_protection_bytes_per_key, uint64_t* bytes_read) {
+  assert(!blob_reqs.empty());
+
+  uint64_t total_bytes_read = 0;
+  for (auto& [physical_file, physical_file_size, origin_file_number, requests] :
+       blob_reqs) {
+    uint64_t file_bytes_read = 0;
+    std::sort(requests.begin(), requests.end(),
+              [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) {
+                return lhs.offset < rhs.offset;
+              });
+    for (BlobReadRequest& req : requests) {
+      req.verified_value_crc32c.reset();
+    }
+    if (physical_file.file_number == origin_file_number) {
+      MultiGetBlobFromOneFile(read_options, physical_file, physical_file_size,
+                              requests, &file_bytes_read);
+    } else {
+      assert(blob_file_cache_ != nullptr);
+      CacheHandleGuard<BlobFileReader> relocation_file_reader;
+      const Status s = blob_file_cache_->GetBlobFileReader(
+          read_options, physical_file, &relocation_file_reader,
+          /*allow_footer_skip_retry=*/false, origin_file_number,
+          physical_file_size, block_protection_bytes_per_key);
+      if (!s.ok()) {
+        for (BlobReadRequest& req : requests) {
+          assert(req.status != nullptr);
+          *req.status = s;
+        }
+      } else {
+        relocation_file_reader.GetValue()->MultiGetBlobFromRelocationFile(
+            read_options, requests, &file_bytes_read);
+      }
+    }
+
+    if (read_options.verify_checksums) {
+      for (BlobReadRequest& req : requests) {
+        assert(req.status != nullptr);
+        assert(req.result != nullptr);
+        if (req.status->ok()) {
+          *req.status = VerifyStableBlobChecksum(req.result, req.checksum,
+                                                 req.verified_value_crc32c);
+        }
+      }
+    }
+    total_bytes_read += file_bytes_read;
+  }
+
+  if (bytes_read != nullptr) {
     *bytes_read = total_bytes_read;
   }
 }
@@ -1124,6 +1281,50 @@ void BlobSource::MultiGetBlobRange(
   }
 
   if (bytes_read) {
+    *bytes_read = total_bytes_read;
+  }
+}
+
+void BlobSource::MultiGetBlobRangeByOrigin(
+    const ReadOptions& read_options,
+    autovector<IndirectBlobFileRangeReadRequests>& blob_reqs,
+    uint8_t block_protection_bytes_per_key, uint64_t* bytes_read) {
+  assert(!blob_reqs.empty());
+
+  uint64_t total_bytes_read = 0;
+  for (auto& [physical_file, physical_file_size, origin_file_number, requests] :
+       blob_reqs) {
+    uint64_t file_bytes_read = 0;
+    std::sort(
+        requests.begin(), requests.end(),
+        [](const BlobRangeReadRequest& lhs, const BlobRangeReadRequest& rhs) {
+          return lhs.offset + lhs.range_offset < rhs.offset + rhs.range_offset;
+        });
+    if (physical_file.file_number == origin_file_number) {
+      MultiGetBlobRangeFromOneFile(read_options, physical_file,
+                                   physical_file_size, requests,
+                                   &file_bytes_read);
+    } else {
+      assert(blob_file_cache_ != nullptr);
+      CacheHandleGuard<BlobFileReader> relocation_file_reader;
+      const Status s = blob_file_cache_->GetBlobFileReader(
+          read_options, physical_file, &relocation_file_reader,
+          /*allow_footer_skip_retry=*/false, origin_file_number,
+          physical_file_size, block_protection_bytes_per_key);
+      if (!s.ok()) {
+        for (BlobRangeReadRequest& req : requests) {
+          assert(req.status != nullptr);
+          *req.status = s;
+        }
+      } else {
+        relocation_file_reader.GetValue()->MultiGetBlobRangeFromRelocationFile(
+            read_options, requests, &file_bytes_read);
+      }
+    }
+    total_bytes_read += file_bytes_read;
+  }
+
+  if (bytes_read != nullptr) {
     *bytes_read = total_bytes_read;
   }
 }

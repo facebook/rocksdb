@@ -1262,7 +1262,7 @@ Status BlockBasedTable::ResolveEmbeddedBlobPinned(
 
 Status BlockBasedTable::ResolveEmbeddedBlobCached(
     const ReadOptions& read_options, const BlobIndex& blob_index,
-    PinnableSlice* value) const {
+    PinnableSlice* value, std::optional<uint32_t>* value_crc32c) const {
   assert(value != nullptr);
   assert(rep_->blob_source_ != nullptr);
   size_t payload_size = 0;
@@ -1280,15 +1280,16 @@ Status BlockBasedTable::ResolveEmbeddedBlobCached(
       read_options, rep_->base_cache_key, rep_->file.get(), blob_index.offset(),
       payload_size, rep_->footer.checksum_type(),
       rep_->footer.base_context_checksum(), blob_index.compression(), value,
-      /*bytes_read=*/nullptr);
+      /*bytes_read=*/nullptr, value_crc32c);
 }
 
-Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
-                                        const BlobIndex& blob_index,
-                                        uint64_t range_offset,
-                                        size_t range_length,
-                                        BlobVerifyPolicy verify_policy,
-                                        PinnableSlice* value) const {
+Status BlockBasedTable::GetSameFileBlob(
+    const ReadOptions& read_options, const BlobIndex& blob_index,
+    uint64_t range_offset, size_t range_length, BlobVerifyPolicy verify_policy,
+    PinnableSlice* value, std::optional<uint32_t>* value_crc32c) const {
+  if (value_crc32c != nullptr) {
+    value_crc32c->reset();
+  }
   if (range_length != kWholeBlobLength) {
     // Byte-range embedded read: value bytes only, no whole-record checksum, no
     // cache fill (see ResolveEmbeddedBlobRangeCached). Only issued while
@@ -1318,12 +1319,13 @@ Status BlockBasedTable::GetSameFileBlob(const ReadOptions& read_options,
     verify_read_options.verify_checksums = true;
     return rep_->blob_source_ != nullptr
                ? ResolveEmbeddedBlobCached(verify_read_options, blob_index,
-                                           value)
+                                           value, value_crc32c)
                : ResolveEmbeddedBlobPinned(verify_read_options, blob_index,
                                            value);
   }
   return rep_->blob_source_ != nullptr
-             ? ResolveEmbeddedBlobCached(read_options, blob_index, value)
+             ? ResolveEmbeddedBlobCached(read_options, blob_index, value,
+                                         value_crc32c)
              : ResolveEmbeddedBlobPinned(read_options, blob_index, value);
 }
 
@@ -1366,12 +1368,15 @@ void BlockBasedTable::MultiGetSameFileBlob(
     assert(req.blob_index);
     assert(req.result);
     assert(req.status);
+    if (req.value_crc32c != nullptr) {
+      req.value_crc32c->reset();
+    }
 
     if (req.verify_policy == BlobVerifyPolicy::kVerifyIfPresent ||
         rep_->blob_source_ == nullptr) {
-      *req.status =
-          GetSameFileBlob(read_options, *req.blob_index, req.range_offset,
-                          req.range_length, req.verify_policy, req.result);
+      *req.status = GetSameFileBlob(
+          read_options, *req.blob_index, req.range_offset, req.range_length,
+          req.verify_policy, req.result, req.value_crc32c);
       continue;
     }
 
@@ -1387,7 +1392,7 @@ void BlockBasedTable::MultiGetSameFileBlob(
     if (req.range_length == kWholeBlobLength) {
       whole_reqs.push_back(SimpleGen2BlobReadRequest{
           req.blob_index->offset(), payload_size, req.blob_index->compression(),
-          req.result, req.status});
+          req.result, req.status, req.value_crc32c});
     } else {
       range_reqs.push_back(SimpleGen2BlobRangeReadRequest{
           req.blob_index->offset(), payload_size, req.range_offset,

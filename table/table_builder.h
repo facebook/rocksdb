@@ -146,7 +146,8 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
       const SequenceNumber _last_level_inclusive_max_seqno_threshold =
           kMaxSequenceNumber,
       const Slice _db_name = Slice(), const bool _is_remote_compaction = false,
-      const EmbeddedBlobSstBuilderOptions* _embedded_blob_options = nullptr)
+      const EmbeddedBlobSstBuilderOptions* _embedded_blob_options = nullptr,
+      const uint64_t _blob_gc_origin_file_number = 0)
       : TablePropertiesCollectorFactory::Context(
             _column_family_id, _level, _ioptions.num_levels,
             _last_level_inclusive_max_seqno_threshold),
@@ -170,7 +171,8 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
         db_name(_db_name),
         is_remote_compaction(_is_remote_compaction),
         cur_file_num(_cur_file_num),
-        embedded_blob_options(_embedded_blob_options) {}
+        embedded_blob_options(_embedded_blob_options),
+        blob_gc_origin_file_number(_blob_gc_origin_file_number) {}
 
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
@@ -199,6 +201,10 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   // same-file ("embedded") blob records. Currently only honored by
   // BlockBasedTableBuilder.
   const EmbeddedBlobSstBuilderOptions* embedded_blob_options;
+
+  // Nonzero only for a lineage-pure standalone Blob GC relocation file. The
+  // block-based builder persists it in the checksummed properties block.
+  const uint64_t blob_gc_origin_file_number;
 };
 
 // TableBuilder provides the interface used to build a Table
