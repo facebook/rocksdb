@@ -686,6 +686,33 @@ class DBCrashTestTest(unittest.TestCase):
         ]:
             self.assertEqual(0, finalized[flag], flag)
 
+    def test_finalize_disables_ingest_wbwi_for_file_scoped_wal_faults(self):
+        db_crashtest = self.load_db_crashtest()
+        # Isolate the regression: the generic ingest_wbwi_one_in guard only
+        # fires on disable_wal==0 / pipelined / unordered / timestamps, none of
+        # which hold here. disable_wal starts at 1, so that guard leaves
+        # ingest_wbwi_one_in untouched; the file-scoped WAL fault profile then
+        # forces disable_wal=0 later, and must also disable the (now
+        # unsupported) IngestWriteBatchWithIndex path.
+        params = self.build_params(
+            db_crashtest.default_params,
+            {
+                "file_scope_wal_write_faults": 1,
+                "disable_wal": 1,
+                "ingest_wbwi_one_in": 100,
+                "enable_pipelined_write": 0,
+                "unordered_write": 0,
+                "user_timestamp_size": 0,
+                "use_txn": 0,
+                "two_write_queues": 0,
+            },
+        )
+
+        finalized = db_crashtest.finalize_and_sanitize(params)
+
+        self.assertEqual(0, finalized["disable_wal"])
+        self.assertEqual(0, finalized["ingest_wbwi_one_in"])
+
     def test_auto_file_scoped_wal_faults_preserve_explicit_opt_outs(self):
         db_crashtest = self.load_db_crashtest()
 
