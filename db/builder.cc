@@ -396,7 +396,7 @@ Status BuildTable(
           relevant_mapping,
           ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
               ? meta->file_creation_time
-              : meta->oldest_ancester_time);
+              : meta->oldest_ancestor_time);
       s = builder->Finish();
     }
     if (io_status->ok()) {

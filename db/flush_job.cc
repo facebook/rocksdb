@@ -1014,12 +1014,12 @@ Status FlushJob::WriteLevel0Table() {
 
       // It's not clear whether oldest_key_time is always available. In case
       // it is not available, use current_time.
-      uint64_t oldest_ancester_time = std::min(current_time, oldest_key_time);
+      uint64_t oldest_ancestor_time = std::min(current_time, oldest_key_time);
 
       TEST_SYNC_POINT_CALLBACK(
-          "FlushJob::WriteLevel0Table:oldest_ancester_time",
-          &oldest_ancester_time);
-      meta_.oldest_ancester_time = oldest_ancester_time;
+          "FlushJob::WriteLevel0Table:oldest_ancestor_time",
+          &oldest_ancestor_time);
+      meta_.oldest_ancestor_time = oldest_ancestor_time;
       meta_.file_creation_time = current_time;
 
       uint64_t memtable_payload_bytes = 0;

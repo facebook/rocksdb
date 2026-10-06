@@ -81,7 +81,7 @@ struct SstFileMetaData : public FileStorageInfo {
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
                   bool _being_compacted, Temperature _temperature,
                   uint64_t _oldest_blob_file_number,
-                  uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
+                  uint64_t _oldest_ancestor_time, uint64_t _file_creation_time,
                   uint64_t _epoch_number, std::string& _file_checksum,
                   std::string& _file_checksum_func_name)
       : smallest_seqno(_smallest_seqno),
@@ -93,7 +93,7 @@ struct SstFileMetaData : public FileStorageInfo {
         num_entries(0),
         num_deletions(0),
         oldest_blob_file_number(_oldest_blob_file_number),
-        oldest_ancester_time(_oldest_ancester_time),
+        oldest_ancestor_time(_oldest_ancestor_time),
         file_creation_time(_file_creation_time),
         epoch_number(_epoch_number) {
     if (!_file_name.empty()) {
@@ -138,7 +138,12 @@ struct SstFileMetaData : public FileStorageInfo {
   // 0 if the information is not available.
   //
   // Note: for TTL blob files, it contains the start of the expiration range.
-  uint64_t oldest_ancester_time = 0;
+  union {
+    uint64_t oldest_ancestor_time = 0;
+    // DEPRECATED: misspelled old name for oldest_ancestor_time. Will be
+    // removed in a future release.
+    uint64_t oldest_ancester_time;
+  };
   // Timestamp when the SST file is created, provided by
   // SystemClock::GetCurrentTime(). 0 if the information is not available.
   uint64_t file_creation_time = 0;

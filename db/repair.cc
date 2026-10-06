@@ -575,7 +575,7 @@ class Repairer {
         status =
             AddColumnFamily(props->column_family_name, t->column_family_id);
       }
-      t->meta.oldest_ancester_time = props->oldest_ancestor_time;
+      t->meta.oldest_ancestor_time = props->oldest_ancestor_time;
       t->meta.user_defined_timestamps_persisted =
           static_cast<bool>(props->user_defined_timestamps_persisted);
     }
@@ -712,7 +712,7 @@ class Repairer {
             0, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
             meta.smallest, meta.largest, meta.fd.smallest_seqno,
             meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
-            meta.oldest_blob_file_number, meta.oldest_ancester_time,
+            meta.oldest_blob_file_number, meta.oldest_ancestor_time,
             meta.file_creation_time, meta.epoch_number, meta.file_checksum,
             meta.file_checksum_func_name, meta.unique_id,
             meta.compensated_range_deletion_size, meta.tail_size,

@@ -2214,7 +2214,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->temperature,
-          file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
+          file->oldest_blob_file_number, file->TryGetOldestAncestorTime(),
           file->TryGetFileCreationTime(), file->epoch_number,
           file->file_checksum, file->file_checksum_func_name);
       files.back().num_entries = file->num_entries;
@@ -2296,7 +2296,7 @@ void Version::GetColumnFamilyMetaData(
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->temperature,
-          file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
+          file->oldest_blob_file_number, file->TryGetOldestAncestorTime(),
           file->TryGetFileCreationTime(), file->epoch_number,
           file->file_checksum, file->file_checksum_func_name);
       files.back().num_entries = file->num_entries;
@@ -3582,9 +3582,9 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     for (FileMetaData* f : files) {
       if (!f->being_compacted) {
-        uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
-        if (oldest_ancester_time != 0 &&
-            oldest_ancester_time < (current_time - mutable_cf_options.ttl)) {
+        uint64_t oldest_ancestor_time = f->TryGetOldestAncestorTime();
+        if (oldest_ancestor_time != 0 &&
+            oldest_ancestor_time < (current_time - mutable_cf_options.ttl)) {
           ttl_expired_files_count++;
         }
       }
@@ -3913,9 +3913,9 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   for (int level = 0; level < num_levels() - 1; level++) {
     for (FileMetaData* f : files_[level]) {
       if (!f->being_compacted) {
-        uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
-        if (oldest_ancester_time > 0 &&
-            oldest_ancester_time < (current_time - ttl)) {
+        uint64_t oldest_ancestor_time = f->TryGetOldestAncestorTime();
+        if (oldest_ancestor_time > 0 &&
+            oldest_ancestor_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }
@@ -3972,9 +3972,9 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
         // correctly determined based on the above conditions.
         uint64_t file_modification_time = f->TryGetFileCreationTime();
         if (file_modification_time == kUnknownFileCreationTime) {
-          file_modification_time = f->TryGetOldestAncesterTime();
+          file_modification_time = f->TryGetOldestAncestorTime();
         }
-        if (file_modification_time == kUnknownOldestAncesterTime) {
+        if (file_modification_time == kUnknownOldestAncestorTime) {
           auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
                                          f->fd.GetPathId());
           status = ioptions.env->GetFileModificationTime(
@@ -7614,7 +7614,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->temperature,
-                       f->oldest_blob_file_number, f->oldest_ancester_time,
+                       f->oldest_blob_file_number, f->oldest_ancestor_time,
                        f->file_creation_time, f->epoch_number, f->file_checksum,
                        f->file_checksum_func_name, f->unique_id,
                        f->compensated_range_deletion_size, f->tail_size,
@@ -8180,7 +8180,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.file_checksum = file->file_checksum;
         filemetadata.file_checksum_func_name = file->file_checksum_func_name;
         filemetadata.temperature = file->temperature;
-        filemetadata.oldest_ancester_time = file->TryGetOldestAncesterTime();
+        filemetadata.oldest_ancestor_time = file->TryGetOldestAncestorTime();
         filemetadata.file_creation_time = file->TryGetFileCreationTime();
         filemetadata.epoch_number = file->epoch_number;
         metadata->push_back(filemetadata);

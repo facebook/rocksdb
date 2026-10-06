@@ -204,7 +204,7 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
   Add(TablePropertiesNames::kFixedKeyLen, props.fixed_key_len);
   Add(TablePropertiesNames::kColumnFamilyId, props.column_family_id);
-  Add(TablePropertiesNames::kCreationTime, props.oldest_ancestor_time);
+  Add(TablePropertiesNames::kOldestAncestorTime, props.oldest_ancestor_time);
   Add(TablePropertiesNames::kOldestKeyTime, props.oldest_key_time);
   Add(TablePropertiesNames::kNewestKeyTime, props.newest_key_time);
   if (props.file_creation_time > 0) {
@@ -432,7 +432,7 @@ Status ParsePropertiesBlock(
        &new_table_properties->fixed_key_len},
       {TablePropertiesNames::kColumnFamilyId,
        &new_table_properties->column_family_id},
-      {TablePropertiesNames::kCreationTime,
+      {TablePropertiesNames::kOldestAncestorTime,
        &new_table_properties->oldest_ancestor_time},
       {TablePropertiesNames::kOldestKeyTime,
        &new_table_properties->oldest_key_time},

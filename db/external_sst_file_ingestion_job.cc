@@ -854,13 +854,13 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     }
     max_assigned_seqno_ = std::max(max_assigned_seqno_, assigned_seqno);
 
-    // We use the import time as the ancester time. This is the time the data
+    // We use the import time as the ancestor time. This is the time the data
     // is written to the database.
     int64_t temp_current_time = 0;
     uint64_t current_time = kUnknownFileCreationTime;
-    uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+    uint64_t oldest_ancestor_time = kUnknownOldestAncestorTime;
     if (clock_->GetCurrentTime(&temp_current_time).ok()) {
-      current_time = oldest_ancester_time =
+      current_time = oldest_ancestor_time =
           static_cast<uint64_t>(temp_current_time);
     }
     uint64_t tail_size = FileMetaData::CalculateTailSize(
@@ -884,7 +884,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
         file->fd.GetNumber(), file->fd.GetPathId(), file->fd.GetFileSize(),
         file->smallest_internal_key, file->largest_internal_key, smallest_seqno,
         largest_seqno, false, file->file_temperature, kInvalidBlobFileNumber,
-        oldest_ancester_time, current_time,
+        oldest_ancestor_time, current_time,
         ingestion_options_.ingest_behind
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),  // orders files ingested to L0

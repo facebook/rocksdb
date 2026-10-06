@@ -5350,10 +5350,10 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
             *max_open_files = 2;
           });
       // In the case where all files are opened and doing DB restart
-      // forcing the oldest ancester time in manifest file to be 0 to
+      // forcing the oldest ancestor time in manifest file to be 0 to
       // simulate the case of reading from an old version.
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "VersionEdit::EncodeTo:VarintOldestAncesterTime", [&](void* arg) {
+          "VersionEdit::EncodeTo:VarintOldestAncestorTime", [&](void* arg) {
             if (if_restart && if_open_all_files) {
               std::string* encoded_field = static_cast<std::string*>(arg);
               *encoded_field = "";
@@ -5390,7 +5390,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       std::vector<std::vector<FileMetaData>> level_to_files;
       dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
                                       &level_to_files);
-      uint64_t oldest_time = level_to_files[0][0].oldest_ancester_time;
+      uint64_t oldest_time = level_to_files[0][0].oldest_ancestor_time;
       // Add 1 hour and do another flush.
       env_->MockSleepForSeconds(1 * 60 * 60);
       for (int i = 101; i <= 200; ++i) {
@@ -5458,7 +5458,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
 
       dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
                                       &level_to_files);
-      ASSERT_EQ(oldest_time, level_to_files[6][0].oldest_ancester_time);
+      ASSERT_EQ(oldest_time, level_to_files[6][0].oldest_ancestor_time);
 
       env_->MockSleepForSeconds(25 * 60 * 60);
       ASSERT_OK(Put(Key(2), "1"));
@@ -12443,7 +12443,7 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
                 ->GetTableProperties()
                 ->oldest_ancestor_time,
             last_newest_key_time);
-  ASSERT_EQ(file_metadatas[0]->oldest_ancester_time, last_newest_key_time);
+  ASSERT_EQ(file_metadatas[0]->oldest_ancestor_time, last_newest_key_time);
 
   // Make sure TTL of 5s causes compaction
   env_->MockSleepForSeconds(6);

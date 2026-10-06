@@ -508,7 +508,7 @@ class CompactionJob {
   std::atomic<int>* num_running_remote_compactions_;
 
   // Stores the sequence number to time mapping gathered from all input files
-  // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
+  // it also collects the smallest_seqno -> oldest_ancestor_time from the SST.
   SeqnoToTimeMapping seqno_to_time_mapping_;
 
   // Max seqno that can be zeroed out in last level, including for preserving
@@ -641,7 +641,7 @@ struct CompactionServiceOutputFile {
   SequenceNumber largest_seqno{};
   std::string smallest_internal_key;
   std::string largest_internal_key;
-  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+  uint64_t oldest_ancestor_time = kUnknownOldestAncestorTime;
   uint64_t file_creation_time = kUnknownFileCreationTime;
   uint64_t epoch_number = kUnknownEpochNumber;
   std::string file_checksum = kUnknownFileChecksum;
@@ -657,7 +657,7 @@ struct CompactionServiceOutputFile {
   CompactionServiceOutputFile(
       const std::string& name, uint64_t size, SequenceNumber smallest,
       SequenceNumber largest, std::string _smallest_internal_key,
-      std::string _largest_internal_key, uint64_t _oldest_ancester_time,
+      std::string _largest_internal_key, uint64_t _oldest_ancestor_time,
       uint64_t _file_creation_time, uint64_t _epoch_number,
       const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
@@ -670,7 +670,7 @@ struct CompactionServiceOutputFile {
         largest_seqno(largest),
         smallest_internal_key(std::move(_smallest_internal_key)),
         largest_internal_key(std::move(_largest_internal_key)),
-        oldest_ancester_time(_oldest_ancester_time),
+        oldest_ancestor_time(_oldest_ancestor_time),
         file_creation_time(_file_creation_time),
         epoch_number(_epoch_number),
         file_checksum(_file_checksum),

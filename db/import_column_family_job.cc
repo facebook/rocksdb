@@ -164,13 +164,13 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 // REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ImportColumnFamilyJob::Run() {
-  // We use the import time as the ancester time. This is the time the data
+  // We use the import time as the ancestor time. This is the time the data
   // is written to the database.
   int64_t temp_current_time = 0;
-  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
-  uint64_t current_time = kUnknownOldestAncesterTime;
+  uint64_t oldest_ancestor_time = kUnknownOldestAncestorTime;
+  uint64_t current_time = kUnknownOldestAncestorTime;
   if (clock_->GetCurrentTime(&temp_current_time).ok()) {
-    current_time = oldest_ancester_time =
+    current_time = oldest_ancestor_time =
         static_cast<uint64_t>(temp_current_time);
   }
 
@@ -211,7 +211,7 @@ Status ImportColumnFamilyJob::Run() {
           f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
           file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
           file_metadata.temperature, kInvalidBlobFileNumber,
-          oldest_ancester_time, current_time, file_metadata.epoch_number,
+          oldest_ancestor_time, current_time, file_metadata.epoch_number,
           kUnknownFileChecksum, kUnknownFileChecksumFuncName, f.unique_id, 0,
           tail_size,
           static_cast<bool>(

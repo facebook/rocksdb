@@ -137,8 +137,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_name << "compression_options"
               << table_properties.compression_options << "creation_time"
               << table_properties.oldest_ancestor_time << "oldest_key_time"
-              << table_properties.newest_key_time << "newest_key_time"
-              << table_properties.oldest_key_time << "file_creation_time"
+              << table_properties.oldest_key_time << "newest_key_time"
+              << table_properties.newest_key_time << "file_creation_time"
               << table_properties.file_creation_time
               << "slow_compression_estimated_data_size"
               << table_properties.slow_compression_estimated_data_size

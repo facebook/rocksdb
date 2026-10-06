@@ -1,1 +1,1 @@
-`TableProperties::creation_time` is renamed to `oldest_ancestor_time`, which better describes its meaning. `creation_time` remains available as a deprecated alias and will be removed in a future release.
+`TableProperties::creation_time` is renamed to `oldest_ancestor_time`, which better describes its meaning, along with `TablePropertiesNames::kCreationTime` to `kOldestAncestorTime`. The misspelled `SstFileMetaData::oldest_ancester_time` is renamed to `oldest_ancestor_time`. The old names remain available as deprecated aliases and will be removed in a future release.

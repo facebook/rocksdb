@@ -438,8 +438,8 @@ class Compaction {
                                      const InternalKey* end) const;
 
   // start and end are sub compact range. Null if no boundary.
-  // This is used to filter out some input files' ancester's time range.
-  uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
+  // This is used to filter out some input files' ancestor's time range.
+  uint64_t MinInputFileOldestAncestorTime(const InternalKey* start,
                                           const InternalKey* end) const;
   // Return the minimum epoch number among
   // input files' associated with this compaction

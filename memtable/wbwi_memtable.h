@@ -193,7 +193,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
 
   uint64_t ApproximateOldestKeyTime() const override {
     // FIXME: can use the time when this is added to the DB.
-    return kUnknownOldestAncesterTime;
+    return kUnknownOldestAncestorTime;
   }
 
   bool IsFragmentedRangeTombstonesConstructed() const override {
