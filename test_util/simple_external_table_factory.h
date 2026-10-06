@@ -21,16 +21,16 @@
 
 // Test-only external table implementation shared by basic and full modes. It
 // writes length-prefixed key/value records in caller-provided order, followed
-// by RocksDB's properties block and a footer describing the properties and
-// checksum. Readers materialize the records in memory and use either the user
-// or internal-key comparator according to Mode. The file is immutable after
-// Finish(), so ingestion must not rewrite its global sequence number.
+// by optional RocksDB range-deletion and properties blocks and a footer
+// describing those blocks and the checksum. Readers materialize the records in
+// memory and use either the user or internal-key comparator according to Mode.
+// The file is immutable after Finish(), so ingestion must not rewrite its
+// global sequence number.
 //
 // File layout:
 //
-//   +---------+------------+---------+-------+----------+
-//   | records | properties | prop sz | magic | checksum |
-//   +---------+------------+---------+-------+----------+
+//   records | range-deletion block | properties block | footer
+//   footer: [range-deletion size][properties size][magic][checksum]
 //
 // Each record is [key size][value size][key][value]. Sizes and footer fields
 // use fixed-width encoding.
@@ -78,13 +78,16 @@ class SimpleExternalTableReader : public ExternalTableReaderBase<Mode> {
 #endif
   Status GetPropertiesBlock(std::unique_ptr<char[]>* block,
                             uint64_t* size) override;
+  Status GetRangeDeletionBlock(std::unique_ptr<char[]>* block,
+                               uint64_t* size) override;
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
   Status VerifyChecksum(const ReadOptions& read_options) override;
 
  private:
   Status ReadContents(const ReadOptions& read_options,
                       std::string* contents) const;
-  Status DecodeFooter(const Slice& contents, uint64_t* properties_size,
+  Status DecodeFooter(const Slice& contents, uint64_t* range_deletion_size,
+                      uint64_t* properties_size,
                       uint32_t* contents_checksum) const;
   Status VerifyContentsChecksum(const Slice& contents) const;
 
@@ -92,7 +95,9 @@ class SimpleExternalTableReader : public ExternalTableReaderBase<Mode> {
   uint64_t file_size_;
   const CompareInterface* key_comparator_;
   const Comparator* user_comparator_;
+  const bool verify_checksums_;
   SimpleExternalTableEntries entries_;
+  std::string range_deletion_block_;
   std::string properties_block_;
   uint64_t properties_offset_ = 0;
   Status status_;
@@ -116,6 +121,7 @@ class SimpleExternalTableFactoryBase : public ExternalTableFactoryBase<Mode> {
   ExternalTableBuilderBase* NewTableBuilder(
       const ExternalTableBuilderOptions& builder_options,
       const std::string& file_path, FSWritableFile* file) const override;
+  bool IsDeleteRangeSupported() const override;
 };
 
 using SimpleExternalTableFactory =

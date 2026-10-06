@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
+#include <memory>
 #include <set>
 #include <string>
 #include <unordered_set>

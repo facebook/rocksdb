@@ -982,10 +982,9 @@ full_external_table_params = {
     "write_buffer_size": 1024 * 1024,
     # RocksDB permits TTL only for factories identifying as block-based.
     "compaction_ttl": 0,
-    # Replace the default 1% range-delete share to keep the workload at 100%.
-    "delpercent": 5,
-    # External tables do not expose the separate range-tombstone iterator.
-    "delrangepercent": 0,
+    # Exercise range deletions while keeping the workload at 100%.
+    "delpercent": 4,
+    "delrangepercent": 1,
     # Aggregated table properties are not supported by the simple factory.
     "get_property_one_in": 0,
     # This probe cannot distinguish checksum failures from injected read faults.
@@ -995,8 +994,6 @@ full_external_table_params = {
     # WAL-disabled WBWI state can be lost on a crash before the ingested
     # memtable is flushed, which the expected-state recovery cannot reconstruct.
     "ingest_wbwi_one_in": 0,
-    # Tombstone conversion would create unsupported range tombstones.
-    "min_tombstones_for_range_conversion": 0,
     # RocksDB permits periodic compaction only for block-based factories.
     "periodic_compaction_seconds": 0,
     # Full external tables do not persist sequence-number-to-time mappings.

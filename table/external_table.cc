@@ -12,15 +12,18 @@
 #include <unordered_map>
 
 #include "db/dbformat.h"
+#include "db/range_tombstone_fragmenter.h"
 #include "logging/logging.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/types_util.h"
 #include "table/block_based/block.h"
+#include "table/block_based/cachable_entry.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
+#include "table/range_del_block.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "util/coro_utils.h"
@@ -515,14 +518,81 @@ Status LoadExternalTableProperties(
       loaded_properties->key_smallest_seqno = 0;
     }
   }
-  if (loaded_properties->num_range_deletions != 0) {
-    // Range tombstones need a separate iterator that external tables do not
-    // currently expose.
-    return Status::NotSupported(
-        "External tables do not support range deletions");
+  *table_properties = std::move(loaded_properties);
+  return Status::OK();
+}
+
+Status ParseRangeDelBlock(
+    BlockContents&& block_contents,
+    const InternalKeyComparator& internal_comparator,
+    SequenceNumber global_seqno, bool user_defined_timestamps_persisted,
+    std::unique_ptr<FragmentedRangeTombstoneList>* fragmented_range_dels) {
+  assert(fragmented_range_dels != nullptr);
+  fragmented_range_dels->reset();
+  if (!block_contents.own_bytes()) {
+    return Status::InvalidArgument(
+        "Range deletion block contents must own their bytes");
   }
 
-  *table_properties = std::move(loaded_properties);
+  CachableEntry<Block> parsed_block;
+  parsed_block.SetOwnedValue(
+      std::make_unique<Block>(std::move(block_contents)));
+  // The parsed block is transferred to the iterator below, and the fragmented
+  // list pins that iterator when it references block-backed keys or values.
+  std::unique_ptr<InternalIterator> iter(
+      parsed_block.GetValue()->NewDataIterator(
+          internal_comparator.user_comparator(), global_seqno,
+          /*iter=*/nullptr, /*stats=*/nullptr,
+          /*block_contents_pinned=*/true, user_defined_timestamps_persisted));
+  Status status = iter->status();
+  if (!status.ok()) {
+    return status;
+  }
+
+  parsed_block.TransferTo(iter.get());
+  std::vector<SequenceNumber> snapshots;
+  *fragmented_range_dels = std::make_unique<FragmentedRangeTombstoneList>(
+      std::move(iter), internal_comparator, false /* for_compaction */,
+      snapshots, user_defined_timestamps_persisted);
+  return Status::OK();
+}
+
+template <ExternalTableMode Mode>
+Status LoadExternalTableRangeDeletions(
+    ExternalTableReaderBase<Mode>* reader,
+    const InternalKeyComparator& internal_comparator,
+    const TableProperties& table_properties, SequenceNumber global_seqno,
+    std::unique_ptr<FragmentedRangeTombstoneList>* fragmented_range_dels) {
+  if (table_properties.num_range_deletions == 0) {
+    return Status::OK();
+  }
+
+  std::unique_ptr<char[]> range_deletion_block;
+  uint64_t range_deletion_block_size = 0;
+  Status status = reader->GetRangeDeletionBlock(&range_deletion_block,
+                                                &range_deletion_block_size);
+  if (status.IsNotSupported()) {
+    return Status::Corruption(
+        "External table has range deletions but no range-deletion block");
+  }
+  if (!status.ok()) {
+    return status;
+  }
+  BlockContents block_contents(std::move(range_deletion_block),
+                               range_deletion_block_size);
+  status = ParseRangeDelBlock(
+      std::move(block_contents), internal_comparator, global_seqno,
+      table_properties.user_defined_timestamps_persisted,
+      fragmented_range_dels);
+  if (!status.ok()) {
+    return status;
+  }
+  if (*fragmented_range_dels == nullptr ||
+      (*fragmented_range_dels)->num_unfragmented_tombstones() !=
+          table_properties.num_range_deletions) {
+    return Status::Corruption(
+        "External table range-deletion count does not match table properties");
+  }
   return Status::OK();
 }
 
@@ -533,11 +603,13 @@ class ExternalTableReaderAdapter : public TableReader {
       const InternalKeyComparator& internal_comparator,
       std::unique_ptr<ExternalTableReaderBase<Mode>>&& reader,
       std::shared_ptr<const TableProperties> table_properties,
-      SequenceNumber global_seqno)
+      SequenceNumber global_seqno,
+      std::unique_ptr<FragmentedRangeTombstoneList> fragmented_range_dels)
       : internal_comparator_(internal_comparator),
         reader_(std::move(reader)),
         table_properties_(std::move(table_properties)),
-        global_seqno_(global_seqno) {}
+        global_seqno_(global_seqno),
+        fragmented_range_dels_(std::move(fragmented_range_dels)) {}
 
   ~ExternalTableReaderAdapter() override {}
 
@@ -561,6 +633,29 @@ class ExternalTableReaderAdapter : public TableReader {
       return new (mem) ExternalTableIteratorAdapter<Mode>(
           iterator, internal_comparator_, global_seqno_);
     }
+  }
+
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      const ReadOptions& read_options) override {
+    if (fragmented_range_dels_ == nullptr) {
+      return nullptr;
+    }
+    SequenceNumber snapshot = kMaxSequenceNumber;
+    if (read_options.snapshot != nullptr) {
+      snapshot = read_options.snapshot->GetSequenceNumber();
+    }
+    return new FragmentedRangeTombstoneIterator(fragmented_range_dels_,
+                                                internal_comparator_, snapshot,
+                                                read_options.timestamp);
+  }
+
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
+      SequenceNumber read_seqno, const Slice* timestamp) override {
+    if (fragmented_range_dels_ == nullptr) {
+      return nullptr;
+    }
+    return new FragmentedRangeTombstoneIterator(
+        fragmented_range_dels_, internal_comparator_, read_seqno, timestamp);
   }
 
   uint64_t ApproximateOffsetOf(const ReadOptions&, const Slice&,
@@ -603,6 +698,7 @@ class ExternalTableReaderAdapter : public TableReader {
   std::unique_ptr<ExternalTableReaderBase<Mode>> reader_;
   std::shared_ptr<const TableProperties> table_properties_;
   const SequenceNumber global_seqno_;
+  std::shared_ptr<FragmentedRangeTombstoneList> fragmented_range_dels_;
 };
 
 }  // namespace
@@ -627,8 +723,14 @@ class ExternalTableBuilderAdapter : public TableBuilder {
  public:
   explicit ExternalTableBuilderAdapter(
       const TableBuilderOptions& topts,
-      std::unique_ptr<ExternalTableBuilderBase>&& builder)
-      : builder_(std::move(builder)), ioptions_(topts.ioptions) {
+      std::unique_ptr<ExternalTableBuilderBase>&& builder,
+      bool support_range_deletions)
+      : builder_(std::move(builder)),
+        ioptions_(topts.ioptions),
+        support_range_deletions_(support_range_deletions),
+        range_del_block_builder_(
+            topts.internal_comparator.user_comparator()->timestamp_size(),
+            topts.ioptions.persist_user_defined_timestamps) {
     properties_.num_data_blocks = 1;
     properties_.index_size = 0;
     properties_.filter_size = 0;
@@ -681,23 +783,38 @@ class ExternalTableBuilderAdapter : public TableBuilder {
           "External table does not support user-defined timestamps");
       return;
     }
+    const bool is_range_deletion = entry.type == kEntryRangeDeletion;
     if constexpr (Mode == ExternalTableMode::kOnlyZeroSeqnoAndPuts) {
-      if (entry.sequence != 0 || entry.type != kEntryPut) {
-        status_ = Status::NotSupported(
-            "External table factory only supports sequence-zero Put entries");
+      if (entry.sequence != 0 ||
+          (entry.type != kEntryPut &&
+           (!is_range_deletion || !support_range_deletions_))) {
+        if (support_range_deletions_) {
+          status_ = Status::NotSupported(
+              "Basic external table factory only supports sequence-zero Put "
+              "and range-deletion entries");
+        } else {
+          status_ = Status::NotSupported(
+              "Basic external table factory only supports sequence-zero Put "
+              "entries");
+        }
         return;
       }
     }
 
     ValueType value_type;
-    status_ = GetValueType(entry.type, &value_type);
-    if (!status_.ok()) {
-      return;
-    }
-    if constexpr (Mode == ExternalTableMode::kFull) {
-      builder_->Add(key, value);
+    if (is_range_deletion) {
+      value_type = kTypeRangeDeletion;
+      range_del_block_builder_.Add(key, value);
     } else {
-      builder_->Add(entry.user_key, value);
+      status_ = GetValueType(entry.type, &value_type);
+      if (!status_.ok()) {
+        return;
+      }
+      if constexpr (Mode == ExternalTableMode::kFull) {
+        builder_->Add(key, value);
+      } else {
+        builder_->Add(entry.user_key, value);
+      }
     }
     status_ = builder_->status();
     if (!status_.ok()) {
@@ -715,6 +832,9 @@ class ExternalTableBuilderAdapter : public TableBuilder {
     properties_.raw_value_size += value.size();
     if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
       properties_.num_deletions++;
+    } else if (value_type == kTypeRangeDeletion) {
+      properties_.num_deletions++;
+      properties_.num_range_deletions++;
     } else if (value_type == kTypeMerge) {
       properties_.num_merge_operands++;
     }
@@ -759,9 +879,21 @@ class ExternalTableBuilderAdapter : public TableBuilder {
     // does not persist RocksDB's properties block.
     status_ = builder_->PutPropertiesBlock(prop_block);
     properties_block_persisted_ = status_.ok();
-    if (status_.ok() || status_.IsNotSupported()) {
-      status_ = builder_->Finish();
+    if (!status_.ok() && !status_.IsNotSupported()) {
+      builder_->Abandon();
+      return status_;
     }
+
+    if (!range_del_block_builder_.empty()) {
+      status_ =
+          builder_->PutRangeDeletionBlock(range_del_block_builder_.Finish());
+      if (!status_.ok()) {
+        builder_->Abandon();
+        return status_;
+      }
+    }
+
+    status_ = builder_->Finish();
 
     return status_;
   }
@@ -788,9 +920,13 @@ class ExternalTableBuilderAdapter : public TableBuilder {
     // Overlay entry properties tracked here when no RocksDB properties block
     // was persisted.
     TableProperties properties = builder_->GetTableProperties();
+    properties.num_entries = properties_.num_entries;
+    properties.raw_key_size = properties_.raw_key_size;
+    properties.raw_value_size = properties_.raw_value_size;
     properties.key_largest_seqno = properties_.key_largest_seqno;
     properties.key_smallest_seqno = properties_.key_smallest_seqno;
     properties.num_deletions = properties_.num_deletions;
+    properties.num_range_deletions = properties_.num_range_deletions;
     properties.num_merge_operands = properties_.num_merge_operands;
     for (const auto& property : properties_.user_collected_properties) {
       properties.user_collected_properties.insert_or_assign(property.first,
@@ -811,6 +947,8 @@ class ExternalTableBuilderAdapter : public TableBuilder {
   Status status_;
   std::unique_ptr<ExternalTableBuilderBase> builder_;
   const ImmutableOptions& ioptions_;
+  const bool support_range_deletions_;
+  RangeDelBlockBuilder range_del_block_builder_;
   TableProperties properties_;
   std::vector<std::unique_ptr<InternalTblPropColl>>
       table_properties_collectors_;
@@ -838,7 +976,7 @@ GetExternalTableFactoryAdapterOptionsTypeInfo() {
   return type_info;
 }
 
-// Adapts a mode-specific external factory without runtime capability checks.
+// Adapts a mode-specific external factory to RocksDB's TableFactory interface.
 template <ExternalTableMode Mode>
 class ExternalTableFactoryAdapter : public TableFactory {
  public:
@@ -846,12 +984,19 @@ class ExternalTableFactoryAdapter : public TableFactory {
 
   explicit ExternalTableFactoryAdapter(
       std::shared_ptr<ExternalTableFactoryBase<Mode>> inner)
-      : inner_(std::move(inner)) {
+      : inner_(std::move(inner)),
+        supports_range_deletions_(inner_->IsDeleteRangeSupported()) {
     RegisterOptions(&options_,
                     &GetExternalTableFactoryAdapterOptionsTypeInfo());
   }
 
   const char* Name() const override { return inner_->Name(); }
+
+  bool IsDeleteRangeSupported() const override {
+    // This TableFactory capability gates live DB writes. Basic mode only
+    // supports sequence-zero range deletions from external files.
+    return Mode == ExternalTableMode::kFull && supports_range_deletions_;
+  }
 
   bool IsInstanceOf(const std::string& name) const override {
     return name == kClassName() || TableFactory::IsInstanceOf(name);
@@ -861,6 +1006,9 @@ class ExternalTableFactoryAdapter : public TableFactory {
     Status status = TableFactory::PrepareOptions(config_options);
     if (status.ok()) {
       status = inner_->Configure(options_.config);
+    }
+    if (status.ok()) {
+      supports_range_deletions_ = inner_->IsDeleteRangeSupported();
     }
     return status;
   }
@@ -898,6 +1046,12 @@ class ExternalTableFactoryAdapter : public TableFactory {
     if (!status.ok()) {
       return status;
     }
+    if (table_properties->num_range_deletions != 0 &&
+        !supports_range_deletions_) {
+      return Status::Corruption(
+          "External table has range deletions but the factory does not "
+          "support them");
+    }
 
     // TableCache passes file_meta.fd.largest_seqno from the current Version
     // through TableReaderOptions. For an ingested file, that MANIFEST-backed
@@ -910,9 +1064,18 @@ class ExternalTableFactoryAdapter : public TableFactory {
       return status;
     }
 
+    std::unique_ptr<FragmentedRangeTombstoneList> fragmented_range_dels;
+    status = LoadExternalTableRangeDeletions(
+        reader.get(), topts.internal_comparator, *table_properties,
+        global_seqno, &fragmented_range_dels);
+    if (!status.ok()) {
+      return status;
+    }
+
     table_reader->reset(new ExternalTableReaderAdapter<Mode>(
         topts.internal_comparator, std::move(reader),
-        std::move(table_properties), global_seqno));
+        std::move(table_properties), global_seqno,
+        std::move(fragmented_range_dels)));
     return Status::OK();
   }
 
@@ -926,7 +1089,8 @@ class ExternalTableFactoryAdapter : public TableFactory {
         topts.column_family_name, topts.reason, topts.ioptions.fs, &topts);
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(), file));
     if (builder) {
-      return new ExternalTableBuilderAdapter<Mode>(topts, std::move(builder));
+      return new ExternalTableBuilderAdapter<Mode>(topts, std::move(builder),
+                                                   supports_range_deletions_);
     }
     return nullptr;
   }
@@ -940,6 +1104,9 @@ class ExternalTableFactoryAdapter : public TableFactory {
  private:
   std::shared_ptr<ExternalTableFactoryBase<Mode>> inner_;
   ExternalTableFactoryAdapterOptions options_;
+  // Avoid invoking external code when RocksDB queries this capability while
+  // holding the DB mutex.
+  bool supports_range_deletions_;
 };
 
 template <ExternalTableMode Mode>
