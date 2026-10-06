@@ -2771,13 +2771,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       max_file_size_for_l0_meta_pin_(
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
-      io_tracer_(io_tracer),
-      use_async_io_(false) {
-  if (CheckFSFeatureSupport(env_->GetFileSystem().get(),
-                            FSSupportedOps::kAsyncIO)) {
-    use_async_io_ = true;
-  }
-}
+      io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,

@@ -13,6 +13,9 @@
 #include "db/log_writer.h"
 #include "db/manifest_ops.h"
 #include "db/version_edit.h"
+#ifdef ROCKSDB_IOURING_PRESENT
+#include "env/io_posix.h"
+#endif
 #include "file/writable_file_writer.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
@@ -4972,6 +4975,10 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
 TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   std::vector<std::string> key_strs{Key(33), Key(54), Key(102)};
 
+  const bool previous_enable_io_uring = enable_io_uring;
+  Defer restore_enable_io_uring([previous_enable_io_uring]() {
+    enable_io_uring = previous_enable_io_uring;
+  });
   enable_io_uring = false;
   ReopenDB();
 
@@ -4996,6 +5003,105 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   } else {
     ASSERT_EQ(coroutine_count, 0);
   }
+}
+
+TEST_P(DBMultiGetAsyncIOTest, AsyncIOSupportCheckedOnReadThread) {
+#ifndef ROCKSDB_IOURING_PRESENT
+  ROCKSDB_GTEST_SKIP("This test requires io_uring support");
+#else
+  if (!optimize_multiget_for_io_ || use_coroutine_) {
+    ROCKSDB_GTEST_BYPASS(
+        "This test targets synchronous MultiGet with optimized async IO");
+    return;
+  }
+  if (!CheckFSFeatureSupport(db_->GetFileSystem(), FSSupportedOps::kAsyncIO)) {
+    ROCKSDB_GTEST_SKIP("io_uring is unavailable on the test thread");
+    return;
+  }
+
+  PrepareDBForTest();
+
+  int read_async_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixFileSystem::SupportedOps:CreateIOUring", [](void* arg) {
+        auto** iu = static_cast<struct io_uring**>(arg);
+        if (*iu != nullptr) {
+          DeleteIOUring(*iu);
+          *iu = nullptr;
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadAsync:InjectStatus",
+      [&](void*) { ++read_async_count; });
+  Defer cleanup([]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> values;
+  std::thread read_thread([&]() {
+    values =
+        MultiGet({Key(33), Key(54), Key(102)}, /*snapshot=*/nullptr,
+                 /*async=*/true, optimize_multiget_for_io_, use_coroutine_);
+  });
+  read_thread.join();
+
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(values[0], "val_l1_" + std::to_string(33));
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
+  ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
+  ASSERT_EQ(read_async_count, 0);
+#endif  // ROCKSDB_IOURING_PRESENT
+}
+
+// SupportedOps is advisory, so ReadAsync can still report NotSupported when a
+// request is submitted. MultiGet must then read synchronously rather than
+// returning that error to the caller.
+TEST_P(DBMultiGetAsyncIOTest, ReadAsyncNotSupportedFallsBackToSync) {
+  const bool previous_enable_io_uring = enable_io_uring;
+  Defer cleanup([previous_enable_io_uring]() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    enable_io_uring = previous_enable_io_uring;
+  });
+
+  enable_io_uring = true;
+  PrepareDBForTest();
+
+  int sync_fallback_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::ReadAsync:InjectStatus", [](void* arg) {
+        *static_cast<IOStatus*>(arg) =
+            IOStatus::NotSupported("ReadAsync: failed to init io_uring");
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "AsyncFileReader::MultiReadAsyncImpl:SyncFallback",
+      [&](void*) { ++sync_fallback_count; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "AsyncFileReader::Wait:InjectPollStatus", [](void* arg) {
+        *static_cast<IOStatus*>(arg) = IOStatus::IOError("injected Poll error");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> key_strs{Key(33), Key(54), Key(102)};
+  std::vector<std::string> values =
+      MultiGet(key_strs, /*snapshot=*/nullptr, /*async=*/true,
+               optimize_multiget_for_io_, use_coroutine_);
+
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(values[0], "val_l1_" + std::to_string(33));
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
+  ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
+
+#ifdef ROCKSDB_IOURING_PRESENT
+  // Make sure the coroutine MultiGet async read path was the one that recovered
+  // (it is only taken with optimize_multiget_for_io and when the reads don't go
+  // through the coroutine read executor).
+  if (optimize_multiget_for_io_ && !UseCoroutineRead()) {
+    ASSERT_GT(sync_fallback_count, 0);
+  }
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
