@@ -59,6 +59,7 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 class IndexFactory;
+class GlobalRowCache;
 using UserDefinedIndexFactory = IndexFactory;
 class IODispatcher;
 
@@ -1512,6 +1513,23 @@ struct DBOptions {
   // NOTE: does not work with DeleteRange() yet.
   // Default: nullptr (disabled)
   std::shared_ptr<RowCache> row_cache = nullptr;
+
+  // EXPERIMENTAL: A cache of logical rows shared across memtables and SST
+  // files. RocksDB consults this cache before the normal Get() path, updates it
+  // for successful writes before publishing their sequence numbers, and
+  // supplies exact sequence numbers when filling it after a miss.
+  //
+  // This interface currently supports Get() with the bytewise comparator. It
+  // does not support MultiGet(), user-defined timestamps, compaction filters,
+  // unordered writes, two write queues, or sequence-per-batch transaction
+  // write policies. Two-phase commit (allow_2pc) is also unsupported. Read
+  // modes that change normal Get() semantics bypass the cache. External file
+  // ingestion, DeleteFilesInRanges(), and secondary/follower catch-up disable
+  // it for the rest of that DB instance. It cannot be configured together
+  // with row_cache.
+  //
+  // Default: nullptr (disabled)
+  std::shared_ptr<GlobalRowCache> global_row_cache = nullptr;
 
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log

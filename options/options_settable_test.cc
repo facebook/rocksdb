@@ -351,6 +351,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, listeners),
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct DBOptions, global_row_cache),
+       sizeof(std::shared_ptr<GlobalRowCache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},

@@ -237,12 +237,53 @@ Status DBImpl::ValidateOptions(
             "Default column family cannot use disallow_memtable_writes=true");
       }
     }
+    s = ValidateGlobalRowCacheOptions(db_options, cfd.options);
+    if (!s.ok()) {
+      return s;
+    }
   }
   s = ValidateOptions(db_options);
   return s;
 }
 
+Status DBImpl::ValidateGlobalRowCacheOptions(
+    const DBOptions& db_options, const ColumnFamilyOptions& cf_options) {
+  if (db_options.global_row_cache == nullptr) {
+    return Status::OK();
+  }
+  if (cf_options.comparator != BytewiseComparator() ||
+      cf_options.comparator->timestamp_size() != 0) {
+    return Status::NotSupported(
+        "global_row_cache requires the bytewise comparator without "
+        "user-defined timestamps");
+  }
+  if (cf_options.compaction_filter != nullptr ||
+      cf_options.compaction_filter_factory != nullptr) {
+    return Status::NotSupported(
+        "global_row_cache does not support compaction filters");
+  }
+  return Status::OK();
+}
+
 Status DBImpl::ValidateOptions(const DBOptions& db_options) {
+  if (db_options.global_row_cache != nullptr) {
+    if (db_options.row_cache != nullptr) {
+      return Status::InvalidArgument(
+          "global_row_cache and row_cache cannot both be configured");
+    }
+    if (db_options.unordered_write) {
+      return Status::NotSupported(
+          "global_row_cache does not support unordered_write");
+    }
+    if (db_options.two_write_queues) {
+      return Status::NotSupported(
+          "global_row_cache does not support two_write_queues");
+    }
+    if (db_options.allow_2pc) {
+      return Status::NotSupported(
+          "global_row_cache does not support two-phase commit");
+    }
+  }
   if (db_options.read_io_executor_threads <= 0) {
     return Status::InvalidArgument(
         "read_io_executor_threads must be greater than zero");
@@ -2662,6 +2703,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   s = ValidateOptions(db_options, column_families);
   if (!s.ok()) {
     return s;
+  }
+  if (db_options.global_row_cache != nullptr && seq_per_batch) {
+    return Status::NotSupported(
+        "global_row_cache does not support sequence-per-batch transaction "
+        "write policies");
   }
 
   *dbptr = nullptr;

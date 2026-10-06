@@ -13,8 +13,12 @@
 #include <fcntl.h>
 
 #include <algorithm>
+#include <atomic>
+#include <map>
+#include <mutex>
 #include <set>
 #include <thread>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 
@@ -48,6 +52,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/global_row_cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
@@ -7317,6 +7322,335 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
   ColumnFamilyHandle* handle;
   ASSERT_OK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
   delete handle;
+}
+
+namespace {
+
+class TestGlobalRowCache : public GlobalRowCache {
+ public:
+  const char* Name() const override { return "TestGlobalRowCache"; }
+
+  uint64_t NewId() override { return next_id_.fetch_add(1); }
+
+  Status Lookup(uint64_t db_id, ColumnFamilyId column_family_id,
+                const Slice& key, SequenceNumber read_sequence,
+                PinnableSlice* value,
+                GlobalRowCacheLookupResult* result) override {
+    ++lookup_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    *result = GlobalRowCacheLookupResult();
+    result->fill_token = range_generations_[{db_id, column_family_id}];
+    auto it = entries_.find({db_id, column_family_id, key.ToString()});
+    if (it == entries_.end() ||
+        it->second.type == GlobalRowCacheMutationType::kInvalidate ||
+        it->second.sequence > read_sequence) {
+      ++lookup_misses;
+      return Status::OK();
+    }
+    result->sequence = it->second.sequence;
+    if (it->second.type == GlobalRowCacheMutationType::kDeletion) {
+      result->state = GlobalRowCacheLookupResult::State::kNotFound;
+    } else {
+      result->state = GlobalRowCacheLookupResult::State::kValue;
+      value->PinSelf(it->second.value);
+    }
+    ++lookup_hits;
+    return Status::OK();
+  }
+
+  Status InsertReadResult(uint64_t db_id, ColumnFamilyId column_family_id,
+                          const Slice& key, SequenceNumber sequence,
+                          GlobalRowCacheMutationType type, const Slice& value,
+                          uint64_t fill_token) override {
+    ++insert_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_insert_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache insertion failure");
+    }
+    if (fill_token != range_generations_[{db_id, column_family_id}]) {
+      return Status::OK();
+    }
+    CacheKey cache_key{db_id, column_family_id, key.ToString()};
+    auto it = entries_.find(cache_key);
+    if (it != entries_.end() && it->second.sequence > sequence) {
+      return Status::OK();
+    }
+    entries_[std::move(cache_key)] = Entry{sequence, type, value.ToString()};
+    return Status::OK();
+  }
+
+  Status ApplyPointMutation(uint64_t db_id, ColumnFamilyId column_family_id,
+                            const Slice& key, SequenceNumber sequence,
+                            GlobalRowCacheMutationType type,
+                            const Slice& value) override {
+    ++point_mutation_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_mutation_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache mutation failure");
+    }
+    CacheKey cache_key{db_id, column_family_id, key.ToString()};
+    auto it = entries_.find(cache_key);
+    if (it == entries_.end() || it->second.sequence <= sequence) {
+      entries_[std::move(cache_key)] = Entry{sequence, type, value.ToString()};
+    }
+    return Status::OK();
+  }
+
+  Status ApplyRangeDeletion(uint64_t db_id, ColumnFamilyId column_family_id,
+                            const Slice& begin_key, const Slice& end_key,
+                            SequenceNumber sequence) override {
+    ++range_deletion_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_mutation_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache mutation failure");
+    }
+    ++range_generations_[{db_id, column_family_id}];
+    const std::string begin = begin_key.ToString();
+    const std::string end = end_key.ToString();
+    for (auto& [cache_key, entry] : entries_) {
+      if (cache_key.db_id == db_id &&
+          cache_key.column_family_id == column_family_id &&
+          cache_key.key >= begin && cache_key.key < end &&
+          entry.sequence <= sequence) {
+        entry = Entry{sequence, GlobalRowCacheMutationType::kDeletion, {}};
+      }
+    }
+    return Status::OK();
+  }
+
+  void FailNextMutation() { fail_next_mutation_.store(true); }
+  void FailNextInsert() { fail_next_insert_.store(true); }
+
+  std::atomic<int> lookup_calls{0};
+  std::atomic<int> lookup_hits{0};
+  std::atomic<int> lookup_misses{0};
+  std::atomic<int> insert_calls{0};
+  std::atomic<int> point_mutation_calls{0};
+  std::atomic<int> range_deletion_calls{0};
+
+ private:
+  struct CacheKey {
+    uint64_t db_id;
+    ColumnFamilyId column_family_id;
+    std::string key;
+
+    bool operator<(const CacheKey& rhs) const {
+      return std::tie(db_id, column_family_id, key) <
+             std::tie(rhs.db_id, rhs.column_family_id, rhs.key);
+    }
+  };
+
+  struct Entry {
+    SequenceNumber sequence;
+    GlobalRowCacheMutationType type;
+    std::string value;
+  };
+
+  std::atomic<uint64_t> next_id_{1};
+  std::atomic<bool> fail_next_mutation_{false};
+  std::atomic<bool> fail_next_insert_{false};
+  std::mutex mutex_;
+  std::map<CacheKey, Entry> entries_;
+  std::map<std::pair<uint64_t, ColumnFamilyId>, uint64_t> range_generations_;
+};
+
+}  // namespace
+
+TEST_F(DBTest, GlobalRowCacheOptionValidation) {
+  Options options;
+  options.global_row_cache = std::make_shared<TestGlobalRowCache>();
+  std::vector<ColumnFamilyDescriptor> column_families{
+      {kDefaultColumnFamilyName, ColumnFamilyOptions(options)}};
+  ASSERT_OK(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families));
+
+  options.row_cache = NewLRUCache(1024);
+  ASSERT_TRUE(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families)
+          .IsInvalidArgument());
+  options.row_cache.reset();
+
+  options.unordered_write = true;
+  ASSERT_TRUE(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families)
+          .IsNotSupported());
+  options.unordered_write = false;
+  options.two_write_queues = true;
+  ASSERT_TRUE(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families)
+          .IsNotSupported());
+  options.two_write_queues = false;
+  options.allow_2pc = true;
+  ASSERT_TRUE(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families)
+          .IsNotSupported());
+  options.allow_2pc = false;
+
+  ColumnFamilyOptions cf_options;
+  cf_options.comparator = ReverseBytewiseComparator();
+  column_families[0] =
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options);
+  ASSERT_TRUE(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families)
+          .IsNotSupported());
+
+  cf_options.comparator = BytewiseComparator();
+  KeepFilter filter;
+  cf_options.compaction_filter = &filter;
+  column_families[0] =
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options);
+  ASSERT_TRUE(
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(options, column_families)
+          .IsNotSupported());
+
+  Options open_options = CurrentOptions();
+  open_options.global_row_cache = std::make_shared<TestGlobalRowCache>();
+  DestroyAndReopen(open_options);
+  cf_options.compaction_filter = nullptr;
+  cf_options.comparator = ReverseBytewiseComparator();
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_TRUE(db_->CreateColumnFamily(cf_options, "unsupported", &handle)
+                  .IsNotSupported());
+  ASSERT_EQ(handle, nullptr);
+}
+
+TEST_F(DBTest, GlobalRowCacheReadWriteAndSnapshots) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("seed", "v1"));
+  ASSERT_OK(Flush());
+
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  Reopen(options);
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "seed", &value));
+  ASSERT_EQ(value, "v1");
+  ASSERT_EQ(cache->lookup_misses.load(), 1);
+  ASSERT_EQ(cache->insert_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "seed", &value));
+  ASSERT_EQ(value, "v1");
+  ASSERT_EQ(cache->lookup_hits.load(), 1);
+
+  const Snapshot* seed_snapshot = db_->GetSnapshot();
+  ASSERT_NE(seed_snapshot, nullptr);
+  ASSERT_OK(Put("seed", "v2"));
+  ASSERT_OK(db_->Get(ReadOptions(), "seed", &value));
+  ASSERT_EQ(value, "v2");
+
+  ReadOptions snapshot_read;
+  snapshot_read.snapshot = seed_snapshot;
+  ASSERT_OK(db_->Get(snapshot_read, "seed", &value));
+  ASSERT_EQ(value, "v1");
+  db_->ReleaseSnapshot(seed_snapshot);
+
+  ASSERT_OK(db_->Delete(WriteOptions(), "seed"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "seed", &value).IsNotFound());
+
+  ASSERT_OK(Put("merge", "a"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->Merge(WriteOptions(), "merge", "b"));
+  const int misses_before_merge_get = cache->lookup_misses.load();
+  ASSERT_OK(db_->Get(ReadOptions(), "merge", &value));
+  ASSERT_EQ(value, "a,b");
+  ASSERT_EQ(cache->lookup_misses.load(), misses_before_merge_get + 1);
+  const int hits_before_merge_get = cache->lookup_hits.load();
+  ASSERT_OK(db_->Get(ReadOptions(), "merge", &value));
+  ASSERT_EQ(value, "a,b");
+  ASSERT_EQ(cache->lookup_hits.load(), hits_before_merge_get + 1);
+
+  ASSERT_OK(Put("r1", "one"));
+  ASSERT_OK(Put("r2", "two"));
+  const Snapshot* range_snapshot = db_->GetSnapshot();
+  ASSERT_NE(range_snapshot, nullptr);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "r1", "r3"));
+  ASSERT_EQ(cache->range_deletion_calls.load(), 1);
+  ASSERT_TRUE(db_->Get(ReadOptions(), "r1", &value).IsNotFound());
+  ASSERT_TRUE(db_->Get(ReadOptions(), "r2", &value).IsNotFound());
+  snapshot_read.snapshot = range_snapshot;
+  ASSERT_OK(db_->Get(snapshot_read, "r1", &value));
+  ASSERT_EQ(value, "one");
+  ASSERT_OK(db_->Get(snapshot_read, "r2", &value));
+  ASSERT_EQ(value, "two");
+  db_->ReleaseSnapshot(range_snapshot);
+}
+
+TEST_F(DBTest, GlobalRowCacheFailureDisablesHooksWithoutFailingWrites) {
+  Options options = CurrentOptions();
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  cache->FailNextMutation();
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_EQ(cache->point_mutation_calls.load(), 1);
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(cache->lookup_calls.load(), 0);
+
+  ASSERT_OK(Put("key", "new-value"));
+  ASSERT_EQ(cache->point_mutation_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "new-value");
+  ASSERT_EQ(cache->lookup_calls.load(), 0);
+
+  auto insert_failure_cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = insert_failure_cache;
+  Reopen(options);
+  insert_failure_cache->FailNextInsert();
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "new-value");
+  ASSERT_EQ(insert_failure_cache->lookup_calls.load(), 1);
+  ASSERT_EQ(insert_failure_cache->insert_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "new-value");
+  ASSERT_EQ(insert_failure_cache->lookup_calls.load(), 1);
+}
+
+TEST_F(DBTest, GlobalRowCacheRejectsReadFillRacingWithRangeDeletion) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:BeforeGlobalRowCacheInsert",
+        "DBTest::GlobalRowCacheRace:DeleteRange"},
+       {"DBTest::GlobalRowCacheRace:AfterDeleteRange",
+        "DBImpl::GetImpl:AllowGlobalRowCacheInsert"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status read_status;
+  std::string old_value;
+  std::thread reader(
+      [&]() { read_status = db_->Get(ReadOptions(), "key", &old_value); });
+
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheRace:DeleteRange");
+  Status delete_status = db_->DeleteRange(
+      WriteOptions(), db_->DefaultColumnFamily(), "key", "kez");
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheRace:AfterDeleteRange");
+  reader.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(delete_status);
+  ASSERT_OK(read_status);
+  ASSERT_EQ(old_value, "value");
+  std::string current_value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &current_value).IsNotFound());
 }
 
 TEST_F(DBTest, RowCache) {

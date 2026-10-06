@@ -1019,6 +1019,8 @@ Status DBImplSecondary::NewIteratorsImpl(
 
 Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(versions_.get() != nullptr);
+  DisableGlobalRowCache(Status::NotSupported(
+      "secondary catch-up changes logical rows without cache hooks"));
   Status s;
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
@@ -1183,6 +1185,10 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     bool recover_wal, bool trust_manifest_recovery) {
   *dbptr = nullptr;
+  Status s = ValidateGlobalRowCacheOptionsForOpen(db_options, column_families);
+  if (!s.ok()) {
+    return s;
+  }
   // Only normal DB::OpenAsSecondary recovery can defer SST opening.
   // `recover_wal` excludes OpenAndCompact even when no snapshot floor is
   // supplied, `open_files_async` is the explicit opt-in, and trust-MANIFEST
@@ -1203,7 +1209,6 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
   }
 
   DBOptions tmp_opts(db_options);
-  Status s;
   if (nullptr == tmp_opts.info_log) {
     s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
     if (!s.ok()) {

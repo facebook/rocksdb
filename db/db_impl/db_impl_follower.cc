@@ -92,6 +92,8 @@ Status DBImplFollower::Recover(
 Status DBImplFollower::TryCatchUpWithLeader() {
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
+  DisableGlobalRowCache(Status::NotSupported(
+      "follower catch-up changes logical rows without cache hooks"));
   Status s;
 
   TEST_SYNC_POINT("DBImplFollower::TryCatchupWithLeader:Begin1");
@@ -264,6 +266,12 @@ Status DB::OpenAsFollower(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   dbptr->reset();
 
+  Status s =
+      DBImpl::ValidateGlobalRowCacheOptionsForOpen(db_options, column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
   FileSystem* fs = db_options.env->GetFileSystem().get();
   {
     IOStatus io_s;
@@ -281,7 +289,6 @@ Status DB::OpenAsFollower(
                                             src_path, dbname)));
 
   DBOptions tmp_opts(db_options);
-  Status s;
   tmp_opts.env = new_env.get();
   if (nullptr == tmp_opts.info_log) {
     s = CreateLoggerFromOptions(dbname, tmp_opts, &tmp_opts.info_log);
