@@ -102,7 +102,19 @@ The minimum rate is 16 KB/s. The maximum is `max_delayed_write_rate` (default 32
 
 The second condition prevents triggering flushes when most memory is already being flushed (flush-in-progress), since additional flushes would not help reduce memory faster.
 
-When `ShouldFlush()` returns `true`, `PreprocessWrite()` calls `HandleWriteBufferManagerFlush()`, which selects the column family with the oldest mutable memtable (lowest creation sequence) and switches its memtable. With `atomic_flush`, all column families are flushed together.
+For `kFlushOldest` and `kFlushLargest`, `PreprocessWrite()` switches a local
+memtable when `ShouldFlush()` returns `true`. With `atomic_flush`, all column
+families are flushed together.
+
+For `kFlushLargestAcrossDBs`, crossing the soft limit wakes the WBM sorter. It
+ranks the DBs sharing the manager and submits a configurable batch serially,
+with at most one cross-DB job in the LOW-priority pool at a time. After a batch
+candidate makes progress, the sorter ends the work cycle and waits for the next
+pressure interval before reranking from the largest DB. It advances immediately
+to later candidates and batches only when earlier candidates make no progress.
+Writers do not switch a local memtable until total memory reaches
+`buffer_size`, and the manager grants at most one such fallback per work-cycle
+interval.
 
 ### Stall Trigger
 
@@ -126,7 +138,9 @@ Step 1 - Check for background errors (DB stopped).
 
 Step 2 - If total WAL size exceeds `max_total_wal_size` (see `DBOptions` in `include/rocksdb/options.h`; defaults to `4 * max_total_in_memory_state` if not explicitly set), switch WAL to allow old WAL files to be reclaimed. Only applies when multiple column families are active.
 
-Step 3 - If `WriteBufferManager::ShouldFlush()`, flush the oldest CF's memtable.
+Step 3 - If `WriteBufferManager::ShouldFlush()`, either let the cross-DB sorter
+manage soft pressure or flush a local memtable at the hard limit. Other flush
+policies select a local memtable immediately.
 
 Step 4 - If trim history scheduler is non-empty, trim old memtable history.
 

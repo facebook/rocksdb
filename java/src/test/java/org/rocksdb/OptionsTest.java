@@ -696,6 +696,22 @@ public class OptionsTest {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
       assertThat(opt.writeBufferManager().allowStall()).isEqualTo(true);
+      assertThat(writeBufferManager.flushPolicy())
+          .isEqualTo(WriteBufferManagerFlushPolicy.FLUSH_OLDEST);
+    }
+  }
+
+  @Test
+  public void writeBufferManagerFlushPolicy() {
+    try (final Cache cache = new LRUCache(1024 * 1024);
+        final WriteBufferManager writeBufferManager = new WriteBufferManager(
+            2000L, cache, true, WriteBufferManagerFlushPolicy.FLUSH_LARGEST_ACROSS_DBS)) {
+      assertThat(writeBufferManager.flushPolicy())
+          .isEqualTo(WriteBufferManagerFlushPolicy.FLUSH_LARGEST_ACROSS_DBS);
+
+      writeBufferManager.setFlushPolicy(WriteBufferManagerFlushPolicy.FLUSH_LARGEST);
+      assertThat(writeBufferManager.flushPolicy())
+          .isEqualTo(WriteBufferManagerFlushPolicy.FLUSH_LARGEST);
     }
   }
 

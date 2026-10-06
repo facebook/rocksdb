@@ -52,6 +52,7 @@ struct SuperVersionContext;
 class BlobFileCache;
 class BlobFilePartitionManager;
 class BlobSource;
+class FlushInitiator;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -871,6 +872,19 @@ class ColumnFamilySet {
 
   WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
 
+  void SetFlushInitiator(FlushInitiator* flush_initiator) {
+    flush_initiator_ = flush_initiator;
+  }
+
+  FlushInitiator* flush_initiator() const { return flush_initiator_; }
+
+  void RefreshFlushableMemAccounting();
+
+  // Coalesces accounting rebuilds while a caller removes multiple column
+  // families. Both methods require the DB mutex.
+  void BeginBulkFlushableMemAccountingUpdate();
+  void EndBulkFlushableMemAccountingUpdate();
+
   WriteController* write_controller() { return write_controller_; }
 
  private:
@@ -898,6 +912,9 @@ class ColumnFamilySet {
   // column families with non-zero user-defined timestamp size.
   UnorderedMap<uint32_t, size_t> ts_sz_for_record_;
 
+  int bulk_flushable_mem_accounting_depth_ = 0;
+  bool bulk_flushable_mem_accounting_dirty_ = false;
+
   uint32_t max_column_family_;
   const FileOptions file_options_;
 
@@ -912,6 +929,7 @@ class ColumnFamilySet {
   const ImmutableDBOptions* const db_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
+  FlushInitiator* flush_initiator_ = nullptr;
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;

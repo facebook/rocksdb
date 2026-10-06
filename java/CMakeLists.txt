@@ -294,6 +294,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBatchInterface.java
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteBufferManager.java
+  src/main/java/org/rocksdb/WriteBufferManagerFlushPolicy.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteStallCondition.java
   src/main/java/org/rocksdb/WriteStallInfo.java

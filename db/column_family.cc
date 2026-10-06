@@ -33,6 +33,7 @@
 #include "db/write_controller.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
+#include "memtable/flush_initiator.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -834,6 +835,11 @@ void ColumnFamilyData::SetDropped() {
   // can't drop default CF
   assert(id_ != 0);
   dropped_ = true;
+  // A tracker can still contain accounting published while a different WBM
+  // policy was active. Cleanup therefore cannot depend on the current policy.
+  if (mem_ != nullptr) {
+    mem_->StopWBMTracking();
+  }
   write_controller_token_.reset();
 
   // remove from column_family_set
@@ -1246,7 +1252,10 @@ uint64_t ColumnFamilyData::GetLiveSstFilesSize() const {
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_manager_, earliest_seq, id_);
+                      write_buffer_manager_, earliest_seq, id_,
+                      column_family_set_ != nullptr
+                          ? column_family_set_->flush_initiator()
+                          : nullptr);
 }
 
 void ColumnFamilyData::CreateNewMemtable(SequenceNumber earliest_seq) {
@@ -1899,6 +1908,102 @@ size_t ColumnFamilySet::NumberOfColumnFamilies() const {
   return column_families_.size();
 }
 
+void ColumnFamilySet::RefreshFlushableMemAccounting() {
+  if (flush_initiator_ == nullptr || write_buffer_manager_ == nullptr ||
+      !write_buffer_manager_->ShouldTrackFlushInitiator()) {
+    return;
+  }
+
+  if (bulk_flushable_mem_accounting_depth_ > 0) {
+    bulk_flushable_mem_accounting_dirty_ = true;
+    flush_initiator_->InvalidateLargestFlushableCFMem();
+    return;
+  }
+
+  // Keep candidate readers from consuming a mixture of the previous snapshot
+  // and the values published by this rebuild.
+  flush_initiator_->InvalidateLargestFlushableCFMem();
+  constexpr int kMaxRefreshAttempts = 3;
+  for (int attempt = 0; attempt < kMaxRefreshAttempts; ++attempt) {
+    const uint64_t update_seq =
+        flush_initiator_->GetFlushableMemUpdateSequence();
+    bool has_mutable_mem = false;
+    bool has_ineligible_cf = false;
+    size_t largest = 0;
+    size_t waiting_immutable_mem = 0;
+    for (auto cfd : *this) {
+      if (cfd->IsDropped() || !cfd->initialized()) {
+        continue;
+      }
+      const bool mutable_not_empty = !cfd->mem()->IsEmpty();
+      if (mutable_not_empty) {
+        cfd->mem()->RefreshWBMTracking();
+      }
+      const bool has_mutable =
+          mutable_not_empty && cfd->mem()->IsWBMTrackingActive();
+      has_mutable_mem = has_mutable_mem || has_mutable;
+      if (flush_initiator_->UsesTotalMutableMem()) {
+        waiting_immutable_mem +=
+            cfd->imm()->WBMTrackedUnstartedMemTablesMemoryUsage();
+        continue;
+      }
+      if (cfd->imm()->IsFlushPendingOrRunning()) {
+        has_ineligible_cf = true;
+        continue;
+      }
+      const size_t mutable_mem =
+          has_mutable ? cfd->mem()->WBMTrackedMemoryUsage() : 0;
+      const size_t immutable_mem =
+          cfd->imm()->WBMTrackedUnflushedMemTablesMemoryUsage();
+      waiting_immutable_mem += immutable_mem;
+      largest = std::max(largest, mutable_mem + immutable_mem);
+    }
+    if (flush_initiator_->UsesTotalMutableMem()) {
+      flush_initiator_->SetHasIneligibleCF(false);
+      flush_initiator_->SetHasFlushableCF(has_mutable_mem ||
+                                          waiting_immutable_mem > 0);
+      if (flush_initiator_->TrySetLargestFlushableCFMem(
+              0, waiting_immutable_mem, update_seq)) {
+        write_buffer_manager_->NotifyFlushInitiatorChanged();
+        return;
+      }
+      continue;
+    }
+    flush_initiator_->SetHasIneligibleCF(has_ineligible_cf);
+    flush_initiator_->SetHasFlushableCF(largest > 0);
+    if (flush_initiator_->TrySetLargestFlushableCFMem(
+            largest, waiting_immutable_mem, update_seq)) {
+      write_buffer_manager_->NotifyFlushInitiatorChanged();
+      return;
+    }
+  }
+  flush_initiator_->InvalidateLargestFlushableCFMem();
+}
+
+void ColumnFamilySet::BeginBulkFlushableMemAccountingUpdate() {
+  ++bulk_flushable_mem_accounting_depth_;
+  if (bulk_flushable_mem_accounting_depth_ == 1) {
+    bulk_flushable_mem_accounting_dirty_ = true;
+    if (flush_initiator_ != nullptr && write_buffer_manager_ != nullptr &&
+        write_buffer_manager_->ShouldTrackFlushInitiator()) {
+      flush_initiator_->InvalidateLargestFlushableCFMem();
+      write_buffer_manager_->NotifyFlushInitiatorChanged();
+    }
+  }
+}
+
+void ColumnFamilySet::EndBulkFlushableMemAccountingUpdate() {
+  assert(bulk_flushable_mem_accounting_depth_ > 0);
+  --bulk_flushable_mem_accounting_depth_;
+  if (bulk_flushable_mem_accounting_depth_ == 0 &&
+      bulk_flushable_mem_accounting_dirty_) {
+    bulk_flushable_mem_accounting_dirty_ = false;
+    TEST_SYNC_POINT(
+        "ColumnFamilySet::EndBulkFlushableMemAccountingUpdate:Refresh");
+    RefreshFlushableMemAccounting();
+  }
+}
+
 // under a DB mutex AND write thread
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
@@ -1939,6 +2044,15 @@ void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
   column_families_.erase(cfd->GetName());
   running_ts_sz_.erase(cf_id);
   ts_sz_for_record_.erase(cf_id);
+  if (bulk_flushable_mem_accounting_depth_ > 0) {
+    bulk_flushable_mem_accounting_dirty_ = true;
+    if (flush_initiator_ != nullptr) {
+      flush_initiator_->InvalidateLargestFlushableCFMem();
+    }
+    return;
+  }
+  TEST_SYNC_POINT("ColumnFamilySet::RemoveColumnFamily:Refresh");
+  RefreshFlushableMemAccounting();
 }
 
 // under a DB mutex OR from a write thread

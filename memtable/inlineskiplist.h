@@ -51,6 +51,7 @@
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 #include "test_util/sync_point.h"
 #include "util/atomic.h"
 #include "util/random.h"
