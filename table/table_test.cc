@@ -8376,6 +8376,7 @@ TEST_F(ExternalTableTest, BasicModeGlobalSeqnoAcrossLevels) {
   options.disable_auto_compactions = true;
   options.table_factory =
       NewExternalTableFactory(std::make_shared<SimpleExternalTableFactory>());
+  ASSERT_FALSE(options.table_factory->IsDeleteRangeSupported());
   Reopen(options);
 
   const std::string old_file = dbname_ + "/external_old.immutable";
@@ -8477,6 +8478,44 @@ TEST_F(ExternalTableTest, BasicModeGlobalSeqnoAcrossLevels) {
   ASSERT_EQ(actual, snapshot_expected);
 
   iterator.reset();
+  const std::string range_file = dbname_ + "/external_range.immutable";
+  ASSERT_OK(writer.Open(range_file));
+  ASSERT_OK(writer.DeleteRange("a", "b"));
+  ASSERT_OK(writer.Finish());
+
+  Options unsupported_options = options;
+  unsupported_options.table_factory = NewExternalTableFactory(
+      std::make_shared<PinnedSimpleExternalTableFactory>());
+  SstFileReader unsupported_reader(unsupported_options);
+  ASSERT_TRUE(unsupported_reader.Open(range_file).IsCorruption());
+
+  ASSERT_OK(db_->IngestExternalFile({range_file}, ingest_options));
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(Get("b"), "new-b");
+  ASSERT_EQ(Get("c"), "old-c");
+  ASSERT_OK(db_->Get(snapshot_read_options, "a", &value));
+  ASSERT_EQ(value, "old-a");
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_OK(statuses[1]);
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[1], "new-b");
+  ASSERT_EQ(values[2], "old-c");
+
+  actual.clear();
+  iterator.reset(db_->NewIterator(ReadOptions()));
+  for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+    actual.emplace_back(iterator->key().ToString(),
+                        iterator->value().ToString());
+  }
+  ASSERT_OK(iterator->status());
+  const std::vector<std::pair<std::string, std::string>> range_expected = {
+      {"b", "new-b"}, {"c", "old-c"}};
+  ASSERT_EQ(actual, range_expected);
+
+  iterator.reset();
   Status compaction_status =
       db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_TRUE(compaction_status.IsNotSupported())
@@ -8484,7 +8523,7 @@ TEST_F(ExternalTableTest, BasicModeGlobalSeqnoAcrossLevels) {
   db_->ReleaseSnapshot(snapshot);
   Close();
   Reopen(options);
-  ASSERT_EQ(Get("a"), "new-a");
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
   ASSERT_EQ(Get("b"), "new-b");
   ASSERT_EQ(Get("c"), "old-c");
 }
@@ -8504,6 +8543,8 @@ TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
 
   ASSERT_OK(Put("deleted", "old"));
   ASSERT_OK(Put("merged", "base"));
+  ASSERT_OK(Put("range-deleted-a", "old-a"));
+  ASSERT_OK(Put("range-deleted-b", "old-b"));
   ASSERT_OK(Put("stable", "v1"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(2);
@@ -8516,6 +8557,8 @@ TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
 
     ASSERT_OK(Merge("merged", "m1"));
     ASSERT_OK(Delete("deleted"));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               "range-deleted-a", "range-deleted-c"));
     ASSERT_OK(Put("stable", "v2"));
     ASSERT_OK(Flush());
     MoveFilesToLevel(1);
@@ -8535,9 +8578,19 @@ TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
     ASSERT_EQ(
         Get("stable", static_cast<const Snapshot*>(nullptr), use_coroutine_),
         "v2");
+    ASSERT_EQ(Get("range-deleted-a", static_cast<const Snapshot*>(nullptr),
+                  use_coroutine_),
+              "NOT_FOUND");
+    ASSERT_EQ(Get("range-deleted-b", static_cast<const Snapshot*>(nullptr),
+                  use_coroutine_),
+              "NOT_FOUND");
 
     ASSERT_EQ(Get("merged", snapshot.snapshot(), use_coroutine_), "base");
     ASSERT_EQ(Get("deleted", snapshot.snapshot(), use_coroutine_), "old");
+    ASSERT_EQ(Get("range-deleted-a", snapshot.snapshot(), use_coroutine_),
+              "old-a");
+    ASSERT_EQ(Get("range-deleted-b", snapshot.snapshot(), use_coroutine_),
+              "old-b");
     ASSERT_EQ(Get("stable", snapshot.snapshot(), use_coroutine_), "v1");
 
     ASSERT_OK(Flush());
@@ -8550,9 +8603,10 @@ TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
     ASSERT_EQ(NumTableFilesAtLevel(1), 0);
     ASSERT_EQ(NumTableFilesAtLevel(2), 1);
 
-    const std::vector<std::string> expected_values = {"NOT_FOUND", "memtable",
-                                                      "base,m1,m2", "v2"};
-    ASSERT_EQ(MultiGet({"deleted", "live", "merged", "stable"},
+    const std::vector<std::string> expected_values = {
+        "NOT_FOUND", "memtable", "base,m1,m2", "NOT_FOUND", "NOT_FOUND", "v2"};
+    ASSERT_EQ(MultiGet({"deleted", "live", "merged", "range-deleted-a",
+                        "range-deleted-b", "stable"},
                        /*snapshot=*/nullptr, /*async=*/false,
                        /*optimize_multiget_for_io=*/true, use_coroutine_),
               expected_values);
@@ -8570,6 +8624,10 @@ TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
 
     ASSERT_EQ(Get("merged", snapshot.snapshot(), use_coroutine_), "base");
     ASSERT_EQ(Get("deleted", snapshot.snapshot(), use_coroutine_), "old");
+    ASSERT_EQ(Get("range-deleted-a", snapshot.snapshot(), use_coroutine_),
+              "old-a");
+    ASSERT_EQ(Get("range-deleted-b", snapshot.snapshot(), use_coroutine_),
+              "old-b");
     ASSERT_EQ(Get("stable", snapshot.snapshot(), use_coroutine_), "v1");
   }
 
@@ -8583,6 +8641,12 @@ TEST_P(ExternalTablePointReadTest, FullModeLiveWritesAndCompaction) {
       "NOT_FOUND");
   ASSERT_EQ(Get("live", static_cast<const Snapshot*>(nullptr), use_coroutine_),
             "memtable");
+  ASSERT_EQ(Get("range-deleted-a", static_cast<const Snapshot*>(nullptr),
+                use_coroutine_),
+            "NOT_FOUND");
+  ASSERT_EQ(Get("range-deleted-b", static_cast<const Snapshot*>(nullptr),
+                use_coroutine_),
+            "NOT_FOUND");
   ASSERT_EQ(
       Get("stable", static_cast<const Snapshot*>(nullptr), use_coroutine_),
       "v2");
@@ -8725,6 +8789,59 @@ TEST_F(ExternalTableTest, FullModeVerifyChecksum) {
     ASSERT_TRUE(reader.VerifyChecksum().IsCorruption());
   }
 
+  const std::string range_file_path = dbname_ + "/corrupt_range_ingest.sst";
+  SstFileWriter range_writer(EnvOptions(options), options);
+  ASSERT_OK(range_writer.Open(range_file_path));
+  ASSERT_OK(range_writer.Put("key", std::string(1024, 'v')));
+  ASSERT_OK(range_writer.DeleteRange("a", "z"));
+  ASSERT_OK(range_writer.Finish());
+  ASSERT_OK(test::CorruptFile(env_, range_file_path, /*offset=*/16,
+                              /*bytes_to_corrupt=*/3));
+  SstFileReader range_reader(options);
+  ASSERT_TRUE(range_reader.Open(range_file_path).IsCorruption());
+
+  const std::string missing_range_file_path =
+      dbname_ + "/missing_range_ingest.sst";
+  SstFileWriter missing_range_writer(EnvOptions(options), options);
+  ASSERT_OK(missing_range_writer.Open(missing_range_file_path));
+  ASSERT_OK(missing_range_writer.Put("key", "value"));
+  ASSERT_OK(missing_range_writer.DeleteRange("a", "z"));
+  ASSERT_OK(missing_range_writer.Finish());
+
+  std::string missing_range_contents;
+  ASSERT_OK(
+      ReadFileToString(env_, missing_range_file_path, &missing_range_contents));
+  constexpr size_t kSimpleExternalTableFooterSize =
+      3 * sizeof(uint64_t) + sizeof(uint32_t);
+  ASSERT_GT(missing_range_contents.size(), kSimpleExternalTableFooterSize);
+  const size_t footer_offset =
+      missing_range_contents.size() - kSimpleExternalTableFooterSize;
+  const uint64_t range_deletion_size =
+      DecodeFixed64(missing_range_contents.data() + footer_offset);
+  const uint64_t properties_size = DecodeFixed64(
+      missing_range_contents.data() + footer_offset + sizeof(uint64_t));
+  ASSERT_GT(range_deletion_size, 0);
+  ASSERT_LE(properties_size, footer_offset);
+  ASSERT_LE(range_deletion_size, footer_offset - properties_size);
+  missing_range_contents.erase(
+      footer_offset - properties_size - range_deletion_size,
+      range_deletion_size);
+  const size_t new_footer_offset =
+      missing_range_contents.size() - kSimpleExternalTableFooterSize;
+  EncodeFixed64(&missing_range_contents[new_footer_offset], 0);
+  const size_t checksummed_size =
+      missing_range_contents.size() - sizeof(uint32_t);
+  EncodeFixed32(&missing_range_contents[checksummed_size],
+                crc32c::Value(missing_range_contents.data(), checksummed_size));
+  ASSERT_OK(
+      WriteStringToFile(env_, missing_range_contents, missing_range_file_path));
+
+  SstFileReader missing_range_reader(options);
+  Status missing_range_status =
+      missing_range_reader.Open(missing_range_file_path);
+  ASSERT_TRUE(missing_range_status.IsCorruption())
+      << missing_range_status.ToString();
+
   IngestExternalFileOptions ingest_options;
   ingest_options.verify_checksums_before_ingest = true;
   ASSERT_TRUE(
@@ -8739,24 +8856,6 @@ TEST_F(ExternalTableTest, FullModeVerifyChecksum) {
       env_, metadata.front().directory + "/" + metadata.front().name,
       /*offset=*/0, /*bytes_to_corrupt=*/3));
   ASSERT_TRUE(db_->VerifyChecksum().IsCorruption());
-}
-
-TEST_F(ExternalTableTest, FullModeAbandonsBuilderAfterUnsupportedEntry) {
-  if (encrypted_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
-    return;
-  }
-
-  Options options = GetDefaultOptions();
-  options.table_factory = NewExternalTableFactory(
-      std::make_shared<SimpleFullExternalTableFactory>());
-
-  SstFileWriter writer(EnvOptions(options), options);
-  ASSERT_OK(writer.Open(dbname_ + "/unsupported_entry.sst"));
-  ASSERT_OK(writer.Put("a", "value"));
-  ASSERT_OK(writer.DeleteRange("b", "c"));
-  Status status = writer.Finish();
-  ASSERT_TRUE(status.IsNotSupported()) << status.ToString();
 }
 
 TEST_F(ExternalTableTest, SstReaderTest) {

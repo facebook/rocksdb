@@ -241,6 +241,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/plain/plain_table_index.cc",
         "table/plain/plain_table_key_coding.cc",
         "table/plain/plain_table_reader.cc",
+        "table/range_del_block.cc",
         "table/sst_file_dumper.cc",
         "table/sst_file_reader.cc",
         "table/sst_file_writer.cc",

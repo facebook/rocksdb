@@ -92,18 +92,22 @@ class ExternalTableMultiGetContext {
 // BlockBasedTable to load and query sst files.
 //
 // The ExternalTable* aliases use kOnlyZeroSeqnoAndPuts mode:
-// - Readers and builders receive user keys.
-// - Every entry is a Put with sequence number zero.
+// - Readers and builders receive user keys for point entries.
+// - Every point entry is a Put with sequence number zero. Implementations may
+//   also store sequence-zero range deletions in a separate range-deletion
+//   block.
 // - When used in a DB, this mode supports ingestion-only workloads, including
 //   overlapping files in multiple levels through file-wide global sequence
-//   numbers. It does not support live writes or compaction output.
+//   numbers and range deletions. It does not support live writes or compaction
+//   output.
 //
 // The FullExternalTable* aliases use kFull mode:
-// - Readers and builders receive complete RocksDB internal keys and must
-//   preserve their order and encoding.
+// - Readers and builders receive complete RocksDB internal keys for point
+//   entries and must preserve their order and encoding.
 // - Repeated user keys and nonzero sequence numbers are supported.
 // - Put, Delete, SingleDelete, Merge, BlobIndex, and WideColumnEntity entries
-//   are supported. Range deletions and user-defined timestamps are not.
+//   are supported. Implementations may opt in to RangeDeletion support through
+//   the range-deletion block APIs. User-defined timestamps are not supported.
 // - External tables can coexist with live writes and participate in multi-level
 //   LSMs.
 //
@@ -273,16 +277,20 @@ class ExternalTableReaderBase : public ExternalTableReaderLookupBase<Mode> {
     return Status::NotSupported();
   }
 
-  // Return TableProperties for the file. At a minimum, the following
-  // properties need to be returned -
+  // Return TableProperties for the file. This may return nullptr when
+  // GetPropertiesBlock() returns OK for the file. When GetPropertiesBlock()
+  // returns NotSupported, this must return a non-null value containing at
+  // least the following properties -
   //  comparator_name
   //  num_entries
   //  raw_key_size
   //  raw_value_size
+  // Implementations storing range deletions must also return -
+  //  num_deletions
+  //  num_range_deletions
   // Full-mode implementations must also return -
   //  key_smallest_seqno
   //  key_largest_seqno
-  //  num_deletions
   //  num_merge_operands
   virtual std::shared_ptr<const TableProperties> GetTableProperties() const = 0;
 
@@ -296,6 +304,17 @@ class ExternalTableReaderBase : public ExternalTableReaderLookupBase<Mode> {
   virtual CoroExternalTableReaderBase<Mode>* GetCoroExternalTableReader() {
     return nullptr;
   }
+
+  // Allocate and return the raw RocksDB range-deletion block stored by
+  // PutRangeDeletionBlock(). The returned block must be byte-for-byte
+  // unchanged. Implementations may return NotSupported when the file has no
+  // range-deletion block or the format does not support one. Formats whose
+  // factory returns true from IsDeleteRangeSupported() must override this
+  // method.
+  virtual Status GetRangeDeletionBlock(
+      std::unique_ptr<char[]>* /*range_deletion_block*/, uint64_t* /*size*/) {
+    return Status::NotSupported();
+  }
 };
 
 using ExternalTableReader =
@@ -303,12 +322,14 @@ using ExternalTableReader =
 using FullExternalTableReader =
     ExternalTableReaderBase<ExternalTableMode::kFull>;
 
-// A table builder interface that can be used by SstFileWriter to allow
-// RocksDB users to write external table files. The sequence of operations
-// to write an external table is as follows -
-// 1. Add() is called in key order. In kOnlyZeroSeqnoAndPuts mode it receives a
-//    user key with the sequence number and value type stripped. In kFull mode
-//    it receives the complete RocksDB internal key.
+// A table builder interface used by SstFileWriter and, in full mode, by DB
+// flush and compaction to write external table files. The sequence of
+// operations to write an external table is as follows -
+// 1. Add() is called for point entries in key order. In
+//    kOnlyZeroSeqnoAndPuts mode it receives a user key with the sequence number
+//    and value type stripped. In kFull mode it receives the complete RocksDB
+//    internal key. Range deletions are encoded separately and passed to
+//    PutRangeDeletionBlock().
 // 2. After every Add() operation, status() is called to check the current
 //    status.
 // 3. After the last key is added, Finish() is called to do whatever is
@@ -324,10 +345,11 @@ class ExternalTableBuilderBase {
  public:
   virtual ~ExternalTableBuilderBase() {}
 
-  // Write a key-value pair. In basic mode, key is a user key. In full mode,
-  // key is a stored RocksDB internal key and ParseEntry() can be used to decode
-  // it. Calls are made in the corresponding key order and that order must be
-  // preserved. Errors are reported through status().
+  // Write a point key-value pair. In basic mode, key is a user key. In full
+  // mode, key is a stored RocksDB internal key and ParseEntry() can be used to
+  // decode it. Calls are made in the corresponding key order and that order
+  // must be preserved. Range deletions are not passed to this method. Errors
+  // are reported through status().
   virtual void Add(const Slice& key, const Slice& value) = 0;
 
   // Return the current Status. This could return non-ok, for example, if
@@ -355,23 +377,26 @@ class ExternalTableBuilderBase {
   }
 
   // If PutPropertiesBlock() succeeds, this method does not need to populate
-  // any properties. Otherwise, the following properties must be returned at a
-  // minimum -
-  //  comparator_name
-  //  num_entries
-  //  raw_key_size
-  //  raw_value_size
-  // Full-mode implementations must also return -
-  //  key_smallest_seqno
-  //  key_largest_seqno
-  //  num_deletions
-  //  num_merge_operands
+  // any properties. Otherwise, it must return comparator_name and any
+  // format-specific properties such as data_size. RocksDB overlays the logical
+  // entry counts and sizes, sequence-number bounds, deletion counts, and merge
+  // operand count that it tracks while building the table. The implementation
+  // is still responsible for persisting enough metadata for its reader's
+  // GetTableProperties() to return the complete properties after reopening.
   virtual TableProperties GetTableProperties() const = 0;
 
   virtual std::string GetFileChecksum() const { return kUnknownFileChecksum; }
 
   virtual const char* GetFileChecksumFuncName() const {
     return kUnknownFileChecksumFuncName;
+  }
+
+  // Persist the raw RocksDB range-deletion block byte-for-byte. The input is
+  // valid only for the duration of this call. This is called before Finish()
+  // only when the table contains range deletions. Formats whose factory returns
+  // true from IsDeleteRangeSupported() must override this method.
+  virtual Status PutRangeDeletionBlock(const Slice& /*range_deletion_block*/) {
+    return Status::NotSupported();
   }
 };
 
@@ -492,6 +517,11 @@ class ExternalTableFactoryBase : public Customizable {
     return Status::NotSupported(
         "External table factory does not support configuration");
   }
+
+  // Returns whether this factory supports range deletions. Returning true
+  // requires the corresponding builder and reader to implement
+  // PutRangeDeletionBlock() and GetRangeDeletionBlock(), respectively.
+  virtual bool IsDeleteRangeSupported() const { return false; }
 };
 
 using ExternalTableFactory =

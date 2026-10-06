@@ -27,7 +27,7 @@ namespace {
 
 constexpr uint64_t kSimpleExternalTableMagic = 0x31544c4241545845ULL;
 constexpr size_t kSimpleExternalTableFooterSize =
-    2 * sizeof(uint64_t) + sizeof(uint32_t);
+    3 * sizeof(uint64_t) + sizeof(uint32_t);
 
 template <ExternalTableMode Mode>
 class SimpleExternalTableIterator final : public ExternalTableIteratorBase {
@@ -191,9 +191,11 @@ class SimpleExternalTableBuilder final : public ExternalTableBuilderBase {
   Status status() const override { return status_; }
 
   Status Finish() override {
+    Append(range_deletion_block_, /*include_in_checksum=*/true);
     Append(properties_block_, /*include_in_checksum=*/true);
 
     std::string footer;
+    PutFixed64(&footer, range_deletion_block_.size());
     PutFixed64(&footer, properties_block_.size());
     PutFixed64(&footer, kSimpleExternalTableMagic);
     Append(footer, /*include_in_checksum=*/true);
@@ -207,10 +209,24 @@ class SimpleExternalTableBuilder final : public ExternalTableBuilderBase {
   void Abandon() override {}
   uint64_t FileSize() const override { return file_size_; }
   Status PutPropertiesBlock(const Slice& block) override {
-    properties_block_.assign(block.data(), block.size());
+    Status status;
+    TEST_SYNC_POINT_CALLBACK("SimpleExternalTableBuilder::PutPropertiesBlock",
+                             &status);
+    if (status.ok()) {
+      properties_block_.assign(block.data(), block.size());
+    }
+    return status;
+  }
+  Status PutRangeDeletionBlock(const Slice& block) override {
+    range_deletion_block_.assign(block.data(), block.size());
     return Status::OK();
   }
-  TableProperties GetTableProperties() const override { return {}; }
+  TableProperties GetTableProperties() const override {
+    TableProperties properties;
+    TEST_SYNC_POINT_CALLBACK("SimpleExternalTableBuilder::GetTableProperties",
+                             &properties);
+    return properties;
+  }
 
  private:
   void Append(const Slice& data, bool include_in_checksum) {
@@ -229,6 +245,7 @@ class SimpleExternalTableBuilder final : public ExternalTableBuilderBase {
 
   FSWritableFile* file_;
   IOOptions io_options_;
+  std::string range_deletion_block_;
   std::string properties_block_;
   uint64_t file_size_ = 0;
   uint32_t contents_checksum_ = 0;
@@ -267,19 +284,22 @@ Status SimpleExternalTableReader<Mode>::ReadContents(
 
 template <ExternalTableMode Mode>
 Status SimpleExternalTableReader<Mode>::DecodeFooter(
-    const Slice& contents, uint64_t* properties_size,
-    uint32_t* contents_checksum) const {
+    const Slice& contents, uint64_t* range_deletion_size,
+    uint64_t* properties_size, uint32_t* contents_checksum) const {
   if (contents.size() < kSimpleExternalTableFooterSize) {
     return Status::Corruption("Missing simple external table footer");
   }
   const char* footer =
       contents.data() + contents.size() - kSimpleExternalTableFooterSize;
-  *properties_size = DecodeFixed64(footer);
-  const uint64_t magic = DecodeFixed64(footer + sizeof(uint64_t));
-  *contents_checksum = DecodeFixed32(footer + 2 * sizeof(uint64_t));
+  *range_deletion_size = DecodeFixed64(footer);
+  *properties_size = DecodeFixed64(footer + sizeof(uint64_t));
+  const uint64_t magic = DecodeFixed64(footer + 2 * sizeof(uint64_t));
+  *contents_checksum = DecodeFixed32(footer + 3 * sizeof(uint64_t));
   const uint64_t footer_offset =
       contents.size() - kSimpleExternalTableFooterSize;
-  if (magic != kSimpleExternalTableMagic || *properties_size > footer_offset) {
+  if (magic != kSimpleExternalTableMagic ||
+      *range_deletion_size > footer_offset ||
+      *properties_size > footer_offset - *range_deletion_size) {
     return Status::Corruption("Invalid simple external table footer");
   }
   return Status::OK();
@@ -288,9 +308,11 @@ Status SimpleExternalTableReader<Mode>::DecodeFooter(
 template <ExternalTableMode Mode>
 Status SimpleExternalTableReader<Mode>::VerifyContentsChecksum(
     const Slice& contents) const {
+  uint64_t range_deletion_size = 0;
   uint64_t properties_size = 0;
   uint32_t contents_checksum = 0;
-  Status status = DecodeFooter(contents, &properties_size, &contents_checksum);
+  Status status = DecodeFooter(contents, &range_deletion_size, &properties_size,
+                               &contents_checksum);
   if (!status.ok()) {
     return status;
   }
@@ -311,7 +333,8 @@ SimpleExternalTableReader<Mode>::SimpleExternalTableReader(
       key_comparator_(Mode == ExternalTableMode::kFull
                           ? options.internal_key_comparator
                           : options.comparator),
-      user_comparator_(options.comparator) {
+      user_comparator_(options.comparator),
+      verify_checksums_(read_options.verify_checksums) {
   assert(file_ != nullptr);
   std::string contents;
   status_ = ReadContents(read_options, &contents);
@@ -319,9 +342,11 @@ SimpleExternalTableReader<Mode>::SimpleExternalTableReader(
     return;
   }
 
+  uint64_t range_deletion_size = 0;
   uint64_t properties_size = 0;
   uint32_t contents_checksum = 0;
-  status_ = DecodeFooter(contents, &properties_size, &contents_checksum);
+  status_ = DecodeFooter(contents, &range_deletion_size, &properties_size,
+                         &contents_checksum);
   if (!status_.ok()) {
     return;
   }
@@ -329,8 +354,12 @@ SimpleExternalTableReader<Mode>::SimpleExternalTableReader(
       contents.size() - kSimpleExternalTableFooterSize - properties_size;
   properties_block_.assign(contents.data() + properties_offset_,
                            static_cast<size_t>(properties_size));
+  const uint64_t range_deletion_offset =
+      properties_offset_ - range_deletion_size;
+  range_deletion_block_.assign(contents.data() + range_deletion_offset,
+                               static_cast<size_t>(range_deletion_size));
 
-  Slice records(contents.data(), static_cast<size_t>(properties_offset_));
+  Slice records(contents.data(), static_cast<size_t>(range_deletion_offset));
   while (!records.empty()) {
     uint32_t key_size = 0;
     uint32_t value_size = 0;
@@ -430,6 +459,23 @@ Status SimpleExternalTableReader<Mode>::GetPropertiesBlock(
 }
 
 template <ExternalTableMode Mode>
+Status SimpleExternalTableReader<Mode>::GetRangeDeletionBlock(
+    std::unique_ptr<char[]>* block, uint64_t* size) {
+  if (verify_checksums_ && !checksum_status_.ok()) {
+    return checksum_status_;
+  }
+  if (range_deletion_block_.empty()) {
+    *size = 0;
+    return Status::NotSupported();
+  }
+  *block = std::make_unique<char[]>(range_deletion_block_.size());
+  memcpy(block->get(), range_deletion_block_.data(),
+         range_deletion_block_.size());
+  *size = range_deletion_block_.size();
+  return Status::OK();
+}
+
+template <ExternalTableMode Mode>
 std::shared_ptr<const TableProperties>
 SimpleExternalTableReader<Mode>::GetTableProperties() const {
   return std::make_shared<TableProperties>();
@@ -489,6 +535,11 @@ ExternalTableBuilderBase* SimpleExternalTableFactoryBase<Mode>::NewTableBuilder(
   }
   return new SimpleExternalTableBuilder<Mode>(file,
                                               builder_options.write_options);
+}
+
+template <ExternalTableMode Mode>
+bool SimpleExternalTableFactoryBase<Mode>::IsDeleteRangeSupported() const {
+  return true;
 }
 
 template class SimpleExternalTableReader<

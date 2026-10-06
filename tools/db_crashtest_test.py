@@ -433,7 +433,6 @@ class DBCrashTestTest(unittest.TestCase):
             params = db_crashtest.gen_cmd_params(args)
         command_params = dict(params)
         command_params["enable_compaction_filter"] = 0
-        command_params["inplace_update_support"] = 0
         command_params["db"] = self.test_tmpdir
         command, finalized = db_crashtest.gen_cmd(command_params, [])
 
@@ -445,13 +444,12 @@ class DBCrashTestTest(unittest.TestCase):
             "target_file_size_multiplier": 1,
             "write_buffer_size": 1024 * 1024,
             "compaction_ttl": 0,
-            "delpercent": 5,
-            "delrangepercent": 0,
+            "delpercent": 4,
+            "delrangepercent": 1,
             "get_property_one_in": 0,
             "get_properties_of_all_tables_one_in": 0,
             "ingest_external_file_with_embedded_blobs": 0,
             "ingest_wbwi_one_in": 0,
-            "min_tombstones_for_range_conversion": 0,
             "periodic_compaction_seconds": 0,
             "preclude_last_level_data_seconds": 0,
             "preserve_internal_time_seconds": 0,
@@ -463,7 +461,13 @@ class DBCrashTestTest(unittest.TestCase):
             "user_timestamp_size": 0,
         }
         self.assertEqual(expected, db_crashtest.full_external_table_params)
-        self.assertEqual(expected, {key: finalized.get(key) for key in expected})
+        for key, value in expected.items():
+            if key not in ("delpercent", "delrangepercent"):
+                self.assertEqual(value, finalized.get(key))
+        self.assertEqual(
+            5, finalized["delpercent"] + finalized["delrangepercent"]
+        )
+        self.assertIn(finalized["delrangepercent"], (0, 1))
         for inherited_param in (
             "adaptive_readahead",
             "allow_unprepared_value",
@@ -479,12 +483,15 @@ class DBCrashTestTest(unittest.TestCase):
             "enable_compaction_filter",
             "file_checksum_impl",
             "ingest_external_file_one_in",
+            "inplace_update_support",
             "mmap_read",
+            "min_tombstones_for_range_conversion",
             "paranoid_file_checks",
             "test_batches_snapshots",
             "use_async_db_api",
             "use_merge",
             "use_multiget",
+            "use_multiscan",
             "use_trie_index",
             "verify_checksum_one_in",
             "verify_file_checksums_one_in",

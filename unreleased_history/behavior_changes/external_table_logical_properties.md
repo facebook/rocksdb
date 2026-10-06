@@ -1,0 +1,1 @@
+When `ExternalTableBuilderBase::PutPropertiesBlock()` returns `NotSupported`, RocksDB now overrides `num_entries`, `raw_key_size`, and `raw_value_size` from `ExternalTableBuilderBase::GetTableProperties()` with the logical totals tracked by the external-table adapter. Format-specific properties such as `data_size` remain unchanged.

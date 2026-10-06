@@ -247,11 +247,6 @@ int db_stress_tool(int argc, char** argv) {
       return ReturnValidationError(
           "use_full_external_table currently requires column_families=1");
     }
-    if (FLAGS_delrangepercent > 0 ||
-        FLAGS_min_tombstones_for_range_conversion > 0) {
-      return ReturnValidationError(
-          "use_full_external_table does not support range deletions");
-    }
     if (FLAGS_user_timestamp_size > 0 || FLAGS_use_timed_put_one_in > 0) {
       return ReturnValidationError(
           "use_full_external_table does not support timestamped entries");
