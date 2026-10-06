@@ -174,6 +174,34 @@ add_c_test_wrapper()
             )
         self.total_test = self.total_test + 1
 
+    def add_fbcode_only_cpp_unittests(self, test_configs):
+        with open(self.path, "ab") as targets_file:
+            for test_config in test_configs:
+                targets_file.write(
+                    targets_cfg.fbcode_only_cpp_unittest_template.format(
+                        name=test_config["name"],
+                        srcs=pretty_list(test_config["srcs"]),
+                        headers=pretty_list(test_config.get("headers", [])),
+                        include_paths=pretty_list(
+                            test_config.get("include_paths", [])
+                        ),
+                        network_access=smart_quote_value(
+                            test_config.get(
+                                "network_access",
+                                LiteralValue("network_access_utils.none()"),
+                            )
+                        ),
+                        preprocessor_flags=pretty_list(
+                            test_config.get("preprocessor_flags", [])
+                        ),
+                        supports_static_listing=test_config.get(
+                            "supports_static_listing", False
+                        ),
+                        deps=pretty_list(test_config["deps"]),
+                    ).encode("utf-8")
+                )
+                self.total_test = self.total_test + 1
+
     def export_file(self, name):
         with open(self.path, "a") as targets_file:
             targets_file.write(

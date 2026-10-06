@@ -35,6 +35,41 @@ from util import ColorString
 # tests to export as libraries for inclusion in other projects
 _EXPORTED_TEST_LIBS = ["env_basic_test"]
 
+_FBCODE_ONLY_CPP_UNITTESTS = [
+    {
+        "name": "columnar_row_adapter_header_test",
+        "srcs": ["table/columnar_row_adapter_header_test.cc"],
+        "headers": ["include/rocksdb/columnar_row_adapter.h"],
+        "include_paths": ["include"],
+        "network_access": LiteralValue("network_access_utils.none()"),
+        "supports_static_listing": False,
+        "deps": [
+            "//rocksdb:rocksdb",
+        ],
+    },
+    {
+        "name": "columnar_row_adapter_contract_test",
+        "srcs": ["table/columnar_row_adapter_contract_test.cc"],
+        "headers": ["include/rocksdb/columnar_row_adapter.h"],
+        "include_paths": ["include"],
+        "network_access": LiteralValue("network_access_utils.none()"),
+        "preprocessor_flags": ["-DROCKSDB_USE_VELOX"],
+        "supports_static_listing": False,
+        "deps": [
+            "//folly/io:iobuf",
+            "//folly/testing:test_util",
+            "//rocks/nimblev2:nimble_key_value_codec",
+            "//rocks/nimblev2:nimble_table_factory",
+            "//rocksdb:rocksdb",
+            "//velox/common/memory:memory",
+            "//velox/type:velox_type",
+            "//velox/vector:velox_vector",
+            "//velox/vector/tests/utils:velox_vector_test_lib",
+        ],
+    },
+]
+
+
 # Parse src.mk files as a Dictionary of
 # VAR_NAME => list of files
 def parse_src_mk(repo_path):
@@ -369,6 +404,7 @@ def generate_buck(repo_path, deps_map):
                         deps=json.dumps(deps["extra_deps"] + [":rocksdb_test_lib"]),
                         extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
                     )
+    BUCK.add_fbcode_only_cpp_unittests(_FBCODE_ONLY_CPP_UNITTESTS)
     BUCK.export_file("tools/db_crashtest.py")
     BUCK.export_file("tools/fault_injection_log_parser.py")
 
