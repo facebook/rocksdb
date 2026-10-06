@@ -108,13 +108,20 @@ families are flushed together.
 
 For `kFlushLargestAcrossDBs`, crossing the soft limit wakes the WBM sorter. It
 ranks the DBs sharing the manager and submits a configurable batch serially,
-with at most one cross-DB job in the LOW-priority pool at a time. After a batch
-candidate makes progress, the sorter ends the work cycle and waits for the next
-pressure interval before reranking from the largest DB. It advances immediately
-to later candidates and batches only when earlier candidates make no progress.
-Writers do not switch a local memtable until total memory reaches
-`buffer_size`, and the manager grants at most one such fallback per work-cycle
-interval.
+with one active coordinator lease at a time. Cross-DB attempts run on a
+four-worker executor owned by the WBM, whose workers run only while this policy
+is active and at least one DB is registered. When the policy is disabled, the
+setter returns immediately and the coordinator retires the workers after any
+non-cancellable callbacks return. A lease begins when a worker starts an
+attempt and expires after 20 ms, so a DB blocked in DB-local work cannot prevent
+another worker from trying a later candidate. Expiry does not cancel the
+original attempt, so the manager retains at most four queued or running
+cross-DB jobs. After a candidate makes
+progress, the sorter ends the work cycle and waits for the next pressure
+interval before reranking from the largest DB. It advances immediately to later
+candidates and batches only when earlier candidates make no progress. Writers
+do not switch a local memtable until total memory reaches `buffer_size`, and the
+manager grants at most one such fallback per work-cycle interval.
 
 ### Stall Trigger
 

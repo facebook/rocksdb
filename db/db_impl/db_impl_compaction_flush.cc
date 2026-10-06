@@ -4207,7 +4207,6 @@ DBImpl::FlushableCFs DBImpl::CollectFlushableCFs(
 }
 
 bool DBImpl::ScheduleWriteBufferManagerFlush() {
-  std::unique_ptr<FlushThreadArg> fta;
   {
     if (!mutex_.TryLock()) {
       return false;
@@ -4241,42 +4240,15 @@ bool DBImpl::ScheduleWriteBufferManagerFlush() {
       write_buffer_manager_->NotifyFlushInitiatorChanged();
       return false;
     }
-    fta = std::make_unique<FlushThreadArg>();
-    fta->db_ = this;
-    fta->thread_pri_ = kWBMFlushPriority;
     wbm_flush_initiator_->SetHasFlushableCF(false);
     write_buffer_manager_->NotifyFlushInitiatorChanged();
     ++bg_wbm_flush_scheduled_;
   }
 
-  // Scheduling outside mutex_ avoids nesting it with the Env thread-pool lock.
-  // Deregistration keeps this DB alive until this callback returns; afterwards
-  // the background-job counter protects it through execution or cancellation.
-  env_->Schedule(&DBImpl::BGWorkWBMFlush, fta.release(), kWBMFlushPriority,
-                 GetTaskTag(TaskType::kDefault) /* tag */,
-                 &DBImpl::UnscheduleWBMFlushCallback);
+  // The WBM-owned executor provides bounded capacity independent of Env::LOW.
+  // Run outside mutex_ so DB-local work cannot block other DB mutex users.
+  BackgroundCallWBMFlush();
   return true;
-}
-
-void DBImpl::BGWorkWBMFlush(void* arg) {
-  const std::unique_ptr<FlushThreadArg> fta(static_cast<FlushThreadArg*>(arg));
-
-  IOSTATS_SET_THREAD_POOL_ID(fta->thread_pri_);
-  TEST_SYNC_POINT("DBImpl::BGWorkWBMFlush");
-  static_cast_with_check<DBImpl>(fta->db_)->BackgroundCallWBMFlush();
-}
-
-void DBImpl::UnscheduleWBMFlushCallback(void* arg) {
-  const std::unique_ptr<FlushThreadArg> fta(static_cast<FlushThreadArg*>(arg));
-  fta->db_->mutex_.AssertHeld();
-  fta->db_->RefreshFlushableMemAccounting();
-  fta->db_->bg_wbm_flush_scheduled_--;
-  fta->db_->write_buffer_manager_->NotifyFlushInitiatorFlushCancelled();
-  fta->db_->bg_cv_.SignalAll();
-  [[maybe_unused]] size_t flushable_mem =
-      fta->db_->wbm_flush_initiator_->GetFlushableMemUsage();
-  TEST_SYNC_POINT_CALLBACK("DBImpl::UnscheduleWBMFlushCallback",
-                           &flushable_mem);
 }
 
 void DBImpl::BackgroundCallWBMFlush() {
@@ -4339,7 +4311,8 @@ void DBImpl::BackgroundCallWBMFlush() {
   }
   RefreshFlushableMemAccounting();
   --bg_wbm_flush_scheduled_;
-  write_buffer_manager_->NotifyFlushInitiatorFlushCompleted(made_progress);
+  write_buffer_manager_->NotifyFlushInitiatorFlushCompleted(
+      wbm_flush_initiator_.get(), made_progress);
   TEST_SYNC_POINT_CALLBACK("DBImpl::BGWorkWBMFlush:done", this);
   bg_cv_.SignalAll();
 }

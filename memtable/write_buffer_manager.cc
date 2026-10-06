@@ -27,6 +27,7 @@
 #include "util/atomic.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
+#include "util/threadpool_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
 struct FlushInitiator::RegistrationState {
@@ -65,7 +66,7 @@ struct FlushInitiator::RegistrationState {
     // there is no pinned-but-unreserved interval.
     std::lock_guard<std::mutex> handoff_lock(flush_handoff_mu);
     std::lock_guard<std::mutex> callback_lock(callbacks_mu);
-    if (initiator == nullptr) {
+    if (initiator == nullptr || flush_handoff_pending) {
       return nullptr;
     }
     ++callbacks_in_progress;
@@ -100,24 +101,25 @@ struct FlushInitiator::RegistrationState {
   }
 
   FlushInitiator* initiator;
-  const bool atomic_flush;
   std::atomic<size_t> total_mutable_mem{0};
   std::atomic<size_t> waiting_immutable_mem{0};
   std::atomic<size_t> largest_flushable_cf_mem{0};
   std::atomic<uint64_t> flushable_mem_update_seq{0};
+  std::atomic<size_t> registry_index{kInvalidRegistryIndex};
+  size_t callbacks_in_progress = 0;
+  uint64_t coordinator_fence_generation = 0;
+  std::mutex callbacks_mu;
+  mutable std::mutex flush_handoff_mu;
+  std::condition_variable callbacks_cv;
+  mutable std::condition_variable flush_handoff_cv;
+  const bool atomic_flush;
   std::atomic<bool> has_ineligible_cf{false};
   std::atomic<bool> flushable_mem_accurate{true};
   std::atomic<bool> flushable{true};
   std::atomic<bool> has_flushable_cf{true};
-  std::atomic<size_t> registry_index{kInvalidRegistryIndex};
-  size_t callbacks_in_progress = 0;
-  std::mutex callbacks_mu;
-  std::condition_variable callbacks_cv;
   bool flush_handoff_pending = false;
-  mutable std::mutex flush_handoff_mu;
-  mutable std::condition_variable flush_handoff_cv;
   bool has_coordinator_fence = false;
-  uint64_t coordinator_fence_generation = 0;
+  std::atomic<bool> flush_job_outstanding{false};
 };
 
 struct WriteBufferManager::FlushInitiatorRegistry {
@@ -181,8 +183,8 @@ struct WriteBufferManager::FlushInitiatorRegistry {
 
   void PolicyChanged(WriteBufferFlushPolicy policy) {
     if (policy != WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
-      StopSorter();
       owner->ResetFlushHandoff();
+      RequestRefresh();
       return;
     }
     {
@@ -297,6 +299,9 @@ struct WriteBufferManager::FlushInitiatorRegistry {
               ranked_request_generation) {
         continue;
       }
+      if (candidate->flush_job_outstanding.load(std::memory_order_acquire)) {
+        continue;
+      }
       *initiator = candidate->PinForHandoff();
       if (*initiator != nullptr) {
         return candidate;
@@ -367,6 +372,14 @@ struct WriteBufferManager::FlushInitiatorRegistry {
     return sorter != nullptr;
   }
 
+  size_t TEST_GetFlushHandoffWorkerCount() const {
+    std::lock_guard<std::mutex> lifecycle_lock(sorter_lifecycle_mu);
+    return flush_handoff_executor == nullptr
+               ? 0
+               : static_cast<size_t>(
+                     flush_handoff_executor->GetBackgroundThreads());
+  }
+
   void InvalidateAccounting() {
     std::lock_guard<std::mutex> lock(mu);
     for (const auto& state : active) {
@@ -394,6 +407,11 @@ struct WriteBufferManager::FlushInitiatorRegistry {
     {
       MutexLock wait_lock(&sorter_wait_mu);
       stopping = false;
+    }
+    if (flush_handoff_executor == nullptr) {
+      flush_handoff_executor = std::make_unique<ThreadPoolImpl>();
+      flush_handoff_executor->SetBackgroundThreads(
+          static_cast<int>(WriteBufferManager::kMaxOutstandingFlushHandoffs));
     }
     sorter = std::make_unique<port::Thread>([this] { Run(); });
   }
@@ -423,7 +441,51 @@ struct WriteBufferManager::FlushInitiatorRegistry {
     if (sorter_to_join != nullptr) {
       sorter_to_join->join();
     }
+    if (flush_handoff_executor != nullptr) {
+      flush_handoff_executor->WaitForJobsAndJoinAllThreads();
+      flush_handoff_executor.reset();
+    }
     return true;
+  }
+
+  void SubmitFlushHandoff(
+      const std::shared_ptr<FlushInitiator::RegistrationState>& candidate,
+      FlushInitiator* initiator) {
+    assert(flush_handoff_executor != nullptr);
+    executor_callbacks_in_progress.fetch_add(1, std::memory_order_relaxed);
+    flush_handoff_executor->SubmitJob([this, candidate, initiator] {
+      {
+        std::lock_guard<std::mutex> lock(owner->flush_handoff_mu_);
+        if (owner->active_flush_handoff_candidate_ == candidate &&
+            owner->flush_handoff_state_.load(std::memory_order_relaxed) ==
+                FlushHandoffState::kQueued) {
+          owner->active_flush_handoff_deadline_micros_ =
+              SystemClock::Default()->NowMicros() +
+              WriteBufferManager::kFlushWorkCycleMicros;
+          owner->flush_handoff_state_.store(FlushHandoffState::kExecuting,
+                                            std::memory_order_release);
+        }
+      }
+      RequestRefresh();
+      TEST_SYNC_POINT_CALLBACK(
+          "WriteBufferManager::FlushHandoffExecutor:BeforeExecute", initiator);
+      const bool accepted =
+          owner->flush_policy() ==
+              WriteBufferFlushPolicy::kFlushLargestAcrossDBs &&
+          initiator->ScheduleFlush();
+      TEST_SYNC_POINT_CALLBACK(
+          "WriteBufferManager::ProcessFlushHandoffRequest:AfterSchedule",
+          nullptr);
+      if (!accepted) {
+        owner->FinishFlushHandoff(initiator, false);
+      }
+      candidate->FinishHandoff();
+      // Completion can make this DB rankable before ScheduleFlush() returns.
+      // Wake the sorter only after releasing the handoff reservation so the
+      // same DB cannot acquire overlapping boolean reservations.
+      executor_callbacks_in_progress.fetch_sub(1, std::memory_order_release);
+      RequestRefresh();
+    });
   }
 
   void Run() {
@@ -431,6 +493,35 @@ struct WriteBufferManager::FlushInitiatorRegistry {
     constexpr std::chrono::milliseconds kIdleRefreshInterval{1000};
     bool refresh_needed = true;
     for (;;) {
+      if (owner->flush_policy() !=
+          WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+        if (executor_callbacks_in_progress.load(std::memory_order_acquire) ==
+                0 &&
+            flush_handoff_executor->GetBackgroundThreads() > 0) {
+          // Reducing the limit is non-blocking. Workers exit after their
+          // current callback; the callback count prevents queued work from
+          // being stranded when the limit reaches zero.
+          flush_handoff_executor->SetBackgroundThreads(0);
+        }
+        MutexLock lock(&sorter_wait_mu);
+        while (!stopping &&
+               owner->flush_policy() !=
+                   WriteBufferFlushPolicy::kFlushLargestAcrossDBs &&
+               !(executor_callbacks_in_progress.load(
+                     std::memory_order_acquire) == 0 &&
+                 flush_handoff_executor->GetBackgroundThreads() > 0)) {
+          cv.Wait();
+        }
+        if (stopping) {
+          return;
+        }
+        refresh_needed = true;
+        continue;
+      }
+      if (flush_handoff_executor->GetBackgroundThreads() == 0) {
+        flush_handoff_executor->SetBackgroundThreads(
+            static_cast<int>(WriteBufferManager::kMaxOutstandingFlushHandoffs));
+      }
       if (refresh_needed) {
         uint64_t refresh_generation = 0;
         {
@@ -464,14 +555,30 @@ struct WriteBufferManager::FlushInitiatorRegistry {
         refresh_needed = true;
         continue;
       }
-      if (owner->flush_handoff_state_.load(std::memory_order_acquire) ==
-          FlushHandoffState::kRemotePending) {
-        const uint64_t deadline = SystemClock::Default()->NowMicros() +
-                                  kIdleRefreshInterval.count() * 1000;
+      const FlushHandoffState handoff_state =
+          owner->flush_handoff_state_.load(std::memory_order_acquire);
+      if (handoff_state == FlushHandoffState::kExecuting) {
+        const uint64_t now = SystemClock::Default()->NowMicros();
+        if (owner->ExpireFlushHandoffLease(now)) {
+          continue;
+        }
+        const uint64_t deadline = now + kPressureRefreshInterval.count() * 1000;
         while (!stopping &&
                owner->flush_handoff_state_.load(std::memory_order_acquire) ==
-                   FlushHandoffState::kRemotePending &&
+                   FlushHandoffState::kExecuting &&
                !cv.TimedWait(deadline)) {
+        }
+        refresh_requested = false;
+        if (stopping) {
+          return;
+        }
+        continue;
+      } else if (handoff_state == FlushHandoffState::kQueued) {
+        while (!stopping &&
+               owner->flush_handoff_state_.load(std::memory_order_acquire) ==
+                   FlushHandoffState::kQueued &&
+               !cv.TimedWait(SystemClock::Default()->NowMicros() +
+                             kPressureRefreshInterval.count() * 1000)) {
         }
         refresh_requested = false;
         if (stopping) {
@@ -511,6 +618,8 @@ struct WriteBufferManager::FlushInitiatorRegistry {
   uint64_t refresh_completed_generation = 0;
   mutable std::mutex sorter_lifecycle_mu;
   std::unique_ptr<port::Thread> sorter;
+  std::unique_ptr<ThreadPoolImpl> flush_handoff_executor;
+  std::atomic<size_t> executor_callbacks_in_progress{0};
   std::mutex refresh_mu;
   std::vector<std::shared_ptr<FlushInitiator::RegistrationState>>
       refresh_snapshot;
@@ -985,8 +1094,15 @@ bool WriteBufferManager::TryAcquireLocalFlush(StallInterface* stalled_db) {
 
 bool WriteBufferManager::ProcessFlushHandoffRequest() {
   FlushInitiatorRegistry& registry = *flush_initiator_registry_;
-  if (flush_handoff_state_.load(std::memory_order_acquire) ==
-      FlushHandoffState::kRemotePending) {
+  const FlushHandoffState handoff_state =
+      flush_handoff_state_.load(std::memory_order_acquire);
+  if (handoff_state == FlushHandoffState::kQueued ||
+      handoff_state == FlushHandoffState::kExecuting) {
+    return false;
+  }
+
+  if (outstanding_flush_handoffs_.load(std::memory_order_acquire) >=
+      kMaxOutstandingFlushHandoffs) {
     return false;
   }
 
@@ -1030,16 +1146,36 @@ bool WriteBufferManager::ProcessFlushHandoffRequest() {
       candidate->FinishHandoff();
       continue;
     }
-    flush_handoff_state_.store(FlushHandoffState::kRemotePending,
-                               std::memory_order_release);
-    const bool scheduled = initiator->ScheduleFlush();
-    candidate->FinishHandoff();
-    if (scheduled) {
-      return false;
+    if (candidate->flush_job_outstanding.exchange(true,
+                                                  std::memory_order_acq_rel)) {
+      candidate->FinishHandoff();
+      continue;
     }
-    flush_handoff_state_.store(FlushHandoffState::kIdle,
-                               std::memory_order_release);
+    outstanding_flush_handoffs_.fetch_add(1, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(flush_handoff_mu_);
+      active_flush_handoff_candidate_ = candidate;
+      active_flush_handoff_deadline_micros_ = 0;
+      flush_handoff_state_.store(FlushHandoffState::kQueued,
+                                 std::memory_order_release);
+    }
+    registry.SubmitFlushHandoff(candidate, initiator);
+    return false;
   }
+}
+
+bool WriteBufferManager::ExpireFlushHandoffLease(uint64_t now_micros) {
+  std::lock_guard<std::mutex> lock(flush_handoff_mu_);
+  if (flush_handoff_state_.load(std::memory_order_relaxed) !=
+          FlushHandoffState::kExecuting ||
+      now_micros < active_flush_handoff_deadline_micros_) {
+    return false;
+  }
+  active_flush_handoff_candidate_.reset();
+  active_flush_handoff_deadline_micros_ = 0;
+  flush_handoff_state_.store(FlushHandoffState::kIdle,
+                             std::memory_order_release);
+  return true;
 }
 
 bool WriteBufferManager::ShouldCoordinateFlush() const {
@@ -1049,26 +1185,54 @@ bool WriteBufferManager::ShouldCoordinateFlush() const {
            IsStallThresholdExceeded()));
 }
 
-void WriteBufferManager::NotifyFlushInitiatorFlushCompleted(
-    bool made_progress) {
+void WriteBufferManager::FinishFlushHandoff(FlushInitiator* initiator,
+                                            bool made_progress) {
+  assert(initiator != nullptr);
+  const std::shared_ptr<void> completed_storage =
+      initiator->registration_state_;
+  const std::shared_ptr<FlushInitiator::RegistrationState> completed =
+      std::static_pointer_cast<FlushInitiator::RegistrationState>(
+          completed_storage);
+  {
+    std::lock_guard<std::mutex> lock(flush_handoff_mu_);
+    // Clear candidate eligibility and coordinator ownership atomically. This
+    // prevents a late completion from an expired attempt from racing with a
+    // new attempt for the same DB and clearing the new lease.
+    if (completed == nullptr || !completed->flush_job_outstanding.exchange(
+                                    false, std::memory_order_acq_rel)) {
+      return;
+    }
+    if (active_flush_handoff_candidate_ == completed) {
+      active_flush_handoff_candidate_.reset();
+      active_flush_handoff_deadline_micros_ = 0;
+      flush_handoff_state_.store(FlushHandoffState::kIdle,
+                                 std::memory_order_release);
+    }
+  }
+  outstanding_flush_handoffs_.fetch_sub(1, std::memory_order_relaxed);
   if (made_progress) {
     flush_initiator_registry_->flush_candidate_made_progress.store(
         true, std::memory_order_release);
   }
-  flush_handoff_state_.store(FlushHandoffState::kIdle,
-                             std::memory_order_release);
   flush_initiator_registry_->RequestRefresh();
 }
 
-void WriteBufferManager::NotifyFlushInitiatorFlushCancelled() {
-  NotifyFlushInitiatorFlushCompleted(false);
+void WriteBufferManager::NotifyFlushInitiatorFlushCompleted(
+    FlushInitiator* initiator, bool made_progress) {
+  FinishFlushHandoff(initiator, made_progress);
+}
+
+void WriteBufferManager::NotifyFlushInitiatorFlushCancelled(
+    FlushInitiator* initiator) {
+  FinishFlushHandoff(initiator, false);
 }
 
 void WriteBufferManager::ResetFlushHandoff() {
   FlushInitiatorRegistry& registry = *flush_initiator_registry_;
-  const FlushHandoffState state =
-      flush_handoff_state_.load(std::memory_order_acquire);
-  if (state != FlushHandoffState::kRemotePending) {
+  {
+    std::lock_guard<std::mutex> lock(flush_handoff_mu_);
+    active_flush_handoff_candidate_.reset();
+    active_flush_handoff_deadline_micros_ = 0;
     flush_handoff_state_.store(FlushHandoffState::kIdle,
                                std::memory_order_release);
   }
@@ -1110,17 +1274,21 @@ bool WriteBufferManager::TEST_ScheduleFlushOnLargestDB(FlushInitiator* self) {
 
 void WriteBufferManager::TEST_WaitForFlushHandoff() {
   while (ShouldFlush() &&
-         flush_handoff_state_.load(std::memory_order_acquire) !=
-             FlushHandoffState::kRemotePending) {
+         outstanding_flush_handoffs_.load(std::memory_order_acquire) == 0) {
     std::this_thread::yield();
   }
 }
 
 void WriteBufferManager::TEST_WaitForFlushHandoffCompletion() {
   while (ShouldFlush() ||
-         flush_handoff_state_.load(std::memory_order_acquire) ==
-             FlushHandoffState::kRemotePending) {
+         outstanding_flush_handoffs_.load(std::memory_order_acquire) != 0) {
     std::this_thread::yield();
+  }
+}
+
+void WriteBufferManager::TEST_ExpireFlushHandoffLease() {
+  if (ExpireFlushHandoffLease(std::numeric_limits<uint64_t>::max())) {
+    flush_initiator_registry_->RequestRefresh();
   }
 }
 
@@ -1130,6 +1298,10 @@ size_t WriteBufferManager::TEST_GetFlushInitiatorRegistrySize() const {
 
 bool WriteBufferManager::TEST_HasFlushInitiatorSorter() const {
   return flush_initiator_registry_->TEST_HasSorter();
+}
+
+size_t WriteBufferManager::TEST_GetFlushHandoffWorkerCount() const {
+  return flush_initiator_registry_->TEST_GetFlushHandoffWorkerCount();
 }
 
 void WriteBufferManager::TEST_RefreshFlushInitiatorCandidate() {
