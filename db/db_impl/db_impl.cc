@@ -99,6 +99,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/global_row_cache.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/stats_history.h"
@@ -275,6 +276,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
   assert(!db_session_id_.empty());
+  if (immutable_db_options_.global_row_cache != nullptr) {
+    global_row_cache_id_ = immutable_db_options_.global_row_cache->NewId();
+  }
 
   periodic_task_functions_.emplace(PeriodicTaskType::kDumpStats,
                                    [this]() { this->DumpStats(); });
@@ -4572,6 +4576,9 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
+    s = ValidateGlobalRowCacheOptions(db_options, cf_options);
+  }
+  if (s.ok()) {
     for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
       if (!s.ok()) {
@@ -6099,6 +6106,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
       job_context.Clean();
       return status;
     }
+    DisableGlobalRowCache(Status::NotSupported(
+        "DeleteFilesInRanges changes logical rows without cache hooks"));
     input_version->Ref();
     status = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                     &mutex_, directories_.GetDbDir());
@@ -6305,6 +6314,69 @@ std::string DBImpl::GenerateDbSessionId(Env*) {
 void DBImpl::SetDbSessionId() {
   db_session_id_ = GenerateDbSessionId(env_);
   TEST_SYNC_POINT_CALLBACK("DBImpl::SetDbSessionId", &db_session_id_);
+}
+
+void DBImpl::DisableGlobalRowCache(const Status& reason) {
+  if (immutable_db_options_.global_row_cache == nullptr) {
+    return;
+  }
+  bool expected = false;
+  if (global_row_cache_disabled_.compare_exchange_strong(
+          expected, true, std::memory_order_acq_rel)) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Disabling global row cache: %s", reason.ToString().c_str());
+  }
+}
+
+void DBImpl::ApplyGlobalRowCachePointMutation(ColumnFamilyId column_family_id,
+                                              const Slice& key,
+                                              SequenceNumber sequence,
+                                              GlobalRowCacheMutationType type,
+                                              const Slice& value) {
+  if (!IsGlobalRowCacheEnabled()) {
+    return;
+  }
+  uint64_t generation = 0;
+  if (type != GlobalRowCacheMutationType::kInvalidate &&
+      !ComputeGlobalRowCacheEntryGeneration(key, sequence, type, value,
+                                            &generation)) {
+    return;
+  }
+  Status s = immutable_db_options_.global_row_cache->ApplyPointMutation(
+      global_row_cache_id_, column_family_id, key, sequence, generation, type,
+      value);
+  if (!s.ok()) {
+    DisableGlobalRowCache(s);
+  }
+}
+
+bool DBImpl::ComputeGlobalRowCacheEntryGeneration(
+    const Slice& key, SequenceNumber sequence, GlobalRowCacheMutationType type,
+    const Slice& value, uint64_t* generation) {
+  if (!IsGlobalRowCacheEnabled()) {
+    return false;
+  }
+  Status s = immutable_db_options_.global_row_cache->ComputeEntryGeneration(
+      key, sequence, type, value, generation);
+  if (!s.ok()) {
+    DisableGlobalRowCache(s);
+    return false;
+  }
+  return IsGlobalRowCacheEnabled();
+}
+
+void DBImpl::ApplyGlobalRowCacheRangeDeletion(ColumnFamilyId column_family_id,
+                                              const Slice& begin_key,
+                                              const Slice& end_key,
+                                              SequenceNumber sequence) {
+  if (!IsGlobalRowCacheEnabled()) {
+    return;
+  }
+  Status s = immutable_db_options_.global_row_cache->ApplyRangeDeletion(
+      global_row_cache_id_, column_family_id, begin_key, end_key, sequence);
+  if (!s.ok()) {
+    DisableGlobalRowCache(s);
+  }
 }
 
 // Default implementation -- returns not supported status
@@ -7479,6 +7551,9 @@ Status DBImpl::CommitFileIngestionHandles(
         }
         assert(0 == num_entries);
       }
+      DisableGlobalRowCache(Status::NotSupported(
+          "external file ingestion changes logical rows without cache "
+          "hooks"));
       status = versions_->LogAndApply(
           cfds_to_commit, read_options, write_options, edit_lists, &mutex_,
           directories_.GetDbDir(), false /* new_descriptor_log */,

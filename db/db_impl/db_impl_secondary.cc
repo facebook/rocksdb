@@ -1183,6 +1183,11 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
     std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     bool recover_wal, bool trust_manifest_recovery) {
   *dbptr = nullptr;
+  if (db_options.global_row_cache != nullptr) {
+    return Status::NotSupported(
+        "global_row_cache is not supported for secondary DBs");
+  }
+  Status s;
   // Only normal DB::OpenAsSecondary recovery can defer SST opening.
   // `recover_wal` excludes OpenAndCompact even when no snapshot floor is
   // supplied, `open_files_async` is the explicit opt-in, and trust-MANIFEST
@@ -1203,7 +1208,6 @@ Status DBImplSecondary::OpenAsSecondaryImpl(
   }
 
   DBOptions tmp_opts(db_options);
-  Status s;
   if (nullptr == tmp_opts.info_log) {
     s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
     if (!s.ok()) {

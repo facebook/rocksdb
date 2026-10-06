@@ -13,8 +13,12 @@
 #include <fcntl.h>
 
 #include <algorithm>
+#include <atomic>
+#include <map>
+#include <mutex>
 #include <set>
 #include <thread>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 
@@ -48,6 +52,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/global_row_cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
@@ -7317,6 +7322,680 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
   ColumnFamilyHandle* handle;
   ASSERT_OK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
   delete handle;
+}
+
+namespace {
+
+class TestGlobalRowCache : public GlobalRowCache {
+ public:
+  const char* Name() const override { return "TestGlobalRowCache"; }
+
+  uint64_t NewId() override { return next_id_.fetch_add(1); }
+
+  Status Lookup(uint64_t db_id, ColumnFamilyId column_family_id,
+                const Slice& key, SequenceNumber read_sequence,
+                PinnableSlice* value,
+                GlobalRowCacheLookupResult* result) override {
+    ++lookup_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    *result = GlobalRowCacheLookupResult();
+    result->fill_token = range_generations_[{db_id, column_family_id}];
+    auto it = entries_.find({db_id, column_family_id, key.ToString()});
+    if (it == entries_.end() ||
+        it->second.type == GlobalRowCacheMutationType::kInvalidate ||
+        it->second.sequence > read_sequence) {
+      ++lookup_misses;
+      return Status::OK();
+    }
+    result->sequence = it->second.sequence;
+    result->generation = it->second.generation;
+    if (it->second.type == GlobalRowCacheMutationType::kDeletion) {
+      result->state = GlobalRowCacheLookupResult::State::kNotFound;
+    } else {
+      result->state = GlobalRowCacheLookupResult::State::kValue;
+      value->PinSelf(it->second.value);
+    }
+    ++lookup_hits;
+    return Status::OK();
+  }
+
+  Status InsertReadResult(uint64_t db_id, ColumnFamilyId column_family_id,
+                          const Slice& key, SequenceNumber sequence,
+                          uint64_t generation, GlobalRowCacheMutationType type,
+                          const Slice& value, uint64_t fill_token) override {
+    ++insert_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_insert_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache insertion failure");
+    }
+    if (fill_token != range_generations_[{db_id, column_family_id}]) {
+      return Status::OK();
+    }
+    CacheKey cache_key{db_id, column_family_id, key.ToString()};
+    auto it = entries_.find(cache_key);
+    if (it != entries_.end() && it->second.sequence > sequence) {
+      return Status::OK();
+    }
+    entries_[std::move(cache_key)] =
+        Entry{sequence, generation, type, value.ToString()};
+    return Status::OK();
+  }
+
+  Status ApplyPointMutation(uint64_t db_id, ColumnFamilyId column_family_id,
+                            const Slice& key, SequenceNumber sequence,
+                            uint64_t generation,
+                            GlobalRowCacheMutationType type,
+                            const Slice& value) override {
+    ++point_mutation_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_mutation_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache mutation failure");
+    }
+    CacheKey cache_key{db_id, column_family_id, key.ToString()};
+    auto it = entries_.find(cache_key);
+    if (it == entries_.end() || it->second.sequence <= sequence) {
+      entries_[std::move(cache_key)] =
+          Entry{sequence, generation, type, value.ToString()};
+    }
+    return Status::OK();
+  }
+
+  Status ApplyRangeDeletion(uint64_t db_id, ColumnFamilyId column_family_id,
+                            const Slice& begin_key, const Slice& end_key,
+                            SequenceNumber sequence) override {
+    ++range_deletion_calls;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (fail_next_mutation_.exchange(false)) {
+      entries_.clear();
+      return Status::IOError("injected row cache mutation failure");
+    }
+    ++range_generations_[{db_id, column_family_id}];
+    const std::string begin = begin_key.ToString();
+    const std::string end = end_key.ToString();
+    for (auto& [cache_key, entry] : entries_) {
+      if (cache_key.db_id == db_id &&
+          cache_key.column_family_id == column_family_id &&
+          cache_key.key >= begin && cache_key.key < end &&
+          entry.sequence <= sequence) {
+        entry = Entry{
+            sequence, sequence, GlobalRowCacheMutationType::kDeletion, {}};
+      }
+    }
+    return Status::OK();
+  }
+
+  void FailNextMutation() { fail_next_mutation_.store(true); }
+  void FailNextInsert() { fail_next_insert_.store(true); }
+  void ClearEntries() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+  }
+
+  std::atomic<int> lookup_calls{0};
+  std::atomic<int> lookup_hits{0};
+  std::atomic<int> lookup_misses{0};
+  std::atomic<int> insert_calls{0};
+  std::atomic<int> point_mutation_calls{0};
+  std::atomic<int> range_deletion_calls{0};
+
+ private:
+  struct CacheKey {
+    uint64_t db_id;
+    ColumnFamilyId column_family_id;
+    std::string key;
+
+    bool operator<(const CacheKey& rhs) const {
+      return std::tie(db_id, column_family_id, key) <
+             std::tie(rhs.db_id, rhs.column_family_id, rhs.key);
+    }
+  };
+
+  struct Entry {
+    SequenceNumber sequence;
+    uint64_t generation;
+    GlobalRowCacheMutationType type;
+    std::string value;
+  };
+
+  std::atomic<uint64_t> next_id_{1};
+  std::atomic<bool> fail_next_mutation_{false};
+  std::atomic<bool> fail_next_insert_{false};
+  std::mutex mutex_;
+  std::map<CacheKey, Entry> entries_;
+  std::map<std::pair<uint64_t, ColumnFamilyId>, uint64_t> range_generations_;
+};
+
+class CustomVisibilityGlobalRowCache : public TestGlobalRowCache {
+ public:
+  Status ComputeEntryGeneration(const Slice& key, SequenceNumber sequence,
+                                GlobalRowCacheMutationType type,
+                                const Slice& value,
+                                uint64_t* generation) override {
+    ++generation_calls;
+    if (fail_next_generation.exchange(false)) {
+      return Status::IOError("injected row cache generation failure");
+    }
+    saw_expected_generation_input.store(
+        key == Slice("custom") && type == GlobalRowCacheMutationType::kValue &&
+        value == Slice("value"));
+    *generation = sequence + 1000;
+    last_generation.store(*generation);
+    return Status::OK();
+  }
+
+  Status IsEntryVisible(const Slice& key, SequenceNumber sequence,
+                        uint64_t generation, GlobalRowCacheMutationType type,
+                        const Slice& value, SequenceNumber cache_sequence_floor,
+                        bool* visible) override {
+    ++visibility_calls;
+    saw_expected_visibility_input.store(
+        key == Slice("custom") && sequence + 1000 == generation &&
+        type == GlobalRowCacheMutationType::kValue && value == Slice("value"));
+    last_sequence_floor.store(cache_sequence_floor);
+    if (fail_next_visibility.exchange(false)) {
+      return Status::IOError("injected row cache visibility failure");
+    }
+    *visible = allow_visibility.load();
+    return Status::OK();
+  }
+
+  std::atomic<bool> allow_visibility{false};
+  std::atomic<bool> fail_next_generation{false};
+  std::atomic<bool> fail_next_visibility{false};
+  std::atomic<bool> saw_expected_generation_input{false};
+  std::atomic<bool> saw_expected_visibility_input{false};
+  std::atomic<int> generation_calls{0};
+  std::atomic<int> visibility_calls{0};
+  std::atomic<uint64_t> last_generation{0};
+  std::atomic<SequenceNumber> last_sequence_floor{0};
+};
+
+class CountingCompactionService : public CompactionService {
+ public:
+  const char* Name() const override { return "CountingCompactionService"; }
+
+  CompactionServiceScheduleResponse Schedule(
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) override {
+    ++schedule_calls;
+    return CompactionServiceScheduleResponse(
+        CompactionServiceJobStatus::kFailure);
+  }
+
+  std::atomic<int> schedule_calls{0};
+};
+
+}  // namespace
+
+TEST_F(DBTest, GlobalRowCacheOptionValidation) {
+  Options options;
+  options.global_row_cache = std::make_shared<TestGlobalRowCache>();
+  std::vector<ColumnFamilyDescriptor> column_families{
+      {kDefaultColumnFamilyName, ColumnFamilyOptions(options)}};
+  ASSERT_OK(DBImpl::TEST_ValidateOptions(options, column_families));
+
+  options.row_cache = NewLRUCache(1024);
+  ASSERT_TRUE(DBImpl::TEST_ValidateOptions(options, column_families)
+                  .IsInvalidArgument());
+  options.row_cache.reset();
+
+  options.unordered_write = true;
+  ASSERT_TRUE(
+      DBImpl::TEST_ValidateOptions(options, column_families).IsNotSupported());
+  options.unordered_write = false;
+  options.two_write_queues = true;
+  ASSERT_TRUE(
+      DBImpl::TEST_ValidateOptions(options, column_families).IsNotSupported());
+  options.two_write_queues = false;
+  options.allow_2pc = true;
+  ASSERT_TRUE(
+      DBImpl::TEST_ValidateOptions(options, column_families).IsNotSupported());
+  options.allow_2pc = false;
+
+  ColumnFamilyOptions cf_options;
+  cf_options.comparator = ReverseBytewiseComparator();
+  column_families[0] =
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options);
+  ASSERT_TRUE(
+      DBImpl::TEST_ValidateOptions(options, column_families).IsNotSupported());
+
+  cf_options.comparator = BytewiseComparator();
+  KeepFilter filter;
+  cf_options.compaction_filter = &filter;
+  column_families[0] =
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options);
+  ASSERT_TRUE(
+      DBImpl::TEST_ValidateOptions(options, column_families).IsNotSupported());
+
+  cf_options.compaction_filter = nullptr;
+  cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  column_families[0] =
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options);
+  ASSERT_TRUE(
+      DBImpl::TEST_ValidateOptions(options, column_families).IsNotSupported());
+
+  cf_options.merge_operator.reset();
+  cf_options.compaction_style = kCompactionStyleFIFO;
+  column_families[0] =
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options);
+  ASSERT_OK(DBImpl::TEST_ValidateOptions(options, column_families));
+
+  Options open_options = CurrentOptions();
+  open_options.global_row_cache = std::make_shared<TestGlobalRowCache>();
+  DestroyAndReopen(open_options);
+
+  const std::string output_reset_dbname = dbname_ + "_output_reset";
+  Options output_reset_options = CurrentOptions();
+  output_reset_options.create_if_missing = true;
+  ASSERT_OK(DestroyDB(output_reset_dbname, output_reset_options));
+  std::unique_ptr<DB> failed_open_db;
+  ASSERT_OK(
+      DB::Open(output_reset_options, output_reset_dbname, &failed_open_db));
+  output_reset_options.global_row_cache =
+      std::make_shared<TestGlobalRowCache>();
+  output_reset_options.merge_operator =
+      MergeOperators::CreateStringAppendOperator();
+  ASSERT_TRUE(
+      DB::Open(output_reset_options, output_reset_dbname, &failed_open_db)
+          .IsNotSupported());
+  ASSERT_EQ(failed_open_db, nullptr);
+  output_reset_options.global_row_cache.reset();
+  output_reset_options.merge_operator.reset();
+  ASSERT_OK(DestroyDB(output_reset_dbname, output_reset_options));
+
+  std::unique_ptr<DB> unsupported_db;
+  ASSERT_TRUE(DB::OpenForReadOnly(open_options, dbname_, &unsupported_db)
+                  .IsNotSupported());
+
+  DBOptions read_only_db_options(open_options);
+  read_only_db_options.create_if_missing = false;
+  std::vector<ColumnFamilyDescriptor> read_only_column_families{
+      {kDefaultColumnFamilyName, ColumnFamilyOptions(open_options)}};
+  std::vector<ColumnFamilyHandle*> read_only_handles;
+  ASSERT_TRUE(DB::OpenForReadOnly(read_only_db_options, dbname_ + "_missing",
+                                  read_only_column_families, &read_only_handles,
+                                  &unsupported_db)
+                  .IsNotSupported());
+
+  ASSERT_TRUE(DB::OpenAsSecondary(open_options, dbname_, dbname_ + "_secondary",
+                                  &unsupported_db)
+                  .IsNotSupported());
+  ASSERT_TRUE(DB::OpenAsFollower(open_options, dbname_, dbname_ + "_leader",
+                                 &unsupported_db)
+                  .IsNotSupported());
+
+  cf_options.comparator = ReverseBytewiseComparator();
+  cf_options.compaction_style = kCompactionStyleLevel;
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_TRUE(db_->CreateColumnFamily(cf_options, "unsupported", &handle)
+                  .IsNotSupported());
+  ASSERT_EQ(handle, nullptr);
+}
+
+TEST_F(DBTest, GlobalRowCacheDisablesBeforeWBWIIngestion) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("put-key", "old"));
+  ASSERT_OK(Put("delete-key", "old"));
+  ASSERT_OK(Flush());
+
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  Reopen(options);
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "put-key", &value));
+  ASSERT_EQ(value, "old");
+  ASSERT_OK(db_->Get(ReadOptions(), "delete-key", &value));
+  ASSERT_EQ(value, "old");
+  const int lookup_calls_before_ingest = cache->lookup_calls.load();
+
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                    /*overwrite_key=*/true);
+  ASSERT_OK(wbwi->Put("put-key", "new"));
+  ASSERT_OK(wbwi->Delete("delete-key"));
+  WriteOptions write_options;
+  write_options.disableWAL = true;
+  ASSERT_OK(db_->IngestWriteBatchWithIndex(write_options, wbwi));
+
+  ASSERT_OK(db_->Get(ReadOptions(), "put-key", &value));
+  ASSERT_EQ(value, "new");
+  ASSERT_TRUE(db_->Get(ReadOptions(), "delete-key", &value).IsNotFound());
+  ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_ingest);
+}
+
+TEST_F(DBTest, GlobalRowCacheReadWriteAndSnapshots) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("seed", "v1"));
+  ASSERT_OK(Flush());
+
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  Reopen(options);
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "seed", &value));
+  ASSERT_EQ(value, "v1");
+  ASSERT_EQ(cache->lookup_misses.load(), 1);
+  ASSERT_EQ(cache->insert_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "seed", &value));
+  ASSERT_EQ(value, "v1");
+  ASSERT_EQ(cache->lookup_hits.load(), 1);
+
+  ReadOptions custom_context_read;
+  int custom_context = 0;
+  custom_context_read.custom_context = &custom_context;
+  const int lookup_calls_before_custom_context = cache->lookup_calls.load();
+  ASSERT_OK(db_->Get(custom_context_read, "seed", &value));
+  ASSERT_EQ(value, "v1");
+  ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_custom_context);
+
+  const Snapshot* seed_snapshot = db_->GetSnapshot();
+  ASSERT_NE(seed_snapshot, nullptr);
+  ASSERT_OK(Put("seed", "v2"));
+  ASSERT_OK(db_->Get(ReadOptions(), "seed", &value));
+  ASSERT_EQ(value, "v2");
+
+  ReadOptions snapshot_read;
+  snapshot_read.snapshot = seed_snapshot;
+  ASSERT_OK(db_->Get(snapshot_read, "seed", &value));
+  ASSERT_EQ(value, "v1");
+  db_->ReleaseSnapshot(seed_snapshot);
+
+  ASSERT_OK(db_->Delete(WriteOptions(), "seed"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "seed", &value).IsNotFound());
+
+  ASSERT_OK(Put("r1", "one"));
+  ASSERT_OK(Put("r2", "two"));
+  const Snapshot* range_snapshot = db_->GetSnapshot();
+  ASSERT_NE(range_snapshot, nullptr);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "r1", "r3"));
+  ASSERT_EQ(cache->range_deletion_calls.load(), 1);
+  ASSERT_TRUE(db_->Get(ReadOptions(), "r1", &value).IsNotFound());
+  ASSERT_TRUE(db_->Get(ReadOptions(), "r2", &value).IsNotFound());
+  snapshot_read.snapshot = range_snapshot;
+  ASSERT_OK(db_->Get(snapshot_read, "r1", &value));
+  ASSERT_EQ(value, "one");
+  ASSERT_OK(db_->Get(snapshot_read, "r2", &value));
+  ASSERT_EQ(value, "two");
+  db_->ReleaseSnapshot(range_snapshot);
+}
+
+TEST_F(DBTest, GlobalRowCacheCustomVisibility) {
+  Options options = CurrentOptions();
+  auto cache = std::make_shared<CustomVisibilityGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("custom", "value"));
+  ASSERT_EQ(cache->generation_calls.load(), 1);
+  ASSERT_TRUE(cache->saw_expected_generation_input.load());
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "custom", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(cache->visibility_calls.load(), 1);
+  ASSERT_EQ(cache->last_sequence_floor.load(), 0);
+  ASSERT_TRUE(cache->saw_expected_visibility_input.load());
+
+  cache->allow_visibility.store(true);
+  ASSERT_OK(db_->Get(ReadOptions(), "custom", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(cache->visibility_calls.load(), 2);
+
+  cache->fail_next_visibility.store(true);
+  const int lookup_calls_before_failure = cache->lookup_calls.load();
+  ASSERT_OK(db_->Get(ReadOptions(), "custom", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_failure + 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "custom", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_failure + 1);
+
+  auto generation_failure_cache =
+      std::make_shared<CustomVisibilityGlobalRowCache>();
+  generation_failure_cache->fail_next_generation.store(true);
+  options.global_row_cache = generation_failure_cache;
+  Reopen(options);
+  ASSERT_OK(Put("generation-error", "value"));
+  ASSERT_EQ(generation_failure_cache->generation_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "generation-error", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(generation_failure_cache->lookup_calls.load(), 0);
+}
+
+TEST_F(DBTest, GlobalRowCacheRejectsEntryAfterFIFOMaxSizeDeletion) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.compaction_options_fifo.max_table_files_size = 1;
+  options.disable_auto_compactions = true;
+  options.max_open_files = -1;
+  options.compression = kNoCompression;
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  cache->ClearEntries();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:BeforeGlobalRowCacheInsert",
+        "DBTest::GlobalRowCacheFIFO:DeleteFile"},
+       {"DBTest::GlobalRowCacheFIFO:AfterDeleteFile",
+        "DBImpl::GetImpl:AllowGlobalRowCacheInsert"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status read_status;
+  std::string old_value;
+  std::thread reader(
+      [&]() { read_status = db_->Get(ReadOptions(), "key", &old_value); });
+
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheFIFO:DeleteFile");
+  Status compaction_status =
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  const int files_after_compaction = NumTableFilesAtLevel(0);
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheFIFO:AfterDeleteFile");
+  reader.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(compaction_status);
+  ASSERT_EQ(files_after_compaction, 0);
+  ASSERT_OK(read_status);
+  ASSERT_EQ(old_value, "value");
+  const int hits_before_current_read = cache->lookup_hits.load();
+  std::string current_value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &current_value).IsNotFound());
+  ASSERT_EQ(cache->lookup_hits.load(), hits_before_current_read + 1);
+}
+
+TEST_F(DBTest, GlobalRowCacheRejectsEntryAfterFIFOTTLDeletion) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.compaction_options_fifo.max_table_files_size = 150 << 10;
+  options.disable_auto_compactions = true;
+  options.max_open_files = -1;
+  options.compression = kNoCompression;
+  options.ttl = 60 * 60;
+  env_->SetMockSleep();
+  options.env = env_;
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  env_->MockSleepForSeconds(2 * 60 * 60);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  const int hits_before_read = cache->lookup_hits.load();
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
+  ASSERT_EQ(cache->lookup_hits.load(), hits_before_read + 1);
+}
+
+TEST_F(DBTest, GlobalRowCachePreservesSequenceAcrossFIFOCompaction) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleFIFO;
+  options.compaction_options_fifo.allow_compaction = true;
+  options.compaction_options_fifo.max_table_files_size = 500 << 10;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  options.max_open_files = -1;
+  options.compression = kNoCompression;
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  auto compaction_service = std::make_shared<CountingCompactionService>();
+  options.compaction_service = compaction_service;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("other", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(compaction_service->schedule_calls.load(), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+  ASSERT_EQ(live_files.size(), 1);
+  ASSERT_GT(live_files[0].largest_seqno, 0);
+
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo",
+                                   "{allow_compaction=true;"
+                                   "max_table_files_size=1;}"}}));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  const int hits_before_read = cache->lookup_hits.load();
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
+  ASSERT_EQ(cache->lookup_hits.load(), hits_before_read + 1);
+}
+
+TEST_F(DBTest, GlobalRowCacheDisablesForUnrepresentableFIFOSequenceFloor) {
+  const std::vector<std::pair<SequenceNumber, SequenceNumber>> sequence_bounds{
+      {kMaxSequenceNumber, 0},
+      {kMaxSequenceNumber, kMaxSequenceNumber},
+  };
+  for (const auto& [smallest_sequence, largest_sequence] : sequence_bounds) {
+    Options options = CurrentOptions();
+    options.compaction_style = kCompactionStyleFIFO;
+    options.compaction_options_fifo.max_table_files_size = 1;
+    options.disable_auto_compactions = true;
+    options.max_open_files = -1;
+    options.compression = kNoCompression;
+    auto cache = std::make_shared<TestGlobalRowCache>();
+    options.global_row_cache = cache;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("key", "value"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::BackgroundCompaction:BeforeFIFOFileDelete", [&](void* arg) {
+          auto* file = static_cast<FileMetaData*>(arg);
+          file->fd.smallest_seqno = smallest_sequence;
+          file->fd.largest_seqno = largest_sequence;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    const Status compaction_status =
+        db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    ASSERT_OK(compaction_status);
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+    const int lookup_calls_before_read = cache->lookup_calls.load();
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
+    ASSERT_EQ(cache->lookup_calls.load(), lookup_calls_before_read);
+  }
+}
+
+TEST_F(DBTest, GlobalRowCacheFailureDisablesHooksWithoutFailingWrites) {
+  Options options = CurrentOptions();
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  DestroyAndReopen(options);
+
+  cache->FailNextMutation();
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_EQ(cache->point_mutation_calls.load(), 1);
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "value");
+  ASSERT_EQ(cache->lookup_calls.load(), 0);
+
+  ASSERT_OK(Put("key", "new-value"));
+  ASSERT_EQ(cache->point_mutation_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "new-value");
+  ASSERT_EQ(cache->lookup_calls.load(), 0);
+
+  auto insert_failure_cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = insert_failure_cache;
+  Reopen(options);
+  insert_failure_cache->FailNextInsert();
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "new-value");
+  ASSERT_EQ(insert_failure_cache->lookup_calls.load(), 1);
+  ASSERT_EQ(insert_failure_cache->insert_calls.load(), 1);
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "new-value");
+  ASSERT_EQ(insert_failure_cache->lookup_calls.load(), 1);
+}
+
+TEST_F(DBTest, GlobalRowCacheRejectsReadFillRacingWithRangeDeletion) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_OK(Flush());
+
+  auto cache = std::make_shared<TestGlobalRowCache>();
+  options.global_row_cache = cache;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:BeforeGlobalRowCacheInsert",
+        "DBTest::GlobalRowCacheRace:DeleteRange"},
+       {"DBTest::GlobalRowCacheRace:AfterDeleteRange",
+        "DBImpl::GetImpl:AllowGlobalRowCacheInsert"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status read_status;
+  std::string old_value;
+  std::thread reader(
+      [&]() { read_status = db_->Get(ReadOptions(), "key", &old_value); });
+
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheRace:DeleteRange");
+  Status delete_status = db_->DeleteRange(
+      WriteOptions(), db_->DefaultColumnFamily(), "key", "kez");
+  TEST_SYNC_POINT("DBTest::GlobalRowCacheRace:AfterDeleteRange");
+  reader.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(delete_status);
+  ASSERT_OK(read_status);
+  ASSERT_EQ(old_value, "value");
+  std::string current_value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "key", &current_value).IsNotFound());
 }
 
 TEST_F(DBTest, RowCache) {

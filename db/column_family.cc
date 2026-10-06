@@ -556,6 +556,7 @@ void SuperVersion::Init(
   mem = new_mem;
   imm = new_imm;
   current = new_current;
+  global_row_cache_sequence_floor = cfd->GetGlobalRowCacheSequenceFloor();
   full_history_ts_low = cfd->GetFullHistoryTsLow();
   seqno_to_time_mapping = std::move(new_seqno_to_time_mapping);
   cfd->Ref();

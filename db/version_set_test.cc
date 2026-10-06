@@ -1552,6 +1552,98 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   EXPECT_EQ(kGroupSize - 1, count);
 }
 
+TEST_F(VersionSetTest, GroupedFollowerCallbackCompletesBeforeLeaderReturns) {
+  NewDB();
+  std::promise<void> blocker_started;
+  std::future<void> blocker_started_future = blocker_started.get_future();
+  std::promise<void> release_blocker;
+  std::future<void> release_blocker_future = release_blocker.get_future();
+  std::promise<void> leader_queued;
+  std::future<void> leader_queued_future = leader_queued.get_future();
+  std::promise<void> follower_queued;
+  std::future<void> follower_queued_future = follower_queued.get_future();
+  std::atomic<int> queued_writers{0};
+  std::atomic<bool> block_first_manifest_write{true};
+  std::atomic<bool> follower_callback_completed{false};
+  std::atomic<bool> leader_observed_callback{false};
+  std::atomic<int> same_cf_groups{0};
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void*) {
+        const int queued = queued_writers.fetch_add(1) + 1;
+        if (queued == 2) {
+          leader_queued.set_value();
+        } else if (queued == 3) {
+          follower_queued.set_value();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifestStart", [&](void*) {
+        if (block_first_manifest_write.exchange(false)) {
+          blocker_started.set_value();
+          release_blocker_future.wait();
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:SameColumnFamily",
+      [&](void*) { same_cf_groups.fetch_add(1); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  auto log_and_apply = [&](VersionEdit* edit,
+                           const std::function<void(const Status&)>& callback) {
+    mutex_.Lock();
+    Status s = versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, edit, &mutex_, nullptr,
+        /*new_descriptor_log=*/false, /*new_cf_options=*/nullptr, callback);
+    mutex_.Unlock();
+    return s;
+  };
+
+  Status blocker_status;
+  VersionEdit blocker_edit;
+  blocker_edit.SetDBId("blocker");
+  port::Thread blocker([&] {
+    blocker_status = log_and_apply(&blocker_edit, [](const Status&) {});
+  });
+  blocker_started_future.wait();
+
+  Status leader_status;
+  VersionEdit leader_edit;
+  leader_edit.SetDBId("leader");
+  port::Thread leader([&] {
+    leader_status = log_and_apply(&leader_edit, [](const Status&) {});
+    leader_observed_callback.store(follower_callback_completed.load());
+  });
+  leader_queued_future.wait();
+
+  Status follower_status;
+  VersionEdit follower_edit;
+  follower_edit.SetDBId("follower");
+  port::Thread follower([&] {
+    follower_status = log_and_apply(&follower_edit, [&](const Status& s) {
+      if (s.ok()) {
+        follower_callback_completed.store(true);
+      }
+    });
+  });
+  follower_queued_future.wait();
+  release_blocker.set_value();
+
+  blocker.join();
+  leader.join();
+  follower.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(blocker_status);
+  ASSERT_OK(leader_status);
+  ASSERT_OK(follower_status);
+  ASSERT_EQ(same_cf_groups.load(), 1);
+  ASSERT_TRUE(follower_callback_completed.load());
+  ASSERT_TRUE(leader_observed_callback.load());
+}
+
 namespace {
 // Runs `fn` on its own thread and aborts if it does not return in time. A
 // LogAndApply queued behind a stranded writer is never woken, and the
