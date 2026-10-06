@@ -261,6 +261,31 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;  // switch
       }
 
+      case kWALIndexVoidType:
+      case kRecyclableWALIndexVoidType: {
+        // Covers wal_index values that were allocated but will never carry a
+        // data record. Metadata: skipped rather than returned, consumes no
+        // index, and leaves last_read_wal_index_ alone so the surrounding
+        // records still report their own. Nothing decodes the range until gap
+        // detection lands.
+        //
+        // A cover is written after a failed append, which can have torn a
+        // fragmented record, so this drops an in-progress record exactly as
+        // the marker case below does.
+        if (in_fragmented_record && !scratch->empty()) {
+          ReportCorruption(scratch->size(),
+                           "WAL_Index void interspersed partial record");
+          if (record_checksum != nullptr) {
+            XXH3_64bits_reset(hash_state_);
+          }
+        }
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        in_fragmented_record = false;
+        last_record_offset_ = prospective_record_offset;
+        break;  // switch
+      }
+
       case kWALIndexMarkerType:
       case kRecyclableWALIndexMarkerType: {
         // Identifies the file as carrying per-record wal_index values. The
@@ -722,7 +747,7 @@ uint8_t Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
         type == kRecyclePredecessorWALInfoType ||
         type == kUserDefinedTimestampSizeType ||
         type == kRecyclableUserDefinedTimestampSizeType ||
-        type == kWALIndexMarkerType || type == kRecyclableWALIndexMarkerType) {
+        IsWALIndexMetadataRecordType(type)) {
       *result = Slice(header + header_size, length);
       return type;
     } else {
@@ -975,6 +1000,21 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         break;
       }
 
+      case kWALIndexVoidType:
+      case kRecyclableWALIndexVoidType: {
+        // See Reader::ReadRecord: metadata, skipped, consumes no index, and
+        // drops an interrupted record the same way the marker does.
+        if (in_fragmented_record_ && !fragments_.empty()) {
+          ReportCorruption(fragments_.size(),
+                           "WAL_Index void interspersed partial record");
+        }
+        fragments_.clear();
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
+        break;
+      }
+
       case kWALIndexMarkerType:
       case kRecyclableWALIndexMarkerType: {
         if (first_record_read_) {
@@ -1168,7 +1208,7 @@ bool FragmentBufferedReader::TryReadFragment(Slice* fragment, size_t* drop_size,
       type == kRecyclePredecessorWALInfoType ||
       type == kUserDefinedTimestampSizeType ||
       type == kRecyclableUserDefinedTimestampSizeType ||
-      type == kWALIndexMarkerType || type == kRecyclableWALIndexMarkerType) {
+      IsWALIndexMetadataRecordType(type)) {
     *fragment = Slice(header + header_size, length);
     *fragment_type_or_err = type;
     return true;
