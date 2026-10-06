@@ -1966,6 +1966,10 @@ def finalize_and_sanitize(src_params):
         # unrelated injected faults obscuring failures. The production path
         # deliberately fails closed for the options disabled here.
         dest_params["disable_wal"] = 0
+        # IngestWriteBatchWithIndex only supports disableWAL=true; this profile
+        # forces disable_wal=0 after the earlier ingest_wbwi_one_in guard has
+        # already run, so re-disable it here to avoid an unsupported pairing.
+        dest_params["ingest_wbwi_one_in"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
         dest_params["use_txn"] = 0
         dest_params["txn_write_policy"] = 0
