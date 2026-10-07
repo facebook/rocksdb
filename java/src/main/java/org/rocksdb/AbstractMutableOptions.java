@@ -312,7 +312,7 @@ public class AbstractMutableOptions {
      * @return the same object, after adding options
      * @throws IllegalArgumentException if the key is unknown, or a value has the wrong type/form
      */
-    @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
+    @SuppressWarnings({"PMD.ExhaustiveSwitchHasDefault", "PMD.AvoidLiteralsInIfCondition"})
     private U fromOptionString(final OptionString.Entry option, final boolean ignoreUnknown)
         throws IllegalArgumentException {
       Objects.requireNonNull(option.key);
