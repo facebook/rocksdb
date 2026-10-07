@@ -263,11 +263,10 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
 
       case kWALIndexVoidType:
       case kRecyclableWALIndexVoidType: {
-        // Covers wal_index values that were allocated but will never carry a
-        // data record. Metadata: skipped rather than returned, consumes no
-        // index, and leaves last_read_wal_index_ alone so the surrounding
-        // records still report their own. Nothing decodes the range until gap
-        // detection lands.
+        // Metadata: skipped rather than returned, consumes no index, and
+        // leaves last_read_wal_index_ alone so the surrounding records still
+        // report their own.
+        DecodeWALIndexVoidRecord(fragment);
         //
         // A cover is written after a failed append, which can have torn a
         // fragmented record, so this drops an in-progress record exactly as
@@ -519,6 +518,32 @@ void Reader::MaybeStripAndVerifyWALIndex(bool record_has_wal_index,
   if (record_checksum != nullptr) {
     *record_checksum = XXH3_64bits(record->data(), record->size());
   }
+}
+
+void Reader::DecodeWALIndexVoidRecord(const Slice& fragment) {
+  if (fragment.size() < kWALIndexVoidPayloadSize) {
+    ReportCorruption(fragment.size(),
+                     "WAL_Index void record too short to hold a range");
+    return;
+  }
+  if (fragment.size() > kWALIndexVoidPayloadSize) {
+    ReportCorruption(fragment.size(),
+                     "WAL_Index void record longer than its range");
+    return;
+  }
+
+  const uint64_t lo = DecodeFixed64(fragment.data());
+  const uint64_t hi = DecodeFixed64(fragment.data() + kWALIndexSize);
+  if (lo == 0) {
+    ReportCorruption(fragment.size(),
+                     "WAL_Index void range starts at the unassigned index");
+    return;
+  }
+  if (lo > hi) {
+    ReportCorruption(fragment.size(), "WAL_Index void range is reversed");
+    return;
+  }
+  max_void_wal_index_hi_ = std::max(max_void_wal_index_hi_, hi);
 }
 
 uint64_t Reader::LastRecordOffset() { return last_record_offset_; }
@@ -1003,7 +1028,9 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
       case kWALIndexVoidType:
       case kRecyclableWALIndexVoidType: {
         // See Reader::ReadRecord: metadata, skipped, consumes no index, and
-        // drops an interrupted record the same way the marker does.
+        // drops an interrupted record the same way the marker does. Decoding
+        // is shared so both readers accept exactly the same ranges.
+        DecodeWALIndexVoidRecord(fragment);
         if (in_fragmented_record_ && !fragments_.empty()) {
           ReportCorruption(fragments_.size(),
                            "WAL_Index void interspersed partial record");
