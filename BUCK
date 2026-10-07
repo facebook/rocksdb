@@ -4,7 +4,9 @@
 # This file is a Meta-specific integration for buck builds, so can
 # only be validated by Meta employees.
 load("//rocks/buckifier:defs.bzl", "cpp_library_wrapper","rocks_cpp_library_wrapper","cpp_binary_wrapper","cpp_unittest_wrapper","fancy_bench_wrapper","add_c_test_wrapper")
+load("@fbcode_macros//build_defs:cpp_unittest.bzl", "cpp_unittest")
 load("@fbcode_macros//build_defs:export_files.bzl", "export_file")
+load("@fbsource//tools/build_defs/testinfra:network_access_utils.bzl", "network_access_utils")
 
 
 oncall("rocksdb_point_of_contact")
@@ -5831,6 +5833,40 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
             srcs=["utilities/transactions/write_unprepared_transaction_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
+
+
+cpp_unittest(
+    name = "columnar_row_adapter_header_test",
+    srcs = ["table/columnar_row_adapter_header_test.cc"],
+    headers = ["include/rocksdb/columnar_row_adapter.h"],
+    include_paths = ["include"],
+    network_access = network_access_utils.none(),
+    preprocessor_flags = [],
+    supports_static_listing = False,
+    deps = ["//rocksdb:rocksdb"],
+)
+
+
+cpp_unittest(
+    name = "columnar_row_adapter_contract_test",
+    srcs = ["table/columnar_row_adapter_contract_test.cc"],
+    headers = ["include/rocksdb/columnar_row_adapter.h"],
+    include_paths = ["include"],
+    network_access = network_access_utils.none(),
+    preprocessor_flags = ["-DROCKSDB_USE_VELOX"],
+    supports_static_listing = False,
+    deps = [
+        "//folly/io:iobuf",
+        "//folly/testing:test_util",
+        "//rocks/nimblev2:nimble_key_value_codec",
+        "//rocks/nimblev2:nimble_table_factory",
+        "//rocksdb:rocksdb",
+        "//velox/common/memory:memory",
+        "//velox/type:velox_type",
+        "//velox/vector/tests/utils:velox_vector_test_lib",
+        "//velox/vector:velox_vector",
+    ],
+)
 
 
 export_file(name = "tools/db_crashtest.py")
