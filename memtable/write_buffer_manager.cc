@@ -82,6 +82,9 @@ struct FlushInitiator::RegistrationState {
     if (!flushable.load(std::memory_order_relaxed)) {
       return 0;
     }
+    if (on_demand_accounting) {
+      return scanned_flushable_mem.load(std::memory_order_relaxed);
+    }
     if (!has_flushable_cf.load(std::memory_order_relaxed)) {
       return 0;
     }
@@ -148,6 +151,9 @@ struct FlushInitiator::RegistrationState {
   std::atomic<size_t> total_mutable_mem{0};
   std::atomic<size_t> waiting_immutable_mem{0};
   std::atomic<size_t> largest_flushable_cf_mem{0};
+  std::atomic<size_t> scanned_flushable_mem{0};
+  std::chrono::steady_clock::time_point retry_after{};
+  size_t rejection_streak = 0;
   std::atomic<uint64_t> flushable_mem_update_seq{0};
   std::atomic<size_t> registry_index{kInvalidRegistryIndex};
   size_t callbacks_in_progress = 0;
@@ -157,6 +163,7 @@ struct FlushInitiator::RegistrationState {
   std::condition_variable callbacks_cv;
   mutable std::condition_variable flush_handoff_cv;
   const bool atomic_flush;
+  std::atomic<bool> on_demand_accounting{false};
   std::atomic<bool> has_ineligible_cf{false};
   std::atomic<bool> flushable_mem_accurate{true};
   std::atomic<bool> flushable{true};
@@ -182,12 +189,16 @@ struct WriteBufferManager::FlushInitiatorRegistry {
 
   void Register(
       const std::shared_ptr<FlushInitiator::RegistrationState>& state) {
+    state->on_demand_accounting = state->initiator->UsesOnDemandAccounting();
     {
       std::lock_guard<std::mutex> lock(mu);
       assert(state->registry_index.load(std::memory_order_relaxed) ==
              FlushInitiator::kInvalidRegistryIndex);
       state->registry_index.store(active.size(), std::memory_order_release);
       active.push_back(state);
+      if (!state->on_demand_accounting) {
+        ++synthetic_candidates;
+      }
       ++registry_generation;
     }
     if (owner->flush_policy() ==
@@ -210,6 +221,9 @@ struct WriteBufferManager::FlushInitiatorRegistry {
       active[index] = last;
       last->registry_index.store(index, std::memory_order_release);
       active.pop_back();
+      if (!state->on_demand_accounting) {
+        --synthetic_candidates;
+      }
       state->registry_index.store(FlushInitiator::kInvalidRegistryIndex,
                                   std::memory_order_release);
 
@@ -265,7 +279,14 @@ struct WriteBufferManager::FlushInitiatorRegistry {
       snapshot_generation = registry_generation;
     }
     ranked_snapshot.clear();
-    ranked_snapshot.reserve(refresh_snapshot.size());
+    constexpr size_t kTopCandidates = 10;
+    ranked_snapshot.reserve(kTopCandidates);
+    const std::chrono::steady_clock::time_point now =
+        std::chrono::steady_clock::now();
+    const auto smaller_first = [](const RankedCandidate& lhs,
+                                  const RankedCandidate& rhs) {
+      return lhs.first > rhs.first;
+    };
 
     if (owner->flush_policy() ==
         WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
@@ -274,28 +295,43 @@ struct WriteBufferManager::FlushInitiatorRegistry {
             FlushInitiator::kInvalidRegistryIndex) {
           continue;
         }
-        if (!candidate->flushable_mem_accurate.load(
-                std::memory_order_acquire)) {
-          FlushInitiator* const initiator = candidate->Pin();
-          if (initiator == nullptr) {
-            continue;
-          }
-          const bool refreshed = initiator->TryRefreshMemoryAccounting();
-          candidate->Unpin();
-          if (!refreshed || !candidate->flushable_mem_accurate.load(
-                                std::memory_order_acquire)) {
+        {
+          std::lock_guard<std::mutex> lock(candidate->callbacks_mu);
+          if (candidate->flush_job_outstanding.load(
+                  std::memory_order_acquire) ||
+              now < candidate->retry_after) {
             continue;
           }
         }
-        const size_t mem = candidate->GetFlushableMemUsage();
-        if (mem > 0) {
+        FlushInitiator* const initiator = candidate->Pin();
+        if (initiator == nullptr) {
+          continue;
+        }
+        size_t mem = 0;
+        const bool scanned = initiator->TryGetFlushableMemUsage(&mem);
+        candidate->Unpin();
+        if (!scanned || mem == 0) {
+          continue;
+        }
+        candidate->scanned_flushable_mem.store(mem, std::memory_order_relaxed);
+        if (candidate->on_demand_accounting) {
+          candidate->flushable_mem_accurate.store(true,
+                                                  std::memory_order_release);
+        }
+        if (ranked_snapshot.size() < kTopCandidates) {
           ranked_snapshot.emplace_back(mem, candidate);
+          std::push_heap(ranked_snapshot.begin(), ranked_snapshot.end(),
+                         smaller_first);
+        } else if (mem > ranked_snapshot.front().first) {
+          std::pop_heap(ranked_snapshot.begin(), ranked_snapshot.end(),
+                        smaller_first);
+          ranked_snapshot.back() = RankedCandidate(mem, candidate);
+          std::push_heap(ranked_snapshot.begin(), ranked_snapshot.end(),
+                         smaller_first);
         }
       }
-      std::sort(ranked_snapshot.begin(), ranked_snapshot.end(),
-                [](const RankedCandidate& lhs, const RankedCandidate& rhs) {
-                  return lhs.first > rhs.first;
-                });
+      std::sort_heap(ranked_snapshot.begin(), ranked_snapshot.end(),
+                     smaller_first);
     }
     {
       std::lock_guard<std::mutex> lock(mu);
@@ -404,6 +440,11 @@ struct WriteBufferManager::FlushInitiatorRegistry {
   bool Empty() const {
     std::lock_guard<std::mutex> lock(mu);
     return active.empty();
+  }
+
+  bool HasSyntheticCandidates() const {
+    std::lock_guard<std::mutex> lock(mu);
+    return synthetic_candidates > 0;
   }
 
   size_t TEST_Size() const {
@@ -577,7 +618,9 @@ struct WriteBufferManager::FlushInitiatorRegistry {
           // so a DB becomes eligible again without an unrelated notification.
           refresh_generation = ++refresh_requested_generation;
         }
-        Refresh(refresh_generation);
+        if (owner->ShouldCoordinateFlush() || HasSyntheticCandidates()) {
+          Refresh(refresh_generation);
+        }
         {
           MutexLock lock(&sorter_wait_mu);
           refresh_completed_generation =
@@ -687,6 +730,7 @@ struct WriteBufferManager::FlushInitiatorRegistry {
   std::vector<std::shared_ptr<FlushInitiator::RegistrationState>> ranked;
   std::shared_ptr<FlushInitiator::RegistrationState> largest;
   uint64_t registry_generation = 0;
+  size_t synthetic_candidates = 0;
   uint64_t ranked_generation = 0;
   uint64_t ranked_request_generation = 0;
   static constexpr size_t kInactiveCandidateIndex =
@@ -975,6 +1019,9 @@ bool FlushInitiator::TrySetLargestFlushableCFMem(size_t mem,
 }
 
 void FlushInitiator::InvalidateLargestFlushableCFMem() {
+  if (UsesOnDemandAccounting()) {
+    return;
+  }
   registration_state_->flushable_mem_accurate.store(false,
                                                     std::memory_order_release);
 }
@@ -1285,6 +1332,20 @@ void WriteBufferManager::FinishFlushHandoff(FlushInitiator* initiator,
     if (completed == nullptr || !completed->flush_job_outstanding.exchange(
                                     false, std::memory_order_acq_rel)) {
       return;
+    }
+    if (completed->on_demand_accounting) {
+      std::lock_guard<std::mutex> callback_lock(completed->callbacks_mu);
+      if (made_progress) {
+        completed->rejection_streak = 0;
+        completed->retry_after = std::chrono::steady_clock::time_point{};
+      } else {
+        completed->rejection_streak =
+            std::min<size_t>(completed->rejection_streak + 1, 7);
+        const size_t delay_ms =
+            std::min<size_t>(20 << (completed->rejection_streak - 1), 1000);
+        completed->retry_after = std::chrono::steady_clock::now() +
+                                 std::chrono::milliseconds(delay_ms);
+      }
     }
     if (active_flush_handoff_candidate_ == completed) {
       active_flush_handoff_candidate_.reset();

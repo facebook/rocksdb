@@ -4160,6 +4160,28 @@ bool DBImpl::TryRefreshFlushableMemAccounting() {
          wbm_flush_initiator_->HasAccurateFlushableMemUsage();
 }
 
+bool DBImpl::WBMFlushInitiator::TryGetFlushableMemUsage(size_t* bytes) {
+  if (!db_->mutex_.TryLock()) {
+    return false;
+  }
+  Defer unlock_mutex([this] { db_->mutex_.Unlock(); });
+  *bytes = 0;
+  if (!db_->write_buffer_manager_->ShouldTrackFlushInitiator() ||
+      db_->shutdown_initiated_.load(std::memory_order_acquire) ||
+      db_->shutting_down_.load(std::memory_order_acquire) ||
+      db_->reject_new_background_jobs_ || !db_->opened_successfully_ ||
+      db_->read_only_ || db_->error_handler_.IsBGWorkStopped() ||
+      db_->write_controller_.IsStopped() || db_->bg_work_paused_ > 0 ||
+      db_->bg_compaction_paused_ > 0 || db_->bg_wbm_flush_scheduled_ > 0 ||
+      db_->WouldBlockJoiningWriteThread()) {
+    return true;
+  }
+  const FlushableCFs cfds = db_->CollectFlushableCFs(true);
+  *bytes = db_->immutable_db_options_.atomic_flush ? cfds.total_mem
+                                                   : cfds.largest_mem;
+  return true;
+}
+
 DBImpl::FlushableCFs DBImpl::CollectFlushableCFs(
     bool include_waiting_immutable) {
   mutex_.AssertHeld();

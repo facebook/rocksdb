@@ -1612,6 +1612,9 @@ class DBImpl : public DB
       return db_->TryRefreshFlushableMemAccounting();
     }
 
+    bool UsesOnDemandAccounting() const override { return true; }
+    bool TryGetFlushableMemUsage(size_t* bytes) override;
+
    private:
     DBImpl* const db_;
   };

@@ -1910,7 +1910,8 @@ size_t ColumnFamilySet::NumberOfColumnFamilies() const {
 
 void ColumnFamilySet::RefreshFlushableMemAccounting() {
   if (flush_initiator_ == nullptr || write_buffer_manager_ == nullptr ||
-      !write_buffer_manager_->ShouldTrackFlushInitiator()) {
+      !write_buffer_manager_->ShouldTrackFlushInitiator() ||
+      flush_initiator_->UsesOnDemandAccounting()) {
     return;
   }
 
