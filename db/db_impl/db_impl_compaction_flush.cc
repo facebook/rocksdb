@@ -1884,6 +1884,13 @@ Status DBImpl::CompactFilesImpl(
       error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
     }
 
+    // Release the space reservation on both success and failure.
+    auto* sfm = static_cast_with_check<SstFileManagerImpl>(
+        immutable_db_options_.sst_file_manager.get());
+    if (sfm && sfm_reserved_compact_space) {
+      sfm->OnCompactionCompletion(c.get());
+    }
+
     c.reset();
     bg_compaction_scheduled_--;
     if (bg_compaction_scheduled_ == 0 || per_cf_compaction_abort_waiters_ > 0) {
