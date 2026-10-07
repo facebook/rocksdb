@@ -2825,6 +2825,7 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
     if (cfd->mem()->IsEmpty()) {
       continue;
     }
+    const size_t switched_mem = cfd->mem()->WBMTrackedMemoryUsage();
     cfd->Ref();
     status = defer_wbm_accounting_refresh
                  ? SwitchMemtableImpl(cfd, write_context, nullptr, 0,
@@ -2833,6 +2834,10 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
     cfd->UnrefAndTryDelete();
     if (!status.ok()) {
       break;
+    }
+    if (write_buffer_manager_->flush_policy() ==
+        WriteBufferFlushPolicy::kFlushLargestAcrossDBs) {
+      write_buffer_manager_->EXPERIMENT_RecordLocalSwitch(switched_mem);
     }
   }
   if (two_write_queues_) {

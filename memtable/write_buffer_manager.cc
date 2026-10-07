@@ -10,6 +10,7 @@
 #include "rocksdb/write_buffer_manager.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <limits>
 #include <memory>
@@ -30,6 +31,49 @@
 #include "util/threadpool_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+struct WriteBufferManager::ExperimentalFlushDiagnosticsCounters {
+  struct alignas(64) Shard {
+    std::atomic<uint64_t> pressure_checks{0};
+    std::atomic<uint64_t> candidate_missing{0};
+    std::atomic<uint64_t> candidate_self{0};
+    std::atomic<uint64_t> candidate_empty{0};
+    std::atomic<uint64_t> candidate_not_larger{0};
+    std::atomic<uint64_t> remote_schedule_enqueued{0};
+    std::atomic<uint64_t> remote_schedule_db_mutex_busy{0};
+    std::atomic<uint64_t> remote_schedule_db_ineligible{0};
+    std::atomic<uint64_t> remote_schedule_no_flushable_cf{0};
+    std::atomic<uint64_t> remote_schedule_needs_local_fallback{0};
+    std::atomic<uint64_t> remote_schedule_already_scheduled{0};
+    std::atomic<uint64_t> remote_pending_deferred{0};
+    std::atomic<uint64_t> local_switches{0};
+    std::atomic<uint64_t> local_switch_bytes{0};
+    std::atomic<uint64_t> remote_jobs_started{0};
+    std::atomic<uint64_t> remote_jobs_started_without_pressure{0};
+    std::atomic<uint64_t> remote_switches{0};
+    std::atomic<uint64_t> remote_switch_bytes{0};
+    std::atomic<uint64_t> remote_db_ineligible{0};
+    std::atomic<uint64_t> remote_no_mutable_mem{0};
+    std::atomic<uint64_t> remote_flush_pending_or_running{0};
+    std::atomic<uint64_t> remote_switch_failed{0};
+    std::atomic<uint64_t> remote_noop_after_pick{0};
+    std::atomic<uint64_t> remote_noop_selected_bytes{0};
+    std::atomic<uint64_t> remote_queue_micros{0};
+    std::atomic<uint64_t> remote_queue_max_micros{0};
+    std::atomic<uint64_t> peak_memory_usage{0};
+    std::atomic<uint64_t> peak_mutable_memory_usage{0};
+  };
+
+  Shard& Local() {
+    constexpr size_t kNumShards = 64;
+    static std::atomic<size_t> next_shard{0};
+    static thread_local const size_t shard =
+        next_shard.fetch_add(1, std::memory_order_relaxed) % kNumShards;
+    return shards[shard];
+  }
+
+  std::array<Shard, 64> shards;
+};
 struct FlushInitiator::RegistrationState {
   RegistrationState(FlushInitiator* owner_arg, bool atomic_flush_arg)
       : initiator(owner_arg), atomic_flush(atomic_flush_arg) {}
@@ -669,8 +713,9 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       allow_stall_(allow_stall),
       stall_active_(false),
       flush_policy_(flush_policy),
-      flush_initiator_registry_(
-          std::make_unique<FlushInitiatorRegistry>(this)) {
+      flush_initiator_registry_(std::make_unique<FlushInitiatorRegistry>(this)),
+      experimental_flush_diagnostics_(
+          std::make_unique<ExperimentalFlushDiagnosticsCounters>()) {
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -1109,10 +1154,13 @@ bool WriteBufferManager::TryAcquireLocalFlush(StallInterface* stalled_db) {
 
 bool WriteBufferManager::ProcessFlushHandoffRequest() {
   FlushInitiatorRegistry& registry = *flush_initiator_registry_;
+  ExperimentalFlushDiagnosticsCounters::Shard& diagnostics =
+      experimental_flush_diagnostics_->Local();
   const FlushHandoffState handoff_state =
       flush_handoff_state_.load(std::memory_order_acquire);
   if (handoff_state == FlushHandoffState::kQueued ||
       handoff_state == FlushHandoffState::kExecuting) {
+    diagnostics.remote_pending_deferred.fetch_add(1, std::memory_order_relaxed);
     return false;
   }
 
@@ -1127,6 +1175,22 @@ bool WriteBufferManager::ProcessFlushHandoffRequest() {
     registry.flush_candidate_made_progress.store(false,
                                                  std::memory_order_relaxed);
     return false;
+  }
+
+  diagnostics.pressure_checks.fetch_add(1, std::memory_order_relaxed);
+  const uint64_t current_memory = memory_usage();
+  uint64_t previous_peak =
+      diagnostics.peak_memory_usage.load(std::memory_order_relaxed);
+  if (current_memory > previous_peak) {
+    diagnostics.peak_memory_usage.compare_exchange_strong(
+        previous_peak, current_memory, std::memory_order_relaxed);
+  }
+  const uint64_t current_mutable_memory = mutable_memtable_memory_usage();
+  previous_peak =
+      diagnostics.peak_mutable_memory_usage.load(std::memory_order_relaxed);
+  if (current_mutable_memory > previous_peak) {
+    diagnostics.peak_mutable_memory_usage.compare_exchange_strong(
+        previous_peak, current_mutable_memory, std::memory_order_relaxed);
   }
 
   if (registry.flush_candidate_made_progress.exchange(
@@ -1145,11 +1209,13 @@ bool WriteBufferManager::ProcessFlushHandoffRequest() {
         registry.GetNextCandidateForHandoff(&initiator);
     if (candidate == nullptr) {
       registry.EndCandidateCycle();
+      diagnostics.candidate_missing.fetch_add(1, std::memory_order_relaxed);
       return false;
     }
     if (candidate->registry_index.load(std::memory_order_acquire) ==
         FlushInitiator::kInvalidRegistryIndex) {
       candidate->FinishHandoff();
+      diagnostics.candidate_missing.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
     if (!candidate->flushable_mem_accurate.load(std::memory_order_acquire)) {
@@ -1159,6 +1225,7 @@ bool WriteBufferManager::ProcessFlushHandoffRequest() {
     }
     if (candidate->GetFlushableMemUsage() == 0) {
       candidate->FinishHandoff();
+      diagnostics.candidate_empty.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
     if (candidate->flush_job_outstanding.exchange(true,
@@ -1306,6 +1373,160 @@ void WriteBufferManager::TEST_WaitForFlushHandoffCompletion() {
 void WriteBufferManager::TEST_ExpireFlushHandoffLease() {
   if (ExpireFlushHandoffLease(std::numeric_limits<uint64_t>::max())) {
     flush_initiator_registry_->RequestRefresh();
+  }
+}
+
+WBMFlushDiagnostics WriteBufferManager::EXPERIMENT_GetFlushDiagnostics() const {
+  WBMFlushDiagnostics result;
+  for (const auto& shard : experimental_flush_diagnostics_->shards) {
+    result.pressure_checks +=
+        shard.pressure_checks.load(std::memory_order_relaxed);
+    result.candidate_missing +=
+        shard.candidate_missing.load(std::memory_order_relaxed);
+    result.candidate_self +=
+        shard.candidate_self.load(std::memory_order_relaxed);
+    result.candidate_empty +=
+        shard.candidate_empty.load(std::memory_order_relaxed);
+    result.candidate_not_larger +=
+        shard.candidate_not_larger.load(std::memory_order_relaxed);
+    result.remote_schedule_enqueued +=
+        shard.remote_schedule_enqueued.load(std::memory_order_relaxed);
+    result.remote_schedule_db_mutex_busy +=
+        shard.remote_schedule_db_mutex_busy.load(std::memory_order_relaxed);
+    result.remote_schedule_db_ineligible +=
+        shard.remote_schedule_db_ineligible.load(std::memory_order_relaxed);
+    result.remote_schedule_no_flushable_cf +=
+        shard.remote_schedule_no_flushable_cf.load(std::memory_order_relaxed);
+    result.remote_schedule_needs_local_fallback +=
+        shard.remote_schedule_needs_local_fallback.load(
+            std::memory_order_relaxed);
+    result.remote_schedule_already_scheduled +=
+        shard.remote_schedule_already_scheduled.load(std::memory_order_relaxed);
+    result.remote_pending_deferred +=
+        shard.remote_pending_deferred.load(std::memory_order_relaxed);
+    result.local_switches +=
+        shard.local_switches.load(std::memory_order_relaxed);
+    result.local_switch_bytes +=
+        shard.local_switch_bytes.load(std::memory_order_relaxed);
+    result.remote_jobs_started +=
+        shard.remote_jobs_started.load(std::memory_order_relaxed);
+    result.remote_jobs_started_without_pressure +=
+        shard.remote_jobs_started_without_pressure.load(
+            std::memory_order_relaxed);
+    result.remote_switches +=
+        shard.remote_switches.load(std::memory_order_relaxed);
+    result.remote_switch_bytes +=
+        shard.remote_switch_bytes.load(std::memory_order_relaxed);
+    result.remote_db_ineligible +=
+        shard.remote_db_ineligible.load(std::memory_order_relaxed);
+    result.remote_no_mutable_mem +=
+        shard.remote_no_mutable_mem.load(std::memory_order_relaxed);
+    result.remote_flush_pending_or_running +=
+        shard.remote_flush_pending_or_running.load(std::memory_order_relaxed);
+    result.remote_switch_failed +=
+        shard.remote_switch_failed.load(std::memory_order_relaxed);
+    result.remote_noop_after_pick +=
+        shard.remote_noop_after_pick.load(std::memory_order_relaxed);
+    result.remote_noop_selected_bytes +=
+        shard.remote_noop_selected_bytes.load(std::memory_order_relaxed);
+    result.remote_queue_micros +=
+        shard.remote_queue_micros.load(std::memory_order_relaxed);
+    result.remote_queue_max_micros =
+        std::max(result.remote_queue_max_micros,
+                 shard.remote_queue_max_micros.load(std::memory_order_relaxed));
+    result.peak_memory_usage =
+        std::max(result.peak_memory_usage,
+                 shard.peak_memory_usage.load(std::memory_order_relaxed));
+    result.peak_mutable_memory_usage = std::max(
+        result.peak_mutable_memory_usage,
+        shard.peak_mutable_memory_usage.load(std::memory_order_relaxed));
+  }
+  return result;
+}
+
+void WriteBufferManager::EXPERIMENT_RecordScheduleOutcome(
+    WBMFlushScheduleOutcome outcome) {
+  auto& diagnostics = experimental_flush_diagnostics_->Local();
+  switch (outcome) {
+    case WBMFlushScheduleOutcome::kEnqueued:
+      diagnostics.remote_schedule_enqueued.fetch_add(1,
+                                                     std::memory_order_relaxed);
+      break;
+    case WBMFlushScheduleOutcome::kDBMutexBusy:
+      diagnostics.remote_schedule_db_mutex_busy.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+    case WBMFlushScheduleOutcome::kDBIneligible:
+      diagnostics.remote_schedule_db_ineligible.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+    case WBMFlushScheduleOutcome::kNoFlushableCF:
+      diagnostics.remote_schedule_no_flushable_cf.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+    case WBMFlushScheduleOutcome::kNeedsLocalFallback:
+      diagnostics.remote_schedule_needs_local_fallback.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+    case WBMFlushScheduleOutcome::kAlreadyScheduled:
+      diagnostics.remote_schedule_already_scheduled.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+  }
+}
+
+void WriteBufferManager::EXPERIMENT_RecordLocalSwitch(size_t bytes) {
+  auto& diagnostics = experimental_flush_diagnostics_->Local();
+  diagnostics.local_switches.fetch_add(1, std::memory_order_relaxed);
+  diagnostics.local_switch_bytes.fetch_add(bytes, std::memory_order_relaxed);
+}
+
+void WriteBufferManager::EXPERIMENT_RecordRemoteJobStart(uint64_t queue_micros,
+                                                         bool pressure_active) {
+  auto& diagnostics = experimental_flush_diagnostics_->Local();
+  diagnostics.remote_jobs_started.fetch_add(1, std::memory_order_relaxed);
+  diagnostics.remote_queue_micros.fetch_add(queue_micros,
+                                            std::memory_order_relaxed);
+  uint64_t previous =
+      diagnostics.remote_queue_max_micros.load(std::memory_order_relaxed);
+  while (previous < queue_micros &&
+         !diagnostics.remote_queue_max_micros.compare_exchange_weak(
+             previous, queue_micros, std::memory_order_relaxed)) {
+  }
+  if (!pressure_active) {
+    diagnostics.remote_jobs_started_without_pressure.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+
+void WriteBufferManager::EXPERIMENT_RecordRemoteJobResult(
+    WBMRemoteFlushOutcome outcome, size_t switched_bytes) {
+  auto& diagnostics = experimental_flush_diagnostics_->Local();
+  switch (outcome) {
+    case WBMRemoteFlushOutcome::kSwitched:
+      diagnostics.remote_switches.fetch_add(1, std::memory_order_relaxed);
+      diagnostics.remote_switch_bytes.fetch_add(switched_bytes,
+                                                std::memory_order_relaxed);
+      break;
+    case WBMRemoteFlushOutcome::kDBIneligible:
+      diagnostics.remote_db_ineligible.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case WBMRemoteFlushOutcome::kNoMutableMem:
+      diagnostics.remote_no_mutable_mem.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case WBMRemoteFlushOutcome::kFlushPendingOrRunning:
+      diagnostics.remote_flush_pending_or_running.fetch_add(
+          1, std::memory_order_relaxed);
+      break;
+    case WBMRemoteFlushOutcome::kSwitchFailed:
+      diagnostics.remote_switch_failed.fetch_add(1, std::memory_order_relaxed);
+      break;
+    case WBMRemoteFlushOutcome::kNoopAfterPick:
+      diagnostics.remote_noop_after_pick.fetch_add(1,
+                                                   std::memory_order_relaxed);
+      diagnostics.remote_noop_selected_bytes.fetch_add(
+          switched_bytes, std::memory_order_relaxed);
+      break;
   }
 }
 

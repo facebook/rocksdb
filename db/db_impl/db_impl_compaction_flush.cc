@@ -4209,6 +4209,8 @@ DBImpl::FlushableCFs DBImpl::CollectFlushableCFs(
 bool DBImpl::ScheduleWriteBufferManagerFlush() {
   {
     if (!mutex_.TryLock()) {
+      write_buffer_manager_->EXPERIMENT_RecordScheduleOutcome(
+          WBMFlushScheduleOutcome::kDBMutexBusy);
       return false;
     }
     Defer unlock_mutex([this] { mutex_.Unlock(); });
@@ -4222,12 +4224,16 @@ bool DBImpl::ScheduleWriteBufferManagerFlush() {
         bg_work_paused_ > 0 || bg_compaction_paused_ > 0 ||
         // Never queue work that would wait behind this DB's stall.
         WouldBlockJoiningWriteThread()) {
+      write_buffer_manager_->EXPERIMENT_RecordScheduleOutcome(
+          WBMFlushScheduleOutcome::kDBIneligible);
       return false;
     }
     // A queued or running job does not count as new progress. Returning false
     // lets the coordinator try another DB instead of queuing more work behind
     // a busy LOW pool.
     if (bg_wbm_flush_scheduled_ > 0) {
+      write_buffer_manager_->EXPERIMENT_RecordScheduleOutcome(
+          WBMFlushScheduleOutcome::kAlreadyScheduled);
       return false;
     }
     const FlushableCFs flushable =
@@ -4238,6 +4244,8 @@ bool DBImpl::ScheduleWriteBufferManagerFlush() {
     if (!has_flushable_cf) {
       wbm_flush_initiator_->SetHasFlushableCF(false);
       write_buffer_manager_->NotifyFlushInitiatorChanged();
+      write_buffer_manager_->EXPERIMENT_RecordScheduleOutcome(
+          WBMFlushScheduleOutcome::kNoFlushableCF);
       return false;
     }
     wbm_flush_initiator_->SetHasFlushableCF(false);
@@ -4247,14 +4255,21 @@ bool DBImpl::ScheduleWriteBufferManagerFlush() {
 
   // The WBM-owned executor provides bounded capacity independent of Env::LOW.
   // Run outside mutex_ so DB-local work cannot block other DB mutex users.
+  write_buffer_manager_->EXPERIMENT_RecordRemoteJobStart(
+      0, write_buffer_manager_->ShouldFlush());
   BackgroundCallWBMFlush();
+  write_buffer_manager_->EXPERIMENT_RecordScheduleOutcome(
+      WBMFlushScheduleOutcome::kEnqueued);
   return true;
 }
 
 void DBImpl::BackgroundCallWBMFlush() {
   const bool atomic_flush = immutable_db_options_.atomic_flush;
   ColumnFamilyData* cfd_to_flush = nullptr;
+  bool eligible_at_start = false;
   bool has_flushable_cf = false;
+  bool has_mutable_mem = false;
+  size_t selected_mem = 0;
   {
     InstrumentedMutexLock l(&mutex_);
     if (!shutdown_initiated_.load(std::memory_order_acquire) &&
@@ -4263,10 +4278,13 @@ void DBImpl::BackgroundCallWBMFlush() {
         !error_handler_.IsBGWorkStopped() && !write_controller_.IsStopped() &&
         bg_work_paused_ == 0 && bg_compaction_paused_ == 0 &&
         !WouldBlockJoiningWriteThread()) {
+      eligible_at_start = true;
       const FlushableCFs flushable =
           CollectFlushableCFs(true /* include_waiting_immutable */);
+      has_mutable_mem = flushable.total_mem > 0;
       has_flushable_cf =
           atomic_flush ? flushable.total_mem > 0 : flushable.largest != nullptr;
+      selected_mem = atomic_flush ? flushable.total_mem : flushable.largest_mem;
       if (!atomic_flush) {
         cfd_to_flush = flushable.largest;
         if (cfd_to_flush != nullptr) {
@@ -4281,6 +4299,12 @@ void DBImpl::BackgroundCallWBMFlush() {
   flush_options.wait = false;
   flush_options.allow_write_stall = true;
   bool made_progress = false;
+  WBMRemoteFlushOutcome remote_outcome = WBMRemoteFlushOutcome::kDBIneligible;
+  if (eligible_at_start) {
+    remote_outcome = has_mutable_mem
+                         ? WBMRemoteFlushOutcome::kFlushPendingOrRunning
+                         : WBMRemoteFlushOutcome::kNoMutableMem;
+  }
   if (has_flushable_cf) {
     if (atomic_flush) {
       ROCKS_LOG_INFO(
@@ -4313,15 +4337,22 @@ void DBImpl::BackgroundCallWBMFlush() {
                             WriteThreadJoinMode::kNonBlocking, &made_progress);
     }
     if (!s.ok()) {
+      remote_outcome = WBMRemoteFlushOutcome::kSwitchFailed;
       ROCKS_LOG_WARN(
           immutable_db_options_.info_log,
           "Flush on behalf of a shared WriteBufferManager failed: %s",
           s.ToString().c_str());
+    } else if (made_progress) {
+      remote_outcome = WBMRemoteFlushOutcome::kSwitched;
+    } else {
+      remote_outcome = WBMRemoteFlushOutcome::kNoopAfterPick;
     }
     s.PermitUncheckedError();
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCallWBMFlush:MadeProgress",
                            &made_progress);
+  write_buffer_manager_->EXPERIMENT_RecordRemoteJobResult(remote_outcome,
+                                                          selected_mem);
 
   InstrumentedMutexLock l(&mutex_);
   if (cfd_to_flush != nullptr) {

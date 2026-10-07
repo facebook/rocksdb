@@ -2372,6 +2372,7 @@ class DBImpl : public DB
     DBImpl* db_;
 
     Env::Priority thread_pri_;
+    uint64_t enqueue_time_micros_;
   };
 
   // Information for a manual compaction
