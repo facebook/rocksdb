@@ -1625,7 +1625,7 @@ TEST_F(DBWriteBufferManagerTest, FlushLargestAcrossDBsSelfFlushesBeforeStall) {
   // Freeze the larger DB's job so only db_ can release memory.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::SelfFlushesBeforeStall:Release",
-        "DBImpl::BGWorkWBMFlush"}});
+        "WriteBufferManager::FlushHandoffExecutor:BeforeExecute"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(700 << 10)));
@@ -1678,8 +1678,8 @@ TEST_F(DBWriteBufferManagerTest, FlushLargestAcrossDBsSelfFlushesBeforeStall) {
   ASSERT_OK(DestroyDB(other_dbname, options));
 }
 
-// A queued LOW-pool handoff does not push work onto a writer below the hard
-// limit.
+// A queued WBM-executor handoff does not push work onto a writer below the
+// hard limit.
 TEST_P(DBWriteBufferManagerTest,
        FlushLargestAcrossDBsPendingJobStaysInBackground) {
   Options options = CurrentOptions();
@@ -1700,7 +1700,7 @@ TEST_P(DBWriteBufferManagerTest,
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::PendingHandoff:ReleaseWBM",
-        "DBImpl::BGWorkWBMFlush"},
+        "WriteBufferManager::FlushHandoffExecutor:BeforeExecute"},
        {"DBWriteBufferManagerTest::PendingHandoff:ReleaseFlush",
         "DBImpl::BackgroundCallFlush:start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -1723,7 +1723,7 @@ TEST_P(DBWriteBufferManagerTest,
   options.write_buffer_manager->TEST_RefreshFlushInitiatorCandidate();
 
   // The sorter queues a handoff to other_db. Additional writes below the hard
-  // limit must not seal db_ while that LOW-pool job is blocked.
+  // limit must not seal db_ while that WBM-executor job is blocked.
   options.write_buffer_manager->TEST_WaitForFlushHandoff();
   ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
 
@@ -1731,7 +1731,7 @@ TEST_P(DBWriteBufferManagerTest,
   ASSERT_TRUE(db_->GetProperty("rocksdb.num-immutable-mem-table", &prop));
   EXPECT_EQ("0", prop) << "soft pressure must remain background-managed";
   ASSERT_TRUE(other_db->GetProperty("rocksdb.num-immutable-mem-table", &prop));
-  EXPECT_EQ("0", prop) << "the LOW-pool handoff should still be blocked";
+  EXPECT_EQ("0", prop) << "the WBM-executor handoff should still be blocked";
 
   release_background_work();
   options.write_buffer_manager->TEST_WaitForFlushHandoffCompletion();
@@ -2101,9 +2101,9 @@ TEST_F(DBWriteBufferManagerTest,
   ASSERT_OK(DestroyDB(other_dbname, options));
 }
 
-// Closing must cancel a queued WBM job, restore accounting, and balance its
-// scheduled counter.
-TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsCancelsQueuedJobOnClose) {
+// Cross-DB handoffs use WBM-owned capacity and do not wait behind compactions
+// in Env::LOW.
+TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsBypassesBusyLowPool) {
   Options options = CurrentOptions();
   options.arena_block_size = 4 << 10;
   options.write_buffer_size = 1 << 20;
@@ -2111,15 +2111,17 @@ TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsCancelsQueuedJobOnClose) {
   std::shared_ptr<Cache> cache =
       NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
   options.write_buffer_manager = std::make_shared<WriteBufferManager>(
-      10 << 20 /* buffer_size (10MB) */, cost_cache_ ? cache : nullptr,
+      1 << 20 /* buffer_size (1MB) */, cost_cache_ ? cache : nullptr,
       false /* allow_stall */, WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
 
-  std::atomic<int> cancellations{0};
-  std::atomic<size_t> flushable_mem_after_cancellation{0};
+  InstrumentedMutex mu;
+  InstrumentedCondVar cv(&mu);
+  bool handoff_executed = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::UnscheduleWBMFlushCallback", [&](void* arg) {
-        cancellations.fetch_add(1);
-        flushable_mem_after_cancellation.store(*static_cast<size_t*>(arg));
+      "DBImpl::BackgroundCallWBMFlush:AfterPick", [&](void*) {
+        InstrumentedMutexLock lock(&mu);
+        handoff_executed = true;
+        cv.SignalAll();
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   Defer cleanup_sync_points([] {
@@ -2145,17 +2147,21 @@ TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsCancelsQueuedJobOnClose) {
     env_->SetBackgroundThreads(saved_low, Env::Priority::LOW);
   });
 
-  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(300 << 10)));
-  ASSERT_OK(Put(Key(1), DummyString(200 << 10), WriteOptions()));
-  ASSERT_FALSE(options.write_buffer_manager->ShouldFlush());
+  ASSERT_OK(other_db->Put(WriteOptions(), Key(1), DummyString(600 << 10)));
+  ASSERT_OK(Put(Key(1), DummyString(300 << 10), WriteOptions()));
   options.write_buffer_manager->TEST_RefreshFlushInitiatorCandidate();
-  ASSERT_TRUE(
-      options.write_buffer_manager->TEST_ScheduleFlushOnLargestDB(nullptr));
+  ASSERT_OK(Put(Key(2), DummyString(1), WriteOptions()));
+
+  {
+    InstrumentedMutexLock lock(&mu);
+    const uint64_t deadline = env_->NowMicros() + 30 * 1000 * 1000;
+    while (!handoff_executed) {
+      ASSERT_FALSE(cv.TimedWait(deadline));
+    }
+  }
 
   ASSERT_OK(other_db->Close());
   other_db.reset();
-  EXPECT_GT(cancellations.load(), 0);
-  EXPECT_GT(flushable_mem_after_cancellation.load(), 0);
 
   ASSERT_OK(DestroyDB(other_dbname, options));
 }
