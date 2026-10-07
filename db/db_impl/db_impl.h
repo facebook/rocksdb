@@ -2879,8 +2879,6 @@ class DBImpl : public DB
   // Queues one WBM flush; false lets the coordinator try another DB.
   bool ScheduleWriteBufferManagerFlush();
 
-  static void BGWorkWBMFlush(void* arg);
-  static void UnscheduleWBMFlushCallback(void* arg);
   void BackgroundCallWBMFlush();
 
   // REQUIRES: mutex locked

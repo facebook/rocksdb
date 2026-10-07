@@ -216,9 +216,10 @@ class WriteBufferManager final {
 
   uint64_t GetLocalFlushRetryMicros() const { return kFlushWorkCycleMicros; }
 
-  void NotifyFlushInitiatorFlushCompleted(bool made_progress);
+  void NotifyFlushInitiatorFlushCompleted(FlushInitiator* initiator,
+                                          bool made_progress);
 
-  void NotifyFlushInitiatorFlushCancelled();
+  void NotifyFlushInitiatorFlushCancelled(FlushInitiator* initiator);
 
   // Rebuilds the cached candidate synchronously for deterministic tests.
   void TEST_RefreshFlushInitiatorCandidate();
@@ -233,12 +234,21 @@ class WriteBufferManager final {
 
   void TEST_WaitForFlushHandoffCompletion();
 
+  void TEST_ExpireFlushHandoffLease();
+
   size_t TEST_GetFlushInitiatorRegistrySize() const;
 
   bool TEST_HasFlushInitiatorSorter() const;
 
+  size_t TEST_GetFlushHandoffWorkerCount() const;
+
  private:
   static constexpr uint64_t kFlushWorkCycleMicros = 20 * 1000;
+  // A timed-out DB can remain blocked in DB-local work that cannot safely be
+  // cancelled. Bound the number of such jobs while allowing healthy DBs to
+  // bypass up to this many stuck candidates. If all workers are occupied,
+  // further handoffs wait until one callback returns.
+  static constexpr size_t kMaxOutstandingFlushHandoffs = 4;
 
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
@@ -264,10 +274,17 @@ class WriteBufferManager final {
 
   enum class FlushHandoffState : uint8_t {
     kIdle,
-    kRemotePending,
+    kQueued,
+    kExecuting,
   };
 
   std::atomic<FlushHandoffState> flush_handoff_state_{FlushHandoffState::kIdle};
+  std::mutex flush_handoff_mu_;
+  // Type-erased because FlushInitiator is intentionally only forward-declared
+  // in this public header. The implementation stores RegistrationState.
+  std::shared_ptr<void> active_flush_handoff_candidate_;
+  uint64_t active_flush_handoff_deadline_micros_ = 0;
+  std::atomic<size_t> outstanding_flush_handoffs_{0};
   std::atomic<uint64_t> local_flush_deadline_micros_{0};
   size_t ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);
@@ -275,6 +292,8 @@ class WriteBufferManager final {
   // Returns true when a successful work cycle has completed and the sorter
   // should wait for the next pressure interval before starting another one.
   bool ProcessFlushHandoffRequest();
+  bool ExpireFlushHandoffLease(uint64_t now_micros);
+  void FinishFlushHandoff(FlushInitiator* initiator, bool made_progress);
   bool ShouldCoordinateFlush() const;
   void ResetFlushHandoff();
 };

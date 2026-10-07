@@ -491,15 +491,17 @@ class BackgroundFlushCycleTest : public WriteBufferManagerTest {
     assert(pressure_active_);
     pressure_active_ = false;
     wbf_.ScheduleFreeMem(900);
-    if (made_progress) {
-      wbf_.NotifyFlushInitiatorFlushCompleted(true);
+    for (const auto& candidate : candidates_) {
+      wbf_.NotifyFlushInitiatorFlushCompleted(candidate.get(), made_progress);
     }
   }
 
   void TearDown() override {
     if (pressure_active_) {
       wbf_.ScheduleFreeMem(900);
-      wbf_.NotifyFlushInitiatorFlushCancelled();
+      for (const auto& candidate : candidates_) {
+        wbf_.NotifyFlushInitiatorFlushCancelled(candidate.get());
+      }
     }
     for (const auto& candidate : candidates_) {
       wbf_.DeregisterFlushInitiator(candidate.get());
@@ -575,7 +577,7 @@ TEST_F(WriteBufferManagerTest, WriterFallsBackOnlyAtHardLimit) {
 
   first.Release();
   wbf.ScheduleFreeMem(200);
-  wbf.NotifyFlushInitiatorFlushCompleted(true);
+  wbf.NotifyFlushInitiatorFlushCompleted(&first, true);
   wbf.DeregisterFlushInitiator(&first);
   wbf.DeregisterFlushInitiator(&second);
 }
@@ -619,7 +621,7 @@ TEST_F(WriteBufferManagerTest, HardTotalLimitCrossingWakesCoordinator) {
 
   wbf.ScheduleFreeMem(200);
   wbf.FreeMem(1000);
-  wbf.NotifyFlushInitiatorFlushCompleted(true);
+  wbf.NotifyFlushInitiatorFlushCompleted(&initiator, true);
   wbf.DeregisterFlushInitiator(&initiator);
 }
 
@@ -689,14 +691,217 @@ TEST_F(BackgroundFlushCycleTest, UsesOnePoolSlot) {
   EXPECT_EQ(0, second->ScheduleCalls());
   EXPECT_EQ(0, third->ScheduleCalls());
 
-  wbf_.NotifyFlushInitiatorFlushCompleted(false);
+  wbf_.NotifyFlushInitiatorFlushCompleted(first, false);
   second->WaitForScheduleCalls(1);
   EXPECT_EQ(0, third->ScheduleCalls());
 
-  wbf_.NotifyFlushInitiatorFlushCompleted(false);
+  wbf_.NotifyFlushInitiatorFlushCompleted(second, false);
   third->WaitForScheduleCalls(1);
 
   FinishPressure();
+}
+
+TEST_F(BackgroundFlushCycleTest, ExpiredHandoffAdvancesToNextCandidate) {
+  auto* first = AddCandidate(/*mem=*/300, /*can_flush=*/true);
+  auto* second = AddCandidate(/*mem=*/200, /*can_flush=*/true);
+  auto* third = AddCandidate(/*mem=*/100, /*can_flush=*/true);
+
+  std::mutex handoff_mu;
+  std::condition_variable handoff_cv;
+  size_t scheduled_handoffs = 0;
+  bool second_handoff_blocked = false;
+  bool release_second_handoff = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::ProcessFlushHandoffRequest:AfterSchedule",
+      [&](void*) {
+        std::unique_lock<std::mutex> lock(handoff_mu);
+        if (++scheduled_handoffs != 2) {
+          return;
+        }
+        second_handoff_blocked = true;
+        handoff_cv.notify_all();
+        handoff_cv.wait(lock, [&] { return release_second_handoff; });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  auto release_handoff = Defer([&] {
+    {
+      std::lock_guard<std::mutex> lock(handoff_mu);
+      release_second_handoff = true;
+    }
+    handoff_cv.notify_all();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  StartPressure();
+  first->WaitForScheduleCalls(1);
+
+  // The first DB accepted the handoff but never reported completion. Its
+  // coordinator lease expires, allowing the next DB to be attempted.
+  wbf_.TEST_ExpireFlushHandoffLease();
+  ASSERT_TRUE(
+      second->WaitForScheduleCallsFor(1, std::chrono::milliseconds(300)));
+
+  {
+    std::unique_lock<std::mutex> lock(handoff_mu);
+    handoff_cv.wait(lock, [&] { return second_handoff_blocked; });
+  }
+
+  // A late completion from the expired DB must not release the second DB's
+  // active lease or advance to a third candidate.
+  wbf_.NotifyFlushInitiatorFlushCompleted(first, false);
+  EXPECT_EQ(0, third->ScheduleCalls());
+
+  wbf_.NotifyFlushInitiatorFlushCompleted(second, false);
+  {
+    std::lock_guard<std::mutex> lock(handoff_mu);
+    release_second_handoff = true;
+  }
+  handoff_cv.notify_all();
+  third->WaitForScheduleCalls(1);
+  FinishPressure();
+}
+
+TEST_F(BackgroundFlushCycleTest, ExecutingHandoffDoesNotBlockNextCandidate) {
+  auto first = std::make_unique<BlockingFlushInitiator>();
+  auto* second = AddCandidate(/*mem=*/50, /*can_flush=*/true);
+  wbf_.RegisterFlushInitiator(first.get());
+
+  StartPressure();
+  first->WaitUntilEntered();
+
+  // The first attempt occupies one WBM worker. Expiring its execution lease
+  // must let the second candidate run on another worker before the first is
+  // released.
+  wbf_.TEST_ExpireFlushHandoffLease();
+  ASSERT_TRUE(
+      second->WaitForScheduleCallsFor(1, std::chrono::milliseconds(300)));
+
+  first->Release();
+  wbf_.NotifyFlushInitiatorFlushCompleted(first.get(), false);
+  wbf_.DeregisterFlushInitiator(first.get());
+  FinishPressure(/*made_progress=*/false);
+}
+
+TEST_F(BackgroundFlushCycleTest, PolicyChangeDoesNotWaitForBlockedHandoff) {
+  auto candidate = std::make_unique<BlockingFlushInitiator>();
+  wbf_.RegisterFlushInitiator(candidate.get());
+
+  StartPressure();
+  candidate->WaitUntilEntered();
+  auto release_candidate = Defer([&] { candidate->Release(); });
+
+  std::mutex policy_mu;
+  std::condition_variable policy_cv;
+  bool policy_changed = false;
+  std::thread policy_thread([&] {
+    wbf_.SetFlushPolicy(WriteBufferFlushPolicy::kFlushOldest);
+    {
+      std::lock_guard<std::mutex> lock(policy_mu);
+      policy_changed = true;
+    }
+    policy_cv.notify_all();
+  });
+  auto join_policy_thread = Defer([&] {
+    candidate->Release();
+    policy_thread.join();
+  });
+
+  {
+    std::unique_lock<std::mutex> lock(policy_mu);
+    ASSERT_TRUE(policy_cv.wait_for(lock, std::chrono::milliseconds(300),
+                                   [&] { return policy_changed; }));
+  }
+
+  candidate->Release();
+  wbf_.NotifyFlushInitiatorFlushCompleted(candidate.get(), false);
+  const auto retirement_deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+  while (wbf_.TEST_GetFlushHandoffWorkerCount() != 0 &&
+         std::chrono::steady_clock::now() < retirement_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_EQ(0, wbf_.TEST_GetFlushHandoffWorkerCount());
+  wbf_.DeregisterFlushInitiator(candidate.get());
+  FinishPressure(/*made_progress=*/false);
+}
+
+TEST_F(BackgroundFlushCycleTest, CompletionKeepsDBReservedUntilPinRelease) {
+  auto* candidate = AddCandidate(/*mem=*/300, /*can_flush=*/true);
+
+  std::mutex handoff_mu;
+  std::condition_variable handoff_cv;
+  bool first_handoff_blocked = false;
+  bool release_first_handoff = false;
+  size_t completed_schedules = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::ProcessFlushHandoffRequest:AfterSchedule",
+      [&](void*) {
+        std::unique_lock<std::mutex> lock(handoff_mu);
+        if (++completed_schedules != 1) {
+          return;
+        }
+        first_handoff_blocked = true;
+        handoff_cv.notify_all();
+        handoff_cv.wait(lock, [&] { return release_first_handoff; });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  auto release_handoff = Defer([&] {
+    {
+      std::lock_guard<std::mutex> lock(handoff_mu);
+      release_first_handoff = true;
+    }
+    handoff_cv.notify_all();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  StartPressure();
+  candidate->WaitForScheduleCalls(1);
+  {
+    std::unique_lock<std::mutex> lock(handoff_mu);
+    handoff_cv.wait(lock, [&] { return first_handoff_blocked; });
+  }
+
+  // Completion makes the DB otherwise eligible, but the executor still owns
+  // its handoff pin. It must not acquire a second boolean reservation.
+  wbf_.NotifyFlushInitiatorFlushCompleted(candidate, false);
+  EXPECT_FALSE(
+      candidate->WaitForScheduleCallsFor(2, std::chrono::milliseconds(50)));
+
+  {
+    std::lock_guard<std::mutex> lock(handoff_mu);
+    release_first_handoff = true;
+  }
+  handoff_cv.notify_all();
+  ASSERT_TRUE(
+      candidate->WaitForScheduleCallsFor(2, std::chrono::milliseconds(300)));
+  FinishPressure(/*made_progress=*/false);
+}
+
+TEST_F(BackgroundFlushCycleTest, BoundsExpiredOutstandingHandoffs) {
+  std::vector<ControlledFlushInitiator*> candidates;
+  for (const size_t mem : {500, 400, 300, 200, 100}) {
+    candidates.push_back(AddCandidate(mem, /*can_flush=*/true));
+  }
+
+  StartPressure();
+  for (size_t i = 0; i < 4; ++i) {
+    ASSERT_TRUE(candidates[i]->WaitForScheduleCallsFor(
+        1, std::chrono::milliseconds(300)));
+  }
+  EXPECT_FALSE(
+      candidates[4]->WaitForScheduleCallsFor(1, std::chrono::milliseconds(50)));
+
+  // Releasing one expired job opens exactly one bounded slot.
+  wbf_.NotifyFlushInitiatorFlushCompleted(candidates[0], false);
+  ASSERT_TRUE(candidates[4]->WaitForScheduleCallsFor(
+      1, std::chrono::milliseconds(300)));
+
+  for (size_t i = 1; i < candidates.size(); ++i) {
+    wbf_.NotifyFlushInitiatorFlushCompleted(candidates[i], false);
+  }
+  FinishPressure(/*made_progress=*/false);
 }
 
 TEST_F(BackgroundFlushCycleTest, ReranksAfterProgress) {
@@ -710,7 +915,7 @@ TEST_F(BackgroundFlushCycleTest, ReranksAfterProgress) {
   first->SetLargestMem(0);
   fourth->SetLargestMem(350);
   const auto work_cycle_completed = std::chrono::steady_clock::now();
-  wbf_.NotifyFlushInitiatorFlushCompleted(true);
+  wbf_.NotifyFlushInitiatorFlushCompleted(first, true);
 
   fourth->WaitForScheduleCalls(1);
   const auto next_work_cycle_started = std::chrono::steady_clock::now();
@@ -732,11 +937,11 @@ TEST_F(BackgroundFlushCycleTest, AdvancesWithoutProgress) {
 
   StartPressure();
   first->WaitForScheduleCalls(1);
-  wbf_.NotifyFlushInitiatorFlushCompleted(false);
+  wbf_.NotifyFlushInitiatorFlushCompleted(first, false);
   second->WaitForScheduleCalls(1);
-  wbf_.NotifyFlushInitiatorFlushCompleted(false);
+  wbf_.NotifyFlushInitiatorFlushCompleted(second, false);
   third->WaitForScheduleCalls(1);
-  wbf_.NotifyFlushInitiatorFlushCompleted(false);
+  wbf_.NotifyFlushInitiatorFlushCompleted(third, false);
 
   fourth->WaitForScheduleCalls(1);
   EXPECT_EQ(1, first->ScheduleCalls());
@@ -979,19 +1184,36 @@ TEST_F(WriteBufferManagerTest, AllocTrackerSkipsInactivePolicy) {
   EXPECT_EQ(2 * 1024 * 1024 + 100, tracker.allocated_bytes());
 }
 
-TEST_F(WriteBufferManagerTest, FlushPolicyStopsAndRestartsSorter) {
+TEST_F(WriteBufferManagerTest, FlushPolicyRetiresAndRestartsHandoffWorkers) {
   WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
                          WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
   FakeFlushInitiator initiator(/*mem=*/100, /*can_flush=*/true);
   wbf.RegisterFlushInitiator(&initiator);
   EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
+  EXPECT_EQ(4, wbf.TEST_GetFlushHandoffWorkerCount());
 
   wbf.SetFlushPolicy(WriteBufferFlushPolicy::kFlushOldest);
-  EXPECT_FALSE(wbf.TEST_HasFlushInitiatorSorter());
+  // The lightweight coordinator stays alive to retire and later restart the
+  // executor without blocking the policy setter.
+  EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
+  const auto retirement_deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+  while (wbf.TEST_GetFlushHandoffWorkerCount() != 0 &&
+         std::chrono::steady_clock::now() < retirement_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_EQ(0, wbf.TEST_GetFlushHandoffWorkerCount());
   EXPECT_FALSE(wbf.TEST_ScheduleFlushOnLargestDB(nullptr));
 
   wbf.SetFlushPolicy(WriteBufferFlushPolicy::kFlushLargestAcrossDBs);
   EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
+  const auto restart_deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+  while (wbf.TEST_GetFlushHandoffWorkerCount() != 4 &&
+         std::chrono::steady_clock::now() < restart_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_EQ(4, wbf.TEST_GetFlushHandoffWorkerCount());
   wbf.TEST_RefreshFlushInitiatorCandidate();
   EXPECT_TRUE(wbf.TEST_ScheduleFlushOnLargestDB(nullptr));
 
@@ -1012,6 +1234,18 @@ TEST_F(WriteBufferManagerTest, SorterStopsWhenRegistryBecomesEmpty) {
   wbf.RegisterFlushInitiator(&second);
   EXPECT_TRUE(wbf.TEST_HasFlushInitiatorSorter());
   wbf.DeregisterFlushInitiator(&second);
+}
+
+TEST_F(WriteBufferManagerTest, LegacyPolicyDoesNotStartFlushHandoffWorkers) {
+  WriteBufferManager wbf(1024, nullptr /* cache */, false /* allow_stall */,
+                         WriteBufferFlushPolicy::kFlushOldest);
+  FakeFlushInitiator initiator(/*mem=*/100, /*can_flush=*/true);
+  wbf.RegisterFlushInitiator(&initiator);
+
+  EXPECT_FALSE(wbf.TEST_HasFlushInitiatorSorter());
+  EXPECT_EQ(0, wbf.TEST_GetFlushHandoffWorkerCount());
+
+  wbf.DeregisterFlushInitiator(&initiator);
 }
 
 TEST_F(WriteBufferManagerTest, PolicyChangeRefreshesAccountingOffWritePath) {
