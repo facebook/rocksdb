@@ -642,6 +642,60 @@ TEST_F(BackgroundFlushCycleTest, SkipsFailedCandidates) {
   FinishPressure();
 }
 
+TEST_F(BackgroundFlushCycleTest, FastRejectedCandidateDoesNotAddPressureDelay) {
+  auto* rejected = AddCandidate(/*mem=*/200, /*can_flush=*/false);
+  auto* healthy = AddCandidate(/*mem=*/100, /*can_flush=*/true);
+
+  std::mutex completion_mu;
+  std::condition_variable completion_cv;
+  bool rejection_finished = false;
+  std::atomic<bool> completion_timed_out{false};
+  std::atomic<int> pressure_waits{0};
+  std::atomic<int> pressure_waits_at_healthy_dispatch{-1};
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::FlushHandoffExecutor:BeforeExecute",
+      [&](void* initiator) {
+        if (initiator == healthy) {
+          pressure_waits_at_healthy_dispatch.store(
+              pressure_waits.load(std::memory_order_relaxed),
+              std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::FlushHandoffExecutor:AfterFinish", [&](void*) {
+        std::lock_guard<std::mutex> lock(completion_mu);
+        rejection_finished = true;
+        completion_cv.notify_all();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::ProcessFlushHandoffRequest:AfterSubmit", [&](void*) {
+        std::unique_lock<std::mutex> lock(completion_mu);
+        if (!completion_cv.wait_for(lock, std::chrono::seconds(5),
+                                    [&] { return rejection_finished; })) {
+          completion_timed_out.store(true, std::memory_order_relaxed);
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteBufferManager::Run:BeforePressureWait",
+      [&](void*) { pressure_waits.fetch_add(1, std::memory_order_relaxed); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Defer cleanup_sync_points([] {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  });
+
+  StartPressure();
+  healthy->WaitForScheduleCalls(1);
+
+  EXPECT_EQ(1, rejected->ScheduleCalls());
+  EXPECT_EQ(1, healthy->ScheduleCalls());
+  EXPECT_FALSE(completion_timed_out.load(std::memory_order_relaxed));
+  EXPECT_EQ(0,
+            pressure_waits_at_healthy_dispatch.load(std::memory_order_relaxed));
+
+  FinishPressure();
+}
+
 TEST_F(BackgroundFlushCycleTest, FailedCandidateCycleBacksOff) {
   auto* first = AddCandidate(/*mem=*/400, /*can_flush=*/false);
   auto* second = AddCandidate(/*mem=*/300, /*can_flush=*/false);
