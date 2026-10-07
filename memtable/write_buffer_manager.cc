@@ -485,6 +485,7 @@ struct WriteBufferManager::FlushInitiatorRegistry {
       // same DB cannot acquire overlapping boolean reservations.
       executor_callbacks_in_progress.fetch_sub(1, std::memory_order_release);
       RequestRefresh();
+      TEST_SYNC_POINT("WriteBufferManager::FlushHandoffExecutor:AfterFinish");
     });
   }
 
@@ -541,6 +542,11 @@ struct WriteBufferManager::FlushInitiatorRegistry {
         }
         refresh_needed = false;
       }
+      uint64_t handoff_refresh_generation = 0;
+      {
+        MutexLock lock(&sorter_wait_mu);
+        handoff_refresh_generation = refresh_requested_generation;
+      }
       const bool work_cycle_complete = owner->ProcessFlushHandoffRequest();
       MutexLock lock(&sorter_wait_mu);
       if (work_cycle_complete) {
@@ -586,6 +592,15 @@ struct WriteBufferManager::FlushInitiatorRegistry {
         }
         continue;
       } else if (owner->ShouldCoordinateFlush()) {
+        if (CandidateCycleActive() &&
+            refresh_requested_generation != handoff_refresh_generation) {
+          // A queued handoff can reject and finish before this thread starts
+          // waiting. Consume that persistent notification immediately so a
+          // fast rejection does not add one pressure interval per candidate.
+          refresh_requested = false;
+          continue;
+        }
+        TEST_SYNC_POINT("WriteBufferManager::Run:BeforePressureWait");
         const uint64_t deadline = SystemClock::Default()->NowMicros() +
                                   kPressureRefreshInterval.count() * 1000;
         while (!stopping && !cv.TimedWait(deadline)) {
@@ -1160,6 +1175,8 @@ bool WriteBufferManager::ProcessFlushHandoffRequest() {
                                  std::memory_order_release);
     }
     registry.SubmitFlushHandoff(candidate, initiator);
+    TEST_SYNC_POINT(
+        "WriteBufferManager::ProcessFlushHandoffRequest:AfterSubmit");
     return false;
   }
 }
