@@ -162,12 +162,17 @@ add_c_test_wrapper()
                 ).encode("utf-8")
             )
 
-    def register_test(self, test_name, src, deps, extra_compiler_flags):
+    def register_test(self, test_name, src, deps, extra_compiler_flags, source_headers):
         with open(self.path, "ab") as targets_file:
             targets_file.write(
                 targets_cfg.unittests_template.format(
                     test_name=test_name,
                     test_cc=str(src),
+                    source_headers=(
+                        f"            source_headers=[{pretty_list(source_headers, 16)}],\n"
+                        if source_headers
+                        else ""
+                    ),
                     deps=deps,
                     extra_compiler_flags=extra_compiler_flags,
                 ).encode("utf-8")

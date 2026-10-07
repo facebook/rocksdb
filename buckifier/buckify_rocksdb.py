@@ -35,6 +35,49 @@ from util import ColorString
 # tests to export as libraries for inclusion in other projects
 _EXPORTED_TEST_LIBS = ["env_basic_test"]
 
+_TEST_LIB_HEADERS = [
+    "db/db_test_util.h",
+    "db/db_with_timestamp_test_util.h",
+    "table/mock_table.h",
+    "test_util/mock_time_env.h",
+    "test_util/secondary_cache_test_util.h",
+    "test_util/simple_external_table_factory.h",
+    "test_util/testharness.h",
+    "test_util/testutil.h",
+    "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+    "tools/trace_analyzer_tool.h",
+    "utilities/agg_merge/test_agg_merge.h",
+    "utilities/cassandra/test_utils.h",
+]
+
+_TEST_HEADERS = {
+    "configurable_test": ["options/configurable_test.h"],
+    "persistent_cache_test": ["utilities/persistent_cache/persistent_cache_test.h"],
+    "point_lock_manager_test": [
+        "utilities/transactions/lock/point/point_lock_manager_test.h",
+    ],
+    "transaction_test": ["utilities/transactions/transaction_test.h"],
+}
+
+_STRESS_LIB_HEADERS = [
+    "db_stress_tool/db_stress_common.h",
+    "db_stress_tool/db_stress_compaction_service.h",
+    "db_stress_tool/db_stress_compression_manager.h",
+    "db_stress_tool/db_stress_driver.h",
+    "db_stress_tool/db_stress_filters.h",
+    "db_stress_tool/db_stress_listener.h",
+    "db_stress_tool/db_stress_shared_state.h",
+    "db_stress_tool/db_stress_test_base.h",
+    "db_stress_tool/db_stress_wide_merge_operator.h",
+    "db_stress_tool/expected_state.h",
+    "db_stress_tool/expected_value.h",
+    "db_stress_tool/multi_ops_txns_stress.h",
+    "test_util/simple_external_table_factory.h",
+    "test_util/testutil.h",
+    "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+    "tools/trace_analyzer_tool.h"
+]
+
 # Parse src.mk files as a Dictionary of
 # VAR_NAME => list of files
 def parse_src_mk(repo_path):
@@ -183,27 +226,34 @@ def generate_buck(repo_path, deps_map):
             ":rocksdb_lib",
         ],
     )
-    # rocksdb_test_lib
-    BUCK.add_library(
-        "rocksdb_test_lib",
+    test_lib_sources = (
         src_mk.get("MOCK_LIB_SOURCES", [])
         + src_mk.get("TEST_LIB_SOURCES", [])
         + src_mk.get("EXP_LIB_SOURCES", [])
-        + src_mk.get("ANALYZER_LIB_SOURCES", []),
+        + src_mk.get("ANALYZER_LIB_SOURCES", [])
+    )
+    # Older release source lists may not compile every test helper yet.
+    test_lib_headers = [
+        header for header in _TEST_LIB_HEADERS
+        if header[:-2] + ".cc" in test_lib_sources
+    ]
+    # rocksdb_test_lib
+    BUCK.add_library(
+        "rocksdb_test_lib",
+        test_lib_sources,
         [":rocksdb_lib"],
         extra_test_libs=True,
+        headers=test_lib_headers,
     )
     # rocksdb_with_faiss_test_lib
     BUCK.add_library(
         "rocksdb_with_faiss_test_lib",
-        src_mk.get("MOCK_LIB_SOURCES", [])
-        + src_mk.get("TEST_LIB_SOURCES", [])
-        + src_mk.get("EXP_LIB_SOURCES", [])
-        + src_mk.get("ANALYZER_LIB_SOURCES", []),
+        test_lib_sources,
         deps=[
             ":rocksdb_with_faiss_lib",
         ],
         extra_test_libs=True,
+        headers=test_lib_headers,
     )
     # rocksdb_tools_lib
     BUCK.add_library(
@@ -212,6 +262,12 @@ def generate_buck(repo_path, deps_map):
         + src_mk.get("ANALYZER_LIB_SOURCES", [])
         + ["test_util/testutil.cc"],
         [":rocksdb_lib"],
+        headers=[
+            "test_util/testutil.h",
+            "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+            "tools/simulated_hybrid_file_system.h",
+            "tools/trace_analyzer_tool.h",
+        ],
     )
     # rocksdb_cache_bench_tools_lib
     BUCK.add_library(
@@ -225,12 +281,19 @@ def generate_buck(repo_path, deps_map):
         src_mk.get("POINT_LOCK_BENCH_LIB_SOURCES", []),
         [":rocksdb_lib"],
     )
+    stress_sources = (
+        src_mk.get("ANALYZER_LIB_SOURCES", [])
+        + src_mk.get("STRESS_LIB_SOURCES", [])
+        + ["test_util/testutil.cc"]
+    )
     # rocksdb_stress_lib
     BUCK.add_rocksdb_library(
         "rocksdb_stress_lib",
-        src_mk.get("ANALYZER_LIB_SOURCES", [])
-        + src_mk.get("STRESS_LIB_SOURCES", [])
-        + ["test_util/testutil.cc"],
+        stress_sources,
+        headers=[
+            header for header in _STRESS_LIB_HEADERS
+            if header[:-2] + ".cc" in stress_sources
+        ],
     )
     # ldb binary
     BUCK.add_binary(
@@ -353,6 +416,7 @@ def generate_buck(repo_path, deps_map):
                     test_src,
                     deps=json.dumps(deps["extra_deps"] + [":" + test_library]),
                     extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
+                    source_headers=_TEST_HEADERS.get(test, []),
                 )
             else:
                 if with_faiss:
@@ -361,6 +425,7 @@ def generate_buck(repo_path, deps_map):
                         test_src,
                         deps=json.dumps(deps["extra_deps"] + [":rocksdb_with_faiss_test_lib"]),
                         extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
+                        source_headers=_TEST_HEADERS.get(test, []),
                     )
                 else:
                     BUCK.register_test(
@@ -368,6 +433,7 @@ def generate_buck(repo_path, deps_map):
                         test_src,
                         deps=json.dumps(deps["extra_deps"] + [":rocksdb_test_lib"]),
                         extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
+                        source_headers=_TEST_HEADERS.get(test, []),
                     )
     BUCK.export_file("tools/db_crashtest.py")
     BUCK.export_file("tools/fault_injection_log_parser.py")

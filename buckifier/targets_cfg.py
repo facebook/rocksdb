@@ -30,7 +30,7 @@ cpp_binary_wrapper(name="{name}", srcs=[{srcs}], deps=[{deps}], extra_preprocess
 unittests_template = """
 cpp_unittest_wrapper(name="{test_name}",
             srcs=["{test_cc}"],
-            deps={deps},
+{source_headers}            deps={deps},
             extra_compiler_flags={extra_compiler_flags})
 
 """

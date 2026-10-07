@@ -423,7 +423,20 @@ cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "tools/trace_analyzer_tool.cc",
         "utilities/agg_merge/test_agg_merge.cc",
         "utilities/cassandra/test_utils.cc",
-    ], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=True)
+    ], deps=[":rocksdb_lib"], headers=[
+        "db/db_test_util.h",
+        "db/db_with_timestamp_test_util.h",
+        "table/mock_table.h",
+        "test_util/mock_time_env.h",
+        "test_util/secondary_cache_test_util.h",
+        "test_util/simple_external_table_factory.h",
+        "test_util/testharness.h",
+        "test_util/testutil.h",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+        "tools/trace_analyzer_tool.h",
+        "utilities/agg_merge/test_agg_merge.h",
+        "utilities/cassandra/test_utils.h",
+    ], link_whole=False, extra_test_libs=True)
 
 cpp_library_wrapper(name="rocksdb_with_faiss_test_lib", srcs=[
         "db/db_test_util.cc",
@@ -438,7 +451,20 @@ cpp_library_wrapper(name="rocksdb_with_faiss_test_lib", srcs=[
         "tools/trace_analyzer_tool.cc",
         "utilities/agg_merge/test_agg_merge.cc",
         "utilities/cassandra/test_utils.cc",
-    ], deps=[":rocksdb_with_faiss_lib"], headers=[], link_whole=False, extra_test_libs=True)
+    ], deps=[":rocksdb_with_faiss_lib"], headers=[
+        "db/db_test_util.h",
+        "db/db_with_timestamp_test_util.h",
+        "table/mock_table.h",
+        "test_util/mock_time_env.h",
+        "test_util/secondary_cache_test_util.h",
+        "test_util/simple_external_table_factory.h",
+        "test_util/testharness.h",
+        "test_util/testutil.h",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+        "tools/trace_analyzer_tool.h",
+        "utilities/agg_merge/test_agg_merge.h",
+        "utilities/cassandra/test_utils.h",
+    ], link_whole=False, extra_test_libs=True)
 
 cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
         "test_util/testutil.cc",
@@ -447,7 +473,12 @@ cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
         "tools/simulated_hybrid_file_system.cc",
         "tools/tool_hooks.cc",
         "tools/trace_analyzer_tool.cc",
-    ], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
+    ], deps=[":rocksdb_lib"], headers=[
+        "test_util/testutil.h",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+        "tools/simulated_hybrid_file_system.h",
+        "tools/trace_analyzer_tool.h",
+    ], link_whole=False, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_cache_bench_tools_lib", srcs=["cache/cache_bench_tool.cc"], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
 
@@ -475,7 +506,24 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
-    ], headers=[])
+    ], headers=[
+        "db_stress_tool/db_stress_common.h",
+        "db_stress_tool/db_stress_compaction_service.h",
+        "db_stress_tool/db_stress_compression_manager.h",
+        "db_stress_tool/db_stress_driver.h",
+        "db_stress_tool/db_stress_filters.h",
+        "db_stress_tool/db_stress_listener.h",
+        "db_stress_tool/db_stress_shared_state.h",
+        "db_stress_tool/db_stress_test_base.h",
+        "db_stress_tool/db_stress_wide_merge_operator.h",
+        "db_stress_tool/expected_state.h",
+        "db_stress_tool/expected_value.h",
+        "db_stress_tool/multi_ops_txns_stress.h",
+        "test_util/simple_external_table_factory.h",
+        "test_util/testutil.h",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.h",
+        "tools/trace_analyzer_tool.h",
+    ])
 
 
 cpp_binary_wrapper(name="ldb", srcs=["tools/ldb.cc"], deps=[":rocksdb_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
@@ -4765,6 +4813,7 @@ cpp_unittest_wrapper(name="compression_test",
 
 cpp_unittest_wrapper(name="configurable_test",
             srcs=["options/configurable_test.cc"],
+            source_headers=["options/configurable_test.h"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5469,6 +5518,7 @@ cpp_unittest_wrapper(name="periodic_task_scheduler_test",
 
 cpp_unittest_wrapper(name="persistent_cache_test",
             srcs=["utilities/persistent_cache/persistent_cache_test.cc"],
+            source_headers=["utilities/persistent_cache/persistent_cache_test.h"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5487,6 +5537,7 @@ cpp_unittest_wrapper(name="point_lock_manager_stress_test",
 
 cpp_unittest_wrapper(name="point_lock_manager_test",
             srcs=["utilities/transactions/lock/point/point_lock_manager_test.cc"],
+            source_headers=["utilities/transactions/lock/point/point_lock_manager_test.h"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
@@ -5697,6 +5748,7 @@ cpp_unittest_wrapper(name="trace_analyzer_test",
 
 cpp_unittest_wrapper(name="transaction_test",
             srcs=["utilities/transactions/transaction_test.cc"],
+            source_headers=["utilities/transactions/transaction_test.h"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
