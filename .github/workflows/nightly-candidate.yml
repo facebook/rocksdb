@@ -1,4 +1,4 @@
-name: facebook/rocksdb/nightly
+name: facebook/rocksdb/nightly-candidate
 on: workflow_dispatch
 permissions: {}
 jobs:
