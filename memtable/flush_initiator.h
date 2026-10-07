@@ -70,8 +70,8 @@ class FlushInitiator {
   // A zero timeout waits indefinitely. Returns false on timeout.
   bool WaitForPendingFlushHandoff(std::chrono::microseconds timeout) const;
 
-  // Queues one asynchronous flush. Must not reacquire the registry mutex.
-  // False lets the coordinator advance to another candidate.
+  // Runs one flush attempt on a WBM-owned worker. Must not reacquire the
+  // registry mutex. False lets the coordinator advance to another candidate.
   virtual bool ScheduleFlush() = 0;
 
   // Tries to rebuild counters without waiting for the owning DB's mutex.
