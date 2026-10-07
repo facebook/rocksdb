@@ -245,6 +245,8 @@ class CompactionOutputs {
   // before processing the current key in compaction iterator.
   bool ShouldStopBefore(const CompactionIterator& c_iter);
 
+  void PrepareNewOutputForFirstKey(const CompactionIterator& c_iter);
+
   void Cleanup() {
     if (builder_ != nullptr) {
       // May happen if we get a shutdown call in the middle of compaction
