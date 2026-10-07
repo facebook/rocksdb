@@ -4282,6 +4282,24 @@ void DBImpl::BackgroundCallWBMFlush() {
   flush_options.allow_write_stall = true;
   bool made_progress = false;
   if (has_flushable_cf) {
+    if (atomic_flush) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Atomically flushing all column families on behalf of a shared "
+          "WriteBufferManager. Write buffer is using %" ROCKSDB_PRIszt
+          " bytes out of a total of %" ROCKSDB_PRIszt ".",
+          write_buffer_manager_->memory_usage(),
+          write_buffer_manager_->buffer_size());
+    } else {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "[%s] Flushing largest column family on behalf of a shared "
+          "WriteBufferManager. Write buffer is using %" ROCKSDB_PRIszt
+          " bytes out of a total of %" ROCKSDB_PRIszt ".",
+          cfd_to_flush->GetName().c_str(),
+          write_buffer_manager_->memory_usage(),
+          write_buffer_manager_->buffer_size());
+    }
     Status s;
     if (atomic_flush) {
       s = AtomicFlushMemTablesImpl(

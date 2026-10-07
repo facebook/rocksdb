@@ -3000,6 +3000,7 @@ Status DBImpl::WriteBufferManagerStallWrites(WriteContext* write_context) {
     WBMStallInterface* const stall =
         static_cast<WBMStallInterface*>(wbm_stall_.get());
     stall->SetState(WBMStallInterface::State::BLOCKED);
+    const uint64_t stall_start = immutable_db_options_.clock->NowMicros();
     write_buffer_manager_->BeginWriteStall(wbm_stall_.get());
     bool retry_local_flush = false;
     if (write_buffer_manager_->ShouldTrackFlushInitiator()) {
@@ -3018,7 +3019,14 @@ Status DBImpl::WriteBufferManagerStallWrites(WriteContext* write_context) {
       stall->Block();
     }
 
+    const uint64_t stall_micros =
+        immutable_db_options_.clock->NowMicros() - stall_start;
+    // Recorded separately from STALL_MICROS, which covers only WriteController
+    // (CF-scope) stalls, so the two remain individually attributable.
+    RecordTick(stats_, WRITE_BUFFER_MANAGER_STALL_MICROS, stall_micros);
     mutex_.Lock();
+    default_cf_internal_stats_->AddDBStats(
+        InternalStats::kIntStatsWriteBufferManagerStallMicros, stall_micros);
     // Allow this front writer to retry the manager-wide emergency lease. It
     // must not let its write through while the hard limit is still exceeded.
     write_thread_.EndWriteStall();
