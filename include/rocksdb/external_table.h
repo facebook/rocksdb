@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include <cassert>
+#include <cstdint>
+
 #include "rocksdb/advanced_iterator.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/file_checksum.h"
@@ -322,16 +325,42 @@ using ExternalTableReader =
 using FullExternalTableReader =
     ExternalTableReaderBase<ExternalTableMode::kFull>;
 
+enum class ExternalTableBuilderAddResult : uint8_t {
+  // The row was consumed by this builder. The caller may advance input.
+  kAdded,
+  // The row was not consumed. A caller that supports retryable table cuts
+  // should finish the current table, create another table through the same
+  // ExternalTableFactory, and retry the same row.
+  kRequiresNewTable,
+  // A real error occurred. The caller should abandon the current output and
+  // get the error from status().
+  kError,
+};
+
+enum class ExternalTableBuilderNewTableReason : uint8_t {
+  kNone = 0,
+  kRowClassificationChanged,
+  kSchemaIdChanged,
+  kSchemaVersionIncompatible,
+  kUnsupportedEntryType,
+  kBuilderPolicy,
+};
+
+struct ExternalTableBuilderAddContext {
+  ExternalTableBuilderNewTableReason new_table_reason =
+      ExternalTableBuilderNewTableReason::kNone;
+};
+
 // A table builder interface used by SstFileWriter and, in full mode, by DB
 // flush and compaction to write external table files. The sequence of
 // operations to write an external table is as follows -
-// 1. Add() is called for point entries in key order. In
-//    kOnlyZeroSeqnoAndPuts mode it receives a user key with the sequence number
-//    and value type stripped. In kFull mode it receives the complete RocksDB
-//    internal key. Range deletions are encoded separately and passed to
-//    PutRangeDeletionBlock().
-// 2. After every Add() operation, status() is called to check the current
-//    status.
+// 1. Add() or TryAdd() is called for point entries in key order. In
+//    kOnlyZeroSeqnoAndPuts mode it receives a user key with the sequence
+//    number and value type stripped. In kFull mode it receives the complete
+//    RocksDB internal key. Range deletions are encoded separately and passed
+//    to PutRangeDeletionBlock().
+// 2. After every accepted Add()/TryAdd() operation, status() is called to check
+//    the current status.
 // 3. After the last key is added, Finish() is called to do whatever is
 //    necessary to ensure the data is persisted in the table file.
 // 4. If there is a failure midway for some reason, Abandon() is called
@@ -351,6 +380,31 @@ class ExternalTableBuilderBase {
   // must be preserved. Range deletions are not passed to this method. Errors
   // are reported through status().
   virtual void Add(const Slice& key, const Slice& value) = 0;
+
+  // Add key,value to the table being constructed and report whether the row was
+  // accepted or whether the caller should cut the current table and retry this
+  // same row with a new table builder. A kRequiresNewTable result is not an
+  // error: the row must not have been consumed and status() must remain OK.
+  // A kError result must be reported through status().
+  //
+  // Caller support for kRequiresNewTable is optional. Callers that write
+  // through Add() treat such requests as builder errors because they have no
+  // retry handshake.
+  //
+  // Existing external table builders do not request table cuts; they inherit
+  // this default adapter around Add().
+  //
+  // REQUIRES: calls are made in key order.
+  // REQUIRES: Finish(), Abandon() have not been called.
+  // REQUIRES: context != nullptr.
+  virtual ExternalTableBuilderAddResult TryAdd(
+      const Slice& key, const Slice& value,
+      ExternalTableBuilderAddContext* context) {
+    assert(context != nullptr);
+    context->new_table_reason = ExternalTableBuilderNewTableReason::kNone;
+    Add(key, value);
+    return ExternalTableBuilderAddResult::kAdded;
+  }
 
   // Return the current Status. This could return non-ok, for example, if
   // Add() fails for some reason.
