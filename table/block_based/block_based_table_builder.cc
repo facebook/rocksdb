@@ -2094,6 +2094,14 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   }
 }
 
+TableBuilderAddResult BlockBasedTableBuilder::TryAdd(
+    const Slice& ikey, const Slice& value, TableBuilderAddContext* context) {
+  assert(context != nullptr);
+  context->new_table_reason = TableBuilderNewTableReason::kNone;
+  Add(ikey, value);
+  return TableBuilderAddResult::kAdded;
+}
+
 void BlockBasedTableBuilder::Flush(const Slice* first_key_in_next_block) {
   Rep* r = rep_.get();
   assert(rep_->state != Rep::State::kClosed);

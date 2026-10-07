@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
+#include <memory>
+#include <string>
 #include <tuple>
 #include <utility>
 
@@ -26,6 +29,8 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/sst_file_writer.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/table_builder.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -172,6 +177,234 @@ class DBCompactionTest : public DBTestBase {
 #endif /* NDEBUG */
   }
 };
+
+struct FileCuttingTableFactoryState {
+  std::atomic<int> cut_requests{0};
+  int max_cut_requests = 1;
+  bool allow_empty_builder_cut = false;
+};
+
+class FileCuttingTableBuilder : public TableBuilder {
+ public:
+  FileCuttingTableBuilder(std::unique_ptr<TableBuilder> base_builder,
+                          std::string cut_before_user_key,
+                          std::shared_ptr<FileCuttingTableFactoryState> state)
+      : base_builder_(std::move(base_builder)),
+        cut_before_user_key_(std::move(cut_before_user_key)),
+        state_(std::move(state)) {}
+
+  void Add(const Slice& key, const Slice& value) override {
+    base_builder_->Add(key, value);
+  }
+
+  TableBuilderAddResult TryAdd(const Slice& key, const Slice& value,
+                               TableBuilderAddContext* context) override {
+    const Slice user_key = ExtractUserKey(key);
+    const bool cut_request_limit_not_reached =
+        state_->cut_requests.load() < state_->max_cut_requests;
+    const bool should_cut =
+        cut_request_limit_not_reached &&
+        (state_->allow_empty_builder_cut || !base_builder_->IsEmpty()) &&
+        user_key.compare(Slice(cut_before_user_key_)) == 0;
+    if (should_cut) {
+      state_->cut_requests++;
+      context->new_table_reason = TableBuilderNewTableReason::kBuilderPolicy;
+      return TableBuilderAddResult::kRequiresNewTable;
+    }
+    return base_builder_->TryAdd(key, value, context);
+  }
+
+  Status status() const override { return base_builder_->status(); }
+
+  IOStatus io_status() const override { return base_builder_->io_status(); }
+
+  Status Finish() override { return base_builder_->Finish(); }
+
+  void Abandon() override { base_builder_->Abandon(); }
+
+  uint64_t NumEntries() const override { return base_builder_->NumEntries(); }
+
+  bool IsEmpty() const override { return base_builder_->IsEmpty(); }
+
+  uint64_t PreCompressionSize() const override {
+    return base_builder_->PreCompressionSize();
+  }
+
+  uint64_t FileSize() const override { return base_builder_->FileSize(); }
+
+  uint64_t EstimatedFileSize() const override {
+    return base_builder_->EstimatedFileSize();
+  }
+
+  uint64_t EstimatedTailSize() const override {
+    return base_builder_->EstimatedTailSize();
+  }
+
+  uint64_t GetTailSize() const override { return base_builder_->GetTailSize(); }
+
+  bool NeedCompact() const override { return base_builder_->NeedCompact(); }
+
+  TableProperties GetTableProperties() const override {
+    return base_builder_->GetTableProperties();
+  }
+
+  std::string GetFileChecksum() const override {
+    return base_builder_->GetFileChecksum();
+  }
+
+  const char* GetFileChecksumFuncName() const override {
+    return base_builder_->GetFileChecksumFuncName();
+  }
+
+  void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
+                                   uint64_t oldest_ancestor_time) override {
+    base_builder_->SetSeqnoTimeTableProperties(relevant_mapping,
+                                               oldest_ancestor_time);
+  }
+
+  uint64_t GetWorkerCPUMicros() const override {
+    return base_builder_->GetWorkerCPUMicros();
+  }
+
+ private:
+  std::unique_ptr<TableBuilder> base_builder_;
+  std::string cut_before_user_key_;
+  std::shared_ptr<FileCuttingTableFactoryState> state_;
+};
+
+class FileCuttingTableFactory : public TableFactory {
+ public:
+  FileCuttingTableFactory(std::string cut_before_user_key,
+                          std::shared_ptr<FileCuttingTableFactoryState> state)
+      : cut_before_user_key_(std::move(cut_before_user_key)),
+        state_(std::move(state)) {}
+
+  const char* Name() const override { return "FileCuttingTableFactory"; }
+
+  using TableFactory::NewTableReader;
+
+  Status NewTableReader(
+      const ReadOptions& read_options,
+      const TableReaderOptions& table_reader_options,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache) const override {
+    return base_factory_.NewTableReader(
+        read_options, table_reader_options, std::move(file), file_size,
+        table_reader, prefetch_index_and_filter_in_cache);
+  }
+
+  TableBuilder* NewTableBuilder(
+      const TableBuilderOptions& table_builder_options,
+      WritableFileWriter* file) const override {
+    return new FileCuttingTableBuilder(
+        std::unique_ptr<TableBuilder>(
+            base_factory_.NewTableBuilder(table_builder_options, file)),
+        cut_before_user_key_, state_);
+  }
+
+  std::unique_ptr<TableFactory> Clone() const override {
+    return std::make_unique<FileCuttingTableFactory>(cut_before_user_key_,
+                                                     state_);
+  }
+
+  bool IsDeleteRangeSupported() const override {
+    return base_factory_.IsDeleteRangeSupported();
+  }
+
+  std::string GetPrintableOptions() const override {
+    return base_factory_.GetPrintableOptions();
+  }
+
+ private:
+  std::string cut_before_user_key_;
+  std::shared_ptr<FileCuttingTableFactoryState> state_;
+  BlockBasedTableFactory base_factory_;
+};
+
+TEST_F(DBCompactionTest, TableBuilderCanRequestNewTableDuringCompaction) {
+  auto factory_state = std::make_shared<FileCuttingTableFactoryState>();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 10;
+  options.target_file_size_base = 1 << 30;
+  options.table_factory =
+      std::make_shared<FileCuttingTableFactory>(Key(5), factory_state);
+  Reopen(options);
+
+  for (int key : {0, 2, 4, 6, 8}) {
+    ASSERT_OK(Put(Key(key), "value" + std::to_string(key)));
+  }
+  ASSERT_OK(Flush());
+  for (int key : {1, 3, 5, 7, 9}) {
+    ASSERT_OK(Put(Key(key), "value" + std::to_string(key)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_EQ(1, factory_state->cut_requests.load());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  for (int key = 0; key < 10; ++key) {
+    ASSERT_EQ("value" + std::to_string(key), Get(Key(key)));
+  }
+}
+
+TEST_F(DBCompactionTest, TableBuilderCutOnEmptyBuilderFailsCompaction) {
+  auto factory_state = std::make_shared<FileCuttingTableFactoryState>();
+  factory_state->allow_empty_builder_cut = true;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 10;
+  options.target_file_size_base = 1 << 30;
+  options.table_factory =
+      std::make_shared<FileCuttingTableFactory>(Key(0), factory_state);
+  Reopen(options);
+
+  for (int key : {0, 2, 4, 6, 8}) {
+    ASSERT_OK(Put(Key(key), "value" + std::to_string(key)));
+  }
+  ASSERT_OK(Flush());
+  for (int key : {1, 3, 5, 7, 9}) {
+    ASSERT_OK(Put(Key(key), "value" + std::to_string(key)));
+  }
+  ASSERT_OK(Flush());
+
+  Status status = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(status.IsCorruption()) << status.ToString();
+  ASSERT_EQ(1, factory_state->cut_requests.load());
+}
+
+TEST_F(DBCompactionTest, TableBuilderRepeatedCutRequestFailsCompaction) {
+  auto factory_state = std::make_shared<FileCuttingTableFactoryState>();
+  factory_state->max_cut_requests = 2;
+  factory_state->allow_empty_builder_cut = true;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 10;
+  options.target_file_size_base = 1 << 30;
+  options.table_factory =
+      std::make_shared<FileCuttingTableFactory>(Key(5), factory_state);
+  Reopen(options);
+
+  for (int key : {0, 2, 4, 6, 8}) {
+    ASSERT_OK(Put(Key(key), "value" + std::to_string(key)));
+  }
+  ASSERT_OK(Flush());
+  for (int key : {1, 3, 5, 7, 9}) {
+    ASSERT_OK(Put(Key(key), "value" + std::to_string(key)));
+  }
+  ASSERT_OK(Flush());
+
+  Status status = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(status.IsCorruption()) << status.ToString();
+  ASSERT_EQ(2, factory_state->cut_requests.load());
+}
 
 class DBCompactionTestWithParam
     : public DBTestBase,

@@ -10,7 +10,10 @@
 
 #include "db/compaction/compaction_outputs.h"
 
+#include <inttypes.h>
+
 #include "db/builder.h"
+#include "logging/logging.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -373,6 +376,24 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   return false;
 }
 
+void CompactionOutputs::PrepareNewOutputForFirstKey(
+    const CompactionIterator& c_iter) {
+  // A new output file starts a fresh partition-tracking window. Establish the
+  // partitioner fast path from this file's first key: if the partitioner can
+  // express its next boundary as "first key not sharing this prefix", cache
+  // that prefix; otherwise fall back to per-key ShouldPartition(). This is the
+  // only place the prefix needs to be (re)derived, since a partition boundary
+  // always forces a file cut, and re-deriving on non-partition cuts just
+  // recomputes the same still-valid prefix.
+  if (partitioner_) {
+    OptSlice prefix = partitioner_->ShouldPartitionByPrefix(c_iter.user_key());
+    partitioner_prefix_valid_ = prefix.has_value();
+    if (partitioner_prefix_valid_) {
+      partitioner_prefix_.assign(prefix->data(), prefix->size());
+    }
+  }
+}
+
 Status CompactionOutputs::AddToOutput(
     const CompactionIterator& c_iter,
     const CompactionFileOpenFunc& open_file_func,
@@ -412,42 +433,104 @@ Status CompactionOutputs::AddToOutput(
     if (!s.ok()) {
       return s;
     }
-    // A new output file starts a fresh partition-tracking window. Establish the
-    // partitioner fast path from this file's first key: if the partitioner can
-    // express its next boundary as "first key not sharing this prefix", cache
-    // that prefix; otherwise fall back to per-key ShouldPartition(). This is
-    // the only place the prefix needs to be (re)derived, since a partition
-    // boundary always forces a file cut, and re-deriving on non-partition cuts
-    // just recomputes the same still-valid prefix.
-    if (partitioner_) {
-      OptSlice prefix =
-          partitioner_->ShouldPartitionByPrefix(c_iter.user_key());
-      partitioner_prefix_valid_ = prefix.has_value();
-      if (partitioner_prefix_valid_) {
-        partitioner_prefix_.assign(prefix->data(), prefix->size());
-      }
-    }
-  }
-
-  // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
-  // here before returning below when `is_range_del` is true. Only needed in the
-  // fallback mode; the prefix fast path does not use it.
-  if (partitioner_ && !partitioner_prefix_valid_) {
-    last_key_for_partitioner_.assign(c_iter.user_key().data_,
-                                     c_iter.user_key().size_);
+    PrepareNewOutputForFirstKey(c_iter);
   }
 
   if (UNLIKELY(is_range_del)) {
+    // c_iter may emit range deletion keys, so update
+    // `last_key_for_partitioner_` before returning. Only needed in the fallback
+    // mode; the prefix fast path does not use it.
+    if (partitioner_ && !partitioner_prefix_valid_) {
+      last_key_for_partitioner_.assign(c_iter.user_key().data_,
+                                       c_iter.user_key().size_);
+    }
     return s;
   }
 
   assert(builder_ != nullptr);
   const Slice& value = c_iter.value();
-  s = current_output().validator.Add(key, value);
-  if (!s.ok()) {
-    return s;
+  bool retried_after_new_table = false;
+  while (true) {
+    s = current_output().validator.CanAdd(key);
+    if (!s.ok()) {
+      return s;
+    }
+
+    TableBuilderAddContext add_context;
+    TableBuilderAddResult add_result =
+        builder_->TryAdd(key, value, &add_context);
+
+    if (add_result == TableBuilderAddResult::kError) {
+      s = builder_->status();
+      if (s.ok()) {
+        return Status::Corruption(
+            "TableBuilder returned kError without a non-OK status");
+      }
+      return s;
+    }
+
+    if (add_result == TableBuilderAddResult::kAdded) {
+      current_output().validator.AddValidated(key, value);
+      break;
+    }
+
+    assert(add_result == TableBuilderAddResult::kRequiresNewTable);
+    s = builder_->status();
+    if (!s.ok()) {
+      return s;
+    }
+    const Compaction* compaction = compaction_;
+    if (compaction == nullptr) {
+      return Status::Corruption("Compaction output is missing compaction");
+    }
+    ColumnFamilyData* cfd = compaction->column_family_data();
+    if (cfd == nullptr) {
+      return Status::Corruption(
+          "Compaction output is missing column family data");
+    }
+    if (retried_after_new_table || builder_->IsEmpty()) {
+      const std::string detail =
+          "cf: " + cfd->GetName() + ", file_number: " +
+          std::to_string(current_output().meta.fd.GetNumber()) + ", reason: " +
+          TableBuilderNewTableReasonToString(add_context.new_table_reason) +
+          ", key: " + key.ToString(/* hex */ true);
+      return Status::Corruption(
+          "TableBuilder requested a new table without accepting any rows",
+          detail);
+    }
+
+    const std::string key_hex = key.ToString(/* hex */ true);
+    ROCKS_LOG_INFO(
+        compaction->immutable_options().info_log,
+        "[%s] Compaction output table builder requested a new table before "
+        "key %s for file #%" PRIu64 ". reason: %s",
+        cfd->GetName().c_str(), key_hex.c_str(),
+        current_output().meta.fd.GetNumber(),
+        TableBuilderNewTableReasonToString(add_context.new_table_reason));
+
+    s = close_file_func(c_iter.InputStatus(), prev_iter_output_internal_key,
+                        key, &c_iter, *this);
+    if (!s.ok()) {
+      return s;
+    }
+
+    grandparent_boundary_switched_num_ = 0;
+    grandparent_overlapped_bytes_ =
+        GetCurrentKeyGrandparentOverlappedBytes(key);
+    range_tombstone_lower_bound_.Clear();
+
+    s = open_file_func(*this);
+    if (!s.ok()) {
+      return s;
+    }
+    PrepareNewOutputForFirstKey(c_iter);
+    retried_after_new_table = true;
   }
-  builder_->Add(key, value);
+
+  if (partitioner_ && !partitioner_prefix_valid_) {
+    last_key_for_partitioner_.assign(c_iter.user_key().data_,
+                                     c_iter.user_key().size_);
+  }
 
   stats_.num_output_records++;
   current_output_file_size_ = builder_->EstimatedFileSize();
