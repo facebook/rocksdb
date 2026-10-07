@@ -407,6 +407,7 @@ TEST_F(DeleteSchedulerTest, ConflictNames) {
 // --- Hold DeleteScheduler::BackgroundEmptyTrash ---
 // 4- Make sure that DeleteScheduler failed to delete the 10 files and
 //    reported 10 background errors
+// 5- Make sure the vanished files no longer count as trash or tracked size
 TEST_F(DeleteSchedulerTest, BackgroundError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DeleteSchedulerTest::BackgroundError:1",
@@ -441,6 +442,8 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   for (const auto& it : bg_errors) {
     ASSERT_TRUE(it.second.IsPathNotFound());
   }
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  ASSERT_EQ(0, sst_file_mgr_->GetTotalSize());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
