@@ -949,6 +949,32 @@ class FlushedDBRecorder : public EventListener {
   std::map<DB*, std::set<std::string>> cf_flushes_;
   size_t manual_flushes_ = 0;
 };
+
+class FlushCounter : public EventListener {
+ public:
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
+    InstrumentedMutexLock l(&mu_);
+    ++flushes_;
+    cv_.SignalAll();
+  }
+
+  size_t Get() {
+    InstrumentedMutexLock l(&mu_);
+    return flushes_;
+  }
+
+  void WaitFor(size_t target) {
+    InstrumentedMutexLock l(&mu_);
+    while (flushes_ < target) {
+      cv_.Wait();
+    }
+  }
+
+ private:
+  InstrumentedMutex mu_;
+  InstrumentedCondVar cv_{&mu_};
+  size_t flushes_ = 0;
+};
 }  // anonymous namespace
 
 // Soft WBM pressure must flush the largest DB sharing the WBM.
@@ -1227,6 +1253,77 @@ TEST_F(DBWriteBufferManagerTest,
   ASSERT_OK(other_db->Close());
   other_db.reset();
   ASSERT_OK(DestroyDB(other_dbname, options));
+}
+
+TEST_F(DBWriteBufferManagerTest, DISABLED_SkewedMultiDBFlushCountExperiment) {
+  Close();
+
+  auto run_workload = [&](WriteBufferFlushPolicy policy,
+                          const std::string& name, size_t* flushes) {
+    auto counter = std::make_shared<FlushCounter>();
+    Options options = CurrentOptions();
+    options.arena_block_size = 4 << 10;
+    options.write_buffer_size = 64 << 20;
+    options.disable_auto_compactions = true;
+    options.listeners.push_back(counter);
+    options.write_buffer_manager = std::make_shared<WriteBufferManager>(
+        8 << 20, nullptr, false /* allow_stall */, policy);
+
+    std::vector<std::string> dbnames;
+    std::vector<std::unique_ptr<DB>> dbs(4);
+    for (size_t i = 0; i < dbs.size(); ++i) {
+      dbnames.push_back(test::PerThreadDBPath("wbm_flush_count_" + name + "_" +
+                                              std::to_string(i)));
+      ASSERT_OK(DestroyDB(dbnames.back(), options));
+      ASSERT_OK(DB::Open(options, dbnames.back(), &dbs[i]));
+    }
+    Defer cleanup([&] {
+      for (auto& db : dbs) {
+        if (db != nullptr) {
+          db->Close().PermitUncheckedError();
+          db.reset();
+        }
+      }
+      for (const auto& dbname : dbnames) {
+        DestroyDB(dbname, options).PermitUncheckedError();
+      }
+    });
+
+    WriteOptions write_options;
+    write_options.disableWAL = true;
+    const std::string cold_value(3 << 20, 'c');
+    ASSERT_OK(dbs[2]->Put(write_options, "cold-0", cold_value));
+    ASSERT_OK(dbs[3]->Put(write_options, "cold-1", cold_value));
+
+    const std::string hot_value(32 << 10, 'h');
+    constexpr size_t kHotBytes = 16 << 20;
+    const size_t hot_writes = kHotBytes / hot_value.size();
+    for (size_t i = 0; i < hot_writes; ++i) {
+      DB* hot_db = dbs[i % 2].get();
+      ASSERT_OK(
+          hot_db->Put(write_options, "hot-" + std::to_string(i), hot_value));
+      if (options.write_buffer_manager->ShouldFlush()) {
+        const size_t target = counter->Get() + 1;
+        ASSERT_OK(
+            hot_db->Put(write_options, "trigger-" + std::to_string(i), "x"));
+        counter->WaitFor(target);
+      }
+    }
+    *flushes = counter->Get();
+  };
+
+  size_t oldest_flushes = 0;
+  run_workload(WriteBufferFlushPolicy::kFlushOldest, "oldest", &oldest_flushes);
+  ASSERT_FALSE(HasFatalFailure());
+
+  size_t across_db_flushes = 0;
+  run_workload(WriteBufferFlushPolicy::kFlushLargestAcrossDBs, "across_dbs",
+               &across_db_flushes);
+  ASSERT_FALSE(HasFatalFailure());
+
+  fprintf(stderr, "WBM skewed workload flushes: oldest=%zu across_dbs=%zu\n",
+          oldest_flushes, across_db_flushes);
+  EXPECT_LT(across_db_flushes, oldest_flushes);
 }
 
 TEST_F(DBWriteBufferManagerTest,
