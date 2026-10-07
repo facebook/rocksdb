@@ -75,6 +75,7 @@ enum Tag : uint32_t {
   kPersistUserDefinedTimestamps,
   kSubcompactionProgress,
   kLastCompactedManifestFileSize,
+  kCommittedOptionsFileNumber,
 };
 
 enum SubcompactionProgressPerLevelCustomTag : uint32_t {
@@ -1042,6 +1043,33 @@ class VersionEdit {
     return last_compacted_manifest_file_size_;
   }
 
+  // Records the exact OPTIONS file that describes the DB state after this
+  // edit. This tag is safely ignorable so older RocksDB binaries retain their
+  // legacy behavior of selecting the newest OPTIONS file by file number.
+  void SetCommittedOptionsFileNumber(uint64_t number) {
+    has_committed_options_file_number_ = true;
+    committed_options_file_number_ = number;
+  }
+  bool HasCommittedOptionsFileNumber() const {
+    return has_committed_options_file_number_;
+  }
+  uint64_t GetCommittedOptionsFileNumber() const {
+    return committed_options_file_number_;
+  }
+
+  // Marks a live OPTIONS-only MANIFEST write as DB-wide metadata that does not
+  // change an LSM Version. This is intentionally not encoded; recovery applies
+  // the persisted fields through VersionEditHandler instead.
+  void MarkOptionsFileManipulation() {
+    assert(NumEntries() == 0);
+    assert(!IsColumnFamilyManipulation());
+    assert(HasCommittedOptionsFileNumber());
+    is_options_file_manipulation_ = true;
+  }
+  bool IsOptionsFileManipulation() const {
+    return is_options_file_manipulation_;
+  }
+
   // Recovery-time per-column-family edits only need to be written when they
   // advance the CF's log number or carry some other manifest state.
   bool ShouldEmitPerColumnFamilyRecoveryEdit(uint64_t current_log_number) const;
@@ -1085,61 +1113,29 @@ class VersionEdit {
   static void EncodeFileBoundaries(std::string* dst, const FileMetaData& meta,
                                    size_t ts_sz);
 
-  int max_level_ = 0;
-  std::string db_id_;
-  std::string comparator_;
   uint64_t log_number_ = 0;
   uint64_t prev_log_number_ = 0;
   uint64_t next_file_number_ = 0;
-  uint32_t max_column_family_ = 0;
   // The most recent WAL log number that is deleted
   uint64_t min_log_number_to_keep_ = 0;
   SequenceNumber last_sequence_ = 0;
-  bool has_db_id_ = false;
-  bool has_comparator_ = false;
-  bool has_log_number_ = false;
-  bool has_prev_log_number_ = false;
-  bool has_next_file_number_ = false;
-  bool has_max_column_family_ = false;
-  bool has_min_log_number_to_keep_ = false;
-  bool has_last_sequence_ = false;
-  bool has_persist_user_defined_timestamps_ = false;
+  WalDeletion wal_deletion_;
+  uint64_t last_compacted_manifest_file_size_ = 0;
+  uint64_t committed_options_file_number_ = 0;
 
   // Compaction cursors for round-robin compaction policy
   CompactCursors compact_cursors_;
-
-  DeletedFiles deleted_files_;
   NewFiles new_files_;
-
   BlobFileAdditions blob_file_additions_;
   BlobFileGarbages blob_file_garbages_;
-
   WalAdditions wal_additions_;
-  WalDeletion wal_deletion_;
 
-  // Each version edit record should have column_family_ set
-  // If it's not set, it is default (0)
-  uint32_t column_family_ = 0;
-  // a version edit can be either column_family add or
-  // column_family drop. If it's column family add,
-  // it also includes column family name.
-  bool is_column_family_drop_ = false;
-  bool is_column_family_add_ = false;
-  bool is_foreground_operation_ = false;
+  std::string db_id_;
+  std::string comparator_;
   std::string column_family_name_;
-
-  uint32_t remaining_entries_ = 0;
-  bool is_in_atomic_group_ = false;
-  bool is_no_manifest_write_dummy_ = false;
-
   std::string full_history_ts_low_;
-  bool persist_user_defined_timestamps_ = true;
 
-  bool has_subcompaction_progress_ = false;
-  SubcompactionProgress subcompaction_progress_;
-
-  bool has_last_compacted_manifest_file_size_ = false;
-  uint64_t last_compacted_manifest_file_size_ = 0;
+  DeletedFiles deleted_files_;
 
   // Newly created table files and blob files are eligible for deletion if they
   // are not registered as live files after the background jobs creating them
@@ -1150,6 +1146,38 @@ class VersionEdit {
   // Since table files and blob files share the same file number space, we just
   // record the file number here.
   autovector<uint64_t> files_to_quarantine_;
+
+  SubcompactionProgress subcompaction_progress_;
+
+  int max_level_ = 0;
+  uint32_t max_column_family_ = 0;
+
+  // Each version edit record should have column_family_ set
+  // If it's not set, it is default (0)
+  uint32_t column_family_ = 0;
+  uint32_t remaining_entries_ = 0;
+
+  bool has_db_id_ = false;
+  bool has_comparator_ = false;
+  bool has_log_number_ = false;
+  bool has_prev_log_number_ = false;
+  bool has_next_file_number_ = false;
+  bool has_max_column_family_ = false;
+  bool has_min_log_number_to_keep_ = false;
+  bool has_last_sequence_ = false;
+  bool has_persist_user_defined_timestamps_ = false;
+  bool is_column_family_drop_ = false;
+  bool is_column_family_add_ = false;
+  bool is_foreground_operation_ = false;
+  bool is_in_atomic_group_ = false;
+  bool is_no_manifest_write_dummy_ = false;
+  bool persist_user_defined_timestamps_ = true;
+  bool has_subcompaction_progress_ = false;
+  bool has_last_compacted_manifest_file_size_ = false;
+  bool has_committed_options_file_number_ = false;
+
+  // Non-persisted marker for the live MANIFEST writer fast path.
+  bool is_options_file_manipulation_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

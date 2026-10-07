@@ -603,6 +603,7 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
+
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       const auto& moptions = cfd->GetLatestMutableCFOptions();
@@ -728,6 +729,36 @@ Status DBImpl::Recover(
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
     s = MaybeUpdateNextFileNumber(recovery_ctx);
+  }
+  if (s.ok() && !read_only) {
+    OptionsFileSelection selection;
+    s = VersionSet::ResolveOptionsFileNumber(
+        GetName(), immutable_db_options_.fs.get(),
+        versions_->options_file_manifest_state(),
+        recovery_ctx->existing_db_files_,
+        immutable_db_options_.track_options_file_number_in_manifest ||
+            versions_->has_committed_options_file_number(),
+        &selection);
+    if (s.ok() && !selection.selected_by_manifest) {
+      versions_->ApplyLegacyOptionsFileNumber(selection.file_number);
+    }
+    if (s.ok() && selection.used_fallback) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "No usable committed OPTIONS file; using tracked "
+                     "OPTIONS-%06" PRIu64,
+                     selection.file_number);
+    }
+    if (s.ok() && immutable_db_options_.compaction_service == nullptr) {
+      for (uint64_t number : selection.rejected_tracked_file_numbers) {
+        Status delete_s = env_->DeleteFile(OptionsFileName(GetName(), number));
+        if (!delete_s.ok() && !delete_s.IsNotFound()) {
+          ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                         "Unable to delete uncommitted OPTIONS-%06" PRIu64
+                         ": %s",
+                         number, delete_s.ToString().c_str());
+        }
+      }
+    }
   }
 
   if (s.ok() && !read_only) {
@@ -881,10 +912,7 @@ Status DBImpl::Recover(
   }
 
   if (read_only) {
-    // If we are opening as read-only, we need to update options_file_number_
-    // to reflect the most recent OPTIONS file. It does not matter for regular
-    // read-write db instance because options_file_number_ will later be
-    // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
+    TEST_SYNC_POINT("DBImpl::Recover:BeforeReadOnlyLegacyOptionsDirectoryScan");
     std::vector<std::string> filenames;
     if (s.ok()) {
       const std::string normalized_dbname = NormalizePath(dbname_);
@@ -902,18 +930,28 @@ Status DBImpl::Recover(
       }
     }
     if (s.ok()) {
-      uint64_t number = 0;
-      uint64_t options_file_number = 0;
-      FileType type;
-      for (const auto& fname : filenames) {
-        if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
-          options_file_number = std::max(number, options_file_number);
-        }
+      OptionsFileSelection selection;
+      s = VersionSet::ResolveOptionsFileNumber(
+          GetName(), immutable_db_options_.fs.get(),
+          versions_->options_file_manifest_state(), filenames,
+          immutable_db_options_.track_options_file_number_in_manifest ||
+              versions_->has_committed_options_file_number(),
+          &selection);
+      if (!s.ok()) {
+        return s;
       }
-      versions_->options_file_number_ = options_file_number;
+      if (!selection.selected_by_manifest) {
+        versions_->ApplyLegacyOptionsFileNumber(selection.file_number);
+      }
+      if (selection.used_fallback) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "No usable committed OPTIONS file; using tracked "
+                       "OPTIONS-%06" PRIu64,
+                       selection.file_number);
+      }
       uint64_t options_file_size = 0;
-      if (options_file_number > 0) {
-        s = env_->GetFileSize(OptionsFileName(GetName(), options_file_number),
+      if (selection.file_number > 0) {
+        s = env_->GetFileSize(OptionsFileName(GetName(), selection.file_number),
                               &options_file_size);
       }
       versions_->options_file_size_ = options_file_size;
@@ -2822,37 +2860,59 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   if (s.ok()) {
-    // set column family handles
+    std::vector<ColumnFamilyDescriptor> missing_column_families;
     for (const auto& cf : column_families) {
-      auto cfd =
-          impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
-      if (cfd != nullptr) {
+      if (impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name) ==
+          nullptr) {
+        if (!db_options.create_missing_column_families) {
+          s = Status::InvalidArgument("Column family not found", cf.name);
+          break;
+        }
+        missing_column_families.push_back(cf);
+      }
+    }
+
+    std::vector<ColumnFamilyHandle*> newly_created_handles;
+    if (s.ok() && !missing_column_families.empty()) {
+      impl->mutex_.Unlock();
+      // NOTE: the work normally done in WrapUpCreateColumnFamilies is done
+      // separately below. Publish one proposed OPTIONS snapshot for all
+      // missing CFs so tracked open does not reintroduce quadratic I/O.
+      s = impl->CreateColumnFamiliesImpl(read_options, write_options,
+                                         missing_column_families,
+                                         &newly_created_handles);
+      impl->mutex_.Lock();
+    }
+    if (!s.ok()) {
+      handles->insert(handles->end(), newly_created_handles.begin(),
+                      newly_created_handles.end());
+    }
+
+    std::unordered_map<std::string, ColumnFamilyHandle*>
+        newly_created_handles_by_name;
+    for (auto* handle : newly_created_handles) {
+      auto* cfd = static_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
+      newly_created_handles_by_name.emplace(cfd->GetName(), handle);
+    }
+
+    // Set column-family handles in the caller's descriptor order.
+    for (const auto& cf : column_families) {
+      if (!s.ok()) {
+        break;
+      }
+      auto created = newly_created_handles_by_name.find(cf.name);
+      if (created != newly_created_handles_by_name.end()) {
+        handles->push_back(created->second);
+      } else {
+        auto* cfd =
+            impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
+        assert(cfd != nullptr);
         handles->push_back(
             new ColumnFamilyHandleImpl(cfd, impl.get(), &impl->mutex_));
         impl->NewThreadStatusCfInfo(cfd);
         SuperVersionContext sv_context(/* create_superversion */ true);
         impl->InstallSuperVersionForConfigChange(cfd, &sv_context);
         sv_context.Clean();
-      } else {
-        if (db_options.create_missing_column_families) {
-          // missing column family, create it
-          ColumnFamilyHandle* handle = nullptr;
-          impl->mutex_.Unlock();
-          // NOTE: the work normally done in WrapUpCreateColumnFamilies will
-          // be done separately below.
-          // This includes InstallSuperVersionForConfigChange.
-          s = impl->CreateColumnFamilyImpl(read_options, write_options,
-                                           cf.options, cf.name, &handle);
-          impl->mutex_.Lock();
-          if (s.ok()) {
-            handles->push_back(handle);
-          } else {
-            break;
-          }
-        } else {
-          s = Status::InvalidArgument("Column family not found", cf.name);
-          break;
-        }
       }
     }
   }

@@ -913,6 +913,12 @@ static void rocksdb_roundtrip_test_rocksdb_options(void) {
   CheckCondition(rocksdb_options_get_track_and_verify_wals(obj) == 1);
   rocksdb_options_set_track_and_verify_wals(obj, 0);
   CheckCondition(rocksdb_options_get_track_and_verify_wals(obj) == 0);
+  rocksdb_options_set_track_options_file_number_in_manifest(obj, 1);
+  CheckCondition(
+      rocksdb_options_get_track_options_file_number_in_manifest(obj) == 1);
+  rocksdb_options_set_track_options_file_number_in_manifest(obj, 0);
+  CheckCondition(
+      rocksdb_options_get_track_options_file_number_in_manifest(obj) == 0);
   rocksdb_options_set_two_write_queues(obj, 1);
   CheckCondition(rocksdb_options_get_two_write_queues(obj) == 1);
   rocksdb_options_set_two_write_queues(obj, 0);
