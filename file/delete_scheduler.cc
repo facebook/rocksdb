@@ -386,8 +386,12 @@ void DeleteScheduler::BackgroundEmptyTrash() {
                                  &deleted_bytes, &is_complete);
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
+      // A trash file that is already gone (e.g. its directory was renamed)
+      // can never be retried, so release all of its remaining accounting.
+      const bool trash_file_gone = s.IsNotFound() || s.IsPathNotFound();
       const uint64_t accounted_deleted_bytes =
-          std::min(deleted_bytes, accounted_trash_size);
+          trash_file_gone ? accounted_trash_size
+                          : std::min(deleted_bytes, accounted_trash_size);
       if (accounted_deleted_bytes > 0) {
         total_trash_size_.fetch_sub(accounted_deleted_bytes);
       }
@@ -406,7 +410,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
           previous_error->second.PermitUncheckedError();
         }
         bg_errors_[path_in_trash] = s;
-        if (is_complete && accounted) {
+        if (is_complete && accounted && !trash_file_gone) {
           failed_accounted_trash_deletions_[NormalizePath(path_in_trash)] = {
               path_in_trash, remaining_accounted_trash_size};
         }
@@ -554,6 +558,9 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
     ROCKS_LOG_ERROR(info_log_, "Failed to delete %s from trash -- %s",
                     path_in_trash.c_str(), s.ToString().c_str());
     *deleted_bytes = 0;
+    if (s.IsNotFound() || s.IsPathNotFound()) {
+      OnDeleteFile(path_in_trash, accounted).PermitUncheckedError();
+    }
   }
 
   return s;
