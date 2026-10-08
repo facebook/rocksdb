@@ -298,12 +298,10 @@ class TrieIndexFactory : public UserDefinedIndexFactory {
   // builds) to surface programming errors immediately.
   UserDefinedIndexBuilder* NewBuilder() const override {
     abort();
-    return nullptr;
   }
   std::unique_ptr<UserDefinedIndexReader> NewReader(
       Slice& /*index_block*/) const override {
     abort();
-    return nullptr;
   }
 
   // New API with comparator.
