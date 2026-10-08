@@ -18,7 +18,7 @@
  * (e.g. in a readonly filesystem)
  *
  * Class:     org_rocksdb_util_LoggerFromOptions
- * Method:    newLoggerFromOptions
+ * Method:    createLoggerFromOptions
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_util_LoggerFromOptions_createLoggerFromOptions(
