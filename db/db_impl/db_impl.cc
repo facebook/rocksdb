@@ -1350,7 +1350,7 @@ DBImpl::~DBImpl() {
       s.PermitUncheckedError();
     }
 
-    closing_status_ = CloseImpl();
+    closing_status_ = DBImpl::CloseImpl();
     closing_status_.PermitUncheckedError();
   }
   ThreadStatusUtil::SetThreadOperation(cur_op_type);
@@ -1589,7 +1589,7 @@ size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
   // non-empty map, stats_history_.begin() guaranteed to exist
   for (const auto& pairs : stats_history_.begin()->second) {
     size_per_slice +=
-        pairs.first.capacity() + sizeof(pairs.first) + sizeof(pairs.second);
+        pairs.first.capacity() + sizeof(std::string) + sizeof(pairs.second);
   }
   size_total = size_per_slice * stats_history_.size();
   return size_total;

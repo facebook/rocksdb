@@ -92,7 +92,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
 BlobDBImpl::~BlobDBImpl() {
   tqueue_.shutdown();
   // CancelAllBackgroundWork(db_, true);
-  Status s __attribute__((__unused__)) = Close();
+  Status s __attribute__((__unused__)) = BlobDBImpl::Close();
   assert(s.ok());
 }
 

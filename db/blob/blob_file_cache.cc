@@ -98,7 +98,7 @@ Status BlobFileCache::GetBlobFileReader(
     }
   }
 
-  reader.release();
+  [[maybe_unused]] BlobFileReader* released_reader = reader.release();
 
   *blob_file_reader = cache_.Guard(handle);
 

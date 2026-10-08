@@ -42,7 +42,6 @@ namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
 class BlobFilePartitionManager;
 struct FlushJobInfo;
-class Mutex;
 class MemTableIterator;
 class MergeContext;
 class SystemClock;

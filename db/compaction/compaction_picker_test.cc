@@ -5825,8 +5825,8 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
   // Sub-case 1: Single-level. SST = 200KB, blob = 500MB, limit = 200MB.
   //   effective_size ~ 500MB >> 200MB -> drops from L0.
   {
-    SetupFIFORatioBased(/*max_table=*/200ULL * 1024 * 1024,
-                        /*max_data=*/200ULL * 1024 * 1024,
+    SetupFIFORatioBased(/*max_table_files_size=*/200ULL * 1024 * 1024,
+                        /*max_data_files_size=*/200ULL * 1024 * 1024,
                         /*trigger=*/4,
                         /*allow_compaction=*/true,
                         /*use_kv_ratio=*/false);
@@ -5880,8 +5880,8 @@ TEST_F(CompactionPickerTest, FIFOBlobAwareSizeDropping) {
   // Sub-case 3: Under limit. SST = 256KB, blob = 200MB, limit = 1GB.
   //   effective_size ~ 200MB < 1GB -> no dropping.
   {
-    SetupFIFORatioBased(/*max_table=*/1ULL * 1024 * 1024 * 1024,
-                        /*max_data=*/1ULL * 1024 * 1024 * 1024,
+    SetupFIFORatioBased(/*max_table_files_size=*/1ULL * 1024 * 1024 * 1024,
+                        /*max_data_files_size=*/1ULL * 1024 * 1024 * 1024,
                         /*trigger=*/4,
                         /*allow_compaction=*/true,
                         /*use_kv_ratio=*/true);

@@ -87,6 +87,7 @@ class TypedMemMapping : public MemMapping {
   TypedMemMapping& operator=(MemMapping&& v) noexcept {
     MemMapping& base = *this;
     base = std::move(v);
+    return *this;
   }
 
   inline T* Get() const { return static_cast<T*>(MemMapping::Get()); }

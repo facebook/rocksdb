@@ -1366,7 +1366,8 @@ TEST_P(BasicSecondaryCacheTest, BasicFailTest) {
   //                           str1.length()).IsInvalidArgument());
   ASSERT_OK(
       cache->Insert(k1.AsSlice(), item1.get(), GetHelper(), str1.length()));
-  item1.release();  // Appease clang-analyze "potential memory leak"
+  // Appease clang-analyze "potential memory leak"
+  [[maybe_unused]] TestItem* released_item1 = item1.release();
 
   Cache::Handle* handle;
   handle = cache->Lookup(k2.AsSlice(), nullptr, /*context*/ this,
