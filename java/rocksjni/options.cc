@@ -1981,9 +1981,6 @@ jlong Java_org_rocksdb_Options_writeThreadSlowYieldUsec(JNIEnv*, jclass,
       ->write_thread_slow_yield_usec;
 }
 
-// setSkipCheckingSstFileSizesOnDbOpen(final boolean
-// skipCheckingSstFileSizesOnDbOpen);
-
 /*
  * Class:     org_rocksdb_Options
  * Method:    setSkipCheckingSstFileSizesOnDbOpen
