@@ -4,7 +4,8 @@ import java.util.ArrayList;
 import org.junit.Test;
 
 /**
- * This test is intended to be run on MacOS
+ * This test is intended to be run only on MacOS
+ * <p>
  * It is used to compare/validate versions of RocksDB built using
  * `make clean jclean; make -j12 rocksdbjava`
  * versus versions built using
