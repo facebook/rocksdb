@@ -4,11 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include <rocksdb/c.h>
-
 #include <cassert>
 
 #include "monitoring/perf_level_imp.h"
+#include "rocksdb/c.h"
 
 namespace ROCKSDB_NAMESPACE {
 

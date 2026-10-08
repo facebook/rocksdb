@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <rocksdb/c.h>
 #include <stdio.h>
 
 #include <array>
@@ -17,6 +16,7 @@
 #include <string>
 #include <utility>
 
+#include "rocksdb/c.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
