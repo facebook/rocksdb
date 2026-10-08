@@ -10,7 +10,6 @@ import static org.rocksdb.util.ByteUtil.memcmp;
 import java.nio.ByteBuffer;
 import org.rocksdb.AbstractComparator;
 import org.rocksdb.ComparatorOptions;
-import org.rocksdb.Slice;
 
 /**
  * This is a Java Native implementation of the C++
