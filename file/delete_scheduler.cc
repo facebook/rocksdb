@@ -22,6 +22,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+bool IsFileGone(const Status& s) {
+  return s.IsNotFound() || s.IsPathNotFound();
+}
+}  // namespace
+
 DeleteScheduler::DeleteScheduler(SystemClock* clock, FileSystem* fs,
                                  int64_t rate_bytes_per_sec, Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager,
@@ -150,7 +156,7 @@ Status DeleteScheduler::DeleteExistingTrashFileImpl(
       (!accounted && !force_bg && num_hard_links > 1)) {
     Status s = DeleteFileImmediately(file_path_to_delete, accounted);
     InstrumentedMutexLock l(&mu_);
-    if (s.ok()) {
+    if (s.ok() || IsFileGone(s)) {
       if (accounted_trash_size.has_value()) {
         total_trash_size_.fetch_sub(accounted_trash_size.value());
       }
@@ -181,6 +187,8 @@ Status DeleteScheduler::DeleteFileImmediately(const std::string& file_path,
     s = OnDeleteFile(file_path, accounted);
     InstrumentedMutexLock l(&mu_);
     RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
+  } else if (IsFileGone(s)) {
+    OnDeleteFile(file_path, accounted).PermitUncheckedError();
   }
   return s;
 }
@@ -381,14 +389,15 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
+      bool trash_file_gone = false;
       // Delete file from trash and update total_penlty value
-      Status s = DeleteTrashFile(path_in_trash, dir_to_sync, accounted,
-                                 &deleted_bytes, &is_complete);
+      Status s =
+          DeleteTrashFile(path_in_trash, dir_to_sync, accounted, &deleted_bytes,
+                          &is_complete, &trash_file_gone);
       total_deleted_bytes += deleted_bytes;
       mu_.Lock();
-      // A trash file that is already gone (e.g. its directory was renamed)
-      // can never be retried, so release all of its remaining accounting.
-      const bool trash_file_gone = s.IsNotFound() || s.IsPathNotFound();
+      // A trash file that is already gone can never be retried, so release
+      // all of its remaining accounting.
       const uint64_t accounted_deleted_bytes =
           trash_file_gone ? accounted_trash_size
                           : std::min(deleted_bytes, accounted_trash_size);
@@ -472,10 +481,11 @@ void DeleteScheduler::BackgroundEmptyTrash() {
 Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
                                         const std::string& dir_to_sync,
                                         bool accounted, uint64_t* deleted_bytes,
-                                        bool* is_complete) {
+                                        bool* is_complete, bool* file_gone) {
   uint64_t file_size;
   Status s = fs_->GetFileSize(path_in_trash, IOOptions(), &file_size, nullptr);
   *is_complete = true;
+  *file_gone = false;
   TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
   TEST_SYNC_POINT_CALLBACK("DeleteScheduler::DeleteTrashFile::cb",
                            const_cast<std::string*>(&path_in_trash));
@@ -533,7 +543,14 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
       if (s.ok()) {
         s = fs_->DeleteFile(path_in_trash, IOOptions(), nullptr);
       }
-      if (!dir_to_sync.empty()) {
+      if (s.ok()) {
+        *deleted_bytes = file_size;
+        *file_gone = true;
+        s = OnDeleteFile(path_in_trash, accounted);
+      }
+      if (s.ok() && !dir_to_sync.empty()) {
+        TEST_SYNC_POINT_CALLBACK(
+            "DeleteScheduler::DeleteTrashFile:BeforeSyncDir", &s);
         std::unique_ptr<FSDirectory> dir_obj;
         if (s.ok()) {
           s = fs_->NewDirectory(dir_to_sync, IOOptions(), &dir_obj, nullptr);
@@ -547,19 +564,18 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
               static_cast<void*>(const_cast<std::string*>(&dir_to_sync)));
         }
       }
-      if (s.ok()) {
-        *deleted_bytes = file_size;
-        s = OnDeleteFile(path_in_trash, accounted);
-      }
     }
   }
   if (!s.ok()) {
-    // Error while getting file size or while deleting
+    // Error while getting file size, deleting, or syncing the directory
     ROCKS_LOG_ERROR(info_log_, "Failed to delete %s from trash -- %s",
                     path_in_trash.c_str(), s.ToString().c_str());
-    *deleted_bytes = 0;
-    if (s.IsNotFound() || s.IsPathNotFound()) {
+    if (!*file_gone && IsFileGone(s)) {
+      *file_gone = true;
       OnDeleteFile(path_in_trash, accounted).PermitUncheckedError();
+    }
+    if (!*file_gone) {
+      *deleted_bytes = 0;
     }
   }
 

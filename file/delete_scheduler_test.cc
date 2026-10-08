@@ -854,6 +854,63 @@ TEST_F(DeleteSchedulerTest, RetryFailedAccountedTrashDeletion) {
   }
 }
 
+TEST_F(DeleteSchedulerTest, ImmediateRetryOfVanishedFailedTrashDeletion) {
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / s
+  NewDeleteScheduler();
+
+  constexpr uint64_t kept_file_size = 2048;
+  NewDummyFile("kept.data", kept_file_size);
+  const std::string file = NewDummyFile("retry.data", 1024);
+  const std::string trash_file = file + DeleteScheduler::kTrashExtension;
+  std::atomic<bool> fail_next_delete{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:BeforeDeleteFile", [&](void* arg) {
+        if (fail_next_delete.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::IOError("injected delete error");
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(delete_scheduler_->DeleteFile(file, dummy_files_dirs_[0],
+                                          /*force_bg=*/true));
+  delete_scheduler_->WaitForEmptyTrashInDirectory(dummy_files_dirs_[0]);
+  ASSERT_OK(env_->FileExists(trash_file));
+
+  ASSERT_OK(env_->DeleteFile(trash_file));
+  delete_scheduler_->SetRateBytesPerSecond(0);
+  ASSERT_TRUE(sst_file_mgr_
+                  ->ScheduleExistingTrashFileDeletion(
+                      trash_file, dummy_files_dirs_[0], /*force_bg=*/false)
+                  .IsPathNotFound());
+
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  ASSERT_EQ(kept_file_size, sst_file_mgr_->GetTotalSize());
+}
+
+TEST_F(DeleteSchedulerTest, DirSyncFailureAfterTrashFileDeleted) {
+  rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / s
+  NewDeleteScheduler();
+
+  constexpr uint64_t kept_file_size = 2048;
+  NewDummyFile("kept.data", kept_file_size);
+  const std::string file = NewDummyFile("synced.data", 1024);
+  const std::string trash_file = file + DeleteScheduler::kTrashExtension;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:BeforeSyncDir", [](void* arg) {
+        *static_cast<Status*>(arg) = Status::IOError("injected sync error");
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(delete_scheduler_->DeleteFile(file, dummy_files_dirs_[0],
+                                          /*force_bg=*/true));
+  delete_scheduler_->WaitForEmptyTrashInDirectory(dummy_files_dirs_[0]);
+
+  ASSERT_TRUE(env_->FileExists(trash_file).IsNotFound());
+  ASSERT_EQ(1, delete_scheduler_->GetBackgroundErrors().size());
+  ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
+  ASSERT_EQ(kept_file_size, sst_file_mgr_->GetTotalSize());
+}
+
 TEST_F(DeleteSchedulerTest, ConcurrentDirectoryWaitStress) {
   rate_bytes_per_sec_ = 64 * 1024 * 1024;
   NewDeleteScheduler();

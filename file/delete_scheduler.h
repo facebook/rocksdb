@@ -145,7 +145,8 @@ class DeleteScheduler {
 
   Status DeleteTrashFile(const std::string& path_in_trash,
                          const std::string& dir_to_sync, bool accounted,
-                         uint64_t* deleted_bytes, bool* is_complete);
+                         uint64_t* deleted_bytes, bool* is_complete,
+                         bool* file_gone);
 
   Status OnDeleteFile(const std::string& file_path, bool accounted);
 
