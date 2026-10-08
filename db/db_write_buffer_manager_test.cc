@@ -983,6 +983,8 @@ TEST_P(DBWriteBufferManagerTest, FlushLargestAcrossDBsPolicy) {
   options.write_buffer_manager->SetBufferSize(768 << 10);
 
   recorder->WaitForFlush(other_db.get());
+  ASSERT_OK(static_cast_with_check<DBImpl>(other_db.get())
+                ->TEST_WaitForBackgroundWork());
   EXPECT_FALSE(recorder->HasFlushed(db_.get()));
   EXPECT_EQ(0, recorder->ManualFlushes());
 
