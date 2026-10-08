@@ -43,21 +43,6 @@ public class WriteBufferManager extends RocksObject {
     this.allowStall_ = allowStall;
   }
 
-  /**
-   * Construct a new instance with an explicit flush policy.
-   *
-   * @param bufferSizeBytes buffer size in bytes
-   * @param cache cache whose memory should be bounded by this manager
-   * @param allowStall whether writes may stall when memory exceeds the limit
-   * @param flushPolicy policy used to choose mutable memtables to flush
-   */
-  public WriteBufferManager(final long bufferSizeBytes, final Cache cache, final boolean allowStall,
-      final WriteBufferManagerFlushPolicy flushPolicy) {
-    super(newWriteBufferManagerWithFlushPolicyInstance(
-        bufferSizeBytes, cache.nativeHandle_, allowStall, flushPolicy.getValue()));
-    this.allowStall_ = allowStall;
-  }
-
  /**
   * Construct a new instance of WriteBufferManager.
   *
