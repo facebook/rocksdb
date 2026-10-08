@@ -29,7 +29,7 @@ public class SharedTempFileLoaderTest {
     return new BufferedReader(new InputStreamReader(is));
   }
 
-  static void compare(BufferedReader expected, BufferedReader actual) throws IOException {
+  static private void compare(BufferedReader expected, BufferedReader actual) throws IOException {
     String expectedLine = expected.readLine();
     String actualLine = actual.readLine();
     while (expectedLine != null) {

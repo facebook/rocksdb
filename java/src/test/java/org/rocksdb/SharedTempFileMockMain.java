@@ -1,7 +1,6 @@
 package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.rocksdb.SharedTempFileLoaderTest.compare;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -44,5 +43,16 @@ public class SharedTempFileMockMain {
     System.err.println(sharedTemp + " finished");
 
     Thread.sleep(2000);
+  }
+
+  static private void compare(BufferedReader expected, BufferedReader actual) throws IOException {
+    String expectedLine = expected.readLine();
+    String actualLine = actual.readLine();
+    while (expectedLine != null) {
+      assertThat(actualLine).isEqualTo(expectedLine);
+      expectedLine = expected.readLine();
+      actualLine = actual.readLine();
+    }
+    assertThat(actualLine).isNull();
   }
 }
