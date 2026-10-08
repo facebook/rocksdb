@@ -138,6 +138,11 @@ public abstract class Logger extends RocksCallbackObject implements LoggerInterf
    */
   protected native byte infoLogLevel(final long handle);
 
+  @Override
+  public long getNativeHandle() {
+    return nativeHandle_;
+  }
+
   /**
    * We override {@link RocksCallbackObject#disposeInternal()}
    * as disposing of a rocksdb::LoggerJniCallback requires
