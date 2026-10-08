@@ -97,16 +97,6 @@ public class IngestExternalFileOptionsTest {
   }
 
   @Test
-  public void writeGlobalSeqno() {
-    try (final IngestExternalFileOptions options =
-             new IngestExternalFileOptions()) {
-      assertThat(options.writeGlobalSeqno()).isFalse();
-      options.setWriteGlobalSeqno(true);
-      assertThat(options.writeGlobalSeqno()).isTrue();
-    }
-  }
-
-  @Test
   public void verifyChecksumsBeforeIngest() {
     try (final IngestExternalFileOptions options = new IngestExternalFileOptions()) {
       assertThat(options.verifyChecksumsBeforeIngest()).isFalse();
