@@ -111,6 +111,9 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
       table_(max_upper_hash_bits, allocator),
       usage_(GetTableMetaCharge()),
       pinned_usage_(0),
+      probation_usage_(0),
+      probation_unpinned_(0),
+      resident_unpinned_(0),
       mutex_(use_adaptive_mutex),
       allocator_(allocator),
       eviction_callback_(*eviction_callback) {
@@ -185,16 +188,19 @@ void FIFOCacheShard::ApplyToSomeEntries(
       index_begin, index_end);
 }
 
-void FIFOCacheShard::TEST_PromoteToResident(const Slice& key) {
+size_t FIFOCacheShard::TEST_GetProbationUsage() const {
   DMutexLock l(mutex_);
-  for (FIFOHandle* h = probation_.next; h != &probation_; h = h->next) {
-    if (h->key() == key) {
-      FIFO_Remove(h);
-      FIFO_Append(&resident_, h);
-      return;
-    }
-  }
-  assert(false);
+  return probation_usage_;
+}
+
+size_t FIFOCacheShard::TEST_GetProbationBudget() const {
+  DMutexLock l(mutex_);
+  return ProbationBudget();
+}
+
+size_t FIFOCacheShard::ProbationBudget() const {
+  return capacity_ / 100 * kProbationPercent +
+         (capacity_ % 100) * kProbationPercent / 100;
 }
 
 void FIFOCacheShard::TEST_GetFIFOList(FIFOHandle** fifo) {
@@ -223,13 +229,23 @@ void FIFOCacheShard::FIFO_Remove(FIFOHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
-  // No accounting here: queue membership alone affects neither usage_
-  // (in-cache plus detached-pinned) nor pinned_usage_ (refs > 0).
+  if (!e->HasRefs()) {
+    assert(UnpinnedCount(e) > 0);
+    --UnpinnedCount(e);
+  }
+  if (e->InProbation()) {
+    e->SetInProbation(false);
+    assert(probation_usage_ >= e->total_charge);
+    probation_usage_ -= e->total_charge;
+  }
+  // Queue membership alone affects neither usage_ (in-cache plus
+  // detached-pinned) nor pinned_usage_ (refs > 0).
 }
 
 void FIFOCacheShard::FIFO_Append(FIFOHandle* queue, FIFOHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
+  assert(!e->InProbation());
   // Append to tail. For probation queue->prev is newest and queue->next is
   // oldest. For resident the tail is just before the hand, which is the
   // dummy head itself when resident is empty.
@@ -238,9 +254,19 @@ void FIFOCacheShard::FIFO_Append(FIFOHandle* queue, FIFOHandle* e) {
   e->prev = before->prev;
   e->prev->next = e;
   e->next->prev = e;
-  if (queue == &resident_ && resident_hand_ == &resident_) {
+  if (queue == &probation_) {
+    e->SetInProbation(true);
+    probation_usage_ += e->total_charge;
+  } else if (resident_hand_ == &resident_) {
     resident_hand_ = e;
   }
+  if (!e->HasRefs()) {
+    ++UnpinnedCount(e);
+  }
+}
+
+size_t& FIFOCacheShard::UnpinnedCount(const FIFOHandle* e) {
+  return e->InProbation() ? probation_unpinned_ : resident_unpinned_;
 }
 
 FIFOHandle* FIFOCacheShard::ResidentNext(FIFOHandle* e) {
@@ -253,15 +279,47 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
   if ((usage_ + charge) <= capacity_) {
     return;
   }
+  if (probation_unpinned_ == 0 && resident_unpinned_ == 0) {
+    return;
+  }
   size_t need = usage_ + charge - capacity_;
   size_t freed = 0;
-  // Phase 1: probation first. Each step consumes the head: promote, evict,
-  // or move a pinned entry to the tail. The pass ends after the entry that
-  // was newest when it began, so it visits at most the initial number of
-  // entries. Promotion frees nothing; the pass continues.
+  // The budget selects the queue from the current probation charge, before
+  // the incoming entry is accounted. Either pass can free nothing (all
+  // pinned), so the other queue is always tried when need remains.
+  const bool probation_first =
+      (probation_usage_ > ProbationBudget()) || (resident_.next == &resident_);
+  if (probation_first) {
+    EvictFromProbation(need, &freed, deleted);
+    if (freed < need) {
+      EvictFromResident(need, &freed, deleted);
+    }
+  } else {
+    EvictFromResident(need, &freed, deleted);
+    if (freed < need) {
+      // Entries the probation pass promotes are unpinned resident entries
+      // at freq 0, the next resident victims, so resident runs again
+      // whenever promotion happened and need remains.
+      const bool promoted = EvictFromProbation(need, &freed, deleted);
+      if (promoted && freed < need) {
+        EvictFromResident(need, &freed, deleted);
+      }
+    }
+  }
+}
+
+bool FIFOCacheShard::EvictFromProbation(size_t need, size_t* freed,
+                                        autovector<FIFOHandle*>* deleted) {
+  // Each step consumes the head: promote, evict, or move a pinned entry to
+  // the tail. The pass ends after the entry that was newest when it began,
+  // so it visits at most the initial number of entries and never revisits
+  // a moved pin. Promotion frees nothing; the pass continues. Moves touch
+  // only links and the probation charge: usage_ and pinned_usage_ are
+  // unchanged.
+  bool promoted = false;
   FIFOHandle* const last = probation_.prev;
   bool at_last = probation_.next == &probation_;
-  while (!at_last && freed < need) {
+  while (!at_last && *freed < need) {
     FIFOHandle* cur = probation_.next;
     at_last = cur == last;
     if (cur->HasRefs()) {
@@ -273,6 +331,7 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
         FIFO_Remove(cur);
         FIFO_Append(&resident_, cur);
         cur->freq = 0;
+        promoted = true;
       } else {
         FIFO_Remove(cur);
         const size_t table_meta_before = GetTableMetaCharge();
@@ -283,16 +342,21 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
         usage_ -= table_meta_before - table_meta_after;
         assert(usage_ >= cur->total_charge);
         usage_ -= cur->total_charge;
-        freed += cur->total_charge;
+        *freed += cur->total_charge;
         deleted->push_back(cur);
       }
     }
   }
-  // Phase 2: resident second-chance. Every step rotates (advances the hand
-  // past) or evicts the head; a pass ends when the hand cycles back to its
-  // marker. The marker is re-anchored by breaking out on every eviction.
+  return promoted;
+}
+
+void FIFOCacheShard::EvictFromResident(size_t need, size_t* freed,
+                                       autovector<FIFOHandle*>* deleted) {
+  // Every step rotates (advances the hand past) or evicts the head; a pass
+  // ends when the hand cycles back to its marker. The marker is re-anchored
+  // by breaking out on every eviction.
   int idle_passes = 0;
-  while (freed < need && resident_.next != &resident_ &&
+  while (*freed < need && resident_.next != &resident_ &&
          idle_passes < kMaxResidentIdlePasses) {
     FIFOHandle* start = resident_hand_;
     bool evicted_this_pass = false;
@@ -310,13 +374,13 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
         head->SetInCache(false);
         assert(usage_ >= head->total_charge);
         usage_ -= head->total_charge;
-        freed += head->total_charge;
+        *freed += head->total_charge;
         deleted->push_back(head);
         evicted_this_pass = true;
         idle_passes = 0;
         break;
       }
-    } while (freed < need && resident_.next != &resident_ &&
+    } while (*freed < need && resident_.next != &resident_ &&
              resident_hand_ != start);
     if (!evicted_this_pass) {
       ++idle_passes;
@@ -347,6 +411,8 @@ void FIFOCacheShard::SetCapacity(size_t capacity) {
   {
     DMutexLock l(mutex_);
     capacity_ = capacity;
+    // The probation budget is derived from capacity_ at each use, so it
+    // already tracks the new capacity when eviction below runs.
     EvictFromFIFO(0, &last_reference_list);
   }
 
@@ -406,6 +472,7 @@ Status FIFOCacheShard::InsertItem(FIFOHandle* e, FIFOHandle** handle) {
       if (handle != nullptr) {
         // If caller already holds a ref, no need to take one here.
         if (!e->HasRefs()) {
+          --UnpinnedCount(e);
           e->Ref();
           pinned_usage_ += e->total_charge;
         }
@@ -431,6 +498,7 @@ FIFOHandle* FIFOCacheShard::Lookup(const Slice& key, uint32_t hash,
   }
   assert(e->InCache());
   if (!e->HasRefs()) {
+    --UnpinnedCount(e);
     pinned_usage_ += e->total_charge;
   }
   e->Ref();
@@ -464,6 +532,7 @@ bool FIFOCacheShard::Release(FIFOHandle* e, bool /*useful*/,
     assert(pinned_usage_ >= e->total_charge);
     pinned_usage_ -= e->total_charge;
     if (e->InCache()) {
+      ++UnpinnedCount(e);
       if (usage_ > capacity_ || erase_if_last_ref) {
         // Remove the item. The FIFO queue may still hold pinned entries,
         // so unlike LRU there is no emptiness assertion here.
