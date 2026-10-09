@@ -906,7 +906,11 @@ TEST_F(DeleteSchedulerTest, DirSyncFailureAfterTrashFileDeleted) {
   delete_scheduler_->WaitForEmptyTrashInDirectory(dummy_files_dirs_[0]);
 
   ASSERT_TRUE(env_->FileExists(trash_file).IsNotFound());
-  ASSERT_EQ(1, delete_scheduler_->GetBackgroundErrors().size());
+  auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+  ASSERT_EQ(1, bg_errors.size());
+  for (auto& error : bg_errors) {
+    ASSERT_NOK(error.second);
+  }
   ASSERT_EQ(0, delete_scheduler_->GetTotalTrashSize());
   ASSERT_EQ(kept_file_size, sst_file_mgr_->GetTotalSize());
 }
