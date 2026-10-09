@@ -86,6 +86,8 @@ class InjectedErrorLog {
     char op_name[kMaxOpNameLen];
     char file_name[kMaxFileNameLen];
     char status_message[kMaxStatusMessageLen];
+    // Keep Entry exactly 256 bytes on both 32 bit and 64 bit architectures.
+    uint8_t padding[4];
   };
 
   static_assert(sizeof(Entry) == 256,
