@@ -495,9 +495,11 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
 // construction, growing as the table resizes, and never shrinking.
 // A shard needs well over that much capacity to hold any entry.
 //
-// This is an opt-in implementation reached only by constructing it directly
-// (see MakeSharedCache); no option string or tool selects it and it is not
-// the default block cache.
+// This is an opt-in implementation and not the default block cache. Besides
+// MakeSharedCache, Cache::CreateFromString accepts
+// "fifo_cache://capacity=<n>;..." with the scalar fields below (e.g.
+// block_cache={fifo_cache://capacity=1G;num_shard_bits=6}); memory_allocator
+// and secondary_cache can only be set in C++.
 struct FIFOCacheOptions : public ShardedCacheOptions {
   // Whether to use adaptive mutexes for cache shards. Note that adaptive
   // mutexes need to be supported by the platform in order for this to have any
