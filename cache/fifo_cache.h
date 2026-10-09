@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
@@ -50,7 +51,8 @@ struct FIFOHandle : public Cache::Handle {
   size_t key_length;
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
-  // The number of external refs to this entry. The cache itself is not counted.
+  // The number of external refs to this entry. The cache itself is not
+  // counted.
   uint32_t refs;
   // Saturating access counter, range 0..kMaxFrequency. Incremented by Lookup
   // only (never by Ref); promotion and second-chance decisions read it at
@@ -84,7 +86,8 @@ struct FIFOHandle : public Cache::Handle {
   // Increase the reference count by 1.
   void Ref() { refs++; }
 
-  // Just reduce the reference count by 1. Return true if it was last reference.
+  // Just reduce the reference count by 1. Return true if it was last
+  // reference.
   bool Unref() {
     assert(refs > 0);
     refs--;
@@ -331,9 +334,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   static constexpr int kMaxResidentIdlePasses = 4;
   // Probation holds 12% of the shard's capacity by charge; resident holds
   // the remainder. Shard-internal in this diff; making it configurable is
-  // future work. On shards small enough that the share rounds to zero the
-  // budget is zero, so any non-empty probation is over budget and eviction
-  // keeps the old probation-first order.
+  // future work. The budget only orders eviction and never caps an insert:
+  // an entry larger than the whole budget enters probation over budget
+  // and is decided on its turn like any other. On shards small enough that
+  // the share rounds to zero the budget is zero, so every insert is over
+  // budget and eviction keeps the old probation-first order.
   static constexpr size_t kProbationPercent = 12;
 
   // Probation budget: floor(capacity_ * 12 / 100) computed as
@@ -344,21 +349,21 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
 
   // Free some space until enough to hold (usage_ + charge) is freed or no
   // unpinned entry remains. Total capacity decides whether to evict; the
-  // probation budget only selects the queue. When probation is over budget
-  // (or resident is empty) the probation pass runs first, otherwise the
-  // resident pass runs first; the other queue is tried if need remains, so
-  // a pinned preferred queue falls back instead of stranding evictable
-  // entries. The choice reads the current probation charge, before the
-  // incoming entry is accounted. An entry that alone exceeds the whole
-  // budget is treated like any other: it waits in probation and is
-  // promoted or evicted on its turn under pressure.
+  // probation budget only selects the queue. When probation plus
+  // probation_charge (the part of the incoming charge that will be linked
+  // into probation, 0 if none) is over budget, or resident is empty, the
+  // probation pass runs first, otherwise the resident pass runs first; the
+  // other queue is tried if need remains, so a pinned preferred queue falls
+  // back instead of stranding evictable entries. Resident therefore pays
+  // only for what probation cannot free, whatever the incoming size.
   // The probation pass consumes its head each step, so it ends after at
   // most the initial number of entries; the resident scan is bounded by
   // kMaxResidentIdlePasses per eviction. An all-pinned shard terminates
   // having evicted nothing.
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
-  void EvictFromFIFO(size_t charge, autovector<FIFOHandle*>* deleted);
+  void EvictFromFIFO(size_t charge, size_t probation_charge,
+                     autovector<FIFOHandle*>* deleted);
 
   // One sweep over probation from the head: unpinned entries at or above
   // kPromoteThreshold move to the resident tail (counter reset), unpinned
@@ -379,10 +384,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   void EvictFromResident(size_t need, size_t* freed,
                          autovector<FIFOHandle*>* deleted);
 
-  // Records a probation victim's shard hash in the ghost queue, dropping
-  // the oldest ghosts beyond the bound. Call before erasing the victim
-  // from table_ so that a full shard of N entries keeps N ghosts.
-  void GhostRecord(uint32_t hash);
+  // Records a probation victim's shard hash and charge in the ghost queue,
+  // dropping the oldest ghosts beyond the bound. Call before erasing the
+  // victim from table_ so that a full shard of N entries keeps N ghosts.
+  void GhostRecord(uint32_t hash, size_t charge);
 
   // Removes a shard hash from the ghost queue; returns whether it was there.
   bool GhostTake(uint32_t hash);
@@ -456,10 +461,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // never recorded: they already had their chance. A hash collision only
   // admits one entry to resident at freq 0, where it is evicted on its
   // first visit.
-  // Bound: at most table_.size() slots, oldest dropped first, i.e. reuse is
-  // remembered over about one shard's worth of evictions, and ghost memory
-  // stays proportional to the table it shadows. Not charged to usage_:
-  // about 4 bytes of ring plus one index entry per remembered key.
+  // Bound: slots' total charge at most capacity_ and at most table_.size()
+  // slots, oldest dropped first. The charge bound remembers about one
+  // shard's worth of probation victims by charge, the unit of the budget,
+  // so large victims cannot be remembered over many shards of traffic. The
+  // slot bound keeps ghost memory proportional to the table it shadows
+  // even for tiny or zero charges. Not charged to usage_: about 8 bytes
+  // of ring plus one index entry per remembered key.
   // Placeholder inserts (zero charge, kNoopCacheItemHelper, as
   // CacheWithSecondaryAdapter uses to record recent use) neither take nor
   // leave a ghost, so readmission credit reaches the real entry.
@@ -471,7 +479,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // never moves a slot to another sequence number. ghost_index_ is
   // allocation-free with folly (F14); std::unordered_map, used without
   // USE_FOLLY, allocates a node per recorded ghost.
-  std::unique_ptr<uint32_t[]> ghost_ring_;
+  struct GhostSlot {
+    // Victim total_charge, saturated at UINT32_MAX; only the ghost bound
+    // reads it.
+    uint32_t charge;
+    uint32_t hash;
+  };
+  std::unique_ptr<GhostSlot[]> ghost_ring_;
   // Ring length, 0 or a power of two. Grows to the slot bound and never
   // shrinks, like table_.
   size_t ghost_ring_length_;
@@ -480,6 +494,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   uint64_t ghost_head_seq_;
   size_t ghost_size_;
   UnorderedMap<uint32_t, uint64_t> ghost_index_;
+  // Total charge of all slots in the ring, stale ones included.
+  size_t ghost_charge_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we

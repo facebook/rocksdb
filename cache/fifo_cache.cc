@@ -5,10 +5,12 @@
 
 #include "cache/fifo_cache.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 #include "cache/secondary_cache_adapter.h"
 #include "port/lang.h"
@@ -118,6 +120,7 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
       ghost_ring_length_(0),
       ghost_head_seq_(0),
       ghost_size_(0),
+      ghost_charge_(0),
       mutex_(use_adaptive_mutex),
       allocator_(allocator),
       eviction_callback_(*eviction_callback) {
@@ -288,7 +291,7 @@ FIFOHandle* FIFOCacheShard::ResidentNext(FIFOHandle* e) {
   return next == &resident_ ? next->next : next;
 }
 
-void FIFOCacheShard::EvictFromFIFO(size_t charge,
+void FIFOCacheShard::EvictFromFIFO(size_t charge, size_t probation_charge,
                                    autovector<FIFOHandle*>* deleted) {
   if ((usage_ + charge) <= capacity_) {
     return;
@@ -298,11 +301,13 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
   }
   size_t need = usage_ + charge - capacity_;
   size_t freed = 0;
-  // The budget selects the queue from the current probation charge, before
-  // the incoming entry is accounted. Either pass can free nothing (all
-  // pinned), so the other queue is always tried when need remains.
+  // The budget selects the queue from the probation charge as it will be
+  // once a probation-bound incoming entry is linked, so probation pays for
+  // its own arrivals. Either pass can free nothing (all pinned), so the
+  // other queue is always tried when need remains.
   const bool probation_first =
-      (probation_usage_ > ProbationBudget()) || (resident_.next == &resident_);
+      (probation_usage_ + probation_charge > ProbationBudget()) ||
+      (resident_.next == &resident_);
   if (probation_first) {
     EvictFromProbation(need, &freed, deleted);
     if (freed < need) {
@@ -349,7 +354,7 @@ bool FIFOCacheShard::EvictFromProbation(size_t need, size_t* freed,
       } else {
         FIFO_Remove(cur);
         if (!IsPlaceholder(cur)) {
-          GhostRecord(cur->hash);
+          GhostRecord(cur->hash, cur->total_charge);
         }
         const size_t table_meta_before = GetTableMetaCharge();
         table_.Remove(cur->key(), cur->hash);
@@ -405,12 +410,12 @@ void FIFOCacheShard::EvictFromResident(size_t need, size_t* freed,
   }
 }
 
-void FIFOCacheShard::GhostRecord(uint32_t hash) {
+void FIFOCacheShard::GhostRecord(uint32_t hash, size_t charge) {
   if (ghost_size_ == ghost_ring_length_) {
     // Double the ring, keeping each slot at its sequence number.
     const size_t new_length =
         ghost_ring_length_ == 0 ? size_t{16} : ghost_ring_length_ * 2;
-    std::unique_ptr<uint32_t[]> new_ring(new uint32_t[new_length]);
+    std::unique_ptr<GhostSlot[]> new_ring(new GhostSlot[new_length]);
     for (uint64_t seq = ghost_head_seq_; seq < ghost_head_seq_ + ghost_size_;
          ++seq) {
       new_ring[seq & (new_length - 1)] =
@@ -421,14 +426,20 @@ void FIFOCacheShard::GhostRecord(uint32_t hash) {
   }
   const uint64_t seq = ghost_head_seq_ + ghost_size_;
   ghost_index_[hash] = seq;
-  ghost_ring_[seq & (ghost_ring_length_ - 1)] = hash;
+  const uint32_t slot_charge = static_cast<uint32_t>(
+      std::min<size_t>(charge, std::numeric_limits<uint32_t>::max()));
+  ghost_ring_[seq & (ghost_ring_length_ - 1)] = GhostSlot{slot_charge, hash};
   ++ghost_size_;
-  while (ghost_size_ > table_.GetOccupancyCount()) {
-    auto it = ghost_index_.find(
-        ghost_ring_[ghost_head_seq_ & (ghost_ring_length_ - 1)]);
+  ghost_charge_ += slot_charge;
+  while (ghost_size_ > table_.GetOccupancyCount() ||
+         ghost_charge_ > capacity_) {
+    const GhostSlot& head =
+        ghost_ring_[ghost_head_seq_ & (ghost_ring_length_ - 1)];
+    auto it = ghost_index_.find(head.hash);
     if (it != ghost_index_.end() && it->second == ghost_head_seq_) {
       ghost_index_.erase(it);
     }
+    ghost_charge_ -= head.charge;
     --ghost_size_;
     ++ghost_head_seq_;
   }
@@ -463,7 +474,7 @@ void FIFOCacheShard::SetCapacity(size_t capacity) {
     capacity_ = capacity;
     // The probation budget is derived from capacity_ at each use, so it
     // already tracks the new capacity when eviction below runs.
-    EvictFromFIFO(0, &last_reference_list);
+    EvictFromFIFO(0, 0, &last_reference_list);
   }
 
   NotifyEvicted(last_reference_list);
@@ -482,8 +493,13 @@ Status FIFOCacheShard::InsertItem(FIFOHandle* e, FIFOHandle** handle) {
     DMutexLock l(mutex_);
 
     // Free the space following strict FIFO policy until enough space
-    // is freed or no unpinned entry remains.
-    EvictFromFIFO(e->total_charge, &last_reference_list);
+    // is freed or no unpinned entry remains. A remembered key will land in
+    // resident, so it does not count against the probation budget. A
+    // placeholder never uses the ghost (see ghost_index_).
+    const bool remembered =
+        !IsPlaceholder(e) && ghost_index_.count(e->hash) > 0;
+    const size_t probation_charge = remembered ? 0 : e->total_charge;
+    EvictFromFIFO(e->total_charge, probation_charge, &last_reference_list);
 
     if ((usage_ + e->total_charge) > capacity_ &&
         (strict_capacity_limit_ || handle == nullptr)) {
@@ -518,9 +534,8 @@ Status FIFOCacheShard::InsertItem(FIFOHandle* e, FIFOHandle** handle) {
         // Else old stays charged until its last Release.
       }
       usage_ += e->total_charge;
-      FIFO_Append(
-          !IsPlaceholder(e) && GhostTake(e->hash) ? &resident_ : &probation_,
-          e);
+      FIFO_Append(remembered && GhostTake(e->hash) ? &resident_ : &probation_,
+                  e);
       if (handle != nullptr) {
         // If caller already holds a ref, no need to take one here.
         if (!e->HasRefs()) {
@@ -668,7 +683,7 @@ FIFOHandle* FIFOCacheShard::CreateStandalone(
   {
     DMutexLock l(mutex_);
 
-    EvictFromFIFO(e->total_charge, &last_reference_list);
+    EvictFromFIFO(e->total_charge, 0, &last_reference_list);
 
     if (strict_capacity_limit_ && (usage_ + e->total_charge) > capacity_) {
       if (allow_uncharged) {
