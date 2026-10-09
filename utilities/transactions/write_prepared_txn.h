@@ -135,7 +135,7 @@ class WritePreparedTxn : public PessimisticTransaction {
   WritePreparedTxn(const WritePreparedTxn&) = delete;
   void operator=(const WritePreparedTxn&) = delete;
 
-  virtual ~WritePreparedTxn() {}
+  ~WritePreparedTxn() override {}
 
   // To make WAL commit markers visible, the snapshot will be based on the last
   // seq in the WAL that is also published, LastPublishedSequence, as opposed to

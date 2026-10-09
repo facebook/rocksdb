@@ -18,7 +18,7 @@ class BatchedOpsStressTest : public StressTest {
   BatchedOpsStressTest(int db_index, const std::string& db_path,
                        const std::string& ev_path, const std::string& sec_path)
       : StressTest(db_index, db_path, ev_path, sec_path) {}
-  virtual ~BatchedOpsStressTest() = default;
+  ~BatchedOpsStressTest() override = default;
 
   bool IsStateTracked() const override { return false; }
 

@@ -33,7 +33,7 @@ class OptimisticTransaction : public TransactionBaseImpl {
   OptimisticTransaction(const OptimisticTransaction&) = delete;
   void operator=(const OptimisticTransaction&) = delete;
 
-  virtual ~OptimisticTransaction();
+  ~OptimisticTransaction() override;
 
   void Reinitialize(OptimisticTransactionDB* txn_db,
                     const WriteOptions& write_options,

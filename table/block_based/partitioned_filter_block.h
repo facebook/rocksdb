@@ -36,7 +36,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       const bool persist_user_defined_timestamps,
       bool decouple_from_index_partitions, bool use_common_prefix = false);
 
-  virtual ~PartitionedFilterBlockBuilder();
+  ~PartitionedFilterBlockBuilder() override;
 
   void Add(const Slice& key_without_ts) override;
   void AddWithPrevKey(const Slice& key_without_ts,

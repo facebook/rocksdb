@@ -43,7 +43,7 @@ class DBWithTTLImpl : public DBWithTTLImplBase {
   static void RegisterTtlClasses();
   explicit DBWithTTLImpl(std::unique_ptr<DB>&& db);
 
-  virtual ~DBWithTTLImpl();
+  ~DBWithTTLImpl() override;
 
   Status Close() override;
 
@@ -153,7 +153,7 @@ class TtlIterator : public Iterator {
  public:
   explicit TtlIterator(Iterator* iter) : iter_(iter) { assert(iter_); }
 
-  ~TtlIterator() { delete iter_; }
+  ~TtlIterator() override { delete iter_; }
 
   bool Valid() const override { return iter_->Valid(); }
 

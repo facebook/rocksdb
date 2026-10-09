@@ -171,7 +171,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   ColumnFamilyHandleImpl(ColumnFamilyData* cfd, DBImpl* db,
                          InstrumentedMutex* mutex);
   // destroy without mutex
-  virtual ~ColumnFamilyHandleImpl();
+  ~ColumnFamilyHandleImpl() override;
   virtual ColumnFamilyData* cfd() const { return cfd_; }
   virtual DBImpl* db() const { return db_; }
 

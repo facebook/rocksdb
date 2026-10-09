@@ -103,7 +103,7 @@ class TransactionTestBase : public ::testing::Test {
     EXPECT_OK(s);
   }
 
-  ~TransactionTestBase() {
+  ~TransactionTestBase() override {
     delete db;
     db = nullptr;
     // This is to skip the assert statement in FaultInjectionTestEnv. There

@@ -58,7 +58,7 @@ class FlushJobTestBase : public testing::Test {
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {}
 
-  virtual ~FlushJobTestBase() {
+  ~FlushJobTestBase() override {
     if (getenv("KEEP_DB")) {
       fprintf(stdout, "db is still in %s\n", dbname_.c_str());
     } else {

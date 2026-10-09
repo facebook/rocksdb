@@ -388,7 +388,7 @@ class ReadRangeDelAggregator final : public RangeDelAggregator {
       const InternalKey* largest = nullptr) override;
 
   bool ShouldDelete(const ParsedInternalKey& parsed,
-                    RangeDelPositioningMode mode) final override {
+                    RangeDelPositioningMode mode) final {
     if (rep_.IsEmpty()) {
       return false;
     }

@@ -51,7 +51,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   BlockBasedTableBuilder& operator=(const BlockBasedTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~BlockBasedTableBuilder();
+  ~BlockBasedTableBuilder() override;
 
   // Resets this thread's AutoSkip inter-file estimate carryover (see
   // CompressionOptions::auto_skip). Tools that build many independent files on

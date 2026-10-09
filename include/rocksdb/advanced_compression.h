@@ -452,7 +452,7 @@ class CompressionManager
       public Customizable {
  public:
   CompressionManager() = default;
-  virtual ~CompressionManager() = default;
+  ~CompressionManager() override = default;
   static const char* Type() { return "CompressionManager"; }
 
   // *************** Creating various Compression Managers *************** //

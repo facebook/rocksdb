@@ -27,7 +27,7 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
   ConcurrentTaskLimiterImpl& operator=(const ConcurrentTaskLimiterImpl&) =
       delete;
 
-  virtual ~ConcurrentTaskLimiterImpl();
+  ~ConcurrentTaskLimiterImpl() override;
 
   const std::string& GetName() const override;
 

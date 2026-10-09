@@ -115,7 +115,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           const std::string& sec_path)
       : StressTest(db_index, db_path, ev_path, sec_path) {}
 
-  virtual ~NonBatchedOpsStressTest() = default;
+  ~NonBatchedOpsStressTest() override = default;
 
   void VerifyDb(ThreadState* thread) const override {
     // This `ReadOptions` is for validation purposes. Ignore

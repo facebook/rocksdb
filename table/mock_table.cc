@@ -94,7 +94,7 @@ class MockTableBuilder : public TableBuilder {
   }
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~MockTableBuilder() = default;
+  ~MockTableBuilder() override = default;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.

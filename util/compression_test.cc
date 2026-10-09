@@ -2307,11 +2307,11 @@ class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
   explicit CostAwareTestFlushBlockPolicyFactory(const int window)
       : window_(window) {}
 
-  virtual const char* Name() const override {
+  const char* Name() const override {
     return "CostAwareTestFlushBlockPolicyFactory";
   }
 
-  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+  FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,
       const BlockBuilder& data_block_builder) const override {
     (void)data_block_builder;
