@@ -6,12 +6,14 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
 #include "port/likely.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
 #include "util/distributed_mutex.h"
 #include "util/hash_containers.h"
@@ -536,5 +538,10 @@ class FIFOCache
 using FIFOCache = fifo_cache::FIFOCache;
 using FIFOHandle = fifo_cache::FIFOHandle;
 using FIFOCacheShard = fifo_cache::FIFOCacheShard;
+
+// The fifo_cache:// option fields. Built on first use, so it is ready even
+// when called during another translation unit's static initialization.
+const std::unordered_map<std::string, OptionTypeInfo>&
+FIFOCacheOptionsTypeInfo();
 
 }  // namespace ROCKSDB_NAMESPACE

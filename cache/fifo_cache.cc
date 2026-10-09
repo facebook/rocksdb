@@ -812,6 +812,37 @@ size_t FIFOCache::TEST_GetFIFOSize() {
 
 }  // namespace fifo_cache
 
+const std::unordered_map<std::string, OptionTypeInfo>&
+FIFOCacheOptionsTypeInfo() {
+  static const std::unordered_map<std::string, CacheMetadataChargePolicy>
+      metadata_charge_policy_string_map = {
+          {"kDontChargeCacheMetadata", kDontChargeCacheMetadata},
+          {"kFullChargeCacheMetadata", kFullChargeCacheMetadata},
+      };
+  static const std::unordered_map<std::string, OptionTypeInfo> type_info = {
+      {"capacity",
+       {offsetof(struct FIFOCacheOptions, capacity), OptionType::kSizeT,
+        OptionVerificationType::kNormal}},
+      {"num_shard_bits",
+       {offsetof(struct FIFOCacheOptions, num_shard_bits), OptionType::kInt,
+        OptionVerificationType::kNormal}},
+      {"strict_capacity_limit",
+       {offsetof(struct FIFOCacheOptions, strict_capacity_limit),
+        OptionType::kBoolean, OptionVerificationType::kNormal}},
+      {"metadata_charge_policy",
+       OptionTypeInfo::Enum<CacheMetadataChargePolicy>(
+           offsetof(struct FIFOCacheOptions, metadata_charge_policy),
+           &metadata_charge_policy_string_map)},
+      {"hash_seed",
+       {offsetof(struct FIFOCacheOptions, hash_seed), OptionType::kInt32T,
+        OptionVerificationType::kNormal}},
+      {"use_adaptive_mutex",
+       {offsetof(struct FIFOCacheOptions, use_adaptive_mutex),
+        OptionType::kBoolean, OptionVerificationType::kNormal}},
+  };
+  return type_info;
+}
+
 std::shared_ptr<Cache> FIFOCacheOptions::MakeSharedCache() const {
   if (num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
