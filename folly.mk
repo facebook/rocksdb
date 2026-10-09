@@ -186,6 +186,8 @@ build_folly:
 	$(restore_folly_getdeps_downloads)
 	cd third-party/folly && \
 		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " GETDEPS_USE_WGET=1 $(PYTHON) build/fbcode_builder/getdeps.py build $(FOLLY_BUILD_FLAGS)
+	@# Update cache with archives downloaded during the build
+	$(cache_folly_getdeps_downloads)
 	@# In the folly build, glog and gflags are only built as dynamic libraries,
 	@# not static. This patchelf command is needed to reliably have the glog
 	@# library find its dependency gflags, because apparently the rpath of the
