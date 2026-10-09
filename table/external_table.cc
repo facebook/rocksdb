@@ -35,6 +35,30 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+static_assert(static_cast<uint8_t>(ExternalTableBuilderNewTableReason::kNone) ==
+              static_cast<uint8_t>(TableBuilderNewTableReason::kNone));
+static_assert(
+    static_cast<uint8_t>(
+        ExternalTableBuilderNewTableReason::kRowClassificationChanged) ==
+    static_cast<uint8_t>(
+        TableBuilderNewTableReason::kRowClassificationChanged));
+static_assert(
+    static_cast<uint8_t>(
+        ExternalTableBuilderNewTableReason::kSchemaIdChanged) ==
+    static_cast<uint8_t>(TableBuilderNewTableReason::kSchemaIdChanged));
+static_assert(
+    static_cast<uint8_t>(
+        ExternalTableBuilderNewTableReason::kSchemaVersionIncompatible) ==
+    static_cast<uint8_t>(
+        TableBuilderNewTableReason::kSchemaVersionIncompatible));
+static_assert(
+    static_cast<uint8_t>(
+        ExternalTableBuilderNewTableReason::kUnsupportedEntryType) ==
+    static_cast<uint8_t>(TableBuilderNewTableReason::kUnsupportedEntryType));
+static_assert(
+    static_cast<uint8_t>(ExternalTableBuilderNewTableReason::kBuilderPolicy) ==
+    static_cast<uint8_t>(TableBuilderNewTableReason::kBuilderPolicy));
+
 namespace {
 
 Status GetValueType(EntryType entry_type, ValueType* value_type) {
@@ -769,78 +793,74 @@ class ExternalTableBuilderAdapter : public TableBuilder {
   }
 
   void Add(const Slice& key, const Slice& value) override {
+    TableBuilderAddContext context;
+    const TableBuilderAddResult result = TryAdd(key, value, &context);
+    if (result == TableBuilderAddResult::kRequiresNewTable) {
+      status_ = Status::InvalidArgument(
+          "External table builder requested a new table through Add");
+    } else if (result == TableBuilderAddResult::kError && status_.ok()) {
+      status_ = Status::InvalidArgument(
+          "External table builder returned an "
+          "error without a non-OK status");
+    }
+  }
+
+  TableBuilderAddResult TryAdd(const Slice& key, const Slice& value,
+                               TableBuilderAddContext* context) override {
+    assert(context != nullptr);
+    context->new_table_reason = TableBuilderNewTableReason::kNone;
     if (!status_.ok()) {
-      return;
+      return TableBuilderAddResult::kError;
     }
 
     ParsedEntryInfo entry;
-    status_ = ParseEntry(key, ioptions_.user_comparator, &entry);
+    ValueType value_type;
+    bool is_range_deletion = false;
+    status_ = PrepareEntry(key, entry, value_type, is_range_deletion);
     if (!status_.ok()) {
-      return;
-    }
-    if (!entry.timestamp.empty()) {
-      status_ = Status::NotSupported(
-          "External table does not support user-defined timestamps");
-      return;
-    }
-    const bool is_range_deletion = entry.type == kEntryRangeDeletion;
-    if constexpr (Mode == ExternalTableMode::kOnlyZeroSeqnoAndPuts) {
-      if (entry.sequence != 0 ||
-          (entry.type != kEntryPut &&
-           (!is_range_deletion || !support_range_deletions_))) {
-        if (support_range_deletions_) {
-          status_ = Status::NotSupported(
-              "Basic external table factory only supports sequence-zero Put "
-              "and range-deletion entries");
-        } else {
-          status_ = Status::NotSupported(
-              "Basic external table factory only supports sequence-zero Put "
-              "entries");
-        }
-        return;
-      }
+      return TableBuilderAddResult::kError;
     }
 
-    ValueType value_type;
     if (is_range_deletion) {
-      value_type = kTypeRangeDeletion;
       range_del_block_builder_.Add(key, value);
     } else {
-      status_ = GetValueType(entry.type, &value_type);
-      if (!status_.ok()) {
-        return;
-      }
+      ExternalTableBuilderAddContext external_context;
+      ExternalTableBuilderAddResult result;
       if constexpr (Mode == ExternalTableMode::kFull) {
-        builder_->Add(key, value);
+        result = builder_->TryAdd(key, value, &external_context);
       } else {
-        builder_->Add(entry.user_key, value);
+        result = builder_->TryAdd(entry.user_key, value, &external_context);
       }
+
+      if (result == ExternalTableBuilderAddResult::kRequiresNewTable) {
+        status_ = builder_->status();
+        if (!status_.ok()) {
+          return TableBuilderAddResult::kError;
+        }
+        context->new_table_reason =
+            ToTableBuilderNewTableReason(external_context.new_table_reason);
+        return TableBuilderAddResult::kRequiresNewTable;
+      }
+
+      if (result == ExternalTableBuilderAddResult::kError) {
+        status_ = builder_->status();
+        if (status_.ok()) {
+          status_ = Status::InvalidArgument(
+              "External table builder returned an error without a non-OK "
+              "status");
+        }
+        return TableBuilderAddResult::kError;
+      }
+
+      assert(result == ExternalTableBuilderAddResult::kAdded);
+      status_ = builder_->status();
     }
-    status_ = builder_->status();
     if (!status_.ok()) {
-      return;
+      return TableBuilderAddResult::kError;
     }
 
-    // Only entries accepted by the external builder contribute to properties
-    // and property collectors.
-    properties_.key_largest_seqno =
-        std::max(properties_.key_largest_seqno, entry.sequence);
-    properties_.key_smallest_seqno =
-        std::min(properties_.key_smallest_seqno, entry.sequence);
-    properties_.num_entries++;
-    properties_.raw_key_size += key.size();
-    properties_.raw_value_size += value.size();
-    if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
-      properties_.num_deletions++;
-    } else if (value_type == kTypeRangeDeletion) {
-      properties_.num_deletions++;
-      properties_.num_range_deletions++;
-    } else if (value_type == kTypeMerge) {
-      properties_.num_merge_operands++;
-    }
-    NotifyCollectTableCollectorsOnAdd(key, value, /*file_size=*/0,
-                                      table_properties_collectors_,
-                                      ioptions_.logger);
+    RecordAcceptedEntry(key, value, entry, value_type);
+    return TableBuilderAddResult::kAdded;
   }
 
   Status status() const override {
@@ -904,6 +924,10 @@ class ExternalTableBuilderAdapter : public TableBuilder {
 
   uint64_t NumEntries() const override { return properties_.num_entries; }
 
+  bool IsEmpty() const override {
+    return properties_.num_entries == 0 && properties_.num_range_deletions == 0;
+  }
+
   bool NeedCompact() const override {
     for (const auto& collector : table_properties_collectors_) {
       if (collector->NeedCompact()) {
@@ -944,6 +968,84 @@ class ExternalTableBuilderAdapter : public TableBuilder {
   }
 
  private:
+  TableBuilderNewTableReason ToTableBuilderNewTableReason(
+      ExternalTableBuilderNewTableReason reason) const {
+    switch (reason) {
+      case ExternalTableBuilderNewTableReason::kNone:
+        return TableBuilderNewTableReason::kNone;
+      case ExternalTableBuilderNewTableReason::kRowClassificationChanged:
+        return TableBuilderNewTableReason::kRowClassificationChanged;
+      case ExternalTableBuilderNewTableReason::kSchemaIdChanged:
+        return TableBuilderNewTableReason::kSchemaIdChanged;
+      case ExternalTableBuilderNewTableReason::kSchemaVersionIncompatible:
+        return TableBuilderNewTableReason::kSchemaVersionIncompatible;
+      case ExternalTableBuilderNewTableReason::kUnsupportedEntryType:
+        return TableBuilderNewTableReason::kUnsupportedEntryType;
+      case ExternalTableBuilderNewTableReason::kBuilderPolicy:
+        return TableBuilderNewTableReason::kBuilderPolicy;
+    }
+    assert(false);
+    return TableBuilderNewTableReason::kBuilderPolicy;
+  }
+
+  Status PrepareEntry(const Slice& key, ParsedEntryInfo& entry,
+                      ValueType& value_type, bool& is_range_deletion) {
+    is_range_deletion = false;
+
+    Status status = ParseEntry(key, ioptions_.user_comparator, &entry);
+    if (!status.ok()) {
+      return status;
+    }
+    if (!entry.timestamp.empty()) {
+      return Status::NotSupported(
+          "External table does not support user-defined timestamps");
+    }
+    is_range_deletion = entry.type == kEntryRangeDeletion;
+    if constexpr (Mode == ExternalTableMode::kOnlyZeroSeqnoAndPuts) {
+      if (entry.sequence != 0 ||
+          (entry.type != kEntryPut &&
+           (!is_range_deletion || !support_range_deletions_))) {
+        if (support_range_deletions_) {
+          return Status::NotSupported(
+              "Basic external table factory only supports sequence-zero Put "
+              "and range-deletion entries");
+        } else {
+          return Status::NotSupported(
+              "Basic external table factory only supports sequence-zero Put "
+              "entries");
+        }
+      }
+    }
+
+    if (is_range_deletion) {
+      value_type = kTypeRangeDeletion;
+      return Status::OK();
+    }
+
+    return GetValueType(entry.type, &value_type);
+  }
+
+  void RecordAcceptedEntry(const Slice& key, const Slice& value,
+                           const ParsedEntryInfo& entry, ValueType value_type) {
+    properties_.key_largest_seqno =
+        std::max(properties_.key_largest_seqno, entry.sequence);
+    properties_.key_smallest_seqno =
+        std::min(properties_.key_smallest_seqno, entry.sequence);
+    properties_.num_entries++;
+    properties_.raw_key_size += key.size();
+    properties_.raw_value_size += value.size();
+    if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
+      properties_.num_deletions++;
+    } else if (value_type == kTypeRangeDeletion) {
+      properties_.num_deletions++;
+      properties_.num_range_deletions++;
+    } else if (value_type == kTypeMerge) {
+      properties_.num_merge_operands++;
+    }
+    NotifyCollectTableCollectorsOnAdd(key, value, /*file_size=*/0,
+                                      table_properties_collectors_,
+                                      ioptions_.logger);
+  }
   Status status_;
   std::unique_ptr<ExternalTableBuilderBase> builder_;
   const ImmutableOptions& ioptions_;
