@@ -25,19 +25,20 @@ namespace fifo_cache {
 //
 // FIFOHandle can be in these states:
 // 1. Referenced externally AND in hash table.
-//    The entry stays in the FIFO queue. An eviction scan that meets it
-//    moves it to the tail, so later scans do not re-walk it.
+//    The entry stays in its queue. A probation scan that meets it moves it
+//    to the probation tail so later scans do not re-walk it; resident
+//    rotates under pressure (see EvictFromFIFO).
 //    (refs >= 1 && in_cache == true)
 // 2. Not referenced externally AND in hash table.
-//    The entry is in the FIFO queue and can be evicted.
+//    The entry is in one of the queues and can be evicted.
 //    (refs == 0 && in_cache == true)
 // 3. Referenced externally AND not in hash table.
-//    The entry is in neither the queue nor the hash table. It is freed
+//    The entry is in neither queue nor the hash table. It is freed
 //    when refs drops to 0.
 //    (refs >= 1 && in_cache == false)
-// Unlike LRU, Lookup and Release never reorder the queue; only an
-// eviction scan moves a pinned entry it meets to the tail. While
-// refs > 0, public properties like value and deleter must not change.
+// Unlike LRU, Lookup never moves an entry, between queues or within one:
+// a hit only increments freq. While refs > 0, public properties like value
+// and deleter must not change.
 struct FIFOHandle : public Cache::Handle {
   Cache::ObjectPtr value;
   const Cache::CacheItemHelper* helper;
@@ -50,6 +51,10 @@ struct FIFOHandle : public Cache::Handle {
   uint32_t hash;
   // The number of external refs to this entry. The cache itself is not counted.
   uint32_t refs;
+  // Saturating access counter, range 0..kMaxFrequency. Incremented by Lookup
+  // only (never by Ref); promotion and second-chance decisions read it at
+  // eviction time. Reset to 0 on promotion to resident.
+  uint8_t freq;
 
   uint8_t m_flags;
   enum MFlags : uint8_t {
@@ -177,7 +182,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   void SetStrictCapacityLimit(bool strict_capacity_limit);
 
   // Like Cache methods, but with an extra "hash" parameter.
-  // priority is ignored: FIFO has no priority pools.
+  // priority is deliberately ignored: placement is inferred from access
+  // frequency (freq), not declared by the caller, so HIGH entries must earn
+  // residency through re-access like any other entry.
   Status Insert(const Slice& key, uint32_t hash, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 FIFOHandle** handle, Cache::Priority priority);
@@ -190,6 +197,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // helper, create_context, priority and stats are ignored: with no secondary
   // cache configured this is a primary-only lookup. Secondary promotion is
   // handled by CacheWithSecondaryAdapter above the shard, as with LRU.
+  // A hit increments freq (saturating) and moves nothing.
   FIFOHandle* Lookup(const Slice& key, uint32_t hash,
                      const Cache::CacheItemHelper* helper,
                      Cache::CreateContext* create_context,
@@ -217,9 +225,16 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   void EraseUnRefEntries();
 
  public:  // other function definitions
+  // Test-only: moves a probation entry to the resident tail without the
+  // promotion-threshold check, so tests can build exact resident layouts
+  // that pressure-driven promotion cannot assemble without disturbing the
+  // entry under test. Not threadsafe.
+  void TEST_PromoteToResident(const Slice& key);
+
+  // Probation list only; resident entries are not visible here.
   void TEST_GetFIFOList(FIFOHandle** fifo);
 
-  // Retrieves number of elements in FIFO, for unit test purpose only.
+  // Retrieves number of elements in probation, for unit test purpose only.
   // Not threadsafe.
   size_t TEST_GetFIFOSize();
 
@@ -274,13 +289,35 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   Status InsertItem(FIFOHandle* item, FIFOHandle** handle);
 
   void FIFO_Remove(FIFOHandle* e);
-  void FIFO_Append(FIFOHandle* e);
+  void FIFO_Append(FIFOHandle* queue, FIFOHandle* e);
+  // The resident entry after e in clock order, skipping the dummy head.
+  FIFOHandle* ResidentNext(FIFOHandle* e);
 
-  // Free some space following strict FIFO policy until enough space
-  // to hold (usage_ + charge) is freed or no unpinned entry remains.
-  // Pinned entries the scan meets move to the tail, so long-lived pins
-  // are not re-walked by every eviction. Terminates after a single pass
-  // even if everything is pinned.
+  // Frequency counter range and promotion threshold. A Lookup saturates at
+  // kMaxFrequency; a probation head at or above kPromoteThreshold is
+  // promoted, below it is evicted.
+  static constexpr uint8_t kMaxFrequency = 3;
+  static constexpr uint8_t kPromoteThreshold = 2;
+  // Resident second-chance bound: each eviction costs at most this many
+  // passes over resident (3 to drain a saturated counter, 1 to reap). That
+  // many consecutive eviction-free passes imply every remaining entry is
+  // pinned, so eviction stops.
+  static constexpr int kMaxResidentIdlePasses = 4;
+
+  // Free some space until enough to hold (usage_ + charge) is freed or no
+  // unpinned entry remains. Probation drains first: one pass over its head,
+  // promoting freq >= kPromoteThreshold to the resident tail (reset to 0)
+  // and evicting below it; pinned entries move to the probation tail.
+  // Resident follows with second-chance: head with freq > 0 is decremented
+  // and moved to the tail, head at 0 is evicted, pinned heads rotate
+  // undecayed. Promotion touches only links: usage_ and pinned_usage_ are
+  // unchanged by a move between queues. The resident head is
+  // resident_hand_, so moving it to the tail is advancing the hand: no
+  // relinking.
+  // The probation pass consumes its head each step, so it ends after at
+  // most the initial number of entries; the resident scan is bounded by
+  // kMaxResidentIdlePasses per eviction. An all-pinned shard terminates
+  // having evicted nothing.
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromFIFO(size_t charge, autovector<FIFOHandle*>* deleted);
@@ -297,11 +334,20 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // Whether to reject insertion if cache reaches its full capacity.
   bool strict_capacity_limit_;
 
-  // Dummy head of FIFO queue.
-  // fifo.prev is newest entry, fifo.next is oldest entry.
-  // FIFO contains all in-cache items, pinned and unpinned, in insertion
-  // order. Split into two lists in a later diff; intrusive links extend.
-  FIFOHandle fifo_{};
+  // Dummy heads of the two queues. For probation .prev is newest and .next
+  // is oldest; resident's order starts at resident_hand_.
+  // New entries enter probation; probation victims with enough frequency
+  // are promoted to resident, which holds the remainder. Together they
+  // contain all in-cache items, pinned and unpinned.
+  FIFOHandle probation_{};
+  FIFOHandle resident_{};
+  // Resident is a clock: its oldest entry is resident_hand_ and its newest
+  // the entry linked just before the hand, so a second chance advances the
+  // hand instead of relinking the entry. New resident entries are linked
+  // just before the hand, and the hand moves past an entry that leaves, so
+  // the order is the FIFO-reinsertion order. &resident_ when resident is
+  // empty.
+  FIFOHandle* resident_hand_;
 
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members
