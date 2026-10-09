@@ -29,7 +29,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 class InternalKeyComparator;
-class Mutex;
 class VersionSet;
 
 bool MultiScanOverlapsUserKeyRange(const MultiScanArgs* scan_opts,

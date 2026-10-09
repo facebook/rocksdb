@@ -108,7 +108,7 @@ TEST_F(PinnableSliceTest, Move) {
 
     // Since v1's Cleanable has been moved to v2,
     // no cleanup should happen in Reset.
-    v1.Reset();
+    v1.Reset();  // NOLINT(bugprone-use-after-move)
     ASSERT_EQ(1, res);
 
     AssertSameData(const_str1, v2);
@@ -140,7 +140,7 @@ TEST_F(PinnableSliceTest, Move) {
     ASSERT_EQ(2, res);
     // Since v1's Cleanable has been moved to v2,
     // no cleanup should happen in Reset.
-    v1.Reset();
+    v1.Reset();  // NOLINT(bugprone-use-after-move)
     ASSERT_EQ(2, res);
 
     AssertSameData(const_str1, v2);
@@ -160,7 +160,7 @@ TEST_F(PinnableSliceTest, Move) {
 
     // Since v1's Cleanable has been moved to v2,
     // no cleanup should happen in Reset.
-    v1.Reset();
+    v1.Reset();  // NOLINT(bugprone-use-after-move)
     ASSERT_EQ(1, res);
 
     AssertSameData(const_str1, v2);

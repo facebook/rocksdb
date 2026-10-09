@@ -177,7 +177,7 @@ TestWritableFile::TestWritableFile(const std::string& fname,
 
 TestWritableFile::~TestWritableFile() {
   if (writable_file_opened_) {
-    Close().PermitUncheckedError();
+    TestWritableFile::Close().PermitUncheckedError();
   }
 }
 
@@ -229,7 +229,7 @@ TestRandomRWFile::TestRandomRWFile(const std::string& /*fname*/,
 
 TestRandomRWFile::~TestRandomRWFile() {
   if (file_opened_) {
-    Close().PermitUncheckedError();
+    TestRandomRWFile::Close().PermitUncheckedError();
   }
 }
 

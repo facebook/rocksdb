@@ -6376,9 +6376,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     ASSERT_TRUE(CheckUncompressableValue(key_uncmp[i], values[i].ToString()));
   }
   if (compression_enabled() && !has_compressed_cache()) {
-    expected_reads += (read_from_cache ? 3 : 3);
+    expected_reads += 3;
   } else {
-    expected_reads += (read_from_cache ? 4 : 4);
+    expected_reads += 4;
   }
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 

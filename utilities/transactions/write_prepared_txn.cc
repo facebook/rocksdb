@@ -31,7 +31,7 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
   // Call Initialize outside PessimisticTransaction constructor otherwise it
   // would skip overridden functions in WritePreparedTxn since they are not
   // defined yet in the constructor of PessimisticTransaction
-  Initialize(txn_options);
+  WritePreparedTxn::Initialize(txn_options);
 }
 
 void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {

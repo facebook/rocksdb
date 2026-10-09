@@ -7,8 +7,6 @@
 
 #include <cassert>
 #include <cstdio>
-#include <cstring>
-#include <new>
 #include <utility>
 
 #include "util/hash.h"
@@ -42,9 +40,19 @@ MemMapping& MemMapping::operator=(MemMapping&& other) noexcept {
   if (&other == this) {
     return *this;
   }
-  this->~MemMapping();
-  std::memcpy(static_cast<void*>(this), &other, sizeof(*this));
-  new (&other) MemMapping();
+  // Releases the current mapping on return
+  MemMapping old;
+  old.addr_ = addr_;
+  old.length_ = length_;
+  addr_ = other.addr_;
+  length_ = other.length_;
+  other.addr_ = nullptr;
+  other.length_ = 0;
+#ifdef OS_WIN
+  old.page_file_handle_ = page_file_handle_;
+  page_file_handle_ = other.page_file_handle_;
+  other.page_file_handle_ = NULL;
+#endif  // OS_WIN
   return *this;
 }
 

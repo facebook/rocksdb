@@ -1412,7 +1412,7 @@ class FileChecksumTestHelper {
 
  private:
   bool convert_to_internal_key_;
-  uint64_t cur_file_num_;
+  uint64_t cur_file_num_ = 0;
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableBuilder> table_builder_;

@@ -202,7 +202,7 @@ Status BlobSource::PutBlobIntoCache(
   const Status s = InsertEntryIntoCache(cache_key, blob->get(), &cache_handle,
                                         Cache::Priority::BOTTOM);
   if (s.ok()) {
-    blob->release();
+    [[maybe_unused]] BlobContents* released_blob = blob->release();
 
     assert(cache_handle != nullptr);
     *cached_blob =

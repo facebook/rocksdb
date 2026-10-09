@@ -182,7 +182,7 @@ class TablePropertiesCollector {
 class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
-    uint32_t column_family_id;
+    uint32_t column_family_id = kUnknownColumnFamily;
     // The level at creating the SST file (i.e, table), of which the
     // properties are being collected.
     int level_at_creation = kUnknownLevelAtCreation;
@@ -191,7 +191,7 @@ class TablePropertiesCollectorFactory : public Customizable {
     // cutoff sequence number will be considered by a compaction job as eligible
     // to be placed on the last level. When this is the maximum sequence number,
     // it indicates tiering is disabled.
-    SequenceNumber last_level_inclusive_max_seqno_threshold;
+    SequenceNumber last_level_inclusive_max_seqno_threshold = 0;
     static const uint32_t kUnknownColumnFamily;
     static const int kUnknownLevelAtCreation = -1;
     static const int kUnknownNumLevels = -1;

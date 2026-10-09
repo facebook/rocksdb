@@ -241,7 +241,7 @@ class FullTypedCacheHelperFns : public BasicTypedCacheHelperFns<TValue> {
     if (source != CacheTier::kVolatileTier) {
       return Status::InvalidArgument();
     }
-    if constexpr (sizeof(TCreateContext) > 0) {
+    if constexpr (!std::is_empty_v<TCreateContext>) {
       TCreateContext* tcontext = static_cast<TCreateContext*>(context);
       tcontext->Create(&value, out_charge, data, type, allocator);
     } else {
