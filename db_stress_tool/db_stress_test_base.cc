@@ -5869,6 +5869,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
         shared, FLAGS_remote_compaction_failure_fall_back_to_local);
 
     options_.compaction_service = compaction_service;
+    options_.use_separate_remote_compaction_pool =
+        FLAGS_use_separate_remote_compaction_pool;
   }
 
   if (FLAGS_allow_resumption_one_in > 0) {

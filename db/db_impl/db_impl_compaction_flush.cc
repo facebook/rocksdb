@@ -1917,6 +1917,9 @@ Status DBImpl::CompactFilesImpl(
       db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
       c->trim_ts(), &blob_callback_, &bg_compaction_scheduled_,
       &bg_bottom_compaction_scheduled_, &num_running_remote_compactions_);
+  ConfigureCompactionExecutors(&compaction_job, c->column_family_data(),
+                               kManualCompactionCanceledFalse_, false,
+                               UseSeparateRemoteCompactionPool());
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2632,17 +2635,12 @@ Status DBImpl::RunManualCompaction(
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
         bg_bottom_compaction_scheduled_++;
         ca->compaction_pri_ = Env::Priority::BOTTOM;
-        env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca,
-                       Env::Priority::BOTTOM,
-                       GetTaskTag(TaskType::kManualCompaction),
-                       &DBImpl::UnscheduleCompactionCallback);
+        ScheduleCompaction(ca, GetTaskTag(TaskType::kManualCompaction));
         thread_pool_priority = Env::Priority::BOTTOM;
       } else {
         bg_compaction_scheduled_++;
         ca->compaction_pri_ = Env::Priority::LOW;
-        env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW,
-                       GetTaskTag(TaskType::kManualCompaction),
-                       &DBImpl::UnscheduleCompactionCallback);
+        ScheduleCompaction(ca, GetTaskTag(TaskType::kManualCompaction));
         thread_pool_priority = Env::Priority::LOW;
       }
       scheduled = true;
@@ -3702,7 +3700,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   // flushes in low-pri (compaction) thread pool.
   if (is_flush_pool_empty) {
     while (unscheduled_flushes_ > 0 &&
-           bg_flush_scheduled_ + bg_compaction_scheduled_ <
+           bg_flush_scheduled_ + bg_compaction_scheduled_ -
+                   remote_coordinators_scheduled_[1] +
+                   local_compactions_by_priority_[1] <
                bg_job_limits.max_flushes) {
       bg_flush_scheduled_++;
       FlushThreadArg* fta = new FlushThreadArg;
@@ -3735,8 +3735,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ <
-             bg_job_limits.max_compactions &&
+  while ((UseSeparateRemoteCompactionPool() ||
+          LocalCompactionsScheduled() < bg_job_limits.max_compactions) &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
@@ -3744,9 +3744,163 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     ca->prepicked_compaction = nullptr;
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
-    env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+    ScheduleCompaction(ca, this);
+  }
+}
+
+void DBImpl::ScheduleRemoteCompaction(std::function<void()> work) {
+  mutex_.AssertHeld();
+  // Keep idle workers for reuse. Each outstanding coordinator/subcompaction
+  // has a worker available even when every existing worker is blocked.
+  if (remote_compaction_pool_.GetBackgroundThreads() == 0) {
+    remote_compaction_pool_.SetHostEnv(env_);
+  }
+  ++remote_compaction_pool_jobs_;
+  remote_compaction_pool_.IncBackgroundThreadsIfNeeded(
+      remote_compaction_pool_jobs_);
+  remote_compaction_pool_.SubmitJob([this, work = std::move(work)] {
+    work();
+    InstrumentedMutexLock completed(&mutex_);
+    --remote_compaction_pool_jobs_;
+    bg_cv_.SignalAll();
+  });
+}
+
+void DBImpl::ScheduleCompaction(CompactionArg* arg, void* tag) {
+  mutex_.AssertHeld();
+  void (*worker)(void*) = arg->compaction_pri_ == Env::Priority::BOTTOM
+                              ? &DBImpl::BGWorkBottomCompaction
+                              : &DBImpl::BGWorkCompaction;
+  arg->separate_remote_pool = UseSeparateRemoteCompactionPool();
+  if (arg->separate_remote_pool) {
+    ++remote_coordinators_scheduled_
+        [arg->compaction_pri_ == Env::Priority::BOTTOM ? 0 : 1];
+    ScheduleRemoteCompaction([worker, arg] { worker(arg); });
+  } else {
+    env_->Schedule(worker, arg, arg->compaction_pri_, tag,
                    &DBImpl::UnscheduleCompactionCallback);
   }
+}
+
+void DBImpl::ConfigureCompactionExecutors(CompactionJob* job,
+                                          ColumnFamilyData* cfd,
+                                          const std::atomic<bool>& canceled,
+                                          bool is_manual,
+                                          bool separate_remote_pool) {
+  mutex_.AssertHeld();
+  if (!separate_remote_pool) {
+    return;
+  }
+  job->SetCompactionExecutors(
+      [this](std::function<void()> work) {
+        InstrumentedMutexLock lock(&mutex_);
+        ScheduleRemoteCompaction(std::move(work));
+      },
+      [this, cfd, &canceled, is_manual](std::function<void()> work,
+                                        Env::Priority priority) {
+        return RunLocalCompaction(std::move(work), priority, cfd, canceled,
+                                  is_manual);
+      });
+}
+
+Status DBImpl::LocalCompactionStatus(ColumnFamilyData* cfd,
+                                     const std::atomic<bool>& canceled) {
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return Status::ShutdownInProgress();
+  }
+  if (IsCompactionAborted(cfd)) {
+    return Status::Incomplete(Status::SubCode::kCompactionAborted);
+  }
+  if (canceled.load(std::memory_order_acquire)) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
+  if (cfd->IsDropped()) {
+    return Status::ColumnFamilyDropped();
+  }
+  if (error_handler_.IsBGWorkStopped()) {
+    return error_handler_.GetBGError();
+  }
+  return Status::OK();
+}
+
+Status DBImpl::RunLocalCompaction(std::function<void()> work,
+                                  Env::Priority priority, ColumnFamilyData* cfd,
+                                  const std::atomic<bool>& canceled,
+                                  bool is_manual) {
+  if (priority == Env::Priority::USER) {
+    work();
+    return Status::OK();
+  }
+  InstrumentedMutexLock lock(&mutex_);
+  Status status;
+  while ((status = LocalCompactionStatus(cfd, canceled)).ok() &&
+         LocalCompactionsScheduled() >= GetBGJobLimits().max_compactions) {
+    TEST_SYNC_POINT("DBImpl::RunLocalCompaction:WaitForCredit");
+    if (is_manual) {
+      constexpr uint64_t kManualCancellationPollMicros = 100000;
+      bg_cv_.TimedWait(immutable_db_options_.clock->NowMicros() +
+                       kManualCancellationPollMicros);
+    } else {
+      bg_cv_.Wait();
+    }
+  }
+  if (!status.ok()) {
+    return status;
+  }
+  ++local_compactions_scheduled_;
+  priority = priority == Env::Priority::BOTTOM ? Env::Priority::BOTTOM
+                                               : Env::Priority::LOW;
+  ++local_compactions_by_priority_[priority == Env::Priority::BOTTOM ? 0 : 1];
+  LocalCompactionTask task{this,     cfd,         &canceled, std::move(work),
+                           priority, Status::OK()};
+  env_->Schedule(
+      &DBImpl::BGWorkLocalCompaction, &task, priority,
+      GetTaskTag(is_manual ? TaskType::kManualCompaction : TaskType::kDefault),
+      &DBImpl::UnscheduleLocalCompaction);
+  TEST_SYNC_POINT("DBImpl::RunLocalCompaction:Scheduled");
+  while (!task.done) {
+    bg_cv_.Wait();
+  }
+  return task.status;
+}
+
+void DBImpl::BGWorkLocalCompaction(void* arg) {
+  auto* task = static_cast<LocalCompactionTask*>(arg);
+  DBImpl* db = task->db;
+  const int priority_index = task->priority == Env::Priority::BOTTOM ? 0 : 1;
+  IOSTATS_SET_THREAD_POOL_ID(task->priority);
+  db->mutex_.Lock();
+  ++db->local_compactions_running_by_priority_[priority_index];
+  task->status = db->LocalCompactionStatus(task->cfd, *task->canceled);
+  db->mutex_.Unlock();
+  if (task->status.ok()) {
+    TEST_SYNC_POINT("DBImpl::BGWorkLocalCompaction:Start");
+    task->work();
+    TEST_SYNC_POINT("DBImpl::BGWorkLocalCompaction:Finished");
+  }
+  InstrumentedMutexLock lock(&db->mutex_);
+  --db->local_compactions_scheduled_;
+  --db->local_compactions_by_priority_[priority_index];
+  --db->local_compactions_running_by_priority_[priority_index];
+  task->done = true;
+  db->MaybeScheduleFlushOrCompaction();
+  db->bg_cv_.SignalAll();
+}
+
+void DBImpl::UnscheduleLocalCompaction(void* arg) {
+  auto* task = static_cast<LocalCompactionTask*>(arg);
+  task->db->mutex_.AssertHeld();
+  task->status = task->db->LocalCompactionStatus(task->cfd, *task->canceled);
+  if (task->status.ok()) {
+    task->status = Status::ShutdownInProgress();
+  }
+  --task->db->local_compactions_scheduled_;
+  --task->db->local_compactions_by_priority_
+        [task->priority == Env::Priority::BOTTOM ? 0 : 1];
+  task->done = true;
+  task->db->MaybeScheduleFlushOrCompaction();
+  task->db->bg_cv_.SignalAll();
 }
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
@@ -3792,11 +3946,19 @@ BackgroundJobPressure DBImpl::CaptureBackgroundJobPressure() const {
 
   // Per-priority breakdown for pool-specific expansion
   assert(num_running_compactions_ >= num_running_bottom_compactions_);
-  snapshot.compaction_low_scheduled = bg_compaction_scheduled_;
-  snapshot.compaction_low_running =
-      std::max(0, num_running_compactions_ - num_running_bottom_compactions_);
-  snapshot.compaction_bottom_scheduled = bg_bottom_compaction_scheduled_;
-  snapshot.compaction_bottom_running = num_running_bottom_compactions_;
+  snapshot.compaction_low_scheduled = bg_compaction_scheduled_ -
+                                      remote_coordinators_scheduled_[1] +
+                                      local_compactions_by_priority_[1];
+  snapshot.compaction_low_running = num_running_compactions_ -
+                                    num_running_bottom_compactions_ -
+                                    remote_coordinators_running_[1] +
+                                    local_compactions_running_by_priority_[1];
+  snapshot.compaction_bottom_scheduled = bg_bottom_compaction_scheduled_ -
+                                         remote_coordinators_scheduled_[0] +
+                                         local_compactions_by_priority_[0];
+  snapshot.compaction_bottom_running =
+      num_running_bottom_compactions_ - remote_coordinators_running_[0] +
+      local_compactions_running_by_priority_[0];
 
   // Flush
   snapshot.flush_scheduled = bg_flush_scheduled_;
@@ -4081,7 +4243,7 @@ void DBImpl::BGWorkCompaction(void* arg) {
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
   static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
-      prepicked_compaction, Env::Priority::LOW);
+      prepicked_compaction, Env::Priority::LOW, ca.separate_remote_pool);
   delete prepicked_compaction;
 }
 
@@ -4092,7 +4254,8 @@ void DBImpl::BGWorkBottomCompaction(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkBottomCompaction");
   auto* prepicked_compaction = ca.prepicked_compaction;
   assert(prepicked_compaction && prepicked_compaction->compaction);
-  ca.db->BackgroundCallCompaction(prepicked_compaction, Env::Priority::BOTTOM);
+  ca.db->BackgroundCallCompaction(prepicked_compaction, Env::Priority::BOTTOM,
+                                  ca.separate_remote_pool);
   delete prepicked_compaction;
 }
 
@@ -4565,7 +4728,8 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 }
 
 void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                      Env::Priority bg_thread_pri) {
+                                      Env::Priority bg_thread_pri,
+                                      bool separate_remote_pool) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
@@ -4579,6 +4743,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
+    const int priority_index = bg_thread_pri == Env::Priority::BOTTOM ? 0 : 1;
+    if (separate_remote_pool) {
+      ++remote_coordinators_running_[priority_index];
+    }
     if (bg_thread_pri == Env::Priority::BOTTOM) {
       num_running_bottom_compactions_++;
     }
@@ -4591,7 +4759,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
-                                    prepicked_compaction, bg_thread_pri);
+                                    prepicked_compaction, bg_thread_pri,
+                                    separate_remote_pool);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -4658,6 +4827,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
+    if (separate_remote_pool) {
+      --remote_coordinators_scheduled_[priority_index];
+      --remote_coordinators_running_[priority_index];
+    }
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
@@ -4705,7 +4878,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
-                                    Env::Priority thread_pri) {
+                                    Env::Priority thread_pri,
+                                    bool separate_remote_pool) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
@@ -5390,8 +5564,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->prepicked_compaction->task_token = std::move(task_token);
     ++bg_bottom_compaction_scheduled_;
     assert(c == nullptr);
-    env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
-                   this, &DBImpl::UnscheduleCompactionCallback);
+    ScheduleCompaction(ca, this);
   } else {
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",
                              c->column_family_data());
@@ -5418,6 +5591,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
         &blob_callback_, &bg_compaction_scheduled_,
         &bg_bottom_compaction_scheduled_, &num_running_remote_compactions_);
+    ConfigureCompactionExecutors(&compaction_job, c->column_family_data(),
+                                 is_manual ? manual_compaction->canceled
+                                           : kManualCompactionCanceledFalse_,
+                                 is_manual, separate_remote_pool);
     compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
 
     std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;

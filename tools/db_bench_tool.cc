@@ -996,6 +996,9 @@ DEFINE_bool(sync, false, "Sync all writes to disk");
 
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
+DEFINE_bool(use_separate_remote_compaction_pool, false,
+            "Sets DBOptions.use_separate_remote_compaction_pool");
+
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
 DEFINE_bool(manual_wal_flush, false,
@@ -5833,6 +5836,8 @@ class Benchmark {
     options.log_readahead_size = FLAGS_log_readahead_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
     options.use_fsync = FLAGS_use_fsync;
+    options.use_separate_remote_compaction_pool =
+        FLAGS_use_separate_remote_compaction_pool;
     options.num_levels = FLAGS_num_levels;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
