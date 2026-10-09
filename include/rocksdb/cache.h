@@ -476,13 +476,15 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   std::shared_ptr<Cache> MakeSharedCache() const;
 };
 
-// FIFOCache - A cache using plain FIFO eviction to stay at or below a set
-// capacity. The cache is sharded to 2^num_shard_bits shards, by hash of the
-// key. The total capacity is divided and evenly assigned to each shard, and
-// each shard has its own FIFO queue for evictions: the oldest unpinned entry
-// is evicted first, with no frequency or recency tracking. Each shard has a
-// mutex for exclusive access during operations. Pinned entries are never
-// evicted; eviction scans past them and a fully-pinned shard evicts nothing.
+// FIFOCache - A cache using segmented FIFO eviction to stay at or below a
+// set capacity. The cache is sharded to 2^num_shard_bits shards, by hash of
+// the key. The total capacity is divided and evenly assigned to each shard,
+// and each shard has two FIFO queues for evictions: new entries enter
+// probation, and probation victims with enough access frequency are promoted
+// to resident (second-chance) instead of being evicted. Placement is inferred
+// from access frequency: Cache::Priority is ignored. Each shard has a mutex
+// for exclusive access during operations. Pinned entries are never evicted;
+// eviction scans past them and a fully-pinned shard evicts nothing.
 // Under kFullChargeCacheMetadata (the default) the hash table's bucket
 // array also counts against capacity: 128 bytes per shard at
 // construction, growing as the table resizes, and never shrinking.

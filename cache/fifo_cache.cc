@@ -107,15 +107,18 @@ FIFOCacheShard::FIFOCacheShard(size_t capacity, bool strict_capacity_limit,
     : CacheShardBase(metadata_charge_policy),
       capacity_(0),
       strict_capacity_limit_(strict_capacity_limit),
+      resident_hand_(&resident_),
       table_(max_upper_hash_bits, allocator),
       usage_(GetTableMetaCharge()),
       pinned_usage_(0),
       mutex_(use_adaptive_mutex),
       allocator_(allocator),
       eviction_callback_(*eviction_callback) {
-  // Make empty circular linked list.
-  fifo_.next = &fifo_;
-  fifo_.prev = &fifo_;
+  // Make empty circular linked lists.
+  probation_.next = &probation_;
+  probation_.prev = &probation_;
+  resident_.next = &resident_;
+  resident_.prev = &resident_;
   SetCapacity(capacity);
 }
 
@@ -125,23 +128,25 @@ void FIFOCacheShard::EraseUnRefEntries() {
   autovector<FIFOHandle*> last_reference_list;
   {
     DMutexLock l(mutex_);
-    FIFOHandle* cur = fifo_.next;
-    while (cur != &fifo_) {
-      FIFOHandle* next = cur->next;
-      if (!cur->HasRefs()) {
-        assert(cur->InCache());
-        FIFO_Remove(cur);
-        const size_t table_meta_before = GetTableMetaCharge();
-        table_.Remove(cur->key(), cur->hash);
-        const size_t table_meta_after = GetTableMetaCharge();
-        cur->SetInCache(false);
-        assert(usage_ >= table_meta_before - table_meta_after);
-        usage_ -= table_meta_before - table_meta_after;
-        assert(usage_ >= cur->total_charge);
-        usage_ -= cur->total_charge;
-        last_reference_list.push_back(cur);
+    for (FIFOHandle* queue : {&probation_, &resident_}) {
+      FIFOHandle* cur = queue->next;
+      while (cur != queue) {
+        FIFOHandle* next = cur->next;
+        if (!cur->HasRefs()) {
+          assert(cur->InCache());
+          FIFO_Remove(cur);
+          const size_t table_meta_before = GetTableMetaCharge();
+          table_.Remove(cur->key(), cur->hash);
+          const size_t table_meta_after = GetTableMetaCharge();
+          cur->SetInCache(false);
+          assert(usage_ >= table_meta_before - table_meta_after);
+          usage_ -= table_meta_before - table_meta_after;
+          assert(usage_ >= cur->total_charge);
+          usage_ -= cur->total_charge;
+          last_reference_list.push_back(cur);
+        }
+        cur = next;
       }
-      cur = next;
     }
   }
 
@@ -180,16 +185,28 @@ void FIFOCacheShard::ApplyToSomeEntries(
       index_begin, index_end);
 }
 
+void FIFOCacheShard::TEST_PromoteToResident(const Slice& key) {
+  DMutexLock l(mutex_);
+  for (FIFOHandle* h = probation_.next; h != &probation_; h = h->next) {
+    if (h->key() == key) {
+      FIFO_Remove(h);
+      FIFO_Append(&resident_, h);
+      return;
+    }
+  }
+  assert(false);
+}
+
 void FIFOCacheShard::TEST_GetFIFOList(FIFOHandle** fifo) {
   DMutexLock l(mutex_);
-  *fifo = &fifo_;
+  *fifo = &probation_;
 }
 
 size_t FIFOCacheShard::TEST_GetFIFOSize() {
   DMutexLock l(mutex_);
-  FIFOHandle* handle = fifo_.next;
+  FIFOHandle* handle = probation_.next;
   size_t size = 0;
-  while (handle != &fifo_) {
+  while (handle != &probation_) {
     size++;
     handle = handle->next;
   }
@@ -199,6 +216,10 @@ size_t FIFOCacheShard::TEST_GetFIFOSize() {
 void FIFOCacheShard::FIFO_Remove(FIFOHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
+  if (e == resident_hand_) {
+    FIFOHandle* next = ResidentNext(e);
+    resident_hand_ = next == e ? &resident_ : next;
+  }
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
@@ -206,14 +227,25 @@ void FIFOCacheShard::FIFO_Remove(FIFOHandle* e) {
   // (in-cache plus detached-pinned) nor pinned_usage_ (refs > 0).
 }
 
-void FIFOCacheShard::FIFO_Append(FIFOHandle* e) {
+void FIFOCacheShard::FIFO_Append(FIFOHandle* queue, FIFOHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
-  // Append to tail: fifo_.prev is newest, fifo_.next is oldest.
-  e->next = &fifo_;
-  e->prev = fifo_.prev;
+  // Append to tail. For probation queue->prev is newest and queue->next is
+  // oldest. For resident the tail is just before the hand, which is the
+  // dummy head itself when resident is empty.
+  FIFOHandle* before = queue == &resident_ ? resident_hand_ : queue;
+  e->next = before;
+  e->prev = before->prev;
   e->prev->next = e;
   e->next->prev = e;
+  if (queue == &resident_ && resident_hand_ == &resident_) {
+    resident_hand_ = e;
+  }
+}
+
+FIFOHandle* FIFOCacheShard::ResidentNext(FIFOHandle* e) {
+  FIFOHandle* next = e->next;
+  return next == &resident_ ? next->next : next;
 }
 
 void FIFOCacheShard::EvictFromFIFO(size_t charge,
@@ -223,34 +255,71 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
   }
   size_t need = usage_ + charge - capacity_;
   size_t freed = 0;
-  // Each step consumes the head: evict it, or move it to the tail if
-  // pinned. The pass ends after the entry that was newest when it began,
-  // so it visits each entry at most once and an all-pinned shard
-  // terminates having evicted nothing.
-  if (fifo_.next == &fifo_) {
-    return;
-  }
-  FIFOHandle* const last = fifo_.prev;
-  bool at_last = false;
+  // Phase 1: probation first. Each step consumes the head: promote, evict,
+  // or move a pinned entry to the tail. The pass ends after the entry that
+  // was newest when it began, so it visits at most the initial number of
+  // entries. Promotion frees nothing; the pass continues.
+  FIFOHandle* const last = probation_.prev;
+  bool at_last = probation_.next == &probation_;
   while (!at_last && freed < need) {
-    FIFOHandle* cur = fifo_.next;
+    FIFOHandle* cur = probation_.next;
     at_last = cur == last;
     if (cur->HasRefs()) {
       FIFO_Remove(cur);
-      FIFO_Append(cur);
+      FIFO_Append(&probation_, cur);
     } else {
       assert(cur->InCache());
-      FIFO_Remove(cur);
-      const size_t table_meta_before = GetTableMetaCharge();
-      table_.Remove(cur->key(), cur->hash);
-      const size_t table_meta_after = GetTableMetaCharge();
-      cur->SetInCache(false);
-      assert(usage_ >= table_meta_before - table_meta_after);
-      usage_ -= table_meta_before - table_meta_after;
-      assert(usage_ >= cur->total_charge);
-      usage_ -= cur->total_charge;
-      freed += cur->total_charge;
-      deleted->push_back(cur);
+      if (cur->freq >= kPromoteThreshold) {
+        FIFO_Remove(cur);
+        FIFO_Append(&resident_, cur);
+        cur->freq = 0;
+      } else {
+        FIFO_Remove(cur);
+        const size_t table_meta_before = GetTableMetaCharge();
+        table_.Remove(cur->key(), cur->hash);
+        const size_t table_meta_after = GetTableMetaCharge();
+        cur->SetInCache(false);
+        assert(usage_ >= table_meta_before - table_meta_after);
+        usage_ -= table_meta_before - table_meta_after;
+        assert(usage_ >= cur->total_charge);
+        usage_ -= cur->total_charge;
+        freed += cur->total_charge;
+        deleted->push_back(cur);
+      }
+    }
+  }
+  // Phase 2: resident second-chance. Every step rotates (advances the hand
+  // past) or evicts the head; a pass ends when the hand cycles back to its
+  // marker. The marker is re-anchored by breaking out on every eviction.
+  int idle_passes = 0;
+  while (freed < need && resident_.next != &resident_ &&
+         idle_passes < kMaxResidentIdlePasses) {
+    FIFOHandle* start = resident_hand_;
+    bool evicted_this_pass = false;
+    do {
+      FIFOHandle* head = resident_hand_;
+      if (head->HasRefs()) {
+        resident_hand_ = ResidentNext(head);
+      } else if (head->freq > 0) {
+        --head->freq;
+        resident_hand_ = ResidentNext(head);
+      } else {
+        assert(head->InCache());
+        FIFO_Remove(head);
+        table_.Remove(head->key(), head->hash);
+        head->SetInCache(false);
+        assert(usage_ >= head->total_charge);
+        usage_ -= head->total_charge;
+        freed += head->total_charge;
+        deleted->push_back(head);
+        evicted_this_pass = true;
+        idle_passes = 0;
+        break;
+      }
+    } while (freed < need && resident_.next != &resident_ &&
+             resident_hand_ != start);
+    if (!evicted_this_pass) {
+      ++idle_passes;
     }
   }
 }
@@ -258,8 +327,8 @@ void FIFOCacheShard::EvictFromFIFO(size_t charge,
 void FIFOCacheShard::NotifyEvicted(
     const autovector<FIFOHandle*>& evicted_handles) {
   for (FIFOHandle* entry : evicted_handles) {
-    // was_hit is always false: FIFO keeps no hit state (frequency tracking
-    // is out of scope), so eviction callbacks cannot distinguish hits.
+    // was_hit stays false: freq is net of decay and promotion resets, so it
+    // cannot report ever-hit. Sticky hit tracking waits for a consumer.
     if (eviction_callback_ &&
         eviction_callback_(entry->key(), static_cast<Cache::Handle*>(entry),
                            false)) {
@@ -333,7 +402,7 @@ Status FIFOCacheShard::InsertItem(FIFOHandle* e, FIFOHandle** handle) {
         // Else old stays charged until its last Release.
       }
       usage_ += e->total_charge;
-      FIFO_Append(e);
+      FIFO_Append(&probation_, e);
       if (handle != nullptr) {
         // If caller already holds a ref, no need to take one here.
         if (!e->HasRefs()) {
@@ -365,7 +434,10 @@ FIFOHandle* FIFOCacheShard::Lookup(const Slice& key, uint32_t hash,
     pinned_usage_ += e->total_charge;
   }
   e->Ref();
-  // FIFO order is insertion order: Lookup never reorders the queue.
+  // A hit only credits frequency; the entry stays where it is.
+  if (e->freq < kMaxFrequency) {
+    ++e->freq;
+  }
   return e;
 }
 
@@ -445,6 +517,7 @@ FIFOHandle* FIFOCacheShard::CreateHandle(const Slice& key, uint32_t hash,
   e->key_length = key.size();
   e->hash = hash;
   e->refs = 0;
+  e->freq = 0;
   e->next = e->prev = nullptr;
   memcpy(e->key_data, key.data(), key.size());
   e->CalcTotalCharge(charge, metadata_charge_policy_);
