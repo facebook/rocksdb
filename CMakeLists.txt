@@ -650,6 +650,9 @@ if(USE_FOLLY)
     exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../glog* OUTPUT_VARIABLE
     GLOG_INST_PATH)
     set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.83.0)
+    # Boost's per-library CMake configs find their dependencies (e.g.
+    # boost_assert) only through the package search path.
+    set(CMAKE_PREFIX_PATH ${BOOST_INST_PATH} ${CMAKE_PREFIX_PATH})
     if(EXISTS ${FMT_INST_PATH}/lib64)
       set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
     else()
@@ -696,7 +699,13 @@ if(USE_FOLLY)
     exec_program(sed ARGS -i 's/gflags_shared//g'
     ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
 
+    # folly-config.cmake only checks for gflags under a target name that this
+    # install doesn't define, then falls back to our Findgflags.cmake, which
+    # mistakes the gflags_static target name for a library path. gflags is
+    # resolved below instead.
+    set(CMAKE_DISABLE_FIND_PACKAGE_gflags TRUE)
     include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
+    unset(CMAKE_DISABLE_FIND_PACKAGE_gflags)
 
     # Fix gflags library name for debug builds. The getdeps gflags shared
     # library is versioned (e.g. libgflags_debug.so.2.3), so resolve the
