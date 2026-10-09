@@ -29,6 +29,7 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	XZ_PATH = $(shell (ls -d $(FOLLY_PATH)/../xz*))
 	LIBSODIUM_PATH = $(shell (ls -d $(FOLLY_PATH)/../libsodium*))
 	FMT_PATH = $(shell (ls -d $(FOLLY_PATH)/../fmt*))
+	LIBUNWIND_PATH = $(shell (ls -d $(FOLLY_PATH)/../libunwind*))
 
 	# For some reason, some libraries are under either lib or lib64
 	BOOST_LIB_PATH = $(shell (ls -d $(BOOST_PATH)/lib*))
@@ -48,7 +49,7 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
 
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_LIB_PATH)/libboost_context.a $(BOOST_LIB_PATH)/libboost_filesystem.a $(BOOST_LIB_PATH)/libboost_atomic.a $(BOOST_LIB_PATH)/libboost_program_options.a $(BOOST_LIB_PATH)/libboost_thread.a $(LIBEVENT_LIB_PATH)/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a -ldl
+	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_LIB_PATH)/libboost_context.a $(BOOST_LIB_PATH)/libboost_filesystem.a $(BOOST_LIB_PATH)/libboost_atomic.a $(BOOST_LIB_PATH)/libboost_program_options.a $(BOOST_LIB_PATH)/libboost_thread.a $(LIBEVENT_LIB_PATH)/libevent.a $(LIBSODIUM_PATH)/lib/libsodium.a $(LIBUNWIND_PATH)/lib/libunwind.a -ldl
 ifneq ($(DEBUG_LEVEL),0)
 	PLATFORM_LDFLAGS += $(FMT_LIB_PATH)/libfmtd.a $(GLOG_LIB_PATH)/libglogd.so $(GFLAGS_PATH)/lib/libgflags_debug.so.2.3
 else
