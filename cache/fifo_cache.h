@@ -60,6 +60,10 @@ struct FIFOHandle : public Cache::Handle {
   enum MFlags : uint8_t {
     // Whether this entry is referenced by the hash table.
     M_IN_CACHE = (1 << 0),
+    // Whether this entry is linked in the probation queue (as opposed to
+    // resident or neither). Maintained by FIFO_Append/FIFO_Remove so the
+    // shard can account the probation charge in O(1) on every queue move.
+    M_IN_PROBATION = (1 << 1),
   };
 
   uint8_t im_flags;
@@ -91,12 +95,21 @@ struct FIFOHandle : public Cache::Handle {
 
   bool InCache() const { return m_flags & M_IN_CACHE; }
   bool IsStandalone() const { return im_flags & IM_IS_STANDALONE; }
+  bool InProbation() const { return m_flags & M_IN_PROBATION; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
       m_flags |= M_IN_CACHE;
     } else {
       m_flags &= ~M_IN_CACHE;
+    }
+  }
+
+  void SetInProbation(bool in_probation) {
+    if (in_probation) {
+      m_flags |= M_IN_PROBATION;
+    } else {
+      m_flags &= ~M_IN_PROBATION;
     }
   }
 
@@ -225,11 +238,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   void EraseUnRefEntries();
 
  public:  // other function definitions
-  // Test-only: moves a probation entry to the resident tail without the
-  // promotion-threshold check, so tests can build exact resident layouts
-  // that pressure-driven promotion cannot assemble without disturbing the
-  // entry under test. Not threadsafe.
-  void TEST_PromoteToResident(const Slice& key);
+  // Test-only: charge currently held in the probation queue. Not threadsafe
+  // beyond the shard lock taken inside.
+  size_t TEST_GetProbationUsage() const;
+
+  // Test-only: current probation budget derived from capacity. Not
+  // threadsafe beyond the shard lock taken inside.
+  size_t TEST_GetProbationBudget() const;
 
   // Probation list only; resident entries are not visible here.
   void TEST_GetFIFOList(FIFOHandle** fifo);
@@ -290,6 +305,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
 
   void FIFO_Remove(FIFOHandle* e);
   void FIFO_Append(FIFOHandle* queue, FIFOHandle* e);
+  // The unpinned counter of the queue e is linked in.
+  size_t& UnpinnedCount(const FIFOHandle* e);
   // The resident entry after e in clock order, skipping the dummy head.
   FIFOHandle* ResidentNext(FIFOHandle* e);
 
@@ -303,17 +320,29 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // many consecutive eviction-free passes imply every remaining entry is
   // pinned, so eviction stops.
   static constexpr int kMaxResidentIdlePasses = 4;
+  // Probation holds 12% of the shard's capacity by charge; resident holds
+  // the remainder. Shard-internal in this diff; making it configurable is
+  // future work. On shards small enough that the share rounds to zero the
+  // budget is zero, so any non-empty probation is over budget and eviction
+  // keeps the old probation-first order.
+  static constexpr size_t kProbationPercent = 12;
+
+  // Probation budget: floor(capacity_ * 12 / 100) computed as
+  // capacity_/100*12 + (capacity_%100)*12/100, which is exact without
+  // overflowing on large capacities. A function of capacity_, evaluated at
+  // each use, so SetCapacity can never leave a stale bound behind.
+  size_t ProbationBudget() const;
 
   // Free some space until enough to hold (usage_ + charge) is freed or no
-  // unpinned entry remains. Probation drains first: one pass over its head,
-  // promoting freq >= kPromoteThreshold to the resident tail (reset to 0)
-  // and evicting below it; pinned entries move to the probation tail.
-  // Resident follows with second-chance: head with freq > 0 is decremented
-  // and moved to the tail, head at 0 is evicted, pinned heads rotate
-  // undecayed. Promotion touches only links: usage_ and pinned_usage_ are
-  // unchanged by a move between queues. The resident head is
-  // resident_hand_, so moving it to the tail is advancing the hand: no
-  // relinking.
+  // unpinned entry remains. Total capacity decides whether to evict; the
+  // probation budget only selects the queue. When probation is over budget
+  // (or resident is empty) the probation pass runs first, otherwise the
+  // resident pass runs first; the other queue is tried if need remains, so
+  // a pinned preferred queue falls back instead of stranding evictable
+  // entries. The choice reads the current probation charge, before the
+  // incoming entry is accounted. An entry that alone exceeds the whole
+  // budget is treated like any other: it waits in probation and is
+  // promoted or evicted on its turn under pressure.
   // The probation pass consumes its head each step, so it ends after at
   // most the initial number of entries; the resident scan is bounded by
   // kMaxResidentIdlePasses per eviction. An all-pinned shard terminates
@@ -321,6 +350,24 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromFIFO(size_t charge, autovector<FIFOHandle*>* deleted);
+
+  // One sweep over probation from the head: unpinned entries at or above
+  // kPromoteThreshold move to the resident tail (counter reset), unpinned
+  // entries below it are evicted, pinned entries move to the probation
+  // tail, so long-lived pins are not re-walked by every eviction.
+  // Stops once freed >= need. Returns whether it promoted anything. Not
+  // thread safe - call with mutex_ held.
+  bool EvictFromProbation(size_t need, size_t* freed,
+                          autovector<FIFOHandle*>* deleted);
+
+  // Second-chance over resident: head with freq > 0 is decremented and
+  // moved to the tail, head at 0 is evicted, pinned heads rotate undecayed.
+  // The head is resident_hand_, so moving it to the tail is advancing the
+  // hand: no relinking.
+  // Stops once freed >= need or the idle-pass bound is hit. Not thread
+  // safe - call with mutex_ held.
+  void EvictFromResident(size_t need, size_t* freed,
+                         autovector<FIFOHandle*>* deleted);
 
   void NotifyEvicted(const autovector<FIFOHandle*>& evicted_handles);
 
@@ -336,9 +383,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
 
   // Dummy heads of the two queues. For probation .prev is newest and .next
   // is oldest; resident's order starts at resident_hand_.
-  // New entries enter probation; probation victims with enough frequency
-  // are promoted to resident, which holds the remainder. Together they
-  // contain all in-cache items, pinned and unpinned.
+  // New entries enter probation, which holds 12% of the shard's capacity
+  // by charge; probation victims with enough frequency are promoted to
+  // resident, which holds the remainder. Together they contain all
+  // in-cache items, pinned and unpinned.
   FIFOHandle probation_{};
   FIFOHandle resident_{};
   // Resident is a clock: its oldest entry is resident_hand_ and its newest
@@ -370,6 +418,18 @@ class ALIGN_AS(CACHE_LINE_SIZE) FIFOCacheShard final : public CacheShardBase {
   // because the FIFO queue (unlike an LRU list) contains pinned entries,
   // so pinned usage cannot be derived from queue membership.
   size_t pinned_usage_;
+
+  // Memory size for entries currently linked in probation_. Maintained by
+  // FIFO_Append/FIFO_Remove on every queue move; promotion moves charge
+  // out of this counter while usage_ and pinned_usage_ stay unchanged.
+  size_t probation_usage_;
+
+  // Number of entries with refs == 0 linked in probation_ and in resident_.
+  // Maintained by FIFO_Append/FIFO_Remove and at every refs 0 <-> 1
+  // transition of a linked entry. When both are zero eviction cannot free
+  // anything, so EvictFromFIFO returns without scanning.
+  size_t probation_unpinned_;
+  size_t resident_unpinned_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
